@@ -136,6 +136,76 @@ sqlite.run(`
     parish_id TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS branches (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    scarf_color TEXT NOT NULL,
+    age_min INTEGER NOT NULL,
+    age_max INTEGER NOT NULL,
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS academic_years (
+    id TEXT PRIMARY KEY,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    is_locked INTEGER NOT NULL DEFAULT 0,
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS classes (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    branch_id TEXT NOT NULL REFERENCES branches(id),
+    academic_year_id TEXT NOT NULL REFERENCES academic_years(id),
+    room TEXT,
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_by TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia'
+  );
+
+  CREATE TABLE IF NOT EXISTS catechist_assignments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    class_id TEXT NOT NULL REFERENCES classes(id),
+    role_in_class TEXT NOT NULL CHECK(role_in_class IN ('chunhiem', 'phuta')),
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS permissions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia'
+  );
+
+  CREATE TABLE IF NOT EXISTS role_permissions (
+    role TEXT NOT NULL CHECK(role IN ('admin', 'chunhiem', 'phuta', 'phuhuynh')),
+    permission_id TEXT NOT NULL REFERENCES permissions(id),
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
+    PRIMARY KEY (role, permission_id)
+  );
 `)
 
 // Auto-migration columns if existing DB schema is old
