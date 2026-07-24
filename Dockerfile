@@ -3,8 +3,8 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Force Railway Buildkit cache invalidation
-COPY build-timestamp.txt ./
+# Cache-bust: bump this number to force a clean build on Railway
+ARG CACHE_BUST=20260724_v3
 
 # Copy dependency configs
 COPY package*.json ./
@@ -25,16 +25,15 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Force Railway Buildkit cache invalidation
-COPY build-timestamp.txt ./
+# Cache-bust: bump this number to force a clean build on Railway
+ARG CACHE_BUST=20260724_v3
 
 # Install cron for scheduled backups
 RUN apk add --no-cache dcron
 
-# Copy dependency configs & install production dependencies
-COPY package*.json ./
+# Copy server dependency configs & install production dependencies only
 COPY server/package*.json ./server/
-RUN npm ci --omit=dev && cd server && npm ci --omit=dev
+RUN cd server && npm ci --omit=dev
 
 # Copy built dist outputs
 COPY --from=builder /app/dist ./dist
