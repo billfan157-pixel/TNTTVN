@@ -10,7 +10,11 @@ declare module 'hono' {
   }
 }
 
-const JWT_SECRET: string = process.env.JWT_SECRET || 'parish_jwt_secret_key_2026_dev'
+const JWT_SECRET: string = process.env.JWT_SECRET || (process.env.NODE_ENV === 'test' ? 'test_jwt_secret_key_2026' : '')
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required')
+}
+
 const JWT_EXPIRES_IN = '15m'
 const REFRESH_EXPIRES_IN = '7d'
 
@@ -60,7 +64,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
 export function roleMiddleware(...roles: string[]) {
   return createMiddleware(async (c, next) => {
     const user = c.get('user') as JwtPayload
-    if (!roles.includes(user.role)) {
+    if (!user || !roles.includes(user.role)) {
       return c.json({ error: 'Forbidden' }, 403)
     }
     await next()
