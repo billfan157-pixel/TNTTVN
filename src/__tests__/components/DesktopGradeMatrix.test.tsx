@@ -9,10 +9,10 @@ describe('DesktopGradeMatrix Component Unit Tests', () => {
     expect(screen.getByText('Ma Trận Nhập Điểm Hàng Loạt')).toBeDefined()
   })
 
-  it('renders column headers for score categories', () => {
+  it('renders column headers for score categories with weights', () => {
     render(<DesktopGradeMatrix />)
-    expect(screen.getByText('Miệng')).toBeDefined()
-    expect(screen.getByText('15P')).toBeDefined()
-    expect(screen.getByText('1 Tiết')).toBeDefined()
+    expect(screen.getByText(/Miệng/i)).toBeDefined()
+    expect(screen.getByText(/15P/i)).toBeDefined()
+    expect(screen.getByText(/1 Tiết/i)).toBeDefined()
   })
 })

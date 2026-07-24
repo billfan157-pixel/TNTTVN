@@ -76,4 +76,17 @@ export interface ParishNotice {
 
 export type Role = 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh';
 
+export type ScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final';
+
+export interface DailyGradeEntry {
+  id: string
+  studentId: string
+  academicYear: string
+  semester: 1 | 2
+  scoreType: ScoreType
+  value: number
+  date: string
+  createdAt: string
+}
+
 export type ViewMode = 'auto' | 'desktop' | 'mobile';
