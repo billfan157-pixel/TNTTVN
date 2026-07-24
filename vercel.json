@@ -3,7 +3,7 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm install && cd server && npm install",
+  "installCommand": "npm install && npm install --prefix server",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
