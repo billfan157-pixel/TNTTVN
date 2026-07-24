@@ -9,6 +9,7 @@
     "prebuild": "node -e \"require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})\"",
     "build:server": "cd server && tsc",
     "build": "tsc -b && npm run build:server && vite build",
+    "build:frontend": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
