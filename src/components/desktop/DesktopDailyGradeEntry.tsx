@@ -269,13 +269,16 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                           {canEdit ? (
                             <div className="flex gap-1.5">
                               <input
-                                type="number"
-                                min="0"
-                                max="10"
-                                step="0.5"
+                                type="text"
+                                inputMode="decimal"
                                 placeholder="0-10"
                                 value={inputValues[student.id] || ''}
-                                onChange={e => setInputValues(prev => ({ ...prev, [student.id]: e.target.value }))}
+                                onChange={e => {
+                                  const v = e.target.value;
+                                  if (v === '' || /^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(v.replace(',', '.'))) {
+                                    setInputValues(prev => ({ ...prev, [student.id]: v }));
+                                  }
+                                }}
                                 onKeyDown={e => handleKeyDown(e, student.id)}
                                 className="w-20 h-8 px-2 text-sm font-bold border border-surface-border rounded-lg focus:border-parish-primary outline-hidden text-center"
                               />

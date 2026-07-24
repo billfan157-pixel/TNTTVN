@@ -130,10 +130,25 @@ export const DesktopGradeMatrix: React.FC = () => {
       updateField(studentId, field, null);
       return;
     }
-    const parsed = parseFloat(rawVal);
+    const normalized = rawVal.replace(',', '.');
+    if (!/^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(normalized)) return;
+    const parsed = parseFloat(normalized);
     if (isNaN(parsed)) return;
-    const clamped = Math.min(10, Math.max(0, parsed));
-    updateField(studentId, field, clamped);
+    updateField(studentId, field, parsed);
+  };
+
+  const handleScoreKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const val = (matrixData[studentId]?.[field] as number | undefined) ?? null;
+      const next = val === null ? 0.5 : Math.min(10, Math.round((val + 0.5) * 10) / 10);
+      updateField(studentId, field, next);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const val = (matrixData[studentId]?.[field] as number | undefined) ?? null;
+      const next = val === null ? 0 : Math.max(0, Math.round((val - 0.5) * 10) / 10);
+      updateField(studentId, field, next);
+    }
   };
 
   const tableData: RowData[] = useMemo(() => {
@@ -189,13 +204,12 @@ export const DesktopGradeMatrix: React.FC = () => {
         const { student } = info.row.original;
         return (
           <input
-            type="number"
-            min="0"
-            max="10"
-            step="0.5"
+            type="text"
+            inputMode="decimal"
             disabled={!canEditGrades}
             value={val === null || val === undefined ? '' : val}
             onChange={e => handleScoreInput(student.id, 'scoreOral', e.target.value)}
+            onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreOral')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
         );
@@ -211,13 +225,12 @@ export const DesktopGradeMatrix: React.FC = () => {
         const { student } = info.row.original;
         return (
           <input
-            type="number"
-            min="0"
-            max="10"
-            step="0.5"
+            type="text"
+            inputMode="decimal"
             disabled={!canEditGrades}
             value={val === null || val === undefined ? '' : val}
             onChange={e => handleScoreInput(student.id, 'score15m', e.target.value)}
+            onKeyDown={e => handleScoreKeyDown(e, student.id, 'score15m')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
         );
@@ -233,13 +246,12 @@ export const DesktopGradeMatrix: React.FC = () => {
         const { student } = info.row.original;
         return (
           <input
-            type="number"
-            min="0"
-            max="10"
-            step="0.5"
+            type="text"
+            inputMode="decimal"
             disabled={!canEditGrades}
             value={val === null || val === undefined ? '' : val}
             onChange={e => handleScoreInput(student.id, 'score1Period', e.target.value)}
+            onKeyDown={e => handleScoreKeyDown(e, student.id, 'score1Period')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
         );
@@ -255,13 +267,12 @@ export const DesktopGradeMatrix: React.FC = () => {
         const { student } = info.row.original;
         return (
           <input
-            type="number"
-            min="0"
-            max="10"
-            step="0.5"
+            type="text"
+            inputMode="decimal"
             disabled={!canEditGrades}
             value={val === null || val === undefined ? '' : val}
             onChange={e => handleScoreInput(student.id, 'scoreMidterm', e.target.value)}
+            onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreMidterm')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
         );
@@ -277,13 +288,12 @@ export const DesktopGradeMatrix: React.FC = () => {
         const { student } = info.row.original;
         return (
           <input
-            type="number"
-            min="0"
-            max="10"
-            step="0.5"
+            type="text"
+            inputMode="decimal"
             disabled={!canEditGrades}
             value={val === null || val === undefined ? '' : val}
             onChange={e => handleScoreInput(student.id, 'scoreFinal', e.target.value)}
+            onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreFinal')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
         );
