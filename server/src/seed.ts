@@ -51,7 +51,10 @@ async function seed() {
     { id: 'USR-002', username: 'chunhiem', passwordHash: bcrypt.hashSync('chunhiem123', 10), fullName: 'Trưởng Ban Giáo Lý', role: 'chunhiem' as const, parishId: 'thanh-gia', status: 'ACTIVE' as const, tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
   ]
   for (const u of usersList) {
-    await db.insert(users).values(u).onConflictDoNothing()
+    await db.insert(users).values(u).onConflictDoUpdate({
+      target: users.id,
+      set: { passwordHash: u.passwordHash, status: u.status, role: u.role, fullName: u.fullName }
+    })
   }
   console.log(`  Users: ${usersList.length} records`)
 

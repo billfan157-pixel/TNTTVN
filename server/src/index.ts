@@ -46,7 +46,11 @@ app.route('/api/users', usersRouter)
 const PORT = Number(process.env.PORT) || 3001
 const HOST = process.env.HOST || '0.0.0.0'
 
-await seedIfEmpty()
+try {
+  await seedIfEmpty()
+} catch (err) {
+  console.error('Seed failed:', err)
+}
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST })
 console.log(`Server running at http://${HOST}:${PORT}`)
