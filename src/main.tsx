@@ -6,10 +6,12 @@ import { router } from './router'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { initSentry } from './lib/sentry'
 import { initDB } from './lib/db'
+import { loadTokens } from './lib/api'
 import './index.css'
 
 initSentry()
 initDB()
+loadTokens()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
