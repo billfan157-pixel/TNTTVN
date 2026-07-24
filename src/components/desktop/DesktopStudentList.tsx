@@ -15,6 +15,7 @@ import type { Student } from '../../types';
 import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { UserPlus, Edit3, Trash2, Printer, Phone, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
 
 interface DesktopStudentListProps {
   onOpenAddStudent: () => void;
@@ -40,6 +41,10 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const selectedBranchId = useFilterStore(s => s.selectedBranchId);
   const searchQuery = useFilterStore(s => s.searchQuery);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
+
+  const { can } = useAuth();
+  const canEdit = can('admin', 'chunhiem');
+  const canDelete = can('admin');
 
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -201,12 +206,16 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             <button onClick={() => onViewReport(s)} className="btn btn-secondary btn-sm" aria-label={`In phiếu ${s.holyName} ${s.fullName}`}>
               <Printer size={14} color="#1E3A8A" /> In
             </button>
-            <button onClick={() => onEditStudent(s)} className="btn btn-secondary btn-sm" aria-label={`Chỉnh sửa ${s.holyName} ${s.fullName}`}>
-              <Edit3 size={14} color="#475569" aria-hidden="true" />
-            </button>
-            <button onClick={() => handleDelete(s)} className="btn btn-secondary btn-sm" aria-label={`Xóa ${s.holyName} ${s.fullName}`}>
-              <Trash2 size={14} color="#DC2626" aria-hidden="true" />
-            </button>
+            {canEdit && (
+              <button onClick={() => onEditStudent(s)} className="btn btn-secondary btn-sm" aria-label={`Chỉnh sửa ${s.holyName} ${s.fullName}`}>
+                <Edit3 size={14} color="#475569" aria-hidden="true" />
+              </button>
+            )}
+            {canDelete && (
+              <button onClick={() => handleDelete(s)} className="btn btn-secondary btn-sm" aria-label={`Xóa ${s.holyName} ${s.fullName}`}>
+                <Trash2 size={14} color="#DC2626" aria-hidden="true" />
+              </button>
+            )}
           </div>
         );
       },
@@ -244,9 +253,11 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
           </p>
         </div>
         <div className="flex gap-3">
-          <button onClick={onOpenAddStudent} className="btn btn-primary">
-            <UserPlus size={16} /> Thêm Thiếu Nhi Mới
-          </button>
+          {canEdit && (
+            <button onClick={onOpenAddStudent} className="btn btn-primary">
+              <UserPlus size={16} /> Thêm Thiếu Nhi Mới
+            </button>
+          )}
         </div>
       </div>
 

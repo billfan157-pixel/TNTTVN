@@ -6,7 +6,6 @@ import { useNoticeStore } from '../../stores/noticeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage } from '../../utils/grades';
 import { BRANCHES, MOCK_CLASSES } from '../../data/mockParishData';
-import { NotificationPrompt } from '../common/NotificationPrompt';
 import {
   Users, Award, CheckCircle2, BookOpen,
   TrendingUp, Sparkles, AlertCircle, Plus
@@ -29,244 +28,230 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
     const total = students.length;
     const active = students.filter(s => s.status === 'Đang học').length;
 
-    let present = 0;
-    const records = attendance.length;
-    attendance.forEach(a => { if (a.status === 'Present') present++; });
-    const attRate = records > 0 ? Math.round((present / records) * 100) : 100;
+    // Tính tỷ lệ chuyên cần tổng thể
+    let totalAttendanceRecords = 0;
+    let presentRecords = 0;
+    attendance.forEach(rec => {
+      totalAttendanceRecords++;
+      if (rec.status === 'Present') presentRecords++;
+    });
+    const attendanceRate = totalAttendanceRecords > 0 ? Math.round((presentRecords / totalAttendanceRecords) * 100) : 100;
 
-    let xs = 0, g = 0, k = 0, y = 0;
-    const avgs = students.map(s => {
-      const grade = grades.find(item => item.studentId === s.id && item.semester === selectedSemester && item.academicYear === ACADEMIC_YEAR);
-      const avg = calculateGradeAverage(grade ?? null);
-      if (avg.label === 'Xuất Sắc') xs++;
-      else if (avg.label === 'Giỏi') g++;
-      else if (avg.label === 'Khá') k++;
-      else if (avg.label === 'Trung Bình' || avg.label === 'Yếu') y++;
-      return { student: s, avg };
+    // Thống kê loại học lực & Top học sinh
+    let xuatSac = 0, gioi = 0, kha = 0, yeu = 0;
+    const studentAverages: { student: typeof students[0]; avg: number; label: string }[] = [];
+
+    students.forEach(student => {
+      const studentGrades = grades.filter(g => g.studentId === student.id && g.semester === selectedSemester);
+      if (studentGrades.length > 0) {
+        const avgResult = calculateGradeAverage(studentGrades[0]);
+        if (avgResult.score !== null) {
+          studentAverages.push({ student, avg: avgResult.score, label: avgResult.label });
+          if (avgResult.label === 'Xuất sắc') xuatSac++;
+          else if (avgResult.label === 'Giỏi') gioi++;
+          else if (avgResult.label === 'Khá') kha++;
+          else if (avgResult.label === 'Yếu') yeu++;
+        }
+      }
     });
 
-    const top = avgs
-      .filter(item => item.avg.score !== null)
-      .sort((a, b) => (b.avg.score || 0) - (a.avg.score || 0))
-      .slice(0, 5);
+    studentAverages.sort((a, b) => b.avg - a.avg);
 
     return {
       totalStudents: total,
       activeStudents: active,
-      overallAttendanceRate: attRate,
-      xuatSacCount: xs,
-      gioiCount: g,
-      khaCount: k,
-      yeuCount: y,
-      topStudents: top
+      overallAttendanceRate: attendanceRate,
+      xuatSacCount: xuatSac,
+      gioiCount: gioi,
+      khaCount: kha,
+      yeuCount: yeu,
+      topStudents: studentAverages.slice(0, 5)
     };
   }, [students, attendance, grades, selectedSemester]);
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-parish-primary to-blue-600 text-white rounded-2xl px-8 py-8 flex flex-wrap sm:flex-nowrap justify-between items-center gap-4 shadow-lg border border-blue-900/20 max-w-[1400px] mx-auto w-full">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-3">
-            <Sparkles color="#FDE047" size={22} />
-            <span className="text-sm font-extrabold tracking-wider uppercase text-yellow-300">
-              BÁO CÁO GIÁO XỨ THÁNH GIA
-            </span>
+    <div className="space-y-6">
+      {/* Top Banner Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Students */}
+        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-xs flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0">
+            <Users size={24} />
           </div>
-          <h2 className="text-2xl font-extrabold my-1.5 text-white tracking-tight leading-snug">
-            Chào mừng Quý Huynh Trưởng & Ban Giáo Lý
-          </h2>
-          <p className="text-sm opacity-95 m-0 leading-relaxed text-blue-50 max-w-2xl">
-            Hệ thống quản lý điểm số, theo dõi chuyên cần tham dự Thánh Lễ và lớp Giáo Lý của các em thiếu nhi trong toàn xứ đoàn.
-          </p>
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase m-0">Tổng Thiếu Nhi</p>
+            <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{totalStudents} <span className="text-xs font-normal text-text-muted">em</span></h3>
+            <p className="text-[11px] font-medium text-emerald-600 m-0 mt-1">Đang học: {activeStudents} em</p>
+          </div>
         </div>
-        <div className="flex gap-3 shrink-0">
-          <button onClick={onOpenAddStudent} className="btn btn-primary btn-lg shadow-md transition-transform hover:scale-[1.02]" style={{ background: '#FDE047', color: '#1E3A8A', fontWeight: 800 }}>
-            <Plus size={20} /> Thêm Thiếu Nhi
+
+        {/* Attendance Rate */}
+        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-xs flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0">
+            <CheckCircle2 size={24} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase m-0">Tỷ Lệ Chuyên Cần</p>
+            <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{overallAttendanceRate}%</h3>
+            <p className="text-[11px] font-medium text-text-muted m-0 mt-1">Tính trên tất cả các buổi Lễ & Lớp</p>
+          </div>
+        </div>
+
+        {/* Academic Excellent */}
+        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-xs flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
+            <Award size={24} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase m-0">Học Sinh Xuất Sắc/Giỏi</p>
+            <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{xuatSacCount + gioiCount} <span className="text-xs font-normal text-text-muted">em</span></h3>
+            <p className="text-[11px] font-medium text-amber-600 m-0 mt-1">HK {selectedSemester} • Niên học {ACADEMIC_YEAR}</p>
+          </div>
+        </div>
+
+        {/* Class Overview */}
+        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-text-muted uppercase m-0">Lớp Học Giáo Lý</p>
+            <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{MOCK_CLASSES.length} <span className="text-xs font-normal text-text-muted">lớp</span></h3>
+            <p className="text-[11px] font-medium text-blue-600 m-0 mt-1">5 Ngành TNTT</p>
+          </div>
+          <button
+            onClick={onOpenAddStudent}
+            className="w-10 h-10 rounded-xl bg-parish-primary hover:bg-parish-primary-hover text-white flex items-center justify-center transition-colors shadow-sm"
+            title="Thêm Thiếu Nhi Mới"
+          >
+            <Plus size={20} />
           </button>
         </div>
       </div>
 
-      <NotificationPrompt />
-
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-5 border border-surface-border shadow-card flex flex-col items-center text-center gap-3">
-          <div className="flex items-center gap-2 w-full justify-center">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
-              <Users size={16} color="#1D4ED8" />
-            </div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Tổng Số Thiếu Nhi</span>
-          </div>
-          <div className="text-4xl font-extrabold text-text-main leading-none">{totalStudents}</div>
-          <div className="text-[11px] text-parish-success font-bold">
-            {activeStudents} em đang học chính thức
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-surface-border shadow-card flex flex-col items-center text-center gap-3">
-          <div className="flex items-center gap-2 w-full justify-center">
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0 border border-emerald-100">
-              <CheckCircle2 size={16} color="#15803D" />
-            </div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Tỷ Lệ Chuyên Cần</span>
-          </div>
-          <div className="text-4xl font-extrabold text-text-main leading-none">{overallAttendanceRate}%</div>
-          <div className="text-[11px] text-text-muted font-medium">
-            Lễ Chủ Nhật & Giờ Giáo Lý
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-surface-border shadow-card flex flex-col items-center text-center gap-3">
-          <div className="flex items-center gap-2 w-full justify-center">
-            <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0 border border-amber-100">
-              <Award size={16} color="#D97706" />
-            </div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Thiếu Nhi Giỏi / Xuất Sắc</span>
-          </div>
-          <div className="text-4xl font-extrabold text-text-main leading-none">{xuatSacCount + gioiCount}</div>
-          <div className="text-[11px] text-parish-secondary font-bold truncate w-full px-1" title={`${xuatSacCount} XS • ${gioiCount} Giỏi • ${khaCount} Khá • ${yeuCount} TB/Yếu`}>
-            {xuatSacCount} XS • {gioiCount} Giỏi • {khaCount} Khá • {yeuCount} TB/Yếu
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-surface-border shadow-card flex flex-col items-center text-center gap-3">
-          <div className="flex items-center gap-2 w-full justify-center">
-            <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center shrink-0 border border-purple-100">
-              <BookOpen size={16} color="#7E22CE" />
-            </div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Tổng Số Lớp Giáo Lý</span>
-          </div>
-          <div className="text-4xl font-extrabold text-text-main leading-none">{MOCK_CLASSES.length}</div>
-          <div className="text-[11px] text-text-muted font-medium">
-            5 Phân Ngành TNTT
-          </div>
-        </div>
-      </div>
-
-      {/* Branch Scarf Cards */}
-      <div>
-        <h3 className="text-base font-extrabold text-parish-primary mb-4 flex items-center gap-2 h-6">
-          Phân Bố Thiếu Nhi Theo Ngành TNTT
-        </h3>
-        <div className="grid grid-cols-5 gap-4">
-          {Object.values(BRANCHES).map(b => {
-            const count = students.filter(s => s.branch === b.id).length;
-            return (
-              <div
-                key={b.id}
-                className="bg-white rounded-2xl p-5 pl-6 border border-surface-border shadow-card relative flex flex-col gap-3 overflow-hidden transition-all hover:shadow-card-hover hover:-translate-y-0.5"
-                style={{ borderLeft: `5px solid ${b.scarfColor}` }}
-              >
-                <div>
-                  <span
-                    className="inline-block text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full mb-1.5 leading-tight"
-                    style={{ background: b.badgeBg || '#F1F5F9', color: b.textColor }}
-                  >
-                    {b.ageRange}
-                  </span>
-                  <div className="text-[13px] font-extrabold leading-snug" style={{ color: b.textColor }}>
-                    Ngành {b.name}
-                  </div>
-                </div>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-black text-slate-900 leading-none">{count}</span>
-                  <span className="text-xs font-bold text-slate-500">em</span>
-                </div>
+      {/* Main Grid: Top Students & Branch Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Top Academic Performers */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xs">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="text-amber-500" size={20} />
+                <h3 className="text-base font-bold text-text-main m-0">Top 5 Thiếu Nhi Tiêu Biểu (HK {selectedSemester})</h3>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Two Column: Top Students + Notices */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-6 items-stretch">
-        {/* Left Box: Top 5 */}
-        <div className="bg-white rounded-2xl p-6 border border-surface-border shadow-card flex flex-col">
-          <div>
-            <div className="flex justify-between items-center mb-4 pb-3 border-b border-surface-border">
-              <h3 className="text-base font-extrabold text-parish-primary m-0 flex items-center gap-2 h-6">
-                <TrendingUp size={20} className="text-parish-primary" /> Top 5 Thiếu Nhi Xuất Sắc (Học Kỳ {selectedSemester})
-              </h3>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-700">Tuyên Dương</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-[13px]">
-                <colgroup>
-                  <col style={{ width: '64px' }} />
-                  <col style={{ minWidth: '200px' }} />
-                  <col style={{ minWidth: '160px' }} />
-                  <col style={{ width: '80px' }} />
-                  <col style={{ width: '130px' }} />
-                </colgroup>
-                <thead>
-                  <tr className="border-b border-surface-border text-left text-[11px] font-bold uppercase tracking-wider text-text-muted">
-                    <th className="py-3 px-4">Hạng</th>
-                    <th className="py-3 px-4">Tên Thánh & Họ Tên</th>
-                    <th className="py-3 px-4">Lớp</th>
-                    <th className="py-3 px-4 text-center">ĐTB</th>
-                    <th className="py-3 px-4 text-center">Xếp Loại</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topStudents.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-8 text-center text-text-muted font-medium">
-                        Chưa có dữ liệu điểm cho Học Kỳ này.
-                      </td>
-                    </tr>
-                  ) : (
-                    topStudents.map((item, idx) => (
-                    <tr key={item.student.id} className="border-b border-surface-hover/60 hover:bg-surface-app transition-colors">
-                      <td className={`py-3.5 px-4 font-extrabold text-[13px] ${idx === 0 ? 'text-amber-600' : idx === 1 ? 'text-slate-600' : 'text-slate-500'}`}>
+
+            {topStudents.length === 0 ? (
+              <div className="text-center py-8 text-text-muted text-sm">
+                Chưa có dữ liệu điểm HK {selectedSemester}
+              </div>
+            ) : (
+              <div className="divide-y divide-surface-border">
+                {topStudents.map((item, idx) => (
+                  <div key={item.student.id} className="py-3 flex items-center justify-between first:pt-0 last:pb-0">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                        idx === 0 ? 'bg-amber-500 text-white' :
+                        idx === 1 ? 'bg-slate-300 text-slate-800' :
+                        idx === 2 ? 'bg-amber-700 text-white' : 'bg-surface-hover text-text-muted'
+                      }`}>
                         #{idx + 1}
-                      </td>
-                      <td className="py-3.5 px-4" title={`${item.student.holyName} ${item.student.fullName}`}>
+                      </div>
+                      <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-parish-secondary font-bold whitespace-nowrap">{item.student.holyName}</span>
-                          <span className="text-text-main font-semibold truncate">{item.student.fullName}</span>
+                          <span className="text-xs font-semibold text-blue-600">{item.student.holyName}</span>
+                          <span className="text-sm font-bold text-text-main">{item.student.fullName}</span>
                         </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-600 font-medium whitespace-nowrap">
-                        {MOCK_CLASSES.find(c => c.id === item.student.classId)?.name}
-                      </td>
-                      <td className="py-3.5 px-4 text-center font-extrabold text-parish-primary">
-                        {item.avg.score}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="badge badge-success px-3 py-1">{item.avg.label}</span>
-                      </td>
-                    </tr>
-                  )))
-                  }
-                </tbody>
-              </table>
+                        <p className="text-xs text-text-muted m-0">Mã: {item.student.code} • Lớp: {item.student.classId}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-base font-black text-emerald-600">{item.avg.toFixed(1)}</span>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-amber-600">{item.label}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Academic Rank Distribution */}
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xs">
+            <h3 className="text-base font-bold text-text-main mb-4 m-0 flex items-center gap-2">
+              <TrendingUp className="text-blue-600" size={20} />
+              Phân Phối Học Lực Học Kỳ {selectedSemester}
+            </h3>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+                <div className="text-xs font-semibold text-amber-700">Xuất Sắc</div>
+                <div className="text-2xl font-black text-amber-600 mt-1">{xuatSacCount}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-center">
+                <div className="text-xs font-semibold text-blue-700">Giỏi</div>
+                <div className="text-2xl font-black text-blue-600 mt-1">{gioiCount}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
+                <div className="text-xs font-semibold text-emerald-700">Khá</div>
+                <div className="text-2xl font-black text-emerald-600 mt-1">{khaCount}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-center">
+                <div className="text-xs font-semibold text-rose-700">Cần Cố Gắng</div>
+                <div className="text-2xl font-black text-rose-600 mt-1">{yeuCount}</div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right Box: Notices */}
-        <div className="bg-white rounded-2xl p-6 border border-surface-border shadow-card flex flex-col overflow-hidden">
-          <div>
-            <div className="flex justify-between items-center mb-4 pb-3 border-b border-surface-border">
-              <h3 className="text-base font-extrabold text-parish-primary m-0 flex items-center gap-2 h-6">
-                <AlertCircle size={20} className="text-parish-secondary" /> Thông Báo Giáo Xứ Mới Nhất
+        {/* Right Column: Branch Stats & Recent Notices */}
+        <div className="space-y-6">
+          {/* Branch Distribution */}
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xs">
+            <h3 className="text-base font-bold text-text-main mb-4 m-0 flex items-center gap-2">
+              <BookOpen className="text-parish-primary" size={20} />
+              Số Lượng Theo Ngành TNTT
+            </h3>
+
+            <div className="space-y-3">
+              {Object.values(BRANCHES).map((branchItem) => {
+                const count = students.filter(s => s.branch === branchItem.id).length;
+                const percentage = totalStudents > 0 ? Math.round((count / totalStudents) * 100) : 0;
+                return (
+                  <div key={branchItem.id} className="space-y-1">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span style={{ color: branchItem.scarfColor }}>{branchItem.name}</span>
+                      <span className="text-text-muted">{count} em ({percentage}%)</span>
+                    </div>
+                    <div className="w-full bg-surface-hover rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${percentage}%`, backgroundColor: branchItem.scarfColor }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Recent Parish Notices */}
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-xs">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-text-main m-0 flex items-center gap-2">
+                <AlertCircle className="text-rose-500" size={20} />
+                Thông Báo Giáo Xứ
               </h3>
             </div>
-            <div className="flex flex-col gap-3">
-              {notices.map(notice => {
-                const priorityBadge = notice.priority === 'urgent' 
-                  ? { label: 'Khẩn', bg: '#FEE2E2', text: '#991B1B', border: '#FCA5A5' }
-                  : notice.priority === 'important'
-                  ? { label: 'Thông tin', bg: '#FEF3C7', text: '#92400E', border: '#FDE68A' }
-                  : { label: 'Thông báo', bg: '#EFF6FF', text: '#1E3A8A', border: '#BFDBFE' };
+
+            <div className="space-y-3">
+              {notices.slice(0, 3).map(notice => {
+                const priorityBadge =
+                  notice.priority === 'urgent' ? { bg: '#FEE2E2', text: '#DC2626', border: '#FCA5A5', label: 'Khẩn' } :
+                  notice.priority === 'important' ? { bg: '#FEF3C7', text: '#D97706', border: '#FCD34D', label: 'Quan trọng' } :
+                  { bg: '#DBEAFE', text: '#2563EB', border: '#93C5FD', label: 'Thường' };
 
                 return (
-                  <div 
-                    key={notice.id} 
-                    className="p-4 rounded-xl border border-surface-border bg-slate-50/60 flex flex-col gap-2 transition-all hover:bg-white hover:shadow-card hover:border-slate-300"
-                  >
-                    <div className="flex justify-between items-center gap-2">
-                      <span 
+                  <div key={notice.id} className="p-3 bg-surface-hover/40 border border-surface-border rounded-xl space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span
                         className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border leading-tight"
                         style={{ background: priorityBadge.bg, color: priorityBadge.text, borderColor: priorityBadge.border }}
                       >

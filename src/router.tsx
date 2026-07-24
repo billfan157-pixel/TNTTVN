@@ -43,6 +43,19 @@ function requireAuth() {
   }
 }
 
+function requireRole(...roles: string[]) {
+  return () => {
+    try {
+      const raw = localStorage.getItem('parish_current_user')
+      if (raw) {
+        const user = JSON.parse(raw)
+        if (roles.includes(user.role)) return
+      }
+    } catch {}
+    return { redirect: { to: '/dashboard' as const } }
+  }
+}
+
 const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={
     <div className="flex items-center justify-center h-64 text-text-muted text-sm">
@@ -213,6 +226,7 @@ const gradesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/grades',
   beforeLoad: requireAuth,
+  onEnter: requireRole('admin', 'chunhiem', 'phuta'),
   component: GradesPage,
 })
 
@@ -220,6 +234,7 @@ const attendanceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/attendance',
   beforeLoad: requireAuth,
+  onEnter: requireRole('admin', 'chunhiem', 'phuta'),
   component: AttendancePage,
 })
 
@@ -227,6 +242,7 @@ const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
   beforeLoad: requireAuth,
+  onEnter: requireRole('admin', 'chunhiem'),
   component: ReportsPage,
 })
 
@@ -241,6 +257,7 @@ const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users',
   beforeLoad: requireAuth,
+  onEnter: requireRole('admin'),
   component: UsersPage,
 })
 

@@ -3,17 +3,21 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
-import { Printer, FileText, BarChart2, FileSpreadsheet, Database } from 'lucide-react';
+import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Ban } from 'lucide-react';
 import type { Student } from '../../types';
 import { PrintReportModal } from '../common/PrintReportModal';
 import { ExcelImportModal } from '../common/ExcelImportModal';
 import { BackupRestoreModal } from '../common/BackupRestoreModal';
+import { useAuth } from '../../hooks/useAuth';
 
 interface DesktopReportsProps {
   onViewReport: (student: Student) => void;
 }
 
 export function DesktopReports({ onViewReport }: DesktopReportsProps) {
+  const { can } = useAuth();
+  const isAdmin = can('admin');
+  const canPrint = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
@@ -40,15 +44,21 @@ export function DesktopReports({ onViewReport }: DesktopReportsProps) {
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">
-          <button onClick={() => setIsExcelModalOpen(true)} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors">
-            <FileSpreadsheet size={16} /> Import Excel
-          </button>
-          <button onClick={() => setIsBackupModalOpen(true)} className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors">
-            <Database size={16} /> Backup & Restore
-          </button>
-          <button onClick={() => setIsPrintModalOpen(true)} className="btn btn-primary text-xs font-bold">
-            <Printer size={16} /> In Sổ Điểm Lớp
-          </button>
+          {isAdmin && (
+            <button onClick={() => setIsExcelModalOpen(true)} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors">
+              <FileSpreadsheet size={16} /> Import Excel
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => setIsBackupModalOpen(true)} className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors">
+              <Database size={16} /> Backup & Restore
+            </button>
+          )}
+          {canPrint && (
+            <button onClick={() => setIsPrintModalOpen(true)} className="btn btn-primary text-xs font-bold">
+              <Printer size={16} /> In Sổ Điểm Lớp
+            </button>
+          )}
         </div>
       </div>
 
@@ -132,9 +142,11 @@ export function DesktopReports({ onViewReport }: DesktopReportsProps) {
                     {cls?.name} • ĐTB: <strong className="text-parish-primary">{avg.score ?? '-'}</strong> ({avg.label})
                   </div>
                 </div>
-                <button onClick={() => onViewReport(s)} className="btn btn-secondary btn-sm shrink-0 ml-3">
-                  <FileText size={14} /> In
-                </button>
+                {canPrint && (
+                  <button onClick={() => onViewReport(s)} className="btn btn-secondary btn-sm shrink-0 ml-3">
+                    <FileText size={14} /> In
+                  </button>
+                )}
               </div>
             );
           })}

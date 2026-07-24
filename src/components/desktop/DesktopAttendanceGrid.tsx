@@ -7,9 +7,12 @@ import {
   CheckSquare, Save, CheckCircle2,
   XCircle, AlertTriangle,
 } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
 import { getDefaultDate } from '../../utils/getDefaultDate';
 
 export const DesktopAttendanceGrid: React.FC = () => {
+  const { can } = useAuth();
+  const canEditAttendance = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
   const attendance = useAttendanceStore(s => s.attendance);
   const batchSaveAttendance = useAttendanceStore(s => s.batchSaveAttendance);
@@ -39,11 +42,13 @@ export const DesktopAttendanceGrid: React.FC = () => {
   }, [date, type, filteredStudents, attendance]);
 
   const handleStatusChange = (studentId: string, status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused') => {
+    if (!canEditAttendance) return;
     setAttendanceState(prev => ({ ...prev, [studentId]: { ...prev[studentId], status } }));
     setIsSaved(false);
   };
 
   const handleNoteChange = (studentId: string, note: string) => {
+    if (!canEditAttendance) return;
     setAttendanceState(prev => ({ ...prev, [studentId]: { ...prev[studentId], note } }));
     setIsSaved(false);
   };
@@ -134,13 +139,15 @@ export const DesktopAttendanceGrid: React.FC = () => {
             </button>
           </div>
 
-          <button
-            onClick={handleSave}
-            className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white`}
-          >
-            {isSaved ? <CheckCircle2 size={16} /> : <Save size={16} />}
-            {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
-          </button>
+          {canEditAttendance && (
+            <button
+              onClick={handleSave}
+              className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white`}
+            >
+              {isSaved ? <CheckCircle2 size={16} /> : <Save size={16} />}
+              {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -204,6 +211,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
               type="text"
               placeholder="Nhập lý do nếu vắng..."
               value={state.note}
+              readOnly={!canEditAttendance}
               onChange={e => handleNoteChange(s.id, e.target.value)}
               className="w-full p-1.5 text-xs rounded-md border border-border-input outline-none"
             />

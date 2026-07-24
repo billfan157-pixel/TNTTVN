@@ -1,11 +1,13 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
-import { BRANCHES } from '../../data/mockParishData';
-import { getAcademicYear, checkPromotionEligibility, getSacramentStatus } from '../../utils/sacraments';
-import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard } from 'lucide-react';
-import type { Student } from '../../types';
+import { BRANCHES, MOCK_CLASSES } from '../../data/mockParishData';
+import { getAcademicYear, checkPromotionEligibility, getSacramentStatus, getNextBranch, getClassIdForBranch } from '../../utils/sacraments';
+import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload, Loader2, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
+import type { Student, Role } from '../../types';
+import type { PromotionAction } from '../../stores/studentStore';
 
 const ACADEMIC_YEAR = getAcademicYear();
 
@@ -15,9 +17,16 @@ interface PromotionPanelProps {
 }
 
 export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard, onViewCertificate }) => {
+  const { can } = useAuth();
+  const canPromoteAction = can('admin', 'chunhiem');
   const students = useStudentStore(s => s.students);
+  const batchPromote = useStudentStore(s => s.batchPromote);
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
   const getStudentAttendanceRate = useAttendanceStore(s => s.getStudentAttendanceRate);
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [done, setDone] = useState(false);
 
   const promotions = useMemo(() => {
     return students
@@ -40,6 +49,33 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   const canPromote = promotions.filter(p => p.promotion.canPromote);
   const needsReview = promotions.filter(p => !p.promotion.canPromote);
 
+  const handleExecutePromotion = () => {
+    setPromoting(true)
+    const actions: PromotionAction[] = canPromote.map(p => {
+      const nextBranch = p.promotion.recommendedBranch || getNextBranch(p.student.branch) || p.student.branch
+      const existingClasses = MOCK_CLASSES.filter(c => c.branch === nextBranch)
+      const classId = existingClasses.length > 0 ? existingClasses[0].id : getClassIdForBranch(nextBranch)
+      return { studentId: p.student.id, newBranch: nextBranch, newClassId: classId }
+    })
+    batchPromote(actions)
+    setTimeout(() => {
+      setPromoting(false)
+      setConfirmOpen(false)
+      setDone(true)
+      setTimeout(() => setDone(false), 4000)
+    }, 800)
+  }
+
+  if (done) {
+    return (
+      <div className="bg-white rounded-2xl p-8 border border-surface-border shadow-card text-center">
+        <CheckCircle2 size={48} className="mx-auto text-parish-success mb-3" />
+        <h3 className="text-lg font-extrabold text-parish-primary">Thăng Tiến Thành Công!</h3>
+        <p className="text-sm text-text-muted mt-1">{canPromote.length} em đã được chuyển lên ngành mới.</p>
+      </div>
+    )
+  }
+
   if (promotions.length === 0) {
     return (
       <div className="bg-white rounded-2xl p-6 border border-surface-border shadow-card">
@@ -50,14 +86,68 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
 
   return (
     <div className="bg-white rounded-2xl border border-surface-border shadow-card overflow-hidden">
-      <div className="p-5 border-b border-surface-border">
-        <h3 className="text-base font-extrabold text-parish-primary m-0">
-          Đánh Giá Thăng Tiến — {ACADEMIC_YEAR}
-        </h3>
-        <p className="text-xs text-text-muted mt-1 m-0">
-          {canPromote.length} em đủ điều kiện • {needsReview.length} em cần xem xét
-        </p>
+      <div className="p-5 border-b border-surface-border flex justify-between items-center">
+        <div>
+          <h3 className="text-base font-extrabold text-parish-primary m-0">
+            Đánh Giá Thăng Tiến — {ACADEMIC_YEAR}
+          </h3>
+          <p className="text-xs text-text-muted mt-1 m-0">
+            {canPromote.length} em đủ điều kiện • {needsReview.length} em cần xem xét
+          </p>
+        </div>
+        {canPromoteAction && canPromote.length > 0 && (
+          <button
+            onClick={() => setConfirmOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-parish-primary hover:bg-parish-primary-hover text-white text-sm font-bold rounded-xl shadow-xs transition-colors"
+          >
+            <Upload size={16} />
+            Thực Hiện Thăng Tiến ({canPromote.length} em)
+          </button>
+        )}
       </div>
+
+      {/* Confirmation Modal */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white border border-surface-border rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3 text-amber-600">
+              <AlertTriangle className="w-8 h-8" />
+              <h2 className="text-lg font-bold text-text-main">Xác Nhận Thăng Tiến</h2>
+            </div>
+            <p className="text-sm text-text-muted">
+              Bạn sắp thăng tiến <strong>{canPromote.length} em</strong> lên ngành mới. Hành động này sẽ thay đổi
+              <strong> Ngành (Branch)</strong> và <strong>Lớp học (ClassId)</strong> của các em.
+            </p>
+            <div className="max-h-40 overflow-y-auto space-y-1.5">
+              {canPromote.map(p => (
+                <div key={p.student.id} className="text-xs p-2 rounded-lg bg-surface-hover flex justify-between">
+                  <span className="font-semibold">{p.student.holyName} {p.student.fullName}</span>
+                  <span className="text-parish-primary font-bold">
+                    {BRANCHES[p.student.branch]?.name} → {BRANCHES[p.promotion.recommendedBranch || '']?.name || p.promotion.recommendedBranch}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setConfirmOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-text-muted hover:bg-surface-hover rounded-lg"
+                disabled={promoting}
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleExecutePromotion}
+                disabled={promoting}
+                className="px-5 py-2 text-sm font-semibold text-white bg-parish-primary hover:bg-parish-primary-hover rounded-lg shadow-xs flex items-center gap-2 disabled:opacity-60"
+              >
+                {promoting && <Loader2 size={16} className="animate-spin" />}
+                {promoting ? 'Đang thực hiện...' : 'Xác Nhận & Thực Hiện'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {canPromote.length > 0 && (
         <div className="p-4">

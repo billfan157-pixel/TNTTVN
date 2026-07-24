@@ -14,6 +14,7 @@ import { calculateGradeAverage } from '../../utils/grades';
 import type { GradeRecord, Student } from '../../types';
 import { MOCK_CLASSES } from '../../data/mockParishData';
 import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
 
 const ACADEMIC_YEAR = '2025 - 2026';
 
@@ -24,6 +25,8 @@ interface RowData {
 }
 
 export const DesktopGradeMatrix: React.FC = () => {
+  const { can } = useAuth();
+  const canEditGrades = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
   const grades = useGradeStore(s => s.grades);
   const batchSaveGrades = useGradeStore(s => s.batchSaveGrades);
@@ -191,7 +194,8 @@ export const DesktopGradeMatrix: React.FC = () => {
               max="10"
               placeholder="-"
               value={info.getValue() ?? ''}
-              onChange={e => handleInputChange(sId, field, e.target.value)}
+              readOnly={!canEditGrades}
+              onChange={e => { if (canEditGrades) handleInputChange(sId, field, e.target.value) }}
               className={`text-center font-bold border border-border-input outline-none h-8 w-[52px] rounded-sm px-1 ${field === 'scoreFinal' ? 'bg-parish-secondary-light' : ''}`}
             />
           )
@@ -263,7 +267,8 @@ export const DesktopGradeMatrix: React.FC = () => {
             type="text"
             placeholder="Nhận xét..."
             value={info.getValue()}
-            onChange={e => handleInputChange(sId, 'comments', e.target.value)}
+            readOnly={!canEditGrades}
+            onChange={e => { if (canEditGrades) handleInputChange(sId, 'comments', e.target.value) }}
             className="w-full p-1.5 text-xs rounded-md border border-border-input outline-none"
           />
         )
@@ -344,13 +349,15 @@ export const DesktopGradeMatrix: React.FC = () => {
             </button>
           </div>
 
-          <button
-            onClick={handleSaveNow}
-            className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white`}
-          >
-            {isSaved ? <CheckCircle size={16} /> : <Save size={16} />}
-            {isSaved ? 'Đã Lưu' : isDirty ? 'Đang chờ (2s)...' : 'Lưu Ngay'}
-          </button>
+          {canEditGrades && (
+            <button
+              onClick={handleSaveNow}
+              className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white`}
+            >
+              {isSaved ? <CheckCircle size={16} /> : <Save size={16} />}
+              {isSaved ? 'Đã Lưu' : isDirty ? 'Đang chờ (2s)...' : 'Lưu Ngay'}
+            </button>
+          )}
         </div>
       </div>
 

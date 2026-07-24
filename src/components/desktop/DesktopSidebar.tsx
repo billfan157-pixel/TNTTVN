@@ -4,6 +4,7 @@ import {
   Printer, Bell, ShieldCheck, ChevronRight 
 } from 'lucide-react';
 import type { ClassInfo, BranchInfo } from '../../types';
+import { useAuth } from '../../hooks/useAuth';
 
 export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'notices' | 'users';
 
@@ -28,14 +29,16 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   classes,
   branches
 }) => {
+  const { role } = useAuth();
+
   const menuItems = [
     { id: 'dashboard', label: 'Tổng Quan Giáo Xứ', icon: LayoutDashboard },
     { id: 'students', label: 'Danh Sách Thiếu Nhi', icon: Users },
-    { id: 'grades', label: 'Nhập Điểm Hàng Loạt', icon: FileSpreadsheet },
-    { id: 'attendance', label: 'Điểm Danh Chuyên Cần', icon: CheckSquare },
-    { id: 'reports', label: 'Báo Cáo & In Phiếu', icon: Printer },
+    ...(role === 'phuhuynh' ? [] : [{ id: 'grades', label: 'Nhập Điểm Hàng Loạt', icon: FileSpreadsheet }]),
+    ...(role === 'phuhuynh' ? [] : [{ id: 'attendance', label: 'Điểm Danh Chuyên Cần', icon: CheckSquare }]),
+    ...(role === 'phuhuynh' || role === 'phuta' ? [] : [{ id: 'reports', label: 'Báo Cáo & In Phiếu', icon: Printer }]),
     { id: 'notices', label: 'Thông Báo Giáo Xứ', icon: Bell },
-    { id: 'users', label: 'Quản Lý Tài Khoản', icon: ShieldCheck },
+    ...(role === 'admin' ? [{ id: 'users', label: 'Quản Lý Tài Khoản', icon: ShieldCheck }] : []),
   ];
 
   const filteredClasses = selectedBranchId === 'all' 

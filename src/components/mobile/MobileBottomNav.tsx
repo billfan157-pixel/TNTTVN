@@ -1,5 +1,6 @@
 import React from 'react';
 import { Home, CheckSquare, FileSpreadsheet, Users, PieChart } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth';
 
 export type MobileTab = 'home' | 'attendance' | 'grades' | 'students' | 'stats';
 
@@ -9,12 +10,13 @@ interface MobileBottomNavProps {
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab }) => {
+  const { role } = useAuth();
   const tabs = [
     { id: 'home', label: 'Trang Chủ', icon: Home },
-    { id: 'attendance', label: 'Điểm Danh', icon: CheckSquare },
-    { id: 'grades', label: 'Bảng Điểm', icon: FileSpreadsheet },
+    ...(role === 'phuhuynh' ? [] : [{ id: 'attendance', label: 'Điểm Danh', icon: CheckSquare }]),
+    ...(role === 'phuhuynh' ? [] : [{ id: 'grades', label: 'Bảng Điểm', icon: FileSpreadsheet }]),
     { id: 'students', label: 'Thiếu Nhi', icon: Users },
-    { id: 'stats', label: 'Thống Kê', icon: PieChart },
+    ...(role === 'phuhuynh' ? [] : [{ id: 'stats', label: 'Thống Kê', icon: PieChart }]),
   ];
 
   return (

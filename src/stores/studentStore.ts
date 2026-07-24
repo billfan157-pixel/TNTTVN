@@ -1,65 +1,84 @@
 import { create } from 'zustand'
-import { persist, createJSONStorage } from 'zustand/middleware'
+import type { Student, BranchType } from '../types'
 import { MOCK_STUDENTS } from '../data/mockParishData'
-import type { Student } from '../types'
-import { dexieStorage } from '../lib/db'
+import { syncCreateStudent, syncUpdateStudent, syncDeleteStudent } from '../lib/syncService'
 import { api } from '../lib/api'
-import * as syncService from '../lib/syncService'
-import * as Sentry from '@sentry/react'
+
+export interface PromotionAction {
+  studentId: string
+  newBranch: string
+  newClassId: string
+}
 
 interface StudentState {
   students: Student[]
-  setStudents: (students: Student[]) => void
+  isLoading: boolean
+  error: string | null
+
   fetchStudents: () => Promise<void>
-  addStudent: (student: Omit<Student, 'id' | 'code'>) => void
-  updateStudent: (id: string, data: Partial<Student>) => void
-  deleteStudent: (id: string) => void
+  setStudents: (students: Student[]) => void
+  addStudent: (student: Omit<Student, 'id' | 'code'>) => Promise<void>
+  updateStudent: (id: string, changes: Partial<Omit<Student, 'id' | 'code'>>) => Promise<void>
+  deleteStudent: (id: string) => Promise<void>
+  batchPromote: (promotions: PromotionAction[]) => void
 }
 
-export const useStudentStore = create<StudentState>()(
-  persist(
-    (set) => ({
-      students: MOCK_STUDENTS,
-      setStudents: (students) => set({ students }),
+export const useStudentStore = create<StudentState>((set) => ({
+  students: MOCK_STUDENTS,
+  isLoading: false,
+  error: null,
 
-      fetchStudents: async () => {
-        try {
-          const fetched = await api.getStudents()
-          if (Array.isArray(fetched) && fetched.length > 0) {
-            set({ students: fetched })
-          }
-        } catch (err) {
-          Sentry.captureException(err)
-        }
-      },
-
-      addStudent: (studentData) => set((state) => {
-        const newId = `ST-${crypto.randomUUID().slice(0, 8)}`
-        const newCode = `TN2025${Math.floor(100 + Math.random() * 900)}`
-        const student = { ...studentData, id: newId, code: newCode }
-        syncService.syncCreateStudent(student as Record<string, unknown>)
-        return {
-          students: [student, ...state.students],
-        }
-      }),
-
-      updateStudent: (id, studentData) => set((state) => {
-        syncService.syncUpdateStudent(id, studentData as Record<string, unknown>)
-        return {
-          students: state.students.map(s => s.id === id ? { ...s, ...studentData } : s),
-        }
-      }),
-
-      deleteStudent: (id) => set((state) => {
-        syncService.syncDeleteStudent(id)
-        return {
-          students: state.students.filter(s => s.id !== id),
-        }
-      }),
-    }),
-    {
-      name: 'parish_store_students',
-      storage: createJSONStorage(() => dexieStorage),
+  fetchStudents: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const remote = await api.getStudents()
+      if (remote && Array.isArray(remote)) {
+        set({ students: remote as Student[], isLoading: false })
+        return
+      }
+    } catch {
+      // Fallback to local Dexie or initial mock
     }
-  )
-)
+    set({ isLoading: false })
+  },
+
+  setStudents: (students) => set({ students }),
+
+  addStudent: async (data) => {
+    const id = `ST-${Date.now()}`
+    const code = `TN2025${Math.floor(100 + Math.random() * 900)}`
+    const newStudent: Student = { ...data, id, code }
+
+    set((state) => ({ students: [newStudent, ...state.students] }))
+    await syncCreateStudent(newStudent)
+  },
+
+  updateStudent: async (id, changes) => {
+    set((state) => ({
+      students: state.students.map((s) => (s.id === id ? { ...s, ...changes } : s)),
+    }))
+    await syncUpdateStudent(id, changes)
+  },
+
+  deleteStudent: async (id) => {
+    set((state) => ({
+      students: state.students.filter((s) => s.id !== id),
+    }))
+    await syncDeleteStudent(id)
+  },
+
+  batchPromote: (promotions) =>
+    set((state) => {
+      const next: Student[] = state.students.map((s) => {
+        const p = promotions.find((pr) => pr.studentId === s.id)
+        if (!p) return s
+        return {
+          ...s,
+          branch: p.newBranch as BranchType,
+          classId: p.newClassId,
+          status: 'Đang học' as const,
+        }
+      })
+      return { students: next }
+    }),
+}))

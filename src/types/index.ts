@@ -74,4 +74,6 @@ export interface ParishNotice {
   targetBranch?: BranchType | 'All';
 }
 
+export type Role = 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh';
+
 export type ViewMode = 'auto' | 'desktop' | 'mobile';

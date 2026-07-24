@@ -6,6 +6,7 @@ import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useTheme } from '../../hooks/useTheme'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
+import { OfflineBanner } from './OfflineBanner'
 import logo from '../../assets/logo-tntt.png'
 import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck, Activity } from 'lucide-react'
 import { clearTokens } from '../../lib/api'
@@ -64,6 +65,7 @@ export const HeaderBar: React.FC = () => {
 
   return (
     <>
+      <OfflineBanner />
       <header
         className="sticky top-0 z-50"
         style={{

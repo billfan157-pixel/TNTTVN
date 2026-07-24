@@ -1,50 +1,118 @@
-# 📜 Changelog — Hệ Thống Quản Lý Giáo Lý & Chuyên Cần TNTT
+# Changelog
 
-Toàn bộ nhật ký cập nhật và tiến trình thực thi 10 Phase kế hoạch phát triển hệ thống.
+## Phase 9 — System Diagnostics (Week 8)
 
----
+### Added
+- `src/components/desktop/SystemDiagnosticsModal.tsx` — Real-time diagnostic modal with system status, API latency, JS heap memory, local store record counts, offline sync queue count, re-diagnose button
 
-## [v2.5.0-ENTERPRISE] — 2026-07-24 (Phase 10 Release)
-### 🚀 Multi-Tenant Data Isolation & Production Release Seal
-- **Cô lập dữ liệu Multi-Tenant**: Đảm bảo phân quyền truy vấn strictly theo `parishId` qua JWT Payload.
-- **PWA Service Worker Cache**: Precache 100% SPA assets, font Google Fonts cache 1 năm, offline fallback < 100ms.
-- **Master Admin Account**: Cấu hình tài khoản Master Admin chính chủ cho **Phêrô Phan Bảo (`bill` / `FFanbill123@`)**.
-- **Containerization**: Nginx 1.27 + Node 22 Alpine Docker Compose với volume hoán đổi dữ liệu SQLite và tự động dọn dẹp bản sao lưu.
+### Changed
+- `src/components/common/HeaderBar.tsx` — Added Activity icon trigger button to open diagnostics modal
 
----
+### Fixed (Phase 9 review)
+- `dbStatus` now dynamically displayed in status card (healthy/error/checking with colors + icons)
+- Hardcoded fallback data replaced with `'N/A'` when metrics unavailable
+- Unused `Server` import removed
+- Effect cleanup via `useRef(cancelledRef)` prevents setState on unmounted component
+- Loading state for API latency (spinner + disabled button + "Đang Chẩn Đoán")
+- Accessibility: `role="dialog"`, `aria-modal`, `aria-label`
+- `runDiagnostics` wrapped in `useCallback`
 
-## [v2.4.0] — 2026-07-24 (Phase 9 Release)
-### ⚡ System Telemetry & Diagnostic Dashboard
-- **Bảng Chẩn Đoán System Telemetry**: Giám sát thời gian thực Latency API (1.8ms), dung lượng JS Heap RAM (18.4MB) và số lượng bản ghi Dexie/SQLite.
-- **HeaderBar Diagnostics Trigger**: Thêm nút xung nhịp vàng trên thanh điều hướng cho Admin.
+## Phase 8 — Deployment (Week 8)
 
----
+### Added
+- `Dockerfile` — multi-stage build (node:22-alpine) for server + frontend, crond for backups
+- `Dockerfile.web` — multi-stage build building frontend into nginx (no host dist dependency)
+- `nginx.conf` — gzip, CSP security headers, SPA fallback, API proxy to app backend
+- `scripts/backup-db.js` — SQLite backup with readFileSync+writeFileSync safe copy, keep last 5
+- `scripts/entrypoint.sh` — Docker entrypoint: persist env vars for cron, start crond, run startup backup, exec node server
+- `.dockerignore` — exclude node_modules, dist, coverage, .git, data, backups
 
-## [v2.3.0] — 2026-07-24 (Phase 8 Release)
-### 🐳 Production Docker & Nginx Reverse Proxy
-- **Docker Compose**: Tạo `Dockerfile` multi-stage build Node.js 22-Alpine và service Nginx reverse proxy.
-- **Auto Backup Script**: Thêm `scripts/backup-db.js` sao lưu định kỳ SQLite an toàn.
+### Changed
+- `docker-compose.yml` — 2 services: `app` (node:22-alpine + crond + named volumes) + `web` (nginx:1.27-alpine, frontend built in Docker)
+- `server/src/index.ts` — `HOST` env support, `CLIENT_ORIGIN` env for dynamic CORS
+- `server/tsconfig.json` — `noEmit: false`, `outDir: dist` for server compilation
+- `package.json` — added `build:server` script
+- `scripts/backup-db.js` — env var paths (`BACKUP_DIR`, `DB_PATH`) for Docker
 
----
+### Fixed (Phase 8 review)
+- Server dist not built for Docker (noEmit→false + build:server script)
+- Frontend assets not served (Dockerfile.web + nginx service)
+- JWT_SECRET hard-coded (env var fallback)
+- CORS hard-coded localhost (CLIENT_ORIGIN env)
+- SQLite backup unsafe copy (readFileSync+writeFileSync)
+- Backup paths wrong in Docker (env var override)
+- Node 24→22 LTS (stable)
+- Host bind mount → named volumes
+- Missing .dockerignore (build bloat)
+- Missing cron schedule (crond in entrypoint)
+- nginx.conf unused (web service build)
+- HOST not bound to 0.0.0.0 (hostname option)
 
-## [v2.2.0] — 2026-07-24 (Phase 6 & 7 Release)
-### 🔒 Backend IAM & Full Test Suite
-- **IAM API**: Đăng ký REST API `/api/users`, đổi mật khẩu cá nhân, khóa tài khoản tự động (5 lần sai pass), ép đăng xuất từ xa (`tokenVersion`).
-- **Soft Delete**: Xóa mềm Thiếu nhi (`deletedAt`).
-- **Test Suite**: 79/79 Unit Tests PASSED, phủ sóng 4 Stores, Server Routes và Auth Middleware.
+## Phase 7 — Testing & Polish (Week 6-7)
 
----
+### Added
+- Coverage configuration (v8 provider, thresholds 40/30/45/40)
+- Server auth middleware tests (`auth-middleware.test.ts` — 3 tests)
+- Server route tests (`auth-routes.test.ts` + `users-routes.test.ts` — 4 tests)
+- Zustand store unit tests (`zustandStores.test.ts` — 5 tests)
+- Component tests (`StudentModal.test.tsx` + `HeaderBar.test.tsx` — 8 tests)
+- E2E test pages (`login.spec.ts`, `crud.spec.ts`, `roles.spec.ts` — 11 tests)
 
-## [v2.1.0] — 2026-07-24 (Phase 4 & 5 Release)
-### 🎨 Frontend Enhancements & Delta Sync
-- **LoginPage**: Trang đăng nhập bảo mật Xứ đoàn.
-- **User Menu & Class Switcher**: Hiển thị Role Badge và Dropdown lọc theo Lớp.
-- **Delta Sync 2 Chiều**: Hỗ trợ đồng bộ `updatedAfter` tiết kiệm 95% băng thông.
+### Fixed
+- `coverage/` added to `.gitignore` and untracked from git
+- E2E login test made resilient (no backend dependency)
 
----
+## Phase 6 — Backend IAM (Week 5)
 
-## [v2.0.0] — 2026-07-24 (Phase 1, 2 & 3 Release)
-### 📄 Core Features & PDF Printing Engine
-- **PDF Engine**: Tạo Sổ điểm lớp A4 landscape, Phiếu điểm cá nhân và Chứng chỉ Bí Tích.
-- **Excel Roster Import**: Import danh sách Thiếu nhi từ file Excel `.xlsx` / paste text.
-- **Backup & Restore**: Sao lưu 1-Click dữ liệu Dexie IndexedDB.
+### Added
+- User CRUD API (`/api/users` — GET/POST/PUT, status, reset-password, force-logout)
+- Change-password endpoint (`POST /auth/change-password`)
+- TokenVersion-based force logout (validated against DB in authMiddleware)
+- Account auto-lockout (5 failed attempts → LOCKED status)
+- Notification persistence (enqueue writes to `notifications` table, sentAt tracking)
+- Student soft delete (`deletedAt` filter, SOFT_DELETE audit action)
+
+### Fixed
+- authMiddleware now checks tokenVersion against DB on every request
+- bcrypt.hashSync → bcrypt.hash (async, non-blocking)
+- Admin cannot lock own account
+- Notification queue persists to DB (no in-memory loss on restart)
+
+## Phase 5 — Frontend (Week 4-5)
+
+### Added
+- LoginPage with validation, loading state, Sentry error tracking
+- Auth guard (`beforeLoad: requireAuth`) on 7 protected routes
+- 401 global redirect in api.ts (on refresh failure → /login)
+- User badge + logout in HeaderBar
+- Class switcher dropdown in HeaderBar
+- `fetchGrades`/`fetchAttendance`/`fetchNotices` to all stores
+- Store API integration with offline fallback
+- Mock data defaults replaced with `[]`
+- Sample credentials hidden in production
+
+## Phase 4 — Architecture (Week 3-4)
+
+### Added
+- Unified response helpers (`successResponse`, `listResponse`, `errorResponse`)
+- Service layer (studentService, gradeService, attendanceService, noticeService)
+- Normalized ID generator (`generateId` with crypto.randomUUID)
+- DeltaSync end-to-end (client passes `updatedAfter`, server filters with `gte`)
+- Rebuilt `useSyncEngine` with `runSyncFlow` + online/offline listeners
+
+## Prior Phases
+
+### Changed
+- Restructured `docs/` from 10 planning files to 12 canonical files
+- Merged tech debt and quick wins into project audit
+- Merged data flow into architecture doc
+- Merged `MASTER_DEVELOPMENT_PLAN.md` (root) → `10_MASTER_EXECUTION_PLAN.md`
+- Renamed files to numbered prefix for ordered navigation
+- Phase 1-3: Critical bugs, security (RBAC, body limit, Zod, audit IP/UA), database (13 tables, IAM/PDF/backup frontend features)
+
+### Removed
+- Outdated `DESIGN_SYSTEM.md`, `DESIGN_TOKENS.md`
+- Aspirational `03_REFACTOR_PLAN.md`
+- `MASTER_DEVELOPMENT_PLAN.md` (merged into `10_MASTER_EXECUTION_PLAN.md`)
+- `MASTER_PLAN.md` (v4.0, historical)
+- Old UI docs (8 files)

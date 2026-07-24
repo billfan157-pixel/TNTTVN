@@ -1,10 +1,9 @@
 import { useSyncStore } from '../stores/syncStore'
-import type { Student, GradeRecord, AttendanceRecord } from '../types'
 
 type Entity = 'student' | 'grade' | 'attendance'
 type Operation = 'CREATE' | 'UPDATE' | 'DELETE'
 
-function enqueue(entity: Entity, operation: Operation, entityId: string, payload: Record<string, unknown>) {
+function enqueue(entity: Entity, operation: Operation, entityId: string, payload: any) {
   useSyncStore.getState().addOp({
     entity,
     entityId,
@@ -14,11 +13,11 @@ function enqueue(entity: Entity, operation: Operation, entityId: string, payload
 }
 
 // ─── Student ───
-export function syncCreateStudent(data: Record<string, unknown>) {
+export function syncCreateStudent(data: any) {
   enqueue('student', 'CREATE', data.id as string, data)
 }
 
-export function syncUpdateStudent(id: string, data: Record<string, unknown>) {
+export function syncUpdateStudent(id: string, data: any) {
   enqueue('student', 'UPDATE', id, data)
 }
 
@@ -27,19 +26,19 @@ export function syncDeleteStudent(id: string) {
 }
 
 // ─── Grade ───
-export function syncUpsertGrade(data: Record<string, unknown>) {
-  enqueue('grade', 'UPDATE', data.id as string || data.studentId as string, data)
+export function syncUpsertGrade(data: any) {
+  enqueue('grade', 'UPDATE', (data.id || data.studentId) as string, data)
 }
 
-export function syncBatchUpsertGrades(dataList: Record<string, unknown>[]) {
+export function syncBatchUpsertGrades(dataList: any[]) {
   for (const data of dataList) {
     syncUpsertGrade(data)
   }
 }
 
 // ─── Attendance ───
-export function syncSaveAttendance(data: Record<string, unknown>) {
-  const entityId = data.id as string || `${data.studentId}-${data.date}-${data.type}`
+export function syncSaveAttendance(data: any) {
+  const entityId = (data.id || `${data.studentId}-${data.date}-${data.type}`) as string
   enqueue('attendance', 'UPDATE', entityId, data)
 }
 

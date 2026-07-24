@@ -14,6 +14,7 @@
 | 🟠 | Phase 6 — Backend |
 | ⚪ | Phase 7 — Testing |
 | 🟤 | Phase 8 — Deployment |
+| 🔲 | Phase 9 — Diagnostics |
 | ⚡ | Quick Win (<30 min) |
 
 ---
@@ -38,6 +39,9 @@ Phase 1 (Critical Bugs)
   │                                │
   │                                ↓
   │                          Phase 8 (Deployment)
+  │                                │
+  │                                ↓
+  │                          Phase 9 (Diagnostics)
   │
   └──→ Quick Wins (interspersed)
 ```
@@ -531,6 +535,44 @@ GLV Nguyễn Văn A
 
 ---
 
+## 🔲 Phase 9 — System Diagnostics (Week 8)
+
+### Task 9.1 — Build SystemDiagnosticsModal
+- **Files**: `src/components/desktop/SystemDiagnosticsModal.tsx` (new)
+- **Description**: Real-time diagnostic modal showing: system status (healthy/error), API latency, JS heap memory, local store counts (students/grades/attendance/notices), offline sync queue count, with re-diagnose button
+- **Effort**: 2h
+
+### Task 9.2 — Wire trigger button in HeaderBar
+- **Files**: `src/components/common/HeaderBar.tsx`
+- **Description**: Add Activity icon button in HeaderBar control group, open SystemDiagnosticsModal on click
+- **Effort**: 30 min
+
+### Task 9.3 — Add accessibility and error states
+- **Files**: `src/components/desktop/SystemDiagnosticsModal.tsx`
+- **Description**: `role="dialog"`, `aria-modal`, `aria-label` on dialog and close button; dynamic status card shows error/checking/healthy states; loading spinner on re-diagnose; N/A fallback for unavailable metrics
+- **Effort**: 30 min
+
+### Task 9.4 — Add cleanup for async diagnostics
+- **Files**: `src/components/desktop/SystemDiagnosticsModal.tsx`
+- **Description**: `useRef(cancelledRef)` to prevent setState on unmounted component after modal closes mid-fetch
+- **Effort**: 15 min
+
+### Task 9.5 — Fix Phase 9 review issues
+- **Files**: `src/components/desktop/SystemDiagnosticsModal.tsx`
+- **Description**: Fix 7 issues: dbStatus unused, hardcoded fallback data, unused Server import, missing effect cleanup, missing loading state, missing accessibility, runDiagnostics not memoized
+- **Effort**: 30 min
+
+### Deliverables
+- [x] SystemDiagnosticsModal renders with real system metrics
+- [x] Status card reflects actual dbStatus (healthy/error/checking)
+- [x] API latency and RAM show N/A when unavailable
+- [x] Effect cleanup prevents setState on unmounted component
+- [x] Trigger button in HeaderBar opens modal
+- [x] All 7 review issues resolved
+- [x] TypeScript 0 errors, vitest 79/79 pass
+
+---
+
 ## Deployment & Operations
 
 ### CI/CD (Current)
@@ -618,7 +660,7 @@ Week 3:  🟢 Phase 4 (Architecture) + 🟣 Phase 5 start ✅
 Week 4:  🟣 Phase 5 (Frontend) + 🟠 Phase 6 start ✅
 Week 5:  🟠 Phase 6 (Backend IAM) ✅
 Week 6-7: ⚪ Phase 7 (Testing + Polish) ✅
-Week 8:  🟤 Phase 8 (Deployment) ✅
+Week 8:  🟤 Phase 8 (Deployment) + 🔲 Phase 9 (Diagnostics) ✅
 ```
 
 ## Total Estimated Effort
@@ -633,4 +675,5 @@ Week 8:  🟤 Phase 8 (Deployment) ✅
 | 🟠 Phase 6 | 9 tasks | ~13h |
 | ⚪ Phase 7 | 11 tasks (2 optional) | ~31h |
 | 🟤 Phase 8 | 6 tasks | ~6h |
-| **Total** | **65 tasks** | **~85 hours** |
+| 🔲 Phase 9 | 5 tasks | ~4h |
+| **Total** | **70 tasks** | **~89 hours** |
