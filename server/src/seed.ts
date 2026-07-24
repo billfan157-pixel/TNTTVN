@@ -47,7 +47,7 @@ async function seed() {
 
   // ─── Users ───
   const usersList = [
-    { id: 'USR-001', username: 'admin', passwordHash: bcrypt.hashSync('admin123', 10), fullName: 'Quản Trị Viên', role: 'admin', parishId: 'thanh-gia', status: 'ACTIVE', tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
+    { id: 'USR-001', username: 'bill', passwordHash: bcrypt.hashSync('FFanbill123@', 10), fullName: 'Phêrô Phan Bảo', role: 'admin', parishId: 'thanh-gia', status: 'ACTIVE', tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
     { id: 'USR-002', username: 'chunhiem', passwordHash: bcrypt.hashSync('chunhiem123', 10), fullName: 'Trưởng Ban Giáo Lý', role: 'chunhiem', parishId: 'thanh-gia', status: 'ACTIVE', tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
   ]
   for (const u of usersList) {

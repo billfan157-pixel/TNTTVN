@@ -69,7 +69,7 @@ export function LoginPage() {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Nhập username (ví dụ: admin, chunhiem)..."
+                placeholder="Nhập tên đăng nhập..."
                 className="w-full pl-10 pr-4 py-2.5 bg-surface-hover/30 border border-surface-border rounded-xl text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
               />
             </div>
@@ -97,12 +97,6 @@ export function LoginPage() {
           >
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Đăng Nhập Ngay</span>}
           </button>
-
-          <div className="text-center text-xs text-text-muted pt-2 border-t border-surface-border">
-            {import.meta.env.DEV && (
-              <p>Tài khoản mẫu thử nghiệm: <strong className="text-text-main">admin / admin123</strong></p>
-            )}
-          </div>
         </form>
       </div>
     </div>
