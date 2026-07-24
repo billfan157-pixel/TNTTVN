@@ -1,0 +1,321 @@
+- generic [ref=f5e3]:
+  - banner [ref=f5e4]:
+    - generic [ref=f5e5]:
+      - generic [ref=f5e12]:
+        - generic [ref=f5e13]:
+          - heading "Giáo Lý Thiếu Nhi Thánh Thể" [level=1] [ref=f5e14]
+          - generic [ref=f5e15]: Giáo Xứ Thánh Gia
+        - paragraph [ref=f5e16]: Sổ Điểm & Theo Dõi Học Tập • Niên Học 2025 - 2026 (15 Thiếu Nhi)
+      - generic [ref=f5e17]:
+        - textbox "Tìm tên, mã, Tên Thánh..." [ref=f5e22]
+        - generic [ref=f5e23]:
+          - button "HK I" [ref=f5e24] [cursor=pointer]
+          - button "HK II" [ref=f5e25] [cursor=pointer]
+        - generic [ref=f5e26]:
+          - button "Desktop ✓" [ref=f5e27] [cursor=pointer]
+          - button "Mobile" [ref=f5e30] [cursor=pointer]
+        - button "Chuyển sang giao diện tối" [ref=f5e33] [cursor=pointer]
+        - button "Khôi phục dữ liệu gốc mẫu" [ref=f5e36] [cursor=pointer]
+  - generic [ref=f5e42]:
+    - complementary [ref=f5e43]:
+      - generic [ref=f5e44]:
+        - generic [ref=f5e45]: CHỨC NĂNG QUẢN LÝ
+        - navigation [ref=f5e46]:
+          - button "Tổng Quan Giáo Xứ" [ref=f5e47] [cursor=pointer]
+          - button "Danh Sách Thiếu Nhi" [ref=f5e54] [cursor=pointer]
+          - button "Nhập Điểm Hàng Loạt" [ref=f5e61] [cursor=pointer]
+          - button "Điểm Danh Chuyên Cần" [ref=f5e66] [cursor=pointer]
+          - button "Báo Cáo & In Phiếu" [ref=f5e73] [cursor=pointer]
+          - button "Thông Báo Giáo Xứ" [ref=f5e79] [cursor=pointer]
+      - generic [ref=f5e84]:
+        - generic [ref=f5e85]: LỌC PHÂN ĐOÀN & LỚP
+        - generic [ref=f5e89]:
+          - generic [ref=f5e90]: Phân Ngành TNTT
+          - combobox [ref=f5e91]:
+            - option "Tất cả các Ngành" [selected]
+            - option "Chiên Con (4 - 6 tuổi)"
+            - option "Ấu Nhi (7 - 9 tuổi)"
+            - option "Thiếu Nhi (10 - 12 tuổi)"
+            - option "Nghĩa Sĩ (13 - 15 tuổi)"
+            - option "Hiệp Sĩ (16 - 18 tuổi)"
+        - generic [ref=f5e92]:
+          - generic [ref=f5e93]: Lớp Giáo Lý
+          - combobox [ref=f5e94]:
+            - option "Tất cả các Lớp" [selected]
+            - option "Chiên Con 1"
+            - option "Ấu Nhi 1"
+            - option "Ấu Nhi 2 (Rơmêô)"
+            - option "Thiếu Nhi 1"
+            - option "Thiếu Nhi 2 (Rơmêô)"
+            - option "Nghĩa Sĩ 1"
+            - option "Hiệp Sĩ 1"
+      - generic [ref=f5e95]:
+        - paragraph [ref=f5e96]: Ban Giáo Lý Giáo Xứ
+        - paragraph [ref=f5e97]: Phiên bản Desktop UI 2.0
+    - main [ref=f5e98]:
+      - generic [ref=f5e99]:
+        - generic [ref=f5e100]:
+          - generic [ref=f5e101]:
+            - heading "Điểm Danh Chuyên Cần" [level=2] [ref=f5e106]
+            - paragraph [ref=f5e107]:
+              - text: "Có mặt:"
+              - strong [ref=f5e108]: "13"
+              - text: "• Vắng có phép:"
+              - strong [ref=f5e109]: "1"
+              - text: "• Vắng không phép:"
+              - strong [ref=f5e110]: "1"
+          - generic [ref=f5e111]:
+            - combobox [ref=f5e112]:
+              - option "Tất cả các lớp" [selected]
+              - option "Chiên Con 1"
+              - option "Ấu Nhi 1"
+              - option "Ấu Nhi 2 (Rơmêô)"
+              - option "Thiếu Nhi 1"
+              - option "Thiếu Nhi 2 (Rơmêô)"
+              - option "Nghĩa Sĩ 1"
+              - option "Hiệp Sĩ 1"
+            - textbox [ref=f5e113]: 2026-07-19
+            - generic [ref=f5e114]:
+              - button "Lễ Chủ Nhật" [ref=f5e115] [cursor=pointer]
+              - button "Lớp Giáo Lý" [ref=f5e116] [cursor=pointer]
+            - button "Có Mặt Tất Cả" [ref=f5e117] [cursor=pointer]
+            - button "Lưu Điểm Danh" [ref=f5e120] [cursor=pointer]
+        - table [ref=f5e127]:
+          - rowgroup [ref=f5e134]:
+            - row [ref=f5e135]:
+              - columnheader "STT" [ref=f5e136]
+              - columnheader "Tên Thánh & Họ Tên" [ref=f5e137]
+              - columnheader "Lớp" [ref=f5e138]
+              - columnheader "Trạng Thái Điểm Danh" [ref=f5e139]
+              - columnheader "Ghi Chú" [ref=f5e140]
+          - rowgroup [ref=f5e141]:
+            - row [ref=f5e142]:
+              - cell "1" [ref=f5e143]
+              - cell "Maria Nguyễn Ngọc Anh TN2025001" [ref=f5e144]:
+                - generic "Maria Nguyễn Ngọc Anh" [ref=f5e145]:
+                  - generic [ref=f5e146]: Maria
+                  - text: Nguyễn Ngọc Anh
+                - generic [ref=f5e147]: TN2025001
+              - cell "Ấu Nhi 2 (Rơmêô)" [ref=f5e148]
+              - cell [ref=f5e149]:
+                - generic [ref=f5e150]:
+                  - button "Có mặt" [ref=f5e151] [cursor=pointer]
+                  - button "Có phép" [ref=f5e155] [cursor=pointer]
+                  - button "Vắng" [ref=f5e158] [cursor=pointer]
+              - cell [ref=f5e163]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e164]
+            - row [ref=f5e165]:
+              - cell "2" [ref=f5e166]
+              - cell "Giuse Trần Hoàng Minh TN2025002" [ref=f5e167]:
+                - generic "Giuse Trần Hoàng Minh" [ref=f5e168]:
+                  - generic [ref=f5e169]: Giuse
+                  - text: Trần Hoàng Minh
+                - generic [ref=f5e170]: TN2025002
+              - cell "Ấu Nhi 2 (Rơmêô)" [ref=f5e171]
+              - cell [ref=f5e172]:
+                - generic [ref=f5e173]:
+                  - button "Có mặt" [ref=f5e174] [cursor=pointer]
+                  - button "Có phép" [ref=f5e178] [cursor=pointer]
+                  - button "Vắng" [ref=f5e181] [cursor=pointer]
+              - cell [ref=f5e186]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e187]
+            - row [ref=f5e188]:
+              - cell "3" [ref=f5e189]
+              - cell "Phêrô Vũ Đức Anh TN2025003" [ref=f5e190]:
+                - generic "Phêrô Vũ Đức Anh" [ref=f5e191]:
+                  - generic [ref=f5e192]: Phêrô
+                  - text: Vũ Đức Anh
+                - generic [ref=f5e193]: TN2025003
+              - cell "Ấu Nhi 2 (Rơmêô)" [ref=f5e194]
+              - cell [ref=f5e195]:
+                - generic [ref=f5e196]:
+                  - button "Có mặt" [ref=f5e197] [cursor=pointer]
+                  - button "Có phép" [ref=f5e201] [cursor=pointer]
+                  - button "Vắng" [ref=f5e204] [cursor=pointer]
+              - cell [ref=f5e209]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e210]
+            - row [ref=f5e211]:
+              - cell "4" [ref=f5e212]
+              - cell "Têrêsa Lê Thảo My TN2025004" [ref=f5e213]:
+                - generic "Têrêsa Lê Thảo My" [ref=f5e214]:
+                  - generic [ref=f5e215]: Têrêsa
+                  - text: Lê Thảo My
+                - generic [ref=f5e216]: TN2025004
+              - cell "Ấu Nhi 2 (Rơmêô)" [ref=f5e217]
+              - cell [ref=f5e218]:
+                - generic [ref=f5e219]:
+                  - button "Có mặt" [ref=f5e220] [cursor=pointer]
+                  - button "Có phép" [ref=f5e224] [cursor=pointer]
+                  - button "Vắng" [ref=f5e227] [cursor=pointer]
+              - cell [ref=f5e232]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e233]: Về quê thăm ông bà
+            - row [ref=f5e234]:
+              - cell "5" [ref=f5e235]
+              - cell "Anrê Phạm Gia Bảo TN2025005" [ref=f5e236]:
+                - generic "Anrê Phạm Gia Bảo" [ref=f5e237]:
+                  - generic [ref=f5e238]: Anrê
+                  - text: Phạm Gia Bảo
+                - generic [ref=f5e239]: TN2025005
+              - cell "Ấu Nhi 2 (Rơmêô)" [ref=f5e240]
+              - cell [ref=f5e241]:
+                - generic [ref=f5e242]:
+                  - button "Có mặt" [ref=f5e243] [cursor=pointer]
+                  - button "Có phép" [ref=f5e247] [cursor=pointer]
+                  - button "Vắng" [ref=f5e250] [cursor=pointer]
+              - cell [ref=f5e255]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e256]
+            - row [ref=f5e257]:
+              - cell "6" [ref=f5e258]
+              - cell "Catarina Đỗ Hoàng Kim TN2025006" [ref=f5e259]:
+                - generic "Catarina Đỗ Hoàng Kim" [ref=f5e260]:
+                  - generic [ref=f5e261]: Catarina
+                  - text: Đỗ Hoàng Kim
+                - generic [ref=f5e262]: TN2025006
+              - cell "Thiếu Nhi 2 (Rơmêô)" [ref=f5e263]
+              - cell [ref=f5e264]:
+                - generic [ref=f5e265]:
+                  - button "Có mặt" [ref=f5e266] [cursor=pointer]
+                  - button "Có phép" [ref=f5e270] [cursor=pointer]
+                  - button "Vắng" [ref=f5e273] [cursor=pointer]
+              - cell [ref=f5e278]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e279]
+            - row [ref=f5e280]:
+              - cell "7" [ref=f5e281]
+              - cell "Gioan B. Ngô Quốc Trung TN2025007" [ref=f5e282]:
+                - generic "Gioan B. Ngô Quốc Trung" [ref=f5e283]:
+                  - generic [ref=f5e284]: Gioan B.
+                  - text: Ngô Quốc Trung
+                - generic [ref=f5e285]: TN2025007
+              - cell "Thiếu Nhi 2 (Rơmêô)" [ref=f5e286]
+              - cell [ref=f5e287]:
+                - generic [ref=f5e288]:
+                  - button "Có mặt" [ref=f5e289] [cursor=pointer]
+                  - button "Có phép" [ref=f5e293] [cursor=pointer]
+                  - button "Vắng" [ref=f5e296] [cursor=pointer]
+              - cell [ref=f5e301]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e302]
+            - row [ref=f5e303]:
+              - cell "8" [ref=f5e304]
+              - cell "Anna Trịnh Khánh Linh TN2025008" [ref=f5e305]:
+                - generic "Anna Trịnh Khánh Linh" [ref=f5e306]:
+                  - generic [ref=f5e307]: Anna
+                  - text: Trịnh Khánh Linh
+                - generic [ref=f5e308]: TN2025008
+              - cell "Thiếu Nhi 2 (Rơmêô)" [ref=f5e309]
+              - cell [ref=f5e310]:
+                - generic [ref=f5e311]:
+                  - button "Có mặt" [ref=f5e312] [cursor=pointer]
+                  - button "Có phép" [ref=f5e316] [cursor=pointer]
+                  - button "Vắng" [ref=f5e319] [cursor=pointer]
+              - cell [ref=f5e324]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e325]
+            - row [ref=f5e326]:
+              - cell "9" [ref=f5e327]
+              - cell "F.X Nguyễn Minh Triết TN2025009" [ref=f5e328]:
+                - generic "F.X Nguyễn Minh Triết" [ref=f5e329]:
+                  - generic [ref=f5e330]: F.X
+                  - text: Nguyễn Minh Triết
+                - generic [ref=f5e331]: TN2025009
+              - cell "Thiếu Nhi 2 (Rơmêô)" [ref=f5e332]
+              - cell [ref=f5e333]:
+                - generic [ref=f5e334]:
+                  - button "Có mặt" [ref=f5e335] [cursor=pointer]
+                  - button "Có phép" [ref=f5e339] [cursor=pointer]
+                  - button "Vắng" [ref=f5e342] [cursor=pointer]
+              - cell [ref=f5e347]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e348]
+            - row [ref=f5e349]:
+              - cell "10" [ref=f5e350]
+              - cell "Têrêsa Hài Đồng Phan Như Quỳnh TN2025010" [ref=f5e351]:
+                - generic "Têrêsa Hài Đồng Phan Như Quỳnh" [ref=f5e352]:
+                  - generic [ref=f5e353]: Têrêsa Hài Đồng
+                  - text: Phan Như Quỳnh
+                - generic [ref=f5e354]: TN2025010
+              - cell "Thiếu Nhi 2 (Rơmêô)" [ref=f5e355]
+              - cell [ref=f5e356]:
+                - generic [ref=f5e357]:
+                  - button "Có mặt" [ref=f5e358] [cursor=pointer]
+                  - button "Có phép" [ref=f5e362] [cursor=pointer]
+                  - button "Vắng" [ref=f5e365] [cursor=pointer]
+              - cell [ref=f5e370]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e371]
+            - row [ref=f5e372]:
+              - cell "11" [ref=f5e373]
+              - cell "Phaolô Bùi Đức Thắng TN2025011" [ref=f5e374]:
+                - generic "Phaolô Bùi Đức Thắng" [ref=f5e375]:
+                  - generic [ref=f5e376]: Phaolô
+                  - text: Bùi Đức Thắng
+                - generic [ref=f5e377]: TN2025011
+              - cell "Nghĩa Sĩ 1" [ref=f5e378]
+              - cell [ref=f5e379]:
+                - generic [ref=f5e380]:
+                  - button "Có mặt" [ref=f5e381] [cursor=pointer]
+                  - button "Có phép" [ref=f5e385] [cursor=pointer]
+                  - button "Vắng" [ref=f5e388] [cursor=pointer]
+              - cell [ref=f5e393]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e394]
+            - row [ref=f5e395]:
+              - cell "12" [ref=f5e396]
+              - cell "Maria Mẫu Tâm Đặng Bảo Ngọc TN2025012" [ref=f5e397]:
+                - generic "Maria Mẫu Tâm Đặng Bảo Ngọc" [ref=f5e398]:
+                  - generic [ref=f5e399]: Maria Mẫu Tâm
+                  - text: Đặng Bảo Ngọc
+                - generic [ref=f5e400]: TN2025012
+              - cell "Nghĩa Sĩ 1" [ref=f5e401]
+              - cell [ref=f5e402]:
+                - generic [ref=f5e403]:
+                  - button "Có mặt" [ref=f5e404] [cursor=pointer]
+                  - button "Có phép" [ref=f5e408] [cursor=pointer]
+                  - button "Vắng" [ref=f5e411] [cursor=pointer]
+              - cell [ref=f5e416]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e417]
+            - row [ref=f5e418]:
+              - cell "13" [ref=f5e419]
+              - cell "Giuse Hoàng Minh Khôi TN2025013" [ref=f5e420]:
+                - generic "Giuse Hoàng Minh Khôi" [ref=f5e421]:
+                  - generic [ref=f5e422]: Giuse
+                  - text: Hoàng Minh Khôi
+                - generic [ref=f5e423]: TN2025013
+              - cell "Chiên Con 1" [ref=f5e424]
+              - cell [ref=f5e425]:
+                - generic [ref=f5e426]:
+                  - button "Có mặt" [ref=f5e427] [cursor=pointer]
+                  - button "Có phép" [ref=f5e431] [cursor=pointer]
+                  - button "Vắng" [ref=f5e434] [cursor=pointer]
+              - cell [ref=f5e439]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e440]
+            - row [ref=f5e441]:
+              - cell "14" [ref=f5e442]
+              - cell "Maria Lý Thanh Hà TN2025014" [ref=f5e443]:
+                - generic "Maria Lý Thanh Hà" [ref=f5e444]:
+                  - generic [ref=f5e445]: Maria
+                  - text: Lý Thanh Hà
+                - generic [ref=f5e446]: TN2025014
+              - cell "Chiên Con 1" [ref=f5e447]
+              - cell [ref=f5e448]:
+                - generic [ref=f5e449]:
+                  - button "Có mặt" [ref=f5e450] [cursor=pointer]
+                  - button "Có phép" [ref=f5e454] [cursor=pointer]
+                  - button "Vắng" [ref=f5e457] [cursor=pointer]
+              - cell [ref=f5e462]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e463]
+            - row [ref=f5e464]:
+              - cell "15" [ref=f5e465]
+              - cell "Têrêsa Vũ Thị Hồng Hạnh TN2025015" [ref=f5e466]:
+                - generic "Têrêsa Vũ Thị Hồng Hạnh" [ref=f5e467]:
+                  - generic [ref=f5e468]: Têrêsa
+                  - text: Vũ Thị Hồng Hạnh
+                - generic [ref=f5e469]: TN2025015
+              - cell "Hiệp Sĩ 1" [ref=f5e470]
+              - cell [ref=f5e471]:
+                - generic [ref=f5e472]:
+                  - button "Có mặt" [ref=f5e473] [cursor=pointer]
+                  - button "Có phép" [ref=f5e477] [cursor=pointer]
+                  - button "Vắng" [ref=f5e480] [cursor=pointer]
+              - cell [ref=f5e485]:
+                - textbox "Nhập lý do nếu vắng..." [ref=f5e486]
+  - generic:
+    - contentinfo:
+      - button "Open TanStack Router Devtools" [ref=f5e487] [cursor=pointer]:
+        - generic [ref=f5e559]: "-"
+        - generic [ref=f5e560]: TanStack Router

@@ -1,0 +1,5 @@
+node_modules
+data
+node_modules/.cache
+.git
+*.log

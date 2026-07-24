@@ -1,0 +1,133 @@
+- generic [ref=f8e3]:
+  - banner [ref=f8e4]:
+    - generic [ref=f8e5]:
+      - generic [ref=f8e12]:
+        - generic [ref=f8e13]:
+          - heading "Giáo Lý Thiếu Nhi Thánh Thể" [level=1] [ref=f8e14]
+          - generic [ref=f8e15]: Giáo Xứ Thánh Gia
+        - paragraph [ref=f8e16]: Sổ Điểm & Theo Dõi Học Tập • Niên Học 2025 - 2026 (15 Thiếu Nhi)
+      - generic [ref=f8e17]:
+        - textbox "Tìm tên, mã, Tên Thánh..." [ref=f8e22]
+        - generic [ref=f8e23]:
+          - button "HK I" [ref=f8e24] [cursor=pointer]
+          - button "HK II" [ref=f8e25] [cursor=pointer]
+        - generic [ref=f8e26]:
+          - button "Desktop" [ref=f8e27] [cursor=pointer]
+          - button "Mobile" [ref=f8e30] [cursor=pointer]
+        - button "Chuyển sang giao diện tối" [ref=f8e33] [cursor=pointer]
+        - button "Khôi phục dữ liệu gốc mẫu" [ref=f8e36] [cursor=pointer]
+  - generic [ref=f8e42]:
+    - complementary [ref=f8e43]:
+      - generic [ref=f8e44]:
+        - generic [ref=f8e45]: CHỨC NĂNG QUẢN LÝ
+        - navigation [ref=f8e46]:
+          - button "Tổng Quan Giáo Xứ" [ref=f8e47] [cursor=pointer]
+          - button "Danh Sách Thiếu Nhi" [ref=f8e56] [cursor=pointer]
+          - button "Nhập Điểm Hàng Loạt" [ref=f8e63] [cursor=pointer]
+          - button "Điểm Danh Chuyên Cần" [ref=f8e68] [cursor=pointer]
+          - button "Báo Cáo & In Phiếu" [ref=f8e73] [cursor=pointer]
+          - button "Thông Báo Giáo Xứ" [active] [ref=f8e79] [cursor=pointer]
+      - generic [ref=f8e84]:
+        - generic [ref=f8e85]: LỌC PHÂN ĐOÀN & LỚP
+        - generic [ref=f8e89]:
+          - generic [ref=f8e90]: Phân Ngành TNTT
+          - combobox [ref=f8e91]:
+            - option "Tất cả các Ngành" [selected]
+            - option "Chiên Con (4 - 6 tuổi)"
+            - option "Ấu Nhi (7 - 9 tuổi)"
+            - option "Thiếu Nhi (10 - 12 tuổi)"
+            - option "Nghĩa Sĩ (13 - 15 tuổi)"
+            - option "Hiệp Sĩ (16 - 18 tuổi)"
+        - generic [ref=f8e92]:
+          - generic [ref=f8e93]: Lớp Giáo Lý
+          - combobox [ref=f8e94]:
+            - option "Tất cả các Lớp" [selected]
+            - option "Chiên Con 1"
+            - option "Ấu Nhi 1"
+            - option "Ấu Nhi 2 (Rơmêô)"
+            - option "Thiếu Nhi 1"
+            - option "Thiếu Nhi 2 (Rơmêô)"
+            - option "Nghĩa Sĩ 1"
+            - option "Hiệp Sĩ 1"
+      - generic [ref=f8e95]:
+        - paragraph [ref=f8e96]: Ban Giáo Lý Giáo Xứ
+        - paragraph [ref=f8e97]: Phiên bản Desktop UI 2.0
+    - main [ref=f8e98]:
+      - generic [ref=f8e350]:
+        - generic [ref=f8e351]:
+          - generic [ref=f8e352]:
+            - heading "Thông Báo Giáo Xứ" [level=2] [ref=f8e357]
+            - paragraph [ref=f8e358]: Quản lý và xem các thông báo gửi đến thiếu nhi & phụ huynh
+          - generic [ref=f8e359]: 3 thông báo
+        - table [ref=f8e363]:
+          - rowgroup [ref=f8e370]:
+            - row [ref=f8e371]:
+              - columnheader "STT" [ref=f8e372]
+              - columnheader "Tiêu Đề / Nội Dung" [ref=f8e373]
+              - columnheader "Độ Ưu Tiên" [ref=f8e374]
+              - columnheader "Tác Giả / Ngày" [ref=f8e375]
+              - columnheader "Thao Tác" [ref=f8e376]
+          - rowgroup [ref=f8e377]:
+            - row [ref=f8e378]:
+              - cell "1" [ref=f8e379]
+              - 'cell "Thông báo Lịch Thi Học Kỳ II Niên Học 2025-2026 Ban Giáo Lý Giáo Xứ xin thông báo đến Quý Phụ huynh và các em Thiếu nhi: Kỳ thi Giáo lý Học kỳ II sẽ chính thức diễn ra vào Chủ Nhật ngày 09/08/2026 sau Thánh Lễ Thiếu nhi. Đề nghị các em ôn bài đầy đủ." [ref=f8e380]':
+                - generic [ref=f8e381]: Thông báo Lịch Thi Học Kỳ II Niên Học 2025-2026
+                - generic [ref=f8e382]: "Ban Giáo Lý Giáo Xứ xin thông báo đến Quý Phụ huynh và các em Thiếu nhi: Kỳ thi Giáo lý Học kỳ II sẽ chính thức diễn ra vào Chủ Nhật ngày 09/08/2026 sau Thánh Lễ Thiếu nhi. Đề nghị các em ôn bài đầy đủ."
+              - cell [ref=f8e383]
+              - cell [ref=f8e387]:
+                - generic [ref=f8e388]: Trưởng Ban Giáo Lý
+                - generic [ref=f8e392]: 2026-07-20
+              - cell [ref=f8e395]:
+                - button "Xem" [ref=f8e396] [cursor=pointer]
+            - row [ref=f8e397]:
+              - cell "2" [ref=f8e398]
+              - cell "Hội Thao & Trại Hè Thiếu Nhi Thánh Thể Giáo Xứ Chương trình Trại hè TNTT chủ đề \"Bánh Thánh Thể - Nguồn Sống\" sẽ diễn ra từ 15/08 đến 16/08/2026. Đăng ký tham gia tại Văn phòng Xứ đoàn trước ngày 05/08." [ref=f8e399]:
+                - generic [ref=f8e400]: Hội Thao & Trại Hè Thiếu Nhi Thánh Thể Giáo Xứ
+                - generic [ref=f8e401]: Chương trình Trại hè TNTT chủ đề "Bánh Thánh Thể - Nguồn Sống" sẽ diễn ra từ 15/08 đến 16/08/2026. Đăng ký tham gia tại Văn phòng Xứ đoàn trước ngày 05/08.
+              - cell [ref=f8e402]
+              - cell [ref=f8e406]:
+                - generic [ref=f8e407]: Tuyên Úy Xứ Đoàn
+                - generic [ref=f8e411]: 2026-07-18
+              - cell [ref=f8e414]:
+                - button "Xem" [ref=f8e415] [cursor=pointer]
+            - row [ref=f8e416]:
+              - cell "3" [ref=f8e417]
+              - cell "Nhắc nhở nộp danh sách Lễ Sinh phụ vụ Lễ Quan Thầy Các Huynh Trưởng Ngành Thiếu và Ngành Nghĩa nộp lại danh sách thiếu nhi tham gia đội Lễ sinh phục vụ Lễ Quan Thầy Giáo xứ trước thứ Bảy tuần này." [ref=f8e418]:
+                - generic [ref=f8e419]: Nhắc nhở nộp danh sách Lễ Sinh phụ vụ Lễ Quan Thầy
+                - generic [ref=f8e420]: Các Huynh Trưởng Ngành Thiếu và Ngành Nghĩa nộp lại danh sách thiếu nhi tham gia đội Lễ sinh phục vụ Lễ Quan Thầy Giáo xứ trước thứ Bảy tuần này.
+              - cell [ref=f8e421]
+              - cell [ref=f8e425]:
+                - generic [ref=f8e426]: Xứ Đoàn Trưởng
+                - generic [ref=f8e430]: 2026-07-15
+              - cell [ref=f8e433]:
+                - button "Xem" [ref=f8e434] [cursor=pointer]
+        - generic [ref=f8e435]:
+          - generic [ref=f8e436]:
+            - generic [ref=f8e437]:
+              - heading "Thông báo Lịch Thi Học Kỳ II Niên Học 2025-2026" [level=3] [ref=f8e438]
+              - generic [ref=f8e439]: Khẩn
+            - paragraph [ref=f8e440]: "Ban Giáo Lý Giáo Xứ xin thông báo đến Quý Phụ huynh và các em Thiếu nhi: Kỳ thi Giáo lý Học kỳ II sẽ chính thức diễn ra vào Chủ Nhật ngày 09/08/2026 sau Thánh Lễ Thiếu nhi. Đề nghị các em ôn bài đầy đủ."
+            - generic [ref=f8e441]:
+              - generic [ref=f8e442]: Trưởng Ban Giáo Lý
+              - generic [ref=f8e446]: 2026-07-20
+          - generic [ref=f8e449]:
+            - generic [ref=f8e450]:
+              - heading "Hội Thao & Trại Hè Thiếu Nhi Thánh Thể Giáo Xứ" [level=3] [ref=f8e451]
+              - generic [ref=f8e452]: Thông tin
+            - paragraph [ref=f8e453]: Chương trình Trại hè TNTT chủ đề "Bánh Thánh Thể - Nguồn Sống" sẽ diễn ra từ 15/08 đến 16/08/2026. Đăng ký tham gia tại Văn phòng Xứ đoàn trước ngày 05/08.
+            - generic [ref=f8e454]:
+              - generic [ref=f8e455]: Tuyên Úy Xứ Đoàn
+              - generic [ref=f8e459]: 2026-07-18
+          - generic [ref=f8e462]:
+            - generic [ref=f8e463]:
+              - heading "Nhắc nhở nộp danh sách Lễ Sinh phụ vụ Lễ Quan Thầy" [level=3] [ref=f8e464]
+              - generic [ref=f8e465]: Bình thường
+            - paragraph [ref=f8e466]: Các Huynh Trưởng Ngành Thiếu và Ngành Nghĩa nộp lại danh sách thiếu nhi tham gia đội Lễ sinh phục vụ Lễ Quan Thầy Giáo xứ trước thứ Bảy tuần này.
+            - generic [ref=f8e467]:
+              - generic [ref=f8e468]: Xứ Đoàn Trưởng
+              - generic [ref=f8e472]: 2026-07-15
+  - generic:
+    - contentinfo:
+      - button "Open TanStack Router Devtools" [ref=f8e274] [cursor=pointer]:
+        - generic [ref=f8e346]: "-"
+        - generic [ref=f8e347]: TanStack Router
