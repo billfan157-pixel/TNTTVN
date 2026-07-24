@@ -1,7 +1,7 @@
 let accessToken: string | null = null
 let refreshToken: string | null = null
 
-const API_BASE = '/api'
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
 export function getAccessToken(): string | null {
   return accessToken
