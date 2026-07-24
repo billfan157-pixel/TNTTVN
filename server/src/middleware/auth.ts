@@ -1,5 +1,8 @@
 import { createMiddleware } from 'hono/factory'
 import jwt from 'jsonwebtoken'
+import { db } from '../db/index.js'
+import { users } from '../db/schema.js'
+import { eq } from 'drizzle-orm'
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -19,6 +22,7 @@ export interface JwtPayload {
   username: string
   role: 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh'
   parishId: string
+  tokenVersion?: number
 }
 
 export function generateTokens(payload: JwtPayload) {
@@ -45,6 +49,13 @@ export const authMiddleware = createMiddleware(async (c, next) => {
   if (!payload) {
     return c.json({ error: 'Invalid or expired token' }, 401)
   }
+
+  // Validate tokenVersion & account status against DB
+  const [userDb] = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1)
+  if (!userDb || userDb.status === 'LOCKED' || (payload.tokenVersion && userDb.tokenVersion !== payload.tokenVersion)) {
+    return c.json({ error: 'Session invalidated or account locked' }, 401)
+  }
+
   c.set('user', payload)
   await next()
 })

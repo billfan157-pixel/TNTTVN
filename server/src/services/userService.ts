@@ -8,8 +8,14 @@ export async function getUsers(parishId: string) {
   const userList = await db.select().from(users).where(eq(users.parishId, parishId))
   const assignments = await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, parishId))
 
+  const assignmentMap = new Map<string, string[]>()
+  for (const a of assignments) {
+    if (!assignmentMap.has(a.userId)) assignmentMap.set(a.userId, [])
+    assignmentMap.get(a.userId)!.push(a.classId)
+  }
+
   return userList.map((u) => {
-    const userClasses = assignments.filter((a) => a.userId === u.id).map((a) => a.classId)
+    const userClasses = assignmentMap.get(u.id) || []
     const { passwordHash, ...safeUser } = u
     return {
       ...safeUser,
@@ -38,7 +44,7 @@ export async function createUser(
 ) {
   const id = generateId('USR')
   const tempPass = `Parish@${Math.floor(1000 + Math.random() * 9000)}`
-  const passwordHash = bcrypt.hashSync(tempPass, 10)
+  const passwordHash = await bcrypt.hash(tempPass, 10)
   const now = new Date().toISOString()
 
   await db.insert(users).values({
@@ -85,7 +91,18 @@ export async function createUser(
   return { id, username: data.username, tempPassword: tempPass }
 }
 
-export async function updateUserStatus(id: string, status: 'ACTIVE' | 'LOCKED' | 'INACTIVE', adminUserId: string, parishId: string, ip: string, userAgent: string) {
+export async function updateUserStatus(
+  id: string,
+  status: 'ACTIVE' | 'LOCKED' | 'INACTIVE',
+  adminUserId: string,
+  parishId: string,
+  ip: string,
+  userAgent: string,
+) {
+  if (id === adminUserId && status === 'LOCKED') {
+    throw new Error('Admin cannot lock their own account')
+  }
+
   const [existing] = await db.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
   if (!existing) return null
 
@@ -112,7 +129,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
   if (!existing) return null
 
   const tempPass = `Reset@${Math.floor(1000 + Math.random() * 9000)}`
-  const passwordHash = bcrypt.hashSync(tempPass, 10)
+  const passwordHash = await bcrypt.hash(tempPass, 10)
 
   await db.update(users).set({ passwordHash, status: 'FORCE_PASSWORD_CHANGE', failedAttempts: 0, lockedUntil: null }).where(eq(users.id, id))
 

@@ -50,6 +50,7 @@ auth.post('/login', zValidator('json', loginSchema), async (c) => {
     username: user.username,
     role: user.role as JwtPayload['role'],
     parishId: user.parishId,
+    tokenVersion: user.tokenVersion || 1,
   })
 
   return successResponse(c, {
@@ -70,7 +71,7 @@ auth.post('/change-password', authMiddleware, zValidator('json', changePasswordS
     return errorResponse(c, 'INVALID_CURRENT_PASSWORD', 'Mật khẩu hiện tại không chính xác', 400)
   }
 
-  const passwordHash = bcrypt.hashSync(newPassword, 10)
+  const passwordHash = await bcrypt.hash(newPassword, 10)
   await db.update(users).set({ passwordHash, status: 'ACTIVE', mustChangePassword: 0 }).where(eq(users.id, user.id))
 
   return successResponse(c, { success: true, message: 'Đổi mật khẩu thành công!' })
@@ -91,6 +92,7 @@ auth.post('/refresh', zValidator('json', z.object({ refreshToken: z.string() }))
     username: user.username,
     role: user.role as JwtPayload['role'],
     parishId: user.parishId,
+    tokenVersion: user.tokenVersion || 1,
   })
   return successResponse(c, tokens)
 })
