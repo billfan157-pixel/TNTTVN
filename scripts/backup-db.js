@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const BACKUP_DIR = path.join(__dirname, '../backups')
-const DB_FILE = path.join(__dirname, '../server/parish.db')
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(__dirname, '../backups')
+const DB_FILE = process.env.DB_PATH || path.join(__dirname, '../server/parish.db')
 
 export function performBackup() {
   if (!fs.existsSync(BACKUP_DIR)) {

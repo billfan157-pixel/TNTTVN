@@ -22,13 +22,19 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Install cron for scheduled backups
+RUN apk add --no-cache dcron
+
 # Copy built assets & dependencies
 COPY package*.json ./
 RUN npm ci --only=production
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server/dist ./server/dist
+COPY scripts/backup-db.js /usr/local/bin/backup-db.js
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 3001
 
-CMD ["node", "server/dist/index.js"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -12,6 +12,8 @@ services:
       - PORT=3001
       - HOST=0.0.0.0
       - JWT_SECRET=${JWT_SECRET:-parish_tntt_production_secure_jwt_secret_2026}
+      - BACKUP_DIR=/app/backups
+      - DB_PATH=/app/data/parish.db
     volumes:
       - parish_data:/app/data
       - parish_backups:/app/backups
@@ -22,14 +24,13 @@ services:
       retries: 3
 
   web:
-    image: nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.web
     container_name: parish_tntt_web
     restart: always
     ports:
       - "80:80"
-    volumes:
-      - ./dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - app
 

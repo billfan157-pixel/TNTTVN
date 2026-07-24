@@ -5,8 +5,9 @@ import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useTheme } from '../../hooks/useTheme'
 import { ConfirmDialog } from './ConfirmDialog'
+import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import logo from '../../assets/logo-tntt.png'
-import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck } from 'lucide-react'
+import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck, Activity } from 'lucide-react'
 import { clearTokens } from '../../lib/api'
 import { useNavigate } from '@tanstack/react-router'
 import { MOCK_CLASSES } from '../../data/mockParishData'
@@ -27,6 +28,7 @@ export const HeaderBar: React.FC = () => {
 
   const [localSearch, setLocalSearch] = useState(searchQuery)
   const [currentUser, setCurrentUser] = useState<{ fullName?: string; username?: string; role?: string } | null>(null)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
 
   useEffect(() => {
     try {
@@ -92,8 +94,8 @@ export const HeaderBar: React.FC = () => {
           </div>
 
           {/* Controls */}
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Class Switcher Dropdown (Task 5.5) */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Class Switcher Dropdown */}
             <div className="flex items-center gap-2 bg-black/20 border border-white/20 rounded-xl px-3 py-1 text-xs text-white">
               <span className="text-white/70 hidden sm:inline">Lớp:</span>
               <select
@@ -113,7 +115,7 @@ export const HeaderBar: React.FC = () => {
             </div>
 
             {/* Quick Search */}
-            <div className={`relative ${effectiveMode === 'desktop' ? 'w-56' : 'w-32'}`}>
+            <div className={`relative ${effectiveMode === 'desktop' ? 'w-48' : 'w-32'}`}>
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -150,7 +152,17 @@ export const HeaderBar: React.FC = () => {
               </button>
             </div>
 
-            {/* User Profile Badge & Logout (Task 5.4) */}
+            {/* System Diagnostics Trigger (Phase 9) */}
+            <button
+              type="button"
+              onClick={() => setShowDiagnostics(true)}
+              title="Bảng Chẩn Đoán System Telemetry"
+              className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/15 text-[#FDE047] hover:bg-white/25 transition-colors"
+            >
+              <Activity size={16} />
+            </button>
+
+            {/* User Profile Badge & Logout */}
             {currentUser ? (
               <div className="flex items-center gap-2 bg-white/15 px-3 py-1 rounded-xl border border-white/20 text-xs text-white">
                 <UserCheck className="w-4 h-4 text-[#FDE047]" />
@@ -240,6 +252,8 @@ export const HeaderBar: React.FC = () => {
         }}
         onCancel={() => setShowResetConfirm(false)}
       />
+
+      <SystemDiagnosticsModal isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
     </>
   )
 }

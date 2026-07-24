@@ -13,6 +13,7 @@
 | 🟣 | Phase 5 — Frontend |
 | 🟠 | Phase 6 — Backend |
 | ⚪ | Phase 7 — Testing |
+| 🟤 | Phase 8 — Deployment |
 | ⚡ | Quick Win (<30 min) |
 
 ---
@@ -34,6 +35,9 @@ Phase 1 (Critical Bugs)
   │                    └───────────┬───────────┘
   │                                ↓
   │                          Phase 7 (Testing)
+  │                                │
+  │                                ↓
+  │                          Phase 8 (Deployment)
   │
   └──→ Quick Wins (interspersed)
 ```
@@ -284,10 +288,10 @@ GLV Nguyễn Văn A
 - **Effort**: 20 min
 
 ### Deliverables
-- [ ] All routes return `{ success, data }` / `{ success, error }`
-- [ ] Delta sync working end-to-end
-- [ ] Route handlers < 20 lines each
-- [ ] Consistent ID format across codebase
+- [x] All routes return `{ success, data }` / `{ success, error }`
+- [x] Delta sync working end-to-end
+- [x] Route handlers < 20 lines each
+- [x] Consistent ID format across codebase
 
 ---
 
@@ -357,14 +361,14 @@ GLV Nguyễn Văn A
 - **Effort**: 10 min
 
 ### Deliverables
-- [ ] Login page at `/login` with auth guard
-- [ ] User menu in HeaderBar with class switcher
-- [ ] User Management UI (table + create + lock/unlock)
-- [ ] Class Assignment UI
-- [ ] Excel Import Modal
-- [ ] Stores fetch from API with offline fallback
-- [ ] Mock data removed as default
-- [ ] All pages handle loading + error states
+- [x] Login page at `/login` with auth guard
+- [x] User menu in HeaderBar with class switcher
+- [x] User Management UI (table + create + lock/unlock)
+- [x] Class Assignment UI
+- [x] Excel Import Modal
+- [x] Stores fetch from API with offline fallback
+- [x] Mock data removed as default
+- [x] All pages handle loading + error states
 
 ---
 
@@ -415,12 +419,12 @@ GLV Nguyễn Văn A
 - **Effort**: 1h
 
 ### Deliverables
-- [ ] User CRUD API working (admin only)
-- [ ] Password change + reset endpoints
-- [ ] Force logout by tokenVersion increment
-- [ ] Account auto-lock after 5 failed attempts
-- [ ] Notification persistence (no data loss on restart)
-- [ ] Soft delete for students
+- [x] User CRUD API working (admin only)
+- [x] Password change + reset endpoints
+- [x] Force logout by tokenVersion increment
+- [x] Account auto-lock after 5 failed attempts
+- [x] Notification persistence (no data loss on restart)
+- [x] Soft delete for students
 
 ---
 
@@ -477,12 +481,53 @@ GLV Nguyễn Văn A
 - **Effort**: 30 min
 
 ### Deliverables
-- [ ] Coverage reporting configured
-- [ ] Server test suite: 30+ tests
-- [ ] Component tests: 10+ tests
-- [ ] E2E: 15+ tests covering critical paths
-- [ ] (Optional) PDF export working
-- [ ] (Optional) 1-Click Backup & Restore
+- [x] Coverage reporting configured
+- [x] Server test suite: 30+ tests
+- [x] Component tests: 10+ tests
+- [x] E2E: 15+ tests covering critical paths
+- [x] (Optional) PDF export working
+- [x] (Optional) 1-Click Backup & Restore
+
+---
+
+## 🟤 Phase 8 — Deployment (Week 8)
+
+### Task 8.1 — Dockerize production stack
+- **Files**: `Dockerfile`, `Dockerfile.web`, `docker-compose.yml`
+- **Description**: Multi-stage Dockerfile (node:22-alpine) builds server + frontend; Dockerfile.web builds frontend into nginx image; docker-compose.yml orchestrates app + web services with named volumes, healthcheck, restart policy
+- **Effort**: 2h
+
+### Task 8.2 — nginx reverse proxy with security headers
+- **Files**: `nginx.conf`
+- **Description**: Gzip compression, CSP security headers, API proxy to app container, SPA fallback routing
+- **Effort**: 1h
+
+### Task 8.3 — SQLite backup automation
+- **Files**: `scripts/backup-db.js`, `scripts/entrypoint.sh`
+- **Description**: Daily crond backup at 3:00 AM + startup backup, keep last 5 copies, safe readFileSync+writeFileSync pattern, Docker env vars for configurable paths
+- **Effort**: 1h
+
+### Task 8.4 — Serve frontend from nginx, not host bind mount
+- **Files**: `Dockerfile.web`
+- **Description**: Eliminates host `./dist` dependency — frontend built inside Docker and copied into nginx image
+- **Effort**: 30 min
+
+### Task 8.5 — Server-side adjustments for Docker
+- **Files**: `server/src/index.ts`
+- **Description**: Add `HOST=0.0.0.0` env support, `CLIENT_ORIGIN` env for dynamic CORS
+- **Effort**: 15 min
+
+### Task 8.6 — Fix Phase 8 review issues
+- **Files**: `Dockerfile`, `Dockerfile.web`, `docker-compose.yml`, `nginx.conf`, `scripts/backup-db.js`, `scripts/entrypoint.sh`
+- **Description**: Fix 12 issues found in review: server dist compilation (noEmit→false), frontend assets in nginx, .dockerignore, JWT_SECRET env var, CORS dynamic, backup path env vars, Node 24→22 LTS, named volumes, HOST config
+- **Effort**: 1h
+
+### Deliverables
+- [x] Docker compose up -d runs app + web without host dist
+- [x] nginx serves SPA + proxies /api/ to backend
+- [x] Daily SQLite backup at 3:00 AM via crond
+- [x] All 12 Phase 8 review issues resolved
+- [x] No host filesystem dependency for frontend assets
 
 ---
 
@@ -496,7 +541,9 @@ GitHub Actions on push/PR to master:
 ```
 
 ### Docker (Current)
-**docker-compose.yml** — single service, multi-stage build (node:24-alpine + SQL.js).
+**docker-compose.yml** — 2 services:
+- `app`: multi-stage build (node:22-alpine), SQL.js + crond for daily backup, named volumes for data + backups, healthcheck
+- `web`: multi-stage build (nginx:1.27-alpine), frontend built inside Docker (no host dist dependency), SPD routing + API proxy
 
 ### Recommended Production Setup
 ```
@@ -567,10 +614,11 @@ Ubuntu 24.04 LTS
 ```
 Week 1:  🔴 Phase 1 (Critical Bugs) + 🟡 Phase 2 (Security) ✅
 Week 2:  🔵 Phase 3 (Database + Frontend Features) ✅
-Week 3:  🟢 Phase 4 (Architecture) + 🟣 Phase 5 start
-Week 4:  🟣 Phase 5 (Frontend) + 🟠 Phase 6 start
-Week 5:  🟠 Phase 6 (Backend IAM)
-Week 6+:  ⚪ Phase 7 (Testing) + PDF/Backup optional
+Week 3:  🟢 Phase 4 (Architecture) + 🟣 Phase 5 start ✅
+Week 4:  🟣 Phase 5 (Frontend) + 🟠 Phase 6 start ✅
+Week 5:  🟠 Phase 6 (Backend IAM) ✅
+Week 6-7: ⚪ Phase 7 (Testing + Polish) ✅
+Week 8:  🟤 Phase 8 (Deployment) ✅
 ```
 
 ## Total Estimated Effort
@@ -584,4 +632,5 @@ Week 6+:  ⚪ Phase 7 (Testing) + PDF/Backup optional
 | 🟣 Phase 5 | 12 tasks | ~18h |
 | 🟠 Phase 6 | 9 tasks | ~13h |
 | ⚪ Phase 7 | 11 tasks (2 optional) | ~31h |
-| **Total** | **59 tasks** | **~79 hours** |
+| 🟤 Phase 8 | 6 tasks | ~6h |
+| **Total** | **65 tasks** | **~85 hours** |
