@@ -1,12 +1,12 @@
 import React from 'react';
 import { 
   LayoutDashboard, Users, FileSpreadsheet, CheckSquare, 
-  Printer, Bell, ShieldCheck, ChevronRight 
+  Printer, Bell, ShieldCheck, ChevronRight, BookOpen 
 } from 'lucide-react';
 import type { ClassInfo, BranchInfo } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 
-export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'notices' | 'users';
+export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'notices' | 'users' | 'classes';
 
 interface DesktopSidebarProps {
   activeTab: DesktopTab;
@@ -37,6 +37,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     ...(role === 'phuhuynh' ? [] : [{ id: 'grades', label: 'Nhập Điểm Hàng Loạt', icon: FileSpreadsheet }]),
     ...(role === 'phuhuynh' ? [] : [{ id: 'attendance', label: 'Điểm Danh Chuyên Cần', icon: CheckSquare }]),
     ...(role === 'phuhuynh' || role === 'phuta' ? [] : [{ id: 'reports', label: 'Báo Cáo & In Phiếu', icon: Printer }]),
+    { id: 'classes', label: 'Quản Lý Lớp Học', icon: BookOpen },
     { id: 'notices', label: 'Thông Báo Giáo Xứ', icon: Bell },
     ...(role === 'admin' ? [{ id: 'users', label: 'Quản Lý Tài Khoản', icon: ShieldCheck }] : []),
   ];

@@ -26,6 +26,7 @@ const AttendancePage = lazy(() => import('./pages/AttendancePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const NoticesPage = lazy(() => import('./pages/NoticesPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
+const ClassesPage = lazy(() => import('./pages/ClassesPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 
 function getAccessToken(): string | null {
@@ -74,6 +75,7 @@ const routeToTab: Record<string, DesktopTab> = {
   '/reports': 'reports',
   '/notices': 'notices',
   '/users': 'users',
+  '/classes': 'classes',
 }
 
 function RootLayout() {
@@ -261,6 +263,14 @@ const usersRoute = createRoute({
   component: UsersPage,
 })
 
+const classesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/classes',
+  beforeLoad: requireAuth,
+  onEnter: requireRole('admin', 'chunhiem', 'phuta'),
+  component: ClassesPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -271,6 +281,7 @@ const routeTree = rootRoute.addChildren([
   reportsRoute,
   noticesRoute,
   usersRoute,
+  classesRoute,
 ])
 
 export const router = createRouter({ routeTree })

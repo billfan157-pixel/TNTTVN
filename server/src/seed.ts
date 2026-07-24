@@ -195,6 +195,10 @@ async function seed() {
     { id: 'user.create', name: 'Tạo Người Dùng', description: 'Tạo tài khoản người dùng mới' },
     { id: 'user.edit', name: 'Sửa Người Dùng', description: 'Chỉnh sửa thông tin người dùng' },
     { id: 'user.delete', name: 'Xóa Người Dùng', description: 'Xóa tài khoản người dùng' },
+    { id: 'class.create', name: 'Thêm Lớp', description: 'Tạo lớp học mới' },
+    { id: 'class.edit', name: 'Sửa Lớp', description: 'Chỉnh sửa thông tin lớp học' },
+    { id: 'class.delete', name: 'Xóa Lớp', description: 'Xóa lớp học' },
+    { id: 'class.view', name: 'Xem Lớp', description: 'Xem danh sách lớp học' },
     { id: 'assignment.edit', name: 'Phân Công Lớp', description: 'Phân công giáo lý viên vào lớp' },
     { id: 'backup', name: 'Sao Lưu', description: 'Sao lưu và phục hồi dữ liệu' },
   ]
@@ -219,8 +223,12 @@ async function seed() {
     { role: 'chunhiem', permissionId: 'notice.delete' },
     { role: 'chunhiem', permissionId: 'report.view' },
     { role: 'chunhiem', permissionId: 'report.export' },
+    { role: 'chunhiem', permissionId: 'class.create' },
+    { role: 'chunhiem', permissionId: 'class.edit' },
+    { role: 'chunhiem', permissionId: 'class.view' },
     { role: 'chunhiem', permissionId: 'assignment.edit' },
     // Phuta
+    { role: 'phuta', permissionId: 'class.view' },
     { role: 'phuta', permissionId: 'student.view' },
     { role: 'phuta', permissionId: 'grade.edit' },
     { role: 'phuta', permissionId: 'grade.view' },

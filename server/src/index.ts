@@ -10,6 +10,7 @@ import attendanceRouter from './routes/attendance.js'
 import noticesRouter from './routes/notices.js'
 import notificationsRouter from './routes/notifications.js'
 import usersRouter from './routes/users.js'
+import classesRouter from './routes/classes.js'
 import { saveDb } from './db/index.js'
 import { seedIfEmpty } from './seed.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
@@ -42,6 +43,7 @@ app.route('/api/attendance', attendanceRouter)
 app.route('/api/notices', noticesRouter)
 app.route('/api/notifications', notificationsRouter)
 app.route('/api/users', usersRouter)
+app.route('/api/classes', classesRouter)
 
 const PORT = Number(process.env.PORT) || 3001
 const HOST = process.env.HOST || '0.0.0.0'

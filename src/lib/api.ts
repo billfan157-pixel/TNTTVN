@@ -165,6 +165,15 @@ export const api = {
   batchUpsertAttendance: (date: string, type: string, records: { studentId: string; status: string; note?: string }[]) =>
     request<{ success: boolean }>('POST', '/attendance/batch', { date, type, records }),
 
+  // ─── Classes ───
+  getClasses: () => request<any[]>('GET', '/classes'),
+  getClass: (id: string) => request<any>('GET', `/classes/${id}`),
+  getClassBranches: () => request<any[]>('GET', '/classes/branches'),
+  getClassAcademicYears: () => request<any[]>('GET', '/classes/academic-years'),
+  createClass: (data: Record<string, unknown>) => request<any>('POST', '/classes', data),
+  updateClass: (id: string, data: Record<string, unknown>) => request<any>('PUT', `/classes/${id}`, data),
+  deleteClass: (id: string) => request<{ success: boolean }>('DELETE', `/classes/${id}`),
+
   // ─── Notices ───
   getNotices: (updatedAfter?: string) => {
     const q = updatedAfter ? `?updatedAfter=${encodeURIComponent(updatedAfter)}` : ''
