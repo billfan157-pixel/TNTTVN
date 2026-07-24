@@ -1,7 +1,7 @@
 {
   "name": "brave-davinci",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "predev": "node -e \"require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})\"",
