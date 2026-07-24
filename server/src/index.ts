@@ -10,9 +10,7 @@ import attendanceRouter from './routes/attendance.js'
 import noticesRouter from './routes/notices.js'
 import notificationsRouter from './routes/notifications.js'
 import usersRouter from './routes/users.js'
-import { saveDb } from './db/index.js'
-import { db } from './db/index.js'
-import { users } from './db/schema.js'
+import { saveDb, sqlite } from './db/index.js'
 import { seedIfEmpty } from './seed.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
@@ -39,8 +37,24 @@ app.get('/health', async (c) => {
 
 app.get('/debug/users', async (c) => {
   try {
-    const all = db.select().from(users).all()
-    return c.json({ count: all.length, users: all.map(u => ({ id: u.id, username: u.username, role: u.role, status: u.status })) })
+    const stmt = sqlite.prepare(`SELECT id, username, role, status FROM users`)
+    const rows = []
+    while (stmt.step()) { rows.push(stmt.getAsObject()) }
+    stmt.free()
+    return c.json({ count: rows.length, users: rows })
+  } catch (err) {
+    return c.json({ error: String(err) }, 500)
+  }
+})
+
+app.get('/debug/tryseed', async (c) => {
+  try {
+    await seedIfEmpty()
+    const stmt = sqlite.prepare(`SELECT id, username, role, status FROM users`)
+    const rows = []
+    while (stmt.step()) { rows.push(stmt.getAsObject()) }
+    stmt.free()
+    return c.json({ message: 'Seed attempted', users: rows })
   } catch (err) {
     return c.json({ error: String(err) }, 500)
   }

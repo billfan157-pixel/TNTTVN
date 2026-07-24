@@ -189,3 +189,4 @@ export function saveDb() {
 }
 
 export const db = drizzle(sqlite, { schema })
+export { sqlite }
