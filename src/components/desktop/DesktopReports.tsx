@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
-import { Printer, FileText, BarChart2 } from 'lucide-react';
+import { Printer, FileText, BarChart2, FileSpreadsheet, Database } from 'lucide-react';
 import type { Student } from '../../types';
+import { PrintReportModal } from '../common/PrintReportModal';
+import { ExcelImportModal } from '../common/ExcelImportModal';
+import { BackupRestoreModal } from '../common/BackupRestoreModal';
 
 interface DesktopReportsProps {
   onViewReport: (student: Student) => void;
@@ -14,25 +18,36 @@ export function DesktopReports({ onViewReport }: DesktopReportsProps) {
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
 
-  const onPrintOverallReport = () => {
-    window.print();
-  };
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Modals */}
+      <PrintReportModal isOpen={isPrintModalOpen} onClose={() => setIsPrintModalOpen(false)} />
+      <ExcelImportModal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} />
+      <BackupRestoreModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} />
+
       {/* Header Bar */}
       <div className="bg-white rounded-2xl p-5 border border-surface-border flex justify-between items-center flex-wrap gap-4 shadow-card">
         <div>
           <h2 className="text-lg font-extrabold text-parish-primary m-0 tracking-tight flex items-center gap-2">
-            <Printer size={20} /> Báo Cáo Tổng Kết & In Phiếu Điểm
+            <Printer size={20} /> Báo Cáo Tổng Kết & Công Cụ Quản Trị Nhà Xứ
           </h2>
           <p className="text-sm text-text-muted mt-1 m-0 font-medium">
-            Tổng hợp kết quả học tập Giáo lý & Chuyên cần Niên học 2025 - 2026
+            Tổng hợp kết quả học tập Giáo lý, In Sổ Điểm, Import Excel & Sao Lưu Dữ Liệu 1-Click
           </p>
         </div>
-        <div className="flex gap-3">
-          <button onClick={onPrintOverallReport} className="btn btn-primary">
-            <Printer size={16} /> In Báo Cáo Tổng Hợp
+        <div className="flex gap-3 flex-wrap">
+          <button onClick={() => setIsExcelModalOpen(true)} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors">
+            <FileSpreadsheet size={16} /> Import Excel
+          </button>
+          <button onClick={() => setIsBackupModalOpen(true)} className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors">
+            <Database size={16} /> Backup & Restore
+          </button>
+          <button onClick={() => setIsPrintModalOpen(true)} className="btn btn-primary text-xs font-bold">
+            <Printer size={16} /> In Sổ Điểm Lớp
           </button>
         </div>
       </div>

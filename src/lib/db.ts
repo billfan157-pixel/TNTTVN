@@ -88,3 +88,5 @@ export const dexieStorage = {
 export function getDB() {
   return DB
 }
+
+export const db = DB

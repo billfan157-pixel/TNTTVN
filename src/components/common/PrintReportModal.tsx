@@ -1,0 +1,145 @@
+import React, { useState } from 'react'
+import { Printer, FileText, Award, X } from 'lucide-react'
+import { generateClassGradebookHTML, printHTMLReport, type ReportType } from '../../utils/pdfGenerator'
+import { useStudentStore } from '../../stores/studentStore'
+import { useGradeStore } from '../../stores/gradeStore'
+import { useAttendanceStore } from '../../stores/attendanceStore'
+import { MOCK_CLASSES } from '../../data/mockParishData'
+
+interface Props {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
+  const [reportType, setReportType] = useState<ReportType>('CLASS_GRADEBOOK')
+  const [selectedClassId, setSelectedClassId] = useState('AU1')
+  const [academicYear, setAcademicYear] = useState('2025 - 2026')
+
+  const students = useStudentStore((s) => s.students)
+  const grades = useGradeStore((g) => g.grades)
+  const attendance = useAttendanceStore((a) => a.attendance)
+
+  if (!isOpen) return null
+
+  const handlePrint = () => {
+    const html = generateClassGradebookHTML(selectedClassId, students, grades, attendance, {
+      academicYear,
+      parishName: 'Giáo Xứ Thánh Gia',
+      dioceseName: 'Giáo Phận Xuân Lộc',
+    })
+    printHTMLReport(html)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+      <div className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-parish-primary-light text-parish-primary rounded-lg">
+              <Printer className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-text-main">In Báo Cáo & Sổ Điểm Nhà Xứ</h2>
+              <p className="text-xs text-text-muted">Xuất file PDF chuẩn in ấn Sổ điểm & Phiếu điểm</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-5">
+          {/* Report Type Selection */}
+          <div>
+            <label className="block text-xs font-semibold text-text-muted uppercase mb-2">Loại Báo Cáo Cần In</label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setReportType('CLASS_GRADEBOOK')}
+                className={`p-3 rounded-lg border text-left flex flex-col justify-between transition-colors ${
+                  reportType === 'CLASS_GRADEBOOK'
+                    ? 'border-parish-primary bg-parish-primary-light text-parish-primary font-semibold'
+                    : 'border-surface-border hover:bg-surface-hover text-text-main'
+                }`}
+              >
+                <FileText className="w-5 h-5 mb-2" />
+                <span className="text-xs">Sổ Điểm Lớp</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportType('STUDENT_REPORT_CARD')}
+                className={`p-3 rounded-lg border text-left flex flex-col justify-between transition-colors ${
+                  reportType === 'STUDENT_REPORT_CARD'
+                    ? 'border-parish-primary bg-parish-primary-light text-parish-primary font-semibold'
+                    : 'border-surface-border hover:bg-surface-hover text-text-main'
+                }`}
+              >
+                <FileText className="w-5 h-5 mb-2" />
+                <span className="text-xs">Phiếu Điểm</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportType('SACRAMENT_CERTIFICATE')}
+                className={`p-3 rounded-lg border text-left flex flex-col justify-between transition-colors ${
+                  reportType === 'SACRAMENT_CERTIFICATE'
+                    ? 'border-parish-primary bg-parish-primary-light text-parish-primary font-semibold'
+                    : 'border-surface-border hover:bg-surface-hover text-text-main'
+                }`}
+              >
+                <Award className="w-5 h-5 mb-2" />
+                <span className="text-xs">Giấy Chứng Nhận</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Lớp Giáo Lý</label>
+              <select
+                value={selectedClassId}
+                onChange={(e) => setSelectedClassId(e.target.value)}
+                className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
+              >
+                {MOCK_CLASSES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.academicYear})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Năm Học</label>
+              <input
+                type="text"
+                value={academicYear}
+                onChange={(e) => setAcademicYear(e.target.value)}
+                className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-surface-border bg-surface-hover/30">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-text-muted hover:bg-surface-hover transition-colors">
+            Hủy Bỏ
+          </button>
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold text-white bg-parish-primary hover:bg-parish-primary-hover shadow-xs transition-colors"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Mở Trang In / PDF</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
