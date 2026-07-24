@@ -123,12 +123,16 @@ sqlite.run(`
 
   CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
-    recipient_phone TEXT NOT NULL,
-    student_name TEXT NOT NULL,
-    message TEXT NOT NULL,
-    type TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('SENT', 'FAILED')),
-    error_message TEXT,
+    student_id TEXT,
+    type TEXT NOT NULL CHECK(type IN ('telegram', 'web_push')),
+    channel TEXT NOT NULL CHECK(channel IN ('absence', 'report_card', 'reminder')),
+    status TEXT NOT NULL CHECK(status IN ('sent', 'failed', 'retrying')),
+    recipient TEXT NOT NULL,
+    message TEXT,
+    error TEXT,
+    triggered_by_type TEXT NOT NULL CHECK(triggered_by_type IN ('system', 'user')),
+    triggered_by_user_id TEXT,
+    sent_at TEXT,
     parish_id TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
