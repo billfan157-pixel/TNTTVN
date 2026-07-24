@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { ClassInfo, BranchInfo } from '../../types';
 
-export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'notices';
+export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'notices' | 'users';
 
 interface DesktopSidebarProps {
   activeTab: DesktopTab;
@@ -35,6 +35,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     { id: 'attendance', label: 'Điểm Danh Chuyên Cần', icon: CheckSquare },
     { id: 'reports', label: 'Báo Cáo & In Phiếu', icon: Printer },
     { id: 'notices', label: 'Thông Báo Giáo Xứ', icon: Bell },
+    { id: 'users', label: 'Quản Lý Tài Khoản', icon: ShieldCheck },
   ];
 
   const filteredClasses = selectedBranchId === 'all' 
@@ -58,7 +59,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           CHỨC NĂNG QUẢN LÝ
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {menuItems.map(item => {
+          {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
@@ -70,93 +71,91 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   alignItems: 'center',
                   gap: '12px',
                   padding: '10px 14px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: isActive ? '#EFF6FF' : 'transparent',
-                  color: isActive ? '#1E3A8A' : '#475569',
-                  fontWeight: isActive ? 700 : 500,
+                  borderRadius: '10px',
                   fontSize: '13.5px',
+                  fontWeight: isActive ? 700 : 600,
+                  color: isActive ? '#1E3A8A' : '#475569',
+                  background: isActive ? '#EFF6FF' : 'transparent',
+                  border: 'none',
                   cursor: 'pointer',
                   textAlign: 'left',
-                  width: '100%',
                   transition: 'all 0.15s ease'
                 }}
               >
-                <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon size={18} color={isActive ? '#1E3A8A' : '#64748B'} />
-                </div>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
-                {isActive && <ChevronRight size={14} color="#1E3A8A" />}
+                <Icon size={18} color={isActive ? '#1E3A8A' : '#64748B'} />
+                <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
       </div>
 
-      {/* Branch & Class Filters */}
-      <div style={{ background: '#F8FAFC', padding: '16px', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
-        <div style={{ fontSize: '12px', fontWeight: 700, color: '#1E3A8A', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ShieldCheck size={16} /> LỌC PHÂN ĐOÀN & LỚP
+      {/* Branch & Class Filter Section */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '1px solid #F1F5F9', paddingTop: '20px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#94A3B8', letterSpacing: '0.8px', padding: '0 12px' }}>
+          BỘ LỌC PHÂN NGÀNH & LỚP
         </div>
 
-{/* Branch Selector */}
-        <div style={{ marginBottom: '12px' }}>
-          <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', display: 'block', marginBottom: '6px' }}>Phân Ngành TNTT</label>
+        {/* Branch Filter */}
+        <div style={{ padding: '0 12px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
+            Phân Ngành
+          </label>
           <select
             value={selectedBranchId}
-            onChange={e => {
+            onChange={(e) => {
               setSelectedBranchId(e.target.value);
               setSelectedClassId('all');
             }}
             style={{
               width: '100%',
               padding: '8px 12px',
-              height: '36px',
-              fontSize: '12.5px',
-              borderRadius: '12px',
+              borderRadius: '8px',
               border: '1px solid #CBD5E1',
-              background: 'white',
-              outline: 'none',
+              fontSize: '13px',
+              background: '#F8FAFC',
+              color: '#0F172A',
+              fontWeight: 500,
               cursor: 'pointer'
             }}
           >
-            <option value="all">Tất cả các Ngành</option>
-            {Object.values(branches).map(b => (
-              <option key={b.id} value={b.id}>{b.name} ({b.ageRange})</option>
+            <option value="all">Tất cả Phân ngành</option>
+            {Object.values(branches).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name} ({b.ageRange})
+              </option>
             ))}
           </select>
         </div>
 
-{/* Class Selector */}
-        <div>
-          <label style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', display: 'block', marginBottom: '6px' }}>Lớp Giáo Lý</label>
+        {/* Class Filter */}
+        <div style={{ padding: '0 12px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
+            Lớp Học
+          </label>
           <select
             value={selectedClassId}
-            onChange={e => setSelectedClassId(e.target.value)}
+            onChange={(e) => setSelectedClassId(e.target.value)}
             style={{
               width: '100%',
               padding: '8px 12px',
-              height: '36px',
-              fontSize: '12.5px',
-              borderRadius: '12px',
+              borderRadius: '8px',
               border: '1px solid #CBD5E1',
-              background: 'white',
-              outline: 'none',
+              fontSize: '13px',
+              background: '#F8FAFC',
+              color: '#0F172A',
+              fontWeight: 500,
               cursor: 'pointer'
             }}
           >
-            <option value="all">Tất cả các Lớp</option>
-            {filteredClasses.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+            <option value="all">Tất cả Lớp học ({filteredClasses.length})</option>
+            {filteredClasses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} - {c.room}
+              </option>
             ))}
           </select>
         </div>
-      </div>
-
-      {/* Footer Info */}
-      <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid #E2E8F0', fontSize: '11px', color: '#94A3B8' }}>
-        <p style={{ margin: 0, fontWeight: 700, color: '#475569' }}>Ban Giáo Lý Giáo Xứ</p>
-        <p style={{ margin: '2px 0 0 0' }}>Phiên bản Desktop UI 2.0</p>
       </div>
     </aside>
   );

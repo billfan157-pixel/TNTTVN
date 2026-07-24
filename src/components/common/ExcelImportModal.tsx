@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
-import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X } from 'lucide-react'
+import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2 } from 'lucide-react'
 import { parseRosterText, convertToStudentModels, type ParsedStudentRow } from '../../utils/excelParser'
 import { useStudentStore } from '../../stores/studentStore'
 import { MOCK_CLASSES } from '../../data/mockParishData'
+import * as Sentry from '@sentry/react'
 
 interface Props {
   isOpen: boolean
@@ -13,6 +14,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [selectedClassId, setSelectedClassId] = useState('AU1')
   const [pastedText, setPastedText] = useState('')
   const [parsedRows, setParsedRows] = useState<ParsedStudentRow[]>([])
+  const [isImporting, setIsImporting] = useState(false)
+
   const addStudent = useStudentStore((s) => s.addStudent)
 
   if (!isOpen) return null
@@ -34,13 +37,21 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     reader.readAsText(file)
   }
 
-  const handleImport = () => {
-    const validStudents = convertToStudentModels(parsedRows)
-    validStudents.forEach((student) => {
-      addStudent(student)
-    })
-    alert(`Đã thêm thành công ${validStudents.length} Thiếu nhi vào hệ thống!`)
-    onClose()
+  const handleImport = async () => {
+    setIsImporting(true)
+    try {
+      const validStudents = convertToStudentModels(parsedRows)
+      validStudents.forEach((student) => {
+        addStudent(student)
+      })
+      alert(`Đã thêm thành công ${validStudents.length} Thiếu nhi vào hệ thống!`)
+      onClose()
+    } catch (err) {
+      Sentry.captureException(err)
+      alert('Có lỗi xảy ra khi nhập dữ liệu. Vui lòng thử lại!')
+    } finally {
+      setIsImporting(false)
+    }
   }
 
   const validCount = parsedRows.filter((r) => r.isValid).length
@@ -169,10 +180,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </button>
           <button
             onClick={handleImport}
-            disabled={validCount === 0}
-            className="px-5 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs transition-colors"
+            disabled={validCount === 0 || isImporting}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs transition-colors"
           >
-            Nhập {validCount} Thiếu Nhi Vấn Lớp
+            {isImporting && <Loader2 className="w-4 h-4 animate-spin" />}
+            <span>Nhập {validCount} Thiếu Nhi Vấn Lớp</span>
           </button>
         </div>
       </div>

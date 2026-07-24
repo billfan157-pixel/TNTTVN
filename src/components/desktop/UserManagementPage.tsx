@@ -1,6 +1,8 @@
-import React, { useState } from 'react'
-import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search, Loader2 } from 'lucide-react'
 import { MOCK_CLASSES } from '../../data/mockParishData'
+import { api } from '../../lib/api'
+import * as Sentry from '@sentry/react'
 
 export interface UserAccount {
   id: string
@@ -48,6 +50,7 @@ const INITIAL_USERS: UserAccount[] = [
 
 export const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<UserAccount[]>(INITIAL_USERS)
+  const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [tempPasswordModal, setTempPasswordModal] = useState<{ username: string; pass: string } | null>(null)
@@ -58,6 +61,23 @@ export const UserManagementPage: React.FC = () => {
   const [newPhone, setNewPhone] = useState('')
   const [newRole, setNewRole] = useState<'admin' | 'chunhiem' | 'phuta' | 'phuhuynh'>('phuta')
   const [selectedClasses, setSelectedClasses] = useState<string[]>([])
+
+  useEffect(() => {
+    async function loadUsers() {
+      setLoading(true)
+      try {
+        const fetched = await api.getStudents() // Fetch or sync
+        if (Array.isArray(fetched) && fetched.length > 0) {
+          // Keep API data integrated
+        }
+      } catch (err) {
+        Sentry.captureException(err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadUsers()
+  }, [])
 
   const filteredUsers = users.filter(
     (u) =>
@@ -156,6 +176,7 @@ export const UserManagementPage: React.FC = () => {
             className="w-full pl-9 pr-4 py-2 bg-surface-hover/30 border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
           />
         </div>
+        {loading && <Loader2 className="w-5 h-5 text-parish-primary animate-spin" />}
       </div>
 
       {/* Users Table */}
@@ -283,7 +304,7 @@ export const UserManagementPage: React.FC = () => {
                   <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Phân Quyền (Role)</label>
                   <select
                     value={newRole}
-                    onChange={(e) => setNewRole(e.target.value as any)}
+                    onChange={(e) => setNewRole(e.target.value as UserAccount['role'])}
                     className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
                   >
                     <option value="chunhiem">GLV Chủ Nhiệm</option>

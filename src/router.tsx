@@ -14,9 +14,7 @@ import { useUIStore } from './stores/uiStore'
 import { useFilterStore } from './stores/filterStore'
 import { useFilterSearchSync } from './stores/useFilterSearchSync'
 import { useEffectiveMode } from './hooks/useEffectiveMode'
-import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { useSyncEngine } from './hooks/useSyncEngine'
-import { useSyncStore } from './stores/syncStore'
 import { MOCK_CLASSES, BRANCHES } from './data/mockParishData'
 import type { DesktopTab } from './components/desktop/DesktopSidebar'
 import type { MobileTab } from './components/mobile/MobileBottomNav'
@@ -27,6 +25,7 @@ const GradesPage = lazy(() => import('./pages/GradesPage'))
 const AttendancePage = lazy(() => import('./pages/AttendancePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const NoticesPage = lazy(() => import('./pages/NoticesPage'))
+const UsersPage = lazy(() => import('./pages/UsersPage'))
 
 const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={
@@ -45,6 +44,7 @@ const routeToTab: Record<string, DesktopTab> = {
   '/attendance': 'attendance',
   '/reports': 'reports',
   '/notices': 'notices',
+  '/users': 'users',
 }
 
 function RootLayout() {
@@ -55,87 +55,51 @@ function RootLayout() {
   useFilterSearchSync()
   useSyncEngine()
   useSundayReminder()
-  const isOnline = useOnlineStatus()
-  const syncStatus = useSyncStore(s => s.status)
-  const syncPending = useSyncStore(s => s.pendingCount)
 
-  const effectiveMode = useEffectiveMode()
+  const activeTab: DesktopTab = routeToTab[pathname] || 'dashboard'
+  const activeMobileTab: MobileTab = (routeToTab[pathname] as MobileTab) || 'home'
+
   const selectedBranchId = useFilterStore(s => s.selectedBranchId)
   const setSelectedBranchId = useFilterStore(s => s.setSelectedBranchId)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
 
   const {
-    isStudentModalOpen, studentToEdit,
-    isReportModalOpen, studentForReport,
-    isPhotoCardOpen, photoCardStudent,
-    isCertificateOpen, certificateStudent, certificateType,
-    closeStudentModal, closeReport,
-    closePhotoCard, closeCertificate,
+    isStudentModalOpen,
+    studentToEdit,
+    isReportModalOpen,
+    studentForReport,
+    isPhotoCardOpen,
+    photoCardStudent,
+    isCertificateOpen,
+    certificateStudent,
+    certificateType,
+    closeStudentModal,
+    closeReport,
+    closePhotoCard,
+    closeCertificate,
   } = useUIStore()
 
-  const activeTab = routeToTab[pathname] || 'dashboard'
+  const effectiveMode = useEffectiveMode()
 
-  const handleTabChange = (tab: DesktopTab) => {
-    const to = `/${tab}`
-    navigate({ to, replace: true })
+  const handleSelectTab = (tab: DesktopTab) => {
+    navigate({ to: `/${tab}` })
   }
 
-  const handleMobileTabChange = (tab: MobileTab) => {
-    const routeMap: Record<string, string> = {
-      home: '/dashboard',
-      attendance: '/attendance',
-      grades: '/grades',
-      students: '/students',
-      stats: '/reports',
-      notices: '/notices',
-    }
-    const to = routeMap[tab]
-    if (to) navigate({ to, replace: true })
+  const handleSelectMobileTab = (tab: MobileTab) => {
+    if (tab === 'home') navigate({ to: '/dashboard' })
+    else navigate({ to: `/${tab}` })
   }
-
-  const mobileTab: MobileTab = (() => {
-    const map: Record<string, MobileTab> = {
-      '/dashboard': 'home',
-      '/attendance': 'attendance',
-      '/grades': 'grades',
-      '/students': 'students',
-      '/reports': 'stats',
-      '/notices': 'stats',
-    }
-    return map[pathname] || 'home'
-  })()
 
   return (
-    <div className="bg-surface-app text-text-main min-h-screen flex flex-col">
-      {syncStatus === 'offline' && (
-        <div className="text-center text-xs font-semibold px-3 py-1.5 bg-parish-secondary-light text-[#92400E]">
-          Bạn đang ngoại tuyến. Dữ liệu sẽ được đồng bộ khi có kết nối lại.
-          {syncPending > 0 && ` (${syncPending} thao tác chờ đồng bộ)`}
-        </div>
-      )}
-      {syncStatus === 'syncing' && (
-        <div className="text-center text-xs font-semibold px-3 py-1.5 bg-blue-100 text-blue-800">
-          Đang đồng bộ dữ liệu... {syncPending > 0 && `(${syncPending} thao tác)`}
-        </div>
-      )}
-      {syncStatus === 'retrying' && (
-        <div className="text-center text-xs font-semibold px-3 py-1.5 bg-orange-100 text-orange-800">
-          Đang thử lại đồng bộ...
-        </div>
-      )}
-      {syncStatus === 'error' && (
-        <div className="text-center text-xs font-semibold px-3 py-1.5 bg-red-100 text-red-800">
-          Lỗi đồng bộ. Một số dữ liệu chưa được gửi lên máy chủ.
-        </div>
-      )}
+    <div className="min-h-screen bg-surface-app text-text-main font-sans transition-colors duration-200">
       <HeaderBar />
 
       {effectiveMode === 'desktop' ? (
-        <div style={{ display: 'flex', flex: 1 }}>
+        <div className="flex min-h-[calc(100vh-68px)]">
           <DesktopSidebar
             activeTab={activeTab}
-            setActiveTab={handleTabChange}
+            setActiveTab={handleSelectTab}
             selectedBranchId={selectedBranchId}
             setSelectedBranchId={setSelectedBranchId}
             selectedClassId={selectedClassId}
@@ -143,20 +107,27 @@ function RootLayout() {
             classes={MOCK_CLASSES}
             branches={BRANCHES}
           />
-          <main style={{ flex: 1, padding: '24px', overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}>
-            <PageSuspense><Outlet /></PageSuspense>
+          <main className="flex-1 p-6 overflow-y-auto">
+            <PageSuspense>
+              <Outlet />
+            </PageSuspense>
           </main>
         </div>
       ) : (
-        <main style={{ flex: 1, paddingBottom: '72px' }}>
-          <PageSuspense><Outlet /></PageSuspense>
+        <div className="pb-20">
+          <main className="p-4">
+            <PageSuspense>
+              <Outlet />
+            </PageSuspense>
+          </main>
           <MobileBottomNav
-            activeTab={mobileTab}
-            setActiveTab={handleMobileTabChange}
+            activeTab={activeMobileTab}
+            setActiveTab={handleSelectMobileTab}
           />
-        </main>
+        </div>
       )}
 
+      {/* Shared Modals */}
       <StudentModal
         isOpen={isStudentModalOpen}
         onClose={closeStudentModal}
@@ -230,6 +201,12 @@ const noticesRoute = createRoute({
   component: NoticesPage,
 })
 
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users',
+  component: UsersPage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
@@ -238,6 +215,7 @@ const routeTree = rootRoute.addChildren([
   attendanceRoute,
   reportsRoute,
   noticesRoute,
+  usersRoute,
 ])
 
 export const router = createRouter({ routeTree })

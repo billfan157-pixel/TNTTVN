@@ -1,6 +1,12 @@
 import React, { useState } from 'react'
 import { Printer, FileText, Award, X } from 'lucide-react'
-import { generateClassGradebookHTML, printHTMLReport, type ReportType } from '../../utils/pdfGenerator'
+import {
+  generateClassGradebookHTML,
+  generateStudentReportCardHTML,
+  generateSacramentCertificateHTML,
+  printHTMLReport,
+  type ReportType,
+} from '../../utils/pdfGenerator'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
@@ -14,6 +20,7 @@ interface Props {
 export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [reportType, setReportType] = useState<ReportType>('CLASS_GRADEBOOK')
   const [selectedClassId, setSelectedClassId] = useState('AU1')
+  const [selectedStudentId, setSelectedStudentId] = useState('')
   const [academicYear, setAcademicYear] = useState('2025 - 2026')
 
   const students = useStudentStore((s) => s.students)
@@ -22,12 +29,28 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null
 
+  const classStudents = students.filter((s) => s.classId === selectedClassId)
+  const activeStudent = students.find((s) => s.id === selectedStudentId) || classStudents[0]
+
   const handlePrint = () => {
-    const html = generateClassGradebookHTML(selectedClassId, students, grades, attendance, {
+    let html = ''
+    const options = {
       academicYear,
       parishName: 'Giáo Xứ Thánh Gia',
       dioceseName: 'Giáo Phận Xuân Lộc',
-    })
+    }
+
+    if (reportType === 'CLASS_GRADEBOOK') {
+      html = generateClassGradebookHTML(selectedClassId, students, grades, attendance, options)
+    } else if (reportType === 'STUDENT_REPORT_CARD' && activeStudent) {
+      html = generateStudentReportCardHTML(activeStudent, grades, attendance, options)
+    } else if (reportType === 'SACRAMENT_CERTIFICATE' && activeStudent) {
+      html = generateSacramentCertificateHTML(activeStudent, options)
+    } else {
+      alert('Vui lòng chọn học sinh để in phiếu!')
+      return
+    }
+
     printHTMLReport(html)
   }
 
@@ -113,6 +136,23 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 ))}
               </select>
             </div>
+
+            {reportType !== 'CLASS_GRADEBOOK' && (
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Chọn Thiếu Nhi</label>
+                <select
+                  value={selectedStudentId}
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
+                >
+                  {classStudents.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.holyName} {s.fullName} ({s.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Năm Học</label>

@@ -26,7 +26,6 @@ export function parseRosterText(rawText: string, defaultClassId: string = 'AU1')
 
   const results: ParsedStudentRow[] = []
 
-  // Check if first line is a header
   let startIdx = 0
   const firstLine = lines[0].toLowerCase()
   if (firstLine.includes('tên thánh') || firstLine.includes('họ') || firstLine.includes('holy') || firstLine.includes('stt')) {
@@ -35,15 +34,12 @@ export function parseRosterText(rawText: string, defaultClassId: string = 'AU1')
 
   for (let i = startIdx; i < lines.length; i++) {
     const line = lines[i]
-    // Support tab, comma, or semicolon delimited values
     const delimiter = line.includes('\t') ? '\t' : line.includes(',') ? ',' : ';'
     const columns = line.split(delimiter).map((col) => col.trim().replace(/^["']|["']$/g, ''))
 
     if (columns.length < 2) continue
 
-    // Expecting columns: [STT], HolyName, FullName, Gender, DateOfBirth, ParentName, ParentPhone, Address, Branch
     let offset = 0
-    // If first column is numeric STT, skip offset
     if (/^\d+$/.test(columns[0])) offset = 1
 
     const holyName = columns[offset] || ''
@@ -54,12 +50,12 @@ export function parseRosterText(rawText: string, defaultClassId: string = 'AU1')
     const parentName = columns[offset + 4] || 'Chưa cập nhật'
     const parentPhone = columns[offset + 5] || '0900000000'
     const address = columns[offset + 6] || 'Giáo Xứ Thánh Gia'
-    const branchRaw = columns[offset + 7] || 'AuNhi'
+    const branchCandidate = columns[offset + 7] || 'AuNhi'
 
-    let branch: BranchType = 'AuNhi'
-    if (VALID_BRANCHES.includes(branchRaw as BranchType)) {
-      branch = branchRaw as BranchType
-    }
+    // Safe branch type mapping without unsafe cast
+    const branch: BranchType = VALID_BRANCHES.includes(branchCandidate as BranchType)
+      ? (branchCandidate as BranchType)
+      : 'AuNhi'
 
     const errors: string[] = []
     if (!holyName) errors.push('Thiếu Tên Thánh')
