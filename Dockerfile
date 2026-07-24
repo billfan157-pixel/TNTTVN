@@ -3,8 +3,8 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Invalidate cache for Railway Buildkit
-ARG CACHE_BUST=20260724_v2
+# Force Railway Buildkit cache invalidation
+COPY build-timestamp.txt ./
 
 # Copy dependency configs
 COPY package*.json ./
@@ -25,8 +25,8 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Invalidate cache for Railway Buildkit
-ARG CACHE_BUST=20260724_v2
+# Force Railway Buildkit cache invalidation
+COPY build-timestamp.txt ./
 
 # Install cron for scheduled backups
 RUN apk add --no-cache dcron
