@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { MOCK_GRADES } from '../data/mockParishData'
 import { dexieStorage } from '../lib/db'
 import type { GradeRecord } from '../types'
 import { calculateGradeAverage, calculateAttendanceRate } from '../utils/grades'
 import * as syncService from '../lib/syncService'
+import { api } from '../lib/api'
+import * as Sentry from '@sentry/react'
 
 /** Năm học tự động tính theo ngày hiện tại (năm học bắt đầu từ tháng 8) */
 const now = new Date()
@@ -14,6 +15,7 @@ export const CURRENT_ACADEMIC_YEAR = `${startYear} - ${startYear + 1}`
 interface GradeState {
   grades: GradeRecord[]
   setGrades: (grades: GradeRecord[]) => void
+  fetchGrades: () => Promise<void>
   upsertGrade: (gradeData: Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }) => void
   batchSaveGrades: (gradesList: (Partial<GradeRecord> & { studentId: string; semester: 1 | 2 })[]) => void
   getStudentGrade: (studentId: string, semester: 1 | 2, academicYear?: string) => GradeRecord | undefined
@@ -23,8 +25,19 @@ interface GradeState {
 export const useGradeStore = create<GradeState>()(
   persist(
     (set, get) => ({
-      grades: MOCK_GRADES,
+      grades: [],
       setGrades: (grades) => set({ grades }),
+
+      fetchGrades: async () => {
+        try {
+          const fetched = await api.getGrades()
+          if (Array.isArray(fetched)) {
+            set({ grades: fetched })
+          }
+        } catch (err) {
+          Sentry.captureException(err)
+        }
+      },
 
       upsertGrade: (gradeData) => set((state) => {
         const academicYear = gradeData.academicYear || CURRENT_ACADEMIC_YEAR

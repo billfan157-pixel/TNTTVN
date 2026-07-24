@@ -99,7 +99,9 @@ export function LoginPage() {
           </button>
 
           <div className="text-center text-xs text-text-muted pt-2 border-t border-surface-border">
-            <p>Tài khoản mẫu thử nghiệm: <strong className="text-text-main">admin / admin123</strong></p>
+            {import.meta.env.DEV && (
+              <p>Tài khoản mẫu thử nghiệm: <strong className="text-text-main">admin / admin123</strong></p>
+            )}
           </div>
         </form>
       </div>

@@ -1,14 +1,16 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { MOCK_ATTENDANCE } from '../data/mockParishData'
 import { dexieStorage } from '../lib/db'
 import type { AttendanceRecord } from '../types'
 import { calculateAttendanceRate } from '../utils/grades'
 import * as syncService from '../lib/syncService'
+import { api } from '../lib/api'
+import * as Sentry from '@sentry/react'
 
 interface AttendanceState {
   attendance: AttendanceRecord[]
   setAttendance: (attendance: AttendanceRecord[]) => void
+  fetchAttendance: () => Promise<void>
   saveAttendance: (
     studentId: string, date: string, type: 'SundayMass' | 'CatechismClass',
     status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused', note?: string
@@ -23,8 +25,19 @@ interface AttendanceState {
 export const useAttendanceStore = create<AttendanceState>()(
   persist(
     (set, get) => ({
-      attendance: MOCK_ATTENDANCE,
+      attendance: [],
       setAttendance: (attendance) => set({ attendance }),
+
+      fetchAttendance: async () => {
+        try {
+          const fetched = await api.getAttendance()
+          if (Array.isArray(fetched)) {
+            set({ attendance: fetched })
+          }
+        } catch (err) {
+          Sentry.captureException(err)
+        }
+      },
 
       saveAttendance: (studentId, date, type, status, note) => set((state) => {
         const existingIdx = state.attendance.findIndex(a => a.studentId === studentId && a.date === date && a.type === type)

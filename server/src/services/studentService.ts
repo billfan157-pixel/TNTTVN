@@ -1,10 +1,10 @@
 import { db } from '../db/index.js'
 import { students, auditLogs } from '../db/schema.js'
-import { eq, and, gte } from 'drizzle-orm'
+import { eq, and, gte, isNull } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 
 export async function getStudents(parishId: string, updatedAfter?: string) {
-  const conditions = [eq(students.parishId, parishId)]
+  const conditions = [eq(students.parishId, parishId), isNull(students.deletedAt)]
   if (updatedAfter) {
     conditions.push(gte(students.updatedAt, updatedAfter))
   }
@@ -15,7 +15,7 @@ export async function getStudentById(id: string, parishId: string) {
   const [student] = await db
     .select()
     .from(students)
-    .where(and(eq(students.id, id), eq(students.parishId, parishId)))
+    .where(and(eq(students.id, id), eq(students.parishId, parishId), isNull(students.deletedAt)))
     .limit(1)
   return student || null
 }
@@ -80,12 +80,13 @@ export async function deleteStudent(id: string, userId: string, parishId: string
   const existing = await getStudentById(id, parishId)
   if (!existing) return false
 
-  await db.delete(students).where(and(eq(students.id, id), eq(students.parishId, parishId)))
+  const now = new Date().toISOString()
+  await db.update(students).set({ deletedAt: now, updatedAt: now, updatedBy: userId }).where(and(eq(students.id, id), eq(students.parishId, parishId)))
 
   await db.insert(auditLogs).values({
     id: generateId('AUD'),
     userId,
-    action: 'DELETE',
+    action: 'SOFT_DELETE',
     entityType: 'student',
     entityId: id,
     oldValue: JSON.stringify(existing),

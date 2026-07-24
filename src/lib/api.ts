@@ -61,6 +61,16 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
+function redirectToLogin() {
+  clearTokens()
+  try {
+    localStorage.removeItem('parish_current_user')
+  } catch {
+    // Ignore
+  }
+  window.location.href = '/login'
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const url = `${API_BASE}${path}`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -77,6 +87,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     if (refreshed) {
       headers['Authorization'] = `Bearer ${accessToken}`
       res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined })
+    } else {
+      redirectToLogin()
+      throw new ApiError(401, 'Session expired — redirecting to login', path)
     }
   }
 

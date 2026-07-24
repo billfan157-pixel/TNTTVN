@@ -28,6 +28,21 @@ const NoticesPage = lazy(() => import('./pages/NoticesPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 
+function getAccessToken(): string | null {
+  try {
+    return localStorage.getItem('parish_access_token')
+  } catch {
+    return null
+  }
+}
+
+function requireAuth() {
+  const token = getAccessToken()
+  if (!token) {
+    return { redirect: { to: '/login' as const } }
+  }
+}
+
 const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={
     <div className="flex items-center justify-center h-64 text-text-muted text-sm">
@@ -183,42 +198,49 @@ const loginRoute = createRoute({
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
+  beforeLoad: requireAuth,
   component: DashboardPage,
 })
 
 const studentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/students',
+  beforeLoad: requireAuth,
   component: StudentsPage,
 })
 
 const gradesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/grades',
+  beforeLoad: requireAuth,
   component: GradesPage,
 })
 
 const attendanceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/attendance',
+  beforeLoad: requireAuth,
   component: AttendancePage,
 })
 
 const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
+  beforeLoad: requireAuth,
   component: ReportsPage,
 })
 
 const noticesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notices',
+  beforeLoad: requireAuth,
   component: NoticesPage,
 })
 
 const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users',
+  beforeLoad: requireAuth,
   component: UsersPage,
 })
 

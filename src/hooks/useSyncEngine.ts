@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { useSyncStore } from '../stores/syncStore'
-import { api, loadTokens, setTokens, clearTokens, getAccessToken } from '../lib/api'
+import { api } from '../lib/api'
 import { getDB } from '../lib/db'
 import { processOperation, getBackoffMs, isNetworkError } from '../lib/syncProcessor'
 import { useStudentStore } from '../stores/studentStore'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
+import { useNoticeStore } from '../stores/noticeStore'
+import * as Sentry from '@sentry/react'
 
 const SYNC_INTERVAL_MS = 30000
 
@@ -105,6 +107,9 @@ export async function runSyncFlow() {
       s.setLastSync(new Date().toISOString())
       s.setStatus(navigator.onLine ? 'idle' : 'offline')
       s.setLastError(null)
+
+      // Fetch fresh data from server after queue flush
+      await fetchAllData()
     }
   } catch (err) {
     const s = useSyncStore.getState()
@@ -114,5 +119,21 @@ export async function runSyncFlow() {
       s.setStatus('idle')
       s.setLastError((err as Error).message || 'Sync failed')
     }
+  }
+}
+
+async function fetchAllData() {
+  try {
+    const token = localStorage.getItem('parish_access_token')
+    if (!token) return
+
+    await Promise.allSettled([
+      useStudentStore.getState().fetchStudents(),
+      useGradeStore.getState().fetchGrades(),
+      useAttendanceStore.getState().fetchAttendance(),
+      useNoticeStore.getState().fetchNotices(),
+    ])
+  } catch (err) {
+    Sentry.captureException(err)
   }
 }
