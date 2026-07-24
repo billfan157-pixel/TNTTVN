@@ -7,8 +7,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY server/package*.json ./server/
 
-# Install dependencies
-RUN npm ci
+# Install dependencies for client and server
+RUN npm ci && cd server && npm ci
 
 # Copy source code
 COPY . .
@@ -25,10 +25,12 @@ ENV NODE_ENV=production
 # Install cron for scheduled backups
 RUN apk add --no-cache dcron
 
-# Copy built assets & dependencies
+# Copy dependency configs & install production dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+COPY server/package*.json ./server/
+RUN npm ci --omit=dev && cd server && npm ci --omit=dev
 
+# Copy built dist outputs
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server/dist ./server/dist
 COPY scripts/backup-db.js /usr/local/bin/backup-db.js
