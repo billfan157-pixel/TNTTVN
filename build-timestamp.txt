@@ -1,1 +1,1 @@
-build-timestamp: 2026-07-24T21:57:00Z - force railway buildkit cache bust
+build-timestamp: 2026-07-24T22:04:00Z - fresh railway push trigger
