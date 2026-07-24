@@ -11,6 +11,8 @@ import noticesRouter from './routes/notices.js'
 import notificationsRouter from './routes/notifications.js'
 import usersRouter from './routes/users.js'
 import { saveDb } from './db/index.js'
+import { db } from './db/index.js'
+import { users } from './db/schema.js'
 import { seedIfEmpty } from './seed.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
@@ -32,6 +34,15 @@ app.get('/health', async (c) => {
     return c.json({ status: 'ok', timestamp: new Date().toISOString() })
   } catch (err) {
     return c.json({ status: 'error', message: 'Database unavailable' }, 503)
+  }
+})
+
+app.get('/debug/users', async (c) => {
+  try {
+    const all = db.select().from(users).all()
+    return c.json({ count: all.length, users: all.map(u => ({ id: u.id, username: u.username, role: u.role, status: u.status })) })
+  } catch (err) {
+    return c.json({ error: String(err) }, 500)
   }
 })
 
