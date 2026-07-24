@@ -1,29 +1,43 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
-
 let accessToken: string | null = null
 let refreshToken: string | null = null
+
+const API_BASE = '/api'
+
+export function getAccessToken(): string | null {
+  return accessToken
+}
 
 export function setTokens(access: string, refresh: string) {
   accessToken = access
   refreshToken = refresh
-  localStorage.setItem('parish_access_token', access)
-  localStorage.setItem('parish_refresh_token', refresh)
+  try {
+    localStorage.setItem('parish_access_token', access)
+    localStorage.setItem('parish_refresh_token', refresh)
+  } catch {
+    // Ignore storage issues
+  }
 }
 
-export function loadTokens() {
-  accessToken = localStorage.getItem('parish_access_token')
-  refreshToken = localStorage.getItem('parish_refresh_token')
+export function loadTokensFromStorage() {
+  try {
+    accessToken = localStorage.getItem('parish_access_token')
+    refreshToken = localStorage.getItem('parish_refresh_token')
+  } catch {
+    // Ignore
+  }
 }
+
+export const loadTokens = loadTokensFromStorage
 
 export function clearTokens() {
   accessToken = null
   refreshToken = null
-  localStorage.removeItem('parish_access_token')
-  localStorage.removeItem('parish_refresh_token')
-}
-
-export function getAccessToken() {
-  return accessToken
+  try {
+    localStorage.removeItem('parish_access_token')
+    localStorage.removeItem('parish_refresh_token')
+  } catch {
+    // Ignore
+  }
 }
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -34,20 +48,20 @@ async function refreshAccessToken(): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
     })
-    if (!res.ok) return false
+    if (!res.ok) {
+      clearTokens()
+      return false
+    }
     const data = await res.json()
-    setTokens(data.accessToken, data.refreshToken || refreshToken)
+    const tokens = data.data || data
+    setTokens(tokens.accessToken, tokens.refreshToken)
     return true
   } catch {
     return false
   }
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const url = `${API_BASE}${path}`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
@@ -72,7 +86,11 @@ async function request<T>(
   }
 
   if (res.status === 204) return undefined as T
-  return res.json()
+  const json = await res.json()
+  if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+    return json.data as T
+  }
+  return json as T
 }
 
 export class ApiError extends Error {
@@ -86,7 +104,7 @@ export class ApiError extends Error {
   }
 }
 
-// ─── Auth ───
+// ─── Auth & Entities API ───
 export const api = {
   login: (username: string, password: string) =>
     request<{
@@ -95,47 +113,50 @@ export const api = {
       refreshToken: string
     }>('POST', '/auth/login', { username, password }),
 
+  // ─── Users ───
+  getUsers: () => request<any[]>('GET', '/users'),
+
   // ─── Students ───
-  getStudents: () => request<any[]>('GET', '/students'),
+  getStudents: (updatedAfter?: string) => {
+    const q = updatedAfter ? `?updatedAfter=${encodeURIComponent(updatedAfter)}` : ''
+    return request<any[]>('GET', `/students${q}`)
+  },
   getStudent: (id: string) => request<any>('GET', `/students/${id}`),
-  createStudent: (data: Record<string, unknown>) =>
-    request<any>('POST', '/students', data),
-  updateStudent: (id: string, data: Record<string, unknown>) =>
-    request<any>('PUT', `/students/${id}`, data),
-  deleteStudent: (id: string) =>
-    request<{ success: boolean }>('DELETE', `/students/${id}`),
+  createStudent: (data: Record<string, unknown>) => request<any>('POST', '/students', data),
+  updateStudent: (id: string, data: Record<string, unknown>) => request<any>('PUT', `/students/${id}`, data),
+  deleteStudent: (id: string) => request<{ success: boolean }>('DELETE', `/students/${id}`),
 
   // ─── Grades ───
-  getGrades: (params?: { studentId?: string; semester?: number }) => {
+  getGrades: (params?: { studentId?: string; semester?: number; updatedAfter?: string }) => {
     const qs = new URLSearchParams()
     if (params?.studentId) qs.set('studentId', params.studentId)
     if (params?.semester) qs.set('semester', String(params.semester))
+    if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
     const q = qs.toString()
     return request<any[]>('GET', `/grades${q ? `?${q}` : ''}`)
   },
-  upsertGrade: (data: Record<string, unknown>) =>
-    request<any>('POST', '/grades', data),
-  batchUpsertGrades: (dataList: Record<string, unknown>[]) =>
-    request<{ success: boolean }>('POST', '/grades/batch', dataList),
+  upsertGrade: (data: Record<string, unknown>) => request<any>('POST', '/grades', data),
+  batchUpsertGrades: (dataList: Record<string, unknown>[]) => request<{ success: boolean }>('POST', '/grades/batch', dataList),
 
   // ─── Attendance ───
-  getAttendance: (params?: { studentId?: string; date?: string; type?: string }) => {
+  getAttendance: (params?: { studentId?: string; date?: string; type?: string; updatedAfter?: string }) => {
     const qs = new URLSearchParams()
     if (params?.studentId) qs.set('studentId', params.studentId)
     if (params?.date) qs.set('date', params.date)
     if (params?.type) qs.set('type', params.type)
+    if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
     const q = qs.toString()
     return request<any[]>('GET', `/attendance${q ? `?${q}` : ''}`)
   },
-  upsertAttendance: (data: Record<string, unknown>) =>
-    request<any>('POST', '/attendance', data),
+  upsertAttendance: (data: Record<string, unknown>) => request<any>('POST', '/attendance', data),
   batchUpsertAttendance: (date: string, type: string, records: { studentId: string; status: string; note?: string }[]) =>
     request<{ success: boolean }>('POST', '/attendance/batch', { date, type, records }),
 
   // ─── Notices ───
-  getNotices: () => request<any[]>('GET', '/notices'),
-  createNotice: (data: Record<string, unknown>) =>
-    request<any>('POST', '/notices', data),
-  deleteNotice: (id: string) =>
-    request<{ success: boolean }>('DELETE', `/notices/${id}`),
+  getNotices: (updatedAfter?: string) => {
+    const q = updatedAfter ? `?updatedAfter=${encodeURIComponent(updatedAfter)}` : ''
+    return request<any[]>('GET', `/notices${q}`)
+  },
+  createNotice: (data: Record<string, unknown>) => request<any>('POST', '/notices', data),
+  deleteNotice: (id: string) => request<{ success: boolean }>('DELETE', `/notices/${id}`),
 }

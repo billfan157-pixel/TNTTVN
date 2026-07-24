@@ -1,120 +1,124 @@
 import { api, ApiError } from './api'
-import { getDB, type SyncQueueItem } from './db'
 
 const MAX_RETRIES = 5
-const INITIAL_BACKOFF_MS = 2000
+
+export interface SyncItem {
+  id?: string
+  entityId?: string
+  entityType?: string
+  type?: string
+  entity?: string
+  action?: string
+  operation?: string
+  data?: any
+  payload?: any
+  clientTimestamp?: number
+  retryCount?: number
+}
+
+export interface SyncProcessResult {
+  ok: boolean
+  recoverable?: boolean
+  error?: string
+}
+
+export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessResult> {
+  const entityType = (item.entityType || item.type || item.entity || '').toLowerCase()
+  const action = (item.action || item.operation || '').toLowerCase()
+  const rawData = item.data ?? item.payload ?? {}
+  const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData
+  const targetId = item.entityId || item.id || data.id || data.studentId
+  const retryCount = item.retryCount || 0
+
+  try {
+    switch (entityType) {
+      case 'student':
+        if (action === 'delete') {
+          await api.deleteStudent(targetId)
+        } else if (action === 'create') {
+          await api.createStudent(data)
+        } else if (action === 'update') {
+          await api.updateStudent(targetId, data)
+        }
+        break
+
+      case 'grade':
+        await api.upsertGrade(data)
+        break
+
+      case 'attendance':
+        await api.upsertAttendance(data)
+        break
+
+      case 'notice':
+      case 'notices':
+        if (action === 'delete') {
+          await api.deleteNotice(targetId)
+        } else if (action === 'create') {
+          await api.createNotice(data)
+        }
+        break
+
+      default:
+        return { ok: false, recoverable: false, error: `Unknown entityType: ${entityType}` }
+    }
+
+    return { ok: true }
+  } catch (err) {
+    if (isNetworkError(err)) {
+      return { ok: false, recoverable: true, error: 'Network offline' }
+    }
+
+    if (err instanceof ApiError) {
+      if (err.status === 409) {
+        return { ok: true }
+      }
+      if (err.status === 401) {
+        return { ok: false, recoverable: true, error: `Auth 401: ${err.message}` }
+      }
+      if (err.status >= 400 && err.status < 500) {
+        return { ok: false, recoverable: false, error: `Client error ${err.status}: ${err.message}` }
+      }
+      if (err.status >= 500) {
+        return retryCount < MAX_RETRIES
+          ? { ok: false, recoverable: true, error: `Server error ${err.status}: retry queued` }
+          : { ok: false, recoverable: false, error: `Max retries reached (${MAX_RETRIES})` }
+      }
+    }
+
+    return retryCount < MAX_RETRIES
+      ? { ok: false, recoverable: true, error: `HTTP failure: ${String(err)}` }
+      : { ok: false, recoverable: false, error: `Max retries exceeded` }
+  }
+}
+
+export const processOperation = processSyncQueueItem
 
 export function getBackoffMs(retryCount: number): number {
-  return Math.min(INITIAL_BACKOFF_MS * Math.pow(2, retryCount), 60000)
-}
-
-export type ProcessResult =
-  | { ok: true }
-  | { ok: false; recoverable: boolean; error: string }
-
-export async function processOperation(op: SyncQueueItem): Promise<ProcessResult> {
-  try {
-    const payload = JSON.parse(op.payload)
-    switch (op.entity) {
-      case 'student':
-        return await processStudent(op, payload)
-      case 'grade':
-        return await processGrade(op, payload)
-      case 'attendance':
-        return await processAttendance(op, payload)
-      default:
-        return { ok: false, recoverable: false, error: `Unknown entity: ${op.entity}` }
-    }
-  } catch (err) {
-    if (err instanceof ApiError) {
-      return handleApiError(err, op.retryCount)
-    }
-    return { ok: false, recoverable: true, error: String(err) }
-  }
-}
-
-async function processStudent(op: SyncQueueItem, payload: any): Promise<ProcessResult> {
-  switch (op.operation) {
-    case 'CREATE':
-      await api.createStudent(payload)
-      return { ok: true }
-    case 'UPDATE':
-      await api.updateStudent(op.entityId, payload)
-      return { ok: true }
-    case 'DELETE':
-      await api.deleteStudent(op.entityId)
-      return { ok: true }
-  }
-}
-
-async function processGrade(op: SyncQueueItem, payload: any): Promise<ProcessResult> {
-  switch (op.operation) {
-    case 'CREATE':
-    case 'UPDATE':
-      await api.upsertGrade(payload)
-      return { ok: true }
-    case 'DELETE':
-      return { ok: false, recoverable: false, error: 'Grade DELETE not supported' }
-  }
-}
-
-async function processAttendance(op: SyncQueueItem, payload: any): Promise<ProcessResult> {
-  switch (op.operation) {
-    case 'CREATE':
-    case 'UPDATE':
-      await api.upsertAttendance(payload)
-      return { ok: true }
-    case 'DELETE':
-      return { ok: false, recoverable: false, error: 'Attendance DELETE not supported' }
-  }
-}
-
-function handleApiError(err: ApiError, retryCount: number): ProcessResult {
-  switch (err.status) {
-    case 400:
-      return { ok: false, recoverable: false, error: `Bad request: ${err.message}` }
-    case 401:
-      return retryCount < 1
-        ? { ok: false, recoverable: true, error: 'Token expired, will retry' }
-        : { ok: false, recoverable: false, error: 'Authentication failed' }
-    case 403:
-      return { ok: false, recoverable: false, error: 'Forbidden' }
-    case 404:
-      return { ok: false, recoverable: false, error: `Not found: ${err.path}` }
-    case 409:
-      return { ok: true } // Conflict — local wins (LWW), skip
-    case 429:
-      return { ok: false, recoverable: true, error: 'Rate limited' }
-    case 500:
-    case 502:
-    case 503:
-      return retryCount < MAX_RETRIES
-        ? { ok: false, recoverable: true, error: `Server error: ${err.status}` }
-        : { ok: false, recoverable: false, error: `Max retries exceeded: ${err.status}` }
-    default:
-      return retryCount < MAX_RETRIES
-        ? { ok: false, recoverable: true, error: `HTTP ${err.status}: ${err.message}` }
-        : { ok: false, recoverable: false, error: `Max retries exceeded: ${err.status}` }
-  }
+  const base = 2000
+  const delay = base * Math.pow(2, retryCount)
+  return Math.min(delay, 60000)
 }
 
 export function isNetworkError(err: unknown): boolean {
   return err instanceof TypeError && err.message === 'Failed to fetch'
 }
 
+/**
+ * Executes lightweight Delta Sync by fetching only records updated after lastSyncAt
+ */
 export async function deltaSync(entity: string, lastSyncAt: string | null): Promise<any[]> {
-  if (!lastSyncAt) return []
+  if (!lastSyncAt) return fullSyncEntity(entity)
 
-  const qs = `?updatedAfter=${encodeURIComponent(lastSyncAt)}`
   switch (entity) {
     case 'students':
-      return api.getStudents()
+      return api.getStudents(lastSyncAt)
     case 'grades':
-      return api.getGrades()
+      return api.getGrades({ updatedAfter: lastSyncAt })
     case 'attendance':
-      return api.getAttendance()
+      return api.getAttendance({ updatedAfter: lastSyncAt })
     case 'notices':
-      return api.getNotices()
+      return api.getNotices(lastSyncAt)
     default:
       return []
   }

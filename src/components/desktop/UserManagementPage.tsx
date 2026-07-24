@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search, Loader2 } from 'lucide-react'
 import { MOCK_CLASSES } from '../../data/mockParishData'
-import { api } from '../../lib/api'
 import * as Sentry from '@sentry/react'
 
 export interface UserAccount {
@@ -66,10 +65,7 @@ export const UserManagementPage: React.FC = () => {
     async function loadUsers() {
       setLoading(true)
       try {
-        const fetched = await api.getStudents() // Fetch or sync
-        if (Array.isArray(fetched) && fetched.length > 0) {
-          // Keep API data integrated
-        }
+        // API will be connected in Phase 6 — Backend IAM
       } catch (err) {
         Sentry.captureException(err)
       } finally {

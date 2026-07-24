@@ -18,31 +18,26 @@ export function useSyncEngine() {
     initialized.current = true
 
     const sync = useSyncStore.getState()
-    sync.initDevice().then(() => {
-      loadTokens()
+    sync.refreshCount()
 
-      if (getAccessToken()) {
-        sync.setStatus('syncing')
-        doFullSync().catch(() => {})
-      }
-    })
-
+    // 1. Online / Offline listeners
     const handleOnline = () => {
-      const s = useSyncStore.getState()
-      s.setStatus('syncing')
-      processQueue().catch(() => {})
+      sync.setStatus('idle')
+      runSyncFlow()
     }
-
     const handleOffline = () => {
-      useSyncStore.getState().setStatus('offline')
+      sync.setStatus('offline')
     }
-
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
+    // 2. Immediate sync on mount
+    runSyncFlow()
+
+    // 3. Periodic sync interval
     intervalRef.current = setInterval(() => {
-      if (navigator.onLine && getAccessToken()) {
-        processQueue().catch(() => {})
+      if (navigator.onLine) {
+        runSyncFlow()
       }
     }, SYNC_INTERVAL_MS)
 
@@ -54,22 +49,31 @@ export function useSyncEngine() {
   }, [])
 }
 
-let processingQueue = false
+export async function runSyncFlow() {
+  const store = useSyncStore.getState()
+  if (store.status === 'syncing') return
 
-async function processQueue() {
-  if (processingQueue) return
-  processingQueue = true
+  if (!navigator.onLine) {
+    store.setStatus('offline')
+    return
+  }
+
+  store.setStatus('syncing')
+  store.setLastError(null)
 
   try {
-    const store = useSyncStore.getState()
-    await store.compactQueue()
-
+    // Phase 1: Flush pending queue operations
     let ops = await store.getPendingOps()
-    while (ops.length > 0) {
-      const op = ops[0]
-      await store.updateOp(op.id, { status: 'processing' })
 
+    while (ops.length > 0) {
+      if (!navigator.onLine) {
+        store.setStatus('offline')
+        return
+      }
+
+      const op = ops[0]
       const result = await processOperation(op)
+
       if (result.ok) {
         await store.removeOp(op.id)
       } else if (result.recoverable) {
@@ -80,7 +84,7 @@ async function processQueue() {
           lastError: result.error,
         })
         store.setStatus('retrying')
-        store.setLastError(result.error)
+        store.setLastError(result.error || null)
 
         if (retryCount >= 5) {
           await store.updateOp(op.id, { status: 'failed' })
@@ -90,7 +94,7 @@ async function processQueue() {
         await new Promise(r => setTimeout(r, backoff))
       } else {
         await store.updateOp(op.id, { status: 'failed', lastError: result.error })
-        store.setLastError(result.error)
+        store.setLastError(result.error || null)
       }
 
       ops = await store.getPendingOps()
@@ -103,96 +107,12 @@ async function processQueue() {
       s.setLastError(null)
     }
   } catch (err) {
-    if (!isNetworkError(err)) {
-      useSyncStore.getState().setLastError(String(err))
+    const s = useSyncStore.getState()
+    if (isNetworkError(err)) {
+      s.setStatus('offline')
+    } else {
+      s.setStatus('idle')
+      s.setLastError((err as Error).message || 'Sync failed')
     }
-  } finally {
-    processingQueue = false
   }
-}
-
-async function doFullSync() {
-  const store = useSyncStore.getState()
-  try {
-    store.setStatus('syncing')
-
-    const s = useStudentStore.getState()
-    const g = useGradeStore.getState()
-    const a = useAttendanceStore.getState()
-
-    const [students, grades, attendance] = await Promise.all([
-      api.getStudents().catch(() => null),
-      api.getGrades().catch(() => null),
-      api.getAttendance().catch(() => null),
-    ])
-
-    if (students) s.setStudents(students.map(mapStudent))
-    if (grades) g.setGrades(grades.map(mapGrade))
-    if (attendance) a.setAttendance(attendance.map(mapAttendance))
-
-    store.setLastSync(new Date().toISOString())
-    store.setStatus(navigator.onLine ? 'idle' : 'offline')
-    store.setLastError(null)
-  } catch (err) {
-    if (!isNetworkError(err)) {
-      store.setLastError(String(err))
-    }
-    store.setStatus('idle')
-  }
-}
-
-function mapStudent(data: any): any {
-  return {
-    id: data.id,
-    code: data.code,
-    holyName: data.holyName,
-    fullName: data.fullName,
-    gender: data.gender,
-    dateOfBirth: data.dateOfBirth,
-    baptismDate: data.baptismDate,
-    firstCommunionDate: data.firstCommunionDate,
-    confirmationDate: data.confirmationDate,
-    parentName: data.parentName,
-    parentPhone: data.parentPhone,
-    address: data.address,
-    branch: data.branch,
-    classId: data.classId,
-    avatarUrl: data.avatarUrl,
-    status: data.status,
-    notes: data.notes,
-  }
-}
-
-function mapGrade(data: any): any {
-  return {
-    id: data.id,
-    studentId: data.studentId,
-    academicYear: data.academicYear,
-    semester: data.semester,
-    scoreOral: data.scoreOral,
-    score15m: data.score15m,
-    score1Period: data.score1Period,
-    scoreMidterm: data.scoreMidterm,
-    scoreFinal: data.scoreFinal,
-    comments: data.comments,
-  }
-}
-
-function mapAttendance(data: any): any {
-  return {
-    id: data.id,
-    studentId: data.studentId,
-    date: data.date,
-    type: data.type,
-    status: data.status,
-    note: data.note,
-  }
-}
-
-export function useTriggerFullSync() {
-  return doFullSync
-}
-
-export function useTriggerProcessQueue() {
-  return processQueue
 }
