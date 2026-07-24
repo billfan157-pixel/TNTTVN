@@ -68,10 +68,11 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   getPendingOps: async () => {
     const db = getDB()
-    return db.syncQueue
+    const all = await db.syncQueue
       .where('status')
       .anyOf(['pending', 'retrying'])
-      .sortBy('createdAt')
+      .toArray()
+    return all.sort((a, b) => a.id.localeCompare(b.id))
   },
 
   addOp: async (op) => {
@@ -103,10 +104,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   compactQueue: async () => {
     const db = getDB()
-    const pending = await db.syncQueue
+    const pendingRaw = await db.syncQueue
       .where('status')
       .anyOf(['pending', 'retrying'])
-      .sortBy('createdAt')
+      .toArray()
+
+    const pending = pendingRaw.sort((a, b) => a.id.localeCompare(b.id))
 
     // Group by (entity, entityId)
     const groups = new Map<string, SyncQueueItem[]>()

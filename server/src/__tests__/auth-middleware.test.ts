@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { generateTokens, verifyToken, JwtPayload } from '../middleware/auth'
+import { describe, it, expect } from 'vitest'
+import { generateTokens, verifyToken, type JwtPayload } from '../middleware/auth.js'
 
 describe('Auth Middleware & JWT Token Security', () => {
   const mockPayload: JwtPayload = {

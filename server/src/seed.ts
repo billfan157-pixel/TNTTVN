@@ -47,8 +47,8 @@ async function seed() {
 
   // ─── Users ───
   const usersList = [
-    { id: 'USR-001', username: 'bill', passwordHash: bcrypt.hashSync('FFanbill123@', 10), fullName: 'Phêrô Phan Bảo', role: 'admin', parishId: 'thanh-gia', status: 'ACTIVE', tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
-    { id: 'USR-002', username: 'chunhiem', passwordHash: bcrypt.hashSync('chunhiem123', 10), fullName: 'Trưởng Ban Giáo Lý', role: 'chunhiem', parishId: 'thanh-gia', status: 'ACTIVE', tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
+    { id: 'USR-001', username: 'bill', passwordHash: bcrypt.hashSync('FFanbill123@', 10), fullName: 'Phêrô Phan Bảo', role: 'admin' as const, parishId: 'thanh-gia', status: 'ACTIVE' as const, tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
+    { id: 'USR-002', username: 'chunhiem', passwordHash: bcrypt.hashSync('chunhiem123', 10), fullName: 'Trưởng Ban Giáo Lý', role: 'chunhiem' as const, parishId: 'thanh-gia', status: 'ACTIVE' as const, tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
   ]
   for (const u of usersList) {
     await db.insert(users).values(u).onConflictDoNothing()
@@ -57,8 +57,8 @@ async function seed() {
 
   // ─── Catechist Assignments ───
   const assignmentList = [
-    { id: 'ASG-001', userId: 'USR-002', classId: 'TN2', roleInClass: 'chunhiem' },
-    { id: 'ASG-002', userId: 'USR-002', classId: 'CC1', roleInClass: 'phuta' },
+    { id: 'ASG-001', userId: 'USR-002', classId: 'TN2', roleInClass: 'chunhiem' as const },
+    { id: 'ASG-002', userId: 'USR-002', classId: 'CC1', roleInClass: 'phuta' as const },
   ]
   for (const a of assignmentList) {
     await db.insert(catechistAssignments).values({ ...a, parishId: 'thanh-gia', createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
@@ -201,9 +201,9 @@ async function seed() {
   console.log(`  Permissions: ${permissionList.length} records`)
 
   // ─── Role Permissions ───
-  const rolePermissionList: { role: string; permissionId: string }[] = [
+  const rolePermissionList: { role: 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh'; permissionId: string }[] = [
     // Admin — full access
-    ...permissionList.map(p => ({ role: 'admin', permissionId: p.id })),
+    ...permissionList.map(p => ({ role: 'admin' as const, permissionId: p.id })),
     // Chunhiem
     { role: 'chunhiem', permissionId: 'student.create' },
     { role: 'chunhiem', permissionId: 'student.edit' },

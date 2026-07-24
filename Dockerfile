@@ -1,10 +1,11 @@
 # ─── Build Stage ───
-FROM node:24-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 # Copy dependency configs
 COPY package*.json ./
+COPY server/package*.json ./server/
 
 # Install dependencies
 RUN npm ci
@@ -12,11 +13,11 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build production bundle & TypeScript server
+# Build production bundle for both client & server
 RUN npm run build
 
 # ─── Production Stage ───
-FROM node:24-alpine AS runner
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production

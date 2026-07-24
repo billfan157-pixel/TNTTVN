@@ -15,8 +15,12 @@ import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
 const app = new Hono()
 
+const allowedOrigins = process.env.CLIENT_ORIGIN
+  ? process.env.CLIENT_ORIGIN.split(',')
+  : ['http://localhost:5173', 'http://localhost:4173', 'https://tnttvn.vercel.app']
+
 app.use('/*', securityHeaders)
-app.use('/*', cors({ origin: ['http://localhost:5173', 'http://localhost:4173'], credentials: true }))
+app.use('/*', cors({ origin: allowedOrigins, credentials: true }))
 app.use('/api/*', rateLimiter)
 app.use('/api/*', bodyLimit({ maxSize: 10 * 1024 * 1024 }))
 app.use('/api/auth/login', loginRateLimiter)
@@ -39,9 +43,10 @@ app.route('/api/notifications', notificationsRouter)
 app.route('/api/users', usersRouter)
 
 const PORT = Number(process.env.PORT) || 3001
+const HOST = process.env.HOST || '0.0.0.0'
 
-serve({ fetch: app.fetch, port: PORT })
-console.log(`Server running at http://localhost:${PORT}`)
+serve({ fetch: app.fetch, port: PORT, hostname: HOST })
+console.log(`Server running at http://${HOST}:${PORT}`)
 
 initTelegramBot()
 sendTelegramInfo(`🟢 Server khởi động thành công\n🕐 ${new Date().toLocaleString('vi-VN')}\n📍 Port: ${PORT}`)

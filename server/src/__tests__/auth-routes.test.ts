@@ -9,7 +9,7 @@ describe('Server Auth Routes Handler Tests', () => {
       body: JSON.stringify({ username: 'nonexistent', password: 'wrongpassword' }),
     })
     expect(res.status).toBe(401)
-    const json = await res.json()
+    const json = (await res.json()) as any
     expect(json.success).toBe(false)
   })
 

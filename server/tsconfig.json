@@ -5,7 +5,9 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": false,
-    "noEmit": true,
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
     "strict": true,
     "skipLibCheck": true,
     "noUnusedLocals": false,
@@ -16,5 +18,5 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["src"]
+  "include": ["src/**/*"]
 }
