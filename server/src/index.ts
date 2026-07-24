@@ -10,7 +10,7 @@ import attendanceRouter from './routes/attendance.js'
 import noticesRouter from './routes/notices.js'
 import notificationsRouter from './routes/notifications.js'
 import usersRouter from './routes/users.js'
-import { saveDb, sqlite } from './db/index.js'
+import { saveDb } from './db/index.js'
 import { seedIfEmpty } from './seed.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
@@ -32,31 +32,6 @@ app.get('/health', async (c) => {
     return c.json({ status: 'ok', timestamp: new Date().toISOString() })
   } catch (err) {
     return c.json({ status: 'error', message: 'Database unavailable' }, 503)
-  }
-})
-
-app.get('/debug/users', async (c) => {
-  try {
-    const stmt = sqlite.prepare(`SELECT id, username, role, status FROM users`)
-    const rows = []
-    while (stmt.step()) { rows.push(stmt.getAsObject()) }
-    stmt.free()
-    return c.json({ count: rows.length, users: rows })
-  } catch (err) {
-    return c.json({ error: String(err) }, 500)
-  }
-})
-
-app.get('/debug/tryseed', async (c) => {
-  try {
-    await seedIfEmpty()
-    const stmt = sqlite.prepare(`SELECT id, username, role, status FROM users`)
-    const rows = []
-    while (stmt.step()) { rows.push(stmt.getAsObject()) }
-    stmt.free()
-    return c.json({ message: 'Seed attempted', users: rows })
-  } catch (err) {
-    return c.json({ error: String(err) }, 500)
   }
 })
 
