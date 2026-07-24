@@ -43,7 +43,7 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
           <Award size={48} className="text-parish-primary mx-auto mb-3" />
 
           <div className="text-xs font-bold uppercase tracking-wider text-text-muted mb-1">
-            Giáo Phận • Giáo Xứ Thánh Gia
+            Giáo Phận • Giáo Xứ Gia Tôn
           </div>
           <div className="text-lg font-extrabold text-parish-primary mb-1">
             {isPromotion ? 'CHỨNG NHẬN THĂNG TIẾN' : 'CHỨNG NHẬN HOÀN TẤT'}

@@ -36,7 +36,7 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     let html = ''
     const options = {
       academicYear,
-      parishName: 'Giáo Xứ Thánh Gia',
+      parishName: 'Giáo Xứ Gia Tôn',
       dioceseName: 'Giáo Phận Xuân Lộc',
     }
 

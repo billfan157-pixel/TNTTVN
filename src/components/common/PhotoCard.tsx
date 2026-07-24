@@ -37,7 +37,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
 
         <div className="border-2 border-parish-primary rounded-2xl p-6 bg-white" style={{ maxWidth: '350px', margin: '0 auto' }}>
           <div className="text-center mb-4">
-            <div className="text-xs font-bold uppercase tracking-wider text-text-muted">Giáo Xứ Thánh Gia</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-text-muted">Giáo Xứ Gia Tôn</div>
             <div className="text-base font-extrabold text-parish-primary">Thiếu Nhi Thánh Thể</div>
             <div className="w-16 h-0.5 bg-parish-primary mx-auto my-2" />
           </div>

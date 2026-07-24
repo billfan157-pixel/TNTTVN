@@ -30,7 +30,7 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
       const backupData = {
         version: '1.0',
         exportedAt: new Date().toISOString(),
-        parish: 'Giáo Xứ Thánh Gia',
+        parish: 'Giáo Xứ Gia Tôn',
         data: {
           students,
           grades,

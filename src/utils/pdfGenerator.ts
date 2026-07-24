@@ -13,7 +13,7 @@ export interface ReportOptions {
 }
 
 const DEFAULT_OPTIONS: ReportOptions = {
-  parishName: 'Giáo Xứ Thánh Gia',
+  parishName: 'Giáo Xứ Gia Tôn',
   dioceseName: 'Giáo Phận Xuân Lộc',
   academicYear: '2025 - 2026',
 }

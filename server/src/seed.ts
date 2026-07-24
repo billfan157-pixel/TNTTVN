@@ -69,7 +69,7 @@ async function seed() {
   const studentList = [
     { id: 'ST-001', code: 'TN2025001', holyName: 'Maria', fullName: 'Nguyễn Ngọc Anh', gender: 'Nữ', dateOfBirth: '2017-05-14', baptismDate: '2017-07-02', parentName: 'Nguyễn Văn Bình', parentPhone: '0903123456', address: '123 Đường Giáo Xứ, Khu phố 2', branch: 'AuNhi', classId: 'AU2', status: 'Đang học', notes: 'Hát trong ca đoàn thiếu nhi' },
     { id: 'ST-002', code: 'TN2025002', holyName: 'Giuse', fullName: 'Trần Hoàng Minh', gender: 'Nam', dateOfBirth: '2017-09-20', baptismDate: '2017-11-12', parentName: 'Trần Văn Tuấn', parentPhone: '0918234567', address: '45/2 Hẻm Nhà Thờ', branch: 'AuNhi', classId: 'AU2', status: 'Đang học' },
-    { id: 'ST-003', code: 'TN2025003', holyName: 'Phêrô', fullName: 'Vũ Đức Anh', gender: 'Nam', dateOfBirth: '2017-03-10', baptismDate: '2017-05-01', parentName: 'Vũ Quốc Huy', parentPhone: '0977345678', address: '78 Đường Thánh Gia', branch: 'AuNhi', classId: 'AU2', status: 'Đang học' },
+    { id: 'ST-003', code: 'TN2025003', holyName: 'Phêrô', fullName: 'Vũ Đức Anh', gender: 'Nam', dateOfBirth: '2017-03-10', baptismDate: '2017-05-01', parentName: 'Vũ Quốc Huy', parentPhone: '0977345678', address: '78 Đường Gia Tôn', branch: 'AuNhi', classId: 'AU2', status: 'Đang học' },
     { id: 'ST-004', code: 'TN2025004', holyName: 'Têrêsa', fullName: 'Lê Thảo My', gender: 'Nữ', dateOfBirth: '2017-11-05', baptismDate: '2017-12-25', parentName: 'Lê Minh Tâm', parentPhone: '0934456789', address: '12 Nguyễn Trãi, Tổ 5', branch: 'AuNhi', classId: 'AU2', status: 'Đang học' },
     { id: 'ST-005', code: 'TN2025005', holyName: 'Anrê', fullName: 'Phạm Gia Bảo', gender: 'Nam', dateOfBirth: '2017-01-18', baptismDate: '2017-03-19', parentName: 'Phạm Đức Trọng', parentPhone: '0988567890', address: '99 Lê Lợi', branch: 'AuNhi', classId: 'AU2', status: 'Đang học' },
     { id: 'ST-006', code: 'TN2025006', holyName: 'Catarina', fullName: 'Đỗ Hoàng Kim', gender: 'Nữ', dateOfBirth: '2014-04-12', baptismDate: '2014-06-08', firstCommunionDate: '2023-06-18', parentName: 'Đỗ Văn Thành', parentPhone: '0912678901', address: '15/4 Đường Rạch Dừa', branch: 'ThieuNhi', classId: 'TN2', status: 'Đang học', notes: 'Đã xưng tội rơmêô' },
@@ -240,4 +240,20 @@ async function seed() {
   console.log('Seed complete!')
 }
 
-seed().catch(console.error)
+export async function seedIfEmpty() {
+  try {
+    const existing = db.select().from(users).limit(1).all()
+    if (existing.length > 0) {
+      console.log('Seed skipped — database already has users.')
+      return
+    }
+  } catch {
+    // No users table yet, proceed to seed
+  }
+  await seed()
+}
+
+const isMainModule = process.argv[1]?.endsWith('seed.ts') || process.argv[1]?.endsWith('seed.js')
+if (isMainModule) {
+  seed().catch(console.error)
+}

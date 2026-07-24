@@ -87,7 +87,7 @@ export const HeaderBar: React.FC = () => {
                 <h1 className={`font-extrabold m-0 text-white ${effectiveMode === 'desktop' ? 'text-xl' : 'text-[16px]'}`}>
                   Giáo Lý Thiếu Nhi Thánh Thể
                 </h1>
-                <span className="font-extrabold rounded-md text-xs px-3 py-1 bg-[#FDE047] text-[#1E3A8A]">Giáo Xứ Thánh Gia</span>
+                <span className="font-extrabold rounded-md text-xs px-3 py-1 bg-[#FDE047] text-[#1E3A8A]">Giáo Xứ Gia Tôn</span>
               </div>
               <p className={`m-0 mt-1 font-medium text-white opacity-90 ${effectiveMode === 'desktop' ? 'text-xs' : 'text-[11px]'}`}>
                 Sổ Điểm & Theo Dõi Học Tập • Niên Học 2025 - 2026 ({students.length} Thiếu Nhi)

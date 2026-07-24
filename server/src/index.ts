@@ -11,6 +11,7 @@ import noticesRouter from './routes/notices.js'
 import notificationsRouter from './routes/notifications.js'
 import usersRouter from './routes/users.js'
 import { saveDb } from './db/index.js'
+import { seedIfEmpty } from './seed.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
 const app = new Hono()
@@ -44,6 +45,8 @@ app.route('/api/users', usersRouter)
 
 const PORT = Number(process.env.PORT) || 3001
 const HOST = process.env.HOST || '0.0.0.0'
+
+seedIfEmpty().catch(console.error)
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST })
 console.log(`Server running at http://${HOST}:${PORT}`)

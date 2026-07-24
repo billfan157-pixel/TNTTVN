@@ -65,7 +65,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         confirmationDate: '',
         parentName: '',
         parentPhone: '',
-        address: 'Giáo xứ Thánh Gia',
+        address: 'Giáo xứ Gia Tôn',
         branch: 'AuNhi',
         classId: MOCK_CLASSES[0]?.id || 'AU1',
         status: 'Đang học',

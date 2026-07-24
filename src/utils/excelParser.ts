@@ -49,7 +49,7 @@ export function parseRosterText(rawText: string, defaultClassId: string = 'AU1')
     const dateOfBirth = columns[offset + 3] || '2015-01-01'
     const parentName = columns[offset + 4] || 'Chưa cập nhật'
     const parentPhone = columns[offset + 5] || '0900000000'
-    const address = columns[offset + 6] || 'Giáo Xứ Thánh Gia'
+    const address = columns[offset + 6] || 'Giáo Xứ Gia Tôn'
     const branchCandidate = columns[offset + 7] || 'AuNhi'
 
     // Safe branch type mapping without unsafe cast

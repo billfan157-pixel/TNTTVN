@@ -6,6 +6,14 @@ import { tailwindHmrFix } from './src/lib/tailwind-hmr-fix.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 
 export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
+  },
   plugins: [
     react(),
     tailwindHmrFix(),
@@ -17,7 +25,7 @@ export default defineConfig({
       filename: 'sw.ts',
       includeAssets: ['favicon.svg', 'pwa-icon.svg'],
       manifest: {
-        name: 'Giáo Lý Thiếu Nhi Thánh Thể — Giáo Xứ Thánh Gia',
+        name: 'Giáo Lý Thiếu Nhi Thánh Thể — Giáo Xứ Gia Tôn',
         short_name: 'Giáo Lý TNTT',
         description: 'Hệ thống quản lý điểm số & theo dõi chuyên cần Thiếu Nhi Thánh Thể',
         start_url: '/',

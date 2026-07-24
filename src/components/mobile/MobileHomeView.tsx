@@ -44,7 +44,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
           <Sparkles color="#FDE047" size={16} />
           <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px', color: '#FDE047', textTransform: 'uppercase' }}>
-            Giáo Xứ Thánh Gia
+            Giáo Xứ Gia Tôn
           </span>
         </div>
         <h2 style={{ fontSize: '18px', fontWeight: 800, margin: '2px 0 6px 0' }}>
