@@ -17,6 +17,11 @@ import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
 const app = new Hono()
 
+app.onError((err, c) => {
+  console.error('Unhandled error:', err)
+  return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: err.message || 'Internal Server Error' } }, 500)
+})
+
 const allowedOrigins = process.env.CLIENT_ORIGIN
   ? process.env.CLIENT_ORIGIN.split(',')
   : ['http://localhost:5173', 'http://localhost:4173', 'https://tnttvn.vercel.app']
