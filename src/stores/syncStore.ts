@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import { getDB, type SyncQueueItem } from '../lib/db'
+import { getDB } from '../lib/db'
+import type { SyncQueueItem } from '../lib/db'
 
-export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'retrying' | 'error'
+export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'retrying' | 'failed'
 
 interface SyncState {
   status: SyncStatus
@@ -10,19 +11,31 @@ interface SyncState {
   lastError: string | null
   deviceId: string
 
-  initDevice: () => Promise<void>
-  setStatus: (s: SyncStatus) => void
-  refreshCount: () => Promise<void>
-  setLastSync: (t: string) => void
-  setLastError: (e: string | null) => void
+  initDevice: () => void
+  setStatus: (status: SyncStatus) => void
+  setLastSync: (iso: string) => void
+  setLastError: (err: string | null) => void
+  refreshCount: () => Promise<number>
 
   getPendingOps: () => Promise<SyncQueueItem[]>
-  getFailedOps: () => Promise<SyncQueueItem[]>
-  addOp: (op: Omit<SyncQueueItem, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'deviceId' | 'retryCount' | 'lastError'>) => Promise<string>
+  addOp: (op: Omit<SyncQueueItem, 'id' | 'retryCount' | 'lastError' | 'createdAt' | 'updatedAt' | 'status' | 'deviceId'>) => Promise<string>
   updateOp: (id: string, changes: Partial<SyncQueueItem>) => Promise<void>
   removeOp: (id: string) => Promise<void>
   compactQueue: () => Promise<void>
   clearCompleted: () => Promise<void>
+}
+
+function getOrCreateDeviceId(): string {
+  try {
+    let id = localStorage.getItem('parish_device_id')
+    if (!id) {
+      id = `DEV-${crypto.randomUUID().slice(0, 8)}`
+      localStorage.setItem('parish_device_id', id)
+    }
+    return id
+  } catch {
+    return 'DEV-fallback'
+  }
 }
 
 export const useSyncStore = create<SyncState>((set, get) => ({
@@ -30,53 +43,39 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   pendingCount: 0,
   lastSyncAt: null,
   lastError: null,
-  deviceId: '',
+  deviceId: getOrCreateDeviceId(),
 
-  initDevice: async () => {
-    const db = getDB()
-    let meta = await db.syncMeta.get('deviceId')
-    if (!meta) {
-      const id = crypto.randomUUID()
-      await db.syncMeta.put({ key: 'deviceId', value: id })
-      meta = { key: 'deviceId', value: id }
-    }
-    set({ deviceId: meta.value })
-
-    const lastSync = await db.syncMeta.get('lastSyncAt')
-    if (lastSync) set({ lastSyncAt: lastSync.value })
+  initDevice: () => {
+    set({ deviceId: getOrCreateDeviceId() })
   },
-
   setStatus: (status) => set({ status }),
-  setLastSync: (lastSyncAt) => {
-    getDB().syncMeta.put({ key: 'lastSyncAt', value: lastSyncAt })
-    set({ lastSyncAt })
-  },
-  setLastError: (lastError) => set({ lastError }),
+  setLastSync: (iso) => set({ lastSyncAt: iso }),
+  setLastError: (err) => set({ lastError: err }),
 
   refreshCount: async () => {
-    const count = await getDB().syncQueue
-      .where('status')
-      .anyOf(['pending', 'retrying', 'processing'])
-      .count()
-    set({ pendingCount: count })
+    try {
+      const db = getDB()
+      const count = await db.syncQueue
+        .where('status')
+        .anyOf(['pending', 'retrying'])
+        .count()
+      set({ pendingCount: count })
+      return count
+    } catch {
+      return 0
+    }
   },
 
   getPendingOps: async () => {
-    return getDB().syncQueue
+    const db = getDB()
+    return db.syncQueue
       .where('status')
-      .anyOf(['pending', 'retrying', 'processing'])
-      .sortBy('createdAt')
-  },
-
-  getFailedOps: async () => {
-    return getDB().syncQueue
-      .where('status')
-      .equals('failed')
+      .anyOf(['pending', 'retrying'])
       .sortBy('createdAt')
   },
 
   addOp: async (op) => {
-    const id = `SYNC-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`
+    const id = `OP-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     const now = new Date().toISOString()
     const item: SyncQueueItem = {
       id,
@@ -123,33 +122,40 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     for (const [, ops] of groups) {
       if (ops.length <= 1) continue
 
-      // CREATE + UPDATE(s) → keep latest CREATE payload | single UPDATE
-      // CREATE + DELETE → remove all
-      // UPDATE(s)+ DELETE → keep DELETE
-      // UPDATE(s) → keep latest UPDATE
-      const hasCreate = ops.some(o => o.operation === 'CREATE')
-      const hasDelete = ops.some(o => o.operation === 'DELETE')
+      const hasCreate = ops.some((o) => o.operation === 'CREATE')
+      const hasDelete = ops.some((o) => o.operation === 'DELETE')
       const lastOp = ops[ops.length - 1]
 
       if (hasCreate && hasDelete) {
-        toRemove.push(...ops.map(o => o.id))
+        toRemove.push(...ops.map((o) => o.id))
         continue
       }
 
       if (hasDelete) {
-        toRemove.push(...ops.filter(o => o.operation !== 'DELETE').map(o => o.id))
+        toRemove.push(...ops.filter((o) => o.operation !== 'DELETE').map((o) => o.id))
         continue
       }
 
       if (hasCreate) {
-        const createOp = ops.find(o => o.operation === 'CREATE')!
-        toRemove.push(...ops.filter(o => o.id !== createOp.id).map(o => o.id))
-        toUpdate.push({ id: createOp.id, op: { ...lastOp, operation: 'CREATE' as const } })
+        const createOp = ops.find((o) => o.operation === 'CREATE')!
+        const merged = ops.reduce((acc, o) => {
+          try {
+            const parsed = typeof o.payload === 'string' ? JSON.parse(o.payload) : o.payload
+            return { ...acc, ...parsed }
+          } catch {
+            return acc
+          }
+        }, {})
+        toRemove.push(...ops.filter((o) => o.id !== createOp.id).map((o) => o.id))
+        toUpdate.push({
+          id: createOp.id,
+          op: { ...createOp, operation: 'CREATE', payload: JSON.stringify(merged) },
+        })
         continue
       }
 
       // Only UPDATE(s) — keep last
-      toRemove.push(...ops.filter(o => o.id !== lastOp.id).map(o => o.id))
+      toRemove.push(...ops.filter((o) => o.id !== lastOp.id).map((o) => o.id))
     }
 
     for (const id of toRemove) {
