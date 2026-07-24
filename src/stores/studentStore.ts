@@ -3,11 +3,14 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { MOCK_STUDENTS } from '../data/mockParishData'
 import type { Student } from '../types'
 import { dexieStorage } from '../lib/db'
+import { api } from '../lib/api'
 import * as syncService from '../lib/syncService'
+import * as Sentry from '@sentry/react'
 
 interface StudentState {
   students: Student[]
   setStudents: (students: Student[]) => void
+  fetchStudents: () => Promise<void>
   addStudent: (student: Omit<Student, 'id' | 'code'>) => void
   updateStudent: (id: string, data: Partial<Student>) => void
   deleteStudent: (id: string) => void
@@ -18,6 +21,17 @@ export const useStudentStore = create<StudentState>()(
     (set) => ({
       students: MOCK_STUDENTS,
       setStudents: (students) => set({ students }),
+
+      fetchStudents: async () => {
+        try {
+          const fetched = await api.getStudents()
+          if (Array.isArray(fetched) && fetched.length > 0) {
+            set({ students: fetched })
+          }
+        } catch (err) {
+          Sentry.captureException(err)
+        }
+      },
 
       addStudent: (studentData) => set((state) => {
         const newId = `ST-${crypto.randomUUID().slice(0, 8)}`

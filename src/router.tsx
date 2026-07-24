@@ -26,6 +26,7 @@ const AttendancePage = lazy(() => import('./pages/AttendancePage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const NoticesPage = lazy(() => import('./pages/NoticesPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
 
 const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={
@@ -81,6 +82,14 @@ function RootLayout() {
   } = useUIStore()
 
   const effectiveMode = useEffectiveMode()
+
+  if (pathname === '/login') {
+    return (
+      <PageSuspense>
+        <Outlet />
+      </PageSuspense>
+    )
+  }
 
   const handleSelectTab = (tab: DesktopTab) => {
     navigate({ to: `/${tab}` })
@@ -165,6 +174,12 @@ const indexRoute = createRoute({
   component: () => <Navigate to="/dashboard" replace />,
 })
 
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
+})
+
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
@@ -209,6 +224,7 @@ const usersRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  loginRoute,
   dashboardRoute,
   studentsRoute,
   gradesRoute,

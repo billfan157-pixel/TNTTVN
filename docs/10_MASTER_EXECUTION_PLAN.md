@@ -164,10 +164,10 @@ GLV Nguyễn Văn A
 | Backup/Restore | ✅ | ❌ | ❌ | ❌ |
 
 ### Deliverables
-- [ ] RBAC enforced on all endpoints per matrix
-- [ ] Body limited to 10MB
-- [ ] All string inputs trimmed and validated
-- [ ] Audit logs capture IP + user agent
+- [x] RBAC enforced on all endpoints per matrix
+- [x] Body limited to 10MB
+- [x] All string inputs trimmed and validated
+- [x] Audit logs capture IP + user agent
 
 ---
 
@@ -225,12 +225,21 @@ GLV Nguyễn Văn A
 - **Description**: Health check queries: FK integrity, no orphaned records
 - **Effort**: 30 min
 
+### Task 3.12 — Frontend features (parallel track)
+- **Files**: UserManagementPage, ExcelImportModal, PrintReportModal, BackupRestoreModal, pdfGenerator, excelParser
+- **Description**: IAM UI (create/disable/reset users), Excel roster import, 3 PDF report types (class gradebook, student report card, sacrament certificate), 1-click JSON backup/restore via Dexie
+- **Effort**: ~12h
+
 ### Deliverables
-- [ ] All 13 tables created
-- [ ] Existing data migrated successfully
-- [ ] FK constraints verified (ON DELETE RESTRICT)
-- [ ] 9 new indexes created
-- [ ] Backup confirmed restorable
+- [x] All 13 tables created (7 new + 6 existing altered)
+- [x] Existing data migrated successfully
+- [x] FK constraints verified (ON DELETE RESTRICT)
+- [x] 16 indexes created
+- [x] Backup confirmed restorable
+- [x] IAM UI (UserManagementPage) routed at `/users`
+- [x] Excel roster import with loading + error handling
+- [x] 3 PDF report types with popup-blocker fallback
+- [x] 1-click backup/restore via Dexie IndexedDB
 
 ---
 
@@ -556,13 +565,12 @@ Ubuntu 24.04 LTS
 ## Summary Timeline
 
 ```
-Week 1:  🔴 Phase 1 (Critical Bugs) + 🟡 Phase 2 start
-Week 2:  🟡 Phase 2 (Security) + 🔵 Phase 3 start
-Week 3:  🔵 Phase 3 (Database) + 🟢 Phase 4 start
-Week 4:  🟢 Phase 4 (Architecture) + 🟣 Phase 5 start
-Week 5:  🟣 Phase 5 (Frontend) + 🟠 Phase 6 start
-Week 6:  🟠 Phase 6 (Backend IAM)
-Week 7+:  ⚪ Phase 7 (Testing) + PDF/Backup optional
+Week 1:  🔴 Phase 1 (Critical Bugs) + 🟡 Phase 2 (Security) ✅
+Week 2:  🔵 Phase 3 (Database + Frontend Features) ✅
+Week 3:  🟢 Phase 4 (Architecture) + 🟣 Phase 5 start
+Week 4:  🟣 Phase 5 (Frontend) + 🟠 Phase 6 start
+Week 5:  🟠 Phase 6 (Backend IAM)
+Week 6+:  ⚪ Phase 7 (Testing) + PDF/Backup optional
 ```
 
 ## Total Estimated Effort
