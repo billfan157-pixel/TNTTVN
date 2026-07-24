@@ -59,6 +59,17 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
         }
         break
 
+      case 'class':
+      case 'classes':
+        if (action === 'delete') {
+          await api.deleteClass(targetId)
+        } else if (action === 'create') {
+          await api.createClass(data)
+        } else if (action === 'update') {
+          await api.updateClass(targetId, data)
+        }
+        break
+
       default:
         return { ok: false, recoverable: false, error: `Unknown entityType: ${entityType}` }
     }
@@ -71,10 +82,12 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
 
     if (err instanceof ApiError) {
       if (err.status === 409) {
-        return { ok: true }
+        // Conflict: server has newer version — refetch to merge
+        console.warn(`[Sync] Conflict on ${entityType}/${targetId} — server version wins`)
+        return { ok: true, error: 'Conflict resolved: server version accepted' }
       }
       if (err.status === 401) {
-        return { ok: false, recoverable: true, error: `Auth 401: ${err.message}` }
+        return { ok: false, recoverable: false, error: `Auth expired: ${err.message}` }
       }
       if (err.status >= 400 && err.status < 500) {
         return { ok: false, recoverable: false, error: `Client error ${err.status}: ${err.message}` }
@@ -101,7 +114,11 @@ export function getBackoffMs(retryCount: number): number {
 }
 
 export function isNetworkError(err: unknown): boolean {
-  return err instanceof TypeError && err.message === 'Failed to fetch'
+  if (err instanceof TypeError) {
+    const msg = err.message.toLowerCase()
+    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed')
+  }
+  return false
 }
 
 /**
@@ -119,6 +136,8 @@ export async function deltaSync(entity: string, lastSyncAt: string | null): Prom
       return api.getAttendance({ updatedAfter: lastSyncAt })
     case 'notices':
       return api.getNotices(lastSyncAt)
+    case 'classes':
+      return api.getClasses()
     default:
       return []
   }
@@ -134,6 +153,8 @@ export async function fullSyncEntity(entity: string): Promise<any[]> {
       return api.getAttendance()
     case 'notices':
       return api.getNotices()
+    case 'classes':
+      return api.getClasses()
     default:
       return []
   }

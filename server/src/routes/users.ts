@@ -26,7 +26,9 @@ const createUserSchema = z.object({
 
 usersRouter.get('/', roleMiddleware('admin', 'chunhiem'), async (c) => {
   const user = c.get('user') as JwtPayload
-  const list = await getUsers(user.parishId)
+  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10))
+  const limit = Math.min(200, Math.max(1, parseInt(c.req.query('limit') || '50', 10)))
+  const list = await getUsers(user.parishId, limit, page)
   return listResponse(c, list)
 })
 

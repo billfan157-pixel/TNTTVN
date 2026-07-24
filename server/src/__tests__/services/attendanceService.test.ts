@@ -28,7 +28,7 @@ describe('Server attendanceService Layer Unit Tests', () => {
       { studentId: 'ST-002', status: 'AbsentExcused' as const, note: 'Về quê' },
     ]
 
-    const ok = await upsertAttendanceBatch(records, '2026-07-26', 'CatechismClass', 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
+    const ok = await upsertAttendanceBatch('2026-07-26', 'CatechismClass', records, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
     expect(ok).toBe(true)
   })
 })

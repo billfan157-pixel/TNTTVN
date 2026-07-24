@@ -3,12 +3,13 @@ import { students, auditLogs } from '../db/schema.js'
 import { eq, and, gte, isNull } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 
-export async function getStudents(parishId: string, updatedAfter?: string) {
+export async function getStudents(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1) {
   const conditions = [eq(students.parishId, parishId), isNull(students.deletedAt)]
   if (updatedAfter) {
     conditions.push(gte(students.updatedAt, updatedAfter))
   }
-  return db.select().from(students).where(and(...conditions))
+  const offset = (page - 1) * limit
+  return db.select().from(students).where(and(...conditions)).limit(limit).offset(offset)
 }
 
 export async function getStudentById(id: string, parishId: string) {

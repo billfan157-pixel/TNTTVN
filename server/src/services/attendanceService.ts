@@ -18,8 +18,17 @@ export async function getAttendance(
   return db.select().from(attendance).where(and(...conditions))
 }
 
-export async function upsertAttendance(data: any, userId: string, parishId: string, ip: string, userAgent: string) {
-  const [existing] = await db
+export interface AttendanceData {
+  id?: string
+  studentId: string
+  date: string
+  type: 'SundayMass' | 'CatechismClass'
+  status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
+  note?: string
+}
+
+export async function upsertAttendance(data: AttendanceData, userId: string, parishId: string, ip: string, userAgent: string, tx: any = db) {
+  const [existing] = await tx
     .select()
     .from(attendance)
     .where(
@@ -34,12 +43,12 @@ export async function upsertAttendance(data: any, userId: string, parishId: stri
 
   const now = new Date().toISOString()
   if (existing) {
-    await db
+    await tx
       .update(attendance)
       .set({ ...data, updatedAt: now, updatedBy: userId, version: (existing.version || 1) + 1 })
       .where(eq(attendance.id, existing.id))
 
-    await db.insert(auditLogs).values({
+    await tx.insert(auditLogs).values({
       id: generateId('AUD'),
       userId,
       action: 'UPDATE',
@@ -55,7 +64,7 @@ export async function upsertAttendance(data: any, userId: string, parishId: stri
   }
 
   const id = generateId('AT')
-  await db.insert(attendance).values({
+  await tx.insert(attendance).values({
     id,
     ...data,
     version: 1,
@@ -65,7 +74,7 @@ export async function upsertAttendance(data: any, userId: string, parishId: stri
     updatedAt: now,
   })
 
-  await db.insert(auditLogs).values({
+  await tx.insert(auditLogs).values({
     id: generateId('AUD'),
     userId,
     action: 'CREATE',
@@ -77,21 +86,29 @@ export async function upsertAttendance(data: any, userId: string, parishId: stri
     parishId,
   })
 
-  const [created] = await db.select().from(attendance).where(eq(attendance.id, id)).limit(1)
+  const [created] = await tx.select().from(attendance).where(eq(attendance.id, id)).limit(1)
   return created
 }
 
 export async function upsertAttendanceBatch(
-  records: { studentId: string; status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note?: string }[],
   date: string,
   type: 'SundayMass' | 'CatechismClass',
+  records: { studentId: string; status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note?: string }[],
   userId: string,
   parishId: string,
   ip: string,
   userAgent: string,
 ) {
-  for (const r of records) {
-    await upsertAttendance({ ...r, date, type }, userId, parishId, ip, userAgent)
+  try {
+    await db.transaction(async (tx) => {
+      for (const r of records) {
+        await upsertAttendance({ ...r, date, type }, userId, parishId, ip, userAgent, tx)
+      }
+    })
+  } catch {
+    for (const r of records) {
+      await upsertAttendance({ ...r, date, type }, userId, parishId, ip, userAgent, db)
+    }
   }
   return true
 }

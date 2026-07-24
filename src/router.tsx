@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react'
-import { createRootRoute, createRoute, createRouter, Navigate, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import React, { lazy, Suspense } from 'react'
+import { createRootRoute, createRoute, createRouter, Navigate, Outlet, useNavigate, useRouterState, redirect } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { HeaderBar } from './components/common/HeaderBar'
 import { DesktopSidebar } from './components/desktop/DesktopSidebar'
@@ -9,6 +9,8 @@ import { StudentReportModal } from './components/common/StudentReportModal'
 import { InstallPrompt } from './components/common/InstallPrompt'
 import { PhotoCard } from './components/common/PhotoCard'
 import { Certificate } from './components/common/Certificate'
+import { ForcePasswordChangeModal } from './components/common/ForcePasswordChangeModal'
+import { useAuthStore } from './stores/authStore'
 import { useSundayReminder } from './hooks/useSundayReminder'
 import { useUIStore } from './stores/uiStore'
 import { useFilterStore } from './stores/filterStore'
@@ -28,6 +30,9 @@ const NoticesPage = lazy(() => import('./pages/NoticesPage'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
 const ClassesPage = lazy(() => import('./pages/ClassesPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'))
+const AcademicYearPage = lazy(() => import('./pages/AcademicYearPage'))
+const CatechistPage = lazy(() => import('./pages/CatechistPage'))
 
 function getAccessToken(): string | null {
   try {
@@ -40,12 +45,13 @@ function getAccessToken(): string | null {
 function requireAuth() {
   const token = getAccessToken()
   if (!token) {
-    return { redirect: { to: '/login' as const } }
+    throw redirect({ to: '/login' })
   }
 }
 
 function requireRole(...roles: string[]) {
   return () => {
+    requireAuth()
     try {
       const raw = localStorage.getItem('parish_current_user')
       if (raw) {
@@ -53,7 +59,7 @@ function requireRole(...roles: string[]) {
         if (roles.includes(user.role)) return
       }
     } catch {}
-    return { redirect: { to: '/dashboard' as const } }
+    throw redirect({ to: '/dashboard' })
   }
 }
 
@@ -76,6 +82,9 @@ const routeToTab: Record<string, DesktopTab> = {
   '/notices': 'notices',
   '/users': 'users',
   '/classes': 'classes',
+  '/audit-logs': 'users',
+  '/academic-years': 'classes',
+  '/catechists': 'users',
 }
 
 function RootLayout() {
@@ -112,6 +121,9 @@ function RootLayout() {
   } = useUIStore()
 
   const effectiveMode = useEffectiveMode()
+
+  const authLoadFromStorage = useAuthStore(s => s.loadFromStorage)
+  React.useEffect(() => { authLoadFromStorage() }, [authLoadFromStorage])
 
   if (pathname === '/login') {
     return (
@@ -188,6 +200,7 @@ function RootLayout() {
         student={certificateStudent}
         type={certificateType}
       />
+      <ForcePasswordChangeModal />
       <InstallPrompt />
       {import.meta.env.DEV && <TanStackRouterDevtools position="bottom-right" />}
     </div>
@@ -227,24 +240,21 @@ const studentsRoute = createRoute({
 const gradesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/grades',
-  beforeLoad: requireAuth,
-  onEnter: requireRole('admin', 'chunhiem', 'phuta'),
+  beforeLoad: requireRole('admin', 'chunhiem', 'phuta'),
   component: GradesPage,
 })
 
 const attendanceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/attendance',
-  beforeLoad: requireAuth,
-  onEnter: requireRole('admin', 'chunhiem', 'phuta'),
+  beforeLoad: requireRole('admin', 'chunhiem', 'phuta'),
   component: AttendancePage,
 })
 
 const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
-  beforeLoad: requireAuth,
-  onEnter: requireRole('admin', 'chunhiem'),
+  beforeLoad: requireRole('admin', 'chunhiem'),
   component: ReportsPage,
 })
 
@@ -258,17 +268,42 @@ const noticesRoute = createRoute({
 const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users',
-  beforeLoad: requireAuth,
-  onEnter: requireRole('admin'),
+  beforeLoad: requireRole('admin'),
   component: UsersPage,
 })
 
 const classesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/classes',
-  beforeLoad: requireAuth,
-  onEnter: requireRole('admin', 'chunhiem', 'phuta'),
+  beforeLoad: requireRole('admin', 'chunhiem', 'phuta'),
   component: ClassesPage,
+})
+
+const auditLogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/audit-logs',
+  beforeLoad: requireRole('admin'),
+  component: AuditLogPage,
+})
+
+const academicYearRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/academic-years',
+  beforeLoad: requireRole('admin', 'chunhiem'),
+  component: AcademicYearPage,
+})
+
+const catechistRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/catechists',
+  beforeLoad: requireRole('admin', 'chunhiem', 'phuta'),
+  component: CatechistPage,
+})
+
+const notFoundRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '*',
+  component: () => <Navigate to="/dashboard" replace />,
 })
 
 const routeTree = rootRoute.addChildren([
@@ -282,6 +317,10 @@ const routeTree = rootRoute.addChildren([
   noticesRoute,
   usersRoute,
   classesRoute,
+  auditLogRoute,
+  academicYearRoute,
+  catechistRoute,
+  notFoundRoute,
 ])
 
 export const router = createRouter({ routeTree })

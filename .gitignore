@@ -26,7 +26,8 @@ dist-ssr
 # Coverage
 coverage/
 
-# Playwright
-playwright-report/
-test-results/
-playwright/.cache/
+# Database & Runtime Data
+server/data/*.db
+data/
+*.db
+*.sqlite

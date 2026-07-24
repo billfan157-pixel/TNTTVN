@@ -1,7 +1,12 @@
+import { router } from '../router'
+
 let accessToken: string | null = null
 let refreshToken: string | null = null
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+// ─── Mutex for JWT refresh ───
+let refreshPromise: Promise<boolean> | null = null
 
 export function getAccessToken(): string | null {
   return accessToken
@@ -40,7 +45,23 @@ export function clearTokens() {
   }
 }
 
+/**
+ * Refresh access token with mutex to prevent concurrent refresh calls.
+ * Multiple parallel 401 responses will share the same refresh promise.
+ */
 async function refreshAccessToken(): Promise<boolean> {
+  // If a refresh is already in progress, wait for it
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = doRefresh()
+  try {
+    return await refreshPromise
+  } finally {
+    refreshPromise = null
+  }
+}
+
+async function doRefresh(): Promise<boolean> {
   if (!refreshToken) return false
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
@@ -68,20 +89,45 @@ function redirectToLogin() {
   } catch {
     // Ignore
   }
-  window.location.href = '/login'
+  // Use router navigation instead of window.location to preserve React state
+  try {
+    router.navigate({ to: '/login' })
+  } catch {
+    window.location.href = '/login'
+  }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+const MAX_RETRIES = 3
+const RETRY_BASE_MS = 1000
+
+/**
+ * Core request function with:
+ * - JWT auto-refresh with mutex (prevents concurrent refresh race)
+ * - Retry logic with exponential backoff for transient failures
+ * - Proper error classification
+ */
+async function request<T>(method: string, path: string, body?: unknown, retryCount = 0): Promise<T> {
   const url = `${API_BASE}${path}`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
 
-  let res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (err) {
+    // Network error — retry if possible
+    if (retryCount < MAX_RETRIES) {
+      await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
+      return request<T>(method, path, body, retryCount + 1)
+    }
+    throw new ApiError(0, 'Network error — unable to reach server', path)
+  }
 
+  // Handle 401 with mutex refresh
   if (res.status === 401 && refreshToken) {
     const refreshed = await refreshAccessToken()
     if (refreshed) {
@@ -91,6 +137,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       redirectToLogin()
       throw new ApiError(401, 'Session expired — redirecting to login', path)
     }
+  }
+
+  // Handle 5xx with retry
+  if (res.status >= 500 && retryCount < MAX_RETRIES) {
+    await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
+    return request<T>(method, path, body, retryCount + 1)
   }
 
   if (!res.ok) {
@@ -104,6 +156,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     return json.data as T
   }
   return json as T
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 export class ApiError extends Error {
@@ -121,13 +177,24 @@ export class ApiError extends Error {
 export const api = {
   login: (username: string, password: string) =>
     request<{
-      user: { id: string; username: string; fullName: string; role: string }
+      user: { id: string; username: string; fullName: string; role: string; status: string; mustChangePassword?: number }
       accessToken: string
       refreshToken: string
     }>('POST', '/auth/login', { username, password }),
 
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ success: boolean }>('POST', '/auth/change-password', { currentPassword, newPassword }),
+
   // ─── Users ───
   getUsers: () => request<any[]>('GET', '/users'),
+  createUser: (data: { username: string; fullName: string; phone?: string; role: string; assignedClasses?: string[] }) =>
+    request<{ id: string; username: string; tempPassword: string }>('POST', '/users', data),
+  updateUserStatus: (id: string, status: string) =>
+    request<{ success: boolean }>('PUT', `/users/${id}/status`, { status }),
+  resetUserPassword: (id: string) =>
+    request<{ username: string; tempPassword: string }>('POST', `/users/${id}/reset-password`),
+  forceLogoutUser: (id: string) =>
+    request<{ success: boolean }>('POST', `/users/${id}/force-logout`),
 
   // ─── Students ───
   getStudents: (updatedAfter?: string) => {
@@ -181,4 +248,16 @@ export const api = {
   },
   createNotice: (data: Record<string, unknown>) => request<any>('POST', '/notices', data),
   deleteNotice: (id: string) => request<{ success: boolean }>('DELETE', `/notices/${id}`),
+
+  // ─── Audit Logs ───
+  getAuditLogs: (params?: { page?: number; limit?: number; userId?: string; action?: string; entityType?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.userId) qs.set('userId', params.userId)
+    if (params?.action) qs.set('action', params.action)
+    if (params?.entityType) qs.set('entityType', params.entityType)
+    const q = qs.toString()
+    return request<{ data: any[]; meta: { page: number; limit: number; total: number } }>('GET', `/audit-logs${q ? `?${q}` : ''}`)
+  },
 }

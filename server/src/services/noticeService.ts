@@ -3,16 +3,19 @@ import { notices, auditLogs } from '../db/schema.js'
 import { eq, and, desc, gte } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 
-export async function getNotices(parishId: string, updatedAfter?: string) {
+export async function getNotices(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1) {
   const conditions = [eq(notices.parishId, parishId)]
   if (updatedAfter) {
     conditions.push(gte(notices.updatedAt, updatedAfter))
   }
+  const offset = (page - 1) * limit
   return db
     .select()
     .from(notices)
     .where(and(...conditions))
     .orderBy(desc(notices.createdAt))
+    .limit(limit)
+    .offset(offset)
 }
 
 export async function createNotice(data: any, userId: string, parishId: string, ip: string, userAgent: string) {

@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
@@ -18,7 +20,26 @@ interface SubscriptionData {
   keys: { p256dh: string; auth: string }
 }
 
-let subscriptions: SubscriptionData[] = []
+const SUBS_FILE = join(process.cwd(), 'data', 'push-subscriptions.json')
+
+function loadSubscriptions(): SubscriptionData[] {
+  try {
+    if (existsSync(SUBS_FILE)) {
+      return JSON.parse(readFileSync(SUBS_FILE, 'utf-8'))
+    }
+  } catch {}
+  return []
+}
+
+function saveSubscriptions(subs: SubscriptionData[]) {
+  try {
+    writeFileSync(SUBS_FILE, JSON.stringify(subs, null, 2))
+  } catch (err) {
+    console.error('Failed to persist push subscriptions:', err)
+  }
+}
+
+let subscriptions: SubscriptionData[] = loadSubscriptions()
 
 const notificationsRouter = new Hono()
 
@@ -76,12 +97,14 @@ notificationsRouter.post('/subscribe', zValidator('json', subscribeSchema), asyn
   const body = c.req.valid('json')
   subscriptions = subscriptions.filter(s => s.endpoint !== body.endpoint)
   subscriptions.push(body as SubscriptionData)
+  saveSubscriptions(subscriptions)
   return c.json({ ok: true })
 })
 
 notificationsRouter.post('/unsubscribe', zValidator('json', unsubscribeSchema), async (c) => {
   const { endpoint } = c.req.valid('json')
   subscriptions = subscriptions.filter(s => s.endpoint !== endpoint)
+  saveSubscriptions(subscriptions)
   return c.json({ ok: true })
 })
 
@@ -99,6 +122,7 @@ notificationsRouter.post('/send', roleMiddleware('admin', 'chunhiem'), zValidato
   const failed = results.filter(r => r.status === 'rejected').length
   if (failed > 0) {
     subscriptions = subscriptions.filter((_, i) => results[i].status === 'fulfilled')
+    saveSubscriptions(subscriptions)
   }
   return c.json({ sent, failed, total: subscriptions.length })
 })

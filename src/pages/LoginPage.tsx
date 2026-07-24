@@ -1,41 +1,25 @@
 import React, { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { LogIn, Lock, User, AlertCircle, Loader2 } from 'lucide-react'
-import { api, setTokens } from '../lib/api'
+import { useAuthStore } from '../stores/authStore'
 import * as Sentry from '@sentry/react'
 
 export function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const { login, isLoading, error, clearError } = useAuthStore()
 
   const navigate = useNavigate()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!username || !password) {
-      setError('Vui lòng nhập đầy đủ Tên đăng nhập và Mật khẩu!')
       return
     }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const res = await api.login(username, password)
-      if (res && res.accessToken) {
-        setTokens(res.accessToken, res.refreshToken)
-        localStorage.setItem('parish_current_user', JSON.stringify(res.user))
-        navigate({ to: '/dashboard' })
-      } else {
-        setError('Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin!')
-      }
-    } catch (err: any) {
-      Sentry.captureException(err)
-      setError(err?.message || 'Tên đăng nhập hoặc mật khẩu không chính xác!')
-    } finally {
-      setLoading(false)
+    clearError()
+    const success = await login(username, password)
+    if (success) {
+      navigate({ to: '/dashboard' })
     }
   }
 
@@ -92,10 +76,10 @@ export function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={isLoading}
             className="w-full py-3 bg-parish-primary hover:bg-parish-primary-hover text-white text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
           >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Đăng Nhập Ngay</span>}
+            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Đăng Nhập Ngay</span>}
           </button>
         </form>
       </div>

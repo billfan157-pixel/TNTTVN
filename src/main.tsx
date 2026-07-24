@@ -10,13 +10,25 @@ import { loadTokens } from './lib/api'
 import './index.css'
 
 initSentry()
-initDB()
 loadTokens()
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <RouterProvider router={router} />
-    </ErrorBoundary>
-  </StrictMode>,
-)
+// Ensure IndexedDB is fully initialized before rendering React tree
+initDB().then(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <RouterProvider router={router} />
+      </ErrorBoundary>
+    </StrictMode>,
+  )
+}).catch((err) => {
+  console.error('Failed to initialize database:', err)
+  // Render anyway with degraded offline support
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <RouterProvider router={router} />
+      </ErrorBoundary>
+    </StrictMode>,
+  )
+})

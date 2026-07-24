@@ -129,9 +129,9 @@ describe('Sync Engine — Queue Compaction', () => {
   })
 
   it('compacts CREATE + UPDATE → single CREATE with latest payload', async () => {
-    syncService.syncCreateStudent({ id: 'ST-C1', fullName: 'Initial' } as any)
-    await new Promise(r => setTimeout(r, 1))
-    syncService.syncUpdateStudent('ST-C1', { fullName: 'Updated' })
+    await syncService.syncCreateStudent({ id: 'ST-C1', fullName: 'Initial' } as any)
+    await new Promise(r => setTimeout(r, 10))
+    await syncService.syncUpdateStudent('ST-C1', { fullName: 'Updated' })
     await useSyncStore.getState().compactQueue()
 
     const pending = await useSyncStore.getState().getPendingOps()
@@ -362,10 +362,10 @@ describe('Sync Engine — Retry Policy', () => {
 
     const op = (await getDB().syncQueue.get(opId))!
     const result = await processOperation(op)
-    expect(result).toEqual({ ok: true })
+    expect(result.ok).toBe(true)
   })
 
-  it('returns recoverable=true for first 401 (token refresh attempt)', async () => {
+  it('returns recoverable=false for 401 auth error', async () => {
     vi.mocked(api.createStudent).mockRejectedValue(new ApiError(401, 'Unauthorized', '/students'))
 
     const opId = await useSyncStore.getState().addOp({
@@ -376,7 +376,7 @@ describe('Sync Engine — Retry Policy', () => {
     const op = (await getDB().syncQueue.get(opId))!
     const result = await processOperation(op)
     expect(result.ok).toBe(false)
-    expect((result as any).recoverable).toBe(true)
+    expect((result as any).recoverable).toBe(false)
   })
 })
 

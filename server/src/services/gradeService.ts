@@ -11,15 +11,28 @@ export async function getGrades(parishId: string, studentId?: string, semester?:
   return db.select().from(grades).where(and(...conditions))
 }
 
-export async function upsertGrade(data: any, userId: string, parishId: string, ip: string, userAgent: string) {
-  const [existing] = await db
+export interface GradeData {
+  id?: string
+  studentId: string
+  academicYear?: string
+  semester?: number
+  scoreOral?: number | null
+  score15m?: number | null
+  score1Period?: number | null
+  scoreMidterm?: number | null
+  scoreFinal?: number | null
+  comments?: string
+}
+
+export async function upsertGrade(data: GradeData, userId: string, parishId: string, ip: string, userAgent: string, tx: any = db) {
+  const [existing] = await tx
     .select()
     .from(grades)
     .where(
       and(
         eq(grades.studentId, data.studentId),
-        eq(grades.semester, data.semester),
-        eq(grades.academicYear, data.academicYear),
+        eq(grades.semester, data.semester!),
+        eq(grades.academicYear, data.academicYear!),
         eq(grades.parishId, parishId),
       ),
     )
@@ -27,12 +40,12 @@ export async function upsertGrade(data: any, userId: string, parishId: string, i
 
   const now = new Date().toISOString()
   if (existing) {
-    await db
+    await tx
       .update(grades)
       .set({ ...data, updatedAt: now, updatedBy: userId, version: (existing.version || 1) + 1 })
       .where(eq(grades.id, existing.id))
 
-    await db.insert(auditLogs).values({
+    await tx.insert(auditLogs).values({
       id: generateId('AUD'),
       userId,
       action: 'UPDATE',
@@ -44,12 +57,12 @@ export async function upsertGrade(data: any, userId: string, parishId: string, i
       userAgent,
       parishId,
     })
-    const [updated] = await db.select().from(grades).where(eq(grades.id, existing.id)).limit(1)
+    const [updated] = await tx.select().from(grades).where(eq(grades.id, existing.id)).limit(1)
     return updated
   }
 
   const id = generateId('GR')
-  await db.insert(grades).values({
+  await tx.insert(grades).values({
     id,
     ...data,
     version: 1,
@@ -59,7 +72,7 @@ export async function upsertGrade(data: any, userId: string, parishId: string, i
     updatedAt: now,
   })
 
-  await db.insert(auditLogs).values({
+  await tx.insert(auditLogs).values({
     id: generateId('AUD'),
     userId,
     action: 'CREATE',
@@ -71,13 +84,21 @@ export async function upsertGrade(data: any, userId: string, parishId: string, i
     parishId,
   })
 
-  const [created] = await db.select().from(grades).where(eq(grades.id, id)).limit(1)
+  const [created] = await tx.select().from(grades).where(eq(grades.id, id)).limit(1)
   return created
 }
 
-export async function upsertGradeBatch(dataList: any[], userId: string, parishId: string, ip: string, userAgent: string) {
-  for (const data of dataList) {
-    await upsertGrade(data, userId, parishId, ip, userAgent)
+export async function upsertGradeBatch(dataList: GradeData[], userId: string, parishId: string, ip: string, userAgent: string) {
+  try {
+    await db.transaction(async (tx) => {
+      for (const data of dataList) {
+        await upsertGrade(data, userId, parishId, ip, userAgent, tx)
+      }
+    })
+  } catch {
+    for (const data of dataList) {
+      await upsertGrade(data, userId, parishId, ip, userAgent, db)
+    }
   }
   return true
 }

@@ -60,7 +60,7 @@ attendanceRouter.post(
     const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || ''
     const userAgent = c.req.header('user-agent') || ''
 
-    await upsertAttendanceBatch(records, date, type, user.userId, user.parishId, ip, userAgent)
+    await upsertAttendanceBatch(date, type, records, user.userId, user.parishId, ip, userAgent)
     return successResponse(c, { count: records.length, success: true })
   },
 )

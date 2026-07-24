@@ -69,7 +69,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
           {/* Parish Header */}
           <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px dashed #CBD5E1', paddingBottom: '12px' }}>
             <h4 style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: '#64748B', margin: 0, fontWeight: 700 }}>
-              GIÁO PHẬN • GIÁO XỨ THÁNH GIA
+              GIÁO PHẬN • GIÁO XỨ GIA TÔN
             </h4>
             <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#1E3A8A', margin: '4px 0 2px 0', letterSpacing: '-0.2px' }}>
               PHIẾU HỌC TẬP & KẾT QUẢ RỪNG BIỂN THÁNH THỂ

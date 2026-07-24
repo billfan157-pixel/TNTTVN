@@ -1,11 +1,13 @@
+import { randomInt } from 'node:crypto'
 import { db } from '../db/index.js'
 import { users, auditLogs, catechistAssignments } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { generateId } from '../utils/id.js'
 
-export async function getUsers(parishId: string) {
-  const userList = await db.select().from(users).where(eq(users.parishId, parishId))
+export async function getUsers(parishId: string, limit: number = 50, page: number = 1) {
+  const offset = (page - 1) * limit
+  const userList = await db.select().from(users).where(eq(users.parishId, parishId)).limit(limit).offset(offset)
   const assignments = await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, parishId))
 
   const assignmentMap = new Map<string, string[]>()
@@ -43,7 +45,7 @@ export async function createUser(
   userAgent: string,
 ) {
   const id = generateId('USR')
-  const tempPass = `Parish@${Math.floor(1000 + Math.random() * 9000)}`
+  const tempPass = `Parish@${randomInt(1000, 9999)}`
   const passwordHash = await bcrypt.hash(tempPass, 10)
   const now = new Date().toISOString()
 
@@ -128,7 +130,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
   const [existing] = await db.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
   if (!existing) return null
 
-  const tempPass = `Reset@${Math.floor(1000 + Math.random() * 9000)}`
+  const tempPass = `Reset@${randomInt(1000, 9999)}`
   const passwordHash = await bcrypt.hash(tempPass, 10)
 
   await db.update(users).set({ passwordHash, status: 'FORCE_PASSWORD_CHANGE', failedAttempts: 0, lockedUntil: null }).where(eq(users.id, id))
