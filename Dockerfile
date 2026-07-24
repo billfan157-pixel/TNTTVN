@@ -4,14 +4,14 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Cache-bust: bump this number to force a clean build on Railway
-ARG CACHE_BUST=20260724_v3
+ARG CACHE_BUST=20260724_v4
 
 # Copy dependency configs
 COPY package*.json ./
 COPY server/package*.json ./server/
 
-# Install dependencies for client and server
-RUN npm ci && cd server && npm ci
+# Use latest npm to avoid peer-dep resolution bugs in npm 10
+RUN npm install -g npm@latest && npm ci && cd server && npm ci
 
 # Copy source code
 COPY . .
@@ -26,14 +26,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Cache-bust: bump this number to force a clean build on Railway
-ARG CACHE_BUST=20260724_v3
+ARG CACHE_BUST=20260724_v4
 
 # Install cron for scheduled backups
 RUN apk add --no-cache dcron
 
 # Copy server dependency configs & install production dependencies only
 COPY server/package*.json ./server/
-RUN cd server && npm ci --omit=dev
+RUN npm install -g npm@latest && cd server && npm ci --omit=dev
 
 # Copy built dist outputs
 COPY --from=builder /app/dist ./dist
