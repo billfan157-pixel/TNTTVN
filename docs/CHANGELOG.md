@@ -1,4 +1,23 @@
 # Changelog
+> Version: 1.1 | Last reviewed: 2026-07-25 | Status: ✅ Current | Prerequisites: none
+
+## Unreleased — Documentation Synchronization
+
+### Changed
+- Full re-verification of all 12 docs against source code
+- `01_PROJECT_AUDIT.md`: fixed component count (28→36), service count (8→10), page paths, removed stale NotificationPrompt entry
+- `02_ARCHITECTURE.md`: updated component count, service count, utils list
+- `04_CODING_STANDARDS.md`: replaced "No coverage config yet" with actual v8 thresholds
+- `05_REFACTOR_RULES.md`: corrected Zod output validation rule, useViewMode reference, replaced migration diagram with execution order reference
+- `06_COMPONENT_MAP.md`: updated component counts (11→14 common, 10→15 desktop), listed missing entries, removed stale NotificationPrompt table, fixed GradesPage/ClassesPage imports
+- `07_DATABASE_PLAN.md`: rewrote constraints section to match actual FK configuration
+- `08_SECURITY_PLAN.md`: added missing X-XSS-Protection header
+- `09_TEST_PLAN.md`: fixed frontend component count (25→36) and backend service count (8→10)
+- `10_MASTER_EXECUTION_PLAN.md`: moved class switcher from Remaining, clarified Excel import UI/backend status, fixed health endpoint path
+- `AI_CONTEXT_MAP.md`: fixed page paths, component counts, utils list, test file count
+
+### Removed
+- `NotificationPrompt` from docs (file no longer exists)
 
 ## Phase 9 — System Diagnostics (Week 8)
 
@@ -66,7 +85,7 @@
 
 ### Added
 - User CRUD API (`/api/users` — GET/POST/PUT, status, reset-password, force-logout)
-- Change-password endpoint (`POST /auth/change-password`)
+- Change-password endpoint (`POST /api/auth/change-password`)
 - TokenVersion-based force logout (validated against DB in authMiddleware)
 - Account auto-lockout (5 failed attempts → LOCKED status)
 - Notification persistence (enqueue writes to `notifications` table, sentAt tracking)
@@ -82,7 +101,7 @@
 
 ### Added
 - LoginPage with validation, loading state, Sentry error tracking
-- Auth guard (`beforeLoad: requireAuth`) on 7 protected routes
+- Auth guard (`beforeLoad: requireAuth`) on 7 protected routes (later expanded to 11)
 - 401 global redirect in api.ts (on refresh failure → /login)
 - User badge + logout in HeaderBar
 - Class switcher dropdown in HeaderBar
@@ -108,7 +127,7 @@
 - Merged data flow into architecture doc
 - Merged `MASTER_DEVELOPMENT_PLAN.md` (root) → `10_MASTER_EXECUTION_PLAN.md`
 - Renamed files to numbered prefix for ordered navigation
-- Phase 1-3: Critical bugs, security (RBAC, body limit, Zod, audit IP/UA), database (13 tables, IAM/PDF/backup frontend features)
+- Phase 1-3: Critical bugs, security (RBAC, body limit, Zod, audit IP/UA), database (initial 13+2 tables, IAM/PDF/backup frontend features)
 
 ### Removed
 - Outdated `DESIGN_SYSTEM.md`, `DESIGN_TOKENS.md`

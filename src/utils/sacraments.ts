@@ -14,13 +14,6 @@ export function getAcademicYear(date: Date = new Date()): string {
   return `${startYear} - ${startYear + 1}`
 }
 
-export function getNextAcademicYear(currentYear: string): string {
-  const match = currentYear.match(/(\d{4}) - (\d{4})/)
-  if (!match) return getAcademicYear()
-  const start = Number(match[1]) + 1
-  return `${start} - ${start + 1}`
-}
-
 export function getAge(dateOfBirth: string, reference: Date = new Date()): number {
   const dob = new Date(dateOfBirth)
   let age = reference.getFullYear() - dob.getFullYear()
@@ -37,65 +30,6 @@ export function getBranchForAge(age: number): BranchType | null {
     if (age >= min && age <= max) return branch
   }
   return null
-}
-
-export function getNextBranch(currentBranch: BranchType): BranchType | null {
-  const idx = BRANCH_ORDER.indexOf(currentBranch)
-  if (idx < 0 || idx >= BRANCH_ORDER.length - 1) return null
-  return BRANCH_ORDER[idx + 1]
-}
-
-export function isBranchProgression(currentBranch: BranchType, targetBranch: BranchType): boolean {
-  const currentIdx = BRANCH_ORDER.indexOf(currentBranch)
-  const targetIdx = BRANCH_ORDER.indexOf(targetBranch)
-  return targetIdx > currentIdx
-}
-
-export interface PromotionResult {
-  canPromote: boolean
-  reasons: string[]
-  recommendedBranch: BranchType | null
-}
-
-export function checkPromotionEligibility(
-  student: Student,
-  averageScore: number | null,
-  attendanceRate: number | null,
-  semester: 1 | 2
-): PromotionResult {
-  const reasons: string[] = []
-
-  if (averageScore === null || averageScore === undefined) {
-    reasons.push('Chưa có điểm trung bình')
-  } else if (averageScore < 5.0) {
-    reasons.push(`Điểm TB ${averageScore} < 5.0 (không đạt)`)
-  }
-
-  if (attendanceRate === null || attendanceRate === undefined) {
-    reasons.push('Chưa có tỷ lệ chuyên cần')
-  } else if (attendanceRate < 70) {
-    reasons.push(`Chuyên cần ${attendanceRate}% < 70% (không đạt)`)
-  }
-
-  if (semester === 1) {
-    reasons.push('Chỉ xét khi kết thúc học kỳ II')
-  }
-
-  const canPromote = reasons.length === 0
-
-  let recommendedBranch: BranchType | null = null
-  if (canPromote) {
-    const age = getAge(student.dateOfBirth)
-    const ageBranch = getBranchForAge(age)
-    const currentBranchIdx = BRANCH_ORDER.indexOf(student.branch)
-    if (ageBranch && BRANCH_ORDER.indexOf(ageBranch) > currentBranchIdx) {
-      recommendedBranch = ageBranch
-    } else if (currentBranchIdx < BRANCH_ORDER.length - 1) {
-      recommendedBranch = BRANCH_ORDER[currentBranchIdx + 1]
-    }
-  }
-
-  return { canPromote, reasons, recommendedBranch }
 }
 
 export interface SacramentStatus {
@@ -119,22 +53,56 @@ export function getSacramentStatus(student: Student): SacramentStatus {
   return { baptism, firstCommunion, confirmation, nextSacrament }
 }
 
-export function getClassIdForBranch(branch: BranchType, yearIndex: number = 0): string {
-  const prefixMap: Record<BranchType, string> = {
-    ChienCon: 'CC',
-    AuNhi: 'AU',
-    ThieuNhi: 'TN',
-    NghiaSi: 'NS',
-    HiepSi: 'HS',
+export function getNextBranch(currentBranch: BranchType): BranchType | null {
+  const idx = BRANCH_ORDER.indexOf(currentBranch)
+  if (idx >= 0 && idx < BRANCH_ORDER.length - 1) {
+    return BRANCH_ORDER[idx + 1]
   }
-  const prefix = prefixMap[branch]
-  return `${prefix}${yearIndex + 1}`
+  return null
 }
 
-export function getSacramentYears(student: Student): { baptismYear: number | null; communionYear: number | null; confirmationYear: number | null } {
-  return {
-    baptismYear: student.baptismDate ? new Date(student.baptismDate).getFullYear() : null,
-    communionYear: student.firstCommunionDate ? new Date(student.firstCommunionDate).getFullYear() : null,
-    confirmationYear: student.confirmationDate ? new Date(student.confirmationDate).getFullYear() : null,
+export function getClassIdForBranch(branch: BranchType): string {
+  switch (branch) {
+    case 'ChienCon': return 'CC1'
+    case 'AuNhi': return 'AU1'
+    case 'ThieuNhi': return 'TN1'
+    case 'NghiaSi': return 'NS1'
+    case 'HiepSi': return 'HS1'
+    default: return 'AU1'
   }
 }
+
+export interface PromotionEligibilityResult {
+  canPromote: boolean
+  recommendedBranch?: BranchType
+  reasons: string[]
+}
+
+export function checkPromotionEligibility(
+  student: Student,
+  avgScore: number | null,
+  attendanceRate: number,
+  _semester: number = 2
+): PromotionEligibilityResult {
+  const reasons: string[] = []
+
+  if (avgScore === null) {
+    reasons.push('Chưa có kết quả điểm học tập')
+  } else if (avgScore < 5.0) {
+    reasons.push(`ĐTB học tập chưa đạt (cần ≥ 5.0, hiện tại ${avgScore})`)
+  }
+
+  if (attendanceRate < 70) {
+    reasons.push(`Tỷ lệ chuyên cần chưa đạt (cần ≥ 70%, hiện tại ${attendanceRate}%)`)
+  }
+
+  const nextBranch = getNextBranch(student.branch)
+  const canPromote = reasons.length === 0
+
+  return {
+    canPromote,
+    recommendedBranch: canPromote ? (nextBranch ?? undefined) : undefined,
+    reasons,
+  }
+}
+

@@ -1,7 +1,11 @@
 import { db } from '../db/index.js'
 import { classes, branches, academicYears, auditLogs } from '../db/schema.js'
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, isNull } from 'drizzle-orm'
+import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
+
+type CreateClassData = Pick<InferInsertModel<typeof classes>, 'code' | 'name' | 'branchId' | 'academicYearId' | 'room'>
+type UpdateClassData = Partial<CreateClassData>
 
 export async function getClasses(parishId: string) {
   return db
@@ -22,7 +26,7 @@ export async function getClasses(parishId: string) {
     .from(classes)
     .leftJoin(branches, eq(classes.branchId, branches.id))
     .leftJoin(academicYears, eq(classes.academicYearId, academicYears.id))
-    .where(eq(classes.parishId, parishId))
+    .where(and(eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     .orderBy(desc(classes.createdAt))
 }
 
@@ -35,7 +39,7 @@ export async function getClassById(id: string, parishId: string) {
   return result
 }
 
-export async function createClass(data: any, userId: string, parishId: string, ip: string, userAgent: string) {
+export async function createClass(data: CreateClassData, userId: string, parishId: string, ip: string, userAgent: string) {
   const id = generateId('CLS')
   const now = new Date().toISOString()
 
@@ -68,11 +72,11 @@ export async function createClass(data: any, userId: string, parishId: string, i
   return created
 }
 
-export async function updateClass(id: string, data: any, userId: string, parishId: string, ip: string, userAgent: string) {
+export async function updateClass(id: string, data: UpdateClassData, userId: string, parishId: string, ip: string, userAgent: string) {
   const [existing] = await db
     .select()
     .from(classes)
-    .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
+    .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     .limit(1)
 
   if (!existing) return null
@@ -111,17 +115,20 @@ export async function deleteClass(id: string, userId: string, parishId: string, 
   const [existing] = await db
     .select()
     .from(classes)
-    .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
+    .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     .limit(1)
 
   if (!existing) return false
 
-  await db.delete(classes).where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
+  const now = new Date().toISOString()
+  await db.update(classes)
+    .set({ deletedAt: now, updatedAt: now, updatedBy: userId })
+    .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
 
   await db.insert(auditLogs).values({
     id: generateId('AUD'),
     userId,
-    action: 'DELETE',
+    action: 'SOFT_DELETE',
     entityType: 'class',
     entityId: id,
     oldValue: JSON.stringify(existing),

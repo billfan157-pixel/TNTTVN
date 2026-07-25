@@ -149,6 +149,47 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
   return { username: existing.username, tempPassword: tempPass }
 }
 
+export async function updateUserAssignments(
+  id: string,
+  assignedClasses: string[],
+  adminUserId: string,
+  parishId: string,
+  ip: string,
+  userAgent: string,
+) {
+  const [existing] = await db.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
+  if (!existing) return null
+
+  await db.delete(catechistAssignments).where(eq(catechistAssignments.userId, id))
+  const now = new Date().toISOString()
+  for (const classId of assignedClasses) {
+    await db.insert(catechistAssignments).values({
+      id: generateId('ASG'),
+      userId: id,
+      classId,
+      roleInClass: existing.role === 'chunhiem' ? 'chunhiem' : 'phuta',
+      parishId,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: adminUserId,
+    })
+  }
+
+  await db.insert(auditLogs).values({
+    id: generateId('AUD'),
+    userId: adminUserId,
+    action: 'UPDATE_USER_ASSIGNMENTS',
+    entityType: 'user',
+    entityId: id,
+    newValue: JSON.stringify({ assignedClasses }),
+    ip,
+    userAgent,
+    parishId,
+  })
+
+  return true
+}
+
 export async function forceLogoutUser(id: string, adminUserId: string, parishId: string, ip: string, userAgent: string) {
   const [existing] = await db.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
   if (!existing) return null

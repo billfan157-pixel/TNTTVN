@@ -1,5 +1,6 @@
 import type { Student, GradeRecord } from '../types'
 import { calculateGradeAverage, type GradeInput } from './grades'
+import { useAcademicYearStore } from '../stores/academicYearStore'
 
 export interface ExportGradebookOptions {
   students: Student[]
@@ -18,8 +19,9 @@ export function exportGradebookToExcel({
   matrixData,
   className = 'Tất cả các lớp',
   semester,
-  academicYear = '2025 - 2026',
+  academicYear: academicYearProp,
 }: ExportGradebookOptions) {
+  const academicYear = academicYearProp || useAcademicYearStore.getState().currentYear
   const semesterText = semester === 1 ? 'Học Kỳ I' : 'Học Kỳ II'
   const dateStr = new Date().toLocaleDateString('vi-VN')
 
@@ -152,79 +154,6 @@ export function exportGradebookToExcel({
   const safeClassName = className.replace(/[^a-zA-Z0-9_-]/g, '_')
   const safeSemester = semester === 1 ? 'HK1' : 'HK2'
   const filename = `BangDiem_${safeClassName}_${safeSemester}_${academicYear.replace(/\s+/g, '')}.xls`
-
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
-}
-
-/**
- * Converts gradebook data to CSV format with UTF-8 BOM for universal spreadsheet compatibility.
- */
-export function exportGradebookToCSV({
-  students,
-  matrixData,
-  className = 'TatCa',
-  semester,
-  academicYear = '2025-2026',
-}: ExportGradebookOptions) {
-  const headers = [
-    'STT',
-    'Mã Thiếu Nhi',
-    'Tên Thánh',
-    'Họ và Tên',
-    'Phái',
-    'Ngày Sinh',
-    'Điểm Miệng',
-    'Điểm 15P',
-    'Điểm 1 Tiết',
-    'Điểm Giữa Kỳ',
-    'Điểm Cuối Kỳ',
-    'Điểm Đạo Đức',
-    'Điểm Trung Bình',
-    'Xếp Loại',
-    'Ghi Chú',
-  ]
-
-  const csvRows = students.map((student, index) => {
-    const rec = (matrixData[student.id] || {}) as Record<string, any>
-    const gradeInput: GradeInput = {
-      scoreOral: rec.scoreOral ?? null,
-      score15m: rec.score15m ?? null,
-      score1Period: rec.score1Period ?? null,
-      scoreMidterm: rec.scoreMidterm ?? null,
-      scoreFinal: rec.scoreFinal ?? null,
-    }
-    const avgResult = calculateGradeAverage(gradeInput)
-
-    return [
-      index + 1,
-      `"${student.code || ''}"`,
-      `"${student.holyName || ''}"`,
-      `"${student.fullName || ''}"`,
-      `"${student.gender || ''}"`,
-      `"${student.dateOfBirth || ''}"`,
-      rec.scoreOral !== null && rec.scoreOral !== undefined ? rec.scoreOral : '',
-      rec.score15m !== null && rec.score15m !== undefined ? rec.score15m : '',
-      rec.score1Period !== null && rec.score1Period !== undefined ? rec.score1Period : '',
-      rec.scoreMidterm !== null && rec.scoreMidterm !== undefined ? rec.scoreMidterm : '',
-      rec.scoreFinal !== null && rec.scoreFinal !== undefined ? rec.scoreFinal : '',
-      rec.scoreDaoDuc !== null && rec.scoreDaoDuc !== undefined ? rec.scoreDaoDuc : '',
-      avgResult.score !== null ? avgResult.score.toFixed(1) : '',
-      `"${avgResult.label || ''}"`,
-      `"${rec.comments || ''}"`,
-    ].join(',')
-  })
-
-  const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n')
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const safeClassName = className.replace(/[^a-zA-Z0-9_-]/g, '_')
-  const filename = `BangDiem_${safeClassName}_HK${semester}.csv`
 
   const link = document.createElement('a')
   link.href = url

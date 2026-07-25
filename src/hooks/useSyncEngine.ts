@@ -60,6 +60,12 @@ export async function runSyncFlow() {
     return
   }
 
+  const token = localStorage.getItem('parish_access_token')
+  if (!token) {
+    store.setStatus('idle')
+    return
+  }
+
   store.setStatus('syncing')
   store.setLastError(null)
 
@@ -78,6 +84,10 @@ export async function runSyncFlow() {
 
       if (result.ok) {
         await store.removeOp(op.id)
+      } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
+        store.setStatus('idle')
+        store.setLastError('Xác thực hết hạn — vui lòng đăng nhập lại')
+        return
       } else if (result.recoverable) {
         const retryCount = op.retryCount + 1
         await store.updateOp(op.id, {

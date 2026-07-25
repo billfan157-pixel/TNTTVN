@@ -35,8 +35,8 @@ vi.mock('../../hooks/useEffectiveMode', () => ({ useEffectiveMode: () => 'deskto
 vi.mock('../../hooks/useTheme', () => ({ useTheme: () => ({ theme: 'light', toggleTheme: vi.fn() }) }))
 vi.mock('../../stores/resetStores', () => ({ resetAllStoresToDefault: vi.fn() }))
 vi.mock('../../lib/api', () => ({ clearTokens: vi.fn() }))
-vi.mock('../../data/mockParishData', () => ({
-  MOCK_CLASSES: [{ id: 'AU1', name: 'Ấu 1A', branchId: 'AuNhi' }],
+vi.mock('../../constants/branches', () => ({
+  BRANCHES: { AuNhi: { id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#16A34A' } },
 }))
 vi.mock('../../assets/logo-tntt.png', () => ({ default: 'logo.png' }))
 

@@ -50,7 +50,7 @@ export const useStudentStore = create<StudentState>()(
 
       addStudent: async (data) => {
         const id = `ST-${Date.now()}`
-        const code = `TN2025${Math.floor(100 + Math.random() * 900)}`
+        const code = `TN${new Date().getFullYear()}${Math.floor(100 + Math.random() * 900)}`
         const newStudent: Student = { ...data, id, code }
 
         set((state) => ({ students: [newStudent, ...state.students] }))

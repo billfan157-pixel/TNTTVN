@@ -3,10 +3,9 @@ import { Student } from '../../types';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useClassStore } from '../../stores/classStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
+import { BRANCHES } from '../../constants/branches';
 import { X, Printer, Award } from 'lucide-react';
-
-const ACADEMIC_YEAR = '2025 - 2026';
 
 interface StudentReportModalProps {
   isOpen: boolean;
@@ -15,6 +14,7 @@ interface StudentReportModalProps {
 }
 
 export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, onClose, student }) => {
+  const academicYear = useAcademicYearStore(s => s.currentYear)
   const getStudentGrade = useGradeStore(s => s.getStudentGrade)
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
   const getStudentAttendanceRate = useAttendanceStore(s => s.getStudentAttendanceRate)
@@ -76,7 +76,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
               PHIẾU HỌC TẬP & KẾT QUẢ RỪNG BIỂN THÁNH THỂ
             </h2>
             <p style={{ fontSize: '13px', fontWeight: 700, color: '#D97706', margin: 0 }}>
-              Niên Học: {ACADEMIC_YEAR}
+              Niên Học: {academicYear}
             </p>
           </div>
 

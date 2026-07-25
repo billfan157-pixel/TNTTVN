@@ -5,14 +5,13 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useNoticeStore } from '../../stores/noticeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage } from '../../utils/grades';
-import { BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
 import {
   Users, Award, CheckCircle2, BookOpen,
   TrendingUp, Sparkles, AlertCircle, Plus
 } from 'lucide-react';
-
-const ACADEMIC_YEAR = '2025 - 2026';
 
 interface DesktopDashboardProps {
   onOpenAddStudent: () => void;
@@ -106,7 +105,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           <div>
             <p className="text-xs font-semibold text-text-muted uppercase m-0">Học Sinh Xuất Sắc/Giỏi</p>
             <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{xuatSacCount + gioiCount} <span className="text-xs font-normal text-text-muted">em</span></h3>
-            <p className="text-[11px] font-medium text-amber-600 m-0 mt-1">HK {selectedSemester} • Niên học {ACADEMIC_YEAR}</p>
+            <p className="text-[11px] font-medium text-amber-600 m-0 mt-1">HK {selectedSemester} • Niên học {useAcademicYearStore.getState().currentYear}</p>
           </div>
         </div>
 

@@ -12,6 +12,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useClassStore } from '../../stores/classStore'
+import { useAcademicYearStore } from '../../stores/academicYearStore'
 
 interface Props {
   isOpen: boolean
@@ -22,7 +23,7 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [reportType, setReportType] = useState<ReportType>('CLASS_GRADEBOOK')
   const [selectedClassId, setSelectedClassId] = useState('AU1')
   const [selectedStudentId, setSelectedStudentId] = useState('')
-  const [academicYear, setAcademicYear] = useState('2025 - 2026')
+  const [academicYear, setAcademicYear] = useState(useAcademicYearStore.getState().currentYear)
 
   const students = useStudentStore((s) => s.students)
   const grades = useGradeStore((g) => g.grades)

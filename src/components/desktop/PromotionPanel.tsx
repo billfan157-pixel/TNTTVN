@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
 import { getAcademicYear, checkPromotionEligibility, getSacramentStatus, getNextBranch, getClassIdForBranch } from '../../utils/sacraments';
 import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload, Loader2, AlertTriangle } from 'lucide-react';

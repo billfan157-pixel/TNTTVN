@@ -1,6 +1,7 @@
 import type { Student, GradeRecord, AttendanceRecord } from '../types'
 import { calculateGradeAverage, calculateAttendanceRate } from './grades'
 import { useClassStore } from '../stores/classStore'
+import { useAcademicYearStore } from '../stores/academicYearStore'
 import * as Sentry from '@sentry/react'
 
 export type ReportType = 'CLASS_GRADEBOOK' | 'STUDENT_REPORT_CARD' | 'SACRAMENT_CERTIFICATE'
@@ -12,10 +13,12 @@ export interface ReportOptions {
   dioceseName?: string
 }
 
-const DEFAULT_OPTIONS: ReportOptions = {
-  parishName: 'Giáo Xứ Gia Tôn',
-  dioceseName: 'Giáo Phận Xuân Lộc',
-  academicYear: '2025 - 2026',
+function getDefaultOptions(): ReportOptions {
+  return {
+    parishName: 'Giáo Xứ Gia Tôn',
+    dioceseName: 'Giáo Phận Xuân Lộc',
+    academicYear: useAcademicYearStore.getState().currentYear,
+  }
 }
 
 /**
@@ -26,11 +29,11 @@ export function generateClassGradebookHTML(
   students: Student[],
   grades: GradeRecord[],
   attendance: AttendanceRecord[],
-  options: ReportOptions = DEFAULT_OPTIONS,
+  options: ReportOptions = getDefaultOptions(),
 ): string {
   const classInfo = useClassStore.getState().findClassById(classId)
   const classStudents = students.filter((s) => s.classId === classId)
-  const year = options.academicYear || DEFAULT_OPTIONS.academicYear
+  const year = options.academicYear || getDefaultOptions().academicYear
 
   const studentRows = classStudents
     .map((s, idx) => {
@@ -93,8 +96,8 @@ export function generateClassGradebookHTML(
     <body>
       <div class="header">
         <div>
-          <p><strong>${options.dioceseName || DEFAULT_OPTIONS.dioceseName}</strong></p>
-          <p><strong>${options.parishName || DEFAULT_OPTIONS.parishName}</strong></p>
+          <p><strong>${options.dioceseName || getDefaultOptions().dioceseName}</strong></p>
+          <p><strong>${options.parishName || getDefaultOptions().parishName}</strong></p>
         </div>
         <div style="text-align: right;">
           <h1>SỔ ĐIỂM GIÁO LÝ</h1>
@@ -146,10 +149,10 @@ export function generateStudentReportCardHTML(
   student: Student,
   grades: GradeRecord[],
   attendance: AttendanceRecord[],
-  options: ReportOptions = DEFAULT_OPTIONS,
+  options: ReportOptions = getDefaultOptions(),
 ): string {
   const classInfo = useClassStore.getState().findClassById(student.classId)
-  const year = options.academicYear || DEFAULT_OPTIONS.academicYear
+  const year = options.academicYear || getDefaultOptions().academicYear
 
   const studentGrades = grades.filter((g) => g.studentId === student.id && g.academicYear === year)
   const sem1Grade = studentGrades.find((g) => g.semester === 1)
@@ -182,7 +185,7 @@ export function generateStudentReportCardHTML(
     </head>
     <body>
       <div class="card-header">
-        <p><strong>${options.dioceseName || DEFAULT_OPTIONS.dioceseName}</strong> - <strong>${options.parishName || DEFAULT_OPTIONS.parishName}</strong></p>
+        <p><strong>${options.dioceseName || getDefaultOptions().dioceseName}</strong> - <strong>${options.parishName || getDefaultOptions().parishName}</strong></p>
         <h1>PHIẾU ĐIỂM GIÁO LÝ CA CẢ NĂM</h1>
         <p>Năm học: <strong>${year}</strong></p>
       </div>
@@ -252,7 +255,7 @@ export function generateStudentReportCardHTML(
  */
 export function generateSacramentCertificateHTML(
   student: Student,
-  options: ReportOptions = DEFAULT_OPTIONS,
+  options: ReportOptions = getDefaultOptions(),
 ): string {
   return `
     <!DOCTYPE html>
@@ -271,8 +274,8 @@ export function generateSacramentCertificateHTML(
       </style>
     </head>
     <body>
-      <p><strong>${options.dioceseName || DEFAULT_OPTIONS.dioceseName}</strong></p>
-      <p><strong>${options.parishName || DEFAULT_OPTIONS.parishName}</strong></p>
+      <p><strong>${options.dioceseName || getDefaultOptions().dioceseName}</strong></p>
+      <p><strong>${options.parishName || getDefaultOptions().parishName}</strong></p>
       
       <h2>GIẤY CHỨNG NHẬN BÍ TÍCH</h2>
       <h1>RƠMÊÔ / THÁNH THỂ & THÊM SỨC</h1>

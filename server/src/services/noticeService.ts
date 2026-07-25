@@ -1,7 +1,10 @@
 import { db } from '../db/index.js'
 import { notices, auditLogs } from '../db/schema.js'
 import { eq, and, desc, gte } from 'drizzle-orm'
+import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
+
+type CreateNoticeData = Pick<InferInsertModel<typeof notices>, 'title' | 'content' | 'date' | 'author' | 'priority' | 'targetBranch'>
 
 export async function getNotices(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1) {
   const conditions = [eq(notices.parishId, parishId)]
@@ -18,7 +21,7 @@ export async function getNotices(parishId: string, updatedAfter?: string, limit:
     .offset(offset)
 }
 
-export async function createNotice(data: any, userId: string, parishId: string, ip: string, userAgent: string) {
+export async function createNotice(data: CreateNoticeData, userId: string, parishId: string, ip: string, userAgent: string) {
   const id = generateId('NC')
   const now = new Date().toISOString()
 

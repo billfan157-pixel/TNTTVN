@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Award, UserCheck, Shield, Plus, Edit2, Key, Lock, Unlock, Search } from 'lucide-react'
-import { api } from '../lib/api'
+import { Award, UserCheck, Shield, Plus, Edit2, Key, Lock, Unlock, Search, AlertCircle } from 'lucide-react'
+import { api, ApiError } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 
 interface CatechistUser {
@@ -17,6 +17,7 @@ export function CatechistPage() {
   const [users, setUsers] = useState<CatechistUser[]>([])
   const [classes, setClasses] = useState<{ id: string; name: string; code: string }[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('all')
 
@@ -24,6 +25,7 @@ export function CatechistPage() {
 
   const fetchData = async () => {
     setLoading(true)
+    setError(null)
     try {
       const [userList, classList] = await Promise.all([
         api.getUsers(),
@@ -32,7 +34,8 @@ export function CatechistPage() {
       setUsers(userList || [])
       setClasses(classList || [])
     } catch (err) {
-      console.error('Failed to load catechist data:', err)
+      const message = err instanceof ApiError ? err.message : 'Không thể tải danh sách huynh trưởng'
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -76,6 +79,13 @@ export function CatechistPage() {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="flex gap-3 flex-wrap items-center justify-between bg-surface-card p-3 border border-surface-border rounded-xl">

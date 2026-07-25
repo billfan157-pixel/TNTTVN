@@ -12,13 +12,13 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage, getStoredGradeWeights } from '../../utils/grades';
 import type { GradeRecord, Student } from '../../types';
-import { useClassStore } from '../../stores/classStore';
-import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Settings, Calculator, Download } from 'lucide-react';
+import { useClassStore, getFilteredClassList } from '../../stores/classStore';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
+import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Settings, Calculator, Download, Upload } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { GradeFormulaConfigModal } from './GradeFormulaConfigModal';
 import { exportGradebookToExcel } from '../../utils/excelExporter';
-
-const ACADEMIC_YEAR = '2025 - 2026';
+import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
 
 interface RowData {
   student: Student
@@ -29,6 +29,7 @@ interface RowData {
 export const DesktopGradeMatrix: React.FC = () => {
   const { can } = useAuth();
   const canEditGrades = can('admin', 'chunhiem', 'phuta');
+  const academicYear = useAcademicYearStore(s => s.currentYear);
   const students = useStudentStore(s => s.students);
   const grades = useGradeStore(s => s.grades);
   const batchSaveGrades = useGradeStore(s => s.batchSaveGrades);
@@ -42,8 +43,10 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [formulaWeights, setFormulaWeights] = useState(getStoredGradeWeights());
-  const classList = useClassStore(s => s.getClassList());
+  const rawClasses = useClassStore(s => s.classes);
+  const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
 
   const filteredStudents = useMemo(() => {
     if (selectedClassId === 'all') return students;
@@ -61,12 +64,12 @@ export const DesktopGradeMatrix: React.FC = () => {
     const initialMap: Record<string, Partial<GradeRecord>> = {};
     filteredStudents.forEach(s => {
       const existing = grades.find(
-        g => g.studentId === s.id && g.semester === selectedSemester && g.academicYear === ACADEMIC_YEAR
+        g => g.studentId === s.id && g.semester === selectedSemester && g.academicYear === academicYear
       );
       initialMap[s.id] = {
         studentId: s.id,
         semester: selectedSemester,
-        academicYear: ACADEMIC_YEAR,
+        academicYear: academicYear,
         scoreOral: existing?.scoreOral ?? null,
         score15m: existing?.score15m ?? null,
         score1Period: existing?.score1Period ?? null,
@@ -83,7 +86,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     const recordsToSave = Object.values(data).map(rec => ({
       studentId: rec.studentId!,
       semester: selectedSemester,
-      academicYear: ACADEMIC_YEAR,
+      academicYear: academicYear,
       scoreOral: rec.scoreOral ?? null,
       score15m: rec.score15m ?? null,
       score1Period: rec.score1Period ?? null,
@@ -135,7 +138,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       matrixData,
       className: currentClassName,
       semester: selectedSemester,
-      academicYear: ACADEMIC_YEAR,
+      academicYear: academicYear,
     });
   };
 
@@ -203,7 +206,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       currentRec: matrixData[s.id] || {
         studentId: s.id,
         semester: selectedSemester,
-        academicYear: ACADEMIC_YEAR,
+        academicYear: academicYear,
         scoreOral: null,
         score15m: null,
         score1Period: null,
@@ -479,7 +482,7 @@ export const DesktopGradeMatrix: React.FC = () => {
                 Ma Trận Nhập Điểm Hàng Loạt
               </h2>
               <span className="badge badge-primary">
-                Học Kỳ {selectedSemester} ({ACADEMIC_YEAR})
+                Học Kỳ {selectedSemester} ({academicYear})
               </span>
             </div>
             <p className="text-sm text-text-muted mt-2 m-0 font-medium">
@@ -526,6 +529,16 @@ export const DesktopGradeMatrix: React.FC = () => {
             >
               <Calculator size={15} className="text-parish-primary" />
               <span>Hệ Số & Công Thức</span>
+            </button>
+
+            {/* Import Excel Button */}
+            <button
+              onClick={() => setShowImportModal(true)}
+              title="Import điểm từ file Excel (.xlsx)"
+              className="px-3.5 py-1.5 h-9 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+            >
+              <Upload size={15} />
+              <span>Import Excel</span>
             </button>
 
             {/* Export Excel Button */}
@@ -615,6 +628,12 @@ export const DesktopGradeMatrix: React.FC = () => {
         onSaveSuccess={() => {
           setFormulaWeights(getStoredGradeWeights());
         }}
+      />
+
+      <ExcelGradeImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        semester={selectedSemester}
       />
     </>
   );

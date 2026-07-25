@@ -1,15 +1,18 @@
 # Coding Standards
 
 > Conventions extracted from the existing codebase. These are descriptive, not aspirational.
+> Version: 1.0 | Last reviewed: 2026-07-25 | Status: ✅ Current | Prerequisites: none
 
 ## 1. TypeScript
 
-- **No `any`** — use explicit types or `unknown`
+- **No `any`** — use explicit types or `unknown` (enforced by audit)
 - Prefer `interface` over `type` for objects
 - Use `type` for unions, primitives, and tuples
 - Barrel exports from `src/types/index.ts`
 - Use `as const` for literal types
 - No enums — use union types: `type Theme = 'light' | 'dark'`
+- Server: use `InferInsertModel`/`InferSelectModel` from Drizzle for DB types
+- Server: use `z.infer<typeof schema>` for Zod-validated input types
 
 ## 2. React
 
@@ -145,4 +148,4 @@ src/
 - `fake-indexeddb` for Dexie mock
 - Test files: `*.test.ts` or `*.test.tsx` in `__tests__/` or co-located
 - Playwright for E2E in `e2e/`
-- No coverage config yet
+- Coverage provider: v8, thresholds: lines 40%, functions 45%, branches 30%, statements 40%

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Student, BranchType } from '../../types';
 import { useStudentStore } from '../../stores/studentStore';
-import { useClassStore } from '../../stores/classStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { useClassStore, getFilteredClassList } from '../../stores/classStore';
+import { BRANCHES } from '../../constants/branches';
 import { X, Save, UserPlus } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SacramentSection } from './SacramentSection';
@@ -121,7 +121,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     onClose();
   };
 
-  const classList = useClassStore(s => s.getClassList());
+  const rawClasses = useClassStore(s => s.classes);
+  const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
   const filteredClasses = classList.filter(c => c.branch === formData.branch);
 
   const titleId = studentToEdit ? 'edit-student-title' : 'add-student-title'

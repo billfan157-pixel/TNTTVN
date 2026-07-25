@@ -1,275 +1,195 @@
-# Database Plan
+# Database Schema
+
+> Current state of all 15 tables. This is a reference, not a plan — all planned tables have been created.
+> Version: 1.1 | Last reviewed: 2026-07-25 | Status: ✅ Current (constraints corrected) | Prerequisites: 02
 
 ---
 
-## Current Schema Analysis
+## All Tables (15)
 
-### Existing Tables (6)
-
-| Table | Rows (seed) | Status | Issues |
-|-------|------------|--------|--------|
-| `users` | 4 | ✅ Working | Missing: status, tokenVersion, failedAttempts, lastLoginAt, assignedClasses |
-| `students` | 15 | ✅ Working | `classId` is string (no FK), `branch` is string (no FK), no `deletedAt` |
-| `grades` | 18 | ✅ Working | No `version` field, academicYear is free text |
-| `attendance` | 26 | ✅ Working | No `version` field |
-| `notices` | 3 | ✅ Working | No `notice_files` relation |
-| `audit_logs` | 0 | ✅ Working | Missing: `ip`, `user_agent` |
-
-### Missing Tables (7 needed)
-
-| Table | Priority | Reason |
-|-------|----------|--------|
-| `classes` | 🔴 High | `students.classId` references non-existent table |
-| `academic_years` | 🔴 High | `grades.academicYear` is free text |
-| `branches` | 🟡 Medium | `students.branch` is hardcoded enum string |
-| `system_settings` | 🔴 High | Needed for config (passing score, attendance %) |
-| `notifications` | 🟢 Low | History of sent notifications |
-| `permissions` | 🟢 Low | Schema-only, not enforced |
-| `role_permissions` | 🟢 Low | Schema-only, not enforced |
+| # | Table | Rows (seed) | Purpose |
+|---|-------|------------|---------|
+| 1 | `users` | 2 | User accounts with auth status, role, lockout |
+| 2 | `students` | 15 | Student roster (soft-deletable) |
+| 3 | `grades` | 18 | Academic scores per semester |
+| 4 | `attendance` | 30 | Mass & catechism attendance |
+| 5 | `notices` | 3 | Parish announcements |
+| 6 | `audit_logs` | 0 | CRUD audit trail with IP & user agent |
+| 7 | `notifications` | 0 | Persistent notification history |
+| 8 | `branches` | 5 | TNTT branch definitions (CC, AU, TN, NS, HS) |
+| 9 | `academic_years` | 1 | School year config with lock flag |
+| 10 | `classes` | 7 | Catechism classes linked to branch + year |
+| 11 | `system_settings` | 4 | App configuration key-value store |
+| 12 | `catechist_assignments` | 2 | User ↔ class mapping with role |
+| 13 | `permissions` | 21 | RBAC permission definitions |
+| 14 | `role_permissions` | Full | Role ↔ permission mapping |
+| 15 | `push_subscriptions` | 0 | Web push notification endpoints |
 
 ---
 
-## New Tables
+## Table Definitions
 
-### 1. `branches` — 🔴 High
+### users
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| id | TEXT PK | | `USR-` prefix |
+| username | TEXT UNIQUE | | Login name |
+| password_hash | TEXT | | bcrypt |
+| full_name | TEXT | | Display name |
+| role | TEXT | 'phuta' | admin, chunhiem, phuta, phuhuynh |
+| status | TEXT | 'ACTIVE' | ACTIVE, FORCE_PASSWORD_CHANGE, LOCKED, INACTIVE |
+| token_version | INTEGER | 1 | Increment → invalidates all sessions |
+| failed_attempts | INTEGER | 0 | Consecutive login failures |
+| locked_until | TEXT | NULL | Auto-unlock timestamp |
+| last_login_at | TEXT | NULL | Last successful login |
+| must_change_password | INTEGER | 1 | Force change on first login |
+| parish_id | TEXT | 'thanh-gia' | Single-parish |
+| created_at | TEXT | CURRENT_TIMESTAMP | |
 
-```sql
-CREATE TABLE branches (
-  id          TEXT PRIMARY KEY,    -- 'CC', 'AU', 'TN', 'NS', 'HS'
-  name        TEXT NOT NULL,       -- 'Chiên Con', 'Ấu Nhi', ...
-  scarf_color TEXT NOT NULL,       -- '#EC4899', '#16A34A', ...
-  age_min     INTEGER NOT NULL,
-  age_max     INTEGER NOT NULL
-);
-```
+### students
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| id | TEXT PK | | `ST-` prefix |
+| code | TEXT UNIQUE | | Generated student code |
+| holy_name | TEXT | | e.g. Phêrô |
+| full_name | TEXT | | |
+| gender | TEXT | | CHECK('Nam', 'Nữ') |
+| date_of_birth | TEXT | | |
+| baptism_date | TEXT | NULL | Sacrament tracking |
+| first_communion_date | TEXT | NULL | |
+| confirmation_date | TEXT | NULL | |
+| parent_name | TEXT | | |
+| parent_phone | TEXT | | |
+| address | TEXT | | |
+| branch | TEXT | | CHECK branch enum |
+| class_id | TEXT | | References classes.id |
+| avatar_url | TEXT | NULL | |
+| status | TEXT | 'Đang học' | Đang học, Nghỉ học, Tạm vắng |
+| notes | TEXT | NULL | |
+| deleted_at | TEXT | NULL | Soft delete |
+| parish_id | TEXT | 'thanh-gia' | |
+| created_at / updated_at / updated_by | TEXT | | |
 
-**Seed**: 5 branches matching current hardcoded values.
+### grades
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| id | TEXT PK | | `GR-` prefix |
+| student_id | TEXT | | FK → students.id |
+| academic_year | TEXT | | e.g. '2025 - 2026' |
+| semester | INTEGER | | 1 or 2 |
+| score_oral | REAL | NULL | |
+| score_15m | REAL | NULL | |
+| score_1_period | REAL | NULL | |
+| score_midterm | REAL | NULL | |
+| score_final | REAL | NULL | |
+| score_dao_duc | REAL | NULL | Conduct score |
+| comments | TEXT | NULL | |
+| version | INTEGER | 1 | Optimistic locking |
+| parish_id | TEXT | 'thanh-gia' | |
+| timestamps + updated_by | | | |
 
-**Migration**: Map `students.branch` values to `branches.id`. No data change needed — existing values already match.
+### attendance
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| id | TEXT PK | | `AT-` prefix |
+| student_id | TEXT | | FK → students.id |
+| date | TEXT | | |
+| type | TEXT | | CHECK('SundayMass', 'CatechismClass') |
+| status | TEXT | | CHECK('Present', 'AbsentExcused', 'AbsentUnexcused') |
+| note | TEXT | NULL | |
+| version | INTEGER | 1 | |
+| parish_id + timestamps | | | |
 
----
+### notices, audit_logs, notifications
+Standard CRUD tables with parish_id, timestamps. See `schema.ts` for full column lists.
 
-### 2. `academic_years` — 🔴 High
+### branches
+| Column | Type | Notes |
+|--------|------|-------|
+| id | TEXT PK | 'CC', 'AU', 'TN', 'NS', 'HS' |
+| name | TEXT | Chiên Con, Ấu Nhi, ... |
+| scarf_color | TEXT | Hex color |
+| age_min / age_max | INTEGER | Age range |
+| parish_id + timestamps | | |
 
-```sql
-CREATE TABLE academic_years (
-  id          TEXT PRIMARY KEY,    -- '2025-2026'
-  start_date  TEXT NOT NULL,       -- '2025-08-01'
-  end_date    TEXT NOT NULL,       -- '2026-07-31'
-  is_locked   INTEGER DEFAULT 0   -- 1 = grades frozen
-);
-```
+### academic_years
+| Column | Type | Notes |
+|--------|------|-------|
+| id | TEXT PK | '2025 - 2026' |
+| start_date / end_date | TEXT | |
+| is_locked | INTEGER | 1 = grades frozen |
+| parish_id + timestamps | | |
 
-**Migration**: Create row for current academic year (`2025-2026`). Update `grades.academicYear` values to reference FK (current values already match format).
+### classes
+| Column | Type | Notes |
+|--------|------|-------|
+| id | TEXT PK | `CL-` prefix |
+| code | TEXT | e.g. 'TN3' |
+| name | TEXT | e.g. 'Thiếu Nhi 3' |
+| branch_id | TEXT | FK → branches.id |
+| academic_year_id | TEXT | FK → academic_years.id |
+| room | TEXT | NULL |
+| parish_id + timestamps | | |
 
----
+### system_settings
+Key-value store with 4 defaults: min_attendance_pct (70), passing_score (5.0), academic_year_start_month (8), grade_max_score (10).
 
-### 3. `classes` — 🔴 High
+### catechist_assignments
+Junction: user_id + class_id + role_in_class (chunhiem/phuta).
 
-```sql
-CREATE TABLE classes (
-  id              TEXT PRIMARY KEY,    -- 'CL-xxxx'
-  code            TEXT NOT NULL,       -- 'TN3', 'CC1', 'AU2'
-  name            TEXT NOT NULL,       -- 'Thiếu Nhi 3', 'Chiên Con 1'
-  branch_id       TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
-  academic_year_id TEXT NOT NULL REFERENCES academic_years(id) ON DELETE RESTRICT,
-  room            TEXT,
-  UNIQUE(code, academic_year_id)
-);
+### permissions + role_permissions
+RBAC schema: 21 permissions, 4 roles with full matrix.
 
-CREATE INDEX idx_classes_branch ON classes(branch_id);
-CREATE INDEX idx_classes_academic_year ON classes(academic_year_id);
-```
-
-**Migration**: Create 8 classes from current hardcoded MOCK_CLASSES. Map `students.classId` ('AU2', 'TN3', etc.) to new `classes.id`. After migration, add FK constraint from `students.class_id` to `classes.id`.
-
----
-
-### 4. `system_settings` — 🔴 High
-
-```sql
-CREATE TABLE system_settings (
-  key         TEXT PRIMARY KEY,
-  value       TEXT NOT NULL,
-  description TEXT,
-  updated_by  TEXT,
-  updated_at  TEXT
-);
-```
-
-**Seed defaults**:
-```
-min_attendance_pct   = '70'   ('Tỷ lệ chuyên cần tối thiểu (%)')
-passing_score        = '5.0'  ('Điểm trung bình tối thiểu')
-academic_year_start  = '8'    ('Tháng bắt đầu năm học')
-grade_max_score      = '10'   ('Thang điểm tối đa')
-```
-
----
-
-### 5. `notifications` — 🟢 Low (Phase 1 per blueprint)
-
-```sql
-CREATE TABLE notifications (
-  id                TEXT PRIMARY KEY,
-  student_id        TEXT REFERENCES students(id) ON DELETE SET NULL,
-  type              TEXT NOT NULL,     -- 'telegram' | 'web_push'
-  channel           TEXT NOT NULL,     -- 'absence' | 'report_card' | 'reminder'
-  status            TEXT NOT NULL,     -- 'sent' | 'failed' | 'retrying'
-  recipient         TEXT NOT NULL,
-  message           TEXT,
-  error             TEXT,
-  triggered_by_type TEXT NOT NULL,     -- 'system' | 'user'
-  triggered_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  sent_at           TEXT,
-  created_at        TEXT NOT NULL
-);
-
-CREATE INDEX idx_notifications_student ON notifications(student_id);
-CREATE INDEX idx_notifications_status ON notifications(status);
-CREATE INDEX idx_notifications_created ON notifications(created_at);
-```
-
----
-
-### 6. `permissions` — 🟢 Low (schema only)
-
-```sql
-CREATE TABLE permissions (
-  id          TEXT PRIMARY KEY,    -- 'student.edit', 'grade.edit'
-  name        TEXT NOT NULL,
-  description TEXT
-);
-```
-
-### 7. `role_permissions` — 🟢 Low (schema only)
-
-```sql
-CREATE TABLE role_permissions (
-  role          TEXT NOT NULL,   -- 'admin', 'chunhiem', 'phuta', 'phuhuynh'
-  permission_id TEXT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-  PRIMARY KEY (role, permission_id)
-);
-```
+### push_subscriptions
+Web push endpoints: endpoint (UNIQUE), p256dh, auth, user_id (optional).
 
 ---
 
-## Existing Table Modifications
-
-### `users` — Add columns
-
-| Column | Type | Default | Purpose |
-|--------|------|---------|---------|
-| `status` | TEXT | 'ACTIVE' | ACTIVE / FORCE_PASSWORD_CHANGE / LOCKED / INACTIVE |
-| `tokenVersion` | INTEGER | 1 | Force logout (increment → invalidates all sessions) |
-| `failedAttempts` | INTEGER | 0 | Track consecutive login failures |
-| `lockedUntil` | TEXT | NULL | Auto-unlock timestamp (or NULL for manual) |
-| `lastLoginAt` | TEXT | NULL | Last successful login timestamp |
-| `mustChangePassword` | INTEGER | 1 | Force password change on first login |
-
-### `students` — Add columns
-
-| Column | Type | Default | Purpose |
-|--------|------|---------|---------|
-| `deletedAt` | TEXT | NULL | Soft delete (filter in queries) |
-
-### `grades` — Add columns
-
-| Column | Type | Default | Purpose |
-|--------|------|---------|---------|
-| `version` | INTEGER | 1 | Optimistic locking (not enforced yet) |
-
-### `attendance` — Add columns
-
-| Column | Type | Default | Purpose |
-|--------|------|---------|---------|
-| `version` | INTEGER | 1 | Optimistic locking (not enforced yet) |
-
-### `audit_logs` — Add columns
-
-| Column | Type | Purpose |
-|--------|------|---------|
-| `ip` | TEXT | Client IP address |
-| `user_agent` | TEXT | Client user agent string |
-
----
-
-## Foreign Key Strategy
-
-All new FK relationships use `ON DELETE RESTRICT` unless noted:
-
-```
-students.class_id → classes.id                          ON DELETE RESTRICT
-grades.student_id → students.id                         ON DELETE RESTRICT
-attendance.student_id → students.id                     ON DELETE RESTRICT
-notices.author (no FK — author is display name)
-audit_logs.user_id → users.id                           ON DELETE SET NULL
-notifications.student_id → students.id                  ON DELETE SET NULL
-notifications.triggered_by_user_id → users.id           ON DELETE SET NULL
-```
-
-Exception: `audit_logs.userId` and `notifications` FK use `SET NULL` to preserve historical data when a user is deleted.
-
----
-
-## Indexes
-
-### Current
-| Index | Table | Purpose |
-|-------|-------|---------|
-| `idx_students_parish` | students(parish_id) | Multi-parish (unused currently) |
-| `idx_grades_student` | grades(student_id) | Grade lookup by student |
-| `idx_attendance_student` | attendance(student_id) | Attendance lookup by student |
-| `idx_attendance_date` | attendance(date) | Date-range queries |
-
-### New Indexes Needed
+## Indexes (planned — only 3 unique indexes currently in DDL; most are aspirational)
 
 | Index | Table | Purpose |
 |-------|-------|---------|
-| `idx_classes_branch` | classes(branch_id) | Filter classes by branch |
-| `idx_classes_academic_year` | classes(academic_year_id) | Filter by academic year |
-| `idx_users_status` | users(status) | List active/locked users |
-| `idx_students_status` | students(status) | Filter active vs archived |
-| `idx_students_class` | students(class_id) | Students by class |
-| `idx_grades_academic_year` | grades(academic_year, semester) | Grade queries by year+semester |
-| `idx_attendance_type_date` | attendance(type, date) | Mass vs class attendance |
-| `idx_notifications_status` | notifications(status) | Failed notification queries |
-| `idx_audit_logs_entity` | audit_logs(entity_type, entity_id) | Entity audit trail |
-
----
-
-## Migration Order
-
-```
-Step 0: BACKUP — export JSON snapshot + copy parish.db
-Step 1: Create branches table + seed
-Step 2: Create academic_years table + seed
-Step 3: Create classes table + seed (mapping from MOCK_CLASSES)
-Step 4: ALTER students — add deletedAt column
-Step 5: ALTER grades — add version column
-Step 6: ALTER attendance — add version column
-Step 7: ALTER audit_logs — add ip, user_agent columns
-Step 8: ALTER users — add status, tokenVersion, failedAttempts, lastLoginAt
-Step 9: Create system_settings table + seed defaults
-Step 10: Create catechist_assignments table (for Phase 2 IAM)
-Step 11: Create notifications table
-Step 12: Create permissions + role_permissions tables + seed
-Step 13: Verify data integrity — run health checks
-```
+| idx_students_parish | students(parish_id) | Multi-parish |
+| idx_grades_student | grades(student_id) | Grade lookup |
+| idx_attendance_student | attendance(student_id) | Attendance lookup |
+| idx_attendance_date | attendance(date) | Date-range queries |
+| idx_classes_branch | classes(branch_id) | Filter by branch |
+| idx_classes_academic_year | classes(academic_year_id) | Filter by year |
+| idx_users_status | users(status) | List active/locked |
+| idx_students_status | students(status) | Filter active vs archived |
+| idx_students_class | students(class_id) | Students by class |
+| idx_grades_academic_year | grades(academic_year, semester) | Year + semester queries |
+| idx_attendance_type_date | attendance(type, date) | Mass vs class |
+| idx_notifications_status | notifications(status) | Failed notification queries |
+| idx_audit_logs_entity | audit_logs(entity_type, entity_id) | Entity audit trail |
 
 ---
 
 ## Constraints
 
-### Current (implicit)
+- `users.username` — UNIQUE
 - `students.code` — UNIQUE
-- `students.id` — PK on all tables
-- `grades(student_id, semester, academic_year)` — implicitly unique via upsert logic
+- `classes(code, academic_year_id)` — UNIQUE
+- `push_subscriptions.endpoint` — UNIQUE
+- `students.status` — CHECK ('Đang học', 'Nghỉ học', 'Tạm vắng')
+- `users.status` — CHECK ('ACTIVE', 'FORCE_PASSWORD_CHANGE', 'LOCKED', 'INACTIVE')
 
-### New Constraints
-- `classes(code, academic_year_id)` — UNIQUE (same code can repeat across years)
-- `students.class_id` → FK to `classes.id` (after migration)
-- `students.status` → CHECK ('Đang học', 'Nghỉ học', 'Tạm vắng', 'Archived')
-- `users.status` → CHECK ('ACTIVE', 'FORCE_PASSWORD_CHANGE', 'LOCKED', 'INACTIVE')
-- `grades.version` → NOT NULL DEFAULT 1
-- `attendance.version` → NOT NULL DEFAULT 1
+### Foreign Keys
+
+| FK Column | References | onDelete |
+|-----------|-----------|----------|
+| `grades.student_id` | `students.id` | no action (default) |
+| `attendance.student_id` | `students.id` | no action (default) |
+| `classes.branch_id` | `branches.id` | restrict |
+| `classes.academic_year_id` | `academic_years.id` | restrict |
+| `catechist_assignments.user_id` | `users.id` | restrict |
+| `catechist_assignments.class_id` | `classes.id` | restrict |
+| `notifications.student_id` | `students.id` | set null |
+| `notifications.triggered_by_user_id` | `users.id` | set null |
+| `push_subscriptions.user_id` | `users.id` | set null |
+| `role_permissions.permission_id` | `permissions.id` | cascade |
+| `audit_logs.user_id` | — | no FK constraint (stored as plain text) |
+
+## Migration Note
+
+Schema is managed via raw DDL in `db/index.ts` (CREATE TABLE IF NOT EXISTS + ALTER TABLE migrations). Drizzle Kit is configured but not yet used for versioned migrations. Always backup `parish.db` before any schema change.

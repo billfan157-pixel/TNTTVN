@@ -134,6 +134,7 @@ export const classes = sqliteTable('classes', {
   branchId: text('branch_id').notNull().references(() => branches.id, { onDelete: 'restrict' }),
   academicYearId: text('academic_year_id').notNull().references(() => academicYears.id, { onDelete: 'restrict' }),
   room: text('room'),
+  deletedAt: text('deleted_at'),
   parishId: text('parish_id').notNull().default('thanh-gia'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -194,3 +195,13 @@ export const rolePermissions = sqliteTable('role_permissions', {
 }, (table) => ({
   pk: uniqueIndex('idx_role_permissions_pk').on(table.role, table.permissionId),
 }))
+
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+  id: text('id').primaryKey(),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  parishId: text('parish_id').notNull().default('thanh-gia'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+})

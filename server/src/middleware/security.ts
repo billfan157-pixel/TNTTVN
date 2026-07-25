@@ -31,7 +31,7 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>()
 const WINDOW_MS = 60_000
-const MAX_REQUESTS = 30
+const MAX_REQUESTS = 200
 
 setInterval(() => {
   const now = Date.now()

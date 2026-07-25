@@ -4,21 +4,23 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { Student } from '../../types';
 import { useClassStore } from '../../stores/classStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../constants/branches';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { 
   Phone, UserPlus, Search, Edit3, 
-  Trash2, Printer 
+  Trash2, Printer, Upload 
 } from 'lucide-react';
 
 interface MobileStudentsViewProps {
   onOpenAddStudent: () => void;
+  onImportStudents: () => void;
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
 }
 
 export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   onOpenAddStudent,
+  onImportStudents,
   onEditStudent,
   onViewReport
 }) => {
@@ -76,6 +78,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           />
         </div>
 
+        <button onClick={onImportStudents} className="btn btn-secondary" style={{ height: '36px', borderRadius: '9999px', padding: '0 12px', fontSize: '12px' }}>
+          <Upload size={14} /> Excel
+        </button>
         <button onClick={onOpenAddStudent} className="btn btn-primary" style={{ height: '36px', borderRadius: '9999px', padding: '0 16px' }}>
           <UserPlus size={16} /> Thêm
         </button>

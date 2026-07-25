@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory'
 import jwt from 'jsonwebtoken'
 import { db } from '../db/index.js'
-import { users } from '../db/schema.js'
+import { users, catechistAssignments } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 
 declare module 'hono' {
@@ -69,4 +69,23 @@ export function roleMiddleware(...roles: string[]) {
     }
     await next()
   })
+}
+
+export function isAdmin(user: JwtPayload): boolean {
+  return user.role === 'admin'
+}
+
+export async function getUserClassIds(userId: string, parishId: string): Promise<string[]> {
+  const assignments = await db
+    .select({ classId: catechistAssignments.classId })
+    .from(catechistAssignments)
+    .where(eq(catechistAssignments.userId, userId))
+  return assignments.map(a => a.classId)
+}
+
+export async function checkUserClassAccess(userId: string, parishId: string, targetClassId: string): Promise<boolean> {
+  const userRole = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))?.[0]?.role
+  if (userRole === 'admin') return true
+  const classIds = await getUserClassIds(userId, parishId)
+  return classIds.includes(targetClassId)
 }

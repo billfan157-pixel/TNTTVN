@@ -127,15 +127,20 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
     throw new ApiError(0, 'Network error — unable to reach server', path)
   }
 
-  // Handle 401 with mutex refresh
-  if (res.status === 401 && refreshToken) {
-    const refreshed = await refreshAccessToken()
-    if (refreshed) {
-      headers['Authorization'] = `Bearer ${accessToken}`
-      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined })
+  // Handle 401 with mutex refresh or redirect to login
+  if (res.status === 401) {
+    if (refreshToken) {
+      const refreshed = await refreshAccessToken()
+      if (refreshed) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+        res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined })
+      } else {
+        redirectToLogin()
+        throw new ApiError(401, 'Session expired — redirecting to login', path)
+      }
     } else {
       redirectToLogin()
-      throw new ApiError(401, 'Session expired — redirecting to login', path)
+      throw new ApiError(401, 'Unauthorized — redirecting to login', path)
     }
   }
 
@@ -191,6 +196,8 @@ export const api = {
     request<{ id: string; username: string; tempPassword: string }>('POST', '/users', data),
   updateUserStatus: (id: string, status: string) =>
     request<{ success: boolean }>('PUT', `/users/${id}/status`, { status }),
+  updateUserAssignments: (id: string, assignedClasses: string[]) =>
+    request<{ id: string; assignedClasses: string[] }>('PUT', `/users/${id}/assignments`, { assignedClasses }),
   resetUserPassword: (id: string) =>
     request<{ username: string; tempPassword: string }>('POST', `/users/${id}/reset-password`),
   forceLogoutUser: (id: string) =>
@@ -248,6 +255,10 @@ export const api = {
   },
   createNotice: (data: Record<string, unknown>) => request<any>('POST', '/notices', data),
   deleteNotice: (id: string) => request<{ success: boolean }>('DELETE', `/notices/${id}`),
+
+  // ─── Notifications ───
+  sendReportCards: (data: { students: any[] }) =>
+    request<{ success: boolean }>('POST', '/notifications/smart/report-cards', data),
 
   // ─── Audit Logs ───
   getAuditLogs: (params?: { page?: number; limit?: number; userId?: string; action?: string; entityType?: string }) => {

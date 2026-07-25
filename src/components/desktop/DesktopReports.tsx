@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
 import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Ban } from 'lucide-react';
 import type { Student } from '../../types';

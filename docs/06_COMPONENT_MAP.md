@@ -1,20 +1,19 @@
 # Component Map
+> Version: 1.1 | Last reviewed: 2026-07-25 | Status: ✅ Current | Prerequisites: 01, 02
 
----
-
-## Common Components (10)
+## Common Components (14)
 
 ### HeaderBar
 | Property | Value |
 |----------|-------|
 | **File** | `src/components/common/HeaderBar.tsx` |
 | **Importers** | `src/router.tsx` (RootLayout) |
-| **Owns state** | `useThemeStore` (theme toggle), `useStudentStore` (reset button) |
+| **Owns state** | `useThemeStore` (theme toggle), `useAuthStore` (user info), `useUIStore` (diagnostics modal) |
 | **Reusable** | ✅ Rendered once at app root |
 | **Desktop only** | ❌ |
 | **Mobile only** | ❌ |
 | **Dead** | ❌ |
-| **Notes** | Renders sync status, user info (future), theme toggle, reset button |
+| **Notes** | Sync status, user badge + logout, theme toggle, reset button, open diagnostics button |
 
 ### ErrorBoundary
 | Property | Value |
@@ -23,8 +22,6 @@
 | **Importers** | `src/main.tsx` |
 | **Owns state** | Internal: `hasError`, `error` |
 | **Reusable** | ✅ Can wrap any subtree |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Class component, integrates with Sentry |
 
@@ -32,25 +29,11 @@
 | Property | Value |
 |----------|-------|
 | **File** | `src/components/common/ConfirmDialog.tsx` |
-| **Importers** | Unknown (check: likely used in DesktopStudentList) |
+| **Importers** | HeaderBar, DesktopStudentList, MobileStudentsView |
 | **Owns state** | Props-driven (isOpen, onConfirm, onCancel) |
 | **Reusable** | ✅ Generic confirmation modal |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
-| **Dead** | Possibly unused — verify actual callers |
+| **Dead** | ❌ |
 | **Notes** | Uses focus trap for a11y |
-
-### NotificationPrompt
-| Property | Value |
-|----------|-------|
-| **File** | `src/components/common/NotificationPrompt.tsx` |
-| **Importers** | Unknown |
-| **Owns state** | Props-driven |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
-| **Dead** | ⚠️ Verify — may be unused in current router |
-| **Notes** | Web push permission request |
 
 ### InstallPrompt
 | Property | Value |
@@ -59,8 +42,6 @@
 | **Importers** | `src/router.tsx` (RootLayout) |
 | **Owns state** | Internal: PWA install state |
 | **Reusable** | ✅ Rendered once |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Floating PWA install button |
 
@@ -71,10 +52,8 @@
 | **Importers** | `src/router.tsx` (RootLayout) |
 | **Owns state** | Props-driven; contains `SacramentSection` |
 | **Reusable** | ✅ Add/Edit student form |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
-| **Notes** | Renders in root layout, controlled by `useUIStore` |
+| **Notes** | Rendered in root layout, controlled by `useUIStore` |
 
 ### StudentReportModal
 | Property | Value |
@@ -83,19 +62,24 @@
 | **Importers** | `src/router.tsx` (RootLayout) |
 | **Owns state** | Props-driven |
 | **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
+
+### PrintReportModal
+| Property | Value |
+|----------|-------|
+| **File** | `src/components/common/PrintReportModal.tsx` |
+| **Importers** | Reports page |
+| **Owns state** | Props-driven |
+| **Reusable** | ✅ |
+| **Dead** | ❌ |
+| **Notes** | Batch PDF report printing |
 
 ### PhotoCard
 | Property | Value |
 |----------|-------|
 | **File** | `src/components/common/PhotoCard.tsx` |
 | **Importers** | `src/router.tsx` (RootLayout) |
-| **Owns state** | Props-driven |
 | **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Printable "thẻ thiếu nhi" |
 
@@ -104,10 +88,7 @@
 |----------|-------|
 | **File** | `src/components/common/Certificate.tsx` |
 | **Importers** | `src/router.tsx` (RootLayout) |
-| **Owns state** | Props-driven |
 | **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Completion/promotion certificate |
 
@@ -118,14 +99,12 @@
 | **Importers** | `StudentModal` |
 | **Owns state** | Props-driven; reads `useSacramentStore` |
 | **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Baptism/Communion/Confirmation date inputs |
 
 ---
 
-## Desktop Components (8)
+## Desktop Components (15)
 
 ### DesktopSidebar
 | Property | Value |
@@ -133,9 +112,6 @@
 | **File** | `src/components/desktop/DesktopSidebar.tsx` |
 | **Importers** | `src/router.tsx` (RootLayout) |
 | **Owns state** | Props-driven; uses `useFilterStore` |
-| **Reusable** | ✅ Rendered once in desktop layout |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Navigation tree + class/branch filters |
 
@@ -145,9 +121,6 @@
 | **File** | `src/components/desktop/DesktopDashboard.tsx` |
 | **Importers** | `src/pages/DashboardPage.tsx` |
 | **Owns state** | Reads stores for KPI data |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 
 ### DesktopStudentList
@@ -156,9 +129,6 @@
 | **File** | `src/components/desktop/DesktopStudentList.tsx` |
 | **Importers** | `src/pages/StudentsPage.tsx` |
 | **Owns state** | Reads `useStudentStore` |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | TanStack Table with sort, filter, actions |
 
@@ -168,9 +138,6 @@
 | **File** | `src/components/desktop/DesktopGradeMatrix.tsx` |
 | **Importers** | `src/pages/GradesPage.tsx` |
 | **Owns state** | Reads `useGradeStore`, `useStudentStore` |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | TanStack Table with inline edit + auto-save |
 
@@ -180,9 +147,6 @@
 | **File** | `src/components/desktop/DesktopAttendanceGrid.tsx` |
 | **Importers** | `src/pages/AttendancePage.tsx` |
 | **Owns state** | Reads `useAttendanceStore`, `useStudentStore` |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Weekly calendar grid with batch save |
 
@@ -192,9 +156,6 @@
 | **File** | `src/components/desktop/DesktopReports.tsx` |
 | **Importers** | `src/pages/ReportsPage.tsx` |
 | **Owns state** | Reads stores |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 
 ### DesktopNotices
@@ -203,9 +164,6 @@
 | **File** | `src/components/desktop/DesktopNotices.tsx` |
 | **Importers** | `src/pages/NoticesPage.tsx` |
 | **Owns state** | Reads `useNoticeStore` |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 
 ### PromotionPanel
@@ -214,11 +172,26 @@
 | **File** | `src/components/desktop/PromotionPanel.tsx` |
 | **Importers** | `src/pages/StudentsPage.tsx` |
 | **Owns state** | Reads `useSacramentStore` |
-| **Reusable** | ✅ |
-| **Desktop only** | ✅ |
-| **Mobile only** | ❌ |
 | **Dead** | ❌ |
 | **Notes** | Tab in StudentsPage, shows promotion suggestions |
+
+### UserManagementPage
+| Property | Value |
+|----------|-------|
+| **File** | `src/components/desktop/UserManagementPage.tsx` |
+| **Importers** | `src/pages/UsersPage.tsx` |
+| **Owns state** | Reads stores, API calls |
+| **Dead** | ❌ |
+| **Notes** | User table, create modal, lock/unlock, reset password, class assignments |
+
+### SystemDiagnosticsModal
+| Property | Value |
+|----------|-------|
+| **File** | `src/components/desktop/SystemDiagnosticsModal.tsx` |
+| **Importers** | HeaderBar |
+| **Owns state** | Internal: system metrics |
+| **Dead** | ❌ |
+| **Notes** | Real-time diagnostic modal |
 
 ---
 
@@ -229,10 +202,6 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileBottomNav.tsx` |
 | **Importers** | `src/router.tsx` (RootLayout) |
-| **Owns state** | Props-driven (activeTab, setActiveTab) |
-| **Reusable** | ✅ Rendered once |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ### MobileHomeView
@@ -240,10 +209,6 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileHomeView.tsx` |
 | **Importers** | `src/pages/DashboardPage.tsx` |
-| **Owns state** | Props-driven |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ### MobileStudentsView
@@ -251,10 +216,6 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileStudentsView.tsx` |
 | **Importers** | `src/pages/StudentsPage.tsx` |
-| **Owns state** | Props-driven; reads stores |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ### MobileGradeView
@@ -262,10 +223,6 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileGradeView.tsx` |
 | **Importers** | `src/pages/GradesPage.tsx` |
-| **Owns state** | Props-driven; reads stores |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ### MobileAttendanceView
@@ -273,10 +230,6 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileAttendanceView.tsx` |
 | **Importers** | `src/pages/AttendancePage.tsx` |
-| **Owns state** | Props-driven; reads stores |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ### MobileReportsView
@@ -284,10 +237,6 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileReportsView.tsx` |
 | **Importers** | `src/pages/ReportsPage.tsx` |
-| **Owns state** | Props-driven |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ### MobileNoticesView
@@ -295,31 +244,38 @@
 |----------|-------|
 | **File** | `src/components/mobile/MobileNoticesView.tsx` |
 | **Importers** | `src/pages/NoticesPage.tsx` |
-| **Owns state** | Props-driven; reads stores |
-| **Reusable** | ✅ |
-| **Desktop only** | ❌ |
-| **Mobile only** | ✅ |
 | **Dead** | ❌ |
 
 ---
 
-## Page Components (6)
+## Page Components (12)
 
-| Page | Desktop Imports | Mobile Imports | Common Imports | State Dependencies |
-|------|----------------|----------------|----------------|-------------------|
-| DashboardPage | DesktopDashboard | MobileHomeView | useUIStore | useStudentStore, useGradeStore, useAttendanceStore |
-| StudentsPage | DesktopStudentList, PromotionPanel | MobileStudentsView | useUIStore, useStudentStore, useGradeStore, useAttendanceStore | Same |
-| GradesPage | DesktopGradeMatrix | MobileGradeView | useUIStore | useGradeStore, useStudentStore |
-| AttendancePage | DesktopAttendanceGrid | MobileAttendanceView | (none) | useAttendanceStore, useStudentStore |
-| ReportsPage | DesktopReports | MobileReportsView | useUIStore | All stores |
-| NoticesPage | DesktopNotices | MobileNoticesView | (none) | useNoticeStore |
+| Page | Desktop Imports | Mobile Imports | Common Imports |
+|------|----------------|----------------|----------------|
+| LoginPage | (standalone) | (standalone) | useAuthStore |
+| DashboardPage | DesktopDashboard | MobileHomeView | useUIStore |
+| StudentsPage | DesktopStudentList, PromotionPanel | MobileStudentsView | useUIStore, useStudentStore, useGradeStore, useAttendanceStore, useClassStore |
+| GradesPage | DesktopGradeMatrix, DesktopGradeCards, DesktopGradeComparison, DesktopDailyGradeEntry | MobileGradeView | useUIStore, useGradeStore, useStudentStore |
+| AttendancePage | DesktopAttendanceGrid | MobileAttendanceView | useAttendanceStore, useStudentStore |
+| ReportsPage | DesktopReports | MobileReportsView | useUIStore |
+| NoticesPage | DesktopNotices | MobileNoticesView | useNoticeStore |
+| UsersPage | UserManagementPage | (none) | (API-driven) |
+| ClassesPage | DesktopClasses | (none) | useClassStore |
+| CatechistPage | (inline) | (none) | useAuthStore, api |
+| AcademicYearPage | (inline) | (none) | useAcademicYearStore |
+| AuditLogPage | (inline) | (none) | api |
 
 ---
+
+## Missing Component Entries
+
+The following active components exist but lack full map tables above:
+- **Common**: BackupRestoreModal, ExcelImportModal, ForcePasswordChangeModal, OfflineBanner
+- **Desktop**: DesktopClasses, DesktopDailyGradeEntry, DesktopGradeCards, DesktopGradeComparison, GradeFormulaConfigModal
 
 ## Dead or Suspicious Components
 
 | Component | Issue |
 |-----------|-------|
-| **ConfirmDialog** | ⚠️ Verify: may be unused after router refactor |
-| **NotificationPrompt** | ⚠️ May be dead — check if rendered anywhere |
+| **NotificationPrompt** | ✅ Removed — file no longer exists |
 | **useFilterSearchSync.ts** | Active (in router.tsx) but stored in `stores/` not `hooks/` — wrong location |

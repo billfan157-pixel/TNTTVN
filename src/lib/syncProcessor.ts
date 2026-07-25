@@ -19,6 +19,7 @@ export interface SyncItem {
 export interface SyncProcessResult {
   ok: boolean
   recoverable?: boolean
+  isAuthError?: boolean
   error?: string
 }
 
@@ -87,7 +88,10 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
         return { ok: true, error: 'Conflict resolved: server version accepted' }
       }
       if (err.status === 401) {
-        return { ok: false, recoverable: false, error: `Auth expired: ${err.message}` }
+        return { ok: false, recoverable: false, isAuthError: true, error: `Auth expired: ${err.message}` }
+      }
+      if (err.status === 429) {
+        return { ok: false, recoverable: true, error: `Rate limited: ${err.message}` }
       }
       if (err.status >= 400 && err.status < 500) {
         return { ok: false, recoverable: false, error: `Client error ${err.status}: ${err.message}` }
@@ -121,41 +125,4 @@ export function isNetworkError(err: unknown): boolean {
   return false
 }
 
-/**
- * Executes lightweight Delta Sync by fetching only records updated after lastSyncAt
- */
-export async function deltaSync(entity: string, lastSyncAt: string | null): Promise<any[]> {
-  if (!lastSyncAt) return fullSyncEntity(entity)
 
-  switch (entity) {
-    case 'students':
-      return api.getStudents(lastSyncAt)
-    case 'grades':
-      return api.getGrades({ updatedAfter: lastSyncAt })
-    case 'attendance':
-      return api.getAttendance({ updatedAfter: lastSyncAt })
-    case 'notices':
-      return api.getNotices(lastSyncAt)
-    case 'classes':
-      return api.getClasses()
-    default:
-      return []
-  }
-}
-
-export async function fullSyncEntity(entity: string): Promise<any[]> {
-  switch (entity) {
-    case 'students':
-      return api.getStudents()
-    case 'grades':
-      return api.getGrades()
-    case 'attendance':
-      return api.getAttendance()
-    case 'notices':
-      return api.getNotices()
-    case 'classes':
-      return api.getClasses()
-    default:
-      return []
-  }
-}

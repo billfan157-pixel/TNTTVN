@@ -46,22 +46,12 @@ export interface ClassListItem {
   academicYear: string
 }
 
-export const DEFAULT_CLASS_LIST: ClassListItem[] = [
-  { id: 'CC1', code: 'CC-01', name: 'Chiên Con 1', branch: 'ChienCon', branchName: 'Chiên Con', room: 'Phòng 101', catechistLeader: 'Trưởng Maria Nguyễn Thị Hồng', catechistAssistants: ['Huynh Trưởng Anrê Phạm Văn Nam'], academicYear: '2025 - 2026' },
-  { id: 'AU1', code: 'AU-01', name: 'Ấu Nhi 1', branch: 'AuNhi', branchName: 'Ấu Nhi', room: 'Phòng 102', catechistLeader: 'Trưởng Giuse Tran Minh Quang', catechistAssistants: ['Huynh Trưởng Maria Lê Thu Hà'], academicYear: '2025 - 2026' },
-  { id: 'AU2', code: 'AU-02', name: 'Ấu Nhi 2 (Rơmêô)', branch: 'AuNhi', branchName: 'Ấu Nhi', room: 'Phòng 103', catechistLeader: 'Trưởng Phêrô Vũ Hoàng Long', catechistAssistants: ['Huynh Trưởng Anna Đỗ Kim Yến'], academicYear: '2025 - 2026' },
-  { id: 'TN1', code: 'TN-01', name: 'Thiếu Nhi 1', branch: 'ThieuNhi', branchName: 'Thiếu Nhi', room: 'Phòng 201', catechistLeader: 'Trưởng F.X Nguyễn Văn Hùng', catechistAssistants: ['Huynh Trưởng Catarina Trịnh Thảo'], academicYear: '2025 - 2026' },
-  { id: 'TN2', code: 'TN-02', name: 'Thiếu Nhi 2 (Rơmêô)', branch: 'ThieuNhi', branchName: 'Thiếu Nhi', room: 'Phòng 202', catechistLeader: 'Trưởng Anna Nguyễn Mai Phương', catechistAssistants: ['Huynh Trưởng Giuse Đặng Quốc Huy'], academicYear: '2025 - 2026' },
-  { id: 'NS1', code: 'NS-01', name: 'Nghĩa Sĩ 1', branch: 'NghiaSi', branchName: 'Nghĩa Sĩ', room: 'Phòng 301', catechistLeader: 'Trưởng Gioan B. Lê Hoàng Việt', catechistAssistants: ['Huynh Trưởng Têrêsa Ngô Bảo Ngọc'], academicYear: '2025 - 2026' },
-  { id: 'HS1', code: 'HS-01', name: 'Hiệp Sĩ 1', branch: 'HiepSi', branchName: 'Hiệp Sĩ', room: 'Phòng 302', catechistLeader: 'Trưởng Phaolô Nguyễn Hoàng Anh', catechistAssistants: ['Huynh Trưởng Maria Trần Thu Thủy'], academicYear: '2025 - 2026' },
-]
-
 function toClassListItem(c: ClassItem): ClassListItem {
-  return { id: c.id, code: c.code, name: c.name, branch: c.branchId, branchName: c.branchName, room: c.room, catechistLeader: '', catechistAssistants: [], academicYear: c.academicYear || '2025 - 2026' }
+  return { id: c.id, code: c.code, name: c.name, branch: c.branchId, branchName: c.branchName, room: c.room, catechistLeader: '', catechistAssistants: [], academicYear: c.academicYear || '' }
 }
 
 export function getFilteredClassList(classes: ClassItem[]): ClassListItem[] {
-  return classes.length > 0 ? classes.map(toClassListItem) : DEFAULT_CLASS_LIST
+  return classes.map(toClassListItem)
 }
 
 export function classListToSelectOptions(classList: ClassListItem[], branchFilter?: string) {
@@ -129,7 +119,7 @@ export const useClassStore = create<ClassState>()(
 
       findClassById: (id: string) => {
         const c = get().classes.find(c => c.id === id)
-        return c ? toClassListItem(c) : DEFAULT_CLASS_LIST.find(c => c.id === id)
+        return c ? toClassListItem(c) : undefined
       },
 
       createClass: async (data) => {

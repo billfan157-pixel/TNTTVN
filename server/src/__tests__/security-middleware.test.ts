@@ -24,7 +24,7 @@ describe('Security Middleware Tests', () => {
 
     const res = await app.request('/test')
     expect(res.status).toBe(200)
-    expect(res.headers.get('X-RateLimit-Limit')).toBe('30')
+    expect(res.headers.get('X-RateLimit-Limit')).toBe('200')
   })
 
   it('rateLimiter sets remaining header', async () => {

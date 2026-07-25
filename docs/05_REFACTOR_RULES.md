@@ -1,6 +1,7 @@
 # Refactor Rules
 
 > Rules to follow during the Master Execution Plan to maintain consistency and avoid regression.
+> Version: 1.1 | Last reviewed: 2026-07-25 | Status: ✅ Current (cleaned) | Prerequisites: 01, 04
 
 ## 1. Database Changes
 
@@ -13,9 +14,9 @@
 
 ## 2. API Changes
 
-1. Keep `/api/` prefix for all routes
+1. Keep `/api/` prefix for all routes (except `/health` which is mounted at root)
 2. New routes must have auth middleware (no `NONE` exceptions)
-3. Always validate with Zod on both input and output
+3. Always validate input with Zod (`zValidator('json', ...)`)
 4. Return consistent status codes: 200 (ok), 201 (created), 204 (deleted), 400 (bad req), 401 (unauth), 403 (forbidden), 404 (not found), 409 (conflict), 501 (not implemented)
 5. Add rate limiting to new public endpoints
 6. New endpoints must have OpenAPI-compatible JSDoc
@@ -24,7 +25,7 @@
 
 1. Never remove Zustand stores — add or merge
 2. New pages go in `src/pages/`, new components in `src/components/{common,desktop,mobile}/`
-3. Mobile-first layout — components split by `useViewMode` in `useFilterSearchSync`
+3. Mobile-first layout — `useEffectiveMode` and `useFilterSearchSync` govern layout mode; components may have separate desktop/mobile implementations under `components/{desktop,mobile}/`
 4. All new data-fetching must go through the sync queue (not direct API calls)
 5. New stores must use `persist` middleware with `dexieStorage` for offline support
 6. Always handle loading, empty, and error states in new components
@@ -37,40 +38,15 @@
 4. Delta sync must pass `updatedAfter` query param (fix current broken implementation first)
 5. Queue compaction only for processed entries >7 days old
 
-## 5. Migration Order (Dependencies)
+## 5. Execution Order
 
-```
-                    ┌─────────────────┐
-                    │ Phase 1: Bugs   │
-                    └────────┬────────┘
-                             ↓
-                    ┌─────────────────┐
-                    │ Phase 2: Auth   │◄── Do first: add login page
-                    │ + RBAC          │    before any permission work
-                    └────────┬────────┘
-                             ↓
-                    ┌─────────────────┐
-              ┌─────│ Phase 3: Tables │─────┐
-              │     └─────────────────┘     │
-              ↓                             ↓
-    ┌──────────────────┐          ┌──────────────────┐
-    │ Phase 4: Sync    │          │ Phase 4: Refactor │
-    │ + Data Flow      │          │ + Code Quality    │
-    └────────┬─────────┘          └────────┬─────────┘
-             ↓                             ↓
-    ┌──────────────────┐          ┌──────────────────┐
-    │ Phase 5: Migrate │◄─────────│ Phase 5: Frontend│
-    │ Backend Routes   │          │ Cleanup          │
-    └────────┬─────────┘          └────────┬─────────┘
-             ↓                             ↓
-    ┌──────────────────┐          ┌──────────────────┐
-    │ Phase 6: Services│          │ Phase 6: Tests   │
-    └────────┬─────────┘          └────────┬─────────┘
-             ↓                             ↓
-    ┌─────────────────────────────────────────────────┐
-    │              Phase 7: Polish + Docs             │
-    └─────────────────────────────────────────────────┘
-```
+The Master Execution Plan was executed as 9 sequential phases. See `10_MASTER_EXECUTION_PLAN.md` for the complete phase-by-phase summary.
+
+Dependency principle: phases are sequential. Later phases depend on earlier ones. When adding a new feature, follow the same bottom-up order:
+1. Schema + DB layer first
+2. Service layer
+3. API routes
+4. Frontend stores + components
 
 ## 6. Refactoring Process
 

@@ -1,7 +1,8 @@
 import React from 'react';
 import type { Student } from '../../types';
 import { useClassStore } from '../../stores/classStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
+import { BRANCHES } from '../../constants/branches';
 import { getSacramentStatus, getAge } from '../../utils/sacraments';
 import { Printer, X } from 'lucide-react';
 
@@ -12,6 +13,7 @@ interface PhotoCardProps {
 }
 
 export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }) => {
+  const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
   if (!isOpen || !student) return null;
 
   const classInfo = useClassStore.getState().findClassById(student.classId);
@@ -86,7 +88,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
           </div>
 
           <div className="text-center text-xs text-text-muted mt-4 pt-3 border-t border-surface-border">
-            Niên học 2025 - 2026
+            Niên học {academicYearDisplay}
           </div>
         </div>
       </div>

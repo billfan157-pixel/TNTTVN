@@ -1,7 +1,8 @@
 import React from 'react';
 import type { Student } from '../../types';
 import { useClassStore } from '../../stores/classStore';
-import { BRANCHES } from '../../data/mockParishData';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
+import { BRANCHES } from '../../constants/branches';
 import { getSacramentStatus } from '../../utils/sacraments';
 import { Printer, X, Award } from 'lucide-react';
 
@@ -13,6 +14,7 @@ interface CertificateProps {
 }
 
 export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, student, type = 'completion' }) => {
+  const academicYearDisplay = useAcademicYearStore((s) => s.currentYear.replace(/\s*-\s*/g, '-'))
   if (!isOpen || !student) return null;
 
   const classInfo = useClassStore.getState().findClassById(student.classId);
@@ -75,7 +77,7 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
             </div>
             <div className="text-center">
               <div className="text-xs text-text-muted">Niên học</div>
-              <div className="font-bold">2025-2026</div>
+              <div className="font-bold">{academicYearDisplay}</div>
             </div>
           </div>
 

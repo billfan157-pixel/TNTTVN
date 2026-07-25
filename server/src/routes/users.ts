@@ -9,6 +9,7 @@ import {
   getUserById,
   createUser,
   updateUserStatus,
+  updateUserAssignments,
   resetUserPassword,
   forceLogoutUser,
 } from '../services/userService.js'
@@ -71,6 +72,18 @@ usersRouter.post('/:id/reset-password', roleMiddleware('admin', 'chunhiem'), asy
   const res = await resetUserPassword(id, user.userId, user.parishId, ip, userAgent)
   if (!res) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
   return successResponse(c, res)
+})
+
+usersRouter.put('/:id/assignments', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({ assignedClasses: z.array(z.string()) })), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const id = c.req.param('id')
+  const { assignedClasses } = c.req.valid('json')
+  const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || ''
+  const userAgent = c.req.header('user-agent') || ''
+
+  const ok = await updateUserAssignments(id, assignedClasses, user.userId, user.parishId, ip, userAgent)
+  if (!ok) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
+  return successResponse(c, { id, assignedClasses })
 })
 
 usersRouter.post('/:id/force-logout', roleMiddleware('admin'), async (c) => {

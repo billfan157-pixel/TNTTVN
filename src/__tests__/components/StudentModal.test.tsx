@@ -12,15 +12,11 @@ vi.mock('../../stores/studentStore', () => ({
   ),
 }))
 
-vi.mock('../../data/mockParishData', () => ({
-  MOCK_CLASSES: [
-    { id: 'AU1', name: 'Ấu 1A', branchId: 'AuNhi' },
-    { id: 'TN1', name: 'Thiếu 1A', branchId: 'ThieuNhi' },
-  ],
-  BRANCHES: [
-    { id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#FF69B4' },
-    { id: 'ThieuNhi', name: 'Thiếu Nhi', scarfColor: '#4169E1' },
-  ],
+vi.mock('../../constants/branches', () => ({
+  BRANCHES: {
+    AuNhi: { id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#FF69B4' },
+    ThieuNhi: { id: 'ThieuNhi', name: 'Thiếu Nhi', scarfColor: '#4169E1' },
+  },
 }))
 
 vi.mock('../../hooks/useFocusTrap', () => ({ useFocusTrap: () => null }))

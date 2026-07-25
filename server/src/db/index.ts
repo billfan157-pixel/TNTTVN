@@ -1,6 +1,6 @@
-import { drizzle } from 'drizzle-orm/sql-js'
-import initSqlJs from 'sql.js'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { createClient } from '@libsql/client'
+import { drizzle } from 'drizzle-orm/libsql'
+import { existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import * as schema from './schema.js'
@@ -8,23 +8,21 @@ import * as schema from './schema.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const SQL = await initSqlJs()
-
 const dbDir = join(__dirname, '../../data')
 if (!existsSync(dbDir)) {
   mkdirSync(dbDir, { recursive: true })
 }
 const dbPath = join(dbDir, 'parish.db')
 
-let fileBuffer: Buffer | undefined
-if (existsSync(dbPath)) {
-  fileBuffer = readFileSync(dbPath)
-}
+const client = createClient({
+  url: `file:${dbPath}`,
+})
 
-const sqlite = new SQL.Database(fileBuffer)
+await client.execute('PRAGMA journal_mode=WAL')
+await client.execute('PRAGMA foreign_keys=ON')
+await client.execute('PRAGMA busy_timeout=5000')
 
-// Create tables if missing
-sqlite.run(`
+await client.executeMultiple(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
@@ -212,9 +210,18 @@ sqlite.run(`
     parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
     PRIMARY KEY (role, permission_id)
   );
+
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id TEXT PRIMARY KEY,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_id TEXT REFERENCES users(id),
+    parish_id TEXT NOT NULL DEFAULT 'thanh-gia',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `)
 
-// Auto-migration columns if existing DB schema is old
 const migrations = [
   `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'`,
   `ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1`,
@@ -240,45 +247,11 @@ const migrations = [
   `ALTER TABLE notifications ADD COLUMN triggered_by_type TEXT`,
   `ALTER TABLE notifications ADD COLUMN triggered_by_user_id TEXT`,
   `ALTER TABLE notifications ADD COLUMN sent_at TEXT`,
+  `ALTER TABLE classes ADD COLUMN deleted_at TEXT`,
 ]
 for (const sql of migrations) {
-  try { sqlite.run(sql) } catch { }
+  try { await client.execute(sql) } catch { }
 }
 
-const safeSave = () => {
-  try {
-    const parent = dirname(dbPath)
-    if (!existsSync(parent)) mkdirSync(parent, { recursive: true })
-    writeFileSync(dbPath, Buffer.from(sqlite.export()))
-  } catch {
-    // Ignore concurrency locks in tests
-  }
-}
-
-const origPrepare = sqlite.prepare.bind(sqlite)
-sqlite.prepare = ((sql: string) => {
-  const stmt = origPrepare(sql)
-  const origRun = stmt.run.bind(stmt)
-  stmt.run = (...args: any[]) => {
-    const result = origRun(...args)
-    safeSave()
-    return result
-  }
-  const origStep = stmt.step.bind(stmt)
-  stmt.step = origStep
-  return stmt
-}) as any
-
-const origExec = sqlite.exec.bind(sqlite)
-sqlite.exec = ((sql: string) => {
-  const result = origExec(sql)
-  safeSave()
-  return result
-}) as any
-
-export function saveDb() {
-  safeSave()
-}
-
-export const db = drizzle(sqlite, { schema })
-export { sqlite }
+export const db = drizzle(client, { schema })
+export { client }

@@ -11,7 +11,7 @@ gradesRouter.use('*', authMiddleware)
 
 const gradeSchema = z.object({
   studentId: z.string().trim().min(1),
-  academicYear: z.string().trim().default('2025 - 2026'),
+  academicYear: z.string().trim(),
   semester: z.number().int().min(1).max(2),
   scoreOral: z.number().min(0).max(10).nullable().optional(),
   score15m: z.number().min(0).max(10).nullable().optional(),

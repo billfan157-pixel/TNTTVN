@@ -19,11 +19,8 @@ interface AcademicYearState {
 }
 
 export const useAcademicYearStore = create<AcademicYearState>((set) => ({
-  academicYears: [
-    { id: '2025 - 2026', name: 'Năm Học 2025 - 2026', startDate: '2025-09-01', endDate: '2026-06-30', isLocked: false },
-    { id: '2024 - 2025', name: 'Năm Học 2024 - 2025', startDate: '2024-09-01', endDate: '2025-06-30', isLocked: true },
-  ],
-  currentYear: '2025 - 2026',
+  academicYears: [],
+  currentYear: '',
   isLoading: false,
   error: null,
 

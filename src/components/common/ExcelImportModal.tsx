@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { parseRosterText, convertToStudentModels, type ParsedStudentRow } from '../../utils/excelParser'
 import { useStudentStore } from '../../stores/studentStore'
 import { useClassStore } from '../../stores/classStore'
@@ -29,12 +30,23 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
     const reader = new FileReader()
     reader.onload = (event) => {
-      const content = event.target?.result as string
-      if (content) handleParse(content)
+      if (isExcel) {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 })
+        const text = rows.map(r => r.join('\t')).join('\n')
+        if (text) handleParse(text)
+      } else {
+        const content = event.target?.result as string
+        if (content) handleParse(content)
+      }
     }
-    reader.readAsText(file)
+    if (isExcel) reader.readAsArrayBuffer(file)
+    else reader.readAsText(file)
   }
 
   const handleImport = async () => {
@@ -96,11 +108,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Tải File CSV Từ Máy Tính</label>
+              <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Tải File Từ Máy Tính</label>
               <label className="flex items-center gap-2 px-4 py-2 bg-surface-hover hover:bg-surface-hover/80 text-text-main text-sm font-medium rounded-lg cursor-pointer border border-surface-border transition-colors">
                 <Upload className="w-4 h-4 text-parish-primary" />
-                <span>Chọn file .csv / .txt...</span>
-                <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
+                <span>Chọn file .xlsx / .xls / .csv / .txt...</span>
+                <input type="file" accept=".xlsx,.xls,.csv,.txt" onChange={handleFileUpload} className="hidden" />
               </label>
             </div>
           </div>

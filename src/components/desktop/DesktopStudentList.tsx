@@ -12,14 +12,15 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useFilterStore } from '../../stores/filterStore';
 import type { Student } from '../../types';
-import { BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
 import { ConfirmDialog } from '../common/ConfirmDialog';
-import { UserPlus, Edit3, Trash2, Printer, Phone, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { UserPlus, Edit3, Trash2, Printer, Phone, ArrowUpDown, ArrowUp, ArrowDown, Upload } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
 interface DesktopStudentListProps {
   onOpenAddStudent: () => void;
+  onImportStudents: () => void;
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onViewPhotoCard: (student: Student) => void;
@@ -32,7 +33,7 @@ interface RowData {
 }
 
 export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
-  onOpenAddStudent, onEditStudent, onViewReport, onViewPhotoCard
+  onOpenAddStudent, onImportStudents, onEditStudent, onViewReport, onViewPhotoCard
 }) => {
   const students = useStudentStore(s => s.students);
   const deleteStudent = useStudentStore(s => s.deleteStudent);
@@ -255,9 +256,14 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
         <div className="flex gap-3">
           {canEdit && (
-            <button onClick={onOpenAddStudent} className="btn btn-primary">
-              <UserPlus size={16} /> Thêm Thiếu Nhi Mới
-            </button>
+            <>
+              <button onClick={onImportStudents} className="btn btn-secondary">
+                <Upload size={16} /> Import Excel
+              </button>
+              <button onClick={onOpenAddStudent} className="btn btn-primary">
+                <UserPlus size={16} /> Thêm Thiếu Nhi Mới
+              </button>
+            </>
           )}
         </div>
       </div>

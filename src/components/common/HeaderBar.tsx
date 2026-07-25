@@ -12,6 +12,7 @@ import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck, A
 import { clearTokens } from '../../lib/api'
 import { useNavigate } from '@tanstack/react-router'
 import { useClassStore } from '../../stores/classStore'
+import { useAcademicYearStore } from '../../stores/academicYearStore'
 
 export const HeaderBar: React.FC = () => {
   const students = useStudentStore((s) => s.students)
@@ -26,6 +27,7 @@ export const HeaderBar: React.FC = () => {
   const effectiveMode = useEffectiveMode()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
 
   const [localSearch, setLocalSearch] = useState(searchQuery)
   const [currentUser, setCurrentUser] = useState<{ fullName?: string; username?: string; role?: string } | null>(null)
@@ -90,7 +92,7 @@ export const HeaderBar: React.FC = () => {
                 <span className="font-extrabold rounded-md text-xs px-3 py-1 bg-[#FDE047] text-[#1E3A8A]">Giáo Xứ Gia Tôn</span>
               </div>
               <p className={`m-0 mt-1 font-medium text-white opacity-90 ${effectiveMode === 'desktop' ? 'text-xs' : 'text-[11px]'}`}>
-                Sổ Điểm & Theo Dõi Học Tập • Niên Học 2025 - 2026 ({students.length} Thiếu Nhi)
+                Sổ Điểm & Theo Dõi Học Tập • Niên Học {academicYearDisplay} ({students.length} Thiếu Nhi)
               </p>
             </div>
           </div>

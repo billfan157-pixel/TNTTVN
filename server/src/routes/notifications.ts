@@ -1,11 +1,14 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import webPush from 'web-push'
 import { authMiddleware, roleMiddleware } from '../middleware/auth.js'
+import type { JwtPayload } from '../middleware/auth.js'
 import { notifyAbsence, notifyBatchReportCards, notifySundayMassReminder, notifyClassReminder } from '../services/smartNotifications.js'
+import { db } from '../db/index.js'
+import { pushSubscriptions } from '../db/schema.js'
+import { and, eq, sql } from 'drizzle-orm'
+import { generateId } from '../utils/id.js'
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
@@ -14,32 +17,6 @@ const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@giaoly.com'
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
 }
-
-interface SubscriptionData {
-  endpoint: string
-  keys: { p256dh: string; auth: string }
-}
-
-const SUBS_FILE = join(process.cwd(), 'data', 'push-subscriptions.json')
-
-function loadSubscriptions(): SubscriptionData[] {
-  try {
-    if (existsSync(SUBS_FILE)) {
-      return JSON.parse(readFileSync(SUBS_FILE, 'utf-8'))
-    }
-  } catch {}
-  return []
-}
-
-function saveSubscriptions(subs: SubscriptionData[]) {
-  try {
-    writeFileSync(SUBS_FILE, JSON.stringify(subs, null, 2))
-  } catch (err) {
-    console.error('Failed to persist push subscriptions:', err)
-  }
-}
-
-let subscriptions: SubscriptionData[] = loadSubscriptions()
 
 const notificationsRouter = new Hono()
 
@@ -94,17 +71,26 @@ const classReminderSchema = z.object({
 })
 
 notificationsRouter.post('/subscribe', zValidator('json', subscribeSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
   const body = c.req.valid('json')
-  subscriptions = subscriptions.filter(s => s.endpoint !== body.endpoint)
-  subscriptions.push(body as SubscriptionData)
-  saveSubscriptions(subscriptions)
+  const existing = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, body.endpoint)).limit(1)
+  if (existing.length === 0) {
+    await db.insert(pushSubscriptions).values({
+      id: generateId('NOT'),
+      endpoint: body.endpoint,
+      p256dh: body.keys.p256dh,
+      auth: body.keys.auth,
+      userId: user.userId,
+      parishId: user.parishId,
+    })
+  }
   return c.json({ ok: true })
 })
 
 notificationsRouter.post('/unsubscribe', zValidator('json', unsubscribeSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
   const { endpoint } = c.req.valid('json')
-  subscriptions = subscriptions.filter(s => s.endpoint !== endpoint)
-  saveSubscriptions(subscriptions)
+  await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.parishId, user.parishId)))
   return c.json({ ok: true })
 })
 
@@ -112,23 +98,35 @@ notificationsRouter.post('/send', roleMiddleware('admin', 'chunhiem'), zValidato
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
     return c.json({ error: 'VAPID keys not configured' }, 501)
   }
+  const user = c.get('user') as JwtPayload
   const { title, body, url } = c.req.valid('json')
+  const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.parishId, user.parishId))
   const results = await Promise.allSettled(
-    subscriptions.map((sub) =>
-      webPush.sendNotification(sub as webPush.PushSubscription, JSON.stringify({ title, body, url }))
+    subs.map((sub) =>
+      webPush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } } as webPush.PushSubscription,
+        JSON.stringify({ title, body, url })
+      )
     )
   )
   const sent = results.filter(r => r.status === 'fulfilled').length
-  const failed = results.filter(r => r.status === 'rejected').length
-  if (failed > 0) {
-    subscriptions = subscriptions.filter((_, i) => results[i].status === 'fulfilled')
-    saveSubscriptions(subscriptions)
+  const failed: number[] = []
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') failed.push(i)
+  })
+  if (failed.length > 0) {
+    const failedEndpoints = failed.map(i => subs[i].endpoint)
+    for (const ep of failedEndpoints) {
+      await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, ep))
+    }
   }
-  return c.json({ sent, failed, total: subscriptions.length })
+  return c.json({ sent, failed: failed.length, total: subs.length })
 })
 
-notificationsRouter.get('/subscriptions', roleMiddleware('admin'), (c) => {
-  return c.json({ count: subscriptions.length })
+notificationsRouter.get('/subscriptions', roleMiddleware('admin'), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const count = await db.select({ count: sql`count(*)` }).from(pushSubscriptions).where(eq(pushSubscriptions.parishId, user.parishId))
+  return c.json({ count: count[0]?.count || 0 })
 })
 
 // ─── Smart Notifications ───

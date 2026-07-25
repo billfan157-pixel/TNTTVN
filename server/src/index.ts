@@ -12,7 +12,7 @@ import notificationsRouter from './routes/notifications.js'
 import usersRouter from './routes/users.js'
 import classesRouter from './routes/classes.js'
 import auditLogsRouter from './routes/auditLogs.js'
-import { saveDb } from './db/index.js'
+import { client } from './db/index.js'
 import { seedIfEmpty } from './seed.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
 
@@ -35,9 +35,9 @@ app.use('/api/auth/login', loginRateLimiter)
 
 app.get('/health', async (c) => {
   try {
-    saveDb()
+    await client.execute('SELECT 1')
     return c.json({ status: 'ok', timestamp: new Date().toISOString() })
-  } catch (err) {
+  } catch {
     return c.json({ status: 'error', message: 'Database unavailable' }, 503)
   }
 })

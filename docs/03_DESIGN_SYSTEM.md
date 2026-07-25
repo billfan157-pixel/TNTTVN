@@ -1,6 +1,7 @@
 # Design System (Grounded)
 
 > Real tokens extracted from `src/index.css`. No aspirational code — only what's actually defined.
+> Version: 1.0 | Last reviewed: 2026-07-25 | Status: ✅ Current | Prerequisites: 04
 
 ## 1. Color Tokens
 
@@ -25,7 +26,8 @@
 | Hover | `#15803D` | `#22C55E` | `#B91C1C` | `#FCA5A5` |
 | BG | `#DCFCE7` | `#14532D` | `#FEE2E2` | `#450A0A` |
 
-Warning: `#EA580C` / `#FB923C` · Info: `#0284C7` / `#38BDF8`
+Warning: `#EA580C` / `#FB923C` · Warning hover: `#C2410C` / `#FDBA74` · Warning bg: `#FFEDD5` / `#431407`
+Info: `#0284C7` / `#38BDF8` · Info hover: `#075985` / `#38BDF8` · Info bg: `#E0F2FE` / `#0C4A6E`
 
 ### TNTT Branch Colors
 | Branch | CSS Variable | Value |
@@ -121,7 +123,7 @@ Dark variants use black with higher opacity (0.3–0.4).
 - `.card-interactive` — hover shadow + transform
 
 ### Modals
-- `.modal-overlay` — fixed inset, 50% black backdrop, flex center, 16px padding, fadeIn
+- `.modal-overlay` — fixed inset, `rgba(15, 23, 42, 0.5)` backdrop (slate-900), flex center, 16px padding, fadeIn
 - `.modal-content` — 600px max, 24px padding, lg radius, modal shadow
 - `.modal-report` — 750px max
 - `.modal-full` — fullscreen

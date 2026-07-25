@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { ClipboardList, Filter, ChevronLeft, ChevronRight, User, Clock, Eye } from 'lucide-react'
-import { api } from '../lib/api'
+import { ClipboardList, Filter, ChevronLeft, ChevronRight, User, Clock, Eye, AlertCircle } from 'lucide-react'
+import { api, ApiError } from '../lib/api'
 
 interface AuditLog {
   id: string
@@ -57,12 +57,14 @@ export function AuditLogPage() {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [meta, setMeta] = useState<AuditMeta>({ page: 1, limit: 25, total: 0, totalPages: 0 })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [filterAction, setFilterAction] = useState('')
   const [filterEntity, setFilterEntity] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const fetchLogs = async (page = 1) => {
     setLoading(true)
+    setError(null)
     try {
       const params: Record<string, any> = { page, limit: 25 }
       if (filterAction) params.action = filterAction
@@ -77,7 +79,8 @@ export function AuditLogPage() {
         totalPages: (metaData as any).totalPages || Math.ceil((metaData.total || 0) / (metaData.limit || 25))
       })
     } catch (err) {
-      console.error('Failed to fetch audit logs:', err)
+      const message = err instanceof ApiError ? err.message : 'Không thể tải nhật ký hoạt động'
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -126,6 +129,13 @@ export function AuditLogPage() {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 flex-wrap">
