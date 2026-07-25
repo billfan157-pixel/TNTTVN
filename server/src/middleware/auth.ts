@@ -2,7 +2,7 @@ import { createMiddleware } from 'hono/factory'
 import jwt from 'jsonwebtoken'
 import { db } from '../db/index.js'
 import { users, catechistAssignments } from '../db/schema.js'
-import { eq } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -52,7 +52,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
   }
 
   // Validate tokenVersion & account status against DB
-  const [userDb] = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1)
+  const [userDb] = await db.select().from(users).where(and(eq(users.id, payload.userId), eq(users.parishId, payload.parishId))).limit(1)
   if (!userDb || userDb.status === 'LOCKED' || (payload.tokenVersion && userDb.tokenVersion !== payload.tokenVersion)) {
     return c.json({ error: 'Session invalidated or account locked' }, 401)
   }
@@ -79,12 +79,12 @@ export async function getUserClassIds(userId: string, parishId: string): Promise
   const assignments = await db
     .select({ classId: catechistAssignments.classId })
     .from(catechistAssignments)
-    .where(eq(catechistAssignments.userId, userId))
+    .where(and(eq(catechistAssignments.userId, userId), eq(catechistAssignments.parishId, parishId)))
   return assignments.map(a => a.classId)
 }
 
 export async function checkUserClassAccess(userId: string, parishId: string, targetClassId: string): Promise<boolean> {
-  const userRole = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))?.[0]?.role
+  const userRole = (await db.select({ role: users.role }).from(users).where(and(eq(users.id, userId), eq(users.parishId, parishId))).limit(1))?.[0]?.role
   if (userRole === 'admin') return true
   const classIds = await getUserClassIds(userId, parishId)
   return classIds.includes(targetClassId)

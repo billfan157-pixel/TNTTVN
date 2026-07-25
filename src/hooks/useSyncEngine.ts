@@ -70,8 +70,16 @@ export async function runSyncFlow() {
   store.setLastError(null)
 
   try {
-    // Phase 1: Flush pending queue operations
+  // Phase 1: Flush pending queue operations
     let ops = await store.getPendingOps()
+
+    // Failsafe: nếu tất cả ops đều thất bại quá 5 lần, dừng sync
+    const allTooManyRetries = ops.length > 0 && ops.every(o => (o.retryCount || 0) >= 5)
+    if (allTooManyRetries) {
+      store.setStatus('idle')
+      store.setLastError('Sync stalled — tất cả thao tác đã thử lại quá nhiều lần')
+      return
+    }
 
     while (ops.length > 0) {
       if (!navigator.onLine) {
@@ -89,21 +97,21 @@ export async function runSyncFlow() {
         store.setLastError('Xác thực hết hạn — vui lòng đăng nhập lại')
         return
       } else if (result.recoverable) {
-        const retryCount = op.retryCount + 1
+        const retryCount = (op.retryCount || 0) + 1
         await store.updateOp(op.id, {
-          status: 'retrying',
+          status: retryCount >= 5 ? 'failed' : 'retrying',
           retryCount,
           lastError: result.error,
         })
-        store.setStatus('retrying')
-        store.setLastError(result.error || null)
 
         if (retryCount >= 5) {
-          await store.updateOp(op.id, { status: 'failed' })
+          store.setLastError(`Thao tác ${op.entity}/${op.entityId} đã thất bại sau ${retryCount} lần thử`)
+        } else {
+          store.setStatus('retrying')
+          store.setLastError(result.error || null)
+          const backoff = getBackoffMs(retryCount)
+          await new Promise(r => setTimeout(r, backoff))
         }
-
-        const backoff = getBackoffMs(retryCount)
-        await new Promise(r => setTimeout(r, backoff))
       } else {
         await store.updateOp(op.id, { status: 'failed', lastError: result.error })
         store.setLastError(result.error || null)

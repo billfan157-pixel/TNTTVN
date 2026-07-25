@@ -75,8 +75,13 @@ studentsRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json',
     }
   }
 
-  const created = await createStudent(data, user.userId, user.parishId, ip, userAgent)
-  return successResponse(c, created, 201)
+  try {
+    const created = await createStudent(data, user.userId, user.parishId, ip, userAgent)
+    return successResponse(c, created, 201)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Lỗi không xác định'
+    return errorResponse(c, 'VALIDATION_ERROR', message, 400)
+  }
 })
 
 studentsRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('json', studentSchema.partial()), async (c) => {
