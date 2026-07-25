@@ -275,7 +275,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                                 value={inputValues[student.id] || ''}
                                 onChange={e => {
                                   const v = e.target.value;
-                                  if (v === '' || /^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(v.replace(',', '.'))) {
+                                  if (v === '' || /^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(v.replace(',', '.')) || /^(?:10\.?|[0-9]\.)$/.test(v.replace(',', '.'))) {
                                     setInputValues(prev => ({ ...prev, [student.id]: v }));
                                   }
                                 }}

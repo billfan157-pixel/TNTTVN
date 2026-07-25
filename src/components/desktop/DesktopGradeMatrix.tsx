@@ -42,6 +42,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [formulaWeights, setFormulaWeights] = useState(getStoredGradeWeights());
+  const [rawInputs, setRawInputs] = useState<Record<string, string>>({});
 
   const filteredStudents = useMemo(() => {
     if (selectedClassId === 'all') return students;
@@ -124,17 +125,51 @@ export const DesktopGradeMatrix: React.FC = () => {
     saveFn(matrixData);
   };
 
+  const inputKey = (studentId: string, field: string) => `${studentId}_${field}`;
+
+  const commitScore = (studentId: string, field: keyof GradeRecord, numeric: number) => {
+    setRawInputs(prev => { const n = { ...prev }; delete n[inputKey(studentId, field)]; return n; });
+    updateField(studentId, field, numeric);
+  };
+
+  const clearScore = (studentId: string, field: keyof GradeRecord) => {
+    setRawInputs(prev => { const n = { ...prev }; delete n[inputKey(studentId, field)]; return n; });
+    updateField(studentId, field, null);
+  };
+
   const handleScoreInput = (studentId: string, field: keyof GradeRecord, rawVal: string) => {
     if (!canEditGrades) return;
-    if (rawVal === '' || rawVal === null || rawVal === undefined) {
-      updateField(studentId, field, null);
+    if (rawVal === '') {
+      clearScore(studentId, field);
       return;
     }
     const normalized = rawVal.replace(',', '.');
-    if (!/^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(normalized)) return;
-    const parsed = parseFloat(normalized);
-    if (isNaN(parsed)) return;
-    updateField(studentId, field, parsed);
+    const key = inputKey(studentId, field);
+
+    // Complete valid grade → save to matrixData, clear raw
+    if (/^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(normalized)) {
+      const parsed = parseFloat(normalized);
+      if (!isNaN(parsed)) { commitScore(studentId, field, parsed); return; }
+    }
+
+    // Allow intermediate states (e.g. "8." while typing "8.5")
+    if (/^(?:10(?:\.0?)?|[0-9](?:\.[05]?)?)$/.test(normalized)) {
+      setRawInputs(prev => ({ ...prev, [key]: rawVal }));
+    }
+  };
+
+  const handleScoreBlur = (studentId: string, field: keyof GradeRecord) => {
+    const key = inputKey(studentId, field);
+    const raw = rawInputs[key];
+    if (raw === undefined) return;
+    const normalized = raw.replace(',', '.');
+    const n = { ...rawInputs };
+    delete n[key];
+    setRawInputs(n);
+    if (/^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(normalized)) {
+      const parsed = parseFloat(normalized);
+      if (!isNaN(parsed)) { updateField(studentId, field, parsed); return; }
+    }
   };
 
   const handleScoreKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
@@ -142,13 +177,19 @@ export const DesktopGradeMatrix: React.FC = () => {
       e.preventDefault();
       const val = (matrixData[studentId]?.[field] as number | undefined) ?? null;
       const next = val === null ? 0.5 : Math.min(10, Math.round((val + 0.5) * 10) / 10);
-      updateField(studentId, field, next);
+      commitScore(studentId, field, next);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       const val = (matrixData[studentId]?.[field] as number | undefined) ?? null;
       const next = val === null ? 0 : Math.max(0, Math.round((val - 0.5) * 10) / 10);
-      updateField(studentId, field, next);
+      commitScore(studentId, field, next);
     }
+  };
+
+  const scoreValue = (studentId: string, field: string, matrixVal: number | null | undefined): string => {
+    const key = inputKey(studentId, field);
+    if (key in rawInputs) return rawInputs[key];
+    return matrixVal === null || matrixVal === undefined ? '' : String(matrixVal);
   };
 
   const tableData: RowData[] = useMemo(() => {
@@ -207,8 +248,9 @@ export const DesktopGradeMatrix: React.FC = () => {
             type="text"
             inputMode="decimal"
             disabled={!canEditGrades}
-            value={val === null || val === undefined ? '' : val}
+            value={scoreValue(student.id, 'scoreOral', val)}
             onChange={e => handleScoreInput(student.id, 'scoreOral', e.target.value)}
+            onBlur={() => handleScoreBlur(student.id, 'scoreOral')}
             onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreOral')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
@@ -228,8 +270,9 @@ export const DesktopGradeMatrix: React.FC = () => {
             type="text"
             inputMode="decimal"
             disabled={!canEditGrades}
-            value={val === null || val === undefined ? '' : val}
+            value={scoreValue(student.id, 'score15m', val)}
             onChange={e => handleScoreInput(student.id, 'score15m', e.target.value)}
+            onBlur={() => handleScoreBlur(student.id, 'score15m')}
             onKeyDown={e => handleScoreKeyDown(e, student.id, 'score15m')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
@@ -249,8 +292,9 @@ export const DesktopGradeMatrix: React.FC = () => {
             type="text"
             inputMode="decimal"
             disabled={!canEditGrades}
-            value={val === null || val === undefined ? '' : val}
+            value={scoreValue(student.id, 'score1Period', val)}
             onChange={e => handleScoreInput(student.id, 'score1Period', e.target.value)}
+            onBlur={() => handleScoreBlur(student.id, 'score1Period')}
             onKeyDown={e => handleScoreKeyDown(e, student.id, 'score1Period')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
@@ -270,8 +314,9 @@ export const DesktopGradeMatrix: React.FC = () => {
             type="text"
             inputMode="decimal"
             disabled={!canEditGrades}
-            value={val === null || val === undefined ? '' : val}
+            value={scoreValue(student.id, 'scoreMidterm', val)}
             onChange={e => handleScoreInput(student.id, 'scoreMidterm', e.target.value)}
+            onBlur={() => handleScoreBlur(student.id, 'scoreMidterm')}
             onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreMidterm')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
@@ -291,8 +336,9 @@ export const DesktopGradeMatrix: React.FC = () => {
             type="text"
             inputMode="decimal"
             disabled={!canEditGrades}
-            value={val === null || val === undefined ? '' : val}
+            value={scoreValue(student.id, 'scoreFinal', val)}
             onChange={e => handleScoreInput(student.id, 'scoreFinal', e.target.value)}
+            onBlur={() => handleScoreBlur(student.id, 'scoreFinal')}
             onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreFinal')}
             className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
           />
