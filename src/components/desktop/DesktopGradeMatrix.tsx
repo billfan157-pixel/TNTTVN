@@ -71,6 +71,7 @@ export const DesktopGradeMatrix: React.FC = () => {
         score1Period: existing?.score1Period ?? null,
         scoreMidterm: existing?.scoreMidterm ?? null,
         scoreFinal: existing?.scoreFinal ?? null,
+        scoreDaoDuc: existing?.scoreDaoDuc ?? null,
         comments: existing?.comments || ''
       };
     });
@@ -87,6 +88,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       score1Period: rec.score1Period ?? null,
       scoreMidterm: rec.scoreMidterm ?? null,
       scoreFinal: rec.scoreFinal ?? null,
+      scoreDaoDuc: rec.scoreDaoDuc ?? null,
       comments: rec.comments || ''
     }));
 
@@ -343,6 +345,27 @@ export const DesktopGradeMatrix: React.FC = () => {
       enableSorting: false,
     }),
 
+    columnHelper.accessor(row => row.currentRec.scoreDaoDuc, {
+      id: 'scoreDaoDuc',
+      header: 'Đạo Đức',
+      cell: info => {
+        const val = info.getValue();
+        const { student } = info.row.original;
+        return (
+          <input
+            type="text"
+            inputMode="decimal"
+            disabled={!canEditGrades}
+            defaultValue={val === null || val === undefined ? '' : String(val)}
+            onBlur={e => handleScoreBlur(e, student.id, 'scoreDaoDuc')}
+            onKeyDown={e => handleScoreKeyDown(e, student.id, 'scoreDaoDuc')}
+            className="w-14 h-8 text-center text-sm font-extrabold border border-surface-border rounded-lg focus:border-parish-primary focus:ring-1 focus:ring-parish-primary outline-hidden disabled:bg-slate-100 disabled:cursor-not-allowed"
+          />
+        );
+      },
+      enableSorting: false,
+    }),
+
     columnHelper.accessor(row => {
       const avg = calculateGradeAverage(row.currentRec as GradeRecord, formulaWeights);
       return avg.score ?? -1;
@@ -435,6 +458,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     score1Period: '75px',
     scoreMidterm: '75px',
     scoreFinal: '75px',
+    scoreDaoDuc: '70px',
     avg: '85px',
     rank: '95px',
     comments: '220px',
@@ -503,6 +527,16 @@ export const DesktopGradeMatrix: React.FC = () => {
               <span>Hệ Số & Công Thức</span>
             </button>
 
+            {/* Export Excel Button */}
+            <button
+              onClick={handleExportExcel}
+              title="Xuất bảng điểm ra file Excel (.xls)"
+              className="px-3.5 py-1.5 h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+            >
+              <Download size={15} />
+              <span>Xuất Excel</span>
+            </button>
+
             {canEditGrades && (
               <button
                 onClick={handleSaveNow}
@@ -532,7 +566,7 @@ export const DesktopGradeMatrix: React.FC = () => {
                         key={header.id}
                         className={`py-3.5 px-4 select-none align-middle ${header.column.getCanSort() ? 'cursor-pointer' : ''}`}
                         style={{
-                          textAlign: ['stt', 'scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'avg', 'rank'].includes(header.id) ? 'center' : 'left',
+                          textAlign: ['stt', 'scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc', 'avg', 'rank'].includes(header.id) ? 'center' : 'left',
                         }}
                         onClick={header.column.getToggleSortingHandler()}
                       >
@@ -559,7 +593,7 @@ export const DesktopGradeMatrix: React.FC = () => {
                           key={cell.id}
                           className="py-2 px-3 align-middle"
                           style={{
-                            textAlign: ['stt', 'scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'avg', 'rank'].includes(cell.column.id) ? 'center' : 'left',
+                            textAlign: ['stt', 'scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc', 'avg', 'rank'].includes(cell.column.id) ? 'center' : 'left',
                           }}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}

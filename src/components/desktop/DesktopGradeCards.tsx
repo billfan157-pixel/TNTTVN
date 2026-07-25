@@ -78,13 +78,14 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
                 </div>
 
                 {/* Score Grid */}
-                <div className="grid grid-cols-5 gap-px bg-surface-border">
+                <div className="grid grid-cols-6 gap-px bg-surface-border">
                   {[
                     { label: 'Miệng', value: grade?.scoreOral },
                     { label: '15P', value: grade?.score15m },
                     { label: '1 Tiết', value: grade?.score1Period },
                     { label: 'Giữa Kỳ', value: grade?.scoreMidterm },
                     { label: 'Cuối Kỳ', value: grade?.scoreFinal, highlight: true },
+                    { label: 'Đạo Đức', value: grade?.scoreDaoDuc },
                   ].map(col => (
                     <div key={col.label} className={`p-3 text-center ${col.highlight ? 'bg-parish-secondary-light/20' : 'bg-white'}`}>
                       <div className="text-[10px] font-semibold text-text-muted uppercase">{col.label}</div>

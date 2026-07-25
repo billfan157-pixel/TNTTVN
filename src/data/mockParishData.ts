@@ -92,28 +92,28 @@ export const MOCK_STUDENTS: Student[] = [
 
 export const MOCK_GRADES: GradeRecord[] = [
   // Học kỳ 1
-  { id: 'GR-001', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 8.5, score1Period: 9, scoreMidterm: 8.5, scoreFinal: 9, comments: 'Chăm chỉ lắng nghe Giáo lý, ngoan ngoãn' },
-  { id: 'GR-002', studentId: 'ST-002', academicYear: '2025 - 2026', semester: 1, scoreOral: 7, score15m: 8, score1Period: 7.5, scoreMidterm: 8, scoreFinal: 8, comments: 'Hiếu động nhưng thuộc bài tốt' },
-  { id: 'GR-003', studentId: 'ST-003', academicYear: '2025 - 2026', semester: 1, scoreOral: 10, score15m: 9.5, score1Period: 9.5, scoreMidterm: 10, scoreFinal: 10, comments: 'Xuất sắc, thuộc kinh bổn rất chuẩn' },
-  { id: 'GR-004', studentId: 'ST-004', academicYear: '2025 - 2026', semester: 1, scoreOral: 8, score15m: 8.5, score1Period: 8, scoreMidterm: 9, scoreFinal: 8.5, comments: 'Ngoan ngoãn, hăng hái phát biểu' },
-  { id: 'GR-005', studentId: 'ST-005', academicYear: '2025 - 2026', semester: 1, scoreOral: 6.5, score15m: 7, score1Period: 7, scoreMidterm: 7.5, scoreFinal: 7, comments: 'Cần cố gắng thuộc kinh hơn' },
+  { id: 'GR-001', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 8.5, score1Period: 9, scoreMidterm: 8.5, scoreFinal: 9, scoreDaoDuc: 9, comments: 'Chăm chỉ lắng nghe Giáo lý, ngoan ngoãn' },
+  { id: 'GR-002', studentId: 'ST-002', academicYear: '2025 - 2026', semester: 1, scoreOral: 7, score15m: 8, score1Period: 7.5, scoreMidterm: 8, scoreFinal: 8, scoreDaoDuc: 7, comments: 'Hiếu động nhưng thuộc bài tốt' },
+  { id: 'GR-003', studentId: 'ST-003', academicYear: '2025 - 2026', semester: 1, scoreOral: 10, score15m: 9.5, score1Period: 9.5, scoreMidterm: 10, scoreFinal: 10, scoreDaoDuc: 10, comments: 'Xuất sắc, thuộc kinh bổn rất chuẩn' },
+  { id: 'GR-004', studentId: 'ST-004', academicYear: '2025 - 2026', semester: 1, scoreOral: 8, score15m: 8.5, score1Period: 8, scoreMidterm: 9, scoreFinal: 8.5, scoreDaoDuc: 9, comments: 'Ngoan ngoãn, hăng hái phát biểu' },
+  { id: 'GR-005', studentId: 'ST-005', academicYear: '2025 - 2026', semester: 1, scoreOral: 6.5, score15m: 7, score1Period: 7, scoreMidterm: 7.5, scoreFinal: 7, scoreDaoDuc: 8, comments: 'Cần cố gắng thuộc kinh hơn' },
 
-  { id: 'GR-006', studentId: 'ST-006', academicYear: '2025 - 2026', semester: 1, scoreOral: 9.5, score15m: 9, score1Period: 9.5, scoreMidterm: 9.5, scoreFinal: 9.5, comments: 'Học lực Xuất sắc, hỗ trợ bạn học' },
-  { id: 'GR-007', studentId: 'ST-007', academicYear: '2025 - 2026', semester: 1, scoreOral: 8.5, score15m: 9, score1Period: 8, scoreMidterm: 8.5, scoreFinal: 9, comments: 'Sống đạo tốt, lễ sinh hăng hái' },
-  { id: 'GR-008', studentId: 'ST-008', academicYear: '2025 - 2026', semester: 1, scoreOral: 8, score15m: 8, score1Period: 8.5, scoreMidterm: 8, scoreFinal: 8.5, comments: 'Cố gắng giữ vững phong độ' },
-  { id: 'GR-009', studentId: 'ST-009', academicYear: '2025 - 2026', semester: 1, scoreOral: 7, score15m: 7.5, score1Period: 8, scoreMidterm: 7, scoreFinal: 7.5, comments: 'Tốt, tích cực tham gia sinh hoạt' },
-  { id: 'GR-010', studentId: 'ST-010', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 8.5, score1Period: 9, scoreMidterm: 9, scoreFinal: 9.5, comments: 'Bài kiểm tra trình bày sạch đẹp, thuộc bài' },
+  { id: 'GR-006', studentId: 'ST-006', academicYear: '2025 - 2026', semester: 1, scoreOral: 9.5, score15m: 9, score1Period: 9.5, scoreMidterm: 9.5, scoreFinal: 9.5, scoreDaoDuc: 9.5, comments: 'Học lực Xuất sắc, hỗ trợ bạn học' },
+  { id: 'GR-007', studentId: 'ST-007', academicYear: '2025 - 2026', semester: 1, scoreOral: 8.5, score15m: 9, score1Period: 8, scoreMidterm: 8.5, scoreFinal: 9, scoreDaoDuc: 9, comments: 'Sống đạo tốt, lễ sinh hăng hái' },
+  { id: 'GR-008', studentId: 'ST-008', academicYear: '2025 - 2026', semester: 1, scoreOral: 8, score15m: 8, score1Period: 8.5, scoreMidterm: 8, scoreFinal: 8.5, scoreDaoDuc: 8, comments: 'Cố gắng giữ vững phong độ' },
+  { id: 'GR-009', studentId: 'ST-009', academicYear: '2025 - 2026', semester: 1, scoreOral: 7, score15m: 7.5, score1Period: 8, scoreMidterm: 7, scoreFinal: 7.5, scoreDaoDuc: 9, comments: 'Tốt, tích cực tham gia sinh hoạt' },
+  { id: 'GR-010', studentId: 'ST-010', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 8.5, score1Period: 9, scoreMidterm: 9, scoreFinal: 9.5, scoreDaoDuc: 9.5, comments: 'Bài kiểm tra trình bày sạch đẹp, thuộc bài' },
 
-  { id: 'GR-011', studentId: 'ST-011', academicYear: '2025 - 2026', semester: 1, scoreOral: 9.5, score15m: 10, score1Period: 9.5, scoreMidterm: 9.5, scoreFinal: 10, comments: 'Gương mẫu trong phân đoàn Nghĩa Sĩ' },
-  { id: 'GR-012', studentId: 'ST-012', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 9, score1Period: 8.5, scoreMidterm: 9, scoreFinal: 9, comments: 'Học tốt, lễ phép' },
-  { id: 'GR-013', studentId: 'ST-013', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 9, score1Period: 8.5, scoreMidterm: 9, scoreFinal: 9, comments: 'Chiên con ngoan ngoãn' },
-  { id: 'GR-014', studentId: 'ST-014', academicYear: '2025 - 2026', semester: 1, scoreOral: 8.5, score15m: 9, score1Period: 9, scoreMidterm: 8.5, scoreFinal: 9, comments: 'Hăng hái hát múa' },
-  { id: 'GR-015', studentId: 'ST-015', academicYear: '2025 - 2026', semester: 1, scoreOral: 10, score15m: 9.5, score1Period: 10, scoreMidterm: 9.5, scoreFinal: 10, comments: 'Xuất sắc, hỗ trợ Huynh Trưởng giảng dạy' },
+  { id: 'GR-011', studentId: 'ST-011', academicYear: '2025 - 2026', semester: 1, scoreOral: 9.5, score15m: 10, score1Period: 9.5, scoreMidterm: 9.5, scoreFinal: 10, scoreDaoDuc: 10, comments: 'Gương mẫu trong phân đoàn Nghĩa Sĩ' },
+  { id: 'GR-012', studentId: 'ST-012', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 9, score1Period: 8.5, scoreMidterm: 9, scoreFinal: 9, scoreDaoDuc: 9, comments: 'Học tốt, lễ phép' },
+  { id: 'GR-013', studentId: 'ST-013', academicYear: '2025 - 2026', semester: 1, scoreOral: 9, score15m: 9, score1Period: 8.5, scoreMidterm: 9, scoreFinal: 9, scoreDaoDuc: 9, comments: 'Chiên con ngoan ngoãn' },
+  { id: 'GR-014', studentId: 'ST-014', academicYear: '2025 - 2026', semester: 1, scoreOral: 8.5, score15m: 9, score1Period: 9, scoreMidterm: 8.5, scoreFinal: 9, scoreDaoDuc: 8.5, comments: 'Hăng hái hát múa' },
+  { id: 'GR-015', studentId: 'ST-015', academicYear: '2025 - 2026', semester: 1, scoreOral: 10, score15m: 9.5, score1Period: 10, scoreMidterm: 9.5, scoreFinal: 10, scoreDaoDuc: 10, comments: 'Xuất sắc, hỗ trợ Huynh Trưởng giảng dạy' },
 
   // Học kỳ 2 (dự kiến/đang nhập)
-  { id: 'GR-016', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 2, scoreOral: 9, score15m: 9, score1Period: 8.5, scoreMidterm: 9, scoreFinal: null, comments: 'Đang phấn đấu học kỳ 2' },
-  { id: 'GR-017', studentId: 'ST-003', academicYear: '2025 - 2026', semester: 2, scoreOral: 10, score15m: 10, score1Period: 10, scoreMidterm: 9.5, scoreFinal: null, comments: 'Giữ vững vị trí dẫn đầu' },
-  { id: 'GR-018', studentId: 'ST-006', academicYear: '2025 - 2026', semester: 2, scoreOral: 10, score15m: 9.5, score1Period: 9.5, scoreMidterm: 10, scoreFinal: null, comments: 'Tích cực sinh hoạt phong trào' }
+  { id: 'GR-016', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 2, scoreOral: 9, score15m: 9, score1Period: 8.5, scoreMidterm: 9, scoreFinal: null, scoreDaoDuc: null, comments: 'Đang phấn đấu học kỳ 2' },
+  { id: 'GR-017', studentId: 'ST-003', academicYear: '2025 - 2026', semester: 2, scoreOral: 10, score15m: 10, score1Period: 10, scoreMidterm: 9.5, scoreFinal: null, scoreDaoDuc: null, comments: 'Giữ vững vị trí dẫn đầu' },
+  { id: 'GR-018', studentId: 'ST-006', academicYear: '2025 - 2026', semester: 2, scoreOral: 10, score15m: 9.5, score1Period: 9.5, scoreMidterm: 10, scoreFinal: null, scoreDaoDuc: null, comments: 'Tích cực sinh hoạt phong trào' }
 ];
 
 export const MOCK_ATTENDANCE: AttendanceRecord[] = [

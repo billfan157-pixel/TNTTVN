@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Printer, FileText, Award, X } from 'lucide-react'
+import { Printer, FileText, Award, X, Download } from 'lucide-react'
 import {
   generateClassGradebookHTML,
   generateStudentReportCardHTML,
@@ -7,6 +7,7 @@ import {
   printHTMLReport,
   type ReportType,
 } from '../../utils/pdfGenerator'
+import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
@@ -52,6 +53,25 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
 
     printHTMLReport(html)
+  }
+
+  const handleExportExcel = () => {
+    const targetClass = MOCK_CLASSES.find((c) => c.id === selectedClassId)
+    const targetStudents = students.filter((s) => s.classId === selectedClassId)
+
+    const matrixData: Record<string, any> = {}
+    targetStudents.forEach((s) => {
+      const existing = grades.find((g) => g.studentId === s.id && g.academicYear === academicYear)
+      if (existing) matrixData[s.id] = existing
+    })
+
+    exportGradebookToExcel({
+      students: targetStudents,
+      matrixData,
+      className: targetClass?.name || 'Lớp Giáo Lý',
+      semester: 1,
+      academicYear,
+    })
   }
 
   return (
@@ -170,6 +190,13 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-surface-border bg-surface-hover/30">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-text-muted hover:bg-surface-hover transition-colors">
             Hủy Bỏ
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Xuất File Excel</span>
           </button>
           <button
             onClick={handlePrint}

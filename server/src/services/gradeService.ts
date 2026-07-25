@@ -21,6 +21,7 @@ export interface GradeData {
   score1Period?: number | null
   scoreMidterm?: number | null
   scoreFinal?: number | null
+  scoreDaoDuc?: number | null
   comments?: string
 }
 

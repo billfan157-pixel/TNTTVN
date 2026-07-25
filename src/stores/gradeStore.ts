@@ -60,6 +60,7 @@ export const useGradeStore = create<GradeState>()(
             score1Period: gradeData.score1Period ?? null,
             scoreMidterm: gradeData.scoreMidterm ?? null,
             scoreFinal: gradeData.scoreFinal ?? null,
+            scoreDaoDuc: gradeData.scoreDaoDuc ?? null,
             comments: gradeData.comments || '',
           }
         }
@@ -92,6 +93,7 @@ export const useGradeStore = create<GradeState>()(
               score1Period: gradeData.score1Period ?? null,
               scoreMidterm: gradeData.scoreMidterm ?? null,
               scoreFinal: gradeData.scoreFinal ?? null,
+              scoreDaoDuc: gradeData.scoreDaoDuc ?? null,
               comments: gradeData.comments || '',
             }
             updated.push(grade)

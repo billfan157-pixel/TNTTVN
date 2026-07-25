@@ -52,6 +52,7 @@ export interface GradeRecord {
   score1Period: number | null; // Điểm 1 tiết
   scoreMidterm: number | null; // Điểm giữa kỳ
   scoreFinal: number | null; // Điểm thi cuối kỳ
+  scoreDaoDuc: number | null; // Điểm đạo đức
   comments?: string;
 }
 

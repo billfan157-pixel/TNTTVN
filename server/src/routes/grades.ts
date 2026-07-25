@@ -18,6 +18,7 @@ const gradeSchema = z.object({
   score1Period: z.number().min(0).max(10).nullable().optional(),
   scoreMidterm: z.number().min(0).max(10).nullable().optional(),
   scoreFinal: z.number().min(0).max(10).nullable().optional(),
+  scoreDaoDuc: z.number().min(0).max(10).nullable().optional(),
   comments: z.string().trim().max(500).optional(),
 })
 

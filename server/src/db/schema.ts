@@ -51,6 +51,7 @@ export const grades = sqliteTable('grades', {
   score1Period: real('score_1_period'),
   scoreMidterm: real('score_midterm'),
   scoreFinal: real('score_final'),
+  scoreDaoDuc: real('score_dao_duc'),
   comments: text('comments'),
   version: integer('version').notNull().default(1),
   parishId: text('parish_id').notNull().default('thanh-gia'),

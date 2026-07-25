@@ -4,6 +4,7 @@ export interface GradeInput {
   score1Period: number | null
   scoreMidterm: number | null
   scoreFinal: number | null
+  scoreDaoDuc?: number | null
 }
 
 export interface GradeWeightsConfig {
