@@ -13,9 +13,10 @@ import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage, getStoredGradeWeights } from '../../utils/grades';
 import type { GradeRecord, Student } from '../../types';
 import { MOCK_CLASSES } from '../../data/mockParishData';
-import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Settings, Calculator } from 'lucide-react';
+import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Settings, Calculator, Download } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { GradeFormulaConfigModal } from './GradeFormulaConfigModal';
+import { exportGradebookToExcel } from '../../utils/excelExporter';
 
 const ACADEMIC_YEAR = '2025 - 2026';
 
@@ -122,6 +123,17 @@ export const DesktopGradeMatrix: React.FC = () => {
     if (!canEditGrades) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveFn(matrixData);
+  };
+
+  const handleExportExcel = () => {
+    const currentClassName = MOCK_CLASSES.find(c => c.id === selectedClassId)?.name || 'Tất cả các lớp';
+    exportGradebookToExcel({
+      students: filteredStudents,
+      matrixData,
+      className: currentClassName,
+      semester: selectedSemester,
+      academicYear: ACADEMIC_YEAR,
+    });
   };
 
   const matrixDataRef = useRef(matrixData);
