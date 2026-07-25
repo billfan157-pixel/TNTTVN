@@ -128,12 +128,20 @@ export const DesktopGradeMatrix: React.FC = () => {
   matrixDataRef.current = matrixData;
 
   const handleScoreBlur = (e: React.FocusEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
-    const raw = e.target.value;
+    let raw = e.target.value;
     if (raw === '') {
       updateField(studentId, field, null);
       return;
     }
-    const normalized = raw.replace(',', '.');
+    let normalized = raw.replace(',', '.');
+
+    // Auto-convert: gõ "67" → "6.7", "85" → "8.5" (giữ nguyên "10" là 10)
+    const asNum = parseFloat(normalized);
+    if (!isNaN(asNum) && asNum >= 11 && asNum <= 99 && Number.isInteger(asNum) && !normalized.includes('.')) {
+      normalized = (asNum / 10).toFixed(1);
+      e.target.value = normalized;
+    }
+
     if (/^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(normalized)) {
       const parsed = parseFloat(normalized);
       if (!isNaN(parsed)) { updateField(studentId, field, parsed); return; }
@@ -143,21 +151,30 @@ export const DesktopGradeMatrix: React.FC = () => {
   };
 
   const handleScoreKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
+    const toVal = (s: string): number | null => {
+      let n = s.replace(',', '.');
+      const x = parseFloat(n);
+      if (!isNaN(x) && x >= 11 && x <= 99 && Number.isInteger(x) && !n.includes('.')) {
+        n = (x / 10).toFixed(1);
+        (e.target as HTMLInputElement).value = n;
+      }
+      if (n === '') return null;
+      const p = parseFloat(n);
+      return !isNaN(p) ? p : null;
+    };
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       const raw = (e.target as HTMLInputElement).value;
-      const normalized = raw.replace(',', '.');
-      const current = normalized === '' ? null : parseFloat(normalized);
-      const val = (current !== null && !isNaN(current) ? current : (matrixDataRef.current[studentId]?.[field] as number | undefined)) ?? null;
+      const current = toVal(raw);
+      const val = current ?? (matrixDataRef.current[studentId]?.[field] as number | undefined) ?? null;
       const next = val === null ? 0.5 : Math.min(10, Math.round((val + 0.5) * 10) / 10);
       updateField(studentId, field, next);
       (e.target as HTMLInputElement).value = String(next);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       const raw = (e.target as HTMLInputElement).value;
-      const normalized = raw.replace(',', '.');
-      const current = normalized === '' ? null : parseFloat(normalized);
-      const val = (current !== null && !isNaN(current) ? current : (matrixDataRef.current[studentId]?.[field] as number | undefined)) ?? null;
+      const current = toVal(raw);
+      const val = current ?? (matrixDataRef.current[studentId]?.[field] as number | undefined) ?? null;
       const next = val === null ? 0 : Math.max(0, Math.round((val - 0.5) * 10) / 10);
       updateField(studentId, field, next);
       (e.target as HTMLInputElement).value = String(next);
