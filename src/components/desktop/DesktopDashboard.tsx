@@ -5,7 +5,8 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useNoticeStore } from '../../stores/noticeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage } from '../../utils/grades';
-import { BRANCHES, MOCK_CLASSES } from '../../data/mockParishData';
+import { BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import {
   Users, Award, CheckCircle2, BookOpen,
   TrendingUp, Sparkles, AlertCircle, Plus
@@ -113,7 +114,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-xs flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold text-text-muted uppercase m-0">Lớp Học Giáo Lý</p>
-            <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{MOCK_CLASSES.length} <span className="text-xs font-normal text-text-muted">lớp</span></h3>
+            <h3 className="text-2xl font-black text-text-main m-0 mt-0.5">{useClassStore.getState().getClassList().length} <span className="text-xs font-normal text-text-muted">lớp</span></h3>
             <p className="text-[11px] font-medium text-blue-600 m-0 mt-1">5 Ngành TNTT</p>
           </div>
           <button

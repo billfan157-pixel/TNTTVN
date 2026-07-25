@@ -1,6 +1,6 @@
 import type { Student, GradeRecord, AttendanceRecord } from '../types'
 import { calculateGradeAverage, calculateAttendanceRate } from './grades'
-import { MOCK_CLASSES } from '../data/mockParishData'
+import { useClassStore } from '../stores/classStore'
 import * as Sentry from '@sentry/react'
 
 export type ReportType = 'CLASS_GRADEBOOK' | 'STUDENT_REPORT_CARD' | 'SACRAMENT_CERTIFICATE'
@@ -28,7 +28,7 @@ export function generateClassGradebookHTML(
   attendance: AttendanceRecord[],
   options: ReportOptions = DEFAULT_OPTIONS,
 ): string {
-  const classInfo = MOCK_CLASSES.find((c) => c.id === classId)
+  const classInfo = useClassStore.getState().findClassById(classId)
   const classStudents = students.filter((s) => s.classId === classId)
   const year = options.academicYear || DEFAULT_OPTIONS.academicYear
 
@@ -148,7 +148,7 @@ export function generateStudentReportCardHTML(
   attendance: AttendanceRecord[],
   options: ReportOptions = DEFAULT_OPTIONS,
 ): string {
-  const classInfo = MOCK_CLASSES.find((c) => c.id === student.classId)
+  const classInfo = useClassStore.getState().findClassById(student.classId)
   const year = options.academicYear || DEFAULT_OPTIONS.academicYear
 
   const studentGrades = grades.filter((g) => g.studentId === student.id && g.academicYear === year)

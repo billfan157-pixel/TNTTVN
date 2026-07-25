@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { dexieStorage } from '../lib/db'
 import type { Student, BranchType } from '../types'
-import { MOCK_STUDENTS } from '../data/mockParishData'
+
 import { syncCreateStudent, syncUpdateStudent, syncDeleteStudent } from '../lib/syncService'
 import { api } from '../lib/api'
 
@@ -28,7 +28,7 @@ interface StudentState {
 export const useStudentStore = create<StudentState>()(
   persist(
     (set) => ({
-      students: MOCK_STUDENTS,
+      students: [],
       isLoading: false,
       error: null,
 

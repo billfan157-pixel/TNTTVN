@@ -3,7 +3,7 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useNoticeStore } from '../../stores/noticeStore';
-import { MOCK_CLASSES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import { 
   CheckSquare, FileSpreadsheet, UserPlus, 
   Sparkles, Bell 
@@ -166,7 +166,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
           >
             Tất cả
           </button>
-          {MOCK_CLASSES.map(c => (
+          {useClassStore.getState().getClassList().map(c => (
             <button
               key={c.id}
               onClick={() => setSelectedClassId(c.id)}

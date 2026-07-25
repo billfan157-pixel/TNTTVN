@@ -11,7 +11,7 @@ import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 
 interface Props {
   isOpen: boolean
@@ -56,7 +56,7 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   const handleExportExcel = () => {
-    const targetClass = MOCK_CLASSES.find((c) => c.id === selectedClassId)
+    const targetClass = useClassStore.getState().findClassById(selectedClassId)
     const targetStudents = students.filter((s) => s.classId === selectedClassId)
 
     const matrixData: Record<string, any> = {}
@@ -149,7 +149,7 @@ export const PrintReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
               >
-                {MOCK_CLASSES.map((c) => (
+                {useClassStore.getState().getClassList().map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.academicYear})
                   </option>

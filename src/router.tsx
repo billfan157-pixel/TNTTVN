@@ -17,7 +17,9 @@ import { useFilterStore } from './stores/filterStore'
 import { useFilterSearchSync } from './stores/useFilterSearchSync'
 import { useEffectiveMode } from './hooks/useEffectiveMode'
 import { useSyncEngine } from './hooks/useSyncEngine'
-import { MOCK_CLASSES, BRANCHES } from './data/mockParishData'
+import { useClassStore, type ClassListItem } from './stores/classStore'
+import { BRANCHES } from './data/mockParishData'
+import type { ClassInfo } from './types'
 import type { DesktopTab } from './components/desktop/DesktopSidebar'
 import type { MobileTab } from './components/mobile/MobileBottomNav'
 
@@ -155,7 +157,7 @@ function RootLayout() {
             setSelectedBranchId={setSelectedBranchId}
             selectedClassId={selectedClassId}
             setSelectedClassId={setSelectedClassId}
-            classes={MOCK_CLASSES}
+            classes={useClassStore.getState().getClassList() as unknown as ClassInfo[]}
             branches={BRANCHES}
           />
           <main className="flex-1 p-6 overflow-y-auto">

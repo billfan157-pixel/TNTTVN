@@ -7,10 +7,22 @@ import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { initSentry } from './lib/sentry'
 import { initDB } from './lib/db'
 import { loadTokens } from './lib/api'
+import { useClassStore } from './stores/classStore'
+import { useStudentStore } from './stores/studentStore'
+import { useGradeStore } from './stores/gradeStore'
+import { useAttendanceStore } from './stores/attendanceStore'
 import './index.css'
 
 initSentry()
 loadTokens()
+
+// Fetch real API data on startup
+setTimeout(() => {
+  useClassStore.getState().fetchAll()
+  useStudentStore.getState().fetchStudents()
+  useGradeStore.getState().fetchGrades()
+  useAttendanceStore.getState().fetchAttendance()
+}, 0)
 
 // Ensure IndexedDB is fully initialized before rendering React tree
 initDB().then(() => {

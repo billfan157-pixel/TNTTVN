@@ -3,7 +3,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useDailyGradeStore } from '../../stores/dailyGradeStore'
 import { useFilterStore } from '../../stores/filterStore'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 import type { ScoreType, Student } from '../../types'
 import {
   Calculator, Plus, Trash2, Calendar, Clock,
@@ -190,7 +190,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                   const studentEntries = getEntriesForStudent(student.id, selectedSemester, activeScoreType)
                   const avg = getAverageForStudent(student.id, selectedSemester, activeScoreType)
                   const existingGrade = getStudentGrade(student.id, selectedSemester)
-                  const cls = MOCK_CLASSES.find(c => c.id === student.classId)
+                  const cls = useClassStore.getState().findClassById(student.classId)
                   const isExpanded = expandedStudent === student.id
 
                   return (

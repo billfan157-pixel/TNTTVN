@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Student } from '../../types';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
+import { BRANCHES } from '../../data/mockParishData';
 import { getSacramentStatus, getAge } from '../../utils/sacraments';
 import { Printer, X } from 'lucide-react';
 
@@ -13,7 +14,7 @@ interface PhotoCardProps {
 export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }) => {
   if (!isOpen || !student) return null;
 
-  const classInfo = MOCK_CLASSES.find(c => c.id === student.classId);
+  const classInfo = useClassStore.getState().findClassById(student.classId);
   const branch = BRANCHES[student.branch];
   const sacStatus = getSacramentStatus(student);
   const age = getAge(student.dateOfBirth);

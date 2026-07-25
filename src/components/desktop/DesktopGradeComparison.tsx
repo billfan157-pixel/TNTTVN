@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 import type { Student } from '../../types'
 import { Columns3, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
@@ -24,7 +24,7 @@ export const DesktopGradeComparison: React.FC = () => {
     }).map(s => {
       const avg1 = calculateStudentAvg(s.id, 1)
       const avg2 = calculateStudentAvg(s.id, 2)
-      const cls = MOCK_CLASSES.find(c => c.id === s.classId)
+      const cls = useClassStore.getState().findClassById(s.classId)
 
       let trend: 'up' | 'down' | 'same' | 'none' = 'none'
       if (avg1.score !== null && avg2.score !== null) {

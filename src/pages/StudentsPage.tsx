@@ -6,7 +6,7 @@ import { useStudentStore } from '../stores/studentStore'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
 import { useEffectiveMode } from '../hooks/useEffectiveMode'
-import { MOCK_CLASSES } from '../data/mockParishData'
+import { useClassStore } from '../stores/classStore'
 import { useState, useCallback } from 'react'
 import { TrendingUp, Users, Send } from 'lucide-react'
 
@@ -27,7 +27,7 @@ export function StudentsPage() {
         .map(s => {
           const avg = calculateStudentAvg(s.id, 2)
           const att = getStudentAttendanceRate(s.id)
-          const cls = MOCK_CLASSES.find(c => c.id === s.classId)
+          const cls = useClassStore.getState().findClassById(s.classId)
           return {
             studentName: s.fullName,
             holyName: s.holyName,

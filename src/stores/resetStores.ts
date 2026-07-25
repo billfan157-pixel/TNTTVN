@@ -5,13 +5,13 @@ import { useDailyGradeStore } from './dailyGradeStore'
 import { useSacramentStore } from './sacramentStore'
 import { useClassStore } from './classStore'
 import { useFilterStore } from './filterStore'
-import { MOCK_STUDENTS, MOCK_GRADES, MOCK_ATTENDANCE } from '../data/mockParishData'
+
 import { db } from '../lib/db'
 
 export async function resetAllStoresToDefault() {
-  useStudentStore.getState().setStudents(MOCK_STUDENTS)
-  useGradeStore.getState().setGrades(MOCK_GRADES)
-  useAttendanceStore.getState().setAttendance(MOCK_ATTENDANCE)
+  useStudentStore.setState({ students: [] })
+  useGradeStore.setState({ grades: [] })
+  useAttendanceStore.setState({ attendance: [] })
   
   useDailyGradeStore.getState().setEntries([])
   useSacramentStore.setState({ promotionQueue: [] })

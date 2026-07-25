@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2 } from 'lucide-react'
 import { parseRosterText, convertToStudentModels, type ParsedStudentRow } from '../../utils/excelParser'
 import { useStudentStore } from '../../stores/studentStore'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 import * as Sentry from '@sentry/react'
 
 interface Props {
@@ -87,7 +87,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
               >
-                {MOCK_CLASSES.map((c) => (
+                {useClassStore.getState().getClassList().map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.academicYear})
                   </option>

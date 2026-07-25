@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Ban } from 'lucide-react';
 import type { Student } from '../../types';
 import { PrintReportModal } from '../common/PrintReportModal';
@@ -129,7 +130,7 @@ export function DesktopReports({ onViewReport }: DesktopReportsProps) {
         </h3>
         <div className="grid grid-cols-3 gap-4">
           {students.slice(0, 9).map(s => {
-            const cls = MOCK_CLASSES.find(c => c.id === s.classId);
+            const cls = useClassStore.getState().findClassById(s.classId);
             const avg = calculateStudentAvg(s.id, selectedSemester);
             return (
               <div key={s.id} className="border border-surface-border rounded-xl p-4 flex justify-between items-center bg-slate-50/60 transition-all hover:bg-white hover:shadow-card hover:border-slate-300 min-w-0">

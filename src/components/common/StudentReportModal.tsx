@@ -2,7 +2,8 @@ import React from 'react';
 import { Student } from '../../types';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
+import { BRANCHES } from '../../data/mockParishData';
 import { X, Printer, Award } from 'lucide-react';
 
 const ACADEMIC_YEAR = '2025 - 2026';
@@ -29,7 +30,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
 
   if (!isOpen || !student) return null;
 
-  const classInfo = MOCK_CLASSES.find(c => c.id === student.classId);
+  const classInfo = useClassStore.getState().findClassById(student.classId);
   const branch = BRANCHES[student.branch];
 
   const gradeHK1 = getStudentGrade(student.id, 1);

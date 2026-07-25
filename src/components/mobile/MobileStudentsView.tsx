@@ -3,7 +3,8 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { Student } from '../../types';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
+import { BRANCHES } from '../../data/mockParishData';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { 
   Phone, UserPlus, Search, Edit3, 
@@ -98,7 +99,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         >
           Tất cả lớp
         </button>
-        {MOCK_CLASSES.map(c => (
+        {useClassStore.getState().getClassList().map(c => (
           <button
             key={c.id}
             onClick={() => setSelectedClassId(c.id)}
@@ -128,7 +129,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         ) : (
           filteredStudents.map(s => {
             const branch = BRANCHES[s.branch];
-            const cls = MOCK_CLASSES.find(c => c.id === s.classId);
+            const cls = useClassStore.getState().findClassById(s.classId);
             const avg = calculateStudentAvg(s.id, selectedSemester);
 
             return (

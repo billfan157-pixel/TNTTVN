@@ -12,7 +12,8 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useFilterStore } from '../../stores/filterStore';
 import type { Student } from '../../types';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { UserPlus, Edit3, Trash2, Printer, Phone, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -118,7 +119,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     }),
     columnHelper.accessor(row => {
       const branch = BRANCHES[row.student.branch];
-      const cls = MOCK_CLASSES.find(c => c.id === row.student.classId);
+      const cls = useClassStore.getState().findClassById(row.student.classId);
       return `${branch?.name || ''} ${cls?.name || ''}`;
     }, {
       id: 'class',
@@ -127,7 +128,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       cell: info => {
         const s = info.row.original.student;
         const branch = BRANCHES[s.branch];
-        const cls = MOCK_CLASSES.find(c => c.id === s.classId);
+        const cls = useClassStore.getState().findClassById(s.classId);
         return (
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="badge shrink-0" style={{ background: branch?.badgeBg, color: branch?.textColor }}>

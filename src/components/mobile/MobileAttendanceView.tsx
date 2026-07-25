@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { MOCK_CLASSES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import {
   CheckCircle2, AlertTriangle, XCircle,
   Check, Save
@@ -124,7 +124,7 @@ export const MobileAttendanceView: React.FC = () => {
             style={{ flex: 1, fontSize: '12.5px', fontWeight: 600 }}
           >
             <option value="all">Tất cả các lớp</option>
-            {MOCK_CLASSES.map(c => (
+            {useClassStore.getState().getClassList().map(c => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
@@ -158,7 +158,7 @@ export const MobileAttendanceView: React.FC = () => {
                     <span>{' '}{student.fullName}</span>
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748B' }}>
-                    {student.code} • {MOCK_CLASSES.find(c => c.id === student.classId)?.name}
+                    {student.code} • {useClassStore.getState().findClassById(student.classId)?.name}
                   </div>
                 </div>
               </div>

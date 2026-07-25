@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Student } from '../../types';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
+import { BRANCHES } from '../../data/mockParishData';
 import { getSacramentStatus } from '../../utils/sacraments';
 import { Printer, X, Award } from 'lucide-react';
 
@@ -14,7 +15,7 @@ interface CertificateProps {
 export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, student, type = 'completion' }) => {
   if (!isOpen || !student) return null;
 
-  const classInfo = MOCK_CLASSES.find(c => c.id === student.classId);
+  const classInfo = useClassStore.getState().findClassById(student.classId);
   const branch = BRANCHES[student.branch];
   const sacStatus = getSacramentStatus(student);
 

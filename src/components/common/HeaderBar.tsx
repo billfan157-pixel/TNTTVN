@@ -11,7 +11,7 @@ import logo from '../../assets/logo-tntt.png'
 import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck, Activity } from 'lucide-react'
 import { clearTokens } from '../../lib/api'
 import { useNavigate } from '@tanstack/react-router'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 
 export const HeaderBar: React.FC = () => {
   const students = useStudentStore((s) => s.students)
@@ -108,7 +108,7 @@ export const HeaderBar: React.FC = () => {
                 <option value="all" className="text-text-main">
                   Tất cả lớp học
                 </option>
-                {MOCK_CLASSES.map((c) => (
+                {useClassStore.getState().getClassList().map((c) => (
                   <option key={c.id} value={c.id} className="text-text-main">
                     {c.name}
                   </option>

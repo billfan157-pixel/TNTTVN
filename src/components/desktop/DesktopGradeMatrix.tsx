@@ -12,7 +12,7 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage, getStoredGradeWeights } from '../../utils/grades';
 import type { GradeRecord, Student } from '../../types';
-import { MOCK_CLASSES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Settings, Calculator, Download } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { GradeFormulaConfigModal } from './GradeFormulaConfigModal';
@@ -43,6 +43,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [formulaWeights, setFormulaWeights] = useState(getStoredGradeWeights());
+  const classList = useClassStore(s => s.getClassList());
 
   const filteredStudents = useMemo(() => {
     if (selectedClassId === 'all') return students;
@@ -128,7 +129,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   };
 
   const handleExportExcel = () => {
-    const currentClassName = MOCK_CLASSES.find(c => c.id === selectedClassId)?.name || 'Tất cả các lớp';
+    const currentClassName = classList.find(c => c.id === selectedClassId)?.name || 'Tất cả các lớp';
     exportGradebookToExcel({
       students: filteredStudents,
       matrixData,
@@ -464,7 +465,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     comments: '220px',
   };
 
-  const currentClassName = MOCK_CLASSES.find(c => c.id === selectedClassId)?.name || 'Tất cả các lớp';
+  const currentClassName = classList.find(c => c.id === selectedClassId)?.name || 'Tất cả các lớp';
 
   return (
     <>
@@ -493,7 +494,7 @@ export const DesktopGradeMatrix: React.FC = () => {
               className="form-select text-sm font-semibold rounded-xl h-9"
             >
               <option value="all">-- Chọn tất cả các lớp --</option>
-              {MOCK_CLASSES.map(c => (
+              {classList.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>

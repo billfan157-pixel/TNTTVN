@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search, Loader2 } from 'lucide-react'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 import * as Sentry from '@sentry/react'
 
 export interface UserAccount {
@@ -204,7 +204,7 @@ export const UserManagementPage: React.FC = () => {
                 <td className="p-4">
                   <div className="flex flex-wrap gap-1">
                     {u.assignedClasses.map((clsId) => {
-                      const cls = MOCK_CLASSES.find((c) => c.id === clsId)
+                      const cls = useClassStore.getState().findClassById(clsId)
                       return (
                         <span key={clsId} className="px-2 py-0.5 text-xs font-medium bg-surface-hover border border-surface-border rounded-md text-text-main">
                           {cls?.name || clsId}
@@ -313,7 +313,7 @@ export const UserManagementPage: React.FC = () => {
                 <div>
                   <label className="block text-xs font-semibold text-text-muted uppercase mb-1">Phân Công Lớp Phụ Trách</label>
                   <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 border border-surface-border rounded-lg">
-                    {MOCK_CLASSES.map((cls) => (
+                    {useClassStore.getState().getClassList().map((cls) => (
                       <label key={cls.id} className="flex items-center gap-2 text-xs text-text-main cursor-pointer">
                         <input
                           type="checkbox"

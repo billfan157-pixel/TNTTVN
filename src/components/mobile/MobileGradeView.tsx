@@ -2,7 +2,7 @@ import React from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { MOCK_CLASSES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import { Student } from '../../types';
 import { FileSpreadsheet } from 'lucide-react';
 
@@ -51,7 +51,7 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
           >
             Tất cả lớp
           </button>
-          {MOCK_CLASSES.map(c => (
+          {useClassStore.getState().getClassList().map(c => (
             <button
               key={c.id}
               onClick={() => setSelectedClassId(c.id)}
@@ -117,7 +117,7 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
         {filteredStudents.map(student => {
           const grade = getStudentGrade(student.id, selectedSemester);
           const avg = calculateStudentAvg(student.id, selectedSemester);
-          const cls = MOCK_CLASSES.find(c => c.id === student.classId);
+          const cls = useClassStore.getState().findClassById(student.classId);
 
           return (
             <div

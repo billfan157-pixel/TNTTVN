@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
-import { BRANCHES, MOCK_CLASSES } from '../../data/mockParishData';
+import { BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import { getAcademicYear, checkPromotionEligibility, getSacramentStatus, getNextBranch, getClassIdForBranch } from '../../utils/sacraments';
 import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -53,7 +54,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
     setPromoting(true)
     const actions: PromotionAction[] = canPromote.map(p => {
       const nextBranch = p.promotion.recommendedBranch || getNextBranch(p.student.branch) || p.student.branch
-      const existingClasses = MOCK_CLASSES.filter(c => c.branch === nextBranch)
+      const existingClasses = useClassStore.getState().getClassList().filter(c => c.branch === nextBranch)
       const classId = existingClasses.length > 0 ? existingClasses[0].id : getClassIdForBranch(nextBranch)
       return { studentId: p.student.id, newBranch: nextBranch, newClassId: classId }
     })

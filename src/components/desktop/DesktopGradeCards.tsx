@@ -2,7 +2,7 @@ import React from 'react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
-import { MOCK_CLASSES } from '../../data/mockParishData'
+import { useClassStore } from '../../stores/classStore'
 import type { Student } from '../../types'
 import { FileSpreadsheet, Eye, Printer, BadgeCheck } from 'lucide-react'
 
@@ -49,7 +49,7 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
           filteredStudents.map(student => {
             const grade = getStudentGrade(student.id, selectedSemester)
             const avg = calculateStudentAvg(student.id, selectedSemester)
-            const cls = MOCK_CLASSES.find(c => c.id === student.classId)
+            const cls = useClassStore.getState().findClassById(student.classId)
             const rankClass = rankColors[avg.label] || 'bg-slate-200 text-slate-600'
 
             return (

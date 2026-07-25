@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { MOCK_CLASSES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
 import {
   CheckSquare, Save, CheckCircle2,
   XCircle, AlertTriangle,
@@ -108,7 +108,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
             className="p-2 text-sm font-semibold rounded-xl border border-border-input bg-surface-app"
           >
             <option value="all">Tất cả các lớp</option>
-            {MOCK_CLASSES.map(c => (
+            {useClassStore.getState().getClassList().map(c => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
@@ -182,7 +182,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
               ) : (
                 filteredStudents.map((s, idx) => {
                   const state = attendanceState[s.id] || { status: 'Present', note: '' };
-                  const cls = MOCK_CLASSES.find(c => c.id === s.classId);
+                  const cls = useClassStore.getState().findClassById(s.classId);
 
                   return (
                     <tr key={s.id} className="border-b border-surface-hover hover:bg-surface-app transition-colors">

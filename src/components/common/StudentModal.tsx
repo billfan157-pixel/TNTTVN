@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Student, BranchType } from '../../types';
 import { useStudentStore } from '../../stores/studentStore';
-import { MOCK_CLASSES, BRANCHES } from '../../data/mockParishData';
+import { useClassStore } from '../../stores/classStore';
+import { BRANCHES } from '../../data/mockParishData';
 import { X, Save, UserPlus } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SacramentSection } from './SacramentSection';
@@ -67,7 +68,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         parentPhone: '',
         address: 'Giáo xứ Gia Tôn',
         branch: 'AuNhi',
-        classId: MOCK_CLASSES[0]?.id || 'AU1',
+        classId: useClassStore.getState().getClassList()[0]?.id || 'AU1',
         status: 'Đang học',
         notes: ''
       });
@@ -120,7 +121,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     onClose();
   };
 
-  const filteredClasses = MOCK_CLASSES.filter(c => c.branch === formData.branch);
+  const classList = useClassStore(s => s.getClassList());
+  const filteredClasses = classList.filter(c => c.branch === formData.branch);
 
   const titleId = studentToEdit ? 'edit-student-title' : 'add-student-title'
 
@@ -192,7 +194,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 value={formData.branch}
                 onChange={e => {
                   const b = e.target.value as BranchType;
-                  const firstCls = MOCK_CLASSES.find(c => c.branch === b);
+                  const firstCls = classList.find(c => c.branch === b);
                   setFormData({ ...formData, branch: b, classId: firstCls ? firstCls.id : '' });
                 }}
               >
@@ -214,7 +216,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))
                 ) : (
-                  MOCK_CLASSES.map(c => (
+                  classList.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))
                 )}
