@@ -99,7 +99,13 @@ app.route('/api/exams', examsRouter)
 app.route('/api/leave-requests', leaveRequestsRouter)
 app.route('/api/finances', financesRouter)
 
-const PORT = Number(process.env.SERVER_PORT) || 3001
+// A-NEW-49 (2026-08-17): Railway injects PORT env at runtime và DÙNG giá trị này
+// cho healthcheck + public routing. Code cũ (3f01bd0) đọc process.env.PORT → bind
+// 8080 → healthcheck /health PASS. Bản rewrite đọc SERVER_PORT (không set) → bind
+// 3001 trong khi Railway probe 8080 → "service unavailable" (deploy FAILED 3f6bc7e1).
+// SERVER_PORT giữ làm override tường minh (docker-compose/local); PORT là contract
+// Railway (docker-compose cũng dùng PORT=3000 theo .env.example) — fallback 3001 dev.
+const PORT = Number(process.env.SERVER_PORT) || Number(process.env.PORT) || 3001
 const HOST = process.env.HOST || '0.0.0.0'
 
 try {
