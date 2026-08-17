@@ -11,7 +11,6 @@ import {
   Zap,
   Upload,
   SwitchCamera,
-  QrCode,
   Image as ImageIcon,
   Flashlight,
   FlashlightOff,
@@ -20,6 +19,7 @@ import {
 import { parseExamQrPayload } from '../../lib/qr'
 import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult } from '../../lib/omr'
 import { detectBarcodeFromImageData } from '../../lib/barcode'
+import { CORNER_MARKERS, QR_SIZE, QR_X, QR_Y } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
 
@@ -495,38 +495,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             </div>
           )}
 
-          {/* Khung Hướng Dẫn Căn Chuẩn Khổ A4 */}
-          {!cameraLoading && phase.kind === 'scanning' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-between p-4 pointer-events-none">
-              {/* Vùng QR Code ở trên */}
-              <div className="w-full max-w-[280px] h-[22%] border-2 border-dashed border-sky-400/80 rounded-lg flex items-center justify-between px-3 bg-sky-950/30">
-                <span className="text-[10px] sm:text-xs font-bold text-sky-200 flex items-center gap-1">
-                  <QrCode size={13} /> Vùng Mã QR / Barcode
-                </span>
-                <span className="text-[9px] font-semibold text-sky-300/80 uppercase">Đầu phiếu</span>
-              </div>
-
-              {/* Vùng Lưới Điểm & 4 Marker ở dưới */}
-              <div className="w-full max-w-[280px] h-[68%] border-2 border-dashed border-emerald-400/80 rounded-lg flex flex-col items-center justify-center gap-1.5 p-2 bg-emerald-950/20">
-                <div className="flex items-center justify-between w-full text-[9px] sm:text-[10px] font-bold text-emerald-300">
-                  <span>◼ Marker TL</span>
-                  <span>Marker TR ◼</span>
-                </div>
-                <div className="my-auto text-center px-2 py-1 bg-black/60 rounded-md backdrop-blur-xs">
-                  <p className="text-white text-[11px] sm:text-xs font-bold leading-tight">
-                    Căn toàn bộ phiếu A4 vào khung
-                  </p>
-                  <p className="text-emerald-200/90 text-[10px]">
-                    Bao gồm cả mã QR trên và 4 ô đen
-                  </p>
-                </div>
-                <div className="flex items-center justify-between w-full text-[9px] sm:text-[10px] font-bold text-emerald-300">
-                  <span>◼ Marker BL</span>
-                  <span>Marker BR ◼</span>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Khung A4 dùng cùng hệ toạ độ với marker phiếu rời. */}
+          {!cameraLoading && phase.kind === 'scanning' && <SheetAlignmentGuide examType={examType} />}
 
           {/* Floating Controls inside Camera View */}
           {phase.kind === 'scanning' && !cameraLoading && (
@@ -807,3 +777,40 @@ const OMR_FAIL_REASONS: Record<string, string> = {
 function formatOmrFailReason(reason: string): string {
   return OMR_FAIL_REASONS[reason] || `Đang nhận diện (${reason})…`
 }
+
+/** Overlay chỉ hướng dẫn căn ảnh. Phiếu rời dùng toạ độ SSOT của marker;
+ * đề gộp có khung OMR dịch theo nội dung nên không vẽ marker cố định giả. */
+const SheetAlignmentGuide: React.FC<{ examType: 'written' | 'multiple_choice' }> = ({ examType }) => (
+  <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
+    <div className="relative h-[88%] aspect-[210/297] rounded-[3%] border border-dashed border-sky-300/80 bg-sky-950/10 shadow-[0_0_0_1px_rgba(255,255,255,0.12)]">
+      <div
+        className="absolute rounded border border-dashed border-sky-300/90 bg-sky-400/10"
+        style={{ left: `${QR_X * 100}%`, top: `${QR_Y * 100}%`, width: `${QR_SIZE * 100}%`, height: `${QR_SIZE * 100}%` }}
+      >
+        <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-bold text-sky-100">QR / Barcode</span>
+      </div>
+
+      {examType === 'written' ? CORNER_MARKERS.map(marker => (
+        <span
+          key={marker.id}
+          aria-hidden="true"
+          className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-[2px] border border-emerald-100 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.95)]"
+          style={{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }}
+        />
+      )) : (
+        <div className="absolute inset-x-[5%] top-[30%] bottom-[8%] rounded border border-dashed border-emerald-400/60 bg-emerald-950/10" />
+      )}
+
+      <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/65 px-2 py-1.5 text-center backdrop-blur-xs">
+        <p className="text-[10px] font-bold leading-tight text-white">
+          {examType === 'written' ? 'Căn 4 chấm xanh vào 4 ô đen trên phiếu' : 'Giữ toàn bộ tờ A4 và 4 ô đen trong ảnh'}
+        </p>
+        <p className="mt-0.5 text-[9px] leading-tight text-emerald-200">
+          {examType === 'written'
+            ? 'Chấm xanh mô phỏng đúng vị trí marker của phiếu rời'
+            : 'Đề gộp có khung OMR thay đổi theo nội dung — không căn theo marker giả'}
+        </p>
+      </div>
+    </div>
+  </div>
+)

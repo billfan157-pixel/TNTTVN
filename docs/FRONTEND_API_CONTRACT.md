@@ -371,7 +371,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | **Barcode Scan Fallback** | `ExamScanModal.tsx` | Client tries QR first → fallback to barcode decode → OMR score detection. Phiếu in dùng QR `viewBox` theo đúng số module payload (không hard-code 37) và ô QR 112px để camera điện thoại có mật độ đọc được. |
 | **Mobile WebKit Camera Support** | `ExamScanModal.tsx` | Tự động gán MediaStream vào thẻ `<video>`, tương thích iOS Safari WebKit (`autoPlay`, `playsInline`, `onloadedmetadata`), đổi camera trước/sau |
 | **Photo Upload Fallback** | `ExamScanModal.tsx` | Nút "Tải ảnh" / "Chọn ảnh" cho phép chụp từ app camera gốc hoặc tải file ảnh phiếu A4 để chấm điểm trực tiếp |
-| **A4 Framing Overlay** | `ExamScanModal.tsx` | Khung căn chỉnh trực quan 2 tầng (Vùng QR trên + Lưới điểm/4 marker dưới) giúp không bị khuất mã QR |
+| **A4 Framing Overlay** | `ExamScanModal.tsx` | Phiếu rời: khung A4, QR và 4 chấm guide lấy từ SSOT `CORNER_MARKERS`/`QR_*`, giúp căn đúng marker in. Đề gộp: chỉ hướng dẫn giữ đủ A4/4 marker thật trong ảnh vì vị trí khung OMR thay đổi theo nội dung đề; không vẽ marker cố định gây căn sai. |
 | **Barcode Decode API** | `POST /api/exams/barcode/decode` | Server validates barcode format + session + class access |
 | **Watermark** | `examSheets.ts` | CSS diagonal parish name watermark (4% opacity) on exam papers |
 | **Flexible maxScore** | `answerSheetTemplate.ts` | `scoreToCell(score, maxScore)` — dynamic grid rows for scores >10 |

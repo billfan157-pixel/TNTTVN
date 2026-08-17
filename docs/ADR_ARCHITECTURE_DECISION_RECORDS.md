@@ -823,6 +823,7 @@ Sau khi triển khai Phase 1-4 Smart Exam Grading, cần bổ sung các tính n�
 - Checkbox "Quét liên tiếp" toggle batch mode.
 - After save → auto-restart camera (500ms delay) → continue scanning.
 - `ScannedEntry[]` list displays scanned students with scores.
+- **A4 guide correction (2026-08-17)**: overlay camera không phải input detector. Phiếu rời render 4 guide dot từ `CORNER_MARKERS` cùng hệ tọa độ với mẫu in; đề gộp không hiển thị marker giả vì khung OMR thay đổi theo nội dung đề, chỉ yêu cầu giữ đủ A4 và 4 marker thật trong ảnh.
 - "Ghi & Quét Tiếp" button replaces "Ghi Điểm" in batch mode.
 
 #### 2. Code128 Barcode (`src/lib/barcode.ts`)
