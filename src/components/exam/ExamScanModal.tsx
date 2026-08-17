@@ -179,7 +179,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           resolveRef.current = true
           stopCamera()
           playFeedback()
-          setScanHint(null)
+          setScanHint('Đã nhận diện mã QR / Barcode — đang xác nhận phiếu…')
           setPhase({ kind: 'detected', studentId: payload.studentId, omr, frame })
           return true
         }
@@ -436,7 +436,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           resolveRef.current = false
           setSaved(false)
           setSaving(false)
-          setScanHint(null)
+          setScanHint('Đang tìm mã QR / Barcode…')
           setPhase({ kind: 'scanning' })
           void startCamera()
         }, 600)
