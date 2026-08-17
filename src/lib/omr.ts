@@ -16,6 +16,7 @@ import {
   INTEGRATED_CORNER_SIZE,
   allCells,
   allMcCells,
+  integratedMcCells,
 } from './answerSheetTemplate'
 
 export interface OmrCell {
@@ -289,7 +290,15 @@ export function detectAnswersFromImage(
   const H: Mat3 | null = computeHomography(src, dst)
   if (!H) return fail('HOMOGRAPHY_FAILED')
 
-  const mcCells = allMcCells(totalQuestions) as Array<{ questionIndex: number; option: 'A' | 'B' | 'C' | 'D'; x: number; y: number }>
+  // A-NEW-50: tọa độ ô phụ thuộc template đang active — phiếu toàn trang dùng
+  // `allMcCells` (hệ tọa độ trang), phiếu gộp dùng `integratedMcCells` (hệ tọa
+  // độ KHUNG marker y 0.16..0.36). Trước đây nhánh integrated vẫn lấy tọa độ
+  // toàn trang → sample lệch khỏi bubble in thực tế (không bao giờ đọc được).
+  const mcCells = (
+    activeTemplate === INTEGRATED_OMR_MARKERS
+      ? integratedMcCells(totalQuestions)
+      : allMcCells(totalQuestions)
+  ) as Array<{ questionIndex: number; option: 'A' | 'B' | 'C' | 'D'; x: number; y: number }>
 
   const questionReadingsMap: Record<number, OmrOptionReading[]> = {}
   for (const cell of mcCells) {

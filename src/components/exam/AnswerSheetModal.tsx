@@ -176,9 +176,11 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
               const rowX = colX + 4
               const rowW = colW - 8
               const rowH = Math.min(32, Math.max(18, py(layout.rowPitchY) * 0.82))
-              const circleR = questionCount > 35 ? 11 : 12.5
-              const fontSize = questionCount > 35 ? 10.5 : 11.5
-              const labelSize = questionCount > 35 ? 11.5 : 12.5
+              // A-NEW-50: cùng bộ sizing với buildSingleAnswerSheetSvgString
+              const circleR = questionCount > 35 ? 10 : questionCount > 18 ? 11.5 : 12.5
+              const fontSize = questionCount > 35 ? 9.5 : questionCount > 18 ? 10.5 : 11.5
+              const labelSize = questionCount > 35 ? 10.5 : questionCount > 18 ? 11.5 : 12.5
+              const labelOffset = questionCount > 35 ? 12 : questionCount > 18 ? 15 : 18
 
               return (
                 <g key={q}>
@@ -190,11 +192,11 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
                     return (
                       <g key={opt}>
                         {opt === 'A' && (
-                          <text x={px(pos.x) - (questionCount > 35 ? 14 : 18)} y={py(pos.y)} fontSize={labelSize} fontWeight="bold" fill="#334155" textAnchor="end" dominantBaseline="central">
+                          <text x={px(pos.x) - labelOffset} y={py(pos.y)} fontSize={labelSize} fontWeight="bold" fill="#334155" textAnchor="end" dominantBaseline="central">
                             câu {q}:
                           </text>
                         )}
-                        <circle cx={px(pos.x)} cy={py(pos.y)} r={circleR} fill="#FFFFFF" stroke="#334155" strokeWidth={questionCount > 35 ? 1.75 : 2} />
+                        <circle cx={px(pos.x)} cy={py(pos.y)} r={circleR} fill="#FFFFFF" stroke="#334155" strokeWidth={questionCount > 35 ? 1.6 : questionCount > 18 ? 1.8 : 2} />
                         <text x={px(pos.x)} y={py(pos.y)} fontSize={fontSize} fontWeight="bold" fill="#0F172A" textAnchor="middle" dominantBaseline="central">
                           {opt}
                         </text>

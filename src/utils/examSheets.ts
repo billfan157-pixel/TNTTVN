@@ -1,6 +1,6 @@
 import { generateExamQrSvg, buildExamQrPayload } from '../lib/qr'
 import { generateBarcodeSvg } from '../lib/barcode'
-import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, QR_X, QR_Y, QR_SIZE } from '../lib/answerSheetTemplate'
+import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, integratedGridCols, QR_X, QR_Y, QR_SIZE } from '../lib/answerSheetTemplate'
 import { escapeHtml } from './grades'
 import { ReportExportService } from '../services/reportExportService'
 import type { ExamQuestion } from '../types'
@@ -120,11 +120,13 @@ export function buildSingleAnswerSheetSvgString(
       questionsMarkup += `<text x="${colX + colW / 2}" y="${colY + 18}" font-size="12" font-weight="bold" fill="#64748B" text-anchor="middle">CỘT ${c + 1}</text>`
     }
 
-    const circleR = questionCount > 35 ? 11 : 12.5
-    const fontSize = questionCount > 35 ? 10.5 : 11.5
-    const labelSize = questionCount > 35 ? 11.5 : 12.5
-    const strokeW = questionCount > 35 ? 1.75 : 2
-    const labelOffset = questionCount > 35 ? 14 : 18
+    // A-NEW-50: ô tròn co giãn theo số câu — 50 câu r=10 (pitch 0.030, detector
+    // core ring ~8.6px vẫn nằm trong ô), đề ít câu giữ kích thước tô thoải mái.
+    const circleR = questionCount > 35 ? 10 : (questionCount > 18 ? 11.5 : 12.5)
+    const fontSize = questionCount > 35 ? 9.5 : (questionCount > 18 ? 10.5 : 11.5)
+    const labelSize = questionCount > 35 ? 10.5 : (questionCount > 18 ? 11.5 : 12.5)
+    const strokeW = questionCount > 35 ? 1.6 : (questionCount > 18 ? 1.8 : 2)
+    const labelOffset = questionCount > 35 ? 12 : (questionCount > 18 ? 15 : 18)
 
     for (let i = 1; i <= questionCount; i++) {
       const q = i
@@ -512,29 +514,33 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       padding-left: 4px;
     }
 
-    /* Khung OMR Tích Hợp với 4 Góc Định Vị Homography */
+    /* Khung OMR Tích Hợp với 4 Góc Định Vị Homography — A-NEW-50: geometry
+       px phải khớp 100% hằng số SSOT (INTEGRATED_* trong answerSheetTemplate.ts)
+       vì detector integratedMcCells quét theo đúng các con số này. */
     .integrated-omr-wrapper {
-      position: relative;
       margin-bottom: 7px;
-      padding: 3px 5px;
       background: #f8fafc;
+      border-radius: 4px;
+    }
+    .omr-frame {
+      position: relative;
+      padding: 3px 5px;
       border: 1.5px solid #0f172a;
       border-radius: 4px;
     }
     .omr-corner-marker {
       position: absolute;
-      width: 10px;
-      height: 10px;
+      width: 16px;
+      height: 16px;
       background: #000000;
     }
-    .omr-marker-tl { top: -1px; left: -1px; }
-    .omr-marker-tr { top: -1px; right: -1px; }
-    .omr-marker-bl { bottom: -1px; left: -1px; }
-    .omr-marker-br { bottom: -1px; right: -1px; }
+    /* Marker nằm LỆCH RA NGOÀI khung (.omr-frame) — không đè bubble cạnh mép;
+       kích thước 16px khớp cửa sổ detector INTEGRATED_CORNER_SIZE = 0.022 */
+    .omr-marker-tl { top: -16px; left: -16px; }
+    .omr-marker-tr { top: -16px; right: -16px; }
+    .omr-marker-bl { bottom: -16px; left: -16px; }
+    .omr-marker-br { bottom: -16px; right: -16px; }
 
-    .integrated-answer-sheet {
-      padding: 1px 2px;
-    }
     .answer-sheet-header {
       display: flex;
       justify-content: space-between;
@@ -568,37 +574,40 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     }
     .answer-grid-container {
       display: grid;
-      gap: 2px 4px;
+      gap: 3px 4px;
     }
     .grid-q-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1px;
+      gap: 2px;
       background: #fff;
       border: 1px solid #cbd5e1;
       border-radius: 2px;
-      padding: 1px 2px;
+      padding: 0;
       box-sizing: border-box;
     }
     .q-num {
       font-weight: bold;
-      font-size: 7.5pt;
-      min-width: 17px;
+      font-size: 6pt;
+      width: 12px;
       color: #1e293b;
       line-height: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      flex-shrink: 0;
     }
     .bubble-group {
       display: inline-flex;
       align-items: center;
-      gap: 1.5px;
+      gap: 2px;
     }
     .bubble {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 13.5px;
-      height: 13.5px;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
       border: 1.1px solid #334155;
       font-size: 7pt;
@@ -752,26 +761,27 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
   let answerGridHtml = ''
   if (includeAnswerGrid && questions.length > 0) {
     const totalQ = questions.length
-    // Tự động phân bổ số cột tối ưu (lên tới 10 cột) để 50 câu chỉ chiếm 5 hàng cực kỳ gọn gàng
-    const gridCols = totalQ <= 10 ? 5 : totalQ <= 20 ? 5 : 10
+    // A-NEW-50: số cột lấy từ SSOT (5 cột ≤20 câu, 8 cột 21..50 câu) — detector
+    // `integratedMcCells` dùng đúng cùng con số này để quét khớp từng bubble.
+    const gridCols = integratedGridCols(totalQ)
 
     answerGridHtml = `
       <div class="integrated-omr-wrapper">
-        <!-- 4 Góc định vị OMR Homography cho camera quét siêu tốc -->
-        <div class="omr-corner-marker omr-marker-tl" title="Marker TL"></div>
-        <div class="omr-corner-marker omr-marker-tr" title="Marker TR"></div>
-        <div class="omr-corner-marker omr-marker-bl" title="Marker BL"></div>
-        <div class="omr-corner-marker omr-marker-br" title="Marker BR"></div>
-
-        <div class="integrated-answer-sheet">
-          <div class="answer-sheet-header">
-            <div class="answer-sheet-title">
-              <span class="omr-badge">OMR SCAN</span> BẢNG TRẢ LỜI TRẮC NGHIỆM (${totalQ} CÂU)
-            </div>
-            <div class="answer-sheet-guide">
-              * Tô kín đậm 01 ô đáp án đúng (A, B, C, D):
-            </div>
+        <div class="answer-sheet-header">
+          <div class="answer-sheet-title">
+            <span class="omr-badge">OMR SCAN</span> BẢNG TRẢ LỜI TRẮC NGHIỆM (${totalQ} CÂU)
           </div>
+          <div class="answer-sheet-guide">
+            * Tô kín đậm 01 ô đáp án đúng (A, B, C, D):
+          </div>
+        </div>
+
+        <div class="omr-frame">
+          <!-- 4 Góc định vị OMR Homography — tâm marker nằm đúng mép khung lưới -->
+          <div class="omr-corner-marker omr-marker-tl" title="Marker TL"></div>
+          <div class="omr-corner-marker omr-marker-tr" title="Marker TR"></div>
+          <div class="omr-corner-marker omr-marker-bl" title="Marker BL"></div>
+          <div class="omr-corner-marker omr-marker-br" title="Marker BR"></div>
 
           <div class="answer-grid-container" style="grid-template-columns: repeat(${gridCols}, 1fr);">
             ${questions.map((q) => {
