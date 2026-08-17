@@ -515,16 +515,16 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     /* Khung OMR Tích Hợp với 4 Góc Định Vị Homography */
     .integrated-omr-wrapper {
       position: relative;
-      margin-bottom: 10px;
-      padding: 4px 6px;
+      margin-bottom: 7px;
+      padding: 3px 5px;
       background: #f8fafc;
       border: 1.5px solid #0f172a;
       border-radius: 4px;
     }
     .omr-corner-marker {
       position: absolute;
-      width: 11px;
-      height: 11px;
+      width: 10px;
+      height: 10px;
       background: #000000;
     }
     .omr-marker-tl { top: -1px; left: -1px; }
@@ -533,71 +533,80 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .omr-marker-br { bottom: -1px; right: -1px; }
 
     .integrated-answer-sheet {
-      padding: 2px 4px;
+      padding: 1px 2px;
     }
     .answer-sheet-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
       border-bottom: 1px dashed #cbd5e1;
-      padding-bottom: 3px;
+      padding-bottom: 2px;
     }
     .omr-badge {
       display: inline-block;
       background: #0f172a;
       color: #ffffff;
-      font-size: 7.5pt;
+      font-size: 6.5pt;
       font-weight: 900;
-      padding: 1px 4px;
+      padding: 0.5px 3.5px;
       border-radius: 2px;
-      margin-right: 4px;
-      letter-spacing: 0.5px;
+      margin-right: 3px;
+      letter-spacing: 0.4px;
     }
     .answer-sheet-title {
-      font-size: 10pt;
+      font-size: 8.5pt;
       font-weight: 800;
       color: #1e3a8a;
       text-transform: uppercase;
-      letter-spacing: 0.3px;
+      letter-spacing: 0.2px;
     }
     .answer-sheet-guide {
-      font-size: 8.5pt;
+      font-size: 7.5pt;
       font-style: italic;
       color: #475569;
     }
     .answer-grid-container {
       display: grid;
-      gap: 3px 8px;
+      gap: 2px 4px;
     }
     .grid-q-row {
       display: flex;
       align-items: center;
-      gap: 2.5px;
+      justify-content: space-between;
+      gap: 1px;
       background: #fff;
       border: 1px solid #cbd5e1;
-      border-radius: 3px;
-      padding: 1.5px 3px;
+      border-radius: 2px;
+      padding: 1px 2px;
+      box-sizing: border-box;
     }
     .q-num {
       font-weight: bold;
-      font-size: 9pt;
-      min-width: 26px;
+      font-size: 7.5pt;
+      min-width: 17px;
       color: #1e293b;
+      line-height: 1;
+    }
+    .bubble-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 1.5px;
     }
     .bubble {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 16px;
-      height: 16px;
+      width: 13.5px;
+      height: 13.5px;
       border-radius: 50%;
-      border: 1.2px solid #334155;
-      font-size: 8pt;
+      border: 1.1px solid #334155;
+      font-size: 7pt;
       font-weight: bold;
       color: #0f172a;
       line-height: 1;
       background: #fff;
+      flex-shrink: 0;
     }
     .bubble-correct {
       background: #16a34a !important;
@@ -743,8 +752,8 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
   let answerGridHtml = ''
   if (includeAnswerGrid && questions.length > 0) {
     const totalQ = questions.length
-    // Xác định số cột hiển thị cho bảng phiếu trả lời (4 hoặc 5 cột tùy số lượng câu)
-    const gridCols = totalQ <= 15 ? 3 : totalQ <= 25 ? 4 : 5
+    // Tự động phân bổ số cột tối ưu (lên tới 10 cột) để 50 câu chỉ chiếm 5 hàng cực kỳ gọn gàng
+    const gridCols = totalQ <= 10 ? 5 : totalQ <= 20 ? 5 : 10
 
     answerGridHtml = `
       <div class="integrated-omr-wrapper">
@@ -760,7 +769,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
               <span class="omr-badge">OMR SCAN</span> BẢNG TRẢ LỜI TRẮC NGHIỆM (${totalQ} CÂU)
             </div>
             <div class="answer-sheet-guide">
-              * Thí sinh tô kín hoặc khoanh tròn đậm vào 01 chữ cái đáp án đúng (A, B, C hoặc D):
+              * Tô kín đậm 01 ô đáp án đúng (A, B, C, D):
             </div>
           </div>
 
@@ -770,10 +779,12 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
               return `
                 <div class="grid-q-row">
                   <span class="q-num">C${q.index}:</span>
-                  <span class="bubble ${showAnswerKey && correct === 'A' ? 'bubble-correct' : ''}">A</span>
-                  <span class="bubble ${showAnswerKey && correct === 'B' ? 'bubble-correct' : ''}">B</span>
-                  <span class="bubble ${showAnswerKey && correct === 'C' ? 'bubble-correct' : ''}">C</span>
-                  <span class="bubble ${showAnswerKey && correct === 'D' ? 'bubble-correct' : ''}">D</span>
+                  <div class="bubble-group">
+                    <span class="bubble ${showAnswerKey && correct === 'A' ? 'bubble-correct' : ''}">A</span>
+                    <span class="bubble ${showAnswerKey && correct === 'B' ? 'bubble-correct' : ''}">B</span>
+                    <span class="bubble ${showAnswerKey && correct === 'C' ? 'bubble-correct' : ''}">C</span>
+                    <span class="bubble ${showAnswerKey && correct === 'D' ? 'bubble-correct' : ''}">D</span>
+                  </div>
                 </div>
               `
             }).join('')}
