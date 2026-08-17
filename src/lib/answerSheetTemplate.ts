@@ -205,6 +205,7 @@ export function allMcCells(totalQuestions = 20): McQuestionCellPosition[] {
  * (50 câu) → khung 153px ≈ 40mm.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+export const INTEGRATED_MARKER_OVERHANG = 8
 export const INTEGRATED_PAD_X = 5
 export const INTEGRATED_PAD_Y = 3
 export const INTEGRATED_BORDER_W = 1.5
@@ -212,68 +213,113 @@ export const INTEGRATED_QNUM_W = 12
 export const INTEGRATED_QNUM_GAP = 2
 export const INTEGRATED_BUBBLE_W = 14
 export const INTEGRATED_BUBBLE_GAP = 2
-export const INTEGRATED_ROW_H = 18
+export const INTEGRATED_ROW_H = 16
 export const INTEGRATED_GRID_GAP_X = 4
-export const INTEGRATED_GRID_GAP_Y = 3
-/** Chiều rộng nội dung ước lượng của trang in A4 @96dpi (khổ 794px − lề 2×8mm). */
-export const INTEGRATED_REF_W = 730
+export const INTEGRATED_GRID_GAP_Y = 3.5
+/**
+ * A-NEW-50 (2026-08-17): hiệu chỉnh theo ĐO ĐẠC render thật (viewport 800×1131,
+ * layout chuẩn: container lề 8mm — batch wrapper padding 0):
+ *  - rect marker = hộp tâm 4 marker (16px, lệch -16px ra ngoài khung) → góc rect
+ *    cách góc khung ngoài `INTEGRATED_MARKER_OVERHANG` (8px) mỗi bên.
+ *  - ROW_H 16 (hộp hàng: bubble 14 + viền 2) + GAP_Y 3.5 → pitch 19.5px (trước
+ *    đây 18/3 → 21px, lệch ~1.5px/hàng → hàng 7 lệch ~9px → đọc sai).
+ *  - REF_W/REF_H = kích thước rect marker px @96dpi — mẫu số normalize.
+ */
+export const INTEGRATED_REF_W = 749.6
+export const INTEGRATED_REF_H = 153.5
 
 /** Số cột của khung integrated — 5 cột (≤20 câu), 8 cột (21..50 câu). */
 export function integratedGridCols(totalQuestions = 20): number {
   return totalQuestions <= 20 ? 5 : 8
 }
 
-/** Chiều cao khung integrated (px) — dùng làm mẫu số khi normalize y. */
+/** Chiều cao rect marker (px @96dpi) — mẫu số normalize y. */
 export function integratedFrameH(totalQuestions: number): number {
   const rows = Math.ceil(totalQuestions / integratedGridCols(totalQuestions))
-  return rows * INTEGRATED_ROW_H + (rows - 1) * INTEGRATED_GRID_GAP_Y + 2 * (INTEGRATED_PAD_Y + INTEGRATED_BORDER_W)
+  return 2 * INTEGRATED_MARKER_OVERHANG + rows * INTEGRATED_ROW_H + (rows - 1) * INTEGRATED_GRID_GAP_Y + 2 * (INTEGRATED_PAD_Y + INTEGRATED_BORDER_W)
+}
+
+/** Hình chữ nhật khung integrated trong page space (normalized) — 4 góc khung. */
+export interface FrameRect {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/** Rect mặc định suy từ INTEGRATED_OMR_MARKERS — dùng cho template tĩnh và test. */
+export function integratedDefaultFrameRect(): FrameRect {
+  return {
+    x0: INTEGRATED_OMR_MARKERS[0].x,
+    x1: INTEGRATED_OMR_MARKERS[1].x,
+    y0: INTEGRATED_OMR_MARKERS[0].y,
+    y1: INTEGRATED_OMR_MARKERS[2].y,
+  }
 }
 
 /** Tọa độ ô A/B/C/D của câu hỏi trong KHUNG INTEGRATED — trả về PAGE-normalized
- * (cùng hệ tọa độ với INTEGRATED_OMR_MARKERS và homography), nhưng vị trí
- * trong khung tính theo geometry px in (INTEGRATED_*). */
-export function integratedMcOptionToCell(
+ * (cùng hệ tọa độ với marker và homography), nhưng vị trí trong khung tính theo
+ * geometry px in (INTEGRATED_*). `frame` là rect khung đo được thực tế trên ảnh
+ * (độc lập vị trí khung trên trang — bản in thật đặt khung lệch khỏi template
+ * tĩnh do header/meta phía trên và lề in batch 8mm). */
+export function integratedMcOptionToCellForRect(
   questionIndex: number,
   option: 'A' | 'B' | 'C' | 'D',
-  totalQuestions = 20
+  totalQuestions: number,
+  frame: FrameRect
 ): McQuestionCellPosition {
   const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
   const optIndex = options.indexOf(option)
   const cols = integratedGridCols(totalQuestions)
   const rows = Math.ceil(totalQuestions / cols)
   const q0 = questionIndex - 1
-  const colIndex = Math.floor(q0 / rows)
-  const rowIndex = q0 % rows
+  // A-NEW-50: CSS `grid-template-columns: repeat(cols, 1fr)` xếp hàng MAJOR
+  // (câu 1..cols ở hàng 1, cols+1..2cols ở hàng 2...) — model cũ col-major
+  // (floor(q0/rows)) đảo ngược → đọc nhầm câu hỏi hàng loạt (chỉ test tổng
+  // hợp tự-fill cùng model nên không bắt được; E2E render thật lộ ra).
+  const colIndex = q0 % cols
+  const rowIndex = Math.floor(q0 / cols)
 
-  const contentW = INTEGRATED_REF_W - 2 * (INTEGRATED_PAD_X + INTEGRATED_BORDER_W)
+  const gridLeft = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_X + INTEGRATED_BORDER_W
+  const gridTop = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_Y + INTEGRATED_BORDER_W
+  const contentW = INTEGRATED_REF_W - 2 * gridLeft
   const colW = (contentW - (cols - 1) * INTEGRATED_GRID_GAP_X) / cols
-  const frameW = INTEGRATED_REF_W
-  const frameH = integratedFrameH(totalQuestions)
+  const rowPitch = INTEGRATED_ROW_H + INTEGRATED_GRID_GAP_Y
 
   const bubbleCenterFromRowRight = (3 - optIndex) * (INTEGRATED_BUBBLE_W + INTEGRATED_BUBBLE_GAP) + INTEGRATED_BUBBLE_W / 2
   const rowRight = (colIndex + 1) * colW + colIndex * INTEGRATED_GRID_GAP_X
-  const xf = (INTEGRATED_PAD_X + INTEGRATED_BORDER_W + rowRight - bubbleCenterFromRowRight) / frameW
-  const yf = (INTEGRATED_PAD_Y + INTEGRATED_BORDER_W + rowIndex * (INTEGRATED_ROW_H + INTEGRATED_GRID_GAP_Y) + INTEGRATED_ROW_H / 2) / frameH
+  const xf = (gridLeft + rowRight - bubbleCenterFromRowRight) / INTEGRATED_REF_W
+  const yf = (gridTop + rowIndex * rowPitch + INTEGRATED_ROW_H / 2) / INTEGRATED_REF_H
 
-  // frame-relative → page space (khung marker chiếm x 0.04..0.96, y 0.16..0.36)
-  const frameX0 = INTEGRATED_OMR_MARKERS[0].x
-  const frameX1 = INTEGRATED_OMR_MARKERS[1].x
-  const frameY0 = INTEGRATED_OMR_MARKERS[0].y
-  const frameY1 = INTEGRATED_OMR_MARKERS[2].y
-  const x = frameX0 + xf * (frameX1 - frameX0)
-  const y = frameY0 + yf * (frameY1 - frameY0)
+  // frame-relative → page space theo rect đo được
+  const x = frame.x0 + xf * (frame.x1 - frame.x0)
+  const y = frame.y0 + yf * (frame.y1 - frame.y0)
 
   return { questionIndex, option, x, y }
 }
 
-/** Danh sách ô cho detector khi quét khung INTEGRATED — questionIndex 1..totalQuestions. */
-export function integratedMcCells(totalQuestions = 20): McQuestionCellPosition[] {
+/** Tương đương integratedMcOptionToCellForRect với rect template tĩnh (INTEGRATED_OMR_MARKERS). */
+export function integratedMcOptionToCell(
+  questionIndex: number,
+  option: 'A' | 'B' | 'C' | 'D',
+  totalQuestions = 20
+): McQuestionCellPosition {
+  return integratedMcOptionToCellForRect(questionIndex, option, totalQuestions, integratedDefaultFrameRect())
+}
+
+/** Danh sách ô cho detector khi quét khung INTEGRATED theo rect đo được — questionIndex 1..totalQuestions. */
+export function integratedMcCellsForRect(totalQuestions = 20, frame: FrameRect): McQuestionCellPosition[] {
   const out: McQuestionCellPosition[] = []
   const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
   for (let q = 1; q <= totalQuestions; q++) {
     for (const opt of options) {
-      out.push(integratedMcOptionToCell(q, opt, totalQuestions))
+      out.push(integratedMcOptionToCellForRect(q, opt, totalQuestions, frame))
     }
   }
   return out
+}
+
+/** Danh sách ô cho detector khi quét khung INTEGRATED theo template tĩnh — questionIndex 1..totalQuestions. */
+export function integratedMcCells(totalQuestions = 20): McQuestionCellPosition[] {
+  return integratedMcCellsForRect(totalQuestions, integratedDefaultFrameRect())
 }

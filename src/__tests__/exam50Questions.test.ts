@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_OMR_MARKERS, INTEGRATED_CORNER_SIZE } from '../lib/answerSheetTemplate'
+import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_OMR_MARKERS, INTEGRATED_CORNER_SIZE, type FrameRect } from '../lib/answerSheetTemplate'
 import { buildSingleAnswerSheetSvgString, buildExamPaperHtml } from '../utils/examSheets'
 import { detectAnswersFromImage } from '../lib/omr'
 
@@ -40,8 +40,24 @@ function buildMcSheet(fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {}, totalQue
   return img
 }
 
-/** Phiếu GỘP (integrated): marker quanh khung y 0.16..0.36, bubble theo integratedMcCells. */
-function buildIntegratedSheet(fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {}, totalQuestions = 50): ImageData {
+/**
+ * Rect khung integrated trên trang in THẬT — đo bằng Chromium render (A4 @96dpi,
+ * viewport 800×1131, `.exam-paper-container` lề 8mm). Template tĩnh
+ * INTEGRATED_OMR_MARKERS (y 0.16..0.36) LỆCH khỏi vị trí in thật → detector cũ
+ * trả MISSING_MARKER_TL (bug thật phát hiện qua E2E render — test tổng hợp cũ
+ * không bắt được vì tự đặt marker đúng vị trí template):
+ * - Single-print: khung y 0.153..0.287 (khung 50 câu ≈ 152px ≈ 0.134 chiều cao).
+ * - Batch (wrapper lề 8mm + container lề 8mm): dịch xuống ~30px → y 0.180..0.314.
+ */
+const REAL_SINGLE_PRINT_FRAME: FrameRect = { x0: 0.0375, y0: 0.153, x1: 0.9625, y1: 0.287 }
+const REAL_BATCH_FRAME: FrameRect = { x0: 0.075, y0: 0.18, x1: 0.925, y1: 0.314 }
+
+/** Phiếu GỘP (integrated) theo rect khung thật — marker tại 4 góc rect, bubble theo integratedMcCellsForRect. */
+function buildIntegratedSheet(
+  fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {},
+  totalQuestions = 50,
+  frame: FrameRect = REAL_SINGLE_PRINT_FRAME
+): ImageData {
   const W = 800
   const H = 1130
   const img = FakeImageData(W, H)
@@ -57,12 +73,18 @@ function buildIntegratedSheet(fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {}, 
       }
     }
   }
-  for (const m of INTEGRATED_OMR_MARKERS) {
+  const corners: FrameRect[] = [
+    { x0: frame.x0, y0: frame.y0, x1: frame.x0, y1: frame.y0 },
+    { x0: frame.x1, y0: frame.y0, x1: frame.x1, y1: frame.y0 },
+    { x0: frame.x1, y0: frame.y1, x1: frame.x1, y1: frame.y1 },
+    { x0: frame.x0, y0: frame.y1, x1: frame.x0, y1: frame.y1 },
+  ]
+  for (const c of corners) {
     const half = (INTEGRATED_CORNER_SIZE / 2) * Math.min(W, H)
-    fillRect(m.x * W - half, m.y * H - half, m.x * W + half, m.y * H + half, 10)
+    fillRect(c.x0 * W - half, c.y0 * H - half, c.x1 * W + half, c.y1 * H + half, 10)
   }
   for (const [q, opt] of Object.entries(fill)) {
-    const cell = integratedMcCells(totalQuestions).find(c => c.questionIndex === Number(q) && c.option === opt)
+    const cell = integratedMcCellsForRect(totalQuestions, frame).find(c => c.questionIndex === Number(q) && c.option === opt)
     if (!cell) continue
     // Ô tô kín ~bubble in 14px (scan 800px ≈ 14.1px) — phủ core ring 5.6px
     const r = 0.00875 * Math.min(W, H)
@@ -202,7 +224,7 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
       expect(integratedGridCols(50)).toBe(8)
     })
 
-    it('integratedMcCells nằm gọn trong khung marker 0.04..0.96 × 0.16..0.36', () => {
+    it('integratedMcCells (template tĩnh) nằm gọn trong khung marker 0.04..0.96 × 0.16..0.36', () => {
       const cells = integratedMcCells(50)
       expect(cells).toHaveLength(200)
       for (const c of cells) {
@@ -210,6 +232,19 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
         expect(c.x).toBeLessThan(0.96)
         expect(c.y).toBeGreaterThan(0.16)
         expect(c.y).toBeLessThan(0.36)
+      }
+    })
+
+    it('integratedMcCellsForRect theo rect in THẬT nằm gọn trong rect đó (single-print & batch)', () => {
+      for (const frame of [REAL_SINGLE_PRINT_FRAME, REAL_BATCH_FRAME]) {
+        const cells = integratedMcCellsForRect(50, frame)
+        expect(cells).toHaveLength(200)
+        for (const c of cells) {
+          expect(c.x).toBeGreaterThan(frame.x0)
+          expect(c.x).toBeLessThan(frame.x1)
+          expect(c.y).toBeGreaterThan(frame.y0)
+          expect(c.y).toBeLessThan(frame.y1)
+        }
       }
     })
 
@@ -245,7 +280,7 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
       expect(html).toContain('omr-marker-tl')
     })
 
-    it('quét phiếu gộp 50 câu: detect đúng đáp án trong khung integrated', () => {
+    it('quét phiếu gộp 50 câu ở vị trí in THẬT (single-print): detect đúng đáp án trong khung integrated', () => {
       const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
       const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
       const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
@@ -254,7 +289,7 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
         filledAnswers[i] = options[(i - 1) % 4]
       }
 
-      const img = buildIntegratedSheet(filledAnswers, 50)
+      const img = buildIntegratedSheet(filledAnswers, 50, REAL_SINGLE_PRINT_FRAME)
       const res = detectAnswersFromImage(img, answerKey, 50, 10)
 
       expect(res.ok).toBe(true)
@@ -266,18 +301,53 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
       expect(res.questions[49].selectedAnswer).toBe(filledAnswers[50])
     })
 
-    it('quét phiếu gộp: 40/50 đúng → score 8.0', () => {
+    it('quét phiếu gộp 50 câu ở vị trí in THẬT (batch lề 8mm×2): vẫn detect đúng 50/50', () => {
+      const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
+      for (let i = 1; i <= 50; i++) {
+        answerKey[i] = options[(i - 1) % 4]
+        filledAnswers[i] = options[(i - 1) % 4]
+      }
+
+      const img = buildIntegratedSheet(filledAnswers, 50, REAL_BATCH_FRAME)
+      const res = detectAnswersFromImage(img, answerKey, 50, 10)
+      expect(res.ok).toBe(true)
+      expect(res.rawCorrectCount).toBe(50)
+      expect(res.score).toBe(10)
+    })
+
+    it('quét phiếu gộp: 40/50 đúng → score 8.0 (rect in thật single-print)', () => {
       const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
       const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
       for (let i = 1; i <= 50; i++) {
         answerKey[i] = 'A'
         filledAnswers[i] = i <= 40 ? 'A' : 'B'
       }
-      const img = buildIntegratedSheet(filledAnswers, 50)
+      const img = buildIntegratedSheet(filledAnswers, 50, REAL_SINGLE_PRINT_FRAME)
       const res = detectAnswersFromImage(img, answerKey, 50, 10)
       expect(res.ok).toBe(true)
       expect(res.rawCorrectCount).toBe(40)
       expect(res.score).toBe(8)
+    })
+
+    it('quét phiếu gộp ở vị trí template tĩnh (compat cũ) vẫn detect được', () => {
+      const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      for (let i = 1; i <= 50; i++) {
+        answerKey[i] = 'A'
+        filledAnswers[i] = 'A'
+      }
+      const img = buildIntegratedSheet(filledAnswers, 50, {
+        x0: INTEGRATED_OMR_MARKERS[0].x,
+        y0: INTEGRATED_OMR_MARKERS[0].y,
+        x1: INTEGRATED_OMR_MARKERS[1].x,
+        y1: INTEGRATED_OMR_MARKERS[2].y,
+      })
+      const res = detectAnswersFromImage(img, answerKey, 50, 10)
+      expect(res.ok).toBe(true)
+      expect(res.rawCorrectCount).toBe(50)
+      expect(res.score).toBe(10)
     })
   })
 })

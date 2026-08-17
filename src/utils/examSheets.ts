@@ -359,6 +359,10 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       max-width: 210mm;
       margin: 0 auto;
       position: relative;
+      /* Lề ngang 8mm — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
+         khung integrated nằm lệch -16px ra ngoài khung; không có lề này marker
+         TL/BL bị clip mép giấy → không bao giờ quét được phiếu in đơn. */
+      padding: 0 8mm;
     }
     .watermark {
       position: absolute;
@@ -622,6 +626,11 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       color: #ffffff !important;
       border-color: #15803d !important;
       font-weight: 900;
+    }
+    .bubble-filled {
+      background: #0f172a !important;
+      color: #ffffff !important;
+      border-color: #0f172a !important;
     }
 
     /* Khối câu hỏi đề thi */
@@ -940,7 +949,10 @@ export function buildBatchExamPapersHtml(
     .batch-exam-page {
       width: 210mm;
       min-height: 297mm;
-      padding: 8mm;
+      /* A-NEW-50: padding 0 — khớp hoàn toàn layout buildExamPaperHtml (container
+         lề 8mm) để khung OMR integrated có cùng geometry trên cả 2 luồng in —
+         detector hiệu chỉnh tọa độ ô theo rect đo được của đúng layout chuẩn này. */
+      padding: 0;
       margin: 0 auto 10mm auto;
       background: #ffffff;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
@@ -955,7 +967,7 @@ export function buildBatchExamPapersHtml(
         box-shadow: none;
         width: 100vw;
         height: auto;
-        padding: 6mm;
+        padding: 0;
         page-break-after: always;
         break-after: page;
       }
