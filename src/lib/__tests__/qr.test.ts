@@ -8,6 +8,7 @@ import {
   getExamQrModuleCount,
   EXAM_QR_PREFIX,
 } from '../qr'
+import { scanExamCode } from '../examCodeScanner'
 
 /**
  * Roundtrip encode → bitmap → jsQR decode (không cần canvas:
@@ -75,5 +76,28 @@ describe('Smart Exam Grading — QR (Phase 1)', () => {
     const decoded = jsQR(bitmap.data, bitmap.width, bitmap.height)
     expect(decoded).not.toBeNull()
     expect(decoded!.data).toBe(payload)
+  })
+
+  it('đọc được QR ở góc trên phải của frame camera có nhiều lề', () => {
+    const payload = buildExamQrPayload('EXS-camera', 'ST-0842')
+    const qr = matrixToImageData(generateExamQrMatrix(payload))
+    const width = 640
+    const height = 900
+    const data = new Uint8ClampedArray(width * height * 4)
+    data.fill(255)
+    const offsetX = 430
+    const offsetY = 90
+    for (let y = 0; y < qr.height; y++) {
+      for (let x = 0; x < qr.width; x++) {
+        const source = (y * qr.width + x) * 4
+        const target = ((offsetY + y) * width + offsetX + x) * 4
+        data.set(qr.data.subarray(source, source + 4), target)
+      }
+    }
+
+    const result = scanExamCode({ data, width, height, colorSpace: 'srgb' } as ImageData)
+    expect(result.source).toBe('qr')
+    expect(result.rawText).toBe(payload)
+    expect(result.payload).toEqual({ sessionId: 'EXS-camera', studentId: 'ST-0842' })
   })
 })

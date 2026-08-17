@@ -194,10 +194,13 @@ function tryLocateMarkers(
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const INTEGRATED_MARKER_BANDS = [
-  { id: 'TL', xMin: 0, xMax: 0.12, yMin: 0.06, yMax: 0.30, ax: 0, ay: 0.06 },
-  { id: 'TR', xMin: 0.88, xMax: 1, yMin: 0.06, yMax: 0.30, ax: 1, ay: 0.06 },
-  { id: 'BR', xMin: 0.88, xMax: 1, yMin: 0.22, yMax: 0.75, ax: 1, ay: 0.75 },
-  { id: 'BL', xMin: 0, xMax: 0.12, yMin: 0.22, yMax: 0.75, ax: 0, ay: 0.75 },
+  // Camera thật luôn có lề bàn quanh tờ A4. Vì vậy marker không nằm sát 0%/100%
+  // của frame video như ảnh render trang đầy khung. Các band rộng này vẫn chia
+  // trái/phải rõ ràng, còn geometry + kiểm tra kích thước phía dưới chặn blob giả.
+  { id: 'TL', xMin: 0.02, xMax: 0.38, yMin: 0.05, yMax: 0.45, ax: 0.02, ay: 0.05 },
+  { id: 'TR', xMin: 0.62, xMax: 0.98, yMin: 0.05, yMax: 0.45, ax: 0.98, ay: 0.05 },
+  { id: 'BR', xMin: 0.62, xMax: 0.98, yMin: 0.18, yMax: 0.82, ax: 0.98, ay: 0.82 },
+  { id: 'BL', xMin: 0.02, xMax: 0.38, yMin: 0.18, yMax: 0.82, ax: 0.02, ay: 0.82 },
 ] as const
 /** Marker integrated là ô vuông ĐẶC 16px → coverage ≥ 0.75 (tại scan 800px);
  * ngưỡng 0.72 loại bubble tô (≈0.68), QR và badge "OMR SCAN" (≤0.6). */
@@ -285,26 +288,18 @@ function findMarkerInBand(
   // quét, còn marker phiếu TOÀN TRANG là ô đặc 44px (≈2.5× cửa sổ) và cũng nằm
   // trong band TL/BR/BL. Quét LẠI band với cửa sổ 2×: marker toàn trang vẫn cho
   // coverage max ≈ 1.0 (cửa sổ 2× nằm trọn trong marker) → loại bỏ; marker
-  // integrated cho ≈ 0.25 (2× cửa sổ phủ chủ yếu giấy trắng) → giữ. Tỷ lệ ổn
-  // định ở mọi độ phân giải scan vì cửa sổ và marker đều scale theo trang.
+  // integrated cho ≈ 0.25 (2× cửa sổ phủ chủ yếu giấy trắng) → giữ.
+  // Chỉ đo quanh candidate đã chọn. Bản cũ lấy max trên TOÀN band nên QR lớn ở
+  // góc phải làm loại nhầm marker TR dù marker thật đã được tìm đúng.
   const bHalf = Math.max(2, Math.round(half * 2))
-  const bX0 = Math.max(0, Math.floor(band.xMin * width))
-  const bX1 = Math.min(width, Math.ceil(band.xMax * width))
-  const bY0 = Math.max(0, Math.floor(band.yMin * height))
-  const bY1 = Math.min(height, Math.ceil(band.yMax * height))
-  let bigCov = 0
-  for (let yy = bY0; yy < bY1; yy++) {
-    for (let xx = bX0; xx < bX1; xx++) {
-      const c0 = Math.max(0, xx - bHalf)
-      const d0 = Math.max(0, yy - bHalf)
-      const c1 = Math.min(width, xx + bHalf + 1)
-      const d1 = Math.min(height, yy + bHalf + 1)
-      const cnt = (c1 - c0) * (d1 - d0)
-      if (cnt === 0) continue
-      const cov = 1 - windowSum(sat, width, c0, d0, c1, d1) / cnt / 255
-      if (cov > bigCov) bigCov = cov
-    }
-  }
+  const c0 = Math.max(0, best.x - bHalf)
+  const d0 = Math.max(0, best.y - bHalf)
+  const c1 = Math.min(width, best.x + bHalf + 1)
+  const d1 = Math.min(height, best.y + bHalf + 1)
+  const bigCnt = (c1 - c0) * (d1 - d0)
+  const bigCov = bigCnt > 0
+    ? 1 - windowSum(sat, width, c0, d0, c1, d1) / bigCnt / 255
+    : 1
   if (bigCov >= 0.7) return null
   return { id, x: best.x, y: best.y, coverage: best.cov }
 }
@@ -320,36 +315,43 @@ export interface IntegratedFrameLocation {
  * hàng trên (tránh TR/TL được quét lại trong band BR/BL — các marker là ô
  * vuông giống hệt nên cov bằng nhau, scan tie sẽ chọn nhầm marker hàng trên). */
 export function tryLocateIntegratedFrame(gray: GrayImage): IntegratedFrameLocation | null {
-  const sizePx = INTEGRATED_CORNER_SIZE * Math.min(gray.width, gray.height)
-  const half = Math.max(2, Math.floor(sizePx / 2))
   const sat = buildSummedArea(gray)
+  // Khi A4 chỉ chiếm ~65–85% khung camera, marker cũng nhỏ theo. Quét ba scale
+  // thay vì buộc kích thước marker theo toàn bộ frame video.
+  for (const scale of [1, 0.8, 0.65]) {
+    const sizePx = INTEGRATED_CORNER_SIZE * Math.min(gray.width, gray.height) * scale
+    const half = Math.max(2, Math.floor(sizePx / 2))
+    const tl = findMarkerInBand(gray, sat, 'TL', INTEGRATED_MARKER_BANDS[0], half)
+    if (!tl) continue
+    const tr = findMarkerInBand(gray, sat, 'TR', INTEGRATED_MARKER_BANDS[1], half)
+    if (!tr) continue
 
-  const tl = findMarkerInBand(gray, sat, 'TL', INTEGRATED_MARKER_BANDS[0], half)
-  if (!tl) return null
-  const tr = findMarkerInBand(gray, sat, 'TR', INTEGRATED_MARKER_BANDS[1], half)
-  if (!tr) return null
+    const belowTop = Math.max(tl.y, tr.y) + half + 1
+    const brBand = { ...INTEGRATED_MARKER_BANDS[2], yMin: Math.max(INTEGRATED_MARKER_BANDS[2].yMin, belowTop / gray.height) }
+    const blBand = { ...INTEGRATED_MARKER_BANDS[3], yMin: Math.max(INTEGRATED_MARKER_BANDS[3].yMin, belowTop / gray.height) }
+    const br = findMarkerInBand(gray, sat, 'BR', brBand, half)
+    if (!br) continue
+    const bl = findMarkerInBand(gray, sat, 'BL', blBand, half)
+    if (!bl) continue
 
-  const belowTop = Math.max(tl.y, tr.y) + half + 1
-  const brBand = { ...INTEGRATED_MARKER_BANDS[2], yMin: Math.max(INTEGRATED_MARKER_BANDS[2].yMin, belowTop / gray.height) }
-  const blBand = { ...INTEGRATED_MARKER_BANDS[3], yMin: Math.max(INTEGRATED_MARKER_BANDS[3].yMin, belowTop / gray.height) }
-  const br = findMarkerInBand(gray, sat, 'BR', brBand, half)
-  if (!br) return null
-  const bl = findMarkerInBand(gray, sat, 'BL', blBand, half)
-  if (!bl) return null
-
-  const rect: FrameRect = {
-    x0: tl.x / gray.width,
-    y0: tl.y / gray.height,
-    x1: tr.x / gray.width,
-    y1: bl.y / gray.height,
+    const rect: FrameRect = {
+      x0: tl.x / gray.width,
+      y0: tl.y / gray.height,
+      x1: tr.x / gray.width,
+      y1: bl.y / gray.height,
+    }
+    const rectW = rect.x1 - rect.x0
+    const rectH = rect.y1 - rect.y0
+    const alignTolerance = Math.max(4, sizePx * 2.5)
+    // Bốn hit phải thật sự tạo thành một hình chữ nhật thấp và rộng. Gate này
+    // ngăn bubble/marker toàn trang rải rác trong band rộng bị ghép thành khung giả.
+    if (rectW < 0.45 || rectH < 0.045 || rectH > 0.35) continue
+    if (rectW / rectH < 3) continue
+    if (Math.abs(tl.y - tr.y) > alignTolerance || Math.abs(bl.y - br.y) > alignTolerance) continue
+    if (Math.abs(tl.x - bl.x) > alignTolerance || Math.abs(tr.x - br.x) > alignTolerance) continue
+    return { markers: [tl, tr, br, bl], sizePx, rect }
   }
-  // Sanity: khung phải có kích thước đáng kể, không suy biến (y1 ≤ y0, x1 ≤ x0).
-  // Tỷ lệ khung integrated (marker span): 50 câu ≈ 4.9:1, 20 câu ≈ 6.9:1 — mọi
-  // khung ≥ 3:1; phiếu TOÀN TRANG (marker 62px ở 4 góc trang) cho rect ~1.3:1
-  // → bị loại, fallback đúng về template toàn trang (chống false-positive).
-  if (rect.x1 - rect.x0 < 0.01 || rect.y1 - rect.y0 < 0.01) return null
-  if ((rect.x1 - rect.x0) / (rect.y1 - rect.y0) < 3) return null
-  return { markers: [tl, tr, br, bl], sizePx, rect }
+  return null
 }
 
 /**

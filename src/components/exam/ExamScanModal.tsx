@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import jsQR from 'jsqr'
 import {
   X,
   Camera,
@@ -16,9 +15,8 @@ import {
   FlashlightOff,
   Edit3
 } from 'lucide-react'
-import { parseExamQrPayload } from '../../lib/qr'
 import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult } from '../../lib/omr'
-import { detectBarcodeFromImageData } from '../../lib/barcode'
+import { scanExamCode } from '../../lib/examCodeScanner'
 import { CORNER_MARKERS, QR_SIZE, QR_X, QR_Y } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
@@ -65,6 +63,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const lastScanAt = useRef(0)
   const resolveRef = useRef(false)
   const liveRef = useRef(false)
+  const consecutiveNoCodeFramesRef = useRef(0)
+  const lastScanFailureRef = useRef('Không nhận diện được mã QR / Barcode trên phiếu.')
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
 
   const [phase, setPhase] = useState<ScanState>({ kind: 'scanning' })
@@ -72,7 +72,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const students = useStudentStore(s => s.students)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [scanHint, setScanHint] = useState<string | null>(null)
+  const [scanHint, setScanHint] = useState('Đang tìm mã QR / Barcode…')
   const [batchMode, setBatchMode] = useState(false)
   const [scannedList, setScannedList] = useState<ScannedEntry[]>([])
   const [cameraLoading, setCameraLoading] = useState(true)
@@ -156,17 +156,11 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   }
 
   const processImageFrame = useCallback((frame: ImageData): boolean => {
-    const code = jsQR(frame.data, frame.width, frame.height)
-    let payload = code?.data ? parseExamQrPayload(code.data) : null
-
-    if (!payload) {
-      const barcodeText = detectBarcodeFromImageData(frame)
-      if (barcodeText) {
-        payload = parseExamQrPayload(barcodeText)
-      }
-    }
+    const codeResult = scanExamCode(frame)
+    const payload = codeResult.payload
 
     if (payload) {
+      consecutiveNoCodeFramesRef.current = 0
       if (payload.sessionId !== sessionId) {
         stopCamera()
         setPhase({
@@ -189,10 +183,19 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           setPhase({ kind: 'detected', studentId: payload.studentId, omr, frame })
           return true
         }
-        setScanHint(formatOmrFailReason(omr.reason))
+        const message = `Đã đọc mã phiếu — ${formatOmrFailReason(omr.reason)}`
+        lastScanFailureRef.current = message
+        setScanHint(message)
       }
     } else {
-      setScanHint(null)
+      consecutiveNoCodeFramesRef.current += 1
+      const message = codeResult.rawText
+        ? 'Đã đọc được mã nhưng mã này không phải mã phiếu chấm điểm TNTT.'
+        : consecutiveNoCodeFramesRef.current >= 4
+          ? 'Chưa đọc được mã QR / Barcode — đưa mã lại gần hơn, giữ nét và tránh chói sáng.'
+          : 'Đang tìm mã QR / Barcode…'
+      lastScanFailureRef.current = message
+      setScanHint(message)
     }
 
     return false
@@ -232,7 +235,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     setCameraLoading(true)
     setPhase({ kind: 'scanning' })
     resolveRef.current = false
-    setScanHint(null)
+    consecutiveNoCodeFramesRef.current = 0
+    lastScanFailureRef.current = 'Không nhận diện được mã QR / Barcode trên phiếu.'
+    setScanHint('Đang tìm mã QR / Barcode…')
 
     // Stop existing camera stream
     stopCamera()
@@ -340,7 +345,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     resolveRef.current = false
     setSaved(false)
     setSaving(false)
-    setScanHint(null)
+    consecutiveNoCodeFramesRef.current = 0
+    setScanHint('Đang tìm mã QR / Barcode…')
     setPhase({ kind: 'scanning' })
     await startCamera()
   }
@@ -390,7 +396,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       if (!handled) {
         setPhase({
           kind: 'error',
-          message: 'Không nhận diện được mã QR hoặc 4 góc định vị. Hãy chụp thẳng đứng, đủ sáng và bao trọn toàn bộ tờ giấy A4.',
+          message: `${lastScanFailureRef.current} Hãy chụp thẳng đứng, đủ sáng và bao trọn toàn bộ tờ giấy A4.`,
         })
       }
     }
@@ -523,7 +529,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           )}
 
           {scanHint && phase.kind === 'scanning' && (
-            <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 bg-amber-500/95 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-lg pointer-events-none z-10">
+            <div className="absolute top-2 left-3 right-24 flex items-start gap-2 bg-amber-500/95 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-lg pointer-events-none z-10">
               <Info size={14} className="shrink-0" />
               <span>{scanHint}</span>
             </div>

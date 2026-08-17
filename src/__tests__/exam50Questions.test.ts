@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_OMR_MARKERS, INTEGRATED_CORNER_SIZE, type FrameRect } from '../lib/answerSheetTemplate'
 import { buildSingleAnswerSheetSvgString, buildExamPaperHtml } from '../utils/examSheets'
 import { detectAnswersFromImage } from '../lib/omr'
+import { buildExamQrPayload, getExamQrModuleCount } from '../lib/qr'
+import { getBarcodeViewBoxWidth } from '../lib/barcode'
 
 function FakeImageData(w: number, h: number): ImageData {
   return {
@@ -56,7 +58,8 @@ const REAL_BATCH_FRAME: FrameRect = { x0: 0.075, y0: 0.18, x1: 0.925, y1: 0.314 
 function buildIntegratedSheet(
   fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {},
   totalQuestions = 50,
-  frame: FrameRect = REAL_SINGLE_PRINT_FRAME
+  frame: FrameRect = REAL_SINGLE_PRINT_FRAME,
+  contentScale = 1
 ): ImageData {
   const W = 800
   const H = 1130
@@ -80,14 +83,14 @@ function buildIntegratedSheet(
     { x0: frame.x0, y0: frame.y1, x1: frame.x0, y1: frame.y1 },
   ]
   for (const c of corners) {
-    const half = (INTEGRATED_CORNER_SIZE / 2) * Math.min(W, H)
+    const half = (INTEGRATED_CORNER_SIZE / 2) * Math.min(W, H) * contentScale
     fillRect(c.x0 * W - half, c.y0 * H - half, c.x1 * W + half, c.y1 * H + half, 10)
   }
   for (const [q, opt] of Object.entries(fill)) {
     const cell = integratedMcCellsForRect(totalQuestions, frame).find(c => c.questionIndex === Number(q) && c.option === opt)
     if (!cell) continue
     // Ô tô kín ~bubble in 14px (scan 800px ≈ 14.1px) — phủ core ring 5.6px
-    const r = 0.00875 * Math.min(W, H)
+    const r = 0.00875 * Math.min(W, H) * contentScale
     fillRect(cell.x * W - r, cell.y * H - r, cell.x * W + r, cell.y * H + r, 25)
   }
   return img
@@ -165,6 +168,20 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
       expect(svg).not.toContain('undefined')
       expect(svg).not.toContain('x="-')
       expect(svg).not.toContain('y="-')
+const payload = buildExamQrPayload(params.sessionId, student.id)
+      const qrModules = getExamQrModuleCount(payload)
+      expect(svg).toContain(`viewBox="0 0 ${qrModules} ${qrModules}"`)
+      expect(svg).toContain(`viewBox="0 0 ${getBarcodeViewBoxWidth(payload, 1.2)} 28"`)
+      expect(svg).not.toContain('viewBox="0 0 200 28"')
+      // Barcode ở DẢI CUỐI phiếu full-width (không còn dưới QR) và pitch in A4
+      // phải ≥ 0.19mm: 1000 units = 210mm → module = 1.2 × (container/content) × 0.21mm.
+      const stripMatch = svg.match(/<svg x="90" y="([\d.]+)" width="820" height="28" viewBox="0 0 ([\d.]+) 28"/)
+      expect(stripMatch).not.toBeNull()
+      const stripY = Number(stripMatch![1])
+      expect(stripY).toBeGreaterThan(1300)
+      const stripContentWidth = Number(stripMatch![2])
+      const pitchMm = 1.2 * (820 / stripContentWidth) * 0.21
+      expect(pitchMm).toBeGreaterThanOrEqual(0.19)
     })
   })
 
@@ -345,6 +362,34 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
         y1: INTEGRATED_OMR_MARKERS[2].y,
       })
       const res = detectAnswersFromImage(img, answerKey, 50, 10)
+      expect(res.ok).toBe(true)
+      expect(res.rawCorrectCount).toBe(50)
+      expect(res.score).toBe(10)
+    })
+
+    it('quét được khi tờ A4 nằm lọt bên trong frame camera và marker nhỏ theo giấy', () => {
+      const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
+      for (let i = 1; i <= 50; i++) {
+        answerKey[i] = options[(i - 1) % 4]
+        filledAnswers[i] = options[(i - 1) % 4]
+      }
+
+      // Mô phỏng ảnh người dùng: giấy chiếm 72% chiều rộng camera, có lề bàn hai
+      // bên. Marker TL/TR vì thế ở x≈0.16/0.84 thay vì sát 0.04/0.96 frame.
+      const scale = 0.72
+      const offsetX = 0.14
+      const offsetY = 0.14
+      const cameraFrame: FrameRect = {
+        x0: offsetX + REAL_SINGLE_PRINT_FRAME.x0 * scale,
+        y0: offsetY + REAL_SINGLE_PRINT_FRAME.y0 * scale,
+        x1: offsetX + REAL_SINGLE_PRINT_FRAME.x1 * scale,
+        y1: offsetY + REAL_SINGLE_PRINT_FRAME.y1 * scale,
+      }
+      const img = buildIntegratedSheet(filledAnswers, 50, cameraFrame, scale)
+      const res = detectAnswersFromImage(img, answerKey, 50, 10)
+
       expect(res.ok).toBe(true)
       expect(res.rawCorrectCount).toBe(50)
       expect(res.score).toBe(10)

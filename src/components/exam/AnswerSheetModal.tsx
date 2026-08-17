@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react'
-import { generateExamQrSvg, buildExamQrPayload } from '../../lib/qr'
-import { generateBarcodeSvg } from '../../lib/barcode'
+import { generateExamQrSvg, buildExamQrPayload, getExamQrModuleCount } from '../../lib/qr'
+import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, QR_X, QR_Y, QR_SIZE } from '../../lib/answerSheetTemplate'
 import { printBatchAnswerSheets, exportAnswerSheetPdf, sanitizeSvgInner } from '../../utils/examSheets'
 import { X, Printer, Layers, Settings2, CheckSquare, Square, Loader2, FileDown } from 'lucide-react'
@@ -30,15 +30,18 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
   examType = 'written',
   questionCount = 20,
 }) => {
+  const qrPayload = useMemo(() => buildExamQrPayload(sessionId, student.id), [sessionId, student.id])
   const qrInner = useMemo(() => {
-    const svg = generateExamQrSvg(buildExamQrPayload(sessionId, student.id), 4)
+    const svg = generateExamQrSvg(qrPayload, 4)
     return sanitizeSvgInner(svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
-  }, [sessionId, student.id])
+  }, [qrPayload])
+  const qrModuleCount = useMemo(() => getExamQrModuleCount(qrPayload), [qrPayload])
 
   const barcodeInner = useMemo(() => {
-    const svg = generateBarcodeSvg(buildExamQrPayload(sessionId, student.id), 28, 1.2)
+    const svg = generateBarcodeSvg(qrPayload, 28, 1.2)
     return sanitizeSvgInner(svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
-  }, [sessionId, student.id])
+  }, [qrPayload])
+  const barcodeViewBoxWidth = useMemo(() => getBarcodeViewBoxWidth(qrPayload, 1.2), [qrPayload])
 
   const cells = useMemo(() => allCells(maxScore), [maxScore])
   const layout = useMemo(() => getMcColumnLayout(questionCount), [questionCount])
@@ -82,20 +85,21 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
           y={py(QR_Y) + 3}
           width={px(QR_SIZE) - 6}
           height={px(QR_SIZE) - 6}
-          viewBox="0 0 37 37"
+          viewBox={`0 0 ${qrModuleCount} ${qrModuleCount}`}
           dangerouslySetInnerHTML={{ __html: qrInner }}
         />
         <text x={px(QR_X) + px(QR_SIZE) / 2} y={py(QR_Y) + px(QR_SIZE) + 16} fontSize="11" fontWeight="bold" fill="#64748B" textAnchor="middle">
           MÃ QUÉT CHẤM TỰ ĐỘNG
         </text>
 
-        {/* Barcode Code128 backup — dưới QR */}
+{/* Barcode Code128 backup — dải cuối phiếu full-width (pitch in A4 ≥ 0.19mm) */}
         <svg
-          x={px(QR_X) + 4}
-          y={py(QR_Y) + px(QR_SIZE) + 22}
-          width={px(QR_SIZE) - 8}
+          x={px(0.09)}
+          y={py(0.955)}
+          width={px(0.82)}
           height={28}
-          viewBox="0 0 200 28"
+          viewBox={`0 0 ${barcodeViewBoxWidth} 28`}
+          preserveAspectRatio="none"
           dangerouslySetInnerHTML={{ __html: barcodeInner }}
         />
 

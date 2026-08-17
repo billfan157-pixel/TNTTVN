@@ -367,8 +367,8 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | :--- | :--- | :--- |
 | **Batch Print Progress Bar** | `AnswerSheetModal.tsx` | Animated percentage bar + `Loader2` spinner during batch print; buttons disabled while printing |
 | **PDF Export** | `ReportExportService.exportPdf()` | Opens print dialog with "Save as PDF" guidance; single + batch mode |
-| **Barcode (Code128)** | `src/lib/barcode.ts` | Pure SVG generator + decoder (no deps); displayed below QR on answer sheets as backup identification |
-| **Barcode Scan Fallback** | `ExamScanModal.tsx` | Client tries QR first → fallback to barcode decode → OMR score detection. Phiếu in dùng QR `viewBox` theo đúng số module payload (không hard-code 37) và ô QR 112px để camera điện thoại có mật độ đọc được. |
+| **Barcode (Code128)** | `src/lib/barcode.ts` | Pure SVG generator + decoder (no deps); quiet zone 10 modules; decoder scans multiple rows in the upper camera region and validates Code128B checksum |
+| **Code Scan Pipeline** | `examCodeScanner.ts` + `ExamScanModal.tsx` | Client tries QR on full frame plus focused upper/right crops → Code128 fallback → OMR. UI always reports one of: searching, code not found, invalid TNTT code, code found but OMR failed, or detected. Phiếu in/preview dùng QR `viewBox` theo đúng số module payload; Code128 dùng chiều rộng viewBox động theo payload và được in thành dải full-width cuối phiếu (y≈0.955) để module in A4 ≥ 0.19mm; decoder quét cả 13 dòng vùng trên lẫn dải 0.60–0.98 chiều cao frame. |
 | **Mobile WebKit Camera Support** | `ExamScanModal.tsx` | Tự động gán MediaStream vào thẻ `<video>`, tương thích iOS Safari WebKit (`autoPlay`, `playsInline`, `onloadedmetadata`), đổi camera trước/sau |
 | **Photo Upload Fallback** | `ExamScanModal.tsx` | Nút "Tải ảnh" / "Chọn ảnh" cho phép chụp từ app camera gốc hoặc tải file ảnh phiếu A4 để chấm điểm trực tiếp |
 | **A4 Framing Overlay** | `ExamScanModal.tsx` | Phiếu rời: khung A4, QR và 4 chấm guide lấy từ SSOT `CORNER_MARKERS`/`QR_*`, giúp căn đúng marker in. Đề gộp: chỉ hướng dẫn giữ đủ A4/4 marker thật trong ảnh vì vị trí khung OMR thay đổi theo nội dung đề; không vẽ marker cố định gây căn sai. |
@@ -376,7 +376,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | **Watermark** | `examSheets.ts` | CSS diagonal parish name watermark (4% opacity) on exam papers |
 | **Flexible maxScore** | `answerSheetTemplate.ts` | `scoreToCell(score, maxScore)` — dynamic grid rows for scores >10 |
 | **Confidence Tracking** | `ExamScanModal.tsx` | Per-answer confidence stored as `_confidence` in answers JSON |
-| **OMR Fail Reasons** | `ExamScanModal.tsx` | Vietnamese tooltips for 10+ OMR failure codes |
+| **OMR Fail Reasons** | `ExamScanModal.tsx` | Vietnamese tooltips for 10+ OMR failure codes; code-found failures are prefixed `Đã đọc mã phiếu` so QR and OMR failures are distinguishable |
 | **Exam Type Instructions** | `AnswerSheetModal.tsx` | Differentiated MC vs Written instructions |
 | **Multi-fill + Blank Highlights** | `ExamScanModal.tsx` | Amber (multi-fill ⚡) + Gray (blank —) in scan detail grid |
 | **Re-score on Answer Key Edit** | `ExamSessionView.tsx` + `examService.ts` | `PATCH /api/exams/:id/answer-key` re-scores OMR results, preserves quick_entry |

@@ -1,5 +1,5 @@
 import { generateExamQrSvg, buildExamQrPayload, getExamQrModuleCount } from '../lib/qr'
-import { generateBarcodeSvg } from '../lib/barcode'
+import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, integratedGridCols, QR_X, QR_Y, QR_SIZE } from '../lib/answerSheetTemplate'
 import { escapeHtml } from './grades'
 import { ReportExportService } from '../services/reportExportService'
@@ -93,6 +93,7 @@ export function buildSingleAnswerSheetSvgString(
   const qrModuleCount = getExamQrModuleCount(qrPayload)
   const qrInner = sanitizeSvgInner(rawQr.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
   const rawBarcode = generateBarcodeSvg(buildExamQrPayload(sessionId, student.id), 28, 1.2)
+  const barcodeViewBoxWidth = getBarcodeViewBoxWidth(qrPayload, 1.2)
   const barcodeInner = sanitizeSvgInner(rawBarcode.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
 
   const VW = 1000
@@ -209,8 +210,10 @@ export function buildSingleAnswerSheetSvgString(
     <svg x="${px(QR_X) + 3}" y="${py(QR_Y) + 3}" width="${px(QR_SIZE) - 6}" height="${px(QR_SIZE) - 6}" viewBox="0 0 ${qrModuleCount} ${qrModuleCount}">${qrInner}</svg>
     <text x="${px(QR_X) + px(QR_SIZE) / 2}" y="${py(QR_Y) + px(QR_SIZE) + 16}" font-size="11" font-weight="bold" fill="#64748B" text-anchor="middle">MÃ QUÉT CHẤM TỰ ĐỘNG</text>
 
-    <!-- Barcode Code128 backup — dưới QR -->
-    <svg x="${px(QR_X) + 4}" y="${py(QR_Y) + px(QR_SIZE) + 22}" width="${px(QR_SIZE) - 8}" height="28" viewBox="0 0 200 28">${barcodeInner}</svg>
+    <!-- Barcode Code128 backup — dải cuối phiếu full-width. Container ≥ 0.7 chiều
+         rộng trang để pitch in A4 ≥ 0.19mm (đọc được); vị trí dưới mọi nội dung
+         và trên marker góc BR/BL để không cản OMR. -->
+    <svg x="${px(0.09)}" y="${py(0.955)}" width="${px(0.82)}" height="28" viewBox="0 0 ${barcodeViewBoxWidth} 28" preserveAspectRatio="none">${barcodeInner}</svg>
 
     <!-- Khung Hướng Dẫn Tô Ô -->
     <rect x="${px(0.04)}" y="${py(0.235)}" width="${px(0.92)}" height="${py(0.055)}" rx="6" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1" />
