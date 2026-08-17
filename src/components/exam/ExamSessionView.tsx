@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
+import { normalizeExamSessionClassFilter } from '../../lib/examSessionScope'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -108,7 +109,8 @@ export const ExamSessionView: React.FC = () => {
   const findClassById = useClassStore(s => s.findClassById)
 
   const [viewClassId, setViewClassId] = useState<string | null>(null)
-  const effectiveClassId = isAdmin ? selectedClassId : viewClassId
+  // Filter toàn cục dùng sentinel `all`; không được gửi nó như một class ID.
+  const effectiveClassId = isAdmin ? normalizeExamSessionClassFilter(selectedClassId) : viewClassId
 
   const {
     sessions, results, loading, saving, finalizing, error, lastFinalize,
@@ -161,10 +163,11 @@ export const ExamSessionView: React.FC = () => {
   }, [showAnswerKeyModal, showCreate])
 
   useEffect(() => {
-    // Non-admin: nếu có danh sách lớp phân công, đảm bảo viewClassId hợp lệ
+    // Non-admin: giữ null cho chế độ “Tất cả”; chỉ reset khi class đã chọn không
+    // còn nằm trong phân công hiện tại.
     if (!isAdmin) {
       const first = assignedClasses[0]?.id ?? null
-      setViewClassId(v => (v && assignedClasses.some(c => c.id === v) ? v : first))
+      setViewClassId(v => (v !== null && !assignedClasses.some(c => c.id === v) ? first : v))
       return
     }
   }, [isAdmin, assignedClasses])
@@ -356,9 +359,9 @@ export const ExamSessionView: React.FC = () => {
   const hasBlockedConflicts = !!lastFinalize && lastFinalize.conflicts.length > 0
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 sm:gap-4">
       {/* Header */}
-      <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-surface-card rounded-2xl p-3 sm:p-4 border border-surface-border shadow-card flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center">
             <ClipboardList size={20} />
@@ -373,7 +376,7 @@ export const ExamSessionView: React.FC = () => {
           </div>
         </div>
         {canManage && (
-          <button className="btn btn-primary btn-sm" onClick={handleOpenCreate}>
+          <button className="btn btn-primary btn-sm min-h-11 w-full justify-center sm:w-auto" onClick={handleOpenCreate}>
             <Plus size={14} /> Tạo Phiên Chấm
           </button>
         )}
@@ -381,7 +384,7 @@ export const ExamSessionView: React.FC = () => {
 
       {/* Class chips for catechists */}
       {!isAdmin && assignedClasses.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="mobile-scroll-row -mx-1 px-1 pb-1">
           <button
             type="button"
             onClick={() => setViewClassId(null)}
@@ -415,8 +418,8 @@ export const ExamSessionView: React.FC = () => {
       )}
 
       {/* Session list */}
-      <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card">
-        <div className="flex items-center justify-between mb-3">
+      <div className="bg-surface-card rounded-2xl p-3 sm:p-4 border border-surface-border shadow-card">
+        <div className="flex flex-col gap-1.5 mb-3 sm:flex-row sm:items-center sm:justify-between">
           <h4 className="font-bold text-sm text-text-secondary m-0">
             Danh sách phiên chấm {displayedSessions.length > 0 && `(${displayedSessions.length})`}
           </h4>
@@ -443,21 +446,25 @@ export const ExamSessionView: React.FC = () => {
                 <button
                   key={s.id}
                   onClick={() => selectSession(s.id)}
-                  className={`w-full text-left rounded-xl border px-3 py-2.5 flex items-center justify-between gap-2 transition-colors ${
+                  className={`w-full min-h-[72px] text-left rounded-xl border px-3 py-3 flex items-center justify-between gap-3 transition-colors active:scale-[0.99] ${
                     selectedSessionId === s.id
                       ? 'border-parish-primary bg-parish-primary/5 shadow-2xs'
                       : 'border-surface-border hover:bg-surface-hover'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="badge badge-primary text-xs shrink-0">{SCORE_TYPE_LABELS[s.scoreType]}</span>
-                    {sessionClass && (
-                      <span className="badge badge-neutral text-[11px] font-bold shrink-0">
-                        {sessionClass.name}
-                      </span>
-                    )}
-                    <span className="font-semibold text-sm truncate">{s.subject}</span>
-                    {s.maxScore !== 10 && <span className="text-xs text-text-muted">/{s.maxScore}</span>}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0 mb-1">
+                      <span className="badge badge-primary text-xs shrink-0">{SCORE_TYPE_LABELS[s.scoreType]}</span>
+                      {sessionClass && (
+                        <span className="badge badge-neutral text-[11px] font-bold shrink-0 max-w-24 truncate">
+                          {sessionClass.name}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-baseline gap-1 min-w-0">
+                      <span className="font-semibold text-sm truncate">{s.subject}</span>
+                      {s.maxScore !== 10 && <span className="text-xs text-text-muted shrink-0">/{s.maxScore}</span>}
+                    </div>
                   </div>
                   <span className={`badge text-xs shrink-0 ${STATUS_LABELS[s.status].cls}`}>
                     {STATUS_LABELS[s.status].label}
@@ -471,9 +478,9 @@ export const ExamSessionView: React.FC = () => {
 
       {/* Active session panel */}
       {activeSession && (
-        <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <div>
+        <div className="bg-surface-card rounded-2xl p-3 sm:p-4 border border-surface-border shadow-card">
+          <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h4 className="font-bold text-sm flex items-center gap-2 flex-wrap">
                 {findClassById(activeSession.classId) && (
                   <span className="badge badge-neutral text-xs">
@@ -491,15 +498,15 @@ export const ExamSessionView: React.FC = () => {
                 {activeSession.academicYear}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {canScan && activeSession.status === 'draft' && (
-                <button className="btn btn-primary btn-sm" onClick={() => setShowScanner(true)}>
+                <button className="btn btn-primary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => setShowScanner(true)}>
                   <ScanLine size={14} /> Quét Phiếu
                 </button>
               )}
               {activeSessionQuestions.length > 0 && (
                 <button
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-secondary btn-sm min-h-11 justify-center"
                   onClick={() => setShowPaperModal(true)}
                   title="In đề thi tích hợp phiếu trả lời và khung điểm gộp tiết kiệm giấy"
                 >
@@ -507,18 +514,18 @@ export const ExamSessionView: React.FC = () => {
                 </button>
               )}
               <button
-                className="btn btn-secondary btn-sm"
+                className="btn btn-secondary btn-sm min-h-11 justify-center"
                 onClick={() => setShowPrintSheets(true)}
                 disabled={classStudents.length === 0}
               >
                 <Printer size={14} /> In Phiếu Trả Lời
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={handlePrint} disabled={classStudents.length === 0 || activeSession.status === 'completed'}>
+              <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={handlePrint} disabled={classStudents.length === 0 || activeSession.status === 'completed'}>
                 <QrCode size={14} /> In Mã QR
               </button>
               {canManage && activeSession.status === 'completed' && can('admin') && (
                 <button
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-secondary btn-sm min-h-11 justify-center"
                   onClick={async () => {
                     const ok = await askConfirm({
                       title: 'Mở lại phiên chấm',
@@ -534,7 +541,7 @@ export const ExamSessionView: React.FC = () => {
               )}
               {canManage && activeSession.status === 'draft' && (
                 <button
-                  className="btn btn-danger btn-sm"
+                  className="btn btn-danger btn-sm min-h-11 justify-center"
                   onClick={handleDeleteSession}
                 >
                   <Trash2 size={14} /> Xóa Phiên
@@ -602,12 +609,12 @@ export const ExamSessionView: React.FC = () => {
               </div>
 
               {canManage && activeSession.status === 'draft' && (
-                <div className="flex items-center justify-end gap-2 border-t border-surface-border pt-3">
-                  <span className="text-xs text-text-muted mr-auto">
+                <div className="flex flex-col gap-2 border-t border-surface-border pt-3 sm:flex-row sm:items-center sm:justify-end">
+                  <span className="text-xs text-text-muted sm:mr-auto">
                     {results.length} học sinh có điểm — hoàn tất sẽ đóng phiên và ghi vào bảng điểm (không thể sửa trực tiếp).
                   </span>
                   <button
-                    className="btn btn-primary"
+                    className="btn btn-primary min-h-11 w-full justify-center sm:w-auto"
                     onClick={handleFinalize}
                     disabled={finalizing || results.length === 0}
                   >

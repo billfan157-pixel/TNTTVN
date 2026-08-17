@@ -211,7 +211,7 @@ Finance dùng chuẩn (TransactionModal:132, ClassFeeCollectionModal:220, Financ
 
 **Quy tắc bất biến khi thực thi (ADR-030):**
 1. Không đổi layout nghiệp vụ — chỉ đổi class/token (bảng mapping DS §9).
-2. Không đụng file exempt (Certificate, AnswerSheetModal, ExamScanModal, print CSS, branches.ts).
+2. Không đụng file exempt (Certificate, AnswerSheetModal, ExamScanModal, print CSS, branches.ts). `ExamSessionView` chỉ được điều chỉnh responsive khi có yêu cầu trực tiếp: mobile dùng header dọc, touch target tối thiểu 44px, thẻ phiên hai hàng và action-grid ưu tiên Quét Phiếu; không thay đổi luồng chấm, quyền hay OMR.
 3. Mỗi pha: `tsc` + `lint:ds` + test liên quan phải xanh trước khi đóng.
 4. Cập nhật docs đồng bộ (DS §12, AI_CONTEXT_MAP, báo cáo này).
 
