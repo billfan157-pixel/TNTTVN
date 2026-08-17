@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: parish_tntt_app
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      # BẮT BUỘC set JWT_SECRET + JWT_REFRESH_SECRET trong .env — không có fallback
+      # (fallback mặc định cũ bị lộ trong repo = ai cũng ký giả token được).
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — set it in .env}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required — set it in .env}
+      - BACKUP_DIR=/app/backups
+      - DB_PATH=/app/data/parish.db
+      - TRUST_PROXY=true
+      # A15 (2026-08-10): getClientIp chỉ tin proxy header khi có flag này.
+      # docker-compose có Nginx đứng trước (nginx.conf ghi đè X-Real-IP/X-Forwarded-For)
+      # → BẮT BUỘC bật. Deploy trực tiếp (Railway DOCKERFILE không proxy) KHÔNG bật.
+      # A-NEW-28 (2026-08-11): A-NEW-21 — /ready + /metrics giờ FAIL-CLOSED (thiếu
+      # OPS_TOKEN → 403). Set OPS_TOKEN để unlock monitoring (healthcheck vẫn dùng
+      # /health public nên không bị ảnh hưởng). Railway: set OPS_TOKEN trong dashboard.
+      - OPS_TOKEN=${OPS_TOKEN:-}
+    volumes:
+      - parish_data:/app/data
+      - parish_backups:/app/backups
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: parish_tntt_web
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+
+volumes:
+  parish_data:
+  parish_backups:

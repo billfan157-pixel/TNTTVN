@@ -1,0 +1,485 @@
+import React from 'react';
+import { useStudentStore } from '../../stores/studentStore';
+import { useGradeStore } from '../../stores/gradeStore';
+import { useFilterStore } from '../../stores/filterStore';
+import { Student } from '../../types';
+import { useClassStore } from '../../stores/classStore';
+import { BRANCHES } from '../../constants/branches';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { useAuth } from '../../hooks/useAuth';
+import { PromotionPanel } from '../desktop/PromotionPanel';
+import { 
+  Phone, UserPlus, Search, Edit3, 
+  Trash2, Printer, Upload, ChevronLeft, ChevronRight, School, CheckSquare,
+  Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA
+} from 'lucide-react';
+import { sortStudentsByClassHierarchy } from '../../utils/classSort';
+
+interface MobileStudentsViewProps {
+  onOpenAddStudent: () => void;
+  onImportStudents: () => void;
+  onEditStudent: (student: Student) => void;
+  onViewReport: (student: Student) => void;
+  onPrintReport: (student: Student) => void;
+  onNavigateToClasses: () => void;
+  onSendReportCards?: () => void;
+  sendingCards?: boolean;
+  cardError?: string | null;
+  onViewPhotoCard?: (student: Student) => void;
+  onViewCertificate?: (student: Student) => void;
+}
+
+export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
+  onOpenAddStudent,
+  onImportStudents,
+  onEditStudent,
+  onViewReport,
+  onPrintReport,
+  onNavigateToClasses,
+  onSendReportCards,
+  sendingCards,
+  cardError,
+  onViewPhotoCard,
+  onViewCertificate,
+}) => {
+  const students = useStudentStore(s => s.students)
+  const deleteStudent = useStudentStore(s => s.deleteStudent)
+  const deleteStudents = useStudentStore(s => s.deleteStudents)
+  const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
+  const classList = useClassStore(s => s.getClassList)()
+  const findClassById = useClassStore(s => s.findClassById)
+  const selectedClassId = useFilterStore(s => s.selectedClassId)
+  const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
+  const selectedBranchId = useFilterStore(s => s.selectedBranchId)
+  const searchQuery = useFilterStore(s => s.searchQuery)
+  const setSearchQuery = useFilterStore(s => s.setSearchQuery)
+  const selectedSemester = useFilterStore(s => s.selectedSemester)
+
+  const pagination = useStudentStore(s => s.pagination)
+  const setPagination = useStudentStore(s => s.setPagination)
+
+  const [pageSize, setPageSize] = React.useState(pagination.limit || 50)
+  const [page, setPage] = React.useState(pagination.page || 1)
+
+  const hasClasses = useClassStore(s => s.classes.length > 0)
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [selectedClassId, selectedBranchId, searchQuery])
+
+  const [sortClassDirection, setSortClassDirection] = React.useState<'asc' | 'desc' | null>(null)
+
+  const filteredStudents = React.useMemo(() => {
+    return students.filter(s => {
+      if (selectedBranchId !== 'all' && s.branch !== selectedBranchId) return false;
+      if (selectedClassId !== 'all' && s.classId !== selectedClassId) return false;
+      if (searchQuery.trim() !== '') {
+        const q = searchQuery.toLowerCase();
+        const matchHoly = s.holyName.toLowerCase().includes(q);
+        const matchFull = s.fullName.toLowerCase().includes(q);
+        const matchCode = s.code.toLowerCase().includes(q);
+        if (!matchHoly && !matchFull && !matchCode) return false;
+      }
+      return true;
+    });
+  }, [students, selectedBranchId, selectedClassId, searchQuery]);
+
+  const sortedStudents = React.useMemo(() => {
+    if (!sortClassDirection) return filteredStudents
+    return sortStudentsByClassHierarchy(filteredStudents, findClassById, sortClassDirection)
+  }, [filteredStudents, sortClassDirection, findClassById])
+
+  const totalFiltered = sortedStudents.length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const start = (safePage - 1) * pageSize
+  const pagedStudents = sortedStudents.slice(start, start + pageSize)
+
+  const handlePageChange = (nextPage: number) => {
+    setPage(nextPage)
+  }
+
+  const handlePageSizeChange = (nextSize: number) => {
+    setPageSize(nextSize)
+    setPage(1)
+  }
+
+  const [pendingDelete, setPendingDelete] = React.useState<Student | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = React.useState(false);
+  const [selectionMode, setSelectionMode] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [showPromotions, setShowPromotions] = React.useState(false);
+  const [confirmSendCards, setConfirmSendCards] = React.useState(false);
+
+  const { can, role } = useAuth();
+  const canDelete = can('admin');
+  const canPromoteAction = can('admin', 'chunhiem');
+
+  const handleDelete = (s: Student) => {
+    setPendingDelete(s);
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectionMode = () => {
+    setSelectionMode(prev => {
+      const next = !prev;
+      if (!next) setSelectedIds(new Set());
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const selectedStudents = students.filter(s => selectedIds.has(s.id));
+
+  const buildBulkDeleteMessage = (list: Student[]): string => {
+    const count = list.length;
+    if (!count) return '';
+    const shown = list.slice(0, 4).map(s => `${s.holyName} ${s.fullName}`).join(', ');
+    const suffix = count > 4 ? ` và ${count - 4} thiếu nhi khác` : '';
+    return `Bạn có chắc chắn muốn xóa ${count} thiếu nhi đã chọn? (${shown}${suffix})`;
+  };
+
+  return (
+    <>
+    <div className="mobile-screen mobile-screen--stack">
+      {/* View Switcher & Send Report Cards Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowPromotions(false)}
+            className={`btn mobile-btn rounded-full ${!showPromotions ? 'btn-primary' : 'btn-secondary'}`}
+          >
+            <Users size={14} /> Danh Sách
+          </button>
+          {canPromoteAction && (
+            <button
+              onClick={() => setShowPromotions(true)}
+              className={`btn mobile-btn rounded-full ${showPromotions ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              <TrendingUp size={14} /> Thăng Tiến
+            </button>
+          )}
+        </div>
+        {onSendReportCards && (
+          <button
+            onClick={() => setConfirmSendCards(true)}
+            disabled={sendingCards}
+            className="btn btn-primary mobile-btn rounded-full"
+          >
+            <Send size={14} /> {sendingCards ? 'Đang gửi...' : 'Gửi Kết Quả Học Tập'}
+          </button>
+        )}
+      </div>
+
+      {cardError && (
+        <div className="flex items-center gap-1.5 p-2.5 rounded-xl bg-[var(--color-parish-danger-bg)] border border-[var(--color-parish-danger)] text-xs font-semibold text-[var(--color-parish-danger-hover)]">
+          <AlertCircle size={16} />
+          <span>{cardError}</span>
+        </div>
+      )}
+
+      {showPromotions ? (
+        <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
+      ) : (
+        <>
+          {/* Search & Add */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="text-text-placeholder absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Tìm thiếu nhi..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="form-input-sm w-full"
+          />
+        </div>
+
+        {canDelete && (
+          <button
+            onClick={toggleSelectionMode}
+            className="btn btn-secondary mobile-btn rounded-full px-3 text-xs whitespace-nowrap"
+            aria-label={selectionMode ? 'Kết thúc chọn nhiều' : 'Chọn nhiều thiếu nhi'}
+          >
+            <CheckSquare size={14} /> {selectionMode ? 'Xong' : 'Chọn nhiều'}
+          </button>
+        )}
+
+        <button onClick={onImportStudents} className="btn btn-secondary mobile-btn rounded-full px-3 text-xs">
+          <Upload size={14} /> Excel
+        </button>
+        <button onClick={onOpenAddStudent} className="btn btn-primary mobile-btn rounded-full px-4">
+          <UserPlus size={16} /> Thêm
+        </button>
+      </div>
+
+      {!hasClasses && (
+        <div className="flex items-start gap-2 p-2.5 rounded-xl bg-[var(--color-parish-warning-bg)] border border-[var(--color-parish-warning)]">
+          <School size={16} className="text-parish-secondary shrink-0 mt-0.5" />
+          <p className="m-0 text-xs font-semibold text-[var(--color-parish-warning-hover)] leading-relaxed">
+            Chưa có lớp học nào. Import Excel sẽ tự động tạo lớp mới từ cột "Lớp" trong file, hoặc bạn có thể tạo lớp thủ công.
+            <span role="button" onClick={onNavigateToClasses} className="text-parish-primary font-bold underline cursor-pointer">
+              {' '}Tạo lớp →
+            </span>
+          </p>
+        </div>
+      )}
+
+      {/* Class Selector Pill Bar (admin only — GLV only sees their assigned classes) */}
+      {role === 'admin' && (
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        <button
+          onClick={() => setSelectedClassId('all')}
+          className={`py-2 px-4 rounded-2xl border-none min-h-[44px] text-xs font-bold whitespace-nowrap ${selectedClassId === 'all' ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}
+        >
+          Tất cả lớp
+        </button>
+        {classList.map(c => (
+          <button
+            key={c.id}
+            onClick={() => setSelectedClassId(c.id)}
+            className={`py-2 px-4 rounded-2xl border-none min-h-[44px] text-xs font-bold whitespace-nowrap ${selectedClassId === c.id ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+      )}
+
+      {/* Sắp Xếp Cấp Bậc Lớp (Mobile Sort Bar) */}
+      <div className="flex items-center justify-between bg-surface-card p-2 rounded-2xl border border-surface-border gap-1 text-xs">
+        <span className="font-bold text-text-muted px-2">Sắp xếp:</span>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setSortClassDirection(prev => prev === 'asc' ? null : 'asc')}
+            className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 min-h-[44px] ${
+              sortClassDirection === 'asc'
+                ? 'bg-parish-primary text-white shadow-xs'
+                : 'bg-surface-app text-text-secondary hover:bg-surface-hover'
+            }`}
+          >
+            <ArrowDownAZ size={14} />
+            <span>Thấp → Cao</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortClassDirection(prev => prev === 'desc' ? null : 'desc')}
+            className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 min-h-[44px] ${
+              sortClassDirection === 'desc'
+                ? 'bg-parish-primary text-white shadow-xs'
+                : 'bg-surface-app text-text-secondary hover:bg-surface-hover'
+            }`}
+          >
+            <ArrowDownZA size={14} />
+            <span>Cao → Thấp</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Student List Cards */}
+      <div className="flex flex-col gap-3">
+        {pagedStudents.length === 0 ? (
+          <div className="bg-surface-card rounded-2xl text-text-muted text-center p-8">
+            Không tìm thấy thiếu nhi nào.
+          </div>
+        ) : (
+          pagedStudents.map(s => {
+            const branch = BRANCHES[s.branch];
+            const cls = findClassById(s.classId);
+            const avg = calculateStudentAvg(s.id, selectedSemester);
+
+            return (
+              <div
+                key={s.id}
+                className="bg-surface-card rounded-2xl p-4 shadow-card flex flex-col gap-3"
+                style={{
+                  position: 'relative',
+                  border: selectedIds.has(s.id) ? '2px solid var(--color-parish-danger)' : '1px solid var(--color-surface-border)'
+                }}
+              >
+                {selectionMode && (
+                  <div style={{ position: 'absolute', top: '12px', left: '12px' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id)}
+                      onChange={() => toggleSelect(s.id)}
+                      className="w-5 h-5 accent-[var(--color-parish-danger)] cursor-pointer"
+                      aria-label={`Chọn ${s.holyName} ${s.fullName}`}
+                    />
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingLeft: selectionMode ? '32px' : 0 }}>
+                  <div className="min-w-0 overflow-hidden">
+                    <div className="text-parish-secondary text-sm font-extrabold truncate">
+                      {s.holyName || '-'}
+                    </div>
+                    <div className="text-parish-primary text-sm font-bold truncate">
+                      {s.fullName}
+                    </div>
+                    <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5">
+                      <span className="badge" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
+                        {branch?.name}
+                      </span>
+                      <span>• {cls?.name}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0 ml-2">
+                    <div className="text-parish-primary text-[15px] font-extrabold">
+                      {avg.score !== null ? avg.score : '-'}
+                    </div>
+                    <span className="badge badge-primary" style={{ fontSize: '10px' }}>
+                      {avg.label}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Info row */}
+                <div className="bg-surface-app text-text-secondary flex items-center justify-between text-xs p-2 rounded-md">
+                  <div className="min-w-0 truncate">
+                    Phụ huynh: <strong>{s.parentName}</strong>
+                  </div>
+                  {s.parentPhone && (
+                      <a 
+                      href={`tel:${s.parentPhone}`} 
+                      className="text-parish-primary no-underline font-bold flex items-center gap-1 shrink-0 ml-2"
+                    >
+                      <Phone size={12} /> Gọi PH
+                    </a>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end gap-1.5 border-t border-surface-hover pt-2">
+                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary mobile-btn">
+                    <Printer size={12} /> In Phiếu
+                  </button>
+                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary mobile-btn">
+                    <Edit3 size={12} /> Sửa
+                  </button>
+                  {!selectionMode && canDelete && (
+                    <button onClick={() => handleDelete(s)} className="btn btn-secondary mobile-btn">
+                      <Trash2 size={12} className="text-parish-danger" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {totalFiltered > 0 && (
+        <div className="bg-surface-card rounded-2xl border border-surface-border p-3 flex items-center justify-between gap-3">
+            <select
+            value={pageSize}
+            onChange={(e) => {
+              const val = e.target.value
+              handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
+            }}
+            className="form-select text-xs"
+          >
+            <option value="50">50 / trang</option>
+            <option value="100">100 / trang</option>
+            <option value="200">200 / trang</option>
+            <option value="all">Tất cả</option>
+          </select>
+          <div className="text-text-muted text-xs font-semibold">Trang {safePage}/{totalPages}</div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handlePageChange(safePage - 1)}
+              disabled={safePage <= 1}
+              className="min-h-[44px] min-w-[44px] p-2 rounded-[10px] border border-[var(--color-border-input)] bg-[var(--color-surface-card)] flex items-center justify-center"
+              style={{ opacity: safePage <= 1 ? 0.4 : 1 }}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => handlePageChange(safePage + 1)}
+              disabled={safePage >= totalPages}
+              className="min-h-[44px] min-w-[44px] p-2 rounded-[10px] border border-[var(--color-border-input)] bg-[var(--color-surface-card)] flex items-center justify-center"
+              style={{ opacity: safePage >= totalPages ? 0.4 : 1 }}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+      </>
+      )}
+    </div>
+      {selectionMode && selectedStudents.length > 0 && (
+        <div className="mobile-bottom-action-bar">
+          <div className="mobile-bottom-action-bar__inner">
+          <p className="text-parish-danger m-0 text-[13px] font-bold">
+            Đã chọn {selectedStudents.length} thiếu nhi
+          </p>
+          <div className="flex gap-2">
+            <button onClick={clearSelection} className="btn btn-secondary mobile-btn">
+              Bỏ chọn
+            </button>
+            <button
+              onClick={() => setPendingBulkDelete(true)}
+              className="btn mobile-btn btn-danger"
+            >
+              <Trash2 size={14} /> Xóa
+            </button>
+          </div>
+          </div>
+        </div>
+      )}
+      <ConfirmDialog
+        isOpen={pendingBulkDelete}
+        title={`Xóa ${selectedStudents.length} thiếu nhi`}
+        message={buildBulkDeleteMessage(selectedStudents)}
+        confirmText="Xóa"
+        cancelText="Hủy"
+        variant="danger"
+        onConfirm={() => {
+          const ids = selectedStudents.map(s => s.id);
+          if (ids.length > 0) deleteStudents(ids);
+          clearSelection();
+          setPendingBulkDelete(false);
+          setSelectionMode(false);
+        }}
+        onCancel={() => setPendingBulkDelete(false)}
+      />
+      <ConfirmDialog
+        isOpen={!!pendingDelete}
+        title="Xóa thiếu nhi"
+        message={pendingDelete ? `Bạn có chắc chắn muốn xóa thiếu nhi ${pendingDelete.holyName} ${pendingDelete.fullName}?` : ''}
+        confirmText="Xóa"
+        cancelText="Hủy"
+        variant="danger"
+        onConfirm={() => {
+          if (pendingDelete) deleteStudent(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+      <ConfirmDialog
+        isOpen={confirmSendCards}
+        title="Gửi Kết Quả Học Tập"
+        message={`Bạn có chắc chắn muốn gửi kết quả học tập cho ${selectedStudents.length > 0 ? selectedStudents.length : totalFiltered} thiếu nhi?`}
+        confirmText="Gửi Kết Quả Học Tập"
+        cancelText="Hủy"
+        variant="info"
+        onConfirm={() => {
+          setConfirmSendCards(false);
+          onSendReportCards?.();
+        }}
+        onCancel={() => setConfirmSendCards(false)}
+      />
+    </>
+  );
+};

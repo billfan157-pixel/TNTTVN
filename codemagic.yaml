@@ -1,0 +1,91 @@
+# Codemagic CI/CD — TNTTVN (Capacitor: Web + Android + iOS)
+# Docs: https://docs.codemagic.io/yaml-basic-configuration/
+#
+# Workflows:
+#   ios    — build web → cap sync ios → Xcode archive → IPA → TestFlight
+#   android — build web → cap sync android → Gradle assemble → APK artifact
+#
+# Yêu cầu trước khi chạy (Codemagic UI):
+#   1. App Store Connect integration  (Settings → Integrations) — cần Apple Developer $99
+#   2. Code Signing cho com.tnttvn.app (Settings → Code signing / Apple Developer portal)
+#   3. Đăng ký bundle id com.tnttvn.app trên App Store Connect (trước lần publish đầu)
+
+workflows:
+
+  ios:
+    name: iOS Build + TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: TNTTVN App Store Connect
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tnttvn.app
+      xcode: latest
+      node: 22
+      vars:
+        VITE_API_BASE: https://tnttvn-production.up.railway.app/api
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Build web assets (tsc + vite, mode production → .env.production)
+        script: npm run build:frontend
+      - name: Sync Capacitor iOS
+        script: |
+          npx cap sync ios
+      - name: Build IPA (automatic signing + export options từ Codemagic)
+        script: |
+          cd ios/App
+          xcode-project build-ipa \
+            --workspace App.xcworkspace \
+            --scheme App \
+            --archive-flags "-destination generic/platform=iOS"
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - billfan157@gmail.com
+        notify:
+          success: true
+          failure: true
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - TNTTVN Beta Testers
+
+  android:
+    name: Android Debug APK
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      node: 22
+      java: 21
+      vars:
+        VITE_API_BASE: https://tnttvn-production.up.railway.app/api
+        GRADLE_WRAPPER_VERSION: 8.14.3
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Build web assets (tsc + vite, mode production → .env.production)
+        script: npm run build:frontend
+      - name: Sync Capacitor Android
+        script: |
+          npx cap sync android
+      - name: Build debug APK
+        script: |
+          cd android
+          ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk
+    publishing:
+      email:
+        recipients:
+          - billfan157@gmail.com
+        notify:
+          success: true
+          failure: true

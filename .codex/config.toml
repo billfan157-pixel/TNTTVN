@@ -1,0 +1,22 @@
+# Codex CLI project config (.codex/config.toml)
+# Docs: https://developers.openai.com/codex/config-file/config-reference
+#
+# NOTE: provider + API key are intentionally NOT set here. Codex ignores
+# model_provider/model_providers in a project-local config; it uses the
+# built-in "openai" provider and reads OPENAI_API_KEY from the environment.
+# (Set a custom provider/key in your user config ~/.codex/config.toml instead.)
+
+# Model: leave unset to use Codex's built-in default, or pin a coding model, e.g.:
+# model = "gpt-5.1-codex"
+
+# Approval policy:
+#   untrusted    -> default; prompts for every command/write (safest, most noisy)
+#   on-request   -> model decides when to ask; good for normal day-to-day coding
+#   never        -> auto-approves everything (use only in trusted sandboxes)
+approval_policy = "on-request"
+
+# Sandbox: allow writes within the workspace; network/exec still prompt when needed.
+sandbox_mode = "workspace-write"
+
+# Point file-opener / citation links at VS Code.
+file_opener = "vscode"

@@ -1,0 +1,55 @@
+- generic [ref=f8e3]:
+  - banner [ref=f8e4]:
+    - generic [ref=f8e5]:
+      - generic [ref=f8e12]:
+        - generic [ref=f8e13]:
+          - heading "Giáo Lý Thiếu Nhi Thánh Thể" [level=1] [ref=f8e14]
+          - generic [ref=f8e15]: Giáo Xứ Thánh Gia
+        - paragraph [ref=f8e16]: Sổ Điểm & Theo Dõi Học Tập • Niên Học 2025 - 2026 (15 Thiếu Nhi)
+      - generic [ref=f8e17]:
+        - textbox "Tìm tên, mã, Tên Thánh..." [ref=f8e22]
+        - generic [ref=f8e23]:
+          - button "HK I" [ref=f8e24] [cursor=pointer]
+          - button "HK II" [ref=f8e25] [cursor=pointer]
+        - generic [ref=f8e26]:
+          - button "Desktop" [ref=f8e27] [cursor=pointer]
+          - button "Mobile" [ref=f8e30] [cursor=pointer]
+        - button "Chuyển sang giao diện tối" [ref=f8e33] [cursor=pointer]
+        - button "Khôi phục dữ liệu gốc mẫu" [ref=f8e36] [cursor=pointer]
+  - generic [ref=f8e42]:
+    - complementary [ref=f8e43]:
+      - generic [ref=f8e44]:
+        - generic [ref=f8e45]: CHỨC NĂNG QUẢN LÝ
+        - navigation [ref=f8e46]:
+          - button "Tổng Quan Giáo Xứ" [ref=f8e47] [cursor=pointer]
+          - button "Danh Sách Thiếu Nhi" [ref=f8e56] [cursor=pointer]
+          - button "Nhập Điểm Hàng Loạt" [ref=f8e63] [cursor=pointer]
+          - button "Điểm Danh Chuyên Cần" [ref=f8e68] [cursor=pointer]
+          - button "Báo Cáo & In Phiếu" [ref=f8e73] [cursor=pointer]
+          - button "Thông Báo Giáo Xứ" [ref=f8e79] [cursor=pointer]
+      - generic [ref=f8e84]:
+        - generic [ref=f8e85]: LỌC PHÂN ĐOÀN & LỚP
+        - generic [ref=f8e89]:
+          - generic [ref=f8e90]: Phân Ngành TNTT
+          - combobox [ref=f8e91]:
+            - option "Tất cả các Ngành" [selected]
+            - option "Chiên Con (4 - 6 tuổi)"
+            - option "Ấu Nhi (7 - 9 tuổi)"
+            - option "Thiếu Nhi (10 - 12 tuổi)"
+            - option "Nghĩa Sĩ (13 - 15 tuổi)"
+            - option "Hiệp Sĩ (16 - 18 tuổi)"
+        - generic [ref=f8e92]:
+          - generic [ref=f8e93]: Lớp Giáo Lý
+          - combobox [ref=f8e94]:
+            - option "Tất cả các Lớp" [selected]
+            - option "Chiên Con 1"
+            - option "Ấu Nhi 1"
+            - option "Ấu Nhi 2 (Rơmêô)"
+            - option "Thiếu Nhi 1"
+            - option "Thiếu Nhi 2 (Rơmêô)"
+            - option "Nghĩa Sĩ 1"
+            - option "Hiệp Sĩ 1"
+      - generic [ref=f8e95]:
+        - paragraph [ref=f8e96]: Ban Giáo Lý Giáo Xứ
+        - paragraph [ref=f8e97]: Phiên bản Desktop UI 2.0
+    - main [ref=f8e98]

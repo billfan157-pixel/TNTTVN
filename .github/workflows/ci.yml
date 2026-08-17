@@ -1,0 +1,39 @@
+name: Parish LMS Enterprise CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    name: Lint, Typecheck, Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --allow-remote=all
+
+      - name: Run ESLint
+        run: npm run lint --if-present
+
+      - name: Typecheck TypeScript
+        run: |
+          npx tsc -b --noEmit
+          npx tsc --noEmit -p server/tsconfig.json
+
+      - name: Run Full Vitest Test Suite
+        run: npx vitest run --fileParallelism=false
+
+      - name: Build Web Application & Backend
+        run: npm run build

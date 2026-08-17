@@ -1,0 +1,10 @@
+{
+  "name": "TNTT Parish Management Platform",
+  "description": "Hệ thống quản lý điểm số, chuyên cần và phụ huynh cho Thiếu Nhi Thánh Thể Giáo Xứ Gia Tôn",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

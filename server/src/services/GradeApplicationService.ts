@@ -1,0 +1,195 @@
+import { db } from '../db/index.js'
+import { drizzleGradeRepository, DrizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
+import { canOverrideGradeSpecification, CanOverrideGradeSpecification } from '../domain/CanOverrideGradeSpecification.js'
+import { semesterLockSpecification, SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import { GradeAggregate, type ScoreField } from '../domain/GradeAggregate.js'
+import { getCurrentPolicyVersionId } from './parishSettingsService.js'
+
+export interface OverrideScoreCommand {
+  gradeId: string
+  studentId?: string
+  scoreField: ScoreField
+  manualValue: number
+  reasonCode?: string
+  reasonNote?: string | null
+  userId: string
+  parishId: string
+  ip: string
+  userAgent: string
+  idempotencyKey?: string
+}
+
+export interface RestoreScoreCommand {
+  gradeId: string
+  scoreField: ScoreField
+  userId: string
+  parishId: string
+  ip: string
+  userAgent: string
+}
+
+export class GradeApplicationService {
+  private gradeRepo: DrizzleGradeRepository
+  private spec: CanOverrideGradeSpecification
+  private semesterLockSpec: SemesterLockSpecification
+
+  constructor(
+    gradeRepo: DrizzleGradeRepository = drizzleGradeRepository,
+    spec: CanOverrideGradeSpecification = canOverrideGradeSpecification,
+    semesterLockSpec: SemesterLockSpecification = semesterLockSpecification
+  ) {
+    this.gradeRepo = gradeRepo
+    this.spec = spec
+    this.semesterLockSpec = semesterLockSpec
+  }
+
+  public async overrideScore(cmd: OverrideScoreCommand) {
+    return db.transaction(async (tx) => {
+      // 0. Get current policy version ID for audit trail
+      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId)
+
+      // 1. Load Grade Record & Active Overrides
+      const gradeRecord = await this.gradeRepo.findById(cmd.gradeId, cmd.parishId, tx)
+      if (!gradeRecord) {
+        const err = new Error('Grade record not found') as any
+        err.status = 404
+        throw err
+      }
+
+      // 2. Check Semester Lock Specification FIRST
+      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(
+        gradeRecord.academicYear,
+        gradeRecord.semester,
+        cmd.parishId
+      )
+      if (!isSemesterUnlocked) {
+        const err = new Error(`Học kỳ ${gradeRecord.semester} năm học ${gradeRecord.academicYear} đã bị khóa sổ điểm. Không thể chỉnh sửa điểm.`) as any
+        err.status = 403
+        throw err
+      }
+
+      // 3. Check Class Access Permission Specification (TOCTOU safe - inside transaction)
+      if (cmd.studentId && cmd.studentId !== gradeRecord.studentId) {
+        const err = new Error('Thông tin học sinh không khớp với điểm') as any
+        err.status = 400
+        throw err
+      }
+      
+      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId)
+      if (!isAuthorized) {
+        const err = new Error('Bạn không có quyền ghi đè điểm cho thiếu nhi này') as any
+        err.status = 403
+        throw err
+      }
+
+      const overrides = await this.gradeRepo.findActiveOverrides(gradeRecord.id, cmd.parishId, tx)
+
+      // 4. Instantiate Aggregate & execute Domain Invariant (now with policyVersionId)
+      const aggregate = new GradeAggregate(gradeRecord, overrides)
+      const overrideDTO = aggregate.override(
+        cmd.scoreField,
+        cmd.manualValue,
+        cmd.reasonCode || 'TeacherAdjustment',
+        cmd.reasonNote,
+        cmd.userId,
+        policyVersionId
+      )
+
+      // 5. Save Aggregate via Repository with Real SQL Optimistic Locking
+      await this.gradeRepo.save(
+        aggregate,
+        cmd.userId,
+        cmd.parishId,
+        cmd.ip,
+        cmd.userAgent,
+        cmd.idempotencyKey,
+        tx
+      )
+
+      return overrideDTO
+    })
+  }
+
+  public async restoreScore(cmd: RestoreScoreCommand) {
+    return db.transaction(async (tx) => {
+      // 0. Get current policy version ID for audit trail
+      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId)
+
+      // 1. Load Grade Record
+      const gradeRecord = await this.gradeRepo.findById(cmd.gradeId, cmd.parishId, tx)
+      if (!gradeRecord) return null
+
+      // 2. Check Semester Lock Specification FIRST
+      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(
+        gradeRecord.academicYear,
+        gradeRecord.semester,
+        cmd.parishId
+      )
+      if (!isSemesterUnlocked) {
+        const err = new Error(`Học kỳ ${gradeRecord.semester} năm học ${gradeRecord.academicYear} đã bị khóa sổ điểm. Không thể khôi phục điểm.`) as any
+        err.status = 403
+        throw err
+      }
+
+      // 3. Check Class Access Permission Specification
+      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId)
+      if (!isAuthorized) {
+        const err = new Error('Bạn không có quyền khôi phục điểm cho thiếu nhi này') as any
+        err.status = 403
+        throw err
+      }
+
+      const overrides = await this.gradeRepo.findActiveOverrides(gradeRecord.id, cmd.parishId, tx)
+      const aggregate = new GradeAggregate(gradeRecord, overrides)
+
+      const restoredRecord = aggregate.restore(cmd.scoreField, cmd.userId, policyVersionId)
+      if (!restoredRecord) return null
+
+      await this.gradeRepo.save(
+        aggregate,
+        cmd.userId,
+        cmd.parishId,
+        cmd.ip,
+        cmd.userAgent,
+        undefined,
+        tx
+      )
+
+      return restoredRecord
+    })
+  }
+
+  public async getOverrideHistory(gradeId: string, parishId: string) {
+    return this.gradeRepo.findOverrideHistory(gradeId, parishId)
+  }
+
+  public async restoreScoreBatch(
+    items: { gradeId: string; scoreField: ScoreField }[],
+    userId: string,
+    parishId: string,
+    ip: string,
+    userAgent: string
+  ) {
+    const results: { gradeId: string; scoreField: string; status: 'restored' | 'error'; error?: string }[] = []
+
+    for (const item of items) {
+      try {
+        await this.restoreScore({
+          gradeId: item.gradeId,
+          scoreField: item.scoreField,
+          userId,
+          parishId,
+          ip,
+          userAgent,
+        })
+        results.push({ gradeId: item.gradeId, scoreField: item.scoreField, status: 'restored' })
+      } catch (err: any) {
+        results.push({ gradeId: item.gradeId, scoreField: item.scoreField, status: 'error', error: err.message || 'Unknown error' })
+      }
+    }
+
+    return results
+  }
+}
+
+export const gradeApplicationService = new GradeApplicationService()

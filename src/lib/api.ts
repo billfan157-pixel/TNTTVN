@@ -1,0 +1,771 @@
+import React from 'react'
+import type {
+  ReportCardDTO,
+  LeaveRequest,
+  Fund,
+  FinancialTransaction,
+  StudentFeeRecord,
+  FinanceSummary,
+  CreateTransactionInput,
+  CreateFundInput,
+} from '../types'
+import { clearAuthSnapshot } from './db'
+
+// SECURITY (2026-08-11) — A-NEW-10 hardening: access token CHỈ tồn tại trong MEMORY.
+// Trước đây persist ở localStorage (parish_access_token) → XSS cùng origin đọc được
+// (dù TTL 15 phút). Giờ:
+// - setTokens: chỉ set memory, KHÔNG ghi localStorage.
+// - loadTokensFromStorage: KHÔNG đọc token từ localStorage — chỉ dọn legacy key.
+//   Sau reload, access token được lấy lại qua POST /auth/refresh (HttpOnly cookie)
+//   — xem bootstrapAccessToken().
+// - clearTokens: xóa memory + dọn mọi legacy key phòng trường hợp version cũ để sót.
+let accessToken: string | null = null
+
+// A-NEW-27 (2026-08-11): KHÔNG import static { router } từ '../router' — tạo chu kỳ
+// import tròn (api → router → stores → api) → stores gọi isAuthenticated() lúc module
+// đang khởi tạo → ReferenceError TDZ (accessToken chưa init). Thay bằng handler
+// navigate-to-login được đăng ký sau khi router tạo xong (router.tsx) — phá vòng,
+// vẫn giữ router navigate (preserve React state) thay cho window.location.
+let navigateToLogin: (() => void) | null = null
+export function setNavigateToLogin(fn: () => void): void {
+  navigateToLogin = fn
+}
+
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+export function getAccessToken(): string | null {
+  return accessToken
+}
+
+/**
+ * SECURITY (2026-08-11) — A-NEW-10 hardening: helper xác định "đã đăng nhập".
+ * Access token memory-only → sau reload memory rỗng dù session còn hợp lệ (cookie).
+ * Session state persist ở `parish_current_user` (authStore) — dùng nó làm nguồn
+ * xác thực cho guard/fetch-skip, KHÔNG dùng access token.
+ */
+export function isAuthenticated(): boolean {
+  if (accessToken) return true
+  try {
+    return !!localStorage.getItem('parish_current_user')
+  } catch {
+    return false
+  }
+}
+
+// A12: key idempotency cho retry an toàn (ổn định trong cả chuỗi retry của request(),
+// vì nó được tạo một lần ở wrapper API trước khi request() được gọi).
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+}
+
+// A-NEW-01 (2026-08-10): client CHỈ nhận access token. Refresh token không bao giờ
+// tồn tại trong JS state — nguồn duy nhất là HttpOnly cookie (server set/rotate).
+export function setTokens(access: string) {
+  accessToken = access
+  // SECURITY (2026-08-11): KHÔNG persist access token vào localStorage nữa — chỉ
+  // memory. Xóa key cũ nếu còn sót từ version trước (dọn dẹp phòng thủ).
+  try {
+    localStorage.removeItem('parish_access_token')
+    localStorage.removeItem('parish_refresh_token')
+  } catch {
+    // Ignore storage issues
+  }
+}
+
+export function loadTokensFromStorage() {
+  // SECURITY (2026-08-11): KHÔNG đọc access token từ localStorage — memory-only.
+  // Sau reload, access token được lấy lại qua refresh cookie (bootstrapAccessToken).
+  // Chỉ dọn legacy key phòng version cũ để sót.
+  try {
+    localStorage.removeItem('parish_access_token')
+    localStorage.removeItem('parish_refresh_token')
+  } catch {
+    // Ignore
+  }
+}
+
+export const loadTokens = loadTokensFromStorage
+
+export function clearTokens() {
+  accessToken = null
+  try {
+    localStorage.removeItem('parish_access_token')
+    localStorage.removeItem('parish_refresh_token')
+  } catch {
+    // Ignore
+  }
+}
+
+type RefreshResult = 'success' | 'auth_failed' | 'network_offline'
+let refreshPromise: Promise<RefreshResult> | null = null
+
+/**
+ * Refresh access token with mutex to prevent concurrent refresh calls.
+ * Multiple parallel 401 responses will share the same refresh promise.
+ * A-NEW-01/02: refresh qua HttpOnly cookie (credentials include) — không body token.
+ * FE-01 (2026-08-14): phân biệt rõ ràng giữa network offline và auth failure (401/403).
+ */
+async function refreshAccessToken(): Promise<RefreshResult> {
+  // If a refresh is already in progress, wait for it
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = doRefresh()
+  try {
+    return await refreshPromise
+  } finally {
+    refreshPromise = null
+  }
+}
+
+async function doRefresh(): Promise<RefreshResult> {
+  // A01 Phase 1 + A-NEW-01/02: token chỉ nằm trong HttpOnly cookie (credentials:
+  // 'include' gửi kèm). KHÔNG gửi refresh token trong body — JS không có token này.
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return 'network_offline'
+  }
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        clearTokens()
+        return 'auth_failed'
+      }
+      return 'network_offline'
+    }
+    const data = await res.json()
+    const tokens = data.data || data
+    setTokens(tokens.accessToken)
+    return 'success'
+  } catch {
+    return 'network_offline'
+  }
+}
+
+function redirectToLogin() {
+  clearTokens()
+  // ADR-045: snapshot mã hóa (PII) cũng phải dọn — tránh PII mồ côi trong Dexie
+  // khi session chết bất ngờ (401) mà không qua authStore.logout().
+  clearAuthSnapshot()
+  try {
+    localStorage.removeItem('parish_current_user')
+  } catch {
+    // Ignore
+  }
+  // A-NEW-27: dùng router navigate (đã đăng ký qua setNavigateToLogin) để preserve
+  // React state; fallback window.location nếu chưa có handler (vd test / startup edge).
+  if (navigateToLogin) {
+    try {
+      navigateToLogin()
+      return
+    } catch {
+      // fallthrough → window.location
+    }
+  }
+  window.location.href = '/login'
+}
+
+/**
+ * SECURITY (2026-08-11) — A-NEW-10 hardening: khôi phục access token sau reload.
+ * Access token KHÔNG còn persist ở localStorage → sau reload memory rỗng. Hàm này
+ * gọi POST /auth/refresh (HttpOnly cookie — A-NEW-01/02) để lấy access token mới.
+ * - Refresh thành công → setTokens(access) → memory có token, app hoạt động bình thường.
+ * - Refresh thất bại (cookie hết hạn / revoked) → clearTokens + trả false.
+ * - Offline (fetch lỗi) → trả false, KHÔNG xóa user — PWA offline vẫn xem dữ liệu đã sync (FE-01).
+ */
+export async function bootstrapAccessToken(): Promise<boolean> {
+  if (accessToken) return true
+  const res = await refreshAccessToken()
+  return res === 'success'
+}
+
+const MAX_RETRIES = 3
+const RETRY_BASE_MS = 1000
+
+/**
+ * A12 (2026-08-10): retry tự động chỉ an toàn với method idempotent.
+ * - GET / HEAD / PUT / DELETE → retry (PUT/DELETE idempotent theo HTTP spec;
+ *   replay sau commit không tạo thêm side-effect).
+ * - POST / PATCH → retry CHỈ khi có Idempotency-Key (server dedup — students/classes/
+ *   exams/grade-override đã hỗ trợ). Key có thể nằm ở header (overrideGrade) hoặc
+ *   body (createStudent/createClass/createExam — truyền qua `allowRetry`).
+ *   KHÔNG retry mù: nếu server đã commit mà response mất trên đường truyền, retry
+ *   sẽ nhân đôi mutation.
+ * Trước A12: network error / 5xx đều retry kể cả POST → duplicate users/notices/
+ * notifications/import khi WiFi yếu (bối cảnh giáo xứ).
+ */
+function canAutoRetry(method: string, customHeaders?: Record<string, string>, allowRetry = false): boolean {
+  if (method === 'GET' || method === 'HEAD' || method === 'PUT' || method === 'DELETE') return true
+  if (method === 'POST' || method === 'PATCH') {
+    if (allowRetry) return true
+    return !!(customHeaders?.['Idempotency-Key'] || customHeaders?.['x-idempotency-key'])
+  }
+  return false
+}
+
+/**
+ * Core request function with:
+ * - JWT auto-refresh with mutex (prevents concurrent refresh race)
+ * - Retry logic with exponential backoff for transient failures (method-aware — A12)
+ * - Proper error classification
+ */
+async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json'): Promise<T> {
+  // SECURITY (2026-08-11): KHÔNG nạp access token từ localStorage — memory-only.
+  // Nếu memory rỗng (sau reload), caller phải gọi bootstrapAccessToken() trước
+  // (xem authStore.loadFromStorage / main.tsx). Refresh token nguồn duy nhất là
+  // HttpOnly cookie (gửi tự động qua credentials: 'include').
+
+  const isAuthRoute = path.startsWith('/auth/')
+  if (!isAuthRoute && !accessToken) {
+    // SECURITY (2026-08-11) — A-NEW-10 hardening: memory rỗng (sau reload) →
+    // thử bootstrap qua HttpOnly cookie TRƯỚC khi gọi API.
+    // FE-01 (2026-08-14): Phân biệt offline và auth failure:
+    // - auth_failed (401/403) -> redirectToLogin()
+    // - network_offline -> ném ApiError(0) để offline/IndexedDB fallback xử lý, KHÔNG logout local.
+    const refreshRes = await refreshAccessToken()
+    if (refreshRes === 'auth_failed') {
+      redirectToLogin()
+      throw new ApiError(401, 'Unauthorized — login required', path)
+    }
+    if (refreshRes === 'network_offline' || !accessToken) {
+      throw new ApiError(0, 'Network offline — cannot reach server', path)
+    }
+  }
+
+  const url = `${API_BASE}${path}`
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(customHeaders || {}) }
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      // A01 Phase 1: bắt buộc để gửi/nhận HttpOnly cookie refresh (cùng site
+      // & cross-origin khi API server riêng).
+      credentials: 'include',
+    })
+  } catch {
+    // Network error — A12: chỉ retry method idempotent (hoặc có Idempotency-Key)
+    if (canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
+      await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
+      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry)
+    }
+    throw new ApiError(0, 'Network error — unable to reach server', path)
+  }
+
+  // Handle 401 with mutex refresh or redirect to login (trừ auth routes như /auth/login, /auth/refresh)
+  if (res.status === 401 && !isAuthRoute) {
+    // A01 Phase 1 + A-NEW-01: refresh qua HttpOnly cookie (không cần memory token —
+    // sau reload cookie vẫn hiệu lực).
+    const refreshRes = await refreshAccessToken()
+    if (refreshRes === 'success') {
+      headers['Authorization'] = `Bearer ${accessToken}`
+      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, credentials: 'include' })
+    } else if (refreshRes === 'auth_failed') {
+      redirectToLogin()
+      throw new ApiError(401, 'Session expired — redirecting to login', path)
+    } else {
+      // network offline
+      throw new ApiError(0, 'Network offline — cannot refresh session', path)
+    }
+  }
+
+  // Handle 5xx with retry — A12: chỉ method idempotent (hoặc có Idempotency-Key)
+  if (res.status >= 500 && canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
+    await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
+    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry)
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let details: any = undefined
+    let issues: any[] | undefined
+    let customMessage: string | undefined
+    try {
+      const parsed = JSON.parse(text)
+      details = parsed?.error?.details
+      // ADR-016 (sync-fix): zValidator 400 trả { success:false, error:{ issues:[...] } }.
+      // Lưu issues để batch handler cách ly đúng record lỗi (thay vì retry mù cả batch),
+      // và dựng message đọc được thay vì dump cả JSON vào console/UI.
+      issues = Array.isArray(parsed?.error?.issues) ? parsed.error.issues : undefined
+      // ADR-016 (users): Server trả error.message rõ ràng (vd USERNAME_EXISTS 409) —
+      // phải ưu tiên lấy nó, nếu không UI hiển thị cả chuỗi JSON.
+      if (typeof parsed?.error?.message === 'string' && parsed.error.message) {
+        customMessage = parsed.error.message
+      }
+    } catch {}
+    let message = text || res.statusText
+    if (customMessage) {
+      message = customMessage
+    } else if (issues && issues.length > 0) {
+      const first = issues[0]
+      const field = Array.isArray(first?.path) && first.path.length > 0
+        ? first.path.map(String).join('.')
+        : undefined
+      message = issues.slice(0, 2).map((i: any) => i?.message || 'dữ liệu không hợp lệ').join('; ')
+      if (field) message = `[${field}] ${message}`
+    }
+    // 502 từ Vite proxy khi backend (Hono :3001) không chạy — body thường là HTML/plain
+    // "Bad Gateway" của proxy, không phải JSON từ server. Thay bằng message hướng dẫn.
+    if (res.status === 502 && !customMessage && !issues) {
+      message = 'Không thể kết nối máy chủ — backend đang không chạy. Hãy mở `npm run dev:server` (hoặc `npm run dev:all`).'
+    }
+    const err = new ApiError(res.status, message, path)
+    ;(err as any).details = details
+    ;(err as any).issues = issues
+    throw err
+  }
+
+  if (res.status === 204) return undefined as T
+  if (responseType === 'blob') {
+    return res.blob() as Promise<T>
+  }
+  const json = await res.json()
+  if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+    return json.data as T
+  }
+  return json as T
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** Race p với deadline — trả fallback khi quá hạn; luôn clear timer (không leak). */
+function withDeadline<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<T>(resolve => {
+    timer = setTimeout(() => resolve(fallback), ms)
+  })
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
+}
+
+export class ApiError extends Error {
+  status: number
+  path: string
+  constructor(status: number, message: string, path: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.path = path
+  }
+}
+
+export const httpFetch = {
+  get: <T>(path: string) => request<T>('GET', path),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
+  delete: <T>(path: string) => request<T>('DELETE', path),
+}
+
+  // ─── Auth & Entities API ───
+export const api = {
+  login: (username: string, password: string) =>
+    request<{
+      user: { id: string; username: string; fullName: string; phone?: string | null; role: string; status: string; parishId: string; mustChangePassword?: number }
+      accessToken: string
+    }>('POST', '/auth/login', { username, password }),
+
+  // ADR-045 (2026-08-16): GET /auth/me — rebuild snapshot đăng nhập (PII) khi
+  // snapshot mã hóa local bị thiếu/hỏng (Dexie purge, khóa rotate, LAN không có crypto).
+  me: () =>
+    request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string }>('GET', '/auth/me'),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ success: boolean }>('POST', '/auth/change-password', { currentPassword, newPassword }),
+
+  // A06 (2026-08-10): admin-change-password / reset-password yêu cầu re-authentication —
+  // gửi kèm adminPassword (mật khẩu HIỆN TẠI của admin đang thao tác).
+  adminChangePassword: (userId: string, newPassword: string, adminPassword: string) =>
+    request<{ success: boolean; message: string }>('POST', '/auth/admin-change-password', { userId, newPassword, adminPassword }),
+
+  // ADR-042 (2026-08-15): phụ huynh tự đặt lại mật khẩu qua xác minh thông tin con
+  parentResetPassword: (data: { phone: string; childDob: string; childName: string; newPassword: string }) =>
+    request<{ success: boolean; message: string }>('POST', '/auth/parent-reset-password', data),
+
+  // ADR-039: phụ huynh không tự đổi SĐT — gửi phone undefined để server giữ nguyên
+  updateProfile: (fullName: string, phone?: string) =>
+    request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string }>('PUT', '/auth/profile', { fullName, phone }),
+
+  // A-NEW-01 (2026-08-10): JS không giữ refresh token nữa → logout không gửi body token;
+  // server revoke session qua HttpOnly cookie (credentials: 'include' đã bật sẵn).
+  logout: () => request<{ success: boolean }>('POST', '/auth/logout', {}),
+
+  // ─── Web Push ───
+  getVapidPublicKey: () =>
+    request<{ publicKey: string }>('GET', '/notifications/vapid-public-key'),
+
+  subscribePush: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    request<{ ok: boolean }>('POST', '/notifications/subscribe', sub),
+
+  unsubscribePush: (endpoint: string) =>
+    request<{ ok: boolean }>('POST', '/notifications/unsubscribe', { endpoint }),
+
+  // ─── Parents (Cổng Phụ Huynh) ───
+  getMyChildren: () => request<any[]>('GET', '/parents/my-children'),
+  getStudentReportCard: (studentId: string, academicYear: string) =>
+    request<ReportCardDTO>('GET', `/reports/report-card/${studentId}?academicYear=${encodeURIComponent(academicYear)}`),
+
+  // ADR-022: liên kết Telegram — PH tự quản lý (link token 10 phút / status / toggle / revoke)
+  getTelegramLinkStatus: () =>
+    request<Array<{ chatId: string; telegramUsername: string | null; status: string; notificationsEnabled: number; linkedAt: string | null; lastSeenAt: string | null }>>('GET', '/parents/telegram/status'),
+  createTelegramLinkToken: () =>
+    request<{ token: string; expiresAt: string }>('POST', '/parents/telegram/link-token', {}),
+  setTelegramNotifications: (enabled: boolean) =>
+    request<{ enabled: boolean; updatedLinks: number }>('POST', '/parents/telegram/notifications', { enabled }),
+  revokeTelegramLink: () =>
+    request<{ revokedLinks: number }>('DELETE', '/parents/telegram/link'),
+
+  // ─── Leave Requests (Xin Phép Nghỉ Online) ───
+  getLeaveRequests: (params?: { classId?: string; status?: string; date?: string; studentId?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.classId) qs.set('classId', params.classId)
+    if (params?.status) qs.set('status', params.status)
+    if (params?.date) qs.set('date', params.date)
+    if (params?.studentId) qs.set('studentId', params.studentId)
+    const q = qs.toString()
+    return request<LeaveRequest[]>('GET', `/leave-requests${q ? `?${q}` : ''}`)
+  },
+  getPendingLeaveRequestsCount: () =>
+    request<{ pendingCount: number }>('GET', '/leave-requests/pending-count'),
+  createLeaveRequest: (data: { studentId: string; date: string; sessionTypes: string[]; reason: string; parentName?: string; parentPhone?: string }) =>
+    request<LeaveRequest>('POST', '/leave-requests', data),
+  reviewLeaveRequest: (id: string, data: { status: 'APPROVED' | 'REJECTED'; reviewNote?: string }) =>
+    request<LeaveRequest>('PATCH', `/leave-requests/${id}/review`, data),
+  cancelLeaveRequest: (id: string) =>
+    request<{ ok: boolean; id: string; status: string }>('DELETE', `/leave-requests/${id}`),
+
+  // ─── Smart Exam Grading (Phase 1) ───
+  // A12: auto-generate Idempotency-Key khi caller không truyền (như createStudent) —
+  // server dedup examSessions.idempotencyKey (examService.ts:68-72).
+  createExam: (data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; idempotencyKey?: string }) => {
+    const payload = data.idempotencyKey ? data : { ...data, idempotencyKey: newIdempotencyKey() }
+    return request<any>('POST', '/exams', payload, 0, undefined, true)
+  },
+  getExamSessionsForClass: (classId: string, params?: { subject?: string; scoreType?: string; status?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.subject) qs.set('subject', params.subject)
+    if (params?.scoreType) qs.set('scoreType', params.scoreType)
+    if (params?.status) qs.set('status', params.status)
+    const q = qs.toString()
+    return request<any[]>('GET', `/exams/class/${encodeURIComponent(classId)}${q ? `?${q}` : ''}`)
+  },
+  getMyExamSessions: () => request<any[]>('GET', '/exams/my-classes'),
+  getExam: (id: string) => request<any>('GET', `/exams/${id}`),
+  decodeBarcode: (barcodeText: string) =>
+    request<{ sessionId: string; studentId: string; classId: string; subject: string; examType: string; maxScore: number; questionCount: number }>('POST', '/exams/barcode/decode', { barcodeText }),
+  updateAnswerKey: (id: string, answerKey: string, questionCount: number) =>
+    request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
+  saveExamResults: (id: string, results: { studentId: string; score: number; source?: string; answers?: string }[]) =>
+    request<{ saved: number; upserted: number; total: number }>('POST', `/exams/${id}/results`, { results }),
+  removeExamResult: (id: string, studentId: string) => request<{ deleted: boolean }>('DELETE', `/exams/${id}/results/${encodeURIComponent(studentId)}`),
+  getExamResults: (id: string) => request<{ session: any; results: any[] }>('GET', `/exams/${id}/results`),
+  completeExam: (id: string) => request<any>('POST', `/exams/${id}/complete`),
+  reopenExam: (id: string) => request<any>('POST', `/exams/${id}/reopen`),
+  deleteExam: (id: string) => request<{ deleted: boolean; sessionId: string; resultsDeleted: number }>('DELETE', `/exams/${id}`),
+
+  // ─── Settings ───
+  getSettings: () => request<any>('GET', '/settings'),
+  updateSettings: (data: Record<string, unknown>) => request<any>('PUT', '/settings', data),
+
+  // ─── Users ───
+  getUsers: () => request<any[]>('GET', '/users'),
+  getCatechists: () => request<any[]>('GET', '/users/catechists'),
+  // ADR-027 (2026-08-12): username optional — server tự sinh `chức vụ_Tên thánh + Họ và tên`
+  // từ holyName+fullName; gửi username = override thủ công (auto trùng). Phụ huynh: SĐT.
+  createUser: (data: { username?: string; holyName?: string; fullName: string; phone?: string; role: string; assignedClasses?: string[] }) =>
+    request<{ id: string; username: string; tempPassword: string }>('POST', '/users', data),
+  updateUserStatus: (id: string, status: string) =>
+    request<{ success: boolean }>('PUT', `/users/${id}/status`, { status }),
+  updateUserAssignments: (id: string, assignedClasses: string[]) =>
+    request<{ id: string; assignedClasses: string[] }>('PUT', `/users/${id}/assignments`, { assignedClasses }),
+  // ADR-039 (2026-08-15): admin đổi SĐT (endpoint duy nhất; PH không tự đổi).
+  // Phuhuynh có username = SĐT → server đồng bộ username kèm theo.
+  updateUserPhone: (id: string, phone: string, adminPassword: string) =>
+    request<{ id: string; phone: string; username: string; usernameChanged: boolean }>('PUT', `/users/${id}/phone`, { phone, adminPassword }),
+  // A06 (2026-08-10): reset-password cũng yêu cầu adminPassword (re-authentication)
+  resetUserPassword: (id: string, adminPassword: string) =>
+    request<{ username: string; tempPassword: string }>('POST', `/users/${id}/reset-password`, { adminPassword }),
+  forceLogoutUser: (id: string) =>
+    request<{ success: boolean }>('POST', `/users/${id}/force-logout`),
+  // ADR-021 rewrite: reveal mật khẩu tạm có chủ đích (audit REVEAL_PASSWORD) — thay GET /users decrypt toàn bộ
+  // A05 (2026-08-10): re-authentication — admin phải gửi kèm mật khẩu hiện tại của chính mình (adminPassword).
+  revealUserPassword: (id: string, adminPassword: string) =>
+    request<{ username: string; password: string }>('POST', `/users/${id}/reveal-password`, { adminPassword }),
+  // ADR-026 (2026-08-12): cấp tài khoản phụ huynh hàng loạt từ students.parentPhone
+  getParentProvisionPreview: () =>
+    request<{ total: number; candidates: Array<{ phone: string; parentName: string; childrenCount: number }>; validPhoneCount: number; existingCount: number }>('GET', '/users/parent-provision-preview'),
+  provisionParentAccounts: (adminPassword: string) =>
+    request<{ total: number; successCount: number; skippedCount: number; errorCount: number; results: Array<{ phone: string; fullName: string; status: string; reason?: string; username?: string; tempPassword?: string }> }>('POST', '/users/provision-parents', { adminPassword }),
+
+  // ─── Students ───
+  getStudents: (params?: { updatedAfter?: string; limit?: number; page?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.page) qs.set('page', String(params.page))
+    const q = qs.toString()
+    return request<any[]>('GET', `/students${q ? `?${q}` : ''}`).then(data => ({ data, total: data.length }))
+  },
+  getStudent: (id: string) => request<any>('GET', `/students/${id}`),
+  // A12: auto-generate Idempotency-Key khi caller không truyền — key ổn định suốt chuỗi
+  // retry (key nằm trong body → allowRetry=true cho phép retry; server dedup qua
+  // idx_students_idempotency khi response bị mất).
+  createStudent: (data: Record<string, unknown>) => {
+    const withKey = data.idempotencyKey ? data : { ...data, idempotencyKey: newIdempotencyKey() }
+    return request<any>('POST', '/students', withKey, 0, undefined, true)
+  },
+  updateStudent: (id: string, data: Record<string, unknown>) => request<any>('PUT', `/students/${id}`, data),
+  deleteStudent: (id: string) => request<{ success: boolean }>('DELETE', `/students/${id}`),
+  validateStudents: (rows: any[]) => request<{ rows: any[]; classesNotFound: string[]; suggestedNewClasses?: { name: string; branch: string; academicYearId: string }[]; contentHash?: string; previousImport?: { batchId: string; fileName: string | null; createdAt: string; totalRows: number } | null }>('POST', '/students/validate', { rows }),
+  importStudents: (payload: { rows: any[]; classMappings: Record<string, string | null>; newClasses: { name: string; branch: string; academicYearId: string }[]; duplicateActions: Record<string, 'skip' | 'update'>; fileName?: string; serviceExclusions?: number[] }) =>
+    request<{ imported: number; skipped: number; errors: number; classesCreated: string[]; batchId: string; report: any[] }>('POST', '/students/import', payload),
+  undoImport: (batchId: string) => request<{ undone: number; errors: string[] }>('POST', `/students/undo/${batchId}`),
+  getImportHistory: (params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.offset) qs.set('offset', String(params.offset))
+    const q = qs.toString()
+    return request<any[]>('GET', `/students/history${q ? `?${q}` : ''}`)
+  },
+  getBatchDetail: (batchId: string) =>
+    request<{ rows: any[]; counts: Record<string, number> }>('GET', `/students/batch/${batchId}`),
+
+  // ─── Grades ───
+  getGrades: (params?: { studentId?: string; semester?: number; updatedAfter?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.studentId) qs.set('studentId', params.studentId)
+    if (params?.semester) qs.set('semester', String(params.semester))
+    if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
+    const q = qs.toString()
+    return request<any[]>('GET', `/grades${q ? `?${q}` : ''}`)
+  },
+  upsertGrade: (data: Record<string, unknown>) => request<any>('POST', '/grades', data),
+  batchUpsertGrades: (dataList: Record<string, unknown>[]) => request<{ results: { studentId: string; status: 'saved' | 'conflict' | 'error'; error?: string; currentGrade?: any; record?: any }[] }>('POST', '/grades/batch', { grades: dataList }),
+  checkGradeImportDuplicate: (params: { hash: string; classId: string; semester: number; academicYear: string }) =>
+    request<{ isDuplicate: boolean; importedAt?: string; totalRows?: number }>('POST', '/grades/check-import-duplicate', params),
+  registerGradeImport: (params: { hash: string; classId: string; semester: number; academicYear: string; totalRows: number }) =>
+    request<{ registered: boolean }>('POST', '/grades/register-import', params),
+  // ADR-039: Khôi phục đợt nhập điểm (CREATE → xóa row, UPDATE → về trạng thái trước import).
+  undoGradeImport: (params: { semester: number; academicYear: string; studentIds: string[] }) =>
+    request<{ results: { studentId: string; status: 'restored' | 'deleted' | 'not-found' | 'no-audit' | 'not-clean' | 'expired' | 'forbidden' | 'locked' | 'error'; message?: string }[] }>('POST', '/grades/undo-import', params),
+
+  // Override Endpoints
+  overrideGrade: (id: string, data: { scoreField: string; manualValue: number; reasonCode?: string; reasonNote?: string; studentId?: string; academicYear?: string; semester?: number }, idempotencyKey?: string) => {
+    const headers: Record<string, string> = {}
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+    return request<any>('PATCH', `/grades/${id}/override`, data, 0, headers)
+  },
+  getGradeOverrideHistory: (id: string) =>
+    request<any[]>('GET', `/grades/${id}/override/history`),
+
+  // ─── Mapping Memory (Learning System) ───
+  getMappingMemory: (params?: { scope?: 'class' | 'student'; academicYearId?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.scope) qs.set('scope', params.scope)
+    if (params?.academicYearId) qs.set('academicYearId', params.academicYearId)
+    const q = qs.toString()
+    return request<any[]>('GET', `/students/mappings${q ? `?${q}` : ''}`)
+  },
+  saveMappingMemory: (data: { scope: 'class' | 'student'; alias: string; entityId: string; entityName?: string; academicYearId?: string }) =>
+    request<{ success: boolean }>('POST', '/students/mappings', data),
+  deleteMappingMemory: (id: string) => request<{ success: boolean }>('DELETE', `/students/mappings/${id}`),
+
+  // ─── Attendance ───
+  getAttendance: (params?: { studentId?: string; date?: string; type?: string; updatedAfter?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.studentId) qs.set('studentId', params.studentId)
+    if (params?.date) qs.set('date', params.date)
+    if (params?.type) qs.set('type', params.type)
+    if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
+    const q = qs.toString()
+    return request<any[]>('GET', `/attendance${q ? `?${q}` : ''}`)
+  },
+  upsertAttendance: (data: Record<string, unknown>) => request<any>('POST', '/attendance', data),
+  batchUpsertAttendance: (date: string, type: string, records: { studentId: string; status: string; note?: string; version?: number }[]) =>
+    request<{ results: { studentId: string; status: 'saved' | 'skipped' | 'conflict' | 'error'; reason?: string; record?: any }[]; total: number; successCount: number; skippedCount: number; conflictCount: number; errorCount: number }>('POST', '/attendance/batch', { date, type, records }),
+
+  // ─── Classes ───
+  getClasses: (params?: { updatedAfter?: string }) => {
+    const q = params?.updatedAfter ? `?updatedAfter=${encodeURIComponent(params.updatedAfter)}` : ''
+    return request<any[]>('GET', `/classes${q}`)
+  },
+  getClass: (id: string) => request<any>('GET', `/classes/${id}`),
+  getClassBranches: () => request<any[]>('GET', '/classes/branches'),
+  getClassAcademicYears: () => request<any[]>('GET', '/classes/academic-years'),
+  createAcademicYear: (data: { id: string; startDate?: string; endDate?: string }) =>
+    request<any>('POST', '/classes/academic-years', data),
+  getAvailableTeachers: () => request<{ id: string; fullName: string; username: string; role: string }[]>('GET', '/classes/available-teachers'),
+  createClass: (data: Record<string, unknown>) => {
+    // A12: đảm bảo luôn có Idempotency-Key (classStore thường tự truyền; nếu không,
+    // auto-generate) → retry an toàn, server dedup qua idx_classes_idempotency.
+    const withKey = data.idempotencyKey ? data : { ...data, idempotencyKey: newIdempotencyKey() }
+    return request<any>('POST', '/classes', withKey, 0, undefined, true)
+  },
+  updateClass: (id: string, data: Record<string, unknown>) => request<any>('PUT', `/classes/${id}`, data),
+  deleteClass: (id: string) => request<{ success: boolean }>('DELETE', `/classes/${id}`),
+  assignClassTeacher: (classId: string, userId: string, roleInClass: 'chunhiem' | 'phuta') =>
+    request<{ ok: boolean }>('POST', `/classes/${classId}/assignments`, { userId, roleInClass }),
+  unassignClassTeacher: (classId: string, userId: string) =>
+    request<{ ok: boolean }>('DELETE', `/classes/${classId}/assignments/${userId}`),
+
+  // ─── Notices ───
+  getNotices: (updatedAfter?: string) => {
+    const q = updatedAfter ? `?updatedAfter=${encodeURIComponent(updatedAfter)}` : ''
+    return request<any[]>('GET', `/notices${q}`)
+  },
+  createNotice: (data: Record<string, unknown>) => request<any>('POST', '/notices', data),
+  updateNotice: (id: string, data: Record<string, unknown>) => request<any>('PUT', `/notices/${id}`, data),
+  deleteNotice: (id: string) => request<{ success: boolean }>('DELETE', `/notices/${id}`),
+
+  // ─── Notifications ───
+  sendReportCards: (data: { students: any[] }) =>
+    request<{ success: boolean }>('POST', '/notifications/smart/report-cards', data),
+
+  // ─── Audit Logs ───
+  getAuditLogs: (params?: { page?: number; limit?: number; userId?: string; action?: string; entityType?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.userId) qs.set('userId', params.userId)
+    if (params?.action) qs.set('action', params.action)
+    if (params?.entityType) qs.set('entityType', params.entityType)
+    const q = qs.toString()
+    return request<{ data: any[]; meta: { page: number; limit: number; total: number } }>('GET', `/audit-logs${q ? `?${q}` : ''}`)
+  },
+
+  // ADR-047 / P3 — Policy Visualization Dashboard. Returns policy-related audit
+  // entries enriched with studentId/studentName (for grade overrides & promotion
+  // decisions) and `meta.summary` stats for the dashboard header.
+  getPolicyHistory: (params?: { page?: number; limit?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.page) qs.set('page', String(params.page))
+    if (params?.limit) qs.set('limit', String(params.limit))
+    const q = qs.toString()
+    return request<{
+      data: any[]
+      meta: {
+        page: number
+        limit: number
+        total: number
+        totalPages: number
+        summary?: { policyUpdates: number; gradeOverrides: number; promotionDecisions: number; semesterLocks: number; total: number }
+      }
+    }>('GET', `/audit-logs/policy-history${q ? `?${q}` : ''}`)
+  },
+
+  // ─── System (Purge v2.3) ───
+  purgeAllData: (password: string, confirmKey: string) =>
+    request<{ success: boolean; message: string; purgeVersion: number; countsBefore: Record<string, number> }>('POST', '/system/purge', { password, confirmKey }),
+
+  // ─── Reports (PDF Generation) ───
+  generatePDF: (htmlContent: string, options?: { format?: 'A4' | 'A3' | 'Letter'; landscape?: boolean; margin?: Record<string, string> }) =>
+    request<Blob>('POST', '/reports/generate-pdf', { htmlContent, options }, 0, undefined, false, 'blob'),
+
+  /**
+   * Probe purge_version với fetch thô + AbortController (timeout, KHÔNG retry/backoff).
+   * Check chạy trước mỗi pull delta — nếu retry với backoff 1s+2s+4s như `request()`
+   * thì offline (fetch lỗi) sẽ treo sync 7s mỗi chu kỳ và làm timeout test 5s (CI).
+   * Trả về null khi lỗi mạng / không phản hồi → bỏ qua check, pull delta vẫn chạy.
+   *
+   * PROD FIX (2026-08-12): trước đây probe fetch thô KHÔNG có Authorization khi
+   * accessToken còn rỗng (memory-only, ngay sau reload) và KHÔNG refresh-on-401 —
+   * khác request() → `/system/purge-version` trả 401 ở cycle sync đầu (race với
+   * authStore.loadFromStorage bootstrap fire-and-forget), ghost-data check (A-NEW-02)
+   * bị silent skip và log network đầy 401. Giờ đồng bộ hành vi với request():
+   * - memory rỗng → bootstrap qua HttpOnly cookie TRƯỚC khi fetch (bounded timeout);
+   * - 401 → refresh 1 lần (bounded timeout) rồi thử lại 1 lần — vẫn KHÔNG backoff.
+   */
+  probePurgeVersion: async (timeoutMs = 2000): Promise<number | null> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      if (!accessToken) {
+        const bootstrapped = await withDeadline(bootstrapAccessToken().catch(() => false), timeoutMs, false)
+        if (!bootstrapped || !accessToken) return null
+      }
+
+      const fetchProbe = async (): Promise<number | null | 'UNAUTHORIZED'> => {
+        try {
+          const res = await fetch(`${API_BASE}/system/purge-version`, {
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+            credentials: 'include',
+            signal: controller.signal,
+          })
+          if (res.status === 401) return 'UNAUTHORIZED'
+          if (!res.ok) return null
+          const json = (await res.json()) as { data?: { purgeVersion?: number } }
+          const v = json?.data?.purgeVersion
+          return typeof v === 'number' ? v : null
+        } catch {
+          return null
+        }
+      }
+
+      let result = await fetchProbe()
+      if (result === 'UNAUTHORIZED') {
+        const refreshed = await withDeadline(refreshAccessToken().catch(() => false), timeoutMs, false)
+        if (refreshed && accessToken) {
+          const retry = await fetchProbe()
+          if (retry !== 'UNAUTHORIZED') result = retry
+        } else {
+          result = null
+        }
+      }
+      return result === 'UNAUTHORIZED' ? null : result
+    } finally {
+      clearTimeout(timer)
+    }
+  },
+
+  finances: {
+    getSummary: (academicYear?: string) =>
+      request<FinanceSummary>('GET', academicYear ? `/finances/summary?academicYear=${encodeURIComponent(academicYear)}` : '/finances/summary'),
+
+    getFunds: () =>
+      request<Fund[]>('GET', '/finances/funds'),
+
+    createFund: (data: CreateFundInput) =>
+      request<Fund>('POST', '/finances/funds', data),
+
+    getTransactions: async (params?: Record<string, string>) => {
+      const query = params ? '?' + new URLSearchParams(params).toString() : ''
+      const res = await fetch(`${API_BASE}/finances/transactions${query}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        credentials: 'include',
+      })
+      if (!res.ok) throw new ApiError(res.status, 'Failed to fetch transactions', '/finances/transactions')
+      const json = await res.json()
+      return { data: (json.data || []) as FinancialTransaction[], total: (json.total ?? 0) as number }
+    },
+
+    createTransaction: (data: CreateTransactionInput) =>
+      request<FinancialTransaction>('POST', '/finances/transactions', data),
+
+    deleteTransaction: (id: string) =>
+      request<{ deleted: boolean }>('DELETE', `/finances/transactions/${encodeURIComponent(id)}`),
+
+    getClassFeeRecords: (classId: string, academicYear?: string, feeType?: string) => {
+      const params = new URLSearchParams()
+      if (academicYear) params.append('academicYear', academicYear)
+      if (feeType) params.append('feeType', feeType)
+      const q = params.toString() ? `?${params.toString()}` : ''
+      return request<StudentFeeRecord[]>('GET', `/finances/classes/${encodeURIComponent(classId)}/fees${q}`)
+    },
+
+    updateStudentFee: (classId: string, data: any) =>
+      request<StudentFeeRecord>('POST', `/finances/classes/${encodeURIComponent(classId)}/fees`, data),
+  },
+}

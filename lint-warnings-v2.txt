@@ -1,0 +1,465 @@
+
+  ! eslint(no-unused-vars): Variable 'startYear' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/stores/dailyGradeStore.ts:18:7]
+ 17 | const now = new Date()
+ 18 | const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1
+    :       ^^^^|^^^^
+    :           `-- 'startYear' is declared here
+ 19 | 
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'scoreFields' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/stores/dailyGradeStore.ts:121:17]
+ 120 |           const now = new Date().toISOString()
+ 121 |           const scoreFields = ['scoreOral', 'score15m', 'score1Period'] as const
+     :                 ^^^^^|^^^^^
+     :                      `-- 'scoreFields' is declared here
+ 122 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Type 'ClassListItem' is imported but never used.
+    ,-[src/router.tsx:21:30]
+ 20 | import { useSyncEngine } from './hooks/useSyncEngine'
+ 21 | import { useClassStore, type ClassListItem } from './stores/classStore'
+    :                              ^^^^^^|^^^^^^
+    :                                    `-- 'ClassListItem' is imported here
+ 22 | import { setNavigateToLogin } from './lib/api'
+    `----
+  help: Consider removing this import.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:28:7]
+ 27 | 
+ 28 | const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+    :       ^^^^^^^^^^^^^
+ 29 | const StudentsPage = lazy(() => import('./pages/StudentsPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:29:7]
+ 28 | const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+ 29 | const StudentsPage = lazy(() => import('./pages/StudentsPage'))
+    :       ^^^^^^^^^^^^
+ 30 | const GradesPage = lazy(() => import('./pages/GradesPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:30:7]
+ 29 | const StudentsPage = lazy(() => import('./pages/StudentsPage'))
+ 30 | const GradesPage = lazy(() => import('./pages/GradesPage'))
+    :       ^^^^^^^^^^
+ 31 | const AttendancePage = lazy(() => import('./pages/AttendancePage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:31:7]
+ 30 | const GradesPage = lazy(() => import('./pages/GradesPage'))
+ 31 | const AttendancePage = lazy(() => import('./pages/AttendancePage'))
+    :       ^^^^^^^^^^^^^^
+ 32 | const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:32:7]
+ 31 | const AttendancePage = lazy(() => import('./pages/AttendancePage'))
+ 32 | const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+    :       ^^^^^^^^^^^
+ 33 | const NoticesPage = lazy(() => import('./pages/NoticesPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:33:7]
+ 32 | const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+ 33 | const NoticesPage = lazy(() => import('./pages/NoticesPage'))
+    :       ^^^^^^^^^^^
+ 34 | const UsersPage = lazy(() => import('./pages/UsersPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:34:7]
+ 33 | const NoticesPage = lazy(() => import('./pages/NoticesPage'))
+ 34 | const UsersPage = lazy(() => import('./pages/UsersPage'))
+    :       ^^^^^^^^^
+ 35 | const ClassesPage = lazy(() => import('./pages/ClassesPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:35:7]
+ 34 | const UsersPage = lazy(() => import('./pages/UsersPage'))
+ 35 | const ClassesPage = lazy(() => import('./pages/ClassesPage'))
+    :       ^^^^^^^^^^^
+ 36 | const LoginPage = lazy(() => import('./pages/LoginPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:36:7]
+ 35 | const ClassesPage = lazy(() => import('./pages/ClassesPage'))
+ 36 | const LoginPage = lazy(() => import('./pages/LoginPage'))
+    :       ^^^^^^^^^
+ 37 | const AuditLogPage = lazy(() => import('./pages/AuditLogPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:37:7]
+ 36 | const LoginPage = lazy(() => import('./pages/LoginPage'))
+ 37 | const AuditLogPage = lazy(() => import('./pages/AuditLogPage'))
+    :       ^^^^^^^^^^^^
+ 38 | const AcademicYearPage = lazy(() => import('./pages/AcademicYearPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:38:7]
+ 37 | const AuditLogPage = lazy(() => import('./pages/AuditLogPage'))
+ 38 | const AcademicYearPage = lazy(() => import('./pages/AcademicYearPage'))
+    :       ^^^^^^^^^^^^^^^^
+ 39 | const CatechistPage = lazy(() => import('./pages/CatechistPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:39:7]
+ 38 | const AcademicYearPage = lazy(() => import('./pages/AcademicYearPage'))
+ 39 | const CatechistPage = lazy(() => import('./pages/CatechistPage'))
+    :       ^^^^^^^^^^^^^
+ 40 | const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:40:7]
+ 39 | const CatechistPage = lazy(() => import('./pages/CatechistPage'))
+ 40 | const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+    :       ^^^^^^^^^^^^
+ 41 | const ManagementPage = lazy(() => import('./pages/ManagementPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:41:7]
+ 40 | const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+ 41 | const ManagementPage = lazy(() => import('./pages/ManagementPage'))
+    :       ^^^^^^^^^^^^^^
+ 42 | const ParentPage = lazy(() => import('./pages/ParentPage'))
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:42:7]
+ 41 | const ManagementPage = lazy(() => import('./pages/ManagementPage'))
+ 42 | const ParentPage = lazy(() => import('./pages/ParentPage'))
+    :       ^^^^^^^^^^
+ 43 | 
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+    ,-[src/router.tsx:71:7]
+ 70 | 
+ 71 | const PageSuspense = ({ children }: { children: React.ReactNode }) => (
+    :       ^^^^^^^^^^^^
+ 72 |   <Suspense fallback={
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Move your component(s) to a separate file.
+     ,-[src/router.tsx:109:10]
+ 108 | 
+ 109 | function RootLayout() {
+     :          ^^^^^^^^^^
+ 110 |   const navigate = useNavigate()
+     `----
+
+  ! eslint(no-unused-vars): Identifier 'buildQrSheetHtml' is imported but never used.
+   ,-[src/components/exam/ExamSessionView.tsx:8:10]
+ 7 | import { generateExamQrCodes } from '../../lib/qr'
+ 8 | import { buildQrSheetHtml, printQrSheet } from '../../utils/examSheets'
+   :          ^^^^^^^^|^^^^^^^
+   :                  `-- 'buildQrSheetHtml' is imported here
+ 9 | import { QuickScoreEntry } from './QuickScoreEntry'
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'escapeHtml' is imported but never used.
+    ,-[src/components/exam/ExamSessionView.tsx:18:10]
+ 17 | import type { ExamScoreType } from '../../types'
+ 18 | import { escapeHtml } from '../../utils/grades'
+    :          ^^^^^|^^^^
+    :               `-- 'escapeHtml' is imported here
+ 19 | 
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Function 'getBranchId' is declared but never used.
+     ,-[server/src/services/importService.ts:264:16]
+ 263 | 
+ 264 | async function getBranchId(parishId: string, branch: string | undefined | null): Promise<string | null> {
+     :                ^^^^^|^^^^^
+     :                     `-- 'getBranchId' is declared here
+ 265 |   if (!branch) return null
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'p' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/__tests__/lib/api-retry.test.ts:85:11]
+ 84 |     fetchMock.mockResolvedValueOnce(fakeResponse(503, { success: false })).mockResolvedValueOnce(fakeResponse(200, { success: true, data: { ok: true } }))
+ 85 |     const p = api.overrideGrade('G-1', { scoreField: 'Score1', manualValue: 9 }, 'KEY-ABC')
+    :           |
+    :           `-- 'p' is declared here
+ 86 |     await vi.advanceTimersByTimeAsync(1000)
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Identifier 'promotionRecords' is imported but never used.
+   ,-[server/src/__tests__/goliveVerification.test.ts:7:55]
+ 6 | import { db } from '../db/index.js'
+ 7 | import { students, grades, classes, users, auditLogs, promotionRecords, catechistAssignments, branches, academicYears } from '../db/schema.js'
+   :                                                       ^^^^^^^^|^^^^^^^
+   :                                                               `-- 'promotionRecords' is imported here
+ 8 | import { generateId } from '../utils/id.js'
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'createHash' is imported but never used.
+    ,-[server/src/__tests__/goliveVerification.test.ts:11:10]
+ 10 | import { eq, and } from 'drizzle-orm'
+ 11 | import { createHash } from 'crypto'
+    :          ^^^^^|^^^^
+    :               `-- 'createHash' is imported here
+ 12 | 
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'catechistBToken' is declared but never used. Unused variables should start with a '_'.
+    ,-[server/src/__tests__/goliveVerification.test.ts:29:24]
+ 28 |   const { accessToken: catechistAToken } = generateTokens({ userId: catechistAId, username: 'glv_a', role: 'chunhiem', parishId, tokenVersion: 1 })
+ 29 |   const { accessToken: catechistBToken } = generateTokens({ userId: catechistBId, username: 'glv_b', role: 'chunhiem', parishId, tokenVersion: 1 })
+    :                        ^^^^^^^|^^^^^^^
+    :                               `-- 'catechistBToken' is declared here
+ 30 |   const { accessToken: parentToken } = generateTokens({ userId: parentId, username: 'parent_user', role: 'phuhuynh', parishId, tokenVersion: 1 })
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'roster' is declared but never used. Unused variables should start with a '_'.
+     ,-[server/src/__tests__/goliveVerification.test.ts:308:11]
+ 307 |     // Query 40 students roster
+ 308 |     const roster = await db.select().from(students).where(eq(students.classId, classAId)).limit(40)
+     :           ^^^|^^
+     :              `-- 'roster' is declared here
+ 309 |     
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'catA2Token' is declared but never used. Unused variables should start with a '_'.
+    ,-[server/src/__tests__/security/authorization-matrix-audit-b.test.ts:39:7]
+ 38 | const catA1Token = generateTokens({ userId: catA1Id, username: `cat_a1_${PREFIX}`, role: 'chunhiem', parishId: parishA, tokenVersion: 1 }).accessToken
+ 39 | const catA2Token = generateTokens({ userId: catA2Id, username: `cat_a2_${PREFIX}`, role: 'chunhiem', parishId: parishA, tokenVersion: 1 }).accessToken
+    :       ^^^^^|^^^^
+    :            `-- 'catA2Token' is declared here
+ 40 | const adminBToken = generateTokens({ userId: adminBId, username: `admin_b_${PREFIX}`, role: 'admin', parishId: parishB, tokenVersion: 1 }).accessToken
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'adminBToken' is declared but never used. Unused variables should start with a '_'.
+    ,-[server/src/__tests__/security/authorization-matrix-audit-b.test.ts:40:7]
+ 39 | const catA2Token = generateTokens({ userId: catA2Id, username: `cat_a2_${PREFIX}`, role: 'chunhiem', parishId: parishA, tokenVersion: 1 }).accessToken
+ 40 | const adminBToken = generateTokens({ userId: adminBId, username: `admin_b_${PREFIX}`, role: 'admin', parishId: parishB, tokenVersion: 1 }).accessToken
+    :       ^^^^^|^^^^^
+    :            `-- 'adminBToken' is declared here
+ 41 | 
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'accessToken' is declared but never used. Unused variables should start with a '_'.
+    ,-[server/src/__tests__/security/auth-cookie.test.ts:68:13]
+ 67 |   it('/refresh từ COOKIE (body rỗng) vẫn rotate & set cookie mới; response KHÔNG chứa refreshToken trong JSON', async () => {
+ 68 |     const { accessToken, refreshToken } = await login()
+    :             ^^^^^|^^^^^
+    :                  `-- 'accessToken' is declared here
+ 69 |     const res = await authApp.request('/refresh', {
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'accessToken' is declared but never used. Unused variables should start with a '_'.
+    ,-[server/src/__tests__/security/auth-cookie.test.ts:98:13]
+ 97 |   it('/refresh IGNORE body hoàn toàn — body rác + cookie hợp lệ vẫn 200', async () => {
+ 98 |     const { accessToken, refreshToken } = await login()
+    :             ^^^^^|^^^^^
+    :                  `-- 'accessToken' is declared here
+ 99 |     const res = await authApp.request('/refresh', {
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'loginRes' is declared but never used. Unused variables should start with a '_'.
+     ,-[server/src/__tests__/security/auth-cookie.test.ts:123:18]
+ 122 |   it('logout xóa cookie (Max-Age=0) + revoke phiên; token trong cookie hết hiệu lực', async () => {
+ 123 |     const { res: loginRes, accessToken, refreshToken } = await login()
+     :                  ^^^^|^^^
+     :                      `-- 'loginRes' is declared here
+ 124 |     const res = await authApp.request('/logout', {
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'sub' is declared but never used. Unused parameters should start with a '_'.
+     ,-[server/src/__tests__/services/webPushService.test.ts:145:55]
+ 144 | 
+ 145 |     webPushMock.sendNotification.mockImplementation(((sub: { endpoint: string }) => {
+     :                                                       ^|^
+     :                                                        `-- 'sub' is declared here
+ 146 |       return Promise.reject({ statusCode: 410 })
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'html' is declared but never used. Unused parameters should start with a '_'.
+    ,-[server/src/__tests__/routes/pdfExportRoutes.test.ts:9:37]
+  8 | vi.mock('../../services/pdfService.js', () => ({
+  9 |   generatePDFFromHTML: vi.fn(async (html: string) => new TextEncoder().encode('<pdf-bytes>')),
+    :                                     ^^|^
+    :                                       `-- 'html' is declared here
+ 10 |   closeBrowser: vi.fn(async () => {}),
+    `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'parentBToken' is assigned a value but never used. Unused variables should start with a '_'.
+    ,-[server/src/__tests__/routes/reportingAuthorization.test.ts:18:7]
+ 17 |   let parentAToken: string
+ 18 |   let parentBToken: string
+    :       ^^^^^^|^^^^^
+    :             `-- 'parentBToken' is declared here
+ 19 |   let glvClassAToken: string
+    `----
+    ,-[server/src/__tests__/routes/reportingAuthorization.test.ts:75:5]
+ 74 |     parentAToken = generateTokens({ userId: parentAUserId, username: 'parent_a', role: 'phuhuynh', parishId, tokenVersion: 1 }).accessToken
+ 75 |     parentBToken = generateTokens({ userId: parentBUserId, username: 'parent_b', role: 'phuhuynh', parishId, tokenVersion: 1 }).accessToken
+    :     ^^^^^^|^^^^^
+    :           `-- it was last assigned here
+ 76 |     glvClassAToken = generateTokens({ userId: glvClassAId, username: 'glv_class_a', role: 'chunhiem', parishId, tokenVersion: 1 }).accessToken
+    `----
+  help: Did you mean to use this variable?
+
+  ! eslint(no-unused-vars): Parameter 'options' is declared but never used. Unused parameters should start with a '_'.
+     ,-[src/utils/pdfGenerator.ts:349:68]
+ 348 |  */
+ 349 | export function generateSacramentCertificateHTML(student: Student, options?: ReportOptions): string {
+     :                                                                    ^^^|^^^
+     :                                                                       `-- 'options' is declared here
+ 350 |   return `
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'classInfo' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/utils/pdfGenerator.ts:399:9]
+ 398 | export function generatePhotoCardHTML(student: Student, options?: ReportOptions): string {
+ 399 |   const classInfo = useClassStore.getState().findClassById(student.classId)
+     :         ^^^^|^^^^
+     :             `-- 'classInfo' is declared here
+ 400 |   const branch = BRANCHES[student.branch]
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'age' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/utils/pdfGenerator.ts:402:9]
+ 401 |   const sacStatus = getSacramentStatus(student)
+ 402 |   const age = getAge(student.dateOfBirth)
+     :         ^|^
+     :          `-- 'age' is declared here
+ 403 |   const academicYearDisplay = options?.academicYear || useAcademicYearStore.getState().currentYear
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'academicYearDisplay' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/utils/pdfGenerator.ts:403:9]
+ 402 |   const age = getAge(student.dateOfBirth)
+ 403 |   const academicYearDisplay = options?.academicYear || useAcademicYearStore.getState().currentYear
+     :         ^^^^^^^^^|^^^^^^^^^
+     :                  `-- 'academicYearDisplay' is declared here
+ 404 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Identifier 'useClassStore' is imported but never used.
+   ,-[src/components/common/NoticeModal.tsx:4:10]
+ 3 | import { useNoticeStore } from '../../stores/noticeStore';
+ 4 | import { useClassStore, getFilteredClassList } from '../../stores/classStore';
+   :          ^^^^^^|^^^^^^
+   :                `-- 'useClassStore' is imported here
+ 5 | import { BRANCHES } from '../../constants/branches';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'getFilteredClassList' is imported but never used.
+   ,-[src/components/common/NoticeModal.tsx:4:25]
+ 3 | import { useNoticeStore } from '../../stores/noticeStore';
+ 4 | import { useClassStore, getFilteredClassList } from '../../stores/classStore';
+   :                         ^^^^^^^^^^|^^^^^^^^^
+   :                                   `-- 'getFilteredClassList' is imported here
+ 5 | import { BRANCHES } from '../../constants/branches';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'XLSX' is imported but never used.
+   ,-[src/utils/excelGradeParser.ts:1:13]
+ 1 | import * as XLSX from 'xlsx'
+   :             ^^|^
+   :               `-- 'XLSX' is imported here
+ 2 | import type { Student } from '../types'
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'Clock' is imported but never used.
+    ,-[src/components/desktop/DesktopDailyGradeEntry.tsx:9:29]
+  8 | import {
+  9 |   Calculator, Plus, Trash2, Clock,
+    :                             ^^|^^
+    :                               `-- 'Clock' is imported here
+ 10 |   CheckCircle2, Save, BarChart3
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'Save' is imported but never used.
+    ,-[src/components/desktop/DesktopDailyGradeEntry.tsx:10:17]
+  9 |   Calculator, Plus, Trash2, Clock,
+ 10 |   CheckCircle2, Save, BarChart3
+    :                 ^^|^
+    :                   `-- 'Save' is imported here
+ 11 | } from 'lucide-react'
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'useAuthStore' is imported but never used.
+    ,-[src/stores/noticeStore.ts:9:10]
+  8 | import { generateId } from '../lib/id'
+  9 | import { useAuthStore } from './authStore'
+    :          ^^^^^^|^^^^^
+    :                `-- 'useAuthStore' is imported here
+ 10 | import * as Sentry from '@sentry/react'
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Parameter 'get' is declared but never used. Unused parameters should start with a '_'.
+    ,-[src/stores/studentStore.ts:37:11]
+ 36 |   persist(
+ 37 |     (set, get) => ({
+    :           ^|^
+    :            `-- 'get' is declared here
+ 38 |       students: [],
+    `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Type 'GradeCalculationPolicy' is imported but never used.
+   ,-[src/stores/settingsStore.ts:5:63]
+ 4 | import { api, isAuthenticated } from '../lib/api'
+ 5 | import { DEFAULT_GRADE_WEIGHTS, type GradeWeightsConfig, type GradeCalculationPolicy, DEFAULT_GRADE_CALCULATION_POLICY } from '../utils/grades'
+   :                                                               ^^^^^^^^^^^|^^^^^^^^^^
+   :                                                                          `-- 'GradeCalculationPolicy' is imported here
+ 6 | 
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'DEFAULT_GRADE_CALCULATION_POLICY' is imported but never used.
+   ,-[src/stores/settingsStore.ts:5:87]
+ 4 | import { api, isAuthenticated } from '../lib/api'
+ 5 | import { DEFAULT_GRADE_WEIGHTS, type GradeWeightsConfig, type GradeCalculationPolicy, DEFAULT_GRADE_CALCULATION_POLICY } from '../utils/grades'
+   :                                                                                       ^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^
+   :                                                                                                       `-- 'DEFAULT_GRADE_CALCULATION_POLICY' is imported here
+ 6 | 
+   `----
+  help: Consider removing this import.
+
+Found 49 warnings and 0 errors.
+Finished in 44ms on 392 files with 103 rules using 6 threads.

@@ -1,0 +1,274 @@
+# AI Agent Context Map & Repository Entrypoint
+
+> Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
+> Version: 2.5 | Last reviewed: 2026-08-14 | Status: ✅ Current | Prerequisites: none
+# AI Agent Context Map & Repository Entrypoint
+
+> Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
+> Version: 2.5 | Last reviewed: 2026-08-14 | Status: ✅ Current | Prerequisites: none
+
+---
+
+## 1. Quick AI Onboarding & Recommended Reading Order
+
+When starting a task, AI Agents MUST read documents in the following order:
+1. **System Overview & Architecture**: [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md)
+2. **Architecture Decision Records**: [`docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`](./ADR_ARCHITECTURE_DECISION_RECORDS.md)
+3. **Database Schema**: [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md)
+4. **API Specification**: [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md)
+5. **Domain Business Rules**: [`docs/BUSINESS_RULES.md`](./BUSINESS_RULES.md)
+6. **Import / Export**: [`docs/IMPORT_EXPORT_SPECIFICATION.md`](./IMPORT_EXPORT_SPECIFICATION.md)
+7. **Deployment**: [`docs/DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md)
+
+---
+
+## 2. Master Domain Ownership Map (SSOT Map)
+
+| Knowledge Domain | Authoritative SSOT File | Primary Source Code Files |
+| :--- | :--- | :--- |
+| **System Architecture** | [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md) | `src/router.tsx`, `server/src/index.ts` |
+| **Architecture Decisions** | [`docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`](./ADR_ARCHITECTURE_DECISION_RECORDS.md) | `server/src/services/*.ts` |
+| **Decision Governance (framework)** | `.gemini/skills/decision-matrix/SKILL.md` v4.1.2 — Decision Levels D0–D3, Evidence Model E1–E5, Dynamic Profiles, Hard Gates (§13), ADR Gate (§14), Business Rule Gate (§17), Priority Order (§29) | `AGENTS.md`, `server/src/__tests__/security/*` |
+| **Execution Workflow** | `.gemini/skills/prompt-execution-workflow/SKILL.md` v1.0 — Standardized 6-step lifecycle for prompt processing (Context Analysis -> Planning -> Inspection -> Execution -> Sync -> Delivery) | `AGENTS.md` |
+| **Database Schema** | [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md) | `server/src/db/schema.ts` (33 tables) |
+| **API Contract** | [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md) | `server/src/routes/*.ts` (21 routes) |
+| **Security & Auth** | [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md) (Security Envelope §3) | `server/src/middleware/auth.ts`, `security.ts`, `services/refreshSessionService.ts`, `services/webPushService.ts` |
+| **Security Audit Log (SSOT)** | [`docs/SECURITY_AUDIT_LOG.md`](./SECURITY_AUDIT_LOG.md) — SSOT chứa toàn bộ security & data audits | `src/lib/api.ts`, `server/src/routes/auth.ts`, `server/src/routes/users.ts`, `server/src/routes/backup.ts`, `server/src/routes/import.ts` |
+| **Domain Business Rules** | [`docs/BUSINESS_RULES.md`](./BUSINESS_RULES.md) | `server/src/services/AttendanceApplicationService.ts`, `PromotionApplicationService.ts`, `AcademicYearLifecycleService.ts` |
+| **Import / Export** | [`docs/IMPORT_EXPORT_SPECIFICATION.md`](./IMPORT_EXPORT_SPECIFICATION.md) | `src/utils/excelParser.ts`, `excelGradeParser.ts`, `excelImporter.ts` |
+| **Deployment & Docker** | [`docs/DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) | `Dockerfile`, `docker-compose.yml`, `nginx.conf` |
+| **UI Design System (SSOT, ADR-030/032)** | [`docs/03_DESIGN_SYSTEM.md`](./03_DESIGN_SYSTEM.md) — token + component classes (định nghĩa code tại `src/index.css`) | `src/index.css`, `src/components/*`, `src/pages/*` |
+
+---
+
+## 3. Source Code Index
+
+```text
+src/                                ─ Client React Application
+├── main.tsx                        ─ App entry, Sentry + DB init + TanStack Router
+├── router.tsx                      ─ TanStack Router (18 paths + auth guard, gồm /parent, /leave-requests)
+├── index.css                       ─ Tailwind v4 + design tokens
+├── types/index.ts                  ─ TypeScript types & interfaces
+├── lib/                            ─ Pure utilities, fetch API client, Dexie DB, sync engine
+├── lib/                              ─ Core logic (omr.ts, qr.ts, homography.ts, answerSheetTemplate.ts, barcode.ts (Code128 gen+decode))
+├── stores/                         ─ 18 Zustand state stores (thêm leaveRequestStore.ts)
+├── hooks/                          ─ 10 custom React hooks (useAuth, useParentPortal, useSemesterAccess, useEffectiveMode, useSyncEngine, ...)
+├── pages/                          ─ 16 route pages (Dashboard, Students, Grades, Attendance, Parent, LeaveRequests, ...)
+├── components/                     ─ 58 UI components (common: 22 — gồm ParentDashboard, LeaveRequestModal, desktop: 18, mobile: 13 — gồm MobileLeaveRequests, exam: 5)
+├── services/                       ─ reportExportService, reportExporter (CSV/XLSX, SSOT ReportViewModelFactory)
+└── utils/                          ─ Pure helpers (grades, sacraments, excelParser, pdfGenerator, username — mirror ADR-027)
+
+server/src/                         ─ Backend Hono Application
+├── index.ts                        ─ Hono app, CORS, middleware registration, graceful shutdown
+├── seed.ts                         ─ DB seed script
+├── db/schema.ts                    ─ Drizzle ORM schema (33 tables, thêm leave_requests)
+├── middleware/                     ─ authMiddleware, roleMiddleware, security.ts
+├── routes/                         ─ 21 REST route files (thêm leaveRequests.ts)
+├── services/                       ─ 31 business logic application services
+├── utils/                          ─ phone.ts, username.ts, id.ts (thêm LRQ prefix), telegram.ts
+└── repositories/                   ─ 6 CQRS Read & Write Repositories
+```
+
+> **TypeScript projects (root `tsc -b`)**: `tsconfig.app.json` (client `src`), `tsconfig.node.json` (vite config), `server/tsconfig.json` (server build — **exclude** `src/__tests__`), `server/tsconfig.test.json` (extends server config, `noEmit`, types `node` + `vitest/globals`, include `src/__tests__/**/*` — referenced từ root `tsconfig.json` nên test files LUÔN được typecheck bởi `npx tsc -b`; 2026-08-12: dẹp toàn bộ test type debt 263 lỗi — `Response.json()` (undici) trả `unknown` nên test files dùng `(await res.json()) as any`; helper row functions dùng `as const` để giữ enum literal (gender/status/branch); test data insert chỉ dùng đúng column tồn tại trong schema).
+>
+> **ADR-027 (2026-08-12)**: `users.holy_name` (migration `20260812-104`); username tự sinh server-SSOT (`server/src/utils/username.ts`, prefix `glv_`/`cn_`/`ad_`) — client `src/utils/username.ts` chỉ preview; `POST /api/users` mới: `username`/`holyName` optional + 400 `HOLY_NAME_REQUIRED`/`PHONE_REQUIRED`. Lưu ý: `server/src/services/pdfService.ts` (PDF export dang dở, puppeteer) hiện **chưa typecheck pass** — chỉnh tsc toàn cục sẽ fail tới khi nhánh PDF hoàn thiện.
+>
+> **Nhánh PDF (2026-08-12, đã hoàn thiện)**: `POST /api/reports/generate-pdf` (admin/chunhiem/phuta) render HTML→PDF qua Puppeteer (`server/src/services/pdfService.ts`); `server/src/utils/pdfGenerator.ts` = types mirror; client `src/utils/pdfGenerator.ts` thêm `BATCH_PHOTO_CARDS` (thẻ thiếu nhi A6) + watermark; chứng chỉ QR (`src/lib/qr.ts` `tntt-cert:`); test `server/src/__tests__/routes/pdfExportRoutes.test.ts` (mock pdfService — không launch Chromium thật). **P0 (2026-08-14)**: UI đã nối server PDF — nút "Xuất PDF" trong `PrintReportModal` (gọi `api.generatePDF`, loading + alert lỗi, filename .html→.pdf); A-NEW-42 đã **CLOSED** (`pdfSanitizer.ts` + Request Interception — xem SECURITY_AUDIT_LOG); watermark/header ấn phẩm + `excelExporter` lấy parishName/dioceseName từ settings (trước hardcode 'Giáo Xứ Gia Tôn'); fix bug `Niên học {academicYearDisplay}` không interpolate trong `generatePhotoCardHTML`.
+>
+> **ADR-028 (2026-08-12)**: `POST /api/grades/undo-import` — khôi phục đợt nhập điểm dựa trên audit_logs (CREATE→xóa, UPDATE→restore oldValue, 7 ngày, `not-clean` chặn undo lặp). Service `server/src/services/gradeService.ts::undoGradeImport` (+ `UNDO_GRADE_WINDOW_DAYS`); client `src/lib/api.ts::undoGradeImport` + `ExcelGradeImportModal` (snapshot localStorage `gradeImportSnapshot`, nút "Hoàn Tác Đợt Nhập Trước"); tests `server/src/__tests__/services/gradeUndoImport.test.ts`. Contract `docs/FRONTEND_API_CONTRACT.md` §13, rule `docs/BUSINESS_RULES.md` §12.3.
+>
+>
+> **Frontend Deep Audit & Remediation (2026-08-14)**: Khắc phục triệt để 6 finding (FE-01..FE-06):
+> - **FE-01**: Tách biệt lỗi offline (`ApiError(0)`) với lỗi xác thực (401/403) trong `src/lib/api.ts` `refreshAccessToken` & `request`, không gọi `redirectToLogin()` khi reload offline, giữ nguyên phiên làm việc và dữ liệu cục bộ đã sync.
+> - **FE-02**: Loại bỏ runtime caching `/api/*` trong `src/sw.ts`, bảo đảm an toàn dữ liệu nhiều tài khoản và cô lập Tenant Isolation; dọn sạch `api-cache` cũ khi kích hoạt service worker.
+> - **FE-03**: Loại bỏ hoàn toàn các lệnh gọi `useClassStore.getState()` trong luồng render JSX của hơn 15 components, chuyển đổi sang Zustand reactive selectors (`useClassStore(s => s.getClassList())`, `useClassStore(s => s.findClassById)`, `useClassStore(s => s.classes)`).
+> - **FE-04**: Đồng bộ hiển thị tab `Giáo Lý Viên` (`catechists`) trong `DesktopSidebar.tsx` chỉ dành cho role `admin` khớp với `requireRole('admin')` trên router.
+> - **FE-05**: Chuẩn hóa `ErrorBoundary.tsx` không rò rỉ technical error message ở môi trường production.
+> - **FE-06**: Bổ sung skip link có thể điều hướng bằng phím `<a href="#main-content" className="skip-link">` và thẻ `#main-content` trong `RootLayout.tsx`.
+>
+> **Infrastructure Deep Audit & Remediation (2026-08-14)**: Khắc phục triệt để 6 finding (INF-01..INF-06):
+> - **INF-01 & INF-03**: Nâng cấp `scripts/backup-db.mjs` & `scripts/backup-db.js` với cơ chế snapshot-safe SQLite (`PRAGMA wal_checkpoint(TRUNCATE)` + `VACUUM INTO`), sửa execution guard `isDirectExecution()` nhận diện đúng `.mjs`, và bổ sung script `npm run db:backup`.
+> - **INF-02**: Xây dựng service lập lịch sao lưu tự động `server/src/services/backupScheduler.ts` (chạy 02:00 AM hàng ngày, marker `auto_backup_last_date` trong `system_settings`, tích hợp graceful lifecycle).
+> - **INF-04**: Nâng cấp probe `GET /health` thực hiện kiểm tra DB connectivity (`SELECT 1`) và trả về 503 khi CSDL không khả dụng, giúp Railway/Docker Compose tự động phục hồi instance mà không cần truyền token nhạy cảm.
+> - **INF-05**: Nâng cấp `.github/workflows/ci.yml` lên Node.js 22.x đồng bộ với container production `node:22-alpine`.
+> - **INF-06**: Chuẩn hóa tài liệu kiến trúc 2 topology triển khai (Target A PaaS Vercel/Railway vs Target B Docker Compose Nginx/Node) trong `docs/DEPLOYMENT_GUIDE.md`.
+> **ADR-030 (2026-08-13)**: Hợp nhất Design System — `src/index.css` (tokens + classes) là SSOT duy nhất, tài liệu hóa tại `docs/03_DESIGN_SYSTEM.md` v3.0 (supersede "DS v2.0" Manus AI). Migration pha 1 đã đóng: class `.input` → `form-input` (`DesktopClasses.tsx`), `bg-surface-main` (undefined) → `bg-surface-app` (`RootLayout`, `ConflictInboxModal`), 8 chỗ `bg-blue-600/700` CTA/tab-active → `bg-parish-primary`/`hover:bg-parish-primary-hover` (DesktopDashboard, DesktopStudentList, DesktopAttendanceGrid, GradesPage, StudentsPage). **Pha 2 đã hoàn tất (2026-08-13)**: toàn bộ file modified còn lại (DesktopSidebar, DesktopGradeMatrix, DesktopStudentList, DesktopDailyGradeEntry, DesktopGradeCards, DesktopGradeComparison, DesktopReports, AcademicYearPage, AuditLogPage, CatechistPage, UserManagementPage, MobileHomeView/ReportsView/GradeComparison/GradeView/NoticesView/StudentsView/DailyGradeEntry, ExamSessionView/ExamResultsTable/QuickScoreEntry, OfflineStatusBanner, ConflictInboxModal, GradeFormulaConfigModal, SystemDiagnosticsModal, PromotionPanel) — sweep hex/slate/white/blue/glass = 0, chỉ còn deliberate keeps (danh sách đầy đủ tại `docs/03_DESIGN_SYSTEM.md` §12: modal overlays, hero/header translucency, glass page-header, dark bars, SCORE_TYPES data colors, status accents). Còn lại ngoài scope: `ExcelImportModal`, `BackupRestoreModal`. Cấm quay lại: hex cứng/inline màu, `bg-blue-600` CTA (màu chi đoàn Thiếu Nhi — nghiệp vụ), `text-slate-400` chữ (WCAG 2.56:1 FAIL), class không tồn tại, `space-y-*` trên `.mobile-screen--stack`. Miễn trừ: Certificate/AnswerSheetModal/ExamScanModal/`@media print`/mobile shell CSS/branches.ts.
+> **REACT-185 (2026-08-14)**: Sửa crash runtime "Minified React error #185 (Maximum update depth exceeded)" trong build mới. Root cause: `HeaderBar.tsx:34` (và `UserManagementPage.tsx:24`) dùng **unstable zustand selector** `useClassStore((s) => s.getClassList())` — `getFilteredClassList` trả **mảng mới mỗi lần gọi** (.map().sort()), zustand v5 so `Object.is` trên getSnapshot → re-render vô hạn. Ngòi nổ: commit GRADE-SYNC-1 thêm `triggerSyncFlow()` sau mỗi save điểm → `fetchAllData` phát 2-3 store notification (loading/classes/loading) → HeaderBar (mount vĩnh viễn) re-render → loop. Fix: đổi sang pattern ổn định `useClassStore((s) => s.getClassList)()` (selector trả hàm, gọi `()` ngoài — cùng pattern RootLayout.tsx:119/MobileTopBar) cho HeaderBar + UserManagementPage; amplifier phụ: `DesktopGradeMatrix` init effect bị tách thành rebuild theo init-key (`[currentInitKey, matrixAcademicYear]`) + merge nhẹ (chỉ cập nhật record không dirty trong class/học kỳ hiện tại) — trước đây mỗi sync reset toàn bộ matrixData (mất dữ liệu đang gõ dở + re-render storm). Regression test `src/__tests__/components/HeaderBarReact185.test.tsx`. Quét toàn repo: không còn chỗ nào gọi hàm trong selector (`useXStore(s => s.getX())`).
+> **PRINT-PMI (2026-08-15)**: Thêm & nâng cấp toàn diện "Giấy Mời Họp Phụ Huynh" (khổ A4 portrait) vào `PrintReportModal` — 2 loại: `PARENT_INVITATION` (1 thiếu nhi) + `BATCH_PARENT_INVITATIONS` (cả lớp). Bổ sung ô nhập Thời gian họp, Địa điểm, Lý do/Nội dung họp tùy chỉnh trực tiếp trên UI (escapeHtml chống XSS), shortcut button "In Giấy Mời PH" ở `DesktopReports.tsx`. Generator `src/utils/pdfGenerator.ts::generateParentInvitationHTML` / `generateBatchParentInvitationsHTML` render chuẩn A4 portrait, header giáo xứ/giáo phận (settings, tenant-correct). Test `src/__tests__/utils/parentInvitation.test.ts` (5 case).
+> **EXAM-PRINT (2026-08-15)**: Sửa lỗi "In phiếu chấm bài/phiếu trả lời trắc nghiệm & tự luận bị trang trắng / không giống preview / chữ bị chồng lên nhau và mất chữ". Root causes & Fixes: (1) Nút "In Phiếu Này" gọi `window.print()` trực tiếp bị CSS `@media print` ẩn toàn bộ `<main>`, đã chuyển qua `printBatchAnswerSheets` (`src/utils/examSheets.ts`) tích hợp `ReportExportService.print` (Blob URL biệt lập, CSS A4 chuẩn); (2) Mã QR định danh bị đặt ở góc trên bên trái (`QR_X = 0.04`) đè trực tiếp lên Tiêu đề header & subtitle "PHIẾU TRẢ LỜI KIỂM TRA" → chuyển QR sang góc trên bên phải (`QR_X = 0.70`, `QR_Y = 0.025`, `QR_SIZE = 0.24`), trả lại không gian thoáng 100% cho header; (3) Khung các cột trắc nghiệm bị tính toán tọa độ chèn ép làm nhãn câu hỏi (câu 11, câu 21, ...) đè trực tiếp lên ô tròn đáp án D của cột phía trước và tràn ra ngoài khung background → tái cấu trúc `getMcColumnLayout` (SSOT `answerSheetTemplate.ts` + `examSheets.ts` + `AnswerSheetModal.tsx`) với lề cột `startX=0.05, endX=0.95`, khoảng pitch ô tròn `optPitchX` tối ưu và margin 15px giữa các cột, bảo đảm 100% chữ và ô tròn nằm lọt lòng trong khung cột; (4) Khung điểm tự luận 6..10 (`GRID_Y1 = 0.80`) bị chèn đè lên khung "Lời phê & Chữ ký giám thị" → điều chỉnh `GRID_Y1 = 0.64` đưa toàn bộ bảng điểm tự luận lọt gọn trong khung background (`y: 0.46..0.70`). Test suite: `src/lib/__tests__/omr.test.ts` (13 tests), `src/__tests__/exam50Questions.test.ts` (8 tests), `src/__tests__/answerSheetTemplate.test.ts` (13 tests) — 34/34 tests passed.
+> **EXAM-INTEGRATED-PRINT (2026-08-17)**: Tối ưu toàn diện chế độ in đề thi & phiếu điểm cả lớp (In Hàng Loạt). Root causes & Fixes: (1) Trích xuất `getExamPaperStyles` dùng chung SSOT cho cả in đơn lẻ (`buildExamPaperHtml`) và in hàng loạt (`buildBatchExamPapersHtml`), bảo đảm 100% phong cách hiển thị, cỡ chữ và lề trang đồng nhất; (2) Thiết lập vùng in hàng loạt `.batch-exam-page` chuẩn khổ A4 portrait (`210mm x 297mm`, margin 0 trong `@page` và padding 6-8mm cho nội dung), bảo đảm ngắt trang chuẩn xác (`page-break-after: always; break-after: page;`) không bị nhảy trang rỗng hay vỡ layout; (3) Hỗ trợ in đề thi tích hợp (Đề câu hỏi + Khung OMR 4 góc homography + Khung chấm điểm GLV + QR định danh học viên) theo cả 2 chế độ 1 cột và 2 cột; (4) Khắc phục triệt để lỗi mất định dạng CSS khi in gộp danh sách học sinh cả lớp. Tests: `src/__tests__/answerSheetTemplate.test.ts` (16/16 pass), `src/__tests__/exam50Questions.test.ts` (8/8 pass).
+> **EXAM-GAPS (2026-08-15)**: Hoàn thiện cơ chế TẠO phiên chấm bài — audit phát hiện 3 lỗ hổng: (1) Form tạo phiên trắc nghiệm KHÔNG có UI nhập đáp án/số câu → mọi phiên MC tạo từ UI chấm theo key cứng `{1:'A',2:'B',3:'C',4:'D'}` → câu 5+ không có `correctAnswer` → `isCorrect===undefined` → điểm sai (tối đa 2/10 với 20 câu); (2) `academicYear` mặc định lấy theo ngày hiện tại (`getCurrentAcademicYear` đổi từ tháng 8) thay vì active year của giáo xứ → phiên tạo trong giai đoạn chuyển năm học finalize điểm vào năm SAI, biến mất khỏi lưới điểm; (3) không cảnh báo khi tạo phiên trùng (cùng lớp+môn+loại điểm) → finalize 2 phiên ghi đè lẫn nhau. Fix: (1) `ExamSessionView` form MC thêm `questionCount` (1–50) + grid đáp án A/B/C/D từng câu + nút "Toàn A/B/C/D", bắt buộc đủ đáp án trước khi tạo; server `exams.ts` zod `superRefine` validate: JSON hợp lệ, key 1..questionCount, value A-D, non-empty, `questionCount` 1–50 + bắt buộc khi MC (trước `100`); (2) `examStore.createSession` default `academicYear = academicYearStore.resolveActiveYear()` (same source với gradeStore/DesktopGradeMatrix) — cả path online + offline; (3) confirm "Tạo phiên trùng?" khi đã có draft cùng lớp+môn+loại điểm+cùng học kỳ (soft-block, không chặn cứng — re-exam hợp lệ, không unique index); (4) defensive `parseAnswerKeySafe` thay `JSON.parse` trực tiếp (`ExamSessionView`); (5) cảnh báo "X học sinh chưa có điểm" khi hoàn tất nửa lớp; (6) `ExamScanModal` hiện "sẽ ghi đè" khi quét trùng học sinh khác điểm. Tests: `examStore.test.ts` (+1: default AY), `server/.../examService.test.ts` (+2: EXAM-GAPS answerKey/questionCount). API contract + BUSINESS_RULES đã sync. Tsc + oxlint + full vitest 1285/1285 pass.
+> **EXAM-MOBILE-SCAN (2026-08-16)**: Sửa lỗi camera quét chấm điểm trên mobile bị màn hình đen kịt / treo không nhận diện. Root causes & Fixes: (1) Khắc phục race condition React lifecycle: thẻ `<video>` và `<canvas>` luôn mount cố định trong DOM ngay khi mở modal, gắn MediaStream an toàn; (2) Tương thích iOS Safari WebKit: bổ sung `autoPlay`, `playsInline`, `muted` và lắng nghe `onloadedmetadata` trước khi chạy RAF loop; (3) Fallback 3 tầng cho `getUserMedia` tương thích cả Portrait & Landscape + nút đổi camera trước/sau; (4) Khung căn chỉnh A4 hai tầng (Vùng QR trên + Vùng điểm dưới) giúp không bị khuất mã QR; (5) Thêm nút "Tải ảnh" / "Chọn ảnh" trực tiếp từ camera gốc hoặc thư viện ảnh để chấm OMR. Tests: `omr.test.ts` (13/13 pass), `tsc -b --noEmit` pass.
+> **EXAM-INTEGRATED-OMR (2026-08-17)**: Tích hợp Đề Thi & Khung Phiếu Chấm OMR Gộp (Tiết Kiệm Giấy & Chấm Quét Siêu Tốc): (1) In Đề Thi gộp cả Đề câu hỏi, Khung Phiếu Trả Lời Trắc Nghiệm 4 góc Marker định vị OMR Homography, và Bảng chấm điểm Lời phê của Giáo Lý Viên trên cùng 1 trang A4; (2) Hỗ trợ 2 chế độ in: "Bản Mẫu Chung" hoặc "In Cả Lớp" tự sinh mã QR định danh riêng cho từng học viên (`printBatchExamPapers`); (3) Nâng cấp OMR Engine (`src/lib/omr.ts`) hỗ trợ nhận diện cả template Full-Page Sheet và Integrated Sheet (`INTEGRATED_OMR_MARKERS`), bộ lọc ánh sáng đa vòng tròn (Core Disk vs Outer Annulus baseline) chống bóng mờ tay cầm điện thoại; (4) Camera Scanner (`ExamScanModal`): Bổ sung công tắc Đèn Pin Trợ Sáng (Flashlight), rung xúc giác haptic feedback khi bắt được bài, và chế độ chạm trực tiếp vào từng ô câu hỏi để sửa nhanh đáp án trước khi lưu. Tests passed.
+> **ASYNC-CHUNK-RETRY (2026-08-17)**: Nâng cao độ tin cậy tải mã nguồn động (Dynamic Import Resilience): (1) Thêm utility `src/utils/lazyWithRetry.ts` tự động thử lại (retry 2 lần, backoff 400ms) khi tải module bất đồng bộ bị gián đoạn mạng hoặc stale chunk sau khi deploy/cập nhật bundle; (2) Tự động reload trang một lần an toàn (rate-limited chống reload loop) khi gặp lỗi ChunkLoadError / Failed to fetch dynamic module; (3) Áp dụng `lazyWithRetry` cho toàn bộ các route trong `src/router.tsx`, `GradesPage.tsx` và `StudentsPage.tsx`; (4) Nâng cấp `ErrorBoundary` và bọc trong `RootLayout.tsx` với thông báo thân thiện và nút "Tải lại trang" chuyên biệt khi phát hiện phiên bản ứng dụng đã được cập nhật.
+> **GRADE-SYNC-1 (2026-08-14)**: Sửa lỗi "Nhập điểm không tạo Nhật Ký Hệ Thống" — root cause: `gradeStore` là store duy nhất thiếu kích hoạt sync tức thì sau khi enqueue. Fix: (1) `src/stores/gradeStore.ts` thêm lazy `triggerSyncFlow()` (pattern `attendanceStore.ts:46-54`) sau `syncUpsertGrade` + `syncBatchUpsertGrades`; (2) `src/components/desktop/DesktopGradeMatrix.tsx` — debounce 2s→800ms + chỉ gửi dirty records (`dirtyIdsRef`) thay vì cả lớp + flush on unmount/chuyển lớp (`saveDirtyRef`) để không mất điểm khi rời trang; (3) `server/src/routes/auditLogs.ts:57` — join `and(eq(auditLogs.userId, users.id), eq(auditLogs.parishId, users.parishId))` (users PK composite) — hardening tenant isolation khi hiển thị tên người thực hiện. Test E2E `server/src/__tests__/gradeAuditSync.test.ts` (3 case). Server đã tự ghi audit (`gradeService.ts:287/337/465/500`) — issue gốc chỉ nằm ở frontend không trigger sync.
+
+### Security test suites (multi-tenant isolation)
+
+| File | Scope |
+| :--- | :--- |
+| `server/src/__tests__/security/tenantIsolation.test.ts` | Plan v2 Section C — cross-parish read/write (404) + class-scope isolation (403) cho Student/Class/Grade/Attendance/Exam |
+| `server/src/__tests__/security/backup-reauth.test.ts` | A07 — re-authentication `/api/backup/export` + `/restore` |
+| `server/src/__tests__/security/backup-restore-integrity.test.ts` | A19–A22 + A29 — restore integrity |
+| `server/src/__tests__/security/admin-lock-invalidate.test.ts` | A10 — account LOCKED invalidates admin session ngay |
+| `server/src/__tests__/security/cors-origins.test.ts` | A13 — CORS allowlist |
+| `server/src/__tests__/leaveRequests.test.ts` | ADR-033 — Leave requests RBAC isolation & attendance auto-sync |
+
+### Module: Online Leave Request & Attendance Auto-Sync (ADR-033)
+- **Files Modified/Created**: `server/src/db/schema.ts`, `server/src/db/index.ts`, `server/src/routes/leaveRequests.ts`, `server/src/utils/id.ts`, `src/types/index.ts`, `src/lib/api.ts`, `src/stores/leaveRequestStore.ts`, `src/components/common/LeaveRequestModal.tsx`, `src/components/common/ParentDashboard.tsx`, `src/pages/LeaveRequestsPage.tsx`, `src/components/desktop/DesktopLeaveRequests.tsx`, `src/components/desktop/DesktopSidebar.tsx`, `src/components/desktop/DesktopAttendanceGrid.tsx`, `src/components/mobile/MobileAttendanceView.tsx`, `src/components/mobile/MobileLeaveRequests.tsx` (NEW — 2026-08-16).
+- **Summary**: Hệ thống nộp đơn xin nghỉ trực tuyến cho Phụ huynh (Thánh Lễ, Giáo Lý, Chầu Thánh Thể). GLV và Admin có quyền duyệt đơn theo phân công quản lý lớp. Khi duyệt đơn, hệ thống tự động đồng bộ sang bảng điểm danh chuyên cần (`AbsentExcused` kèm lý do), hiển thị badge "Có phép online" và gửi thông báo Telegram cho phụ huynh.
+- **Mobile UX (2026-08-16)**: `MobileLeaveRequests` thay thế `DesktopLeaveRequests` trên mobile (sub-tab "Đơn Xin Nghỉ" trong `MobileAttendanceView` + route `/leave-requests` qua `useEffectiveMode`) — danh sách CARD thay vì bảng 9 cột, đơn PENDING nổi lên đầu, status tabs, bộ lọc collapsible, nút Duyệt/Từ chối touch ≥44px, bottom-sheet xác nhận duyệt. Cùng store/API — không đổi backend.
+
+### Module: Centralized Grade Policy Engine (Sprint 1)
+- **Files Modified**: `src/utils/gradePolicy.ts`, `src/utils/grades.ts`, `src/__tests__/utils/grades.test.ts`.
+- **Summary**: Sprint 1 chuẩn hóa tính điểm vào một `GradePolicyEngine` duy nhất, tập trung validation 0–10, rounding theo `roundingDecimal`, required-field policy và phân loại học lực. Mục tiêu là loại bỏ xung đột giữa client-side GPA và server-side/ report logic, đồng thời chuẩn hóa test parity.
+- **Impact**: các component và report nên gọi qua cùng cùng contract thay vì hardcode logic riêng; các test parity được dùng như rào chắn trước khi mở rộng workflow override / policy versioning sau này.
+
+### Module: Grade Policy Versioning & Delta Summary (Sprint 2)
+- **Files Modified**: `src/utils/gradePolicy.ts`, `src/__tests__/utils/gradePolicyVersion.test.ts`.
+- **Summary**: Sprint 2 bổ sung snapshot policy có `versionId`, `effectiveAt`, `weights`, và threshold snapshot, cùng hàm `diffGradePolicies()` và `summarizeGradeDelta()` để so sánh policy cũ/mới theo đúng GPA và label trước/sau. Mục tiêu là tạo được audit trail rõ ràng khi quy định trọng số hoặc ngưỡng học lực thay đổi giữa các học kỳ.
+- **Impact**: mọi thay đổi về trọng số/threshold đều có thể được ghi nhận và đánh giá bằng cùng một contract, giúp session đề xuất override / audit log của grade policy trở nên traceable và dễ test hơn.
+- **UI (2026-08-17)**: `GET /api/audit-logs/policy-history` (ADR-047) được hiển thị qua tab **"Chính Sách & Tác Động"** trong `src/pages/AuditLogPage.tsx` (KPI cards + filter theo loại + timeline enriched GPA impact) — trang `src/pages/PolicyDashboardPage.tsx` và route `/policy-dashboard` **đã xóa/gộp** (cùng nguồn `audit_logs`, tránh trùng lặp view).
+
+## Module: Design System v3.1 & Operational UI System (ADR-032)
+- **Files Modified**: `src/index.css`, `docs/03_DESIGN_SYSTEM.md`, `src/components/common/StateFeedback.tsx`, `src/components/desktop/GradeCellInput.tsx`, `src/components/desktop/DesktopGradeMatrix.tsx`, `src/components/desktop/DesktopStudentList.tsx`, `scripts/design-system-lint.mjs`, `package.json`.
+- **Summary**: Hoàn thiện Design System v3.1 với 6 tầng kiến trúc. Linter `npm run lint:ds` tự động quét và bảo vệ 99 UI components đạt 0 vi phạm.
+- **Dark Mode Table & Input Theme Rectification (2026-08-14)**:
+  - Khắc phục triệt để lỗi bảng dữ liệu và các ô nhập điểm vẫn có màu trắng khi mở Dark Mode.
+  - Bổ sung global CSS reset cho dark mode trong `src/index.css` đối với `table`, `thead`, `tbody`, `tr`, `td`, `input`, `select`, `textarea`.
+  - Token hóa toàn diện `bg-surface-card text-text-main` cho toàn bộ các bảng trên `DesktopStudentList`, `DesktopGradeMatrix`, `DesktopDailyGradeEntry`, `DesktopGradeComparison`, `DesktopAttendanceGrid`, `DesktopLeaveRequests`, `DesktopClasses`, `DesktopNotices`, `DesktopReports`, `UserManagementPage`, `ExamResultsTable`, `QuickScoreEntry`, `ParentPage`, `StateFeedback`, `ExcelImportModal`, `ExcelGradeImportModal`.
+  - Nâng cấp `src/stores/themeStore.ts` tự động đồng bộ class `.dark` lên `document.documentElement` khi rehydrate từ IndexedDB và khi chuyển đổi theme.
+
+### Module: Attendance Summary Matrix & Analytics (ADR-034)
+- **Files Modified/Created**: `src/services/attendanceAnalyticsService.ts`, `src/components/desktop/DesktopAttendanceSummary.tsx`, `src/components/desktop/AttendanceHistoryModal.tsx`, `src/components/desktop/DesktopAttendanceGrid.tsx`, `src/components/mobile/MobileAttendanceSummaryView.tsx`, `src/components/mobile/MobileAttendanceView.tsx`.
+- **Summary**: Chế độ Tổng hợp chuyên cần và phân tích số liệu tích hợp ngay trong trang Điểm danh. Thống kê chi tiết 3 loại hình (Thánh Lễ, Giáo Lý, Chầu Thánh Thể / Sinh Hoạt), tính tỷ lệ hiện diện có trọng số theo chính sách, phân loại học lực chuyên cần, biểu đồ xu hướng theo tuần/tháng bằng Pure SVG siêu nhẹ, cảnh báo sớm học sinh vắng nhiều kèm số điện thoại liên hệ phụ huynh, và hỗ trợ xuất báo cáo Excel (.xlsx / .csv) 1-click.
+
+### Module: Class Hierarchy Sorting Engine & Controls (ADR-036)
+- **Files Modified/Created**: `src/utils/classSort.ts`, `src/__tests__/utils/classSort.test.ts`, `src/components/desktop/DesktopStudentList.tsx`, `src/components/mobile/MobileStudentsView.tsx`, `src/components/desktop/DesktopClasses.tsx`, `src/components/desktop/DesktopAttendanceSummary.tsx`, `src/components/common/PrintReportModal.tsx`.
+- **Summary**: Công cụ phân cấp thứ bậc lớp học 3 cấp độ chuẩn TNTT & Giáo Lý: (1) Ngành sinh hoạt (`Chiên Con` -> `Ấu Nhi` -> `Thiếu Nhi` -> `Nghĩa Sĩ` -> `Hiệp Sĩ`), (2) Số khối lớp (1 -> 2 -> 3), (3) Hậu tố phân ban/tổ đội (A -> B -> C -> D). Tích hợp các nút điều khiển sắp xếp `Lớp: Thấp → Cao` & `Lớp: Cao → Thấp` trên thanh công cụ và header bảng danh sách học sinh, quản lý lớp học, bảng tổng hợp chuyên cần, và hộp thoại in ấn.
+
+### Module: Catholic Liturgical Calendar Engine & Controls (ADR-037)
+- **Files Modified/Created**: `src/types/liturgical.ts`, `src/constants/liturgical.ts`, `src/utils/liturgicalEngine.ts`, `src/__tests__/utils/liturgicalEngine.test.ts`, `src/__tests__/components/LiturgicalCalendar.test.tsx`, `src/components/desktop/LiturgicalTodayWidget.tsx`, `src/components/mobile/MobileLiturgicalWidget.tsx`, `src/components/desktop/DesktopCalendarView.tsx`, `src/components/mobile/MobileCalendarView.tsx`, `src/pages/CalendarPage.tsx`, `src/router.tsx`, `src/components/desktop/DesktopSidebar.tsx`, `src/components/desktop/DesktopDashboard.tsx`, `src/components/mobile/MobileHomeView.tsx`, `src/components/desktop/DesktopAttendanceGrid.tsx`, `src/components/mobile/MobileAttendanceView.tsx`, `src/components/common/RootLayout.tsx`.
+- **Summary**: Tích hợp Lịch Phụng Vụ Công Giáo chuẩn Hội Đồng Giám Mục Việt Nam (HĐGMVN) và Quy chế Sách Lễ Rôma (IGMR) hoạt động 100% Offline. Tự động tính toán Lễ Phục Sinh (Meeus Computus), các mùa phụng vụ (Vọng, Giáng Sinh, Chay, Phục Sinh, Thường Niên), chu kỳ Năm A/B/C, Năm I/II, màu áo lễ (Trắng, Đỏ, Xanh, Tím, Hồng), bậc lễ (Lễ Trọng, Kính, Nhớ, Ngày thường), lễ buộc và bài đọc Lời Chúa. Tích hợp Widget Lịch Hôm Nay trên Dashboard, Trang Lịch Toàn Diện (`/calendar`) hỗ trợ quản lý sự kiện xứ đoàn (thêm với bộ chọn ngày tự do + chỉnh sửa sự kiện đã có, lưu trữ `localStorage` key `parish_calendar_events_v1`), và huy hiệu ngày lễ trên trang Điểm danh.
+
+### Module: Attendance Breakdown in Report Cards & Calendar Sync (ADR-038)
+- **Files Modified/Created**: `src/types/reportViewModel.ts`, `src/utils/reportViewModelFactory.ts`, `src/components/common/StudentReportModal.tsx`, `src/utils/pdfGenerator.ts`, `src/utils/icalGenerator.ts`, `src/__tests__/utils/icalGenerator.test.ts`, `src/__tests__/utils/reportViewModelFactoryAttendance.test.ts`, `src/components/desktop/DesktopCalendarView.tsx`, `src/components/mobile/MobileCalendarView.tsx`.
+- **Summary**:
+  1. **Chi tiết Chuyên cần trên Phiếu điểm**: Thống kê và hiển thị minh bạch 3 cột trụ chuyên cần (Thánh Lễ Chúa Nhật, Giờ Học Giáo Lý, Chầu Thánh Thể / Sinh Hoạt) với đầy đủ số buổi đi, số buổi vắng, tổng số buổi và tỷ lệ phần trăm hiện diện chung trên cả màn hình popup cá nhân (`StudentReportModal`) lẫn bản in PDF/A4 hàng loạt (`pdfGenerator`).
+  2. **Đồng bộ Lịch iCalendar RFC 5545 & Google Calendar**: Module `icalGenerator` xuất file `.ics` tiêu chuẩn quốc tế cho Apple Calendar, Google Calendar, Outlook, và hỗ trợ nút 1-chạm tạo sự kiện trên Google Calendar Web với đầy đủ thông tin Mùa, Bậc lễ, Áo lễ, Lời Chúa và Sự kiện xứ đoàn.
+
+### Module: Parent Phone Identity Hardening & Telegram UI Completion (ADR-039)
+- **Files Modified/Created**: `server/src/routes/auth.ts`, `server/src/routes/users.ts`, `server/src/services/userService.ts`, `src/lib/api.ts`, `src/pages/SettingsPage.tsx`, `src/components/desktop/UserManagementPage.tsx`, `src/components/common/TelegramLinkCard.tsx`, `src/hooks/useTelegramLink.ts`, `src/pages/ParentPage.tsx`, `src/pages/LoginPage.tsx`, `server/src/services/telegram.ts`, `server/src/__tests__/user-management.test.ts`, `src/__tests__/components/TelegramLinkCard.test.tsx`.
+- **Summary**:
+  1. **P1 — Phụ huynh không tự đổi SĐT được**: `users.phone` là identity khớp `students.parentPhone` (SSOT `CanAccessStudentSpecification`) → `PUT /api/auth/profile` chặn phuhuynh đổi phone khác SĐT hiện tại (403 `PHONE_CHANGE_NOT_ALLOWED`, format `^0\d{9}$` mọi role); endpoint duy nhất = `PUT /api/users/:id/phone` (admin-only + re-auth + rate limit + audit `UPDATE_USER_PHONE`/`_FAILED` không PII theo A16). Phuhuynh có username = SĐT cũ → **username đồng bộ theo SĐT mới** (login = số mới); trùng username → 409 `USERNAME_EXISTS`; username custom không đổi; cấm Admin trưởng (superadmin).
+  2. **P2 — Hoàn thiện UI Telegram**: `useTelegramLink` hook + `TelegramLinkCard` (trạng thái liên kết, tạo mã 10 phút + copy + hướng dẫn `/link`, toggle thông báo, hủy liên kết) mount cuối ParentPage — server/bot ADR-022 đã có endpoint, giờ client dùng được; bot `/start` hướng dẫn 4 bước + env optional `TELEGRAM_BOT_USERNAME`.
+  3. **P3 — Credential & hỗ trợ**: nút "Sao Chép Tất Cả Credential" sau provision (chỉ `status='created'` có tempPassword); hint quên mật khẩu (liên hệ BGL) trên LoginPage; SettingsPage disable ô SĐT cho PH + hướng dẫn liên hệ BGL.
+- **Security**: ADR-039 (xem `docs/SECURITY_AUDIT_LOG.md` A-NEW-50).
+
+### Module: Smart Exam Paper Management, Parser & A4 Generator (ADR-023 Level 2)
+- **Files Modified/Created**: `server/src/db/schema.ts`, `server/src/routes/exams.ts`, `server/src/services/examService.ts`, `src/types/index.ts`, `src/stores/examStore.ts`, `src/utils/examParser.ts`, `src/utils/examSheets.ts`, `src/__tests__/utils/examParser.test.ts`, `src/components/exam/ExamImportModal.tsx`, `src/components/exam/ExamPaperModal.tsx`, `src/components/exam/ExamSessionView.tsx`, `docs/BUSINESS_RULES.md`.
+- **Summary**:
+  1. **Bộ phân tích đề thi thông minh (Smart Exam Parser)**: Tự động phân tích đề thi trắc nghiệm từ văn bản (Word, Markdown, Plain text) hoặc file bảng tính Excel (.xlsx, .csv). Tự động nhận diện câu hỏi, 4 phương án $A, B, C, D$, trích xuất chính xác `questionCount` (1-50 câu) và bảng đáp án chuẩn `answerKey` (`{"1":"A", "2":"B", ...}`) trong 1 click.
+  2. **Trình tạo & in đề thi A4 chuẩn Nhà Xứ (Exam Paper Generator)**: Cho phép xem trước và in bản đề thi A4 trang trọng chuẩn nhận diện Xứ Đoàn TNTT (tùy chọn 2 cột tiết kiệm giấy hoặc 1 cột, in đề bài cho học sinh hoặc in kèm đáp án cho Ban Giáo Lý).
+  3. **Tích hợp đồng bộ OMR**: Dữ liệu đề thi lưu trực tiếp vào CSDL (`questions` JSON), tự động điền form tạo phiên chấm, tương thích 100% với hệ thống in Phiếu trả lời OMR và Camera Scanner.
+
+### Module: Parish Financial & Fund Management (ADR-040)
+- **Files Modified/Created**: `server/src/db/schema.ts`, `server/src/db/index.ts`, `server/src/routes/finances.ts`, `server/src/services/financeService.ts`, `server/src/index.ts`, `server/src/__tests__/financeService.test.ts`, `src/types/finance.ts`, `src/types/index.ts`, `src/lib/api.ts`, `src/stores/financeStore.ts`, `src/utils/receiptGenerator.ts`, `src/__tests__/utils/receiptGenerator.test.ts`, `src/__tests__/components/FinancePage.test.tsx`, `src/components/finance/TransactionModal.tsx`, `src/components/finance/ClassFeeCollectionModal.tsx`, `src/components/finance/PrintReceiptModal.tsx`, `src/components/finance/FundManageModal.tsx`, `src/pages/FinancePage.tsx`, `src/router.tsx`, `src/components/desktop/DesktopSidebar.tsx`, `src/components/common/RootLayout.tsx`, `docs/BUSINESS_RULES.md`.
+- **Summary**:
+  1. **Quản Lý Danh Mục Quỹ Độc Lập**: Hệ thống 4 quỹ mặc định (`GENERAL`, `CHARITY`, `CAMP`, `LEADERS`) cùng khả năng tạo quỹ tùy chỉnh không giới hạn. Tự động tính toán số dư khả dụng, tổng thu, tổng chi của từng quỹ và toàn Xứ Đoàn.
+  2. **Sổ Giao Dịch Thu - Chi - Chuyển Quỹ**: Ghi nhận minh bạch mọi giao dịch tiền mặt/chuyển khoản kèm trích yếu, hạng mục, người nộp/nhận, số điện thoại, hóa đơn/chứng từ đính kèm. Hỗ trợ chuyển tiền giữa các quỹ với SQLite Transaction an toàn.
+  3. **Sổ Thu Niên Liễm Theo Lớp**: Ban Quản Trị theo dõi danh sách học sinh đã đóng/chưa đóng/miễn giảm theo từng lớp. Hỗ trợ 1-click chuyển trạng thái và tự động tạo Phiếu Thu vào Quỹ Xứ Đoàn.
+  4. **Bản In Phiếu Thu / Phiếu Chi Chuẩn A5/A4 & Bộ Chuyển Số Tiền Thành Chữ**: Tự động chuyển đổi số tiền VND sang chữ tiếng Việt chuẩn kế toán và sinh mẫu Phiếu Thu/Phiếu Chi trang trọng với 4 chữ ký (Cha Tuyên Úy, Xứ Đoàn Trưởng, Thủ Quỹ, Người nộp/nhận).
+  5. **Bảo Mật & Phân Quyền (Admin Only)**: Giới hạn truy cập nghiêm ngặt chỉ dành cho role `admin` trên cả backend (`roleMiddleware('admin')`) lẫn frontend router guard. Toàn bộ thao tác tài chính đều được ghi `audit_logs` bất biến.
+
+### Module: System Polish & Data Integrity Hardening (ADR-040)
+- **Files Modified/Created**: `server/src/db/schema.ts`, `server/src/routes/leaveRequests.ts`, `server/src/services/outboxService.ts`, `server/src/services/telegram.ts`, `server/src/services/examService.ts`, `server/src/services/importService.ts`, `server/src/services/financeService.ts`, `server/src/routes/settings.ts`, `server/src/routes/classes.ts`, `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`.
+- **Summary**:
+  1. **P-04 (Transactional Leave Sync)**: Bọc logic duyệt đơn nghỉ phép và đồng bộ điểm danh `AbsentExcused` trong một `db.transaction()` duy nhất.
+  2. **P-05 (Outbox Polling Concurrency Lock)**: Thêm cờ `isProcessing` ngăn chặn hoàn toàn việc thực thi chồng lấn của `setInterval` worker outbox.
+  3. **P-06 (Telegram Bot Alerting)**: Ghi log `console.error` và ghi `audit_logs` khi bot Telegram khởi động thất bại.
+  4. **P-07 (Idempotency Key Hardening)**: Schema `exam_sessions.idempotencyKey` thiết lập `.notNull()` kèm SQL default UUID `lower(hex(randomblob(16)))`.
+  5. **P-08 (Intra-File Duplicate Detection)**: Thêm cơ chế phát hiện trùng lặp nội bộ trong cùng 1 file Excel import học sinh trước khi truy vấn DB.
+  6. **P-09 (SQL-Level Fund Aggregation)**: Chuyển đổi tính toán số dư quỹ sang SQL `SUM()` + `GROUP BY` trực tiếp trên SQLite.
+  7. **P-14 (Sequential Receipt Number)**: Sinh mã phiếu thu/chi tăng dần theo năm `PT-YYYY-0001` thay vì số ngẫu nhiên.
+  8. **P-15 (Settings In-Memory Cache)**: Cache cấu hình hệ thống với TTL 60 giây và tự động xóa cache khi có cập nhật.
+   9. **P-16 (Idempotent Academic Year)**: Sử dụng `onConflictDoNothing()` cho việc tạo năm học.
+
+### Module: Cloud Storage — Turso (libSQL) DB + Cloudflare R2 Blob (ADR-041)
+- **Files Modified/Created**: `server/src/db/dbConfig.ts` (NEW), `server/src/db/index.ts`, `server/src/services/blobStorage.ts` (NEW), `server/src/services/safetySnapshot.ts` (NEW), `server/src/services/backupScheduler.ts`, `server/src/routes/backup.ts`, `server/src/services/purgeService.ts`, `server/src/utils/safetyDir.ts`, `server/src/__tests__/blobStorage.test.ts` (NEW), `server/src/__tests__/utils/safetyDir.test.ts`, `.env.example`.
+- **Summary**:
+   1. **DB pluggable (Turso)**: `getDbConfig()` chọn backend theo env — `TURSO_URL` set → managed libSQL (Turso, edge replica), ngược lại SQLite local. Cùng engine libSQL → **0 thay đổi schema/Drizzle/transaction**; `PRAGMA foreign_keys=ON` chạy cả hai, WAL/busy chỉ local.
+   2. **Blob abstraction (R2)**: `blobStorage.ts` — `putObject/getObject/listObjects/deleteObject` với backend Cloudflare R2 (S3-compatible, `@aws-sdk/client-s3`) nếu đủ `R2_*` env, else local fs fallback. Prefix `safety/` → `getSafetyBackupDir()` (chmod 0600), `backups/` → `BACKUP_DIR`.
+   3. **Safety snapshot bền vững**: `safetySnapshot.ts` ghi + retention (5 bản/parish/prefix) qua blobStorage — thay `writeFileSync`/`ensureSafetyDir` cũ ở `backup.ts` (pre-restore) + `purgeService.ts` (purge). Giải quyết disk ephemeral Railway → backup/safety mất khi redeploy.
+   4. **Scheduler aware remote**: `backupScheduler.ts` đẩy backup lên R2 + retention qua abstraction; với Turso remote → skip VACUUM (không hỗ trợ) + warn (dùng Turso managed backup).
+- **Security**: ADR-041 (xem `docs/SECURITY_AUDIT_LOG.md` A-NEW-51). Opt-in env; fallback local giữ behavior cũ → zero-config compatible.
+
+### Module: Parent Self-Service Password Reset via Student Verification & Zalo Fast Support (ADR-042)
+- **Files Modified/Created**: `server/src/routes/auth.ts`, `server/src/middleware/security.ts`, `src/lib/api.ts`, `src/components/auth/ParentForgotPasswordModal.tsx` (NEW), `src/pages/LoginPage.tsx`, `server/src/__tests__/parent-forgot-password.test.ts` (NEW), `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`, `docs/BUSINESS_RULES.md`, `docs/FRONTEND_API_CONTRACT.md`.
+- **Summary**:
+  1. **Tầng 1: Tự phục hồi 24/7 (Self-Service)**: Phụ huynh tự đặt lại mật khẩu bằng cách xác minh SĐT phụ huynh (`^0\d{9}$`) + Ngày tháng năm sinh của con (`DD/MM/YYYY` hoặc `YYYY-MM-DD`) + Tên Thánh / Họ tên của con (không phân biệt dấu/hoa thường). Endpoint: `POST /api/auth/parent-reset-password`.
+  2. **Bảo mật & Rate limiting**: `parentForgotRateLimiter` (10 requests / 60s / IP), *timing-neutral* (chạy bcrypt dummy khi không tìm thấy số hoặc thông tin con không khớp), mã hóa bcrypt cost 12, xóa `passwordEncrypted` về `NULL`, tăng `tokenVersion` hủy phiên cũ, ghi audit log `PARENT_RESET_PASSWORD` không chứa PII (A16).
+  3. **Tầng 2: Hỗ trợ Zalo 1-chạm**: Modal cung cấp tab "Nhắn Zalo Ban Giáo Lý" tự động tạo sẵn nội dung tin nhắn kèm SĐT phụ huynh để gửi qua Zalo cho GLV/Ban Giáo Lý cấp lại mật khẩu tạm.
+  4. **Tích hợp LoginPage**: Nút "Quên mật khẩu?" trên form đăng nhập mở modal; khi thành công tự động điền SĐT và focus ô mật khẩu.
+
+### Module: Hai Cổng Đăng Nhập — Phụ Huynh & Giáo Lý Viên/Nhân Sự (ADR-044)
+- **Files Modified/Created**: `src/pages/LoginPage.tsx` (rewrite — chooser), `src/pages/ParentLoginPage.tsx` (NEW), `src/pages/StaffLoginPage.tsx` (NEW), `src/components/auth/LoginShell.tsx` (NEW), `src/router.tsx`, `src/components/common/RootLayout.tsx`, `e2e/login.spec.ts`, `e2e/auth-guard.spec.ts`, `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`, `docs/BUSINESS_RULES.md`, `docs/02_ARCHITECTURE.md`, `docs/FRONTEND_API_CONTRACT.md`, `docs/SECURITY_AUDIT_LOG.md`.
+- **Summary**:
+  1. **2 cổng UI, chung 1 backend auth** (không đổi API/session/bảo mật): `/login` (chooser) → `/login/phuhuynh` (SĐT + mật khẩu, quên mật khẩu ADR-042) / `/login/nhan-su` (username + mật khẩu, liên hệ BGL khi quên).
+  2. **Chính sách 1 tài khoản = 1 vai trò**: role gate sau login — tài khoản không khớp cổng bị logout + thông báo chỉ đường sang cổng đúng; GLV kiêm PH dùng 2 tài khoản riêng.
+  3. **Bảo mật**: không thêm endpoint, không thay đổi lockout/rate-limit/refresh rotation/audit; `requireAuth` redirect giữ `/login`; `RootLayout` `isAuthRoute` mở rộng cho `pathname.startsWith('/login/')`.
+  4. **Verify**: tsc sạch, oxlint 0 error, **1336/1336 tests PASS**, `build:frontend` clean, e2e cập nhật 3 trang login.
+
+### Module: Session Persist 2 Tầng — Marker Không-PII + Snapshot Mã Hóa (ADR-045)
+- **Files Modified**: `src/stores/authStore.ts` (marker `{id,role,parishId}` ở localStorage + snapshot `parish_auth_user` mã hóa AES-GCM trong Dexie qua `dexieStorage`; `loadFromStorage` rebuild qua `api.me()` khi snapshot hỏng), `src/lib/db.ts` (`AUTH_SNAPSHOT_KEY` + `clearAuthSnapshot()`), `src/lib/api.ts` (`api.me()` = `GET /api/auth/me`; `redirectToLogin` dọn snapshot), `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`, `docs/BUSINESS_RULES.md` §10.13, `docs/SECURITY_AUDIT_LOG.md` A-NEW-54.
+- **Summary**:
+  1. **Marker**: `parish_current_user` chỉ còn `{id, role, parishId}` (không PII) — mọi guard (router `requireAuth`/`requireRole`, `api.isAuthenticated()`, `syncStore.getCurrentUserId`) đọc đồng bộ như cũ, không đổi call site.
+  2. **Snapshot**: user đầy đủ (username/fullName/phone — PH: SĐT) mã hóa tại-rest trong IndexedDB `parish_auth_user` (khóa non-extractable, AAD `stores:<scopedKey>`, tenant-scoped `{parishId}:{userId}`).
+  3. **Rebuild**: snapshot thiếu/hỏng (Dexie purge, key rotate, LAN không có `crypto.subtle`) → online: `POST /auth/refresh` + `GET /auth/me` rebuild; offline → logout sạch. Ghi fail-safe: lỗi Dexie/crypto không hỏng login (marker đủ cho guard).
+  4. **Dọn dẹp**: `logout()` + `redirectToLogin()` (401) đều xóa marker lẫn snapshot (không PII mã hóa mồ côi).
+  5. **Verify**: tsc sạch, oxlint 0 error, **1336/1336 tests PASS**, `build:frontend` clean.
+
+### Module: Username Unique Theo Parish — Composite `(parish_id, username)` (ADR-046)
+- **Files Modified**: `server/src/db/index.ts` (migration `20260816-121`: drop `users_username_unique` + `idx_users_username_parish UNIQUE(parish_id, username)`; base create bỏ inline UNIQUE), `server/src/db/schema.ts` (username không còn `.unique()`, table-level `uniqueIndex` composite), `server/src/routes/auth.ts` (loginSchema + lookup scoped theo `parishId` optional default `'gia-ton'`), `server/src/services/userService.ts` (3 pre-check scoped: createUser/updateUserPhone/bulk provision PH), `server/src/__tests__/username-tenant-scope.test.ts` (NEW, 5 tests) + 7 test files cập nhật login body, `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`, `docs/BUSINESS_RULES.md` §10.8/§10.9, `docs/SECURITY_AUDIT_LOG.md` A-NEW-55, `docs/FRONTEND_API_CONTRACT.md` (login `parishId` optional), `docs/07_DATABASE_PLAN.md` row 1, `docs/02_ARCHITECTURE.md`.
+- **Summary**:
+  1. **DB**: username unique **theo parish** — cùng username ở 2 giáo xứ hợp lệ (PH: username = SĐT ADR-026/027/039; GLV: auto-gen ADR-027); trùng trong cùng parish → UNIQUE reject. Migration không mất data (global unique ⊃ per-parish unique).
+  2. **Login**: `POST /api/auth/login` nhận `parishId` optional default `'gia-ton'` — backward-compatible, fail-closed (không fallback lookup toàn cục → không bao giờ trả user parish khác).
+  3. **Pre-check**: createUser/updateUserPhone/bulk provision chỉ conflict-check trong cùng parish.
+  4. **Verify**: tsc 0 error, oxlint 0 error, `username-tenant-scope.test.ts` 5/5 + 15 suite auth/user **97/97 PASS**.
+  5. **Backlog**: multi-parish go-live → client login phải gửi `parishId` (picker/config) + scope `parent-reset-password` theo parish.
+
+### Module: UX/UI Audit 2026-08-16 — Pha 0 (Linter + Contrast) & Pha 2 (Bug chức năng)
+- **Files Modified**: `scripts/design-system-lint.mjs` (6 rules), `src/components/auth/ParentForgotPasswordModal.tsx`, `src/components/common/InstallPrompt.tsx`, `src/components/desktop/{AttendanceHistoryModal,ConflictInboxModal,SystemDiagnosticsModal,ExamSessionView→src/components/exam,DesktopReports,DesktopAttendanceSummary,DesktopLeaveRequests,DesktopStudentList,DesktopGradeCards}.tsx`, `src/components/mobile/{MobileLeaveRequests,MobileStudentsView,MobileReportsView}.tsx`, `src/components/common/{ExcelImportModal,ExcelGradeImportModal,PurgeDataModal,StudentReportModal,RootLayout}.tsx`, `src/pages/{StudentsPage,GradesPage,ReportsPage,AcademicYearPage}.tsx`, `src/stores/uiStore.ts`, `src/components/desktop/PromotionPanel.tsx`, `src/__tests__/components/MobileViewsEnhancement.test.tsx`, `docs/03_DESIGN_SYSTEM.md` (§10/§11/§12), `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md`.
+- **Summary**:
+  1. **Linter 6 rules**: + `NO_NONEXISTENT_CLASS`, + `NO_ARBITRARY_HEX` (chỉ `[#hex]`; `[var(--color-*)]` hợp lệ), + `NO_RAW_600_BUTTON` (emerald/rose/amber/sky/green 600-700 trên button — WCAG AA fail với chữ trắng; quét button-context 3 dòng). `lint:ds` = 0 / 124 components.
+  2. **Contrast sweep (Pha 3.2 kéo lên)**: 19 button → `.btn-primary`/`.btn-secondary`/`.btn-danger` (không `.btn-success` — success token không đạt AA); 4 filter pill DesktopAttendanceSummary → badge domain token `bg-[var(--color-parish-*-bg)] text-[var(--color-parish-*-hover)] border …/30`; rankColors DesktopGradeCards → `badge-warning/info/success/neutral/danger`.
+  3. **Bug 2.1**: `DesktopStudentList.handleDelete` → `useStudentStore.getState().deleteStudents(ids)` + toast success/error.
+  4. **Bug 2.2 (In Phiếu)**: `uiStore.openReportForPrint` set `reportPrintRequested`; `StudentReportModal` nhận `autoPrint` prop, effect in sau 300ms qua `ReportExportService.print` (iframe fallback chống popup-block — cùng pipeline PrintReportModal); `RootLayout` pass ở 2 nhánh; wire `GradesPage`/`StudentsPage`/`ReportsPage` (`DesktopReports` + `MobileReportsView` đổi prop `onViewReport`→`onPrintReport`).
+  5. **Bug 2.3**: `PromotionPanel` "ĐTB" dùng `avg.score` thay `promotion.recommendedBranch`.
+  6. **Verify**: `tsc -b` clean, `lint:ds` 0, `MobileViewsEnhancement.test.tsx` 8/8 pass; full vitest suite không có failure (tool timeout >10 phút).
+
+### Module: UX/UI Audit 2026-08-16 — Pha 1 (Component Standards, ADR-047)
+- **Files Modified**: `src/components/common/{PageHeader,ModalShell,FormField}.tsx` (NEW), `src/index.css` (@theme domain badge tokens + `.badge-{violet,teal,orange,indigo,purple}` + dark overrides), `src/__tests__/components/CommonComponents.test.tsx` (NEW), `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` (ADR-047), `docs/03_DESIGN_SYSTEM.md` (§12 batch Pha 1), `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md` (PHA 1 ✅).
+- **Summary**:
+  1. **PageHeader** (DS §5): icon tile `bg-parish-primary-light text-parish-primary` + `h1 text-lg font-extrabold text-text-main` + desc `text-xs text-text-muted` + `actions`.
+  2. **ModalShell**: wrap `.modal-overlay`/`.modal-content` + `role="dialog"` `aria-modal` `aria-labelledby` (useId) + focus trap + Escape + scroll-lock + `closeOnOverlay` policy + close `btn-icon btn-ghost` aria-label "Đóng". (ConfirmDialog giữ `role="alertdialog"`.)
+  3. **FormField**: `htmlFor` + required marker + `.form-error` `role="alert"` + `aria-invalid`/`aria-describedby` (error ưu tiên hơn hint).
+  4. **Domain badge colors**: `--color-parish-{violet,teal,orange,indigo,purple}(-bg)` AA trên pastel (4.6:1–7:1) + dark overrides — AuditLogPage/AcademicYearPage sẽ đổi pill raw → `.badge-*` ở Pha 3/6.
+  5. **Verify**: `CommonComponents.test.tsx` 13/13 PASS · `lint:ds` 0 / **128 components** · `tsc -b` clean · oxlint 0 error.
+
+### Module: UX/UI Audit 2026-08-16 — Pha 3 (a11y modal + tables + icon buttons, ✅ DONE)
+- **Files Modified**: `src/components/finance/{FundManageModal,TransactionModal,PrintReceiptModal,ClassFeeCollectionModal}.tsx`, `src/components/common/ModalShell.tsx` (props `icon`/`subtitle`/`headerActions`; `title: ReactNode`), `src/components/common/HeaderBar.tsx`, `src/components/desktop/{DesktopStudentList,AttendanceHistoryModal,DesktopCalendarView,DesktopClasses,DesktopLeaveRequests,PromotionPanel,UserManagementPage,SystemDiagnosticsModal,ConflictInboxModal,GradeFormulaConfigModal}.tsx`, `src/components/common/{ExcelImportModal,ExcelGradeImportModal,ConflictResolutionModal,BackupRestoreModal,PurgeDataModal,ForcePasswordChangeModal}.tsx`, `src/components/auth/ParentForgotPasswordModal.tsx`, `src/components/exam/{ExamPaperModal,ExamImportModal,ExamScanModal,AnswerSheetModal,ExamSessionView}.tsx`, `src/pages/{AuditLogPage,ParentLoginPage}.tsx`, 18 file sweep `scope="col"`, `docs/SECURITY_AUDIT_LOG.md` (A11y Batch — DONE), `docs/03_DESIGN_SYSTEM.md` (§12), `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md` (PHA 3 ✅).
+- **Summary**:
+  1. **scope="col"**: 129 `<th>` / 18 file (scripted Node); 1 self-closing th hỏng do script → fix `scope="col" aria-label`.
+  2. **aria-label**: HeaderBar 6 icon-only, DesktopStudentList 5, AuditLogPage Eye + `aria-expanded`, UserManagementPage reveal-password, ParentLoginPage show/hide password.
+  3. **ModalShell batch 1 (finance 4/4)**: FundManageModal/TransactionModal/PrintReceiptModal/ClassFeeCollectionModal — role=dialog + focus trap + Escape + scroll-lock miễn phí; visual giữ nguyên (toolbar full-bleed `-mt-4 -mx-6`; PrintReceiptModal `headerActions`).
+  4. **ModalShell batch 2 (16 modal desktop)**: AttendanceHistoryModal, DesktopCalendarView ×2, DesktopClasses ×2 (confirmDelete → ConfirmDialog), DesktopLeaveRequests review, PromotionPanel confirm, UserManagementPage 8/8; `title` → `ReactNode` để icon trong title.
+  5. **Tier B — a11y trực tiếp (15 modal giữ shell custom: header brand/màu, tabs, sticky footer, camera/print)**: ConflictInboxModal, GradeFormulaConfigModal, SystemDiagnosticsModal, ExcelImportModal, ExcelGradeImportModal, ConflictResolutionModal, BackupRestoreModal, PurgeDataModal (`role="alertdialog"`), ForcePasswordChangeModal (gate — scroll-lock, KHÔNG Escape), ParentForgotPasswordModal, ExamPaperModal, ExamImportModal, AnswerSheetModal, ExamScanModal, ExamSessionView ×2 → `role` + `aria-modal` + `aria-labelledby` + Escape + scroll-lock. **Lưu ý kỹ thuật**: effect a11y PHẢI đặt TRƯỚC early return `if (!isOpen) return null` (guard trong effect) — nếu không oxlint rules-of-hooks báo error (10 file đã dính ở batch 2, đã fix).
+  6. **Skip hợp lệ**: NoticeModal/StudentModal (đã chuẩn role/Escape), Certificate/PhotoCard/StudentReportModal (print — exempt linter), InstallPrompt (button nổi không overlay).
+  7. **Verify**: tsc clean · lint:ds 0/128 · 78/78 tests · oxlint 0 error (220 warnings pre-existing).
+  8. **Backlog**: axe-core scan tự động hóa verify (đề xuất CI sau PHA 6).
+
+
+
+
+
