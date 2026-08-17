@@ -438,10 +438,10 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       justify-content: center;
     }
     .qr-box {
-      /* QR phải có tối thiểu ~3px/module khi in/capture A4; 58px cũ chỉ
-         ~1.6px/module cho mã 37 module nên không thể decode ổn định. */
-      width: 108px;
-      height: 108px;
+      /* QR production gồm 21 data module + quiet zone. 120px tạo dư địa hơn
+         4px/module trước khi camera thu nhỏ cả tờ A4, vẫn nằm gọn trong cột. */
+      width: 120px;
+      height: 120px;
       padding: 0;
       background: #fff;
       border: 1px solid #0f172a;

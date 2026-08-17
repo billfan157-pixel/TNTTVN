@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult } from '../../lib/omr'
 import { scanExamCode } from '../../lib/examCodeScanner'
+import { resolveExamIdentity, type ExamCodeLock } from '../../lib/examScanIdentity'
 import { getObjectCoverSourceRect } from '../../lib/cameraFrame'
 import { CORNER_MARKERS, QR_SIZE, QR_X, QR_Y } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
@@ -65,6 +66,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const resolveRef = useRef(false)
   const liveRef = useRef(false)
   const consecutiveNoCodeFramesRef = useRef(0)
+  const codeLockRef = useRef<ExamCodeLock | null>(null)
   const lastScanFailureRef = useRef('Không nhận diện được mã QR / Barcode trên phiếu.')
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
 
@@ -74,6 +76,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [scanHint, setScanHint] = useState('Đang tìm mã QR / Barcode…')
+  const [codeLocked, setCodeLocked] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [scannedList, setScannedList] = useState<ScannedEntry[]>([])
   const [cameraLoading, setCameraLoading] = useState(true)
@@ -157,19 +160,29 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   }
 
   const processImageFrame = useCallback((frame: ImageData): boolean => {
-    const codeResult = scanExamCode(frame)
-    const payload = codeResult.payload
+    const now = Date.now()
+    const activeLock = codeLockRef.current?.expiresAt && codeLockRef.current.expiresAt > now
+      ? codeLockRef.current
+      : null
+    // Sau khi đã đọc đúng mã, dành CPU cho OMR ở các frame kế tiếp. Khi khóa
+    // hết hạn scanner sẽ đọc QR lại, tránh gán nhầm nếu người dùng đổi tờ giấy.
+    const codeResult = activeLock ? null : scanExamCode(frame)
+    const identity = resolveExamIdentity(activeLock, codeResult, sessionId, now)
+    codeLockRef.current = identity.lock
 
-    if (payload) {
+    if (identity.kind === 'wrong_session') {
+      setCodeLocked(false)
+      stopCamera()
+      setPhase({
+        kind: 'error',
+        message: `Mã phiếu thuộc phiên khác (${identity.scannedSessionId}). Vui lòng dùng đúng phiếu cho phiên "${sessionId}".`,
+      })
+      return true
+    }
+
+    if (identity.lock) {
       consecutiveNoCodeFramesRef.current = 0
-      if (payload.sessionId !== sessionId) {
-        stopCamera()
-        setPhase({
-          kind: 'error',
-          message: `Mã phiếu thuộc phiên khác (${payload.sessionId}). Vui lòng dùng đúng phiếu cho phiên "${sessionId}".`,
-        })
-        return true
-      }
+      setCodeLocked(true)
 
       if (!resolveRef.current) {
         const omr = examType === 'multiple_choice'
@@ -181,16 +194,17 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           stopCamera()
           playFeedback()
           setScanHint('Đã nhận diện mã QR / Barcode — đang xác nhận phiếu…')
-          setPhase({ kind: 'detected', studentId: payload.studentId, omr, frame })
+          setPhase({ kind: 'detected', studentId: identity.lock.studentId, omr, frame })
           return true
         }
-        const message = `Đã đọc mã phiếu — ${formatOmrFailReason(omr.reason)}`
+        const message = `Mã phiếu đã đọc và được giữ trong 5 giây — ${formatOmrFailReason(omr.reason)}`
         lastScanFailureRef.current = message
         setScanHint(message)
       }
     } else {
+      setCodeLocked(false)
       consecutiveNoCodeFramesRef.current += 1
-      const message = codeResult.rawText
+      const message = codeResult?.rawText
         ? 'Đã đọc được mã nhưng mã này không phải mã phiếu chấm điểm TNTT.'
         : consecutiveNoCodeFramesRef.current >= 4
           ? 'Chưa đọc được mã QR / Barcode — đưa mã lại gần hơn, giữ nét và tránh chói sáng.'
@@ -245,6 +259,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     setCameraLoading(true)
     setPhase({ kind: 'scanning' })
     resolveRef.current = false
+    codeLockRef.current = null
+    setCodeLocked(false)
     consecutiveNoCodeFramesRef.current = 0
     lastScanFailureRef.current = 'Không nhận diện được mã QR / Barcode trên phiếu.'
     setScanHint('Đang tìm mã QR / Barcode…')
@@ -353,6 +369,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
   const retake = async () => {
     resolveRef.current = false
+    codeLockRef.current = null
+    setCodeLocked(false)
     setSaved(false)
     setSaving(false)
     consecutiveNoCodeFramesRef.current = 0
@@ -366,6 +384,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     if (!file) return
 
     stopCamera()
+    codeLockRef.current = null
+    setCodeLocked(false)
     setCameraLoading(true)
 
     const img = new Image()
@@ -444,6 +464,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       if (batchMode) {
         setTimeout(() => {
           resolveRef.current = false
+          codeLockRef.current = null
+          setCodeLocked(false)
           setSaved(false)
           setSaving(false)
           setScanHint('Đang tìm mã QR / Barcode…')
@@ -539,9 +561,12 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           )}
 
           {scanHint && phase.kind === 'scanning' && (
-            <div className="absolute top-2 left-3 right-24 flex items-start gap-2 bg-amber-500/95 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-lg pointer-events-none z-10">
+            <div className={`absolute top-2 left-3 right-24 flex items-start gap-2 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-lg pointer-events-none z-10 ${codeLocked ? 'bg-emerald-600/95' : 'bg-amber-500/95'}`}>
               <Info size={14} className="shrink-0" />
-              <span>{scanHint}</span>
+              <span className="flex flex-col gap-0.5">
+                <span>{codeLocked ? '✓ Mã phiếu: đã đọc · Khung OMR: đang tìm' : 'Mã phiếu: đang tìm · Khung OMR: chờ mã'}</span>
+                <span className="font-medium opacity-95">{scanHint}</span>
+              </span>
             </div>
           )}
         </div>

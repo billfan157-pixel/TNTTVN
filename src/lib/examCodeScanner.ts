@@ -89,6 +89,10 @@ function sharpenLuma(
  */
 export function scanExamCode(image: ImageData): ExamCodeScanResult {
   const upperRight = cropImageData(image, 0.42, 0, 0.58, 0.55)
+  // Crop chặt vùng mã của cả phiếu rời (x=.70..94) lẫn đề gộp. Đây là vùng
+  // quan trọng trên camera portrait: phóng 2x giúp finder pattern còn đủ pixel
+  // khi toàn bộ A4 chỉ rộng khoảng 700–850px trên sensor.
+  const upperRightFocus = cropImageData(image, 0.52, 0, 0.48, 0.38)
   // Raw camera thường landscape trong khi UI portrait: A4 nằm giữa frame và QR
   // rơi vào x≈0.52..0.70. Crop hẹp + upscale nearest giữ cạnh module sắc nét.
   const landscapePaperQr = cropImageData(image, 0.48, 0, 0.28, 0.38)
@@ -96,6 +100,9 @@ export function scanExamCode(image: ImageData): ExamCodeScanResult {
   // nhanh trước đó thất bại; QR nét thường dừng ngay ở crop đầu tiên.
   const qrAttempts = [
     () => upperRight,
+    () => upperRightFocus,
+    () => upscaleNearest(upperRightFocus, 2),
+    () => sharpenLuma(upscaleNearest(upperRightFocus, 2)),
     () => sharpenLuma(upperRight),
     () => ({ data: image.data, width: image.width, height: image.height }),
     () => landscapePaperQr,

@@ -111,6 +111,10 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     const page = await browser.newPage()
     await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 2 })
     await page.setContent(html, { waitUntil: 'load' })
+    expect(await page.$eval('.qr-box', element => ({
+      width: Math.round(element.getBoundingClientRect().width),
+      height: Math.round(element.getBoundingClientRect().height),
+    }))).toEqual({ width: 120, height: 120 })
     const frame = await elementImageData(page, '.qr-box')
     await page.close()
 
