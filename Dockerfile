@@ -18,7 +18,10 @@ COPY vendor/ ./vendor/
 # flag không gây hại).
 # A-NEW-16 (2026-08-11): PIN npm@11.15.0 thay vì @latest — build reproducible
 # (npm@latest có thể đổi bất kỳ lúc nào → cùng code, khác lỗi build).
-RUN npm install -g npm@11.15.0 && npm ci --allow-remote=all && cd server && npm ci --allow-remote=all
+RUN npm install -g npm@11.15.0 \
+    && (if [ -f package-lock.json ]; then npm ci --allow-remote=all; else npm install --allow-remote=all; fi) \
+    && cd server \
+    && (if [ -f package-lock.json ]; then npm ci --allow-remote=all; else npm install --allow-remote=all; fi)
 
 # Copy source code
 COPY . .
@@ -36,7 +39,9 @@ ENV DB_PATH=/app/data/parish.db
 # Copy server dependency configs & install production dependencies only
 # A-NEW-16: pin npm@11.15.0 (cùng version với build stage — reproducible).
 COPY server/package*.json ./server/
-RUN npm install -g npm@11.15.0 && cd server && npm ci --omit=dev --allow-remote=all
+RUN npm install -g npm@11.15.0 \
+    && cd server \
+    && (if [ -f package-lock.json ]; then npm ci --omit=dev --allow-remote=all; else npm install --omit=dev --allow-remote=all; fi)
 
 # Create node user for non-root execution
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
