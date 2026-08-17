@@ -30,24 +30,24 @@ export function parseCertificateQrPayload(payload: string): { certId: string; st
 
 /** Sinh SVG QR code (error correction M — đủ cho ảnh in). */
 export function generateExamQrSvg(payload: string, cellSize = 4): string {
-  const qr = qrcode(0, 'M')
-  qr.addData(payload)
-  qr.make()
+  const qr = createQr(payload)
   return qr.createSvgTag(cellSize, 0)
 }
 
+/** Số module mỗi cạnh của QR. Bản in phải dùng đúng số này làm SVG viewBox;
+ * hard-code 37 sẽ cắt QR khi session/student ID dài hơn. */
+export function getExamQrModuleCount(payload: string): number {
+  return createQr(payload).getModuleCount()
+}
+
 export function generateCertificateQrSvg(payload: string, cellSize = 4): string {
-  const qr = qrcode(0, 'M')
-  qr.addData(payload)
-  qr.make()
+  const qr = createQr(payload)
   return qr.createSvgTag(cellSize, 0)
 }
 
 /** Sinh ma trận QR (số 0/1) cho test decode roundtrip (không cần canvas). */
 export function generateExamQrMatrix(payload: string): number[][] {
-  const qr = qrcode(0, 'M')
-  qr.addData(payload)
-  qr.make()
+  const qr = createQr(payload)
   const size = qr.getModuleCount()
   const matrix: number[][] = []
   for (let row = 0; row < size; row++) {
@@ -68,6 +68,13 @@ export interface QrCodeSpec {
 export function generateExamQrCodes(sessionId: string, students: { id: string; name: string; code: string }[]): QrCodeSpec[] {
   return students.map(st => {
     const payload = buildExamQrPayload(sessionId, st.id)
-    return { payload, svg: generateExamQrSvg(payload), cellCount: qrcode(0, 'M').getModuleCount() }
+    return { payload, svg: generateExamQrSvg(payload), cellCount: getExamQrModuleCount(payload) }
   })
+}
+
+function createQr(payload: string) {
+  const qr = qrcode(0, 'M')
+  qr.addData(payload)
+  qr.make()
+  return qr
 }

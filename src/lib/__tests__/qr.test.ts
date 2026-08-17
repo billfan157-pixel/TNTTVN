@@ -5,6 +5,7 @@ import {
   parseExamQrPayload,
   generateExamQrSvg,
   generateExamQrMatrix,
+  getExamQrModuleCount,
   EXAM_QR_PREFIX,
 } from '../qr'
 
@@ -58,6 +59,13 @@ describe('Smart Exam Grading — QR (Phase 1)', () => {
     const svg = generateExamQrSvg(buildExamQrPayload('EXS-1', 'ST-1'))
     expect(svg).toContain('<svg')
     expect(svg).toContain('</svg>')
+  })
+
+  it('trả đúng kích thước viewBox cho payload dài, tránh cắt QR khi in phiếu', () => {
+    const payload = buildExamQrPayload(`EXS-${'s'.repeat(80)}`, `ST-${'t'.repeat(80)}`)
+    const matrix = generateExamQrMatrix(payload)
+    expect(getExamQrModuleCount(payload)).toBe(matrix.length)
+    expect(matrix.length).toBeGreaterThan(37)
   })
 
   it('roundtrip: ma trận QR decode được bằng jsQR ra đúng payload', () => {
