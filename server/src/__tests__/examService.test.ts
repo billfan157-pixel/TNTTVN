@@ -81,6 +81,18 @@ describe('Smart Exam Grading — exam routes & service', () => {
     sharedSessionId = res.data.id
   })
 
+  it('barcode decode accepts compact production payload and restores full IDs', async () => {
+    const compact = `TE:${sharedSessionId.slice(4).toUpperCase()}:12345678`
+    const res = await jsonReq('/barcode/decode', {
+      method: 'POST',
+      token: adminToken,
+      body: { barcodeText: compact },
+    })
+    expect(res.status).toBe(200)
+    expect(res.data.sessionId).toBe(sharedSessionId)
+    expect(res.data.studentId).toBe('ST-12345678')
+  })
+
   it('phuta can save results for their class and is blocked for another class', async () => {
     const sessionId = sharedSessionId
     const ok = await jsonReq(`/${sessionId}/results`, {

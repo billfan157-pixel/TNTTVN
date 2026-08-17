@@ -8,6 +8,7 @@ import {
   getExamQrModuleCount,
   getExamQrViewBoxSize,
   QR_QUIET_ZONE_MODULES,
+  EXAM_QR_COMPACT_PREFIX,
   EXAM_QR_PREFIX,
 } from '../qr'
 import { scanExamCode } from '../examCodeScanner'
@@ -67,6 +68,16 @@ describe('Smart Exam Grading — QR (Phase 1)', () => {
     expect(svg).toContain(`viewBox="0 0 ${size} ${size}"`)
     expect(size).toBe(getExamQrModuleCount(payload) + QR_QUIET_ZONE_MODULES * 2)
     expect(svg).toContain('shape-rendering="crispEdges"')
+  })
+
+  it('ID production dùng payload compact và parse lại đúng ID đầy đủ', () => {
+    const payload = buildExamQrPayload('EXS-7e8f7985', 'ST-12345678')
+    expect(payload).toBe(`${EXAM_QR_COMPACT_PREFIX}:7E8F7985:12345678`)
+    expect(parseExamQrPayload(payload)).toEqual({
+      sessionId: 'EXS-7e8f7985',
+      studentId: 'ST-12345678',
+    })
+    expect(parseExamQrPayload('te:not-hex:12345678')).toBeNull()
   })
 
   it('trả đúng kích thước viewBox cho payload dài, tránh cắt QR khi in phiếu', () => {

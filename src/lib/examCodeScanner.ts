@@ -50,6 +50,39 @@ function upscaleNearest(
 }
 
 /**
+ * Unsharp 5-point nhẹ cho crop QR. Camera điện thoại chụp cả tờ A4 thường làm
+ * biên module mềm 1px; jsQR binarize trực tiếp có thể mất finder pattern.
+ * Chỉ xử lý crop phía trên/phải để không nhân chi phí CPU trên toàn frame.
+ */
+function sharpenLuma(
+  image: { data: Uint8ClampedArray; width: number; height: number }
+): { data: Uint8ClampedArray; width: number; height: number } {
+  const { data: source, width, height } = image
+  const data = new Uint8ClampedArray(source.length)
+  const gray = new Uint8ClampedArray(width * height)
+  for (let i = 0; i < gray.length; i++) {
+    const p = i * 4
+    gray[i] = Math.round(source[p] * 0.299 + source[p + 1] * 0.587 + source[p + 2] * 0.114)
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x
+      const p = i * 4
+      const left = gray[y * width + Math.max(0, x - 1)]
+      const right = gray[y * width + Math.min(width - 1, x + 1)]
+      const top = gray[Math.max(0, y - 1) * width + x]
+      const bottom = gray[Math.min(height - 1, y + 1) * width + x]
+      const value = Math.max(0, Math.min(255, gray[i] * 5 - left - right - top - bottom))
+      data[p] = value
+      data[p + 1] = value
+      data[p + 2] = value
+      data[p + 3] = 255
+    }
+  }
+  return { data, width, height }
+}
+
+/**
  * Đọc định danh phiếu theo thứ tự QR → barcode. Ngoài toàn frame, thử thêm vùng
  * nửa trên/phải nơi mã được in để giảm nhiễu chữ và bubble trên ảnh điện thoại.
  * rawText khác null nhưng payload null nghĩa là đã đọc được một mã không hợp lệ.
@@ -59,15 +92,19 @@ export function scanExamCode(image: ImageData): ExamCodeScanResult {
   // Raw camera thường landscape trong khi UI portrait: A4 nằm giữa frame và QR
   // rơi vào x≈0.52..0.70. Crop hẹp + upscale nearest giữ cạnh module sắc nét.
   const landscapePaperQr = cropImageData(image, 0.48, 0, 0.28, 0.38)
+  // Dùng factory để các bước tốn CPU (sharpen/upscale) chỉ chạy khi attempt
+  // nhanh trước đó thất bại; QR nét thường dừng ngay ở crop đầu tiên.
   const qrAttempts = [
-    { data: image.data, width: image.width, height: image.height },
-    upperRight,
-    landscapePaperQr,
-    upscaleNearest(landscapePaperQr, 2),
-    cropImageData(image, 0, 0, 1, 0.48),
+    () => upperRight,
+    () => sharpenLuma(upperRight),
+    () => ({ data: image.data, width: image.width, height: image.height }),
+    () => landscapePaperQr,
+    () => upscaleNearest(landscapePaperQr, 2),
+    () => cropImageData(image, 0, 0, 1, 0.48),
   ]
 
-  for (const attempt of qrAttempts) {
+  for (const createAttempt of qrAttempts) {
+    const attempt = createAttempt()
     const decoded = jsQR(attempt.data, attempt.width, attempt.height, { inversionAttempts: 'attemptBoth' })
     if (!decoded?.data) continue
     return { rawText: decoded.data, payload: parseExamQrPayload(decoded.data), source: 'qr' }

@@ -36,10 +36,10 @@ async function elementImageData(page: Page, selector: string): Promise<ImageData
   return pngImageData(page, await element.screenshot({ type: 'png' }))
 }
 
-async function cameraFrameFromPage(page: Page): Promise<ImageData> {
+async function cameraFrameFromPage(page: Page, blurPx = 0): Promise<ImageData> {
   const pagePng = await page.screenshot({ type: 'png' })
   const dataUrl = `data:image/png;base64,${Buffer.from(pagePng).toString('base64')}`
-  const pixels = await page.evaluate(async (source) => {
+  const pixels = await page.evaluate(async ({ source, blurPx }) => {
     const img = new Image()
     img.src = source
     await img.decode()
@@ -55,7 +55,9 @@ async function cameraFrameFromPage(page: Page): Promise<ImageData> {
     const paperW = Math.round(paperH * 210 / 297)
     const x = Math.round((raw.width - paperW) / 2)
     const y = Math.round((raw.height - paperH) / 2)
+    rawCtx.filter = blurPx > 0 ? `blur(${blurPx}px)` : 'none'
     rawCtx.drawImage(img, x, y, paperW, paperH)
+    rawCtx.filter = 'none'
     const canvas = document.createElement('canvas')
     canvas.width = 810
     canvas.height = 1080
@@ -63,7 +65,7 @@ async function cameraFrameFromPage(page: Page): Promise<ImageData> {
     ctx.drawImage(raw, (raw.width - canvas.width) / 2, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height)
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height)
     return { width: frame.width, height: frame.height, data: Array.from(frame.data) }
-  }, dataUrl)
+  }, { source: dataUrl, blurPx })
   return {
     width: pixels.width,
     height: pixels.height,
@@ -172,5 +174,45 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     const omr = detectAnswersFromImage(frame, answerKey, 50, 10)
     expect(omr.ok, omr.reason).toBe(true)
     expect(omr.score).toBe(10)
+  }, 20_000)
+
+  it('đọc được QR production ID khi camera bị mất nét nhẹ', async () => {
+    const sessionId = 'EXS-7e8f7985'
+    const student = { id: 'ST-12345678', code: 'TN004', name: 'Em Test 4' }
+    const html = buildExamPaperHtml({
+      subject: 'Kiểm tra Giáo Lý & Phụng Vụ',
+      classLabel: 'Thiếu Nhi 2A',
+      academicYear: '2026-2027',
+      sessionId,
+      student,
+      questions: [{ index: 1, question: 'Câu hỏi', options: { A: 'A', B: 'B', C: 'C', D: 'D' }, correctOption: 'A' }],
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 1 })
+    await page.setContent(html, { waitUntil: 'load' })
+    const frame = await cameraFrameFromPage(page, 1.1)
+    await page.close()
+
+    expect(scanExamCode(frame).payload).toEqual({ sessionId, studentId: student.id })
+  }, 20_000)
+
+  it('vẫn đọc phiếu legacy mật độ 29 module khi camera bị mất nét nhẹ', async () => {
+    const sessionId = 'EXS-7e8f798z'
+    const student = { id: 'ST-12345678', code: 'TN005', name: 'Em Test 5' }
+    const html = buildExamPaperHtml({
+      subject: 'Kiểm tra Giáo Lý & Phụng Vụ',
+      classLabel: 'Thiếu Nhi 2A',
+      academicYear: '2026-2027',
+      sessionId,
+      student,
+      questions: [{ index: 1, question: 'Câu hỏi', options: { A: 'A', B: 'B', C: 'C', D: 'D' }, correctOption: 'A' }],
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 1 })
+    await page.setContent(html, { waitUntil: 'load' })
+    const frame = await cameraFrameFromPage(page, 1.1)
+    await page.close()
+
+    expect(scanExamCode(frame).payload).toEqual({ sessionId, studentId: student.id })
   }, 20_000)
 })

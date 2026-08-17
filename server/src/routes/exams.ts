@@ -309,13 +309,16 @@ examsRouter.post('/barcode/decode', zValidator('json', barcodeBodySchema), async
   const user = c.get('user') as JwtPayload
   const { barcodeText } = c.req.valid('json')
 
-  // Parse format: tntt-exam:{sessionId}:{studentId}
-  const match = barcodeText.match(/^tntt-exam:([^:]+):([^:]+)$/)
-  if (!match) {
-    return errorResponse(c, 'INVALID_BARCODE', 'Mã barcode không hợp lệ (định dạng: tntt-exam:{sessionId}:{studentId})', 400)
+  // Tương thích cả payload legacy và payload production rút gọn. Bản rút gọn
+  // không truncate ID: nó chỉ bỏ prefix EXS-/ST- vốn cố định để mã ít module hơn.
+  const legacyMatch = barcodeText.match(/^tntt-exam:([^:]+):([^:]+)$/)
+  const compactMatch = barcodeText.match(/^te:([a-f0-9]{8}):([a-f0-9]{8})$/i)
+  if (!legacyMatch && !compactMatch) {
+    return errorResponse(c, 'INVALID_BARCODE', 'Mã barcode không hợp lệ.', 400)
   }
 
-  const [, sessionId, studentId] = match
+  const sessionId = legacyMatch ? legacyMatch[1] : `EXS-${compactMatch![1].toLowerCase()}`
+  const studentId = legacyMatch ? legacyMatch[2] : `ST-${compactMatch![2].toLowerCase()}`
 
   try {
     const session = await getExamSession(sessionId, user.parishId)
