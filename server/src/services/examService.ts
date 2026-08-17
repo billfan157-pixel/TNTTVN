@@ -425,31 +425,46 @@ export async function finalizeExamSession(
       throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
     }
 
-    const [existingFinalization] = await tx
+const [existingFinalization] = await tx
       .select()
       .from(examFinalizations)
       .where(and(eq(examFinalizations.parishId, parishId), eq(examFinalizations.examSessionId, sessionId)))
       .limit(1)
-    if (existingFinalization) {
-      const priorItems = await tx
-        .select()
-        .from(examFinalizationItems)
-        .where(and(eq(examFinalizationItems.parishId, parishId), eq(examFinalizationItems.finalizationId, existingFinalization.id)))
-      const items = priorItems.map(serializeFinalizationItem)
-      return {
-        session,
-        finalizationId: existingFinalization.id,
-        items,
-        committed: items.filter((item) => item.status === 'committed').length,
-        conflicts: items.filter((item) => item.status === 'conflict').length,
-        legacy: false,
+
+    // Idempotent re-complete: chỉ khi session ĐÃ completed (ledger hiện có vẫn
+    // hợp lệ). Sau reopen (status trở lại draft) phải finalize LẠI — kết quả
+    // có thể đã thay đổi — thay vì trả ledger cũ với session còn draft.
+    if (session.status === 'completed') {
+      if (existingFinalization) {
+        const priorItems = await tx
+          .select()
+          .from(examFinalizationItems)
+          .where(and(eq(examFinalizationItems.parishId, parishId), eq(examFinalizationItems.finalizationId, existingFinalization.id)))
+        const items = priorItems.map(serializeFinalizationItem)
+        return {
+          session,
+          finalizationId: existingFinalization.id,
+          items,
+          committed: items.filter((item) => item.status === 'committed').length,
+          conflicts: items.filter((item) => item.status === 'conflict').length,
+          legacy: false,
+        }
       }
+
+      // Completed sessions made before ADR-048 have no trustworthy per-result
+      // receipt.  Do not manufacture a ledger from an aggregate grade projection.
+      return { session, finalizationId: null, items: [], committed: 0, conflicts: 0, legacy: true }
     }
 
-    // Completed sessions made before ADR-048 have no trustworthy per-result
-    // receipt.  Do not manufacture a ledger from an aggregate grade projection.
-    if (session.status === 'completed') {
-      return { session, finalizationId: null, items: [], committed: 0, conflicts: 0, legacy: true }
+    // Reopen → complete lại: ledger cũ không còn phản ánh kết quả mới. Xóa và
+    // tạo ledger mới (unique (parishId, examSessionId)).
+    if (existingFinalization) {
+      await tx
+        .delete(examFinalizationItems)
+        .where(and(eq(examFinalizationItems.parishId, parishId), eq(examFinalizationItems.finalizationId, existingFinalization.id)))
+      await tx
+        .delete(examFinalizations)
+        .where(and(eq(examFinalizations.parishId, parishId), eq(examFinalizations.id, existingFinalization.id)))
     }
 
     const results = await tx
@@ -531,7 +546,7 @@ export async function finalizeExamSession(
             eq(assessmentEntries.semester, session.semester),
             eq(assessmentEntries.scoreType, session.scoreType),
           ))
-        // A pre-ADR-048 daily aggregate has no recoverable attempt count.  Keep
+// A pre-ADR-048 daily aggregate has no recoverable attempt count.  Keep
         // it as a visible baseline rather than silently discarding it.
         if (existingEntries.length === 0 && existingGrade && existingSource === 'daily_avg' && typeof (existingGrade as any)[scoreMap.field] === 'number') {
           const baseline = Number((existingGrade as any)[scoreMap.field])
@@ -541,12 +556,33 @@ export async function finalizeExamSession(
             rawScore: baseline, maxScore: 10, score: baseline, source: 'legacy_baseline', createdBy: 'system', createdAt: now,
           })
         }
-        await tx.insert(assessmentEntries).values({
-          id: generateId('ASM'), parishId, studentId: result.studentId, examSessionId: sessionId,
-          academicYear: session.academicYear, semester: session.semester, scoreType: session.scoreType,
-          rawScore: result.score, maxScore: session.maxScore, score: result.score,
-          source: 'exam_finalization', createdBy: userId, createdAt: now,
-        })
+        // Reopen → complete lại: entry (parishId, examSessionId, studentId) đã tồn
+        // tại từ lần finalize trước — UPDATE thay vì INSERT (unique
+        // idx_assessment_entries_exam_student).
+        const [existingSessionEntry] = await tx
+          .select({ id: assessmentEntries.id })
+          .from(assessmentEntries)
+          .where(and(
+            eq(assessmentEntries.parishId, parishId),
+            eq(assessmentEntries.examSessionId, sessionId),
+            eq(assessmentEntries.studentId, result.studentId),
+          ))
+          .limit(1)
+        if (existingSessionEntry) {
+          await tx.update(assessmentEntries)
+            .set({
+              rawScore: result.score, maxScore: session.maxScore, score: result.score,
+              source: 'exam_finalization', createdBy: userId, createdAt: now,
+            })
+            .where(and(eq(assessmentEntries.id, existingSessionEntry.id), eq(assessmentEntries.parishId, parishId)))
+        } else {
+          await tx.insert(assessmentEntries).values({
+            id: generateId('ASM'), parishId, studentId: result.studentId, examSessionId: sessionId,
+            academicYear: session.academicYear, semester: session.semester, scoreType: session.scoreType,
+            rawScore: result.score, maxScore: session.maxScore, score: result.score,
+            source: 'exam_finalization', createdBy: userId, createdAt: now,
+          })
+        }
         const entries = await tx
           .select({ score: assessmentEntries.score })
           .from(assessmentEntries)

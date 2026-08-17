@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db } from '../../db/index.js'
-import { students, classes, branches, academicYears, users, examSessions, examResults, semesterLocks, auditLogs, importBatches, importBatchStudents } from '../../db/schema.js'
+import { students, classes, branches, academicYears, users, examSessions, examResults, semesterLocks, auditLogs, importBatches, importBatchStudents, grades, assessmentEntries } from '../../db/schema.js'
 import { detectDuplicates, validateImport, importStudents, normalizeImportRows } from '../../services/importService.js'
 import { reopenExamSession, createExamSession, completeExamSession } from '../../services/examService.js'
 import { eq, and } from 'drizzle-orm'
@@ -106,6 +106,10 @@ describe('Audit Import / Exam Fixes (IE-01 .. IE-05)', () => {
     await db.delete(semesterLocks).where(eq(semesterLocks.parishId, PARISH))
     await db.delete(importBatchStudents).where(eq(importBatchStudents.parishId, PARISH))
     await db.delete(importBatches).where(eq(importBatches.parishId, PARISH))
+    // IE-04 gọi completeExamSession → finalize ghi grades + assessmentEntries
+    // (FK restrict tới students) — phải xóa trước khi xóa students.
+    await db.delete(assessmentEntries).where(eq(assessmentEntries.parishId, PARISH))
+    await db.delete(grades).where(eq(grades.parishId, PARISH))
     await db.delete(students).where(eq(students.parishId, PARISH))
     await db.delete(classes).where(eq(classes.parishId, PARISH))
     await db.delete(branches).where(eq(branches.parishId, PARISH))

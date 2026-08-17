@@ -27,9 +27,9 @@ async function jsonReq(path: string, options: { method?: string; body?: unknown;
 describe('Smart Exam Grading — exam routes & service', () => {
   beforeAll(async () => {
     await db.insert(branches).values({ id: 'br-exam-01', name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId }).onConflictDoNothing()
-    await db.insert(academicYears).values({ id: 'AY-exam', startDate: '2025-09-01', endDate: '2026-05-31', parishId }).onConflictDoNothing()
-    await db.insert(classes).values({ id: 'cl-exam-01', code: 'CL-EXAM', name: 'Lớp Chấm 1', branchId: 'br-exam-01', academicYearId: 'AY-exam', parishId }).onConflictDoNothing()
-    await db.insert(classes).values({ id: 'cl-exam-02', code: 'CL-EXAM2', name: 'Lớp Khác', branchId: 'br-exam-01', academicYearId: 'AY-exam', parishId }).onConflictDoNothing()
+    await db.insert(academicYears).values({ id: '2025-2026', startDate: '2025-09-01', endDate: '2026-05-31', parishId }).onConflictDoNothing()
+    await db.insert(classes).values({ id: 'cl-exam-01', code: 'CL-EXAM', name: 'Lớp Chấm 1', branchId: 'br-exam-01', academicYearId: '2025-2026', parishId }).onConflictDoNothing()
+    await db.insert(classes).values({ id: 'cl-exam-02', code: 'CL-EXAM2', name: 'Lớp Khác', branchId: 'br-exam-01', academicYearId: '2025-2026', parishId }).onConflictDoNothing()
     await db.insert(users).values([
       { id: 'usr-exam-admin', username: 'exam_admin', fullName: 'Admin Exam', passwordHash: 'hash', role: 'admin', parishId },
       { id: 'usr-exam-cn', username: 'exam_cn', fullName: 'CN Exam', passwordHash: 'hash', role: 'chunhiem', parishId },

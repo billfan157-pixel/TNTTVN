@@ -45,7 +45,9 @@ describe('P3 POLICY-DASHBOARD: GET /api/audit-logs/policy-history enrichment', (
     await db.delete(users).where(eq(users.parishId, parishId))
 
     await db.insert(branches).values({ id: 'br-policy-01', name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId }).onConflictDoNothing()
+    await db.insert(branches).values({ id: 'br-policy-01', name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId: otherParish }).onConflictDoNothing()
     await db.insert(academicYears).values({ id: '2025-2026', startDate: '2025-09-01', endDate: '2026-05-31', parishId }).onConflictDoNothing()
+    await db.insert(academicYears).values({ id: '2025-2026', startDate: '2025-09-01', endDate: '2026-05-31', parishId: otherParish }).onConflictDoNothing()
     await db.insert(classes).values([
       { id: 'cl-policy-01', code: 'CL-POLICY', name: 'Lớp Policy', branchId: 'br-policy-01', academicYearId: '2025-2026', parishId },
       { id: 'cl-other-01', code: 'CL-OTHER', name: 'Lớp Khác', branchId: 'br-policy-01', academicYearId: '2025-2026', parishId: otherParish },
@@ -86,6 +88,12 @@ describe('P3 POLICY-DASHBOARD: GET /api/audit-logs/policy-history enrichment', (
     await db.delete(classes).where(eq(classes.parishId, parishId))
     await db.delete(branches).where(eq(branches.parishId, parishId))
     await db.delete(users).where(eq(users.parishId, parishId))
+    await db.delete(auditLogs).where(eq(auditLogs.parishId, otherParish))
+    await db.delete(grades).where(eq(grades.parishId, otherParish))
+    await db.delete(students).where(eq(students.parishId, otherParish))
+    await db.delete(classes).where(eq(classes.parishId, otherParish))
+    await db.delete(branches).where(eq(branches.parishId, otherParish))
+    await db.delete(academicYears).where(eq(academicYears.parishId, otherParish))
   })
 
   it('returns grade_override entry with resolved studentId/studentName (tenant-scoped)', async () => {
