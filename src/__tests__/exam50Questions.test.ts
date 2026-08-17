@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_OMR_MARKERS, INTEGRATED_CORNER_SIZE, type FrameRect } from '../lib/answerSheetTemplate'
 import { buildSingleAnswerSheetSvgString, buildExamPaperHtml } from '../utils/examSheets'
 import { detectAnswersFromImage } from '../lib/omr'
-import { buildExamQrPayload, getExamQrModuleCount } from '../lib/qr'
+import { buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import { getBarcodeViewBoxWidth } from '../lib/barcode'
 
 function FakeImageData(w: number, h: number): ImageData {
@@ -169,8 +169,8 @@ describe('50 Questions Exam Answer Sheet & OMR Detection Tests', () => {
       expect(svg).not.toContain('x="-')
       expect(svg).not.toContain('y="-')
 const payload = buildExamQrPayload(params.sessionId, student.id)
-      const qrModules = getExamQrModuleCount(payload)
-      expect(svg).toContain(`viewBox="0 0 ${qrModules} ${qrModules}"`)
+      const qrViewBoxSize = getExamQrViewBoxSize(payload)
+      expect(svg).toContain(`viewBox="0 0 ${qrViewBoxSize} ${qrViewBoxSize}"`)
       expect(svg).toContain(`viewBox="0 0 ${getBarcodeViewBoxWidth(payload, 1.2)} 28"`)
       expect(svg).not.toContain('viewBox="0 0 200 28"')
       // Barcode ở DẢI CUỐI phiếu full-width (không còn dưới QR) và pitch in A4

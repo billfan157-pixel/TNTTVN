@@ -7,6 +7,7 @@ import qrcode from 'qrcode-generator'
  */
 export const EXAM_QR_PREFIX = 'tntt-exam'
 export const CERTIFICATE_QR_PREFIX = 'tntt-cert'
+export const QR_QUIET_ZONE_MODULES = 4
 
 export function buildExamQrPayload(sessionId: string, studentId: string): string {
   return `${EXAM_QR_PREFIX}:${sessionId}:${studentId}`
@@ -28,21 +29,29 @@ export function parseCertificateQrPayload(payload: string): { certId: string; st
   return { certId: parts[1], studentId: parts[2], certType: parts[3] as 'completion' | 'promotion' }
 }
 
-/** Sinh SVG QR code (error correction M — đủ cho ảnh in). */
+/**
+ * Sinh SVG QR code ở hệ tọa độ MODULE chuẩn, kèm quiet zone 4 module.
+ * `qrcode-generator.createSvgTag(cellSize, 0)` dùng tọa độ pixel
+ * (moduleCount × cellSize). Khi caller tách inner SVG rồi đặt viewBox theo
+ * moduleCount, mã bị cắt còn 1/cellSize diện tích. Tự render ma trận giúp
+ * viewBox không phụ thuộc cellSize và giữ cạnh module sắc nét khi in/camera.
+ */
 export function generateExamQrSvg(payload: string, cellSize = 4): string {
-  const qr = createQr(payload)
-  return qr.createSvgTag(cellSize, 0)
+  return createQrSvg(payload, cellSize)
 }
 
-/** Số module mỗi cạnh của QR. Bản in phải dùng đúng số này làm SVG viewBox;
- * hard-code 37 sẽ cắt QR khi session/student ID dài hơn. */
+/** Số data module mỗi cạnh của QR (không gồm quiet zone). */
 export function getExamQrModuleCount(payload: string): number {
   return createQr(payload).getModuleCount()
 }
 
+/** Kích thước viewBox gồm data modules + quiet zone 4 module mỗi cạnh. */
+export function getExamQrViewBoxSize(payload: string): number {
+  return getExamQrModuleCount(payload) + QR_QUIET_ZONE_MODULES * 2
+}
+
 export function generateCertificateQrSvg(payload: string, cellSize = 4): string {
-  const qr = createQr(payload)
-  return qr.createSvgTag(cellSize, 0)
+  return createQrSvg(payload, cellSize)
 }
 
 /** Sinh ma trận QR (số 0/1) cho test decode roundtrip (không cần canvas). */
@@ -77,4 +86,21 @@ function createQr(payload: string) {
   qr.addData(payload)
   qr.make()
   return qr
+}
+
+function createQrSvg(payload: string, cellSize: number): string {
+  const qr = createQr(payload)
+  const moduleCount = qr.getModuleCount()
+  const viewBoxSize = moduleCount + QR_QUIET_ZONE_MODULES * 2
+  const pixelSize = viewBoxSize * Math.max(1, cellSize)
+  let path = ''
+  for (let row = 0; row < moduleCount; row++) {
+    for (let col = 0; col < moduleCount; col++) {
+      if (!qr.isDark(row, col)) continue
+      const x = col + QR_QUIET_ZONE_MODULES
+      const y = row + QR_QUIET_ZONE_MODULES
+      path += `M${x},${y}h1v1h-1z`
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelSize}" height="${pixelSize}" viewBox="0 0 ${viewBoxSize} ${viewBoxSize}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${path}" fill="#000"/></svg>`
 }

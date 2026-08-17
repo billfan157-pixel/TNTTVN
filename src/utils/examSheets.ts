@@ -1,4 +1,4 @@
-import { generateExamQrSvg, buildExamQrPayload, getExamQrModuleCount } from '../lib/qr'
+import { generateExamQrSvg, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, integratedGridCols, QR_X, QR_Y, QR_SIZE } from '../lib/answerSheetTemplate'
 import { escapeHtml } from './grades'
@@ -90,7 +90,7 @@ export function buildSingleAnswerSheetSvgString(
   const { sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType = 'written', questionCount = 20 } = params
   const qrPayload = buildExamQrPayload(sessionId, student.id)
   const rawQr = generateExamQrSvg(qrPayload, 4)
-  const qrModuleCount = getExamQrModuleCount(qrPayload)
+  const qrViewBoxSize = getExamQrViewBoxSize(qrPayload)
   const qrInner = sanitizeSvgInner(rawQr.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
   const rawBarcode = generateBarcodeSvg(buildExamQrPayload(sessionId, student.id), 28, 1.2)
   const barcodeViewBoxWidth = getBarcodeViewBoxWidth(qrPayload, 1.2)
@@ -207,7 +207,7 @@ export function buildSingleAnswerSheetSvgString(
 
     <!-- QR Code định danh học viên (bên góc phải) -->
     <rect x="${px(QR_X)}" y="${py(QR_Y)}" width="${px(QR_SIZE)}" height="${px(QR_SIZE)}" rx="6" fill="#FFFFFF" stroke="#0F172A" stroke-width="1.5" />
-    <svg x="${px(QR_X) + 3}" y="${py(QR_Y) + 3}" width="${px(QR_SIZE) - 6}" height="${px(QR_SIZE) - 6}" viewBox="0 0 ${qrModuleCount} ${qrModuleCount}">${qrInner}</svg>
+    <svg x="${px(QR_X) + 3}" y="${py(QR_Y) + 3}" width="${px(QR_SIZE) - 6}" height="${px(QR_SIZE) - 6}" viewBox="0 0 ${qrViewBoxSize} ${qrViewBoxSize}">${qrInner}</svg>
     <text x="${px(QR_X) + px(QR_SIZE) / 2}" y="${py(QR_Y) + px(QR_SIZE) + 16}" font-size="11" font-weight="bold" fill="#64748B" text-anchor="middle">MÃ QUÉT CHẤM TỰ ĐỘNG</text>
 
     <!-- Barcode Code128 backup — dải cuối phiếu full-width. Container ≥ 0.7 chiều
@@ -771,7 +771,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     ? buildExamQrPayload(sessionId, student.id)
     : `tntt-exam:${sessionId}:GENERIC`
   const qrSvg = generateExamQrSvg(qrPayload, 3)
-  const qrModuleCount = getExamQrModuleCount(qrPayload)
+  const qrViewBoxSize = getExamQrViewBoxSize(qrPayload)
   const qrInner = qrSvg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '')
 
   // Bảng ma trận phiếu trả lời trắc nghiệm tích hợp (gộp trực tiếp trên tờ đề)
@@ -863,7 +863,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
       </div>
       <div class="header-qr-zone">
         <div class="qr-box">
-          <svg width="100%" height="100%" viewBox="0 0 ${qrModuleCount} ${qrModuleCount}">${qrInner}</svg>
+          <svg width="100%" height="100%" viewBox="0 0 ${qrViewBoxSize} ${qrViewBoxSize}">${qrInner}</svg>
         </div>
         <div class="qr-label">MÃ QUÉT TỰ ĐỘNG</div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react'
-import { generateExamQrSvg, buildExamQrPayload, getExamQrModuleCount } from '../../lib/qr'
+import { generateExamQrSvg, buildExamQrPayload, getExamQrViewBoxSize } from '../../lib/qr'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, QR_X, QR_Y, QR_SIZE } from '../../lib/answerSheetTemplate'
 import { printBatchAnswerSheets, exportAnswerSheetPdf, sanitizeSvgInner } from '../../utils/examSheets'
@@ -35,7 +35,7 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
     const svg = generateExamQrSvg(qrPayload, 4)
     return sanitizeSvgInner(svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
   }, [qrPayload])
-  const qrModuleCount = useMemo(() => getExamQrModuleCount(qrPayload), [qrPayload])
+  const qrViewBoxSize = useMemo(() => getExamQrViewBoxSize(qrPayload), [qrPayload])
 
   const barcodeInner = useMemo(() => {
     const svg = generateBarcodeSvg(qrPayload, 28, 1.2)
@@ -85,7 +85,7 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
           y={py(QR_Y) + 3}
           width={px(QR_SIZE) - 6}
           height={px(QR_SIZE) - 6}
-          viewBox={`0 0 ${qrModuleCount} ${qrModuleCount}`}
+          viewBox={`0 0 ${qrViewBoxSize} ${qrViewBoxSize}`}
           dangerouslySetInnerHTML={{ __html: qrInner }}
         />
         <text x={px(QR_X) + px(QR_SIZE) / 2} y={py(QR_Y) + px(QR_SIZE) + 16} fontSize="11" fontWeight="bold" fill="#64748B" textAnchor="middle">

@@ -565,7 +565,7 @@ Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side,
   - Tùy chọn 2 cột (tiết kiệm giấy A4) hoặc 1 cột.
   - Khung thông tin học sinh (Họ tên, Tên thánh, Mã số) và ô chấm điểm / lời phê của GLV.
   - Tùy chọn in kèm hoặc ẩn Bảng Đáp Án (đề thi cho học sinh vs. đáp án chấm cho Ban Giáo Lý).
-- **Tính Đồng Bộ OMR**: Đề thi và Phiếu trả lời OMR in từ hệ thống tương thích tuyệt đối về số lượng câu hỏi và mã phiên chấm. QR định danh dùng `viewBox` đúng số module của payload và ô in 112px; Code128 dự phòng có quiet zone 10 module, viewBox động theo payload và được in thành dải full-width cuối phiếu (module in A4 ≥ 0.19mm). Camera phải nhận tờ A4 có lề nền thực tế (marker không bắt buộc sát mép frame), và UI phải phân biệt rõ lỗi chưa đọc được mã với lỗi đã đọc mã nhưng chưa nhận được khung OMR.
+- **Tính Đồng Bộ OMR**: Đề thi và Phiếu trả lời OMR in từ hệ thống tương thích tuyệt đối về số lượng câu hỏi và mã phiên chấm. QR định danh phải render trong hệ tọa độ module chuẩn, có quiet zone trắng 4 module mỗi cạnh và `viewBox` bao trọn data modules + quiet zone; không được ghép inner SVG tọa độ `moduleCount × cellSize` vào viewBox chỉ `moduleCount`. Code128 dự phòng có quiet zone 10 module, viewBox động theo payload và được in thành dải full-width cuối phiếu (module in A4 ≥ 0.19mm). Scanner camera phải xử lý đúng vùng `object-fit: cover` portrait mà người dùng nhìn thấy thay vì toàn sensor landscape, nhận tờ A4 có lề nền thực tế, và phân biệt rõ lỗi chưa đọc được mã với lỗi đã đọc mã nhưng chưa nhận được khung OMR.
 
 ---
 

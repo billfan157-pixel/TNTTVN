@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult } from '../../lib/omr'
 import { scanExamCode } from '../../lib/examCodeScanner'
+import { getObjectCoverSourceRect } from '../../lib/cameraFrame'
 import { CORNER_MARKERS, QR_SIZE, QR_X, QR_Y } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
@@ -214,13 +215,22 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       if (now - lastScanAt.current > 350) {
         lastScanAt.current = now
         if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-          const targetW = Math.min(1080, video.videoWidth)
-          const targetH = Math.round((targetW * video.videoHeight) / video.videoWidth)
+          const displayRect = video.getBoundingClientRect()
+          const source = getObjectCoverSourceRect(
+            video.videoWidth,
+            video.videoHeight,
+            displayRect.width || 3,
+            displayRect.height || 4,
+          )
+          // Xử lý đúng crop portrait đang hiển thị cho user, không quét toàn bộ
+          // sensor landscape. Giữ tối đa 1280px để QR còn ≥3px/module.
+          const targetW = Math.min(1280, Math.max(1, Math.round(source.sw)))
+          const targetH = Math.round(targetW * source.sh / source.sw)
           if (canvas.width !== targetW || canvas.height !== targetH) {
             canvas.width = targetW
             canvas.height = targetH
           }
-          ctx.drawImage(video, 0, 0, targetW, targetH)
+          ctx.drawImage(video, source.sx, source.sy, source.sw, source.sh, 0, 0, targetW, targetH)
           const frame = ctx.getImageData(0, 0, targetW, targetH)
           const handled = processImageFrame(frame)
           if (handled) return
@@ -250,8 +260,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: mode },
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 },
+            width: { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720 },
           },
           audio: false,
         })
