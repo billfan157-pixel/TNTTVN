@@ -168,7 +168,7 @@ auditLogsRouter.get('/policy-history', async (c) => {
   const studentIds = [...new Set([
     // overrideRefs chứa gradeId — phải resolve qua gradeMeta để lấy studentId
     // thật (bug cũ: lookup students bằng gradeId → studentName luôn null).
-    ...gradeMeta.values().map((g) => g.studentId),
+    ...[...gradeMeta.values()].map((g) => g.studentId),
     ...promotionStudentIds.values(),
   ])]
   const studentMeta = new Map<string, { holyName: string; fullName: string; code: string }>()
