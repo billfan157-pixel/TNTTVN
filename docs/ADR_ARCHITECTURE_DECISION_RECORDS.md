@@ -828,7 +828,7 @@ Sau khi triển khai Phase 1-4 Smart Exam Grading, cần bổ sung các tính n�
 #### 2. Code128 Barcode (`src/lib/barcode.ts`)
 - **Generator**: Pure SVG Code128B encoder (no external deps). Pattern lookup table + checksum.
 - **Decoder**: `decodeCode128(runs)` accepts run-length array from camera scan.
-- **Fallback**: `ExamScanModal` tries QR first → barcode fallback → OMR detection.
+- **Fallback**: `ExamScanModal` tries QR first → barcode fallback → OMR detection. **Print compatibility fix (2026-08-17)**: QR phải render `viewBox` động theo module count và ô in 112px; viewBox cố định `37×37` cắt payload dài, còn ô 58px không đủ mật độ module cho camera điện thoại.
 - **Server**: `POST /api/exams/barcode/decode` endpoint parses `tntt-exam:{sessionId}:{studentId}` format, validates class access.
 
 #### 3. PDF Export (`ReportExportService.exportPdf`)

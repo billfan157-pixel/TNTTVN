@@ -368,7 +368,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | **Batch Print Progress Bar** | `AnswerSheetModal.tsx` | Animated percentage bar + `Loader2` spinner during batch print; buttons disabled while printing |
 | **PDF Export** | `ReportExportService.exportPdf()` | Opens print dialog with "Save as PDF" guidance; single + batch mode |
 | **Barcode (Code128)** | `src/lib/barcode.ts` | Pure SVG generator + decoder (no deps); displayed below QR on answer sheets as backup identification |
-| **Barcode Scan Fallback** | `ExamScanModal.tsx` | Client tries QR first → fallback to barcode decode → OMR score detection |
+| **Barcode Scan Fallback** | `ExamScanModal.tsx` | Client tries QR first → fallback to barcode decode → OMR score detection. Phiếu in dùng QR `viewBox` theo đúng số module payload (không hard-code 37) và ô QR 112px để camera điện thoại có mật độ đọc được. |
 | **Mobile WebKit Camera Support** | `ExamScanModal.tsx` | Tự động gán MediaStream vào thẻ `<video>`, tương thích iOS Safari WebKit (`autoPlay`, `playsInline`, `onloadedmetadata`), đổi camera trước/sau |
 | **Photo Upload Fallback** | `ExamScanModal.tsx` | Nút "Tải ảnh" / "Chọn ảnh" cho phép chụp từ app camera gốc hoặc tải file ảnh phiếu A4 để chấm điểm trực tiếp |
 | **A4 Framing Overlay** | `ExamScanModal.tsx` | Khung căn chỉnh trực quan 2 tầng (Vùng QR trên + Lưới điểm/4 marker dưới) giúp không bị khuất mã QR |
