@@ -400,6 +400,8 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .header-left .org-top {
       text-transform: uppercase;
       font-weight: bold;
+      /* Chừa mép trên máy in và giữ khoảng cách với dòng bên dưới. */
+      padding-top: 10px;
     }
     .header-left .org-parish {
       text-transform: uppercase;
@@ -417,6 +419,8 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       text-transform: uppercase;
       color: #b91c1c;
       margin: 2px 0;
+      /* Hạ nhẹ tiêu đề và đẩy subtitle theo, tránh chồng chữ. */
+      padding-top: 10px;
     }
     .header-right .exam-sub {
       font-size: 10.5pt;
@@ -436,9 +440,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .qr-box {
       /* QR phải có tối thiểu ~3px/module khi in/capture A4; 58px cũ chỉ
          ~1.6px/module cho mã 37 module nên không thể decode ổn định. */
-      width: 112px;
-      height: 112px;
-      padding: 2px;
+      width: 108px;
+      height: 108px;
+      padding: 0;
       background: #fff;
       border: 1px solid #0f172a;
       border-radius: 4px;
