@@ -1602,6 +1602,9 @@ CREATE TABLE IF NOT EXISTS exam_finalization_items (
 );
 CREATE INDEX IF NOT EXISTS idx_exam_finalization_items_lookup ON exam_finalization_items(parish_id, finalization_id, student_id);
 ` },
+  // ADR-049: Scan Engine v2 diagnostics. Add-only, nullable and compatible with
+  // legacy/offline results. Images are explicitly forbidden by the API layer.
+  { version: '20260818-123', sql: `ALTER TABLE exam_results ADD COLUMN scan_metadata TEXT` },
 ]
 
 async function runMigrations() {

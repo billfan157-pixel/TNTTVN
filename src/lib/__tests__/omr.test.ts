@@ -239,6 +239,27 @@ describe('OMR trắc nghiệm (Phase 4 — detectAnswersFromImage)', () => {
     const res = detectAnswersFromImage(img, ANSWER_KEY, 4, 10)
     expect(res.questions[0].isMultiFill).toBe(true)
     expect(res.questions[0].selectedAnswer).toBeNull()
+    expect(res.questions[0].needsReview).toBe(true)
+    expect(res.status).toBe('review_required')
+    expect(res.reason).toBe('REVIEW_REQUIRED')
+  })
+
+  it('vết tô quá nhạt được route review_required, không tự coi là câu trắng', () => {
+    const img = buildMcSheet({ 2: 'B', 3: 'C', 4: 'D' }, 4)
+    const cell = mcOptionToCell(1, 'A', 4)
+    const W = img.width, H = img.height
+    const r = Math.max(6, Math.floor(0.016 * Math.min(W, H)))
+    for (let y = Math.floor(cell.y * H - r); y < Math.ceil(cell.y * H + r); y++) {
+      for (let x = Math.floor(cell.x * W - r); x < Math.ceil(cell.x * W + r); x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H) continue
+        const i = (y * W + x) * 4
+        img.data[i] = 175; img.data[i + 1] = 175; img.data[i + 2] = 175
+      }
+    }
+    const res = detectAnswersFromImage(img, ANSWER_KEY, 4, 10)
+    expect(res.ok).toBe(true)
+    expect(res.status).toBe('review_required')
+    expect(res.questions[0]).toMatchObject({ selectedAnswer: null, isWeakMark: true, needsReview: true })
   })
 
   it('thiếu marker → MISSING_MARKER_*, không ghi bừa', () => {

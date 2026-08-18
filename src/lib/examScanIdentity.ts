@@ -1,4 +1,5 @@
 import type { ExamCodeScanResult } from './examCodeScanner'
+import type { ExamFormTemplateMode } from './qr'
 
 /** Đủ thời gian để đưa QR lại gần camera rồi lùi ra căn toàn bộ khung OMR. */
 export const EXAM_CODE_LOCK_TTL_MS = 20_000
@@ -8,6 +9,10 @@ export interface ExamCodeLock {
   studentId: string
   source: 'qr' | 'barcode' | 'manual'
   expiresAt: number
+  protocolVersion?: 2
+  templateMode?: ExamFormTemplateMode
+  questionCount?: number
+  formChecksum?: string
 }
 
 export type ExamIdentityResolution =

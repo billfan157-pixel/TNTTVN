@@ -1,10 +1,10 @@
 import jsQR from 'jsqr'
 import { detectBarcodeFromImageData } from './barcode'
-import { parseExamQrPayload } from './qr'
+import { parseExamQrPayload, type ParsedExamQrPayload } from './qr'
 
 export interface ExamCodeScanResult {
   rawText: string | null
-  payload: { sessionId: string; studentId: string } | null
+  payload: ParsedExamQrPayload | null
   source: 'qr' | 'barcode' | null
 }
 

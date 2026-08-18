@@ -2826,3 +2826,11 @@ Quyết định nghiệp vụ trong report đã được code chốt sẵn: (1) 
 
 - `vitest` examFinalizeService 4/4 PASS · `oxlint` 0 error (warnings pre-existing) · `tsc --noEmit` sạch.
 - ✅ **CLOSED (2026-08-17)** — client/server conflict matrix đồng nhất, docs re-score khớp code. Backlog: failpoint test "server finalize thành công nhưng client fail → điểm vẫn trong ledger khi re-pull" (đã có `legacy`/idempotent path, chưa có test riêng).
+
+## A-NEW-56 — Server tin điểm OMR client và thiếu ràng buộc mẫu phiếu (2026-08-18)
+
+- **Severity / classification**: P1 Data Integrity, D2 GENERAL — **CONFIRMED, CLOSED** (ADR-049).
+- **Evidence**: `upsertExamResults` trước sửa chỉ validate `0..maxScore` rồi ghi nguyên `r.score`; payload `TE` chỉ có session/student nên không thể phát hiện sai template/số câu; multi-fill không khóa nút Save; không có metadata kiểm toán scan.
+- **Fix**: form protocol T2 + checksum; scanner fail-closed khi question count mismatch; MC `omr/qr_scan` bắt buộc answers hợp lệ và server recompute; `review_required` không được gửi/lưu; migration additive `20260818-123` lưu diagnostic JSON; sanitizer đệ quy cấm image/photo/frame/blob/base64/data URL; audit ghi score adjustments.
+- **Privacy**: ảnh chỉ xử lý on-device và không được gửi/lưu; telemetry local chỉ counter/reason/template/quality/timing, không student/session ID.
+- **Verification**: server route tests bao phủ score tampering, blank, invalid option, unresolved review, image metadata; QR/print tests bao phủ protocol v2/checksum/render/camera blur; targeted 17 files/233 tests + full trạng thái cuối 195 files/1478 tests pass; production build/typecheck/lint pass. Accuracy ngoài thực địa vẫn **NOT CONFIRMED** cho đến khi corpus khử định danh đạt BUSINESS_RULES §21.3 gate.

@@ -26,7 +26,7 @@ examsRouter.use('*', authMiddleware)
 const scoreTypeSchema = z.enum(['oral', '15m', '1period', 'midterm', 'final'])
 const examStatusSchema = z.enum(['draft', 'completed'])
 
-/** Validate answerKey JSON: Record<questionIndex 1..questionCount, 'A'|'B'|'C'|'D'>, non-empty. */
+/** Validate answerKey JSON: đủ chính xác 1..questionCount, mỗi value A/B/C/D. */
 function parseAnswerKey(input: string | undefined, questionCount: number | undefined): { ok: true } | { ok: false; message: string } {
   if (!input) return { ok: true }
   let parsed: unknown
@@ -51,6 +51,15 @@ function parseAnswerKey(input: string | undefined, questionCount: number | undef
       return { ok: false, message: `Đáp án câu ${key} phải là A/B/C/D (nhận: ${String(value)})` }
     }
   }
+  if (questionCount !== undefined) {
+    if (entries.length !== questionCount) {
+      return { ok: false, message: `answerKey phải có đủ ${questionCount} câu (hiện có ${entries.length})` }
+    }
+    const keys = new Set(entries.map(([key]) => Number(key)))
+    for (let question = 1; question <= questionCount; question++) {
+      if (!keys.has(question)) return { ok: false, message: `answerKey thiếu đáp án câu ${question}` }
+    }
+  }
   return { ok: true }
 }
 
@@ -71,6 +80,9 @@ const createSchema = z.object({
   if (data.examType === 'multiple_choice' && data.questionCount === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questionCount'], message: 'questionCount bắt buộc với hình thức trắc nghiệm' })
   }
+  if (data.examType === 'multiple_choice' && !data.answerKey) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: 'answerKey đầy đủ bắt buộc với hình thức trắc nghiệm' })
+  }
   const check = parseAnswerKey(data.answerKey, data.questionCount)
   if (!check.ok) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: check.message })
@@ -82,7 +94,8 @@ const resultsSchema = z.object({
     studentId: z.string().trim().min(1),
     score: z.coerce.number().min(0).max(10),
     source: z.enum(['qr_scan', 'omr', 'quick_entry']).optional(),
-    answers: z.string().optional(),
+    answers: z.string().max(20_000).optional(),
+    scanMetadata: z.string().max(10_000).optional(),
   })).min(1).max(1000),
 })
 
@@ -313,12 +326,36 @@ examsRouter.post('/barcode/decode', zValidator('json', barcodeBodySchema), async
   // không truncate ID: nó chỉ bỏ prefix EXS-/ST- vốn cố định để mã ít module hơn.
   const legacyMatch = barcodeText.match(/^tntt-exam:([^:]+):([^:]+)$/)
   const compactMatch = barcodeText.match(/^te:([a-f0-9]{8}):([a-f0-9]{8})$/i)
-  if (!legacyMatch && !compactMatch) {
+  const v2Match = barcodeText.match(/^t2:([a-f0-9]{8}):([a-f0-9]{8}):([if]):(\d{1,2}):([a-f0-9]{4})$/i)
+  if (!legacyMatch && !compactMatch && !v2Match) {
     return errorResponse(c, 'INVALID_BARCODE', 'Mã barcode không hợp lệ.', 400)
   }
 
-  const sessionId = legacyMatch ? legacyMatch[1] : `EXS-${compactMatch![1].toLowerCase()}`
-  const studentId = legacyMatch ? legacyMatch[2] : `ST-${compactMatch![2].toLowerCase()}`
+  const sessionHex = compactMatch?.[1] ?? v2Match?.[1]
+  const studentHex = compactMatch?.[2] ?? v2Match?.[2]
+  const sessionId = legacyMatch ? legacyMatch[1] : `EXS-${sessionHex!.toLowerCase()}`
+  const studentId = legacyMatch ? legacyMatch[2] : `ST-${studentHex!.toLowerCase()}`
+  let protocolMetadata: Record<string, unknown> = {}
+  if (v2Match) {
+    const mode = v2Match[3].toUpperCase() as 'I' | 'F'
+    const count = Number(v2Match[4])
+    let hash = 0x811c9dc5
+    const checksumInput = `${sessionId.toLowerCase()}|${studentId.toLowerCase()}|${mode}|${count}`
+    for (let i = 0; i < checksumInput.length; i++) {
+      hash ^= checksumInput.charCodeAt(i)
+      hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    const expected = (hash & 0xffff).toString(16).toUpperCase().padStart(4, '0')
+    if (count < 1 || count > 50 || v2Match[5].toUpperCase() !== expected) {
+      return errorResponse(c, 'INVALID_BARCODE', 'Checksum hoặc cấu hình mẫu phiếu không hợp lệ.', 400)
+    }
+    protocolMetadata = {
+      protocolVersion: 2,
+      templateMode: mode === 'F' ? 'full_page' : 'integrated',
+      questionCount: count,
+      formChecksum: expected,
+    }
+  }
 
   try {
     const session = await getExamSession(sessionId, user.parishId)
@@ -335,6 +372,7 @@ examsRouter.post('/barcode/decode', zValidator('json', barcodeBodySchema), async
       examType: session.examType,
       maxScore: session.maxScore,
       questionCount: session.questionCount,
+      ...protocolMetadata,
     })
   } catch (err) {
     return handleServiceError(c, err)

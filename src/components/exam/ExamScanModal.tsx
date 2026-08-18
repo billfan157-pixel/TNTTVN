@@ -20,6 +20,9 @@ import { scanExamCode } from '../../lib/examCodeScanner'
 import { createManualExamIdentity, EXAM_CODE_LOCK_TTL_MS, resolveExamIdentity, type ExamCodeLock } from '../../lib/examScanIdentity'
 import { advanceOmrConsensus, OMR_REQUIRED_CONFIRMATIONS, shouldAutoAnalyzeOmrFrame, type OmrConsensusState } from '../../lib/omrScanConsensus'
 import { getObjectCoverSourceRect } from '../../lib/cameraFrame'
+import { captureHighResolutionCameraFrame } from '../../lib/cameraStillCapture'
+import { assessScanQuality, type ScanQualityAssessment } from '../../lib/scanQuality'
+import { recordScanDiagnostic } from '../../lib/scanDiagnostics'
 import { CORNER_MARKERS, integratedFrameAspectRatio } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
@@ -36,7 +39,7 @@ interface ExamScanModalProps {
 
 type ScanState =
   | { kind: 'scanning' }
-  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData }
+  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; templateMode: Exclude<OmrTemplateMode, 'auto'> }
   | { kind: 'error'; message: string }
 
 interface ScannedEntry {
@@ -72,6 +75,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const codeLockRef = useRef<ExamCodeLock | null>(null)
   const latestFrameRef = useRef<ImageData | null>(null)
   const omrConsensusRef = useRef<OmrConsensusState | null>(null)
+  const lastDiagnosticReasonRef = useRef('')
   const lastScanFailureRef = useRef(fixedStudent
     ? 'Chưa nhận diện được khung OMR trên phiếu.'
     : 'Không nhận diện được mã QR / Barcode trên phiếu.')
@@ -83,6 +87,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const students = useStudentStore(s => s.students)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [serverAdjustment, setServerAdjustment] = useState<{ clientScore: number; serverScore: number } | null>(null)
   const [scanHint, setScanHint] = useState(fixedStudent
     ? `Đã chọn ${fixedStudent.name} — căn khung OMR rồi bấm “Chụp & chấm”.`
     : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
@@ -160,24 +165,32 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       isCorrect,
       isBlank: updatedOption === null,
       isMultiFill: false,
+      isWeakMark: false,
+      needsReview: false,
+      wasCorrected: true,
     }
 
     const rawCorrectCount = currentQuestions.filter(q => q.isCorrect).length
     const totalQ = currentQuestions.length
     const scaledScore = totalQ > 0 ? Math.round((rawCorrectCount / totalQ) * maxScore * 10) / 10 : 0
+    const hasSelectedAnswer = currentQuestions.some(q => q.selectedAnswer !== null)
+    const hasReviewQuestion = currentQuestions.some(q => q.needsReview)
 
     setPhase({
       ...phase,
       omr: {
         ...phase.omr,
+        status: hasReviewQuestion ? 'review_required' : hasSelectedAnswer ? 'accepted' : 'rejected',
+        reason: hasReviewQuestion ? 'REVIEW_REQUIRED' : hasSelectedAnswer ? 'OK' : 'ALL_BLANK',
         questions: currentQuestions,
         rawCorrectCount,
-        score: scaledScore,
+        score: hasSelectedAnswer ? scaledScore : null,
       }
     })
   }
 
   const processImageFrame = useCallback((frame: ImageData, explicitCapture = false): boolean => {
+    const analysisStartedAt = performance.now()
     const now = Date.now()
     const activeLock = codeLockRef.current?.expiresAt && codeLockRef.current.expiresAt > now
       ? codeLockRef.current
@@ -191,6 +204,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     if (identity.kind === 'acquired') omrConsensusRef.current = null
 
     if (identity.kind === 'wrong_session') {
+      recordScanDiagnostic({ outcome: 'rejected', reason: 'WRONG_SESSION' })
       setCodeLocked(false)
       stopCamera()
       setPhase({
@@ -204,9 +218,27 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       consecutiveNoCodeFramesRef.current = 0
       setCodeLocked(true)
 
+      const effectiveTemplateMode = identity.lock.templateMode ?? mcTemplateMode
+      if (identity.kind === 'acquired' && identity.lock.templateMode && identity.lock.templateMode !== mcTemplateMode) {
+        setMcTemplateMode(identity.lock.templateMode)
+      }
+      if (
+        examType === 'multiple_choice'
+        && identity.lock.questionCount !== undefined
+        && identity.lock.questionCount !== questionCount
+      ) {
+        recordScanDiagnostic({ outcome: 'rejected', reason: 'QUESTION_COUNT_MISMATCH', templateMode: effectiveTemplateMode })
+        stopCamera()
+        setPhase({
+          kind: 'error',
+          message: `Phiếu có ${identity.lock.questionCount} câu nhưng phiên hiện tại có ${questionCount} câu. Hệ thống đã chặn ghi điểm để tránh chấm nhầm mẫu.`,
+        })
+        return true
+      }
+
       if (!resolveRef.current) {
         const omr = examType === 'multiple_choice'
-          ? detectAnswersFromImage(frame, answerKey, questionCount, maxScore, mcTemplateMode)
+          ? detectAnswersFromImage(frame, answerKey, questionCount, maxScore, effectiveTemplateMode)
           : detectScoreFromImage(frame, maxScore)
 
         if (omr.ok && omr.score !== null) {
@@ -219,12 +251,28 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             }
           }
           resolveRef.current = true
+          const quality = assessScanQuality(frame)
+          recordScanDiagnostic({
+            outcome: 'status' in omr ? omr.status : 'accepted',
+            reason: omr.reason,
+            templateMode: effectiveTemplateMode,
+            qualityStatus: quality.status,
+            durationMs: performance.now() - analysisStartedAt,
+          })
           stopCamera()
           playFeedback()
           setScanHint(identity.lock.source === 'manual'
             ? 'Đã nhận diện khung OMR — đang xác nhận kết quả…'
             : 'Đã nhận diện mã QR / Barcode — đang xác nhận phiếu…')
-          setPhase({ kind: 'detected', studentId: identity.lock.studentId, omr, frame })
+          setPhase({
+            kind: 'detected',
+            studentId: identity.lock.studentId,
+            omr,
+            frame,
+            identity: identity.lock,
+            quality,
+            templateMode: effectiveTemplateMode,
+          })
           return true
         }
         omrConsensusRef.current = null
@@ -232,6 +280,15 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           ? `Đã chọn ${fixedStudent?.name ?? identity.lock.studentId} — ${formatOmrFailReason(omr.reason)}`
           : `Mã phiếu đã đọc và được giữ trong ${EXAM_CODE_LOCK_TTL_MS / 1_000} giây — ${formatOmrFailReason(omr.reason)}`
         lastScanFailureRef.current = message
+        if (lastDiagnosticReasonRef.current !== omr.reason) {
+          lastDiagnosticReasonRef.current = omr.reason
+          recordScanDiagnostic({
+            outcome: 'rejected',
+            reason: omr.reason,
+            templateMode: effectiveTemplateMode,
+            durationMs: performance.now() - analysisStartedAt,
+          })
+        }
         setScanHint(message)
       }
     } else {
@@ -294,9 +351,13 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     rafRef.current = requestAnimationFrame(tick)
   }, [fixedStudent, processImageFrame])
 
-  const captureFixedStudentOmr = useCallback(() => {
+  const captureFixedStudentOmr = useCallback(async () => {
     if (!fixedStudent) return
-    const frame = latestFrameRef.current
+    const video = videoRef.current
+    const track = streamRef.current?.getVideoTracks()[0]
+    const frame = video
+      ? await captureHighResolutionCameraFrame(video, track) ?? latestFrameRef.current
+      : latestFrameRef.current
     if (!frame) {
       setScanHint('Camera chưa sẵn sàng — chờ hình ảnh hiện rõ rồi bấm lại.')
       return
@@ -311,6 +372,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     resolveRef.current = false
     resetIdentity()
     latestFrameRef.current = null
+    lastDiagnosticReasonRef.current = ''
     consecutiveNoCodeFramesRef.current = 0
     lastScanFailureRef.current = fixedStudent
       ? 'Chưa nhận diện được khung OMR trên phiếu.'
@@ -434,6 +496,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     resolveRef.current = false
     resetIdentity()
     setSaved(false)
+    setServerAdjustment(null)
     setSaving(false)
     consecutiveNoCodeFramesRef.current = 0
     setScanHint(fixedStudent
@@ -506,6 +569,17 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
   const handleSave = async () => {
     if (phase.kind !== 'detected') return
+    const unresolvedQuestions = 'questions' in phase.omr
+      ? phase.omr.questions.filter(question => question.needsReview)
+      : []
+    if (unresolvedQuestions.length > 0) {
+      setScanHint(`Cần xác nhận ${unresolvedQuestions.length} câu tô mơ hồ trước khi ghi điểm.`)
+      return
+    }
+    if ('questions' in phase.omr && !phase.omr.questions.some(question => question.selectedAnswer !== null)) {
+      setScanHint('Phiếu chưa có đáp án nào được tô — hệ thống không ghi điểm.')
+      return
+    }
     setSaving(true)
     try {
       const score = Math.min(maxScore, Math.max(0, phase.omr.score ?? 0))
@@ -518,15 +592,41 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         answerMap['_confidence'] = String(Math.round(phase.omr.confidence * 100) / 100)
         answers = JSON.stringify(answerMap)
       }
-      const saveResult = await saveScores([{ studentId: phase.studentId, score, source: fixedStudent ? 'omr' : 'qr_scan', answers }])
+      const correctedQuestions = 'questions' in phase.omr
+        ? phase.omr.questions.filter(question => question.wasCorrected).map(question => question.questionIndex)
+        : []
+      const scanMetadata = JSON.stringify({
+        engineVersion: 'omr-v2',
+        protocolVersion: phase.identity.protocolVersion ?? 1,
+        templateMode: phase.templateMode,
+        questionCount: examType === 'multiple_choice' ? questionCount : undefined,
+        formChecksum: phase.identity.formChecksum,
+        detectionStatus: 'accepted',
+        correctedQuestions,
+        quality: phase.quality,
+      })
+      const saveResult = await saveScores([{
+        studentId: phase.studentId,
+        score,
+        source: fixedStudent ? 'omr' : 'qr_scan',
+        answers,
+        scanMetadata,
+      }])
       // Không được báo “Đã lưu” hoặc đóng modal khi API/offline queue từ chối.
       if (!saveResult) return
 
+      const adjustment = saveResult.adjustments?.find(item => item.studentId === phase.studentId) ?? null
+      if (adjustment) setServerAdjustment({ clientScore: adjustment.clientScore, serverScore: adjustment.serverScore })
+
       const studentName = students.find(s => s.id === phase.studentId)?.fullName ?? phase.studentId
-      setScannedList(prev => [...prev, { studentId: phase.studentId, studentName, score, timestamp: Date.now() }])
+      const storedScore = adjustment?.serverScore ?? score
+      setScannedList(prev => [...prev, { studentId: phase.studentId, studentName, score: storedScore, timestamp: Date.now() }])
       setSaved(true)
 
-      if (batchMode) {
+      if (adjustment) {
+        // Version drift/tampering là ngoại lệ cần người chấm nhìn thấy; không tự
+        // đóng hoặc nhảy sang phiếu kế tiếp dù server đã lưu an toàn.
+      } else if (batchMode) {
         setTimeout(() => {
           resolveRef.current = false
           resetIdentity()
@@ -544,9 +644,14 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
   }
 
-  const studentName = phase.kind === 'detected'
-    ? students.find(s => s.id === phase.studentId)?.fullName ?? phase.studentId
-    : ''
+  const detectedStudent = phase.kind === 'detected' ? students.find(s => s.id === phase.studentId) : undefined
+  const studentName = phase.kind === 'detected' ? detectedStudent?.fullName ?? phase.studentId : ''
+  const unresolvedReviewCount = phase.kind === 'detected' && 'questions' in phase.omr
+    ? phase.omr.questions.filter(question => question.needsReview).length
+    : 0
+  const noDetectedAnswers = phase.kind === 'detected'
+    && 'questions' in phase.omr
+    && !phase.omr.questions.some(question => question.selectedAnswer !== null)
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="exam-scan-title" className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
@@ -687,7 +792,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-text-muted uppercase">Học viên</span>
                   <span className="text-xs font-black text-parish-primary bg-parish-primary-light border border-parish-primary/30 px-2 py-0.5 rounded-md truncate max-w-[130px]">
-                    {studentName}
+                    {studentName}{detectedStudent?.code ? ` (${detectedStudent.code})` : ''}
                   </span>
                 </div>
 
@@ -700,11 +805,22 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between border-t border-surface-border pt-2 text-xs">
-                  <span className="font-bold text-text-muted">Độ tin cậy:</span>
+                  <span className="font-bold text-text-muted">Độ tách nét:</span>
                   <span className={`font-black px-2 py-0.5 rounded-full ${
                     phase.omr.confidence > 0.4 ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500'
                   }`}>
-                    {(phase.omr.confidence * 100).toFixed(0)}% ({phase.omr.confidence > 0.4 ? 'Cao 🟢' : 'Vừa 🟡'})
+                    {(phase.omr.confidence * 100).toFixed(0)}% · chỉ báo kỹ thuật
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-surface-border pt-2 text-xs">
+                  <span className="font-bold text-text-muted">Chất lượng ảnh:</span>
+                  <span className={`font-black px-2 py-0.5 rounded-full ${
+                    phase.quality.status === 'good'
+                      ? 'bg-emerald-500/20 text-emerald-600'
+                      : 'bg-amber-500/20 text-amber-600'
+                  }`}>
+                    {phase.quality.status === 'good' ? 'Đạt' : 'Nên kiểm tra'}
                   </span>
                 </div>
 
@@ -737,8 +853,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 max-h-36 sm:max-h-44 overflow-y-auto p-1.5 bg-surface-card rounded-xl border border-surface-border">
                   {phase.omr.questions.map(q => {
                     const isMultiFill = q.isMultiFill
+                    const needsReview = q.needsReview
                     const isBlank = q.isBlank
-                    const bgClass = isMultiFill
+                    const bgClass = needsReview
                       ? 'bg-amber-500/20 border-amber-500/50 text-amber-600'
                       : isBlank
                       ? 'bg-surface-app border-surface-border text-text-muted'
@@ -749,6 +866,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                       : 'bg-surface-card border-surface-border text-text-main'
                     const title = isMultiFill
                       ? `Câu ${q.questionIndex}: Tô nhiều ô — Nhấp để chọn đáp án`
+                      : q.isWeakMark
+                      ? `Câu ${q.questionIndex}: Vết tô quá nhạt — Nhấp để xác nhận`
                       : isBlank
                       ? `Câu ${q.questionIndex}: Trống — Nhấp để chọn đáp án`
                       : q.correctAnswer
@@ -774,7 +893,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                       >
                         <span className="text-[9px] text-text-muted">câu {q.questionIndex}</span>
                         <span className="font-black text-xs">
-                          {isMultiFill ? '⚡' : isBlank ? '—' : q.selectedAnswer || '—'}
+                          {needsReview ? '⚠' : isBlank ? '—' : q.selectedAnswer || '—'}
                         </span>
                       </button>
                     )
@@ -782,6 +901,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 </div>
                 {(() => {
                   const multiFillCount = phase.omr.questions.filter(q => q.isMultiFill).length
+                  const weakMarkCount = phase.omr.questions.filter(q => q.isWeakMark).length
                   const blankCount = phase.omr.questions.filter(q => q.isBlank).length
                   if (multiFillCount === 0 && blankCount === 0) return null
                   return (
@@ -789,6 +909,11 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                       {multiFillCount > 0 && (
                         <span className="flex items-center gap-1 text-amber-600">
                           <span className="w-2 h-2 rounded-full bg-amber-500" /> {multiFillCount} câu tô nhiều ô
+                        </span>
+                      )}
+                      {weakMarkCount > 0 && (
+                        <span className="flex items-center gap-1 text-amber-600">
+                          <span className="w-2 h-2 rounded-full bg-amber-500" /> {weakMarkCount} câu tô quá nhạt
                         </span>
                       )}
                       {blankCount > 0 && (
@@ -799,6 +924,16 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                     </div>
                   )
                 })()}
+              </div>
+            )}
+            {unresolvedReviewCount > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-700">
+                Chưa thể ghi điểm: hãy nhấp và xác nhận {unresolvedReviewCount} câu có nhiều ô hoặc vết tô quá nhạt.
+              </div>
+            )}
+            {noDetectedAnswers && unresolvedReviewCount === 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-700">
+                Chưa thể ghi điểm: phiếu không còn đáp án nào được chọn.
               </div>
             )}
           </div>
@@ -824,6 +959,16 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           </div>
         )}
 
+        {serverAdjustment && (
+          <div className="rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3.5 py-2.5 text-xs sm:text-sm text-parish-warning flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>
+              Server đã tính lại điểm từ đáp án: đề xuất {serverAdjustment.clientScore} → lưu {serverAdjustment.serverScore}.
+              Hãy kiểm tra đáp án/phiên bản mẫu trước khi quét tiếp.
+            </span>
+          </div>
+        )}
+
         {/* Footer Actions */}
         <div className="flex items-center justify-between gap-2 border-t border-surface-border pt-3">
           {phase.kind !== 'detected' ? (
@@ -842,7 +987,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 {fixedStudent && phase.kind === 'scanning' && (
                   <button
                     className="btn btn-primary btn-sm flex items-center gap-1"
-                    onClick={captureFixedStudentOmr}
+                    onClick={() => void captureFixedStudentOmr()}
                   >
                     <Camera size={14} /> Chụp &amp; chấm
                   </button>
@@ -873,7 +1018,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 <button className="btn btn-secondary btn-sm" onClick={retake} disabled={saving}>
                   <RefreshCw size={14} /> Quét Lại
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => void handleSave()} disabled={saving || saved}>
+                <button className="btn btn-primary btn-sm" onClick={() => void handleSave()} disabled={saving || saved || unresolvedReviewCount > 0 || noDetectedAnswers}>
                   {saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
                   {saved ? 'Đã Lưu' : batchMode ? 'Ghi & Quét Tiếp' : 'Ghi Điểm'}
                 </button>

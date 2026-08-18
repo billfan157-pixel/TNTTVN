@@ -111,11 +111,14 @@ export function buildSingleAnswerSheetSvgString(
   params: BatchAnswerSheetParams
 ): string {
   const { sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType = 'written', questionCount = 20 } = params
-  const qrPayload = buildExamQrPayload(sessionId, student.id)
+  const qrPayload = buildExamQrPayload(sessionId, student.id, {
+    templateMode: 'full_page',
+    questionCount: examType === 'multiple_choice' ? questionCount : Math.max(1, maxScore + 1),
+  })
   const rawQr = generateExamQrSvg(qrPayload, 4)
   const qrViewBoxSize = getExamQrViewBoxSize(qrPayload)
   const qrInner = sanitizeSvgInner(rawQr.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
-  const rawBarcode = generateBarcodeSvg(buildExamQrPayload(sessionId, student.id), 28, 1.2)
+  const rawBarcode = generateBarcodeSvg(qrPayload, 28, 1.2)
   const barcodeViewBoxWidth = getBarcodeViewBoxWidth(qrPayload, 1.2)
   const barcodeInner = sanitizeSvgInner(rawBarcode.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
 
@@ -798,7 +801,10 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
 
   // Sinh QR code định danh
   const qrPayload = student
-    ? buildExamQrPayload(sessionId, student.id)
+    ? buildExamQrPayload(sessionId, student.id, {
+        templateMode: 'integrated',
+        questionCount: Math.max(1, questions.length),
+      })
     : `tntt-exam:${sessionId}:GENERIC`
   const qrSvg = generateExamQrSvg(qrPayload, 3)
   const qrViewBoxSize = getExamQrViewBoxSize(qrPayload)

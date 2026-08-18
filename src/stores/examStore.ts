@@ -26,6 +26,25 @@ function isOffline(): boolean {
   return typeof navigator !== 'undefined' && !navigator.onLine
 }
 
+function parseJsonObject<T>(value: T | string | null | undefined): T | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value !== 'string') return value
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as T : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeExamResults(rows: ExamResult[]): ExamResult[] {
+  return rows.map(row => ({
+    ...row,
+    answers: parseJsonObject(row.answers),
+    scanMetadata: parseJsonObject(row.scanMetadata),
+  }))
+}
+
 export const SCORE_TYPE_LABELS: Record<string, string> = {
   oral: 'Điểm Miệng',
   '15m': '15 Phút',
@@ -40,6 +59,8 @@ export interface ExamScoreItem {
   score: number
   source?: string
   answers?: string
+  /** JSON chẩn đoán tổng hợp; tuyệt đối không chứa ảnh/base64. */
+  scanMetadata?: string
 }
 
 export interface CreateExamInput {
@@ -70,7 +91,11 @@ interface ExamState {
   createSession: (data: CreateExamInput) => Promise<ExamSession | null>
   selectSession: (id: string | null) => Promise<void>
   refreshResults: () => Promise<void>
-  saveScores: (scores: ExamScoreItem[]) => Promise<{ saved: number; upserted: number } | null>
+  saveScores: (scores: ExamScoreItem[]) => Promise<{
+    saved: number
+    upserted: number
+    adjustments?: Array<{ studentId: string; clientScore: number; serverScore: number }>
+  } | null>
   removeResult: (studentId: string) => Promise<boolean>
   completeAndFinalize: () => Promise<ExamFinalizeResult | null>
   reopenSession: () => Promise<void>
@@ -177,7 +202,7 @@ export const useExamStore = create<ExamState>()(
         return
       }
       const { results } = await api.getExamResults(id)
-      set({ results })
+      set({ results: normalizeExamResults(results) })
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải kết quả phiên chấm' })
     }
@@ -189,7 +214,7 @@ export const useExamStore = create<ExamState>()(
     if (isOffline()) return
     try {
       const { session, results } = await api.getExamResults(id)
-      set({ results, sessions: get().sessions.map(s => s.id === id ? session : s) })
+      set({ results: normalizeExamResults(results), sessions: get().sessions.map(s => s.id === id ? session : s) })
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải kết quả phiên chấm' })
     }
@@ -219,6 +244,7 @@ export const useExamStore = create<ExamState>()(
               source: (s.source as ExamResult['source']) || 'qr_scan',
               createdAt: existing?.createdAt || now,
               answers: s.answers ? (JSON.parse(s.answers) as Record<number, MultipleChoiceOption | null>) : existing?.answers,
+              scanMetadata: s.scanMetadata ? JSON.parse(s.scanMetadata) : existing?.scanMetadata,
             })
           }
           return { results: Array.from(byStudent.values()) }

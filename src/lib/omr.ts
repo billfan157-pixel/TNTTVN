@@ -45,6 +45,8 @@ export interface GrayImage {
 const DARK_THRESHOLD = 0.38
 const MIN_GAP = 0.08
 const MIN_FILL = 0.38
+/** Vết tô đáng kể nhưng chưa đạt ngưỡng chấp nhận: bắt buộc người chấm xác nhận. */
+const MIN_WEAK_FILL = 0.24
 const MIN_ANSWER_CONFIDENCE = 0.06
 const PAPER_SAMPLE_COLS = 24
 const PAPER_SAMPLE_ROWS = 18
@@ -507,12 +509,18 @@ export interface OmrQuestionResult {
   isCorrect?: boolean
   isBlank: boolean
   isMultiFill: boolean
+  /** Có dấu tô yếu hoặc nhiều ô; không được lưu trước khi người chấm xử lý. */
+  needsReview: boolean
+  isWeakMark: boolean
+  /** UI đã xác nhận/sửa thủ công câu này sau khi detector trả kết quả. */
+  wasCorrected?: boolean
   confidence: number
   readings: OmrOptionReading[]
 }
 
 export interface OmrMultipleChoiceResult {
   ok: boolean
+  status: 'accepted' | 'review_required' | 'rejected'
   score: number | null
   rawCorrectCount: number
   totalQuestions: number
@@ -532,6 +540,7 @@ export function detectAnswersFromImage(
 ): OmrMultipleChoiceResult {
   const fail = (reason: string): OmrMultipleChoiceResult => ({
     ok: false,
+    status: 'rejected',
     score: null,
     rawCorrectCount: 0,
     totalQuestions,
@@ -615,6 +624,8 @@ export function detectAnswersFromImage(
 
     const isBlank = filledCount === 0
     const isMultiFill = filledCount > 1
+    const isWeakMark = isBlank && Boolean(top && top.coverage >= MIN_WEAK_FILL)
+    const needsReview = isMultiFill || isWeakMark
     const selectedAnswer = (!isBlank && !isMultiFill && top && top.coverage >= MIN_FILL) ? top.option : null
     const confidence = top ? top.coverage - second.coverage : 0
 
@@ -629,6 +640,8 @@ export function detectAnswersFromImage(
       isCorrect,
       isBlank,
       isMultiFill,
+      needsReview,
+      isWeakMark,
       confidence,
       readings,
     })
@@ -638,11 +651,27 @@ export function detectAnswersFromImage(
 
   const answeredQuestions = questions.filter(q => q.selectedAnswer !== null)
   const answeredCount = answeredQuestions.length
+  const reviewQuestions = questions.filter(q => q.needsReview)
 
-  // Reject if no questions were answered at all
+  // Không có đáp án rõ nhưng có vết tô đáng kể là ngoại lệ cần người chấm xử lý,
+  // không được đánh đồng với phiếu trắng và cũng không được tự ghi 0 điểm.
   if (answeredCount === 0) {
+    if (reviewQuestions.length > 0) {
+      const reviewConfidence = reviewQuestions.reduce((sum, question) => sum + question.confidence, 0) / reviewQuestions.length
+      return {
+        ok: true,
+        status: 'review_required',
+        score: scaledScore,
+        rawCorrectCount: 0,
+        totalQuestions,
+        confidence: reviewConfidence,
+        questions,
+        reason: 'REVIEW_REQUIRED',
+      }
+    }
     return {
       ok: false,
+      status: 'rejected',
       score: null,
       rawCorrectCount: 0,
       totalQuestions,
@@ -661,6 +690,7 @@ export function detectAnswersFromImage(
   if (answeredConfidence < MIN_ANSWER_CONFIDENCE) {
     return {
       ok: false,
+      status: 'rejected',
       score: null,
       rawCorrectCount,
       totalQuestions,
@@ -672,12 +702,13 @@ export function detectAnswersFromImage(
 
   return {
     ok: true,
+    status: reviewQuestions.length > 0 ? 'review_required' : 'accepted',
     score: scaledScore,
     rawCorrectCount,
     totalQuestions,
     confidence: answeredConfidence,
     questions,
-    reason: 'OK',
+    reason: reviewQuestions.length > 0 ? 'REVIEW_REQUIRED' : 'OK',
   }
 }
 

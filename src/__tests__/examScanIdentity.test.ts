@@ -19,6 +19,24 @@ describe('exam scan identity lock', () => {
     expect(second.lock?.studentId).toBe('ST-abcdef12')
   })
 
+  it('giữ nguyên metadata protocol v2 để scanner khóa đúng template/số câu', () => {
+    const v2Code: ExamCodeScanResult = {
+      rawText: 'T2:12345678:ABCDEF12:F:50:0000',
+      payload: {
+        sessionId: 'EXS-12345678',
+        studentId: 'ST-abcdef12',
+        protocolVersion: 2,
+        templateMode: 'full_page',
+        questionCount: 50,
+        formChecksum: '0000',
+      },
+      source: 'qr',
+    }
+    const first = resolveExamIdentity(null, v2Code, 'EXS-12345678', 1_000)
+    const retained = resolveExamIdentity(first.lock, null, 'EXS-12345678', 2_000)
+    expect(retained.lock).toMatchObject({ protocolVersion: 2, templateMode: 'full_page', questionCount: 50 })
+  })
+
   it('giữ mã mặc định 20 giây để đủ thời gian chuyển từ cận cảnh QR sang toàn tờ A4', () => {
     const first = resolveExamIdentity(null, validCode, 'EXS-12345678', 1_000)
     const retained = resolveExamIdentity(first.lock, null, 'EXS-12345678', 20_999)

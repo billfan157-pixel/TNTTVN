@@ -198,6 +198,16 @@ export interface ExamResult {
   studentName?: string;
   holyName?: string;
   answers?: Record<number, MultipleChoiceOption | null>;
+  scanMetadata?: {
+    engineVersion?: string;
+    protocolVersion?: number;
+    templateMode?: 'integrated' | 'full_page';
+    questionCount?: number;
+    formChecksum?: string;
+    detectionStatus?: 'accepted' | 'review_required' | 'rejected';
+    correctedQuestions?: number[];
+    quality?: Record<string, unknown>;
+  };
 }
 
 export interface ExamConflict {

@@ -173,7 +173,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     await page.close()
 
     const decoded = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'attemptBoth' })
-    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id))
+    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id, { templateMode: 'integrated', questionCount: 1 }))
   })
 
   it('phiếu trả lời rời render QR đầy đủ, giải mã đúng payload', async () => {
@@ -195,7 +195,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     await page.close()
 
     const decoded = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'attemptBoth' })
-    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id))
+    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id, { templateMode: 'full_page', questionCount: 20 }))
   }, 20_000)
 
   it('pipeline production đọc QR từ toàn frame camera landscape có tờ A4 portrait ở giữa', async () => {
@@ -227,7 +227,13 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
 
     const result = scanExamCode(frame)
     expect(result.source).toBe('qr')
-    expect(result.payload).toEqual({ sessionId, studentId: student.id })
+    expect(result.payload).toMatchObject({
+      sessionId,
+      studentId: student.id,
+      protocolVersion: 2,
+      templateMode: 'integrated',
+      questionCount: 50,
+    })
     const answerKey = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [i + 1, 'A'])) as Record<number, 'A'>
     const omr = detectAnswersFromImage(frame, answerKey, 50, 10)
     expect(omr.ok, omr.reason).toBe(true)
@@ -251,7 +257,13 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     const frame = await cameraFrameFromPage(page, 1.1)
     await page.close()
 
-    expect(scanExamCode(frame).payload).toEqual({ sessionId, studentId: student.id })
+    expect(scanExamCode(frame).payload).toMatchObject({
+      sessionId,
+      studentId: student.id,
+      protocolVersion: 2,
+      templateMode: 'integrated',
+      questionCount: 1,
+    })
   }, 20_000)
 
   it('vẫn đọc phiếu legacy mật độ 29 module khi camera bị mất nét nhẹ', async () => {

@@ -30,7 +30,10 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
   examType = 'written',
   questionCount = 20,
 }) => {
-  const qrPayload = useMemo(() => buildExamQrPayload(sessionId, student.id), [sessionId, student.id])
+  const qrPayload = useMemo(() => buildExamQrPayload(sessionId, student.id, {
+    templateMode: 'full_page',
+    questionCount: examType === 'multiple_choice' ? questionCount : Math.max(1, maxScore + 1),
+  }), [sessionId, student.id, examType, questionCount, maxScore])
   const qrInner = useMemo(() => {
     const svg = generateExamQrSvg(qrPayload, 4)
     return sanitizeSvgInner(svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))

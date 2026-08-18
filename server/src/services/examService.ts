@@ -1,6 +1,6 @@
 import { db, type DbTransaction } from '../db/index.js'
 import { examSessions, examResults, examFinalizations, examFinalizationItems, assessmentEntries, auditLogs, students, classes, grades, gradeOverrides } from '../db/schema.js'
-import { eq, and, inArray, isNull, sql } from 'drizzle-orm'
+import { eq, and, inArray, isNull } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
 import { getCurrentAcademicYear, normalizeAcademicYear } from '../utils/academicYear.js'
@@ -9,6 +9,76 @@ import { upsertGrade } from './gradeService.js'
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
 export type ExamResultSource = 'qr_scan' | 'omr' | 'quick_entry'
+
+type MultipleChoiceAnswer = 'A' | 'B' | 'C' | 'D' | null
+
+function badRequest(message: string): never {
+  const err = new Error(message) as Error & { status: number }
+  err.status = 400
+  throw err
+}
+
+function parseSubmittedAnswers(input: string | undefined, questionCount: number): Record<number, MultipleChoiceAnswer> {
+  if (!input) badRequest('Kết quả quét trắc nghiệm thiếu answers; server không thể tự tính lại điểm.')
+  let parsed: unknown
+  try { parsed = JSON.parse(input) } catch { badRequest('answers phải là JSON hợp lệ.') }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) badRequest('answers phải là JSON object.')
+  const normalized: Record<number, MultipleChoiceAnswer> = {}
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (key.startsWith('_')) continue // metadata legacy như _confidence không tham gia chấm
+    const index = Number(key)
+    if (!Number.isInteger(index) || index < 1 || index > questionCount) {
+      badRequest(`answers chứa số câu không hợp lệ: ${key}.`)
+    }
+    if (value !== null && value !== 'A' && value !== 'B' && value !== 'C' && value !== 'D') {
+      badRequest(`Đáp án câu ${key} phải là A/B/C/D hoặc null.`)
+    }
+    normalized[index] = value as MultipleChoiceAnswer
+  }
+  if (!Object.values(normalized).some(value => value !== null)) {
+    badRequest('Phiếu chưa có đáp án nào được tô; hệ thống không ghi điểm.')
+  }
+  return normalized
+}
+
+function computeMultipleChoiceScore(
+  answers: Record<number, MultipleChoiceAnswer>,
+  answerKeyJson: string | null,
+  questionCount: number,
+  maxScore: number,
+): number {
+  if (!answerKeyJson) badRequest('Phiên trắc nghiệm chưa có đáp án chuẩn; không thể lưu kết quả quét.')
+  let answerKey: Record<string, unknown>
+  try { answerKey = JSON.parse(answerKeyJson) as Record<string, unknown> } catch { badRequest('Đáp án chuẩn của phiên bị lỗi JSON.') }
+  let correct = 0
+  for (let index = 1; index <= questionCount; index++) {
+    const expected = answerKey[String(index)]
+    if (answers[index] !== null && answers[index] !== undefined && answers[index] === expected) correct++
+  }
+  return Math.round((correct / questionCount) * maxScore * 10) / 10
+}
+
+function sanitizeScanMetadata(input: string | undefined): string | null {
+  if (!input) return null
+  let parsed: unknown
+  try { parsed = JSON.parse(input) } catch { badRequest('scanMetadata phải là JSON hợp lệ.') }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) badRequest('scanMetadata phải là JSON object.')
+  const object = parsed as Record<string, unknown>
+  const containsForbiddenData = (value: unknown): boolean => {
+    if (typeof value === 'string') return /data:image\//i.test(value)
+    if (Array.isArray(value)) return value.some(containsForbiddenData)
+    if (!value || typeof value !== 'object') return false
+    return Object.entries(value as Record<string, unknown>).some(([key, nested]) => (
+      /(image|photo|frame|blob|base64)/i.test(key) || containsForbiddenData(nested)
+    ))
+  }
+  const serialized = JSON.stringify(object)
+  if (containsForbiddenData(object)) badRequest('scanMetadata không được chứa ảnh hoặc dữ liệu base64.')
+  if (object.detectionStatus && object.detectionStatus !== 'accepted') {
+    badRequest('Kết quả OMR còn ở trạng thái cần kiểm tra hoặc bị từ chối; chưa được ghi điểm.')
+  }
+  return serialized
+}
 
 const SCORE_FIELD_MAP = {
   oral: { field: 'scoreOral', sourceColumn: 'scoreOralSource', sourceKey: 'scoreOral_source', updatedAtKey: 'scoreOral_updated_at' },
@@ -188,7 +258,7 @@ async function assertSessionAccess(sessionId: string, parishId: string, allowedC
 
 export async function upsertExamResults(
   sessionId: string,
-  results: { studentId: string; score: number; source?: ExamResultSource; answers?: string }[],
+  results: { studentId: string; score: number; source?: ExamResultSource; answers?: string; scanMetadata?: string }[],
   userId: string,
   parishId: string,
   ip: string,
@@ -228,9 +298,22 @@ export async function upsertExamResults(
 
     let saved = 0
     let upserted = 0
+    const adjustments: Array<{ studentId: string; clientScore: number; serverScore: number }> = []
     const now = new Date().toISOString()
     for (const r of results) {
-      if (!Number.isFinite(r.score) || r.score < 0 || r.score > session.maxScore) {
+      const source = r.source ?? 'qr_scan'
+      const scanMetadata = sanitizeScanMetadata(r.scanMetadata)
+      let authoritativeScore = r.score
+      if (session.examType === 'multiple_choice' && (source === 'omr' || source === 'qr_scan')) {
+        const totalQuestions = session.questionCount ?? 0
+        if (totalQuestions < 1 || totalQuestions > 50) badRequest('Số câu của phiên trắc nghiệm không hợp lệ.')
+        const parsedAnswers = parseSubmittedAnswers(r.answers, totalQuestions)
+        authoritativeScore = computeMultipleChoiceScore(parsedAnswers, session.answerKey, totalQuestions, session.maxScore)
+        if (Math.abs(authoritativeScore - r.score) > 0.0001) {
+          adjustments.push({ studentId: r.studentId, clientScore: r.score, serverScore: authoritativeScore })
+        }
+      }
+      if (!Number.isFinite(authoritativeScore) || authoritativeScore < 0 || authoritativeScore > session.maxScore) {
         const err = new Error(`Điểm không hợp lệ (0–${session.maxScore})`) as any
         err.status = 400
         throw err
@@ -244,7 +327,7 @@ export async function upsertExamResults(
       if (existing) {
         await tx
           .update(examResults)
-          .set({ score: r.score, source: r.source ?? 'qr_scan', answers: r.answers ?? null })
+          .set({ score: authoritativeScore, source, answers: r.answers ?? null, scanMetadata })
           .where(and(eq(examResults.id, existing.id), eq(examResults.parishId, parishId)))
         upserted++
       } else {
@@ -252,9 +335,10 @@ export async function upsertExamResults(
           id: generateId('EXR'),
           examSessionId: sessionId,
           studentId: r.studentId,
-          score: r.score,
-          source: r.source ?? 'qr_scan',
+          score: authoritativeScore,
+          source,
           answers: r.answers ?? null,
+          scanMetadata,
           parishId,
           createdAt: now,
         })
@@ -267,10 +351,10 @@ export async function upsertExamResults(
       action: 'EXAM_SAVE_RESULTS',
       entityType: 'exam_session',
       entityId: sessionId,
-      newValue: JSON.stringify({ saved, upserted, students: studentIds.length }),
+      newValue: JSON.stringify({ saved, upserted, students: studentIds.length, serverScoreAdjustments: adjustments }),
     })
 
-    return { session, saved, upserted, total: results.length }
+    return { session, saved, upserted, total: results.length, adjustments }
   })
 }
 
@@ -328,6 +412,7 @@ export async function getExamResults(sessionId: string, parishId: string, allowe
       score: examResults.score,
       source: examResults.source,
       answers: examResults.answers,
+      scanMetadata: examResults.scanMetadata,
       createdAt: examResults.createdAt,
       studentCode: students.code,
       studentName: students.fullName,
@@ -722,7 +807,7 @@ export async function updateAnswerKeyAndRescore(
     const existingResults = await tx
       .select()
       .from(examResults)
-      .where(eq(examResults.examSessionId, sessionId))
+      .where(and(eq(examResults.examSessionId, sessionId), eq(examResults.parishId, parishId)))
 
     if (existingResults.length === 0) {
       // Audit even when no results to re-score (answer key still changed)
@@ -795,7 +880,7 @@ export async function updateAnswerKeyAndRescore(
       await tx
         .update(examResults)
         .set({ score: newScore })
-        .where(eq(examResults.id, result.id))
+        .where(and(eq(examResults.id, result.id), eq(examResults.parishId, parishId)))
 
       rescored++
     }

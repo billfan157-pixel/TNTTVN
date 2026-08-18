@@ -703,6 +703,8 @@ export const examResults = sqliteTable('exam_results', {
   score: real('score').notNull(),
   source: text('source').notNull().default('qr_scan'),
   answers: text('answers'), // JSON string: {"1":"A","2":null}
+  // Aggregate diagnostics only (engine/template/quality/corrections); never image/base64.
+  scanMetadata: text('scan_metadata'),
   parishId: text('parish_id').notNull().default('gia-ton'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [

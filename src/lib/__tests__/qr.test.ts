@@ -10,6 +10,7 @@ import {
   QR_QUIET_ZONE_MODULES,
   EXAM_QR_COMPACT_PREFIX,
   EXAM_QR_PREFIX,
+  EXAM_QR_V2_PREFIX,
 } from '../qr'
 import { scanExamCode } from '../examCodeScanner'
 
@@ -78,6 +79,22 @@ describe('Smart Exam Grading — QR (Phase 1)', () => {
       studentId: 'ST-12345678',
     })
     expect(parseExamQrPayload('te:not-hex:12345678')).toBeNull()
+  })
+
+  it('protocol v2 ràng buộc loại mẫu + số câu và từ chối checksum sai', () => {
+    const payload = buildExamQrPayload('EXS-7e8f7985', 'ST-12345678', {
+      templateMode: 'full_page',
+      questionCount: 50,
+    })
+    expect(payload.startsWith(`${EXAM_QR_V2_PREFIX}:`)).toBe(true)
+    expect(parseExamQrPayload(payload)).toMatchObject({
+      sessionId: 'EXS-7e8f7985',
+      studentId: 'ST-12345678',
+      protocolVersion: 2,
+      templateMode: 'full_page',
+      questionCount: 50,
+    })
+    expect(parseExamQrPayload(payload.replace(/.$/, payload.endsWith('0') ? '1' : '0'))).toBeNull()
   })
 
   it('trả đúng kích thước viewBox cho payload dài, tránh cắt QR khi in phiếu', () => {

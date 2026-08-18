@@ -464,8 +464,13 @@ export const api = {
     request<{ sessionId: string; studentId: string; classId: string; subject: string; examType: string; maxScore: number; questionCount: number }>('POST', '/exams/barcode/decode', { barcodeText }),
   updateAnswerKey: (id: string, answerKey: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; source?: string; answers?: string }[]) =>
-    request<{ saved: number; upserted: number; total: number }>('POST', `/exams/${id}/results`, { results }),
+  saveExamResults: (id: string, results: { studentId: string; score: number; source?: string; answers?: string; scanMetadata?: string }[]) =>
+    request<{
+      saved: number
+      upserted: number
+      total: number
+      adjustments?: Array<{ studentId: string; clientScore: number; serverScore: number }>
+    }>('POST', `/exams/${id}/results`, { results }),
   removeExamResult: (id: string, studentId: string) => request<{ deleted: boolean }>('DELETE', `/exams/${id}/results/${encodeURIComponent(studentId)}`),
   getExamResults: (id: string) => request<{ session: any; results: any[] }>('GET', `/exams/${id}/results`),
   completeExam: (id: string) => request<any>('POST', `/exams/${id}/complete`),

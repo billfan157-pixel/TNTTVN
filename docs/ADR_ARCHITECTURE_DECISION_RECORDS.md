@@ -1197,3 +1197,57 @@ UX/UI audit app-wide (2026-08-16) ghi nhận "mỗi trang tự dựng một ki�
 - `npm run build:frontend`: PASS; production bundle + service worker generated.
 - Oxlint trên toàn bộ file code/test sửa đổi: 0 warning/error; `git diff --check`: PASS.
 
+---
+
+## ADR-049: Scan Engine v2 Foundation — Versioned Forms, Review States & Server-Authoritative MC Scoring (2026-08-18)
+
+**Status: APPROVED / IMPLEMENTED (foundation). Severity: D2 (print protocol + detector/UI + API + DB/offline/audit). Profile: GENERAL.**
+
+### Problem and evidence
+
+- **E3 HIGH — score trust boundary**: `POST /exams/:id/results` trước thay đổi chỉ kiểm tra `r.score` trong khoảng rồi ghi nguyên giá trị cho cả `omr/qr_scan`; `answers` không được parse khi ghi lần đầu. Client lỗi hoặc bundle cũ có thể tạo điểm không khớp đáp án.
+- **E3 HIGH — unbound form**: payload `TE` chỉ mang session/student. Scanner không thể biết mã thuộc template integrated/full-page hay bao nhiêu câu, nên lựa chọn geometry sai chỉ được phát hiện gián tiếp qua marker.
+- **E2 HIGH — ambiguous state**: detector đánh dấu `isMultiFill` nhưng vẫn trả một kết quả có thể lưu nếu các câu còn lại rõ; mọi multi-fill còn có thể bị phân loại `ALL_BLANK` khi không có single answer. Không có trạng thái review bắt buộc.
+- **E2 HIGH — mobile capture**: nút fixed-student dùng frame preview tối đa 1280px dù stream xin 1920; ảnh render/blur hiện có chỉ chứng minh QR ở fixture, chưa chứng minh accuracy camera thực địa.
+
+### Options and decision matrix
+
+| Criterion | Weight | A: Giữ client-authoritative | B: On-device v2 + server recompute (chọn) | C: Upload ảnh/OpenCV server |
+|---|---:|---:|---:|---:|
+| Security & Privacy | 15% | 8 | 9 | 5 |
+| Data Integrity | 20% | 4 | 10 | 9 |
+| Reliability | 15% | 5 | 9 | 8 |
+| Business Correctness | 15% | 5 | 9 | 8 |
+| Offline Reliability | 10% | 8 | 9 | 3 |
+| Testability | 10% | 5 | 9 | 8 |
+| Maintainability | 10% | 7 | 8 | 5 |
+| Reversibility | 5% | 10 | 8 | 4 |
+| **Weighted score** | **100%** | **5.90** | **9.05** | **6.70** |
+
+**Decision: B.** A bị loại bởi D2 Data Integrity gate (4<7). C bị loại bởi Security & Privacy gate (5<7) và phá offline-first khi chưa có bằng chứng on-device không đạt mục tiêu.
+
+### Decision
+
+1. Phiếu production mới dùng compact Alphanumeric protocol v2: `T2:{sessionHex8}:{studentHex8}:{I|F}:{questionCount}:{checksum4}`. Checksum FNV-1a 16-bit chỉ phát hiện corruption/config drift; authorization vẫn ở server. TE/legacy vẫn parse.
+2. QR metadata tự chọn detector template; mismatch `questionCount` với session active là hard reject. Protocol v2 25 module (v1 21), vẫn trong QR 120px + quiet zone và đã qua real-render/blur regression.
+3. MC detector trả `accepted | review_required | rejected`. Multi-fill và weak mark (`coverage 0.24..<0.38`) bắt buộc review. UI khóa Save cho tới khi từng ngoại lệ được sửa/xác nhận; edit được lưu vào `correctedQuestions`.
+4. Fixed-student capture dùng source crop ở sensor resolution tối đa 2200px. Quality metrics là advisory trong foundation; marker/paper/geometry/confidence tiếp tục là hard gates.
+5. Với source `omr/qr_scan` của MC, server parse `answers`, bỏ metadata legacy `_...`, validate index/value, lấy answer key/session settings và tính lại score. Response/audit ghi `adjustments`; quick entry và written-score-grid giữ semantics cũ.
+6. Migration add-only `20260818-123` thêm nullable `exam_results.scan_metadata`. Metadata chỉ có aggregate diagnostics; recursive sanitizer cấm ảnh/base64/data URL. Offline sync gửi metadata và refresh result nếu server trả adjustments.
+7. Telemetry client local chỉ chứa aggregate counter/reason/template/quality/timing. `omrBenchmark.ts` cung cấp KPI report; corpus camera chỉ được thêm sau khử định danh. Không tuyên bố đạt accuracy thực địa và không bật auto batch làm mặc định trước gate BUSINESS_RULES §21.3.
+
+### Gates, compatibility, migration and rollback
+
+- **D2 hard gates**: Security & Privacy 9; Data Integrity 10; Testability 9; Tenant Isolation 9; Business Correctness 9; Offline Reliability 9 — **PASS**.
+- **Business Rule Gate**: server client-score trust = `CONFIRMED` và đã sửa; camera accuracy target = `CONDITIONAL / NOT YET CONFIRMED` đến khi có corpus; blank/multi/mismatch fail-closed = `CONFIRMED` bằng tests.
+- **ADR compatibility**: ADR-023 (print/session) `PASS`; ADR-024 (OMR/answers) `PASS`; ADR-043 (guided stable fallback/offline) `PASS`; ADR-048 (explicit geometry/fail-closed) `PASS`; ADR-031 (tenant composite keys) `PASS` — cột mới không đổi key/query scope.
+- **Migration**: nullable add-column, không backfill, không lock logic nghiệp vụ. Phiếu TE/legacy và queued answers cũ tiếp tục hoạt động. **Rollback**: R1 client/server; có thể giữ cột nullable không dùng. Nếu rollback server riêng, client field dư bị route schema cũ từ chối nên phải rollback client cùng release. Max rollback dự kiến <15 phút.
+- **Residual risk**: FNV không chống giả mạo (không được dùng như auth); server vẫn cần session/class/RBAC hiện có. Field accuracy camera ngoài fixture chưa được chứng minh. Quality thresholds chưa là hard gate trước calibration corpus.
+
+### Verification
+
+- Targeted end-to-end scan/offline/migration/server regression: **17 files / 233 tests PASS**; QR Chromium camera/blur v2 pass.
+- Full Vitest trên trạng thái cuối: **195 files / 1478 tests PASS**.
+- Production build (client + server + Vite/PWA): PASS; client `tsc -b`, server `tsc`, `oxlint`, `git diff --check`: PASS (lint/build còn các warning baseline ngoài scope, không error).
+- Auto-batch gate vẫn đóng cho tới corpus thật; số test xanh không được dùng để tuyên bố accuracy thực địa.
+

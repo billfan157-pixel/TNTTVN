@@ -502,6 +502,13 @@ async function applyServerResultAsync(op: SyncQueueItem, serverData: any) {
       await remapExamSessionIdInPendingOps(oldId, newId)
     }
 
+    // Scan Engine v2: sau khi hàng đợi offline được server chấm lại, kéo bản
+    // authoritative về ngay để UI không giữ điểm client nếu thuật toán/version lệch.
+    if ((entity === 'exam' || entity === 'exams') && Array.isArray(serverData?.adjustments)) {
+      const examStore = useExamStore.getState()
+      if (examStore.selectedSessionId) await examStore.refreshResults()
+    }
+
     if (entity === 'grade' && serverData?.id) {
       const gradeStore = useGradeStore.getState()
       gradeStore.upsertGrade(serverData, true)

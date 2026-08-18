@@ -93,6 +93,38 @@ describe('Smart Exam Grading — exam routes & service', () => {
     expect(res.data.studentId).toBe('ST-12345678')
   })
 
+  it('barcode decode accepts T2 metadata and rejects a corrupted checksum', async () => {
+    const studentId = 'ST-12345678'
+    const mode = 'I'
+    const questionCount = 20
+    const checksumInput = `${sharedSessionId.toLowerCase()}|${studentId.toLowerCase()}|${mode}|${questionCount}`
+    let hash = 0x811c9dc5
+    for (let i = 0; i < checksumInput.length; i++) {
+      hash ^= checksumInput.charCodeAt(i)
+      hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    const checksum = (hash & 0xffff).toString(16).toUpperCase().padStart(4, '0')
+    const payload = `T2:${sharedSessionId.slice(4).toUpperCase()}:12345678:${mode}:${questionCount}:${checksum}`
+    const accepted = await jsonReq('/barcode/decode', {
+      method: 'POST', token: adminToken, body: { barcodeText: payload },
+    })
+    expect(accepted.status).toBe(200)
+    expect(accepted.data).toMatchObject({
+      sessionId: sharedSessionId,
+      studentId,
+      protocolVersion: 2,
+      templateMode: 'integrated',
+      questionCount,
+      formChecksum: checksum,
+    })
+
+    const corrupted = await jsonReq('/barcode/decode', {
+      method: 'POST', token: adminToken,
+      body: { barcodeText: `${payload.slice(0, -1)}${payload.endsWith('0') ? '1' : '0'}` },
+    })
+    expect(corrupted.status).toBe(400)
+  })
+
   it('phuta can save results for their class and is blocked for another class', async () => {
     const sessionId = sharedSessionId
     const ok = await jsonReq(`/${sessionId}/results`, {
@@ -387,23 +419,69 @@ describe('Smart Exam Grading — exam routes & service', () => {
       token: adminToken,
       body: {
         classId: 'cl-exam-01', subject: 'Trắc nghiệm', scoreType: 'midterm', semester: 1,
-        examType: 'multiple_choice', questionCount: 20, answerKey: '{"1":"A","2":"C"}',
+        examType: 'multiple_choice', questionCount: 2, answerKey: '{"1":"A","2":"C"}',
       },
     })
     expect(session.status).toBe(201)
     expect(session.data.examType).toBe('multiple_choice')
-    expect(session.data.questionCount).toBe(20)
+    expect(session.data.questionCount).toBe(2)
 
     const save = await jsonReq(`/${session.data.id}/results`, {
       method: 'POST',
       token: adminToken,
-      body: { results: [{ studentId: 'st-exam-01', score: 8, source: 'qr_scan', answers: '{"1":"A","2":null}' }] },
+      body: { results: [{
+        studentId: 'st-exam-01',
+        score: 8,
+        source: 'qr_scan',
+        answers: '{"1":"A","2":null}',
+        scanMetadata: '{"engineVersion":"omr-v2","detectionStatus":"accepted","quality":{"edgeEnergy":12.4}}',
+      }] },
     })
     expect(save.status).toBe(200)
+    // 1/2 câu đúng × maxScore 10 = 5; server không tin điểm 8 từ client.
+    expect(save.data.adjustments).toEqual([{ studentId: 'st-exam-01', clientScore: 8, serverScore: 5 }])
 
     const fetched = await jsonReq(`/${session.data.id}/results`, { token: adminToken })
     const st1 = fetched.data.results.find((r: any) => r.studentId === 'st-exam-01')
+    expect(st1.score).toBe(5)
     expect(st1.answers).toBe('{"1":"A","2":null}')
+    expect(JSON.parse(st1.scanMetadata)).toMatchObject({ engineVersion: 'omr-v2', detectionStatus: 'accepted' })
+  })
+
+  it('Scan Engine v2: chặn answers sai schema, trạng thái review và metadata chứa ảnh', async () => {
+    const session = await jsonReq('/', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        classId: 'cl-exam-01', subject: 'TN an toàn', scoreType: '15m', semester: 1,
+        examType: 'multiple_choice', questionCount: 2, answerKey: '{"1":"A","2":"B"}',
+      },
+    })
+    const base = { studentId: 'st-exam-01', score: 10, source: 'omr' }
+
+    const invalidAnswer = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ ...base, answers: '{"1":"E"}' }] },
+    })
+    expect(invalidAnswer.status).toBe(400)
+
+    const unresolved = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ ...base, answers: '{"1":"A","2":null}', scanMetadata: '{"detectionStatus":"review_required"}' }] },
+    })
+    expect(unresolved.status).toBe(400)
+
+    const blank = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ ...base, score: 0, answers: '{"1":null,"2":null}', scanMetadata: '{"detectionStatus":"accepted"}' }] },
+    })
+    expect(blank.status).toBe(400)
+
+    const imageLeak = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ ...base, answers: '{"1":"A","2":null}', scanMetadata: '{"image":"data:image/jpeg;base64,AAAA"}' }] },
+    })
+    expect(imageLeak.status).toBe(400)
   })
 
   it('EXAM-GAPS: reject invalid answerKey (non-JSON / non-object / invalid option / out-of-range question)', async () => {
@@ -424,8 +502,14 @@ describe('Smart Exam Grading — exam routes & service', () => {
     const empty = await jsonReq('/', { method: 'POST', token: adminToken, body: { ...base, answerKey: '{}' } })
     expect(empty.status).toBe(400)
 
+    const incomplete = await jsonReq('/', { method: 'POST', token: adminToken, body: { ...base, answerKey: '{"1":"A"}' } })
+    expect(incomplete.status).toBe(400)
+
     const missingQuestionCount = await jsonReq('/', { method: 'POST', token: adminToken, body: { classId: 'cl-exam-01', subject: 'TN', scoreType: 'midterm', semester: 1, examType: 'multiple_choice', answerKey: '{"1":"A"}' } })
     expect(missingQuestionCount.status).toBe(400)
+
+    const missingAnswerKey = await jsonReq('/', { method: 'POST', token: adminToken, body: { ...base } })
+    expect(missingAnswerKey.status).toBe(400)
   })
 
   it('EXAM-GAPS: questionCount > 50 rejected (template chỉ hỗ trợ tối đa 50 câu)', async () => {
