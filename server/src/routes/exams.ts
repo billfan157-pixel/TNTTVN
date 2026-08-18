@@ -63,6 +63,22 @@ function parseAnswerKey(input: string | undefined, questionCount: number | undef
   return { ok: true }
 }
 
+function parseAnswerVariants(input: string | undefined, questionCount: number | undefined): { ok: true; variants?: Record<string, Record<string, unknown>> } | { ok: false; message: string } {
+  if (!input) return { ok: true }
+  let parsed: unknown
+  try { parsed = JSON.parse(input) } catch { return { ok: false, message: 'answerVariants phải là JSON hợp lệ.' } }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, message: 'answerVariants phải là object mã đề A–H.' }
+  const variants = parsed as Record<string, Record<string, unknown>>
+  const codes = Object.keys(variants)
+  if (codes.length < 1 || codes.length > 8 || !codes.includes('A')) return { ok: false, message: 'Phải có từ 1 đến 8 mã đề và bắt buộc có mã A.' }
+  for (const code of codes) {
+    if (!/^[A-H]$/.test(code)) return { ok: false, message: `Mã đề không hợp lệ: ${code}. Chỉ chấp nhận A–H.` }
+    const check = parseAnswerKey(JSON.stringify(variants[code]), questionCount)
+    if (!check.ok) return { ok: false, message: `Mã đề ${code}: ${check.message}` }
+  }
+  return { ok: true, variants }
+}
+
 const createSchema = z.object({
   classId: z.string().trim().min(1),
   subject: z.string().trim().min(1).max(100),
@@ -74,19 +90,22 @@ const createSchema = z.object({
   // questionCount giới hạn 1..50 — khớp template phiếu in (answerSheetTemplate.getMcColumnLayout clamp 50).
   questionCount: z.coerce.number().int().min(1).max(50).optional(),
   answerKey: z.string().optional(),
+  answerVariants: z.string().max(100_000).optional(),
   questions: z.string().optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
 }).superRefine((data, ctx) => {
   if (data.examType === 'multiple_choice' && data.questionCount === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questionCount'], message: 'questionCount bắt buộc với hình thức trắc nghiệm' })
   }
-  if (data.examType === 'multiple_choice' && !data.answerKey) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: 'answerKey đầy đủ bắt buộc với hình thức trắc nghiệm' })
+  if (data.examType === 'multiple_choice' && !data.answerKey && !data.answerVariants) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: 'answerKey hoặc answerVariants đầy đủ bắt buộc với hình thức trắc nghiệm' })
   }
   const check = parseAnswerKey(data.answerKey, data.questionCount)
   if (!check.ok) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: check.message })
   }
+  const variantsCheck = parseAnswerVariants(data.answerVariants, data.questionCount)
+  if (!variantsCheck.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerVariants'], message: variantsCheck.message })
 })
 
 const resultsSchema = z.object({
@@ -96,6 +115,7 @@ const resultsSchema = z.object({
     source: z.enum(['qr_scan', 'omr', 'quick_entry']).optional(),
     answers: z.string().max(20_000).optional(),
     scanMetadata: z.string().max(10_000).optional(),
+    examVersion: z.string().trim().toUpperCase().regex(/^[A-H]$/).optional().default('A'),
   })).min(1).max(1000),
 })
 
@@ -123,7 +143,13 @@ examsRouter.post('/', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('
     if (!isAdmin(user) && !await checkUserClassAccess(user.userId, user.parishId, data.classId)) {
       return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền tạo phiên chấm cho lớp này', 403)
     }
-    const session = await createExamSession({ ...data, semester: data.semester as 1 | 2 }, user.userId, user.parishId, ip, userAgent)
+    const variantsCheck = parseAnswerVariants(data.answerVariants, data.questionCount)
+    const fallbackAnswerKey = variantsCheck.ok && variantsCheck.variants?.A
+      ? JSON.stringify(variantsCheck.variants.A)
+      : undefined
+    // Khi client gửi cả hai field, answerVariants.A là SSOT; answerKey chỉ là
+    // alias legacy để không thể tồn tại hai đáp án A mâu thuẫn trong cùng session.
+    const session = await createExamSession({ ...data, answerKey: fallbackAnswerKey ?? data.answerKey, semester: data.semester as 1 | 2 }, user.userId, user.parishId, ip, userAgent)
     return successResponse(c, session, 201)
   } catch (err) {
     return handleServiceError(c, err)
@@ -313,6 +339,33 @@ examsRouter.patch('/:id/answer-key', zValidator('json', updateAnswerKeySchema), 
   }
 })
 
+const updateAnswerVariantsSchema = z.object({
+  answerVariants: z.string().min(1).max(100_000),
+  questionCount: z.coerce.number().int().min(1).max(50),
+})
+
+examsRouter.patch('/:id/answer-variants', zValidator('json', updateAnswerVariantsSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const sessionId = c.req.param('id')
+  const { answerVariants, questionCount } = c.req.valid('json')
+  const ip = getClientIp(c)
+  const userAgent = c.req.header('user-agent') || ''
+  try {
+    const session = await getExamSession(sessionId, user.parishId)
+    const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
+    if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
+      return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền sửa mã đề của phiên này', 403)
+    }
+    const check = parseAnswerVariants(answerVariants, questionCount)
+    if (!check.ok) return errorResponse(c, 'INVALID_ANSWER_VARIANTS', check.message, 400)
+    const { updateAnswerVariantsAndRescore } = await import('../services/examService.js')
+    const result = await updateAnswerVariantsAndRescore(sessionId, user.parishId, answerVariants, questionCount, user.userId, ip, userAgent)
+    return successResponse(c, result)
+  } catch (err) {
+    return handleServiceError(c, err)
+  }
+})
+
 // ─── Barcode decode endpoint — fallback khi QR scan thất bại ───
 const barcodeBodySchema = z.object({
   barcodeText: z.string().min(1).max(200),
@@ -327,32 +380,37 @@ examsRouter.post('/barcode/decode', zValidator('json', barcodeBodySchema), async
   const legacyMatch = barcodeText.match(/^tntt-exam:([^:]+):([^:]+)$/)
   const compactMatch = barcodeText.match(/^te:([a-f0-9]{8}):([a-f0-9]{8})$/i)
   const v2Match = barcodeText.match(/^t2:([a-f0-9]{8}):([a-f0-9]{8}):([if]):(\d{1,2}):([a-f0-9]{4})$/i)
-  if (!legacyMatch && !compactMatch && !v2Match) {
+  const v3Match = barcodeText.match(/^t3:([a-f0-9]{8}):([a-f0-9]{8}):([if]):(\d{1,2}):([a-h]):([a-f0-9]{4})$/i)
+  if (!legacyMatch && !compactMatch && !v2Match && !v3Match) {
     return errorResponse(c, 'INVALID_BARCODE', 'Mã barcode không hợp lệ.', 400)
   }
 
-  const sessionHex = compactMatch?.[1] ?? v2Match?.[1]
-  const studentHex = compactMatch?.[2] ?? v2Match?.[2]
+  const sessionHex = compactMatch?.[1] ?? v2Match?.[1] ?? v3Match?.[1]
+  const studentHex = compactMatch?.[2] ?? v2Match?.[2] ?? v3Match?.[2]
   const sessionId = legacyMatch ? legacyMatch[1] : `EXS-${sessionHex!.toLowerCase()}`
   const studentId = legacyMatch ? legacyMatch[2] : `ST-${studentHex!.toLowerCase()}`
   let protocolMetadata: Record<string, unknown> = {}
-  if (v2Match) {
-    const mode = v2Match[3].toUpperCase() as 'I' | 'F'
-    const count = Number(v2Match[4])
+  if (v2Match || v3Match) {
+    const match = v3Match ?? v2Match!
+    const mode = match[3].toUpperCase() as 'I' | 'F'
+    const count = Number(match[4])
+    const examVersion = v3Match?.[5]?.toUpperCase()
     let hash = 0x811c9dc5
-    const checksumInput = `${sessionId.toLowerCase()}|${studentId.toLowerCase()}|${mode}|${count}`
+    const checksumInput = `${sessionId.toLowerCase()}|${studentId.toLowerCase()}|${mode}|${count}${examVersion ? `|${examVersion}` : ''}`
     for (let i = 0; i < checksumInput.length; i++) {
       hash ^= checksumInput.charCodeAt(i)
       hash = Math.imul(hash, 0x01000193) >>> 0
     }
     const expected = (hash & 0xffff).toString(16).toUpperCase().padStart(4, '0')
-    if (count < 1 || count > 50 || v2Match[5].toUpperCase() !== expected) {
+    const receivedChecksum = v3Match ? v3Match[6] : v2Match![5]
+    if (count < 1 || count > 50 || receivedChecksum.toUpperCase() !== expected) {
       return errorResponse(c, 'INVALID_BARCODE', 'Checksum hoặc cấu hình mẫu phiếu không hợp lệ.', 400)
     }
     protocolMetadata = {
-      protocolVersion: 2,
+      protocolVersion: v3Match ? 3 : 2,
       templateMode: mode === 'F' ? 'full_page' : 'integrated',
       questionCount: count,
+      examVersion: examVersion ?? 'A',
       formChecksum: expected,
     }
   }

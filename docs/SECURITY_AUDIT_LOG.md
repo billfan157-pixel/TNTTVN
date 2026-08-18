@@ -2834,3 +2834,11 @@ Quyết định nghiệp vụ trong report đã được code chốt sẵn: (1) 
 - **Fix**: form protocol T2 + checksum; scanner fail-closed khi question count mismatch; MC `omr/qr_scan` bắt buộc answers hợp lệ và server recompute; `review_required` không được gửi/lưu; migration additive `20260818-123` lưu diagnostic JSON; sanitizer đệ quy cấm image/photo/frame/blob/base64/data URL; audit ghi score adjustments.
 - **Privacy**: ảnh chỉ xử lý on-device và không được gửi/lưu; telemetry local chỉ counter/reason/template/quality/timing, không student/session ID.
 - **Verification**: server route tests bao phủ score tampering, blank, invalid option, unresolved review, image metadata; QR/print tests bao phủ protocol v2/checksum/render/camera blur; targeted 17 files/233 tests + full trạng thái cuối 195 files/1478 tests pass; production build/typecheck/lint pass. Accuracy ngoài thực địa vẫn **NOT CONFIRMED** cho đến khi corpus khử định danh đạt BUSINESS_RULES §21.3 gate.
+
+## A-NEW-57 — Scale OMR mà không hạ Data Integrity/Privacy gate (2026-08-19)
+
+- **Severity / classification**: D3 SECURITY + GENERAL — **CONFIRMED, CLOSED FOR APPROVED SCOPE** (ADR-050).
+- **Threats**: batch có thể tự ghi ảnh sai; mã đề client có thể làm sai key; ảnh phiếu là dữ liệu trẻ em; SBD/OCR có thể gán nhầm danh tính/điểm.
+- **Controls**: batch bắt buộc session/student/count/version và OMR accepted + quality good, chỉ lưu sau người dùng xác nhận; server recompute theo `exam_version`; variant A bắt buộc và không xóa version đã dùng; API sanitizer tiếp tục cấm ảnh. Snapshot chỉ opt-in, nén cục bộ, tenant-scoped AES-GCM, TTL 24h và xóa thủ công; không upload/audit/telemetry.
+- **Rejected scope**: SBD tự động, OCR tự luận và tuyên bố tương thích mẫu BGD/A5/A6 bị chặn vì chưa có corpus, false-link benchmark và review protocol. Không có fallback đoán identity.
+- **Verification**: frontend/server typecheck pass; targeted **8 files/79 tests pass**; full Vitest **199 files/1491 tests pass**; production build pass; lint không error. Accuracy camera thực địa vẫn theo gate §21.3.

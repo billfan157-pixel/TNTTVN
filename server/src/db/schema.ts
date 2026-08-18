@@ -679,6 +679,8 @@ export const examSessions = sqliteTable('exam_sessions', {
   examType: text('exam_type', { enum: ['written', 'multiple_choice'] }).notNull().default('written'),
   questionCount: integer('question_count', { mode: 'number' }),
   answerKey: text('answer_key'), // JSON string: {"1":"A","2":"C"}
+  // JSON map mã đề A..H -> answer key đầy đủ. `answer_key` tiếp tục là mã A để tương thích.
+  answerVariants: text('answer_variants'),
   questions: text('questions'), // JSON string: ExamQuestion[]
   idempotencyKey: text('idempotency_key').notNull().default(sql`(lower(hex(randomblob(16))))`),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -703,6 +705,7 @@ export const examResults = sqliteTable('exam_results', {
   score: real('score').notNull(),
   source: text('source').notNull().default('qr_scan'),
   answers: text('answers'), // JSON string: {"1":"A","2":null}
+  examVersion: text('exam_version').notNull().default('A'),
   // Aggregate diagnostics only (engine/template/quality/corrections); never image/base64.
   scanMetadata: text('scan_metadata'),
   parishId: text('parish_id').notNull().default('gia-ton'),

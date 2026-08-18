@@ -125,6 +125,27 @@ describe('Smart Exam Grading — exam routes & service', () => {
     expect(corrupted.status).toBe(400)
   })
 
+  it('barcode decode accepts T3 and binds exam version into checksum', async () => {
+    const studentId = 'ST-12345678'
+    const mode = 'F'
+    const questionCount = 40
+    const examVersion = 'B'
+    const checksumInput = `${sharedSessionId.toLowerCase()}|${studentId.toLowerCase()}|${mode}|${questionCount}|${examVersion}`
+    let hash = 0x811c9dc5
+    for (let i = 0; i < checksumInput.length; i++) {
+      hash ^= checksumInput.charCodeAt(i)
+      hash = Math.imul(hash, 0x01000193) >>> 0
+    }
+    const checksum = (hash & 0xffff).toString(16).toUpperCase().padStart(4, '0')
+    const payload = `T3:${sharedSessionId.slice(4).toUpperCase()}:12345678:${mode}:${questionCount}:${examVersion}:${checksum}`
+    const accepted = await jsonReq('/barcode/decode', { method: 'POST', token: adminToken, body: { barcodeText: payload } })
+    expect(accepted.status).toBe(200)
+    expect(accepted.data).toMatchObject({ protocolVersion: 3, examVersion: 'B', templateMode: 'full_page', questionCount })
+
+    const tampered = await jsonReq('/barcode/decode', { method: 'POST', token: adminToken, body: { barcodeText: payload.replace(':B:', ':C:') } })
+    expect(tampered.status).toBe(400)
+  })
+
   it('phuta can save results for their class and is blocked for another class', async () => {
     const sessionId = sharedSessionId
     const ok = await jsonReq(`/${sessionId}/results`, {
@@ -446,6 +467,37 @@ describe('Smart Exam Grading — exam routes & service', () => {
     expect(st1.score).toBe(5)
     expect(st1.answers).toBe('{"1":"A","2":null}')
     expect(JSON.parse(st1.scanMetadata)).toMatchObject({ engineVersion: 'omr-v2', detectionStatus: 'accepted' })
+  })
+
+  it('mã đề A/B được chấm server-authoritative bằng đáp án riêng và chấm lại khi cập nhật', async () => {
+    const variants = { A: { 1: 'A', 2: 'B' }, B: { 1: 'C', 2: 'D' } }
+    const session = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: {
+        classId: 'cl-exam-01', subject: 'TN nhiều mã', scoreType: '15m', semester: 1,
+        examType: 'multiple_choice', questionCount: 2, answerVariants: JSON.stringify(variants),
+      },
+    })
+    expect(session.status).toBe(201)
+    expect(JSON.parse(session.data.answerVariants)).toEqual(variants)
+
+    const save = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ studentId: 'st-exam-01', score: 0, source: 'omr', examVersion: 'B', answers: '{"1":"C","2":"D"}', scanMetadata: '{"detectionStatus":"accepted"}' }] },
+    })
+    expect(save.status).toBe(200)
+    expect(save.data.adjustments).toEqual([{ studentId: 'st-exam-01', clientScore: 0, serverScore: 10 }])
+
+    variants.B[2] = 'A'
+    const update = await jsonReq(`/${session.data.id}/answer-variants`, {
+      method: 'PATCH', token: adminToken,
+      body: { questionCount: 2, answerVariants: JSON.stringify(variants) },
+    })
+    expect(update.status).toBe(200)
+    expect(update.data.rescored).toBe(1)
+
+    const fetched = await jsonReq(`/${session.data.id}/results`, { token: adminToken })
+    expect(fetched.data.results[0]).toMatchObject({ examVersion: 'B', score: 5 })
   })
 
   it('Scan Engine v2: chặn answers sai schema, trạng thái review và metadata chứa ảnh', async () => {

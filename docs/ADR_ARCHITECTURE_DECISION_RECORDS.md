@@ -1251,3 +1251,53 @@ UX/UI audit app-wide (2026-08-16) ghi nhận "mỗi trang tự dựng một ki�
 - Production build (client + server + Vite/PWA): PASS; client `tsc -b`, server `tsc`, `oxlint`, `git diff --check`: PASS (lint/build còn các warning baseline ngoài scope, không error).
 - Auto-batch gate vẫn đóng cho tới corpus thật; số test xanh không được dùng để tuyên bố accuracy thực địa.
 
+---
+
+## ADR-050: Exam Operations Scale — Batch Files, Multi-Version Keys, Analytics & Local Review (2026-08-19)
+
+**Status: APPROVED / IMPLEMENTED WITH GATES. Severity: D3. Profile: SECURITY + GENERAL.**
+
+### Evidence and scope
+
+- **E3 HIGH**: `ExamScanModal` trước chỉ nhận camera hoặc một ảnh; `exam_results.answers` đã có dữ liệu nhưng không có item-analysis; session chỉ có một `answer_key`; bản scan không thể rà soát sau khi modal đóng.
+- **E1 HIGH**: người vận hành yêu cầu xử lý những khoảng trống đã xác nhận sau đánh giá thị trường. Không có corpus camera khử định danh hoặc bộ nhãn chữ viết tay để chứng minh SBD/OCR an toàn.
+- Phạm vi được duyệt: batch file explicit, mã đề A–H, thống kê, hướng dẫn chất lượng và ảnh rà soát local opt-in. SBD tự động, mẫu BGD và OCR tự luận vẫn bị hard gate chặn.
+
+### Decision matrix
+
+| Criterion | Weight | A: Bật mọi tính năng kể cả OCR/SBD | B: Scale fail-closed + gate phần chưa đủ bằng chứng (chọn) | C: Giữ v2 |
+|---|---:|---:|---:|---:|
+| Security & Privacy | 25% | 5 | 9 | 9 |
+| Data Integrity | 25% | 5 | 10 | 9 |
+| Reliability | 15% | 6 | 9 | 8 |
+| Business fit | 15% | 9 | 9 | 5 |
+| Testability | 10% | 4 | 9 | 8 |
+| Maintainability | 5% | 5 | 8 | 9 |
+| Reversibility | 5% | 4 | 8 | 10 |
+| **Weighted** | **100%** | **5.45** | **9.15** | **8.00** |
+
+**Decision: B.** A bị loại bởi D3 Security/Privacy/Data Integrity <8. C an toàn nhưng không đáp ứng vận hành đã xác nhận.
+
+### Implementation
+
+1. `ExamBatchScanModal` nhận tối đa 500 ảnh hoặc thư mục, xử lý tuần tự để giới hạn RAM. Mỗi ảnh bắt buộc code đúng session/student, mã đề đã cấu hình, số câu đúng, OMR accepted và quality=`good`; review/rejected không bao giờ được đưa vào payload lưu. Người dùng phải bấm lưu nhóm accepted; batch không trở thành CTA mặc định.
+2. Form protocol v3: `T3:{sessionHex8}:{studentHex8}:{I|F}:{questionCount}:{A-H}:{checksum4}`. Mã đề nằm trong checksum. V1/V2 vẫn đọc được và được hiểu là A. B–H được in trên phiếu trả lời rời cho đề đảo bên ngoài; trình tạo đề gộp chưa tự đảo nội dung câu hỏi nên bị giới hạn ở A để không dán nhãn sai.
+3. DB migrations add-only, single-statement `20260818-124/125`: `exam_sessions.answer_variants` JSON nullable và `exam_results.exam_version` default `A`. Việc tách migration cho phép tự phục hồi nếu deploy dở dang. Server chọn key theo version và tự tính lại score; update variants chỉ cho draft MC, A bắt buộc, không được xóa version đã có kết quả, và re-score transactionally. `answer_key` tiếp tục là alias legacy của variant A.
+4. `ExamAnalyticsPanel` tính phổ điểm, mean/median/min/max/pass-rate, phân bố mã đề, tỷ lệ đúng/trống và point-biserial. Độ phân biệt chỉ xuất khi có ít nhất 5 response và có cả nhóm đúng/sai; đây là chỉ báo mô tả, không tự sửa điểm/câu hỏi.
+5. Quality reason được dịch thành hành động cụ thể. Camera single-scan vẫn dùng quality advisory vì marker/geometry/review là hard gate; batch file thận trọng hơn và route mọi quality khác `good` sang review.
+6. Ảnh rà soát là **opt-in**, nén tối đa 960px, lưu tenant-scoped trong Dexie đã mã hóa AES-GCM, tự hết hạn sau 24 giờ và có nút xóa ngay. Ảnh không đi vào API, `scan_metadata`, audit hoặc telemetry. Đây là hỗ trợ trên cùng thiết bị, không phải hồ sơ server lâu dài.
+7. SBD tự động và OCR tự luận = **NOT IMPLEMENTED / BLOCKED**: chưa có corpus nhãn, ngưỡng false-link và quy trình human review. Mẫu BGD/A5/A6 cũng chưa được tuyên bố tương thích detector khi chưa có calibration print/camera; không được quảng bá là đã hỗ trợ.
+
+### Gates and compatibility
+
+- **D3 gates**: Security 9, Privacy 9, Data Integrity 10, Tenant Isolation 9, Testability 9 — PASS cho phần triển khai. SBD/OCR bị reject vì chưa đạt gate.
+- **Business Rule Gate**: batch accepted-only, server version scoring, backward compatibility = `CONFIRMED` bằng source/tests; accuracy camera thực địa và OCR/SBD = `NOT CONFIRMED`.
+- **ADR compatibility**: ADR-023/024/043/048/049 `PASS`; ADR-031 tenant isolation `PASS`. Batch tái dùng API/save authority hiện có; ảnh local không thay contract server.
+- **Migration/rollback**: add-only, legacy row mặc định A. Rollback R1 client/server; cột mới có thể giữ không dùng. Không rollback migration phá dữ liệu.
+
+### Verification
+
+- Frontend/server TypeScript build PASS.
+- Targeted QR v3, variant normalization, batch fail-closed, analytics, local retention, render/store và exam route/service: **8 files / 79 tests PASS**.
+- Full Vitest: **199 files / 1491 tests PASS**. Production build client/server và lint PASS (lint chỉ còn baseline warnings, không error). Không suy diễn accuracy camera từ unit tests.
+

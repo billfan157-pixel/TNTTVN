@@ -11,6 +11,30 @@ export type ExamSessionStatus = 'draft' | 'completed'
 export type ExamResultSource = 'qr_scan' | 'omr' | 'quick_entry'
 
 type MultipleChoiceAnswer = 'A' | 'B' | 'C' | 'D' | null
+type ExamVersionCode = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'
+
+function normalizeExamVersion(input: string | undefined): ExamVersionCode {
+  const version = (input || 'A').trim().toUpperCase()
+  if (!/^[A-H]$/.test(version)) badRequest('Mã đề phải nằm trong A–H.')
+  return version as ExamVersionCode
+}
+
+function resolveAnswerKeyForVersion(
+  answerKey: string | null,
+  answerVariants: string | null,
+  examVersion: ExamVersionCode,
+): string | null {
+  if (answerVariants) {
+    try {
+      const parsed = JSON.parse(answerVariants) as Record<string, unknown>
+      const selected = parsed[examVersion]
+      if (selected && typeof selected === 'object' && !Array.isArray(selected)) return JSON.stringify(selected)
+    } catch {
+      badRequest('Cấu hình nhiều mã đề của phiên bị lỗi JSON.')
+    }
+  }
+  return examVersion === 'A' ? answerKey : null
+}
 
 function badRequest(message: string): never {
   const err = new Error(message) as Error & { status: number }
@@ -145,6 +169,7 @@ export interface ExamSessionData {
   examType?: 'written' | 'multiple_choice'
   questionCount?: number
   answerKey?: string
+  answerVariants?: string
   questions?: string
   idempotencyKey?: string
 }
@@ -204,6 +229,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
     examType: data.examType ?? 'written',
     questionCount: data.questionCount ?? null,
     answerKey: data.answerKey ?? null,
+    answerVariants: data.answerVariants ?? (data.answerKey ? JSON.stringify({ A: JSON.parse(data.answerKey) }) : null),
     questions: data.questions ?? null,
     idempotencyKey: data.idempotencyKey ?? undefined,
     status: 'draft' as const,
@@ -258,7 +284,7 @@ async function assertSessionAccess(sessionId: string, parishId: string, allowedC
 
 export async function upsertExamResults(
   sessionId: string,
-  results: { studentId: string; score: number; source?: ExamResultSource; answers?: string; scanMetadata?: string }[],
+  results: { studentId: string; score: number; source?: ExamResultSource; answers?: string; scanMetadata?: string; examVersion?: string }[],
   userId: string,
   parishId: string,
   ip: string,
@@ -302,13 +328,16 @@ export async function upsertExamResults(
     const now = new Date().toISOString()
     for (const r of results) {
       const source = r.source ?? 'qr_scan'
+      const examVersion = normalizeExamVersion(r.examVersion)
       const scanMetadata = sanitizeScanMetadata(r.scanMetadata)
       let authoritativeScore = r.score
       if (session.examType === 'multiple_choice' && (source === 'omr' || source === 'qr_scan')) {
         const totalQuestions = session.questionCount ?? 0
         if (totalQuestions < 1 || totalQuestions > 50) badRequest('Số câu của phiên trắc nghiệm không hợp lệ.')
         const parsedAnswers = parseSubmittedAnswers(r.answers, totalQuestions)
-        authoritativeScore = computeMultipleChoiceScore(parsedAnswers, session.answerKey, totalQuestions, session.maxScore)
+        const versionAnswerKey = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, examVersion)
+        if (!versionAnswerKey) badRequest(`Phiên chưa cấu hình đáp án cho mã đề ${examVersion}.`)
+        authoritativeScore = computeMultipleChoiceScore(parsedAnswers, versionAnswerKey, totalQuestions, session.maxScore)
         if (Math.abs(authoritativeScore - r.score) > 0.0001) {
           adjustments.push({ studentId: r.studentId, clientScore: r.score, serverScore: authoritativeScore })
         }
@@ -327,7 +356,7 @@ export async function upsertExamResults(
       if (existing) {
         await tx
           .update(examResults)
-          .set({ score: authoritativeScore, source, answers: r.answers ?? null, scanMetadata })
+          .set({ score: authoritativeScore, source, answers: r.answers ?? null, scanMetadata, examVersion })
           .where(and(eq(examResults.id, existing.id), eq(examResults.parishId, parishId)))
         upserted++
       } else {
@@ -338,6 +367,7 @@ export async function upsertExamResults(
           score: authoritativeScore,
           source,
           answers: r.answers ?? null,
+          examVersion,
           scanMetadata,
           parishId,
           createdAt: now,
@@ -351,7 +381,7 @@ export async function upsertExamResults(
       action: 'EXAM_SAVE_RESULTS',
       entityType: 'exam_session',
       entityId: sessionId,
-      newValue: JSON.stringify({ saved, upserted, students: studentIds.length, serverScoreAdjustments: adjustments }),
+      newValue: JSON.stringify({ saved, upserted, students: studentIds.length, versions: [...new Set(results.map(result => normalizeExamVersion(result.examVersion)))], serverScoreAdjustments: adjustments }),
     })
 
     return { session, saved, upserted, total: results.length, adjustments }
@@ -411,6 +441,7 @@ export async function getExamResults(sessionId: string, parishId: string, allowe
       studentId: examResults.studentId,
       score: examResults.score,
       source: examResults.source,
+      examVersion: examResults.examVersion,
       answers: examResults.answers,
       scanMetadata: examResults.scanMetadata,
       createdAt: examResults.createdAt,
@@ -792,6 +823,12 @@ export async function updateAnswerKeyAndRescore(
       .limit(1)
     if (!sessionBefore) throw new ExamNotFoundError()
     const oldAnswerKey = sessionBefore.answerKey
+    let variants: Record<string, Record<string, string>> = {}
+    if (sessionBefore.answerVariants) {
+      try { variants = JSON.parse(sessionBefore.answerVariants) as Record<string, Record<string, string>> } catch { variants = {} }
+    }
+    variants.A = JSON.parse(newAnswerKey) as Record<string, string>
+    const newAnswerVariants = JSON.stringify(variants)
     const maxScore = sessionBefore.maxScore ?? 10
 
     // 2. Update session answer key + question count
@@ -799,6 +836,7 @@ export async function updateAnswerKeyAndRescore(
       .update(examSessions)
       .set({
         answerKey: newAnswerKey,
+        answerVariants: newAnswerVariants,
         questionCount: newQuestionCount,
       })
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
@@ -824,8 +862,6 @@ export async function updateAnswerKeyAndRescore(
     }
 
     // 4. Parse new answer key
-    const answerKeyObj = JSON.parse(newAnswerKey) as Record<number, string>
-
     // 5. Re-score each result that has OMR answers
     let rescored = 0
     let skipped = 0
@@ -856,6 +892,13 @@ export async function updateAnswerKeyAndRescore(
       // Câu bỏ trống = sai → không cộng correctCount, nhưng vẫn nằm trong mẫu số.
       // Đồng nhất với omr.ts:275: rawCorrectCount / totalQuestions * maxScore
       let correctCount = 0
+      const version = normalizeExamVersion(result.examVersion)
+      const selectedKeyJson = resolveAnswerKeyForVersion(newAnswerKey, newAnswerVariants, version)
+      if (!selectedKeyJson) {
+        skipped++
+        continue
+      }
+      const answerKeyObj = JSON.parse(selectedKeyJson) as Record<number, string>
       for (let q = 1; q <= newQuestionCount; q++) {
         const userAns = answers[String(q)]
         if (userAns && answerKeyObj[q] && userAns === answerKeyObj[q]) {
@@ -904,6 +947,75 @@ export async function updateAnswerKeyAndRescore(
 
     const [session] = await tx.select().from(examSessions).where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId))).limit(1)
     return { session, rescored, skipped }
+  })
+}
+
+/**
+ * Thay toàn bộ bộ đáp án A..H và chấm lại từng bài theo `exam_results.exam_version`.
+ * Giao dịch fail-closed nếu đang có kết quả thuộc một mã đề bị xóa.
+ */
+export async function updateAnswerVariantsAndRescore(
+  sessionId: string,
+  parishId: string,
+  answerVariantsJson: string,
+  questionCount: number,
+  userId: string,
+  ip: string,
+  userAgent: string,
+) {
+  return db.transaction(async (tx) => {
+    const [session] = await tx.select().from(examSessions)
+      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+      .limit(1)
+    if (!session) throw new ExamNotFoundError()
+    if (session.status !== 'draft') throw new ExamStateError('Chỉ có thể sửa mã đề khi phiên đang ở trạng thái nháp.')
+    if (session.examType !== 'multiple_choice') badRequest('Chỉ phiên trắc nghiệm mới có nhiều mã đề.')
+
+    const variants = JSON.parse(answerVariantsJson) as Record<string, Record<string, string>>
+    if (!variants.A) badRequest('Mã đề A là bắt buộc để tương thích với phiếu cũ.')
+
+    const existingResults = await tx.select().from(examResults)
+      .where(and(eq(examResults.examSessionId, sessionId), eq(examResults.parishId, parishId)))
+    const usedVersions = new Set(existingResults.map(result => normalizeExamVersion(result.examVersion)))
+    const missingUsedVersion = [...usedVersions].find(version => !variants[version])
+    if (missingUsedVersion) badRequest(`Không thể xóa mã đề ${missingUsedVersion} vì đã có kết quả sử dụng mã này.`)
+
+    await tx.update(examSessions).set({
+      answerKey: JSON.stringify(variants.A),
+      answerVariants: answerVariantsJson,
+      questionCount,
+    }).where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+
+    let rescored = 0
+    let skipped = 0
+    const scoreChanges: Array<{ studentId: string; examVersion: string; oldScore: number; newScore: number }> = []
+    for (const result of existingResults) {
+      if (result.source === 'quick_entry' || !result.answers) {
+        skipped++
+        continue
+      }
+      const version = normalizeExamVersion(result.examVersion)
+      const answers = parseSubmittedAnswers(result.answers, questionCount)
+      const newScore = computeMultipleChoiceScore(answers, JSON.stringify(variants[version]), questionCount, session.maxScore)
+      if (Math.abs(newScore - result.score) > 0.0001) {
+        scoreChanges.push({ studentId: result.studentId, examVersion: version, oldScore: result.score, newScore })
+      }
+      await tx.update(examResults).set({ score: newScore })
+        .where(and(eq(examResults.id, result.id), eq(examResults.parishId, parishId)))
+      rescored++
+    }
+
+    await audit(tx, {
+      userId, parishId, ip, userAgent,
+      action: 'EXAM_VARIANTS_UPDATE', entityType: 'exam_session', entityId: sessionId,
+      oldValue: JSON.stringify({ answerVariants: session.answerVariants, answerKey: session.answerKey, questionCount: session.questionCount }),
+      newValue: JSON.stringify({ versions: Object.keys(variants), questionCount, rescored, skipped, scoreChanges }),
+    })
+
+    const [updated] = await tx.select().from(examSessions)
+      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+      .limit(1)
+    return { session: updated!, rescored, skipped }
   })
 }
 

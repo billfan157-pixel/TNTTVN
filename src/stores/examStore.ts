@@ -11,7 +11,8 @@ import {
   syncReopenExam,
   syncDeleteExam,
 } from '../lib/syncService'
-import type { ExamSession, ExamResult, ExamFinalizeResult, MultipleChoiceOption } from '../types'
+import type { ExamSession, ExamResult, ExamFinalizeResult, ExamVersionCode, MultipleChoiceOption } from '../types'
+import { normalizeAnswerKey, normalizeAnswerVariants } from '../lib/examVariants'
 import { useGradeStore } from './gradeStore'
 import { useDailyGradeStore } from './dailyGradeStore'
 import { useStudentStore } from './studentStore'
@@ -45,6 +46,17 @@ function normalizeExamResults(rows: ExamResult[]): ExamResult[] {
   }))
 }
 
+function normalizeExamSessions(rows: ExamSession[]): ExamSession[] {
+  return rows.map(row => {
+    const answerKey = normalizeAnswerKey(row.answerKey, row.questionCount)
+    return {
+      ...row,
+      answerKey,
+      answerVariants: normalizeAnswerVariants(row.answerVariants, answerKey, row.questionCount),
+    }
+  })
+}
+
 export const SCORE_TYPE_LABELS: Record<string, string> = {
   oral: 'Điểm Miệng',
   '15m': '15 Phút',
@@ -61,6 +73,7 @@ export interface ExamScoreItem {
   answers?: string
   /** JSON chẩn đoán tổng hợp; tuyệt đối không chứa ảnh/base64. */
   scanMetadata?: string
+  examVersion?: ExamVersionCode
 }
 
 export interface CreateExamInput {
@@ -73,6 +86,7 @@ export interface CreateExamInput {
   examType?: 'written' | 'multiple_choice'
   questionCount?: number
   answerKey?: string
+  answerVariants?: string
   questions?: string
 }
 
@@ -100,6 +114,7 @@ interface ExamState {
   completeAndFinalize: () => Promise<ExamFinalizeResult | null>
   reopenSession: () => Promise<void>
   deleteSession: (id: string) => Promise<boolean>
+  updateAnswerVariants: (answerVariants: Partial<Record<ExamVersionCode, Record<number, MultipleChoiceOption>>>, questionCount: number) => Promise<{ rescored: number; skipped: number } | null>
   replaceSessionId: (oldId: string, serverData: ExamSession) => void
   clearError: () => void
 }
@@ -125,7 +140,7 @@ export const useExamStore = create<ExamState>()(
         return
       }
       const sessions = await api.getMyExamSessions()
-      set({ sessions })
+      set({ sessions: normalizeExamSessions(sessions) })
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải danh sách phiên chấm' })
     } finally {
@@ -141,7 +156,7 @@ export const useExamStore = create<ExamState>()(
         return
       }
       const sessions = await api.getExamSessionsForClass(classId, filters)
-      set({ sessions })
+      set({ sessions: normalizeExamSessions(sessions) })
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải danh sách phiên chấm' })
     } finally {
@@ -177,6 +192,7 @@ export const useExamStore = create<ExamState>()(
           examType: data.examType ?? 'written',
           questionCount: data.questionCount,
           answerKey: data.answerKey ? (JSON.parse(data.answerKey) as Record<number, MultipleChoiceOption>) : undefined,
+          answerVariants: normalizeAnswerVariants(data.answerVariants, data.answerKey, data.questionCount),
           questions: data.questions,
         }
         set((state) => ({ sessions: [tempSession, ...state.sessions] }))
@@ -185,8 +201,9 @@ export const useExamStore = create<ExamState>()(
         return tempSession
       }
       const session = await api.createExam({ ...data, academicYear })
-      set((state) => ({ sessions: [session, ...state.sessions] }))
-      return session
+      const normalized = normalizeExamSessions([session])[0]
+      set((state) => ({ sessions: [normalized, ...state.sessions] }))
+      return normalized
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tạo phiên chấm' })
       return null
@@ -214,7 +231,8 @@ export const useExamStore = create<ExamState>()(
     if (isOffline()) return
     try {
       const { session, results } = await api.getExamResults(id)
-      set({ results: normalizeExamResults(results), sessions: get().sessions.map(s => s.id === id ? session : s) })
+      const normalizedSession = normalizeExamSessions([session])[0]
+      set({ results: normalizeExamResults(results), sessions: get().sessions.map(s => s.id === id ? normalizedSession : s) })
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải kết quả phiên chấm' })
     }
@@ -245,6 +263,7 @@ export const useExamStore = create<ExamState>()(
               createdAt: existing?.createdAt || now,
               answers: s.answers ? (JSON.parse(s.answers) as Record<number, MultipleChoiceOption | null>) : existing?.answers,
               scanMetadata: s.scanMetadata ? JSON.parse(s.scanMetadata) : existing?.scanMetadata,
+              examVersion: s.examVersion ?? existing?.examVersion ?? 'A',
             })
           }
           return { results: Array.from(byStudent.values()) }
@@ -377,6 +396,27 @@ export const useExamStore = create<ExamState>()(
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi xóa phiên chấm' })
       return false
+    }
+  },
+
+  updateAnswerVariants: async (answerVariants, questionCount) => {
+    const id = get().selectedSessionId
+    if (!id || isOffline()) {
+      set({ error: 'Cập nhật nhiều mã đề cần kết nối mạng để chấm lại an toàn.' })
+      return null
+    }
+    set({ saving: true, error: null })
+    try {
+      const response = await api.updateAnswerVariants(id, JSON.stringify(answerVariants), questionCount)
+      const session = normalizeExamSessions([response.session])[0]
+      set({ sessions: get().sessions.map(item => item.id === id ? session : item) })
+      await get().refreshResults()
+      return { rescored: response.rescored, skipped: response.skipped }
+    } catch (err) {
+      set({ error: (err as Error)?.message || 'Lỗi cập nhật nhiều mã đề' })
+      return null
+    } finally {
+      set({ saving: false })
     }
   },
 

@@ -173,7 +173,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     await page.close()
 
     const decoded = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'attemptBoth' })
-    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id, { templateMode: 'integrated', questionCount: 1 }))
+    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id, { templateMode: 'integrated', questionCount: 1, examVersion: 'A' }))
   })
 
   it('phiếu trả lời rời render QR đầy đủ, giải mã đúng payload', async () => {
@@ -195,7 +195,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     await page.close()
 
     const decoded = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'attemptBoth' })
-    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id, { templateMode: 'full_page', questionCount: 20 }))
+    expect(decoded?.data).toBe(buildExamQrPayload(sessionId, student.id, { templateMode: 'full_page', questionCount: 20, examVersion: 'A' }))
   }, 20_000)
 
   it('pipeline production đọc QR từ toàn frame camera landscape có tờ A4 portrait ở giữa', async () => {
@@ -230,7 +230,8 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     expect(result.payload).toMatchObject({
       sessionId,
       studentId: student.id,
-      protocolVersion: 2,
+      protocolVersion: 3,
+      examVersion: 'A',
       templateMode: 'integrated',
       questionCount: 50,
     })
@@ -260,7 +261,8 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     expect(scanExamCode(frame).payload).toMatchObject({
       sessionId,
       studentId: student.id,
-      protocolVersion: 2,
+      protocolVersion: 3,
+      examVersion: 'A',
       templateMode: 'integrated',
       questionCount: 1,
     })

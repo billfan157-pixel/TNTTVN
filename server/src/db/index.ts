@@ -1605,6 +1605,10 @@ CREATE INDEX IF NOT EXISTS idx_exam_finalization_items_lookup ON exam_finalizati
   // ADR-049: Scan Engine v2 diagnostics. Add-only, nullable and compatible with
   // legacy/offline results. Images are explicitly forbidden by the API layer.
   { version: '20260818-123', sql: `ALTER TABLE exam_results ADD COLUMN scan_metadata TEXT` },
+  // Tách hai ADD COLUMN thành hai migration single-statement để deploy dở dang
+  // có thể tự phục hồi qua duplicate-column tolerance của migration runner.
+  { version: '20260818-124', sql: `ALTER TABLE exam_sessions ADD COLUMN answer_variants TEXT` },
+  { version: '20260818-125', sql: `ALTER TABLE exam_results ADD COLUMN exam_version TEXT NOT NULL DEFAULT 'A'` },
 ]
 
 async function runMigrations() {

@@ -9,23 +9,29 @@ import qrcode from 'qrcode-generator'
 export const EXAM_QR_PREFIX = 'tntt-exam'
 export const EXAM_QR_COMPACT_PREFIX = 'TE'
 export const EXAM_QR_V2_PREFIX = 'T2'
+export const EXAM_QR_V3_PREFIX = 'T3'
 export const CERTIFICATE_QR_PREFIX = 'tntt-cert'
 export const QR_QUIET_ZONE_MODULES = 4
 
 export type ExamFormTemplateMode = 'integrated' | 'full_page'
+export type ExamVersionCode = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'
 
 export interface ExamFormProtocolMetadata {
   templateMode: ExamFormTemplateMode
   questionCount: number
+  /** Mã đề. Khi có trường này, payload v3 ràng buộc mã đề vào checksum. */
+  examVersion?: ExamVersionCode
 }
 
 export interface ParsedExamQrPayload {
   sessionId: string
   studentId: string
   /** Phiếu cũ không có version; được hiểu là protocol v1. */
-  protocolVersion?: 2
+  protocolVersion?: 2 | 3
   templateMode?: ExamFormTemplateMode
   questionCount?: number
+  /** Phiếu v1/v2 được hiểu là mã đề A. */
+  examVersion?: ExamVersionCode
   /** Checksum chỉ phát hiện payload bị cắt/sửa nhầm, không phải chữ ký bảo mật. */
   formChecksum?: string
 }
@@ -45,6 +51,10 @@ function v2ChecksumInput(sessionId: string, studentId: string, mode: 'I' | 'F', 
   return `${sessionId.toLowerCase()}|${studentId.toLowerCase()}|${mode}|${questionCount}`
 }
 
+function v3ChecksumInput(sessionId: string, studentId: string, mode: 'I' | 'F', questionCount: number, examVersion: ExamVersionCode): string {
+  return `${v2ChecksumInput(sessionId, studentId, mode, questionCount)}|${examVersion}`
+}
+
 export function buildExamQrPayload(
   sessionId: string,
   studentId: string,
@@ -57,6 +67,11 @@ export function buildExamQrPayload(
     const mode = metadata.templateMode === 'full_page' ? 'F' : 'I'
     const canonicalSessionId = `EXS-${sessionMatch[1].toLowerCase()}`
     const canonicalStudentId = `ST-${studentMatch[1].toLowerCase()}`
+    if (metadata.examVersion) {
+      const examVersion = metadata.examVersion.toUpperCase() as ExamVersionCode
+      const checksum = formChecksum(v3ChecksumInput(canonicalSessionId, canonicalStudentId, mode, questionCount, examVersion))
+      return `${EXAM_QR_V3_PREFIX}:${sessionMatch[1].toUpperCase()}:${studentMatch[1].toUpperCase()}:${mode}:${questionCount}:${examVersion}:${checksum}`
+    }
     const checksum = formChecksum(v2ChecksumInput(canonicalSessionId, canonicalStudentId, mode, questionCount))
     return `${EXAM_QR_V2_PREFIX}:${sessionMatch[1].toUpperCase()}:${studentMatch[1].toUpperCase()}:${mode}:${questionCount}:${checksum}`
   }
@@ -76,6 +91,34 @@ export function buildCertificateQrPayload(certId: string, studentId: string, cer
 
 export function parseExamQrPayload(payload: string): ParsedExamQrPayload | null {
   const parts = payload.split(':')
+  if (
+    parts.length === 7
+    && parts[0].toUpperCase() === EXAM_QR_V3_PREFIX
+    && /^[a-f0-9]{8}$/i.test(parts[1])
+    && /^[a-f0-9]{8}$/i.test(parts[2])
+    && /^(I|F)$/i.test(parts[3])
+    && /^\d{1,2}$/.test(parts[4])
+    && /^[A-H]$/i.test(parts[5])
+    && /^[a-f0-9]{4}$/i.test(parts[6])
+  ) {
+    const sessionId = `EXS-${parts[1].toLowerCase()}`
+    const studentId = `ST-${parts[2].toLowerCase()}`
+    const mode = parts[3].toUpperCase() as 'I' | 'F'
+    const questionCount = Number(parts[4])
+    const examVersion = parts[5].toUpperCase() as ExamVersionCode
+    if (questionCount < 1 || questionCount > 50) return null
+    const expected = formChecksum(v3ChecksumInput(sessionId, studentId, mode, questionCount, examVersion))
+    if (parts[6].toUpperCase() !== expected) return null
+    return {
+      sessionId,
+      studentId,
+      protocolVersion: 3,
+      templateMode: mode === 'F' ? 'full_page' : 'integrated',
+      questionCount,
+      examVersion,
+      formChecksum: expected,
+    }
+  }
   if (
     parts.length === 6
     && parts[0].toUpperCase() === EXAM_QR_V2_PREFIX
@@ -178,7 +221,7 @@ function createQr(payload: string) {
   const qr = qrcode(0, 'M')
   // Payload compact chỉ chứa tập ký tự QR Alphanumeric. Khai báo mode này thay
   // vì Byte giúp mã production giảm tiếp từ 25 xuống 21 module/cạnh (Version 1).
-  if (/^(?:TE:[A-F0-9]{8}:[A-F0-9]{8}|T2:[A-F0-9]{8}:[A-F0-9]{8}:[IF]:\d{1,2}:[A-F0-9]{4})$/.test(payload)) qr.addData(payload, 'Alphanumeric')
+  if (/^(?:TE:[A-F0-9]{8}:[A-F0-9]{8}|T2:[A-F0-9]{8}:[A-F0-9]{8}:[IF]:\d{1,2}:[A-F0-9]{4}|T3:[A-F0-9]{8}:[A-F0-9]{8}:[IF]:\d{1,2}:[A-H]:[A-F0-9]{4})$/.test(payload)) qr.addData(payload, 'Alphanumeric')
   else qr.addData(payload)
   qr.make()
   return qr

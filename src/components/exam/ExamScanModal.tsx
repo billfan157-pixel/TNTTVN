@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   X,
   Camera,
@@ -24,8 +24,11 @@ import { captureHighResolutionCameraFrame } from '../../lib/cameraStillCapture'
 import { assessScanQuality, type ScanQualityAssessment } from '../../lib/scanQuality'
 import { recordScanDiagnostic } from '../../lib/scanDiagnostics'
 import { CORNER_MARKERS, integratedFrameAspectRatio } from '../../lib/answerSheetTemplate'
+import { getConfiguredExamVersions, normalizeAnswerVariants } from '../../lib/examVariants'
+import { purgeExpiredScanReviewSnapshots, saveScanReviewSnapshot } from '../../lib/scanReviewStorage'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
+import type { ExamAnswerVariants, ExamVersionCode } from '../../types'
 
 interface ExamScanModalProps {
   sessionId: string
@@ -33,13 +36,14 @@ interface ExamScanModalProps {
   examType?: 'written' | 'multiple_choice'
   questionCount?: number
   answerKey?: Record<number, 'A' | 'B' | 'C' | 'D'>
+  answerVariants?: Partial<ExamAnswerVariants>
   fixedStudent?: { id: string; name: string; code: string }
   onClose: () => void
 }
 
 type ScanState =
   | { kind: 'scanning' }
-  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; templateMode: Exclude<OmrTemplateMode, 'auto'> }
+  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode }
   | { kind: 'error'; message: string }
 
 interface ScannedEntry {
@@ -60,6 +64,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   examType = 'written',
   questionCount = 20,
   answerKey,
+  answerVariants,
   fixedStudent,
   onClose,
 }) => {
@@ -81,6 +86,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     : 'Không nhận diện được mã QR / Barcode trên phiếu.')
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
   const [mcTemplateMode, setMcTemplateMode] = useState<Exclude<OmrTemplateMode, 'auto'>>('integrated')
+  const normalizedVariants = useMemo(() => normalizeAnswerVariants(answerVariants, answerKey, questionCount), [answerVariants, answerKey, questionCount])
+  const configuredVersions = useMemo(() => getConfiguredExamVersions(normalizedVariants, answerKey, questionCount), [normalizedVariants, answerKey, questionCount])
+  const [selectedExamVersion, setSelectedExamVersion] = useState<ExamVersionCode>(configuredVersions[0] ?? 'A')
 
   const [phase, setPhase] = useState<ScanState>({ kind: 'scanning' })
   const { saveScores, error, results } = useExamStore()
@@ -97,6 +105,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const [cameraLoading, setCameraLoading] = useState(true)
   const [torchOn, setTorchOn] = useState(false)
   const [hasTorch, setHasTorch] = useState(false)
+  const [keepReviewImage, setKeepReviewImage] = useState(false)
+
+  useEffect(() => { void purgeExpiredScanReviewSnapshots() }, [])
 
   const resetIdentity = useCallback(() => {
     codeLockRef.current = fixedStudent
@@ -219,8 +230,13 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       setCodeLocked(true)
 
       const effectiveTemplateMode = identity.lock.templateMode ?? mcTemplateMode
+      const effectiveExamVersion = identity.lock.examVersion ?? selectedExamVersion
+      const effectiveAnswerKey = normalizedVariants[effectiveExamVersion]
       if (identity.kind === 'acquired' && identity.lock.templateMode && identity.lock.templateMode !== mcTemplateMode) {
         setMcTemplateMode(identity.lock.templateMode)
+      }
+      if (identity.kind === 'acquired' && identity.lock.examVersion && identity.lock.examVersion !== selectedExamVersion) {
+        setSelectedExamVersion(identity.lock.examVersion)
       }
       if (
         examType === 'multiple_choice'
@@ -235,10 +251,16 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         })
         return true
       }
+      if (examType === 'multiple_choice' && !effectiveAnswerKey) {
+        recordScanDiagnostic({ outcome: 'rejected', reason: 'UNKNOWN_EXAM_VERSION', templateMode: effectiveTemplateMode })
+        stopCamera()
+        setPhase({ kind: 'error', message: `Phiếu dùng mã đề ${effectiveExamVersion} nhưng phiên chưa cấu hình đáp án cho mã này.` })
+        return true
+      }
 
       if (!resolveRef.current) {
         const omr = examType === 'multiple_choice'
-          ? detectAnswersFromImage(frame, answerKey, questionCount, maxScore, effectiveTemplateMode)
+          ? detectAnswersFromImage(frame, effectiveAnswerKey, questionCount, maxScore, effectiveTemplateMode)
           : detectScoreFromImage(frame, maxScore)
 
         if (omr.ok && omr.score !== null) {
@@ -272,6 +294,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             identity: identity.lock,
             quality,
             templateMode: effectiveTemplateMode,
+            examVersion: effectiveExamVersion,
           })
           return true
         }
@@ -305,7 +328,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
 
     return false
-  }, [sessionId, maxScore, examType, questionCount, answerKey, fixedStudent, mcTemplateMode, stopCamera])
+  }, [sessionId, maxScore, examType, questionCount, fixedStudent, mcTemplateMode, selectedExamVersion, normalizedVariants, stopCamera])
 
   const loopStart = useCallback(() => {
     liveRef.current = true
@@ -601,6 +624,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         templateMode: phase.templateMode,
         questionCount: examType === 'multiple_choice' ? questionCount : undefined,
         formChecksum: phase.identity.formChecksum,
+        examVersion: phase.examVersion,
         detectionStatus: 'accepted',
         correctedQuestions,
         quality: phase.quality,
@@ -611,9 +635,15 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         source: fixedStudent ? 'omr' : 'qr_scan',
         answers,
         scanMetadata,
+        examVersion: phase.examVersion,
       }])
       // Không được báo “Đã lưu” hoặc đóng modal khi API/offline queue từ chối.
       if (!saveResult) return
+
+      if (keepReviewImage) {
+        const retained = await saveScanReviewSnapshot(sessionId, phase.studentId, phase.frame)
+        if (!retained) setScanHint('Điểm đã lưu nhưng thiết bị không thể lưu ảnh rà soát.')
+      }
 
       const adjustment = saveResult.adjustments?.find(item => item.studentId === phase.studentId) ?? null
       if (adjustment) setServerAdjustment({ clientScore: adjustment.clientScore, serverScore: adjustment.serverScore })
@@ -685,7 +715,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         />
 
         {examType === 'multiple_choice' && phase.kind !== 'detected' && (
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-surface-border bg-surface-app p-1" role="group" aria-label="Loại mẫu phiếu OMR">
+          <div className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface-app p-1.5">
+            <div className="grid grid-cols-2 gap-1" role="group" aria-label="Loại mẫu phiếu OMR">
             <button
               type="button"
               className={`min-h-9 rounded-lg px-2 text-[11px] font-black transition-colors ${mcTemplateMode === 'integrated' ? 'bg-parish-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-card'}`}
@@ -708,6 +739,20 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             >
               Phiếu trả lời A4
             </button>
+            </div>
+            {configuredVersions.length > 1 && (
+              <label className="flex items-center justify-between gap-2 px-1 text-[11px] font-bold text-text-muted">
+                <span>Mã đề đang chấm</span>
+                <select
+                  value={selectedExamVersion}
+                  disabled={codeLocked && !fixedStudent}
+                  onChange={event => setSelectedExamVersion(event.target.value as ExamVersionCode)}
+                  className="rounded-lg border border-surface-border bg-surface-card px-2 py-1 font-black text-text-main disabled:opacity-60"
+                >
+                  {configuredVersions.map(version => <option key={version} value={version}>{version}</option>)}
+                </select>
+              </label>
+            )}
           </div>
         )}
 
@@ -824,6 +869,12 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                   </span>
                 </div>
 
+                {phase.quality.reasons.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] font-semibold text-amber-700">
+                    {phase.quality.reasons.map(reason => <div key={reason}>• {formatScanQualityReason(reason)}</div>)}
+                  </div>
+                )}
+
                 {(() => {
                   const existing = results.find(r => r.studentId === phase.studentId)
                   if (existing && existing.score !== phase.omr.score) {
@@ -936,6 +987,10 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 Chưa thể ghi điểm: phiếu không còn đáp án nào được chọn.
               </div>
             )}
+            <label className="flex items-start gap-2 rounded-xl border border-surface-border bg-surface-app px-3 py-2 text-xs font-semibold text-text-main">
+              <input type="checkbox" checked={keepReviewImage} onChange={event => setKeepReviewImage(event.target.checked)} className="mt-0.5 h-4 w-4 accent-parish-primary" />
+              <span>Giữ ảnh để rà soát trên thiết bị này trong 24 giờ. Ảnh được mã hóa cục bộ và không tải lên máy chủ.</span>
+            </label>
           </div>
         )}
 
@@ -1073,6 +1128,16 @@ const OMR_FAIL_REASONS: Record<string, string> = {
 
 function formatOmrFailReason(reason: string): string {
   return OMR_FAIL_REASONS[reason] || `Đang nhận diện (${reason})…`
+}
+
+function formatScanQualityReason(reason: ScanQualityAssessment['reasons'][number]): string {
+  const messages: Record<ScanQualityAssessment['reasons'][number], string> = {
+    TOO_DARK: 'Ảnh quá tối — bật đèn pin hoặc chuyển tới nơi sáng hơn.',
+    TOO_BRIGHT: 'Ảnh quá sáng — giảm ánh sáng chiếu trực tiếp lên giấy.',
+    GLARE: 'Có vùng chói phản sáng — đổi góc đèn hoặc nghiêng nhẹ tờ giấy.',
+    LOW_DETAIL: 'Ảnh thiếu nét — giữ máy ổn định và chụp lại gần hơn.',
+  }
+  return messages[reason]
 }
 
 /** Hướng dẫn hai pha: QR cần cận cảnh; OMR cần khung đáp án đủ lớn. */

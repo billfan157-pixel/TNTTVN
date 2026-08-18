@@ -152,6 +152,8 @@ export type ExamSessionStatus = 'draft' | 'completed';
 export type ExamResultSource = 'qr_scan' | 'omr' | 'quick_entry';
 export type ExamType = 'written' | 'multiple_choice';
 export type MultipleChoiceOption = 'A' | 'B' | 'C' | 'D';
+export type ExamVersionCode = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
+export type ExamAnswerVariants = Record<ExamVersionCode, Record<number, MultipleChoiceOption>>;
 
 export interface ExamQuestion {
   index: number;
@@ -184,6 +186,8 @@ export interface ExamSession {
   examType?: ExamType;
   questionCount?: number;
   answerKey?: Record<number, MultipleChoiceOption>;
+  /** Các đáp án theo mã đề; mã A luôn tương thích với answerKey legacy. */
+  answerVariants?: Partial<ExamAnswerVariants>;
   questions?: ExamQuestion[] | string;
 }
 
@@ -197,10 +201,12 @@ export interface ExamResult {
   studentCode?: string;
   studentName?: string;
   holyName?: string;
+  examVersion?: ExamVersionCode;
   answers?: Record<number, MultipleChoiceOption | null>;
   scanMetadata?: {
     engineVersion?: string;
     protocolVersion?: number;
+    examVersion?: ExamVersionCode;
     templateMode?: 'integrated' | 'full_page';
     questionCount?: number;
     formChecksum?: string;

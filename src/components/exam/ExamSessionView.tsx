@@ -17,10 +17,14 @@ import { GuidedGradeModal, type GuidedGradeStudent } from './GuidedGradeModal'
 import { ExamImportModal } from './ExamImportModal'
 import { useToastStore } from '../../stores/toastStore'
 import { ExamPaperModal } from './ExamPaperModal'
+import { ExamBatchScanModal } from './ExamBatchScanModal'
+import { ExamAnalyticsPanel } from './ExamAnalyticsPanel'
+import { ExamVariantsModal } from './ExamVariantsModal'
+import { getConfiguredExamVersions } from '../../lib/examVariants'
 import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
-  ListChecks, X, Sparkles, FileText, RefreshCw,
+  ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion } from '../../types'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
@@ -129,6 +133,9 @@ export const ExamSessionView: React.FC = () => {
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showPaperModal, setShowPaperModal] = useState(false)
+  const [showBatchScan, setShowBatchScan] = useState(false)
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [showVariants, setShowVariants] = useState(false)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   const activeAY = useAcademicYearStore(s => s.currentYear)
   const [createForm, setCreateForm] = useState<{
@@ -219,6 +226,12 @@ export const ExamSessionView: React.FC = () => {
   const activeSessionQuestions = useMemo(
     () => (activeSession ? parseQuestionsSafe(activeSession.questions) : []),
     [activeSession]
+  )
+  const activeExamVersions = useMemo(
+    () => activeSession
+      ? getConfiguredExamVersions(activeSession.answerVariants, activeSession.answerKey, activeSession.questionCount)
+      : ['A' as const],
+    [activeSession],
   )
 
   const handleOpenCreate = () => {
@@ -510,8 +523,21 @@ export const ExamSessionView: React.FC = () => {
                   <button className="btn btn-secondary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
                     <ScanLine size={14} /> Quét QR + OMR
                   </button>
+                  {activeSession.examType === 'multiple_choice' && (
+                    <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowBatchScan(true)}>
+                      <Images size={14} /> Chấm Nhiều Ảnh
+                    </button>
+                  )}
                 </>
               )}
+              {activeSession.examType === 'multiple_choice' && canManage && activeSession.status === 'draft' && (
+                <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowVariants(true)}>
+                  <Layers3 size={14} /> Mã Đề ({activeExamVersions.length})
+                </button>
+              )}
+              <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowAnalytics(true)} disabled={results.length === 0}>
+                <BarChart3 size={14} /> Phân Tích
+              </button>
               {activeSessionQuestions.length > 0 && (
                 <button
                   className="btn btn-secondary btn-sm min-h-11 justify-center"
@@ -612,6 +638,7 @@ export const ExamSessionView: React.FC = () => {
                 </div>
                 <ExamResultsTable
                   results={results}
+                  sessionId={activeSession.id}
                   onRemove={canScan && activeSession.status === 'draft' ? handleRemoveResult : () => {}}
                 />
               </div>
@@ -657,6 +684,7 @@ export const ExamSessionView: React.FC = () => {
           examType={activeSession.examType}
           questionCount={activeSession.questionCount}
           answerKey={parseAnswerKeySafe(activeSession.answerKey)}
+          answerVariants={activeSession.answerVariants}
           fixedStudent={fixedScanStudent ?? undefined}
           onClose={() => { setShowScanner(false); setFixedScanStudent(null) }}
         />
@@ -673,8 +701,21 @@ export const ExamSessionView: React.FC = () => {
           maxScore={activeSession.maxScore}
           examType={activeSession.examType}
           questionCount={activeSession.questionCount}
+          availableVersions={activeExamVersions}
           onClose={() => setShowPrintSheets(false)}
         />
+      )}
+
+      {showBatchScan && activeSession && (
+        <ExamBatchScanModal session={activeSession} students={classStudents} onClose={() => setShowBatchScan(false)} />
+      )}
+
+      {showAnalytics && activeSession && (
+        <ExamAnalyticsPanel session={activeSession} results={results} onClose={() => setShowAnalytics(false)} />
+      )}
+
+      {showVariants && activeSession && (
+        <ExamVariantsModal session={activeSession} onClose={() => setShowVariants(false)} />
       )}
 
       

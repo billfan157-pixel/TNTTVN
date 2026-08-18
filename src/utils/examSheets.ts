@@ -1,4 +1,5 @@
 import { generateExamQrSvg, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
+import type { ExamVersionCode } from '../types'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import {
   CORNER_MARKERS,
@@ -97,6 +98,7 @@ export interface BatchAnswerSheetParams {
   maxScore: number
   examType?: 'written' | 'multiple_choice'
   questionCount?: number
+  examVersion?: ExamVersionCode
 }
 
 export interface StudentSheetInfo {
@@ -110,10 +112,11 @@ export function buildSingleAnswerSheetSvgString(
   student: StudentSheetInfo,
   params: BatchAnswerSheetParams
 ): string {
-  const { sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType = 'written', questionCount = 20 } = params
+  const { sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType = 'written', questionCount = 20, examVersion = 'A' } = params
   const qrPayload = buildExamQrPayload(sessionId, student.id, {
     templateMode: 'full_page',
     questionCount: examType === 'multiple_choice' ? questionCount : Math.max(1, maxScore + 1),
+    examVersion,
   })
   const rawQr = generateExamQrSvg(qrPayload, 4)
   const qrViewBoxSize = getExamQrViewBoxSize(qrPayload)
@@ -224,7 +227,7 @@ export function buildSingleAnswerSheetSvgString(
 
     <!-- Tiêu đề Header -->
     <text x="${px(0.04)}" y="${py(0.045)}" font-size="24" font-weight="900" fill="#1E3A8A" letter-spacing="0.5">PHIẾU TRẢ LỜI KIỂM TRA</text>
-    <text x="${px(0.04)}" y="${py(0.075)}" font-size="15" font-weight="700" fill="#475569">${escapeHtml(subject)} — ${escapeHtml(scoreTypeLabel)} · Lớp: ${escapeHtml(classLabel)}</text>
+    <text x="${px(0.04)}" y="${py(0.075)}" font-size="15" font-weight="700" fill="#475569">${escapeHtml(subject)} — ${escapeHtml(scoreTypeLabel)} · Lớp: ${escapeHtml(classLabel)} · Mã đề: ${examVersion}</text>
 
     <!-- Khung thông tin học viên -->
     <rect x="${px(0.04)}" y="${py(0.100)}" width="${px(0.63)}" height="${py(0.125)}" rx="8" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1" />
@@ -359,6 +362,7 @@ export interface ExamPaperPrintOptions {
   includeAnswerGrid?: boolean
   includeGradingBox?: boolean
   sessionId?: string
+  examVersion?: ExamVersionCode
   student?: {
     id: string
     code: string
@@ -765,6 +769,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     includeAnswerGrid = true,
     includeGradingBox = true,
     sessionId = 'SESS-001',
+    examVersion = 'A',
     student,
   } = options
 
@@ -804,6 +809,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     ? buildExamQrPayload(sessionId, student.id, {
         templateMode: 'integrated',
         questionCount: Math.max(1, questions.length),
+        examVersion,
       })
     : `tntt-exam:${sessionId}:GENERIC`
   const qrSvg = generateExamQrSvg(qrPayload, 3)
@@ -890,7 +896,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
         <div class="org-top">${escapeHtml(dioceseName)}</div>
         <div class="org-parish">${escapeHtml(parishName)}</div>
         <div>XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
-        <div>Lớp: <strong>${escapeHtml(classLabel)}</strong></div>
+        <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion}</strong></div>
       </div>
       <div class="header-right">
         <div class="exam-title">${escapeHtml(subject)}</div>

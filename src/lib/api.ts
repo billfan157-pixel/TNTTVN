@@ -446,7 +446,7 @@ export const api = {
   // ─── Smart Exam Grading (Phase 1) ───
   // A12: auto-generate Idempotency-Key khi caller không truyền (như createStudent) —
   // server dedup examSessions.idempotencyKey (examService.ts:68-72).
-  createExam: (data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; idempotencyKey?: string }) => {
+  createExam: (data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; answerVariants?: string; idempotencyKey?: string }) => {
     const payload = data.idempotencyKey ? data : { ...data, idempotencyKey: newIdempotencyKey() }
     return request<any>('POST', '/exams', payload, 0, undefined, true)
   },
@@ -461,10 +461,12 @@ export const api = {
   getMyExamSessions: () => request<any[]>('GET', '/exams/my-classes'),
   getExam: (id: string) => request<any>('GET', `/exams/${id}`),
   decodeBarcode: (barcodeText: string) =>
-    request<{ sessionId: string; studentId: string; classId: string; subject: string; examType: string; maxScore: number; questionCount: number }>('POST', '/exams/barcode/decode', { barcodeText }),
+    request<{ sessionId: string; studentId: string; classId: string; subject: string; examType: string; maxScore: number; questionCount: number; protocolVersion?: 2 | 3; templateMode?: 'integrated' | 'full_page'; examVersion?: string; formChecksum?: string }>('POST', '/exams/barcode/decode', { barcodeText }),
   updateAnswerKey: (id: string, answerKey: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; source?: string; answers?: string; scanMetadata?: string }[]) =>
+  updateAnswerVariants: (id: string, answerVariants: string, questionCount: number) =>
+    request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
+  saveExamResults: (id: string, results: { studentId: string; score: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string }[]) =>
     request<{
       saved: number
       upserted: number

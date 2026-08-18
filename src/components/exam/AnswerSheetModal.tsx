@@ -4,6 +4,7 @@ import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, QR_X, QR_Y, QR_SIZE } from '../../lib/answerSheetTemplate'
 import { printBatchAnswerSheets, exportAnswerSheetPdf, sanitizeSvgInner } from '../../utils/examSheets'
 import { X, Printer, Layers, Settings2, CheckSquare, Square, Loader2, FileDown } from 'lucide-react'
+import type { ExamVersionCode } from '../../types'
 
 interface AnswerSheetProps {
   sessionId: string
@@ -14,6 +15,7 @@ interface AnswerSheetProps {
   maxScore: number
   examType?: 'written' | 'multiple_choice'
   questionCount?: number
+  examVersion?: ExamVersionCode
 }
 
 /**
@@ -29,11 +31,13 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
   maxScore,
   examType = 'written',
   questionCount = 20,
+  examVersion = 'A',
 }) => {
   const qrPayload = useMemo(() => buildExamQrPayload(sessionId, student.id, {
     templateMode: 'full_page',
     questionCount: examType === 'multiple_choice' ? questionCount : Math.max(1, maxScore + 1),
-  }), [sessionId, student.id, examType, questionCount, maxScore])
+    examVersion,
+  }), [sessionId, student.id, examType, questionCount, maxScore, examVersion])
   const qrInner = useMemo(() => {
     const svg = generateExamQrSvg(qrPayload, 4)
     return sanitizeSvgInner(svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, ''))
@@ -66,7 +70,7 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
         {/* Tiêu đề Header */}
         <text x={px(0.04)} y={py(0.045)} fontSize="24" fontWeight="900" fill="#1E3A8A" letterSpacing="0.5">PHIẾU TRẢ LỜI KIỂM TRA</text>
         <text x={px(0.04)} y={py(0.075)} fontSize="15" fontWeight="700" fill="#475569">
-          {subject} — {scoreTypeLabel} · Lớp: {classLabel}
+          {subject} — {scoreTypeLabel} · Lớp: {classLabel} · Mã đề: {examVersion}
         </text>
 
         {/* Khung thông tin học viên */}
@@ -261,6 +265,7 @@ interface AnswerSheetModalProps {
   maxScore: number
   examType?: 'written' | 'multiple_choice'
   questionCount?: number
+  availableVersions?: ExamVersionCode[]
   onClose: () => void
 }
 
@@ -274,11 +279,13 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
   maxScore,
   examType: initialExamType = 'written',
   questionCount: initialQuestionCount = 20,
+  availableVersions = ['A'],
   onClose,
 }) => {
   const [idx, setIdx] = useState(0)
   const [examType, setExamType] = useState<'written' | 'multiple_choice'>(initialExamType)
   const [questionCount, setQuestionCount] = useState<number>(initialQuestionCount)
+  const [examVersion, setExamVersion] = useState<ExamVersionCode>(availableVersions[0] ?? 'A')
   const [viewMode, setViewMode] = useState<'single' | 'batch'>('single')
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set(students.map(s => s.id)))
   const [printing, setPrinting] = useState(false)
@@ -327,10 +334,11 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
       maxScore,
       examType,
       questionCount,
+      examVersion,
     })
     setPrintProgress(100)
     setTimeout(() => { setPrinting(false); setPrintProgress(0) }, 800)
-  }, [selectedStudentsList, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount])
+  }, [selectedStudentsList, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, examVersion])
 
   const handlePrintSingle = useCallback(() => {
     if (!current) return
@@ -344,10 +352,11 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
       maxScore,
       examType,
       questionCount,
+      examVersion,
     })
     setPrintProgress(100)
     setTimeout(() => { setPrinting(false); setPrintProgress(0) }, 800)
-  }, [current, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount])
+  }, [current, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, examVersion])
 
   const handleExportPdfSingle = useCallback(() => {
     if (!current) return
@@ -359,8 +368,9 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
       maxScore,
       examType,
       questionCount,
+      examVersion,
     })
-  }, [current, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount])
+  }, [current, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, examVersion])
 
   const handleExportPdfBatch = useCallback(() => {
     if (selectedStudentsList.length === 0) return
@@ -372,8 +382,9 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
       maxScore,
       examType,
       questionCount,
+      examVersion,
     })
-  }, [selectedStudentsList, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount])
+  }, [selectedStudentsList, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, examVersion])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -424,7 +435,7 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
           </div>
 
           {examType === 'multiple_choice' && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-text-main">Số câu hỏi:</span>
               <select
                 value={questionCount}
@@ -438,6 +449,14 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
                 <option value={30}>30 câu</option>
                 <option value={40}>40 câu</option>
                 <option value={50}>50 câu</option>
+              </select>
+              <span className="font-bold text-text-main">Mã đề:</span>
+              <select
+                value={examVersion}
+                onChange={e => setExamVersion(e.target.value as ExamVersionCode)}
+                className="bg-surface-card border border-surface-border rounded-lg px-2.5 py-1 font-bold text-text-main outline-none cursor-pointer"
+              >
+                {availableVersions.map(version => <option key={version} value={version}>{version}</option>)}
               </select>
             </div>
           )}
@@ -474,6 +493,7 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
                   maxScore={maxScore}
                   examType={examType}
                   questionCount={questionCount}
+                  examVersion={examVersion}
                 />
               </div>
               <div className="flex items-center justify-between gap-2 flex-wrap pt-2">
