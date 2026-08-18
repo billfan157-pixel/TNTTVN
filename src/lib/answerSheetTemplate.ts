@@ -28,10 +28,9 @@ export const INTEGRATED_OMR_MARKERS = [
   { id: 'BR', x: 0.96, y: 0.36 },
   { id: 'BL', x: 0.04, y: 0.36 },
 ] as const
-/** Cửa sổ tìm marker integrated (normalized) — khớp marker in 16px @96dpi:
- * 16px trên khung 730px ≈ 2.2% độ rộng; khi quét full page (min=800px)
- * sizePx = 0.022×800 = 17.6px ≈ ô vuông marker ngoài đời → coverage ≥ 0.8. */
-export const INTEGRATED_CORNER_SIZE = 0.022
+/** Cửa sổ tìm marker integrated (normalized) — khớp marker in 18px @96dpi.
+ * Detector quét đa tỉ lệ vì tờ A4 thường chỉ chiếm một phần khung camera. */
+export const INTEGRATED_CORNER_SIZE = 0.025
 
 /** Khung lưới ô điểm — 6 cột, số hàng tự động theo maxScore. */
 export const GRID_COLS = 6
@@ -196,37 +195,35 @@ export function allMcCells(totalQuestions = 20): McQuestionCellPosition[] {
  * integrated (frame y 0.16..0.36) nhưng vẫn lấy tọa độ ô từ `allMcCells` (hệ
  * TOÀN TRANG y 0.36..0.90) → sample sai chỗ, không bao giờ đọc được phiếu gộp.
  * Giờ layout integrated có tọa độ RIÊNG: mỗi hàng câu hỏi xếp q-num (12px) bên
- * trái, nhóm 4 bubble (14px, gap 2px) ép sát MÉP PHẢI của ô grid
+ * trái, nhóm 4 bubble (16px, gap 2px) ép sát MÉP PHẢI của ô grid
  * (justify-content: space-between — 2 phần tử nên vị trí xác định tuyệt đối),
  * độc lập với độ rộng ô grid → detector quét đúng từng ô.
  *
- * An toàn hình học: bubble D cột cuối cách mép khung ~6px, marker 16px nằm
- * LỆCH RA NGOÀI khung (top/left -16px) nên không đè bubble. 8 cột × 7 hàng
- * (50 câu) → khung 153px ≈ 40mm.
+ * An toàn hình học: marker 18px có halo trắng và nằm lệch ra ngoài khung nên
+ * không đè bubble. 8 cột × 7 hàng (50 câu) → khoảng tâm marker cao 174px.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-export const INTEGRATED_MARKER_OVERHANG = 8
+export const INTEGRATED_MARKER_SIZE = 18
+export const INTEGRATED_MARKER_OVERHANG = INTEGRATED_MARKER_SIZE / 2
 export const INTEGRATED_PAD_X = 5
 export const INTEGRATED_PAD_Y = 3
 export const INTEGRATED_BORDER_W = 1.5
 export const INTEGRATED_QNUM_W = 12
 export const INTEGRATED_QNUM_GAP = 2
-export const INTEGRATED_BUBBLE_W = 14
+export const INTEGRATED_BUBBLE_W = 16
 export const INTEGRATED_BUBBLE_GAP = 2
-export const INTEGRATED_ROW_H = 16
+export const INTEGRATED_ROW_H = 18
+export const INTEGRATED_ROW_BORDER_W = 1
 export const INTEGRATED_GRID_GAP_X = 4
-export const INTEGRATED_GRID_GAP_Y = 3.5
+export const INTEGRATED_GRID_GAP_Y = 4
 /**
- * A-NEW-50 (2026-08-17): hiệu chỉnh theo ĐO ĐẠC render thật (viewport 800×1131,
- * layout chuẩn: container lề 8mm — batch wrapper padding 0):
- *  - rect marker = hộp tâm 4 marker (16px, lệch -16px ra ngoài khung) → góc rect
- *    cách góc khung ngoài `INTEGRATED_MARKER_OVERHANG` (8px) mỗi bên.
- *  - ROW_H 16 (hộp hàng: bubble 14 + viền 2) + GAP_Y 3.5 → pitch 19.5px (trước
- *    đây 18/3 → 21px, lệch ~1.5px/hàng → hàng 7 lệch ~9px → đọc sai).
- *  - REF_W/REF_H = kích thước rect marker px @96dpi — mẫu số normalize.
+ * Hiệu chỉnh theo DOMRect của Chromium @96dpi. Tâm marker tuyệt đối được tính
+ * từ padding-box của `.omr-frame`, vì vậy border ngoài không nằm trong khoảng
+ * marker-center. REF_W là chiều rộng tâm marker của bản in A4 chuẩn.
  */
-export const INTEGRATED_REF_W = 749.6
-export const INTEGRATED_REF_H = 153.5
+export const INTEGRATED_REF_W = 749.2
+/** Chiều cao tham chiếu 50 câu, giữ export để chẩn đoán/compat tài liệu. */
+export const INTEGRATED_REF_H = 174
 
 /** Số cột của khung integrated — 5 cột (≤20 câu), 8 cột (21..50 câu). */
 export function integratedGridCols(totalQuestions = 20): number {
@@ -236,7 +233,12 @@ export function integratedGridCols(totalQuestions = 20): number {
 /** Chiều cao rect marker (px @96dpi) — mẫu số normalize y. */
 export function integratedFrameH(totalQuestions: number): number {
   const rows = Math.ceil(totalQuestions / integratedGridCols(totalQuestions))
-  return 2 * INTEGRATED_MARKER_OVERHANG + rows * INTEGRATED_ROW_H + (rows - 1) * INTEGRATED_GRID_GAP_Y + 2 * (INTEGRATED_PAD_Y + INTEGRATED_BORDER_W)
+  return 2 * INTEGRATED_MARKER_OVERHANG + rows * INTEGRATED_ROW_H + (rows - 1) * INTEGRATED_GRID_GAP_Y + 2 * INTEGRATED_PAD_Y
+}
+
+/** Tỷ lệ marker-center width/height của khung OMR theo đúng số câu in. */
+export function integratedFrameAspectRatio(totalQuestions: number): number {
+  return INTEGRATED_REF_W / integratedFrameH(totalQuestions)
 }
 
 /** Hình chữ nhật khung integrated trong page space (normalized) — 4 góc khung. */
@@ -271,7 +273,6 @@ export function integratedMcOptionToCellForRect(
   const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
   const optIndex = options.indexOf(option)
   const cols = integratedGridCols(totalQuestions)
-  const rows = Math.ceil(totalQuestions / cols)
   const q0 = questionIndex - 1
   // A-NEW-50: CSS `grid-template-columns: repeat(cols, 1fr)` xếp hàng MAJOR
   // (câu 1..cols ở hàng 1, cols+1..2cols ở hàng 2...) — model cũ col-major
@@ -280,16 +281,23 @@ export function integratedMcOptionToCellForRect(
   const colIndex = q0 % cols
   const rowIndex = Math.floor(q0 / cols)
 
-  const gridLeft = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_X + INTEGRATED_BORDER_W
-  const gridTop = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_Y + INTEGRATED_BORDER_W
+  // Absolute marker offsets are resolved from the padding-box. Therefore the
+  // outer frame border cancels out; adding it here shifts every sample inward.
+  const gridLeft = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_X
+  const gridTop = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_Y
   const contentW = INTEGRATED_REF_W - 2 * gridLeft
   const colW = (contentW - (cols - 1) * INTEGRATED_GRID_GAP_X) / cols
   const rowPitch = INTEGRATED_ROW_H + INTEGRATED_GRID_GAP_Y
 
   const bubbleCenterFromRowRight = (3 - optIndex) * (INTEGRATED_BUBBLE_W + INTEGRATED_BUBBLE_GAP) + INTEGRATED_BUBBLE_W / 2
-  const rowRight = (colIndex + 1) * colW + colIndex * INTEGRATED_GRID_GAP_X
+  // Bubble group is aligned to the row content-box, one row border inside the
+  // grid-cell border-box.
+  const rowRight = (colIndex + 1) * colW + colIndex * INTEGRATED_GRID_GAP_X - INTEGRATED_ROW_BORDER_W
   const xf = (gridLeft + rowRight - bubbleCenterFromRowRight) / INTEGRATED_REF_W
-  const yf = (gridTop + rowIndex * rowPitch + INTEGRATED_ROW_H / 2) / INTEGRATED_REF_H
+  // Chiều cao khung thay đổi theo số hàng. Dùng REF_H cố định của đề 50 câu
+  // khiến đề 10/20 câu sample lệch 11–27px trên render Chromium thật.
+  const frameRefH = integratedFrameH(totalQuestions)
+  const yf = (gridTop + rowIndex * rowPitch + INTEGRATED_ROW_H / 2) / frameRefH
 
   // frame-relative → page space theo rect đo được
   const x = frame.x0 + xf * (frame.x1 - frame.x0)

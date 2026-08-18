@@ -108,8 +108,8 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
         <text x={px(0.06)} y={py(0.262)} fontSize="12.5" fontWeight="800" fill="#1E40AF">HƯỚNG DẪN TÔ Ô:</text>
         <text x={px(0.21)} y={py(0.262)} fontSize="11.5" fontWeight="600" fill="#1E293B">
           {examType === 'multiple_choice'
-            ? `Tô kín đậm MỘT đáp án đúng (A, B, C, D) cho từng câu (${questionCount} câu).`
-            : `Tô kín đậm MỘT ô duy nhất tương ứng với điểm đạt được (0 – ${maxScore}).`}
+            ? `Dùng bút xanh/đen hoặc bút chì đậm, tô kín MỘT đáp án (A, B, C, D) cho từng câu (${questionCount} câu).`
+            : `Dùng bút xanh/đen hoặc bút chì đậm, tô kín MỘT ô duy nhất tương ứng với điểm đạt được (0 – ${maxScore}).`}
         </text>
 
         {/* Visual examples — khác nhau theo examType */}
@@ -147,7 +147,10 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
 
         {/* 4 Homography Corner Markers */}
         {CORNER_MARKERS.map(m => (
-          <rect key={m.id} x={px(m.x) - markerW / 2} y={py(m.y) - markerH / 2} width={markerW} height={markerH} fill="#000000" />
+          <g key={m.id}>
+            <rect x={px(m.x) - markerW * 0.72} y={py(m.y) - markerH * 0.72} width={markerW * 1.44} height={markerH * 1.44} fill="#FFFFFF" />
+            <rect x={px(m.x) - markerW / 2} y={py(m.y) - markerH / 2} width={markerW} height={markerH} fill="#000000" />
+          </g>
         ))}
 
         {/* Nội dung bài làm */}
@@ -200,8 +203,8 @@ export const AnswerSheet: React.FC<AnswerSheetProps> = ({
                             câu {q}:
                           </text>
                         )}
-                        <circle cx={px(pos.x)} cy={py(pos.y)} r={circleR} fill="#FFFFFF" stroke="#334155" strokeWidth={questionCount > 35 ? 1.6 : questionCount > 18 ? 1.8 : 2} />
-                        <text x={px(pos.x)} y={py(pos.y)} fontSize={fontSize} fontWeight="bold" fill="#0F172A" textAnchor="middle" dominantBaseline="central">
+                        <circle cx={px(pos.x)} cy={py(pos.y)} r={circleR} fill="#FFFFFF" stroke="#64748B" strokeWidth={questionCount > 35 ? 1.6 : questionCount > 18 ? 1.8 : 2} />
+                        <text x={px(pos.x)} y={py(pos.y)} fontSize={fontSize} fontWeight="600" fill="#64748B" textAnchor="middle" dominantBaseline="central">
                           {opt}
                         </text>
                       </g>
@@ -549,7 +552,7 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
         )}
 
         <div className="bg-parish-primary/10 border border-parish-primary/20 rounded-xl p-2.5 text-[11px] text-parish-primary font-medium flex items-center gap-2">
-          <span>💡 <strong>Hướng dẫn:</strong> Phiếu A4 chuẩn tự động chứa Mã QR cá nhân + 4 góc định vị. Phát phiếu cho thiếu nhi tô chì, sau đó mở tab <strong>"Quét Phiếu"</strong> để camera tự động ghi điểm.</span>
+          <span>💡 <strong>Hướng dẫn:</strong> Phiếu A4 chuẩn tự động chứa Mã QR cá nhân + 4 góc định vị. Cho thiếu nhi tô kín bằng bút xanh/đen hoặc bút chì đậm, sau đó mở tab <strong>"Quét Phiếu"</strong> để chấm.</span>
         </div>
       </div>
     </div>

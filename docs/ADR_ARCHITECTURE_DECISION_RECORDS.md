@@ -1144,3 +1144,56 @@ UX/UI audit app-wide (2026-08-16) ghi nhận "mỗi trang tự dựng một ki�
 - **Negative**: component mới cần đủ props cho mọi case (tạm thời một số modal cũ giữ shell riêng cho tới khi được migrate ở Pha 3).
 - **Files**: `src/components/common/PageHeader.tsx` (NEW), `src/components/common/ModalShell.tsx` (NEW), `src/components/common/FormField.tsx` (NEW), `src/__tests__/components/CommonComponents.test.tsx` (NEW), `src/index.css` (@theme tokens + `.badge-*` + dark overrides).
 
+---
+
+## ADR-048: OMR Print Geometry SSOT, Explicit Template Modes & Fail-Closed Marker Detection (2026-08-18)
+
+**Status: APPROVED. Severity: D2 (print template + camera UI + detector + tests). Profile: GENERAL.**
+
+### Problem and evidence
+
+- **E1 (production evidence, HIGH)**: ảnh iPhone mới nhất cho thấy A4 nằm lọt trong camera, marker integrated trên giấy chỉ còn khoảng 11–15px và QR không đọc được từ ảnh chụp màn hình. Người dùng đồng thời báo detector từng ghi điểm trước khi căn đúng vùng đáp án.
+- **E2 (reproduction, HIGH)**: trước hardening, crop camera có thể trả `ok=true` với 2–4 đáp án nhiễu; locator full-page ghép một candidate sát mép ảnh với chữ/viền thành tứ giác giả. Sau hardening, screen/video crop trả `MISSING_MARKER_*`; paper crop tìm đúng integrated rect và trả `ALL_BLANK` khi chưa tô.
+- **E2 (real-render measurement, HIGH)**: Chromium A4 @96dpi cho thấy công thức cũ dùng chiều cao tham chiếu đề 50 câu cho mọi đề, làm Y của câu đầu/cuối lệch khoảng 11–27px trên đề 10/20 câu. Đo sau sửa khóa sai số tâm bubble ≤2px ở 10/20/50 câu.
+- **E3 (code inspection, HIGH)**: `detectAnswersFromImage` từng tự fallback giữa geometry full-page và integrated; `tryLocateIntegratedFrame` chỉ quét ba scale; `findMarkerInBand` chọn blob tối rồi mới loại, không xét ứng viên kế tiếp; guide UI cố định tỷ lệ 5:1.
+
+### Options and decision matrix
+
+| Criterion | Weight | A: Chỉ chỉnh threshold | B: SSOT geometry + explicit mode + gates (chọn) | C: Server/OpenCV/ArUco |
+|---|---:|---:|---:|---:|
+| Security & Privacy | 15% | 8 | 9 | 6 |
+| Data Integrity | 20% | 5 | 9 | 8 |
+| Reliability | 20% | 5 | 9 | 8 |
+| Business Correctness | 15% | 5 | 9 | 8 |
+| Performance | 10% | 9 | 8 | 5 |
+| Maintainability | 10% | 7 | 9 | 5 |
+| Testability | 5% | 5 | 9 | 7 |
+| Reversibility | 5% | 9 | 9 | 5 |
+| **Weighted score** | **100%** | **6.15** | **8.85** | **6.75** |
+
+**Decision: B.** A bị loại vì không sửa sai hệ tọa độ và vẫn có false-positive chéo mẫu. C bị loại ở D2 hard gate vì Security & Privacy=6<7, thêm upload ảnh/mạng/dependency vận hành khi bài toán được giải quyết client-side.
+
+### Decision
+
+1. `answerSheetTemplate.ts` là SSOT cho marker 18px, bubble 16px, row 18px, gaps và `integratedFrameH(totalQuestions)`. Tọa độ detector tính theo padding-box/render model thực, không dùng chiều cao 50 câu cho đề ngắn.
+2. Bản in thêm halo trắng quanh marker; chữ/viền bubble dùng màu nhẹ hơn; hướng dẫn chấp nhận bút xanh/đen hoặc bút chì đậm và bắt buộc tô kín đúng một ô.
+3. Locator integrated quét nhiều scale, chấm candidate bằng độ phủ + bốn quadrant + isolation, kiểm tra aspect theo số câu. Locator full-page tìm trong band rộng nhưng yêu cầu marker không bị cắt sát mép, tứ giác lồi, tỷ lệ A4-marker hợp lệ và các cạnh đối không biến dạng quá mức.
+4. UI bắt buộc chọn `integrated` hoặc `full_page`; production truyền mode rõ vào detector. Không fallback chéo. `auto` chỉ thử hai locator geometry-validated, không dùng template tĩnh để suy đoán.
+5. Guide camera integrated lấy aspect động theo số câu; full-page yêu cầu trọn A4. Khi thiết bị hỗ trợ, camera áp dụng continuous focus/exposure/white-balance. Mọi lỗi marker/blank/low-confidence phải hiển thị rõ; không có kết quả hợp lệ thì không chuyển sang bước ghi.
+6. Regression bắt buộc: DOM render geometry 10/20/50; tờ A4 inset 72%; không fallback chéo; blank/multi-fill/sparse-answer; QR render và pipeline camera crop.
+
+### Gates, compatibility and rollback
+
+- **D2 hard gates**: Security & Privacy 9, Data Integrity 9, Testability 9, Tenant Isolation 9, Business Correctness 9, Reliability 9 — **PASS**.
+- **ADR compatibility**: ADR-023 (print/session) `PASS`; ADR-024 (OMR scoring/answers) `PASS`; ADR-043 (mobile scan/confirmation/fallback path) `PASS`.
+- **Business rule**: `CONFIRMED` — chỉ đúng mẫu + geometry/paper/confidence hợp lệ + xác nhận người dùng mới được ghi; `ALL_BLANK` không ghi điểm.
+- **Schema/API**: không đổi. **Reversibility**: R1; rollback bằng revert client bundle. Không migration dữ liệu.
+- **Residual risk**: giấy nhàu/chụp quá xiên có thể bị từ chối (false-negative) nhưng không sinh điểm ảo; người dùng có thể chụp lại, chọn đúng mẫu hoặc dùng nhập điểm trực tiếp theo ADR-043.
+
+### Verification
+
+- Targeted OMR/QR/print/identity/consensus: **107/107 PASS**; template/barcode/guided-grade bổ sung: **28/28 PASS**; regression A4 full-page inset 72% bổ sung sau cùng: **1/1 PASS**.
+- Full Vitest: **192 files / 1468 tests PASS** trước khi chỉ thêm test inset nêu trên (không đổi production code).
+- `npm run build:frontend`: PASS; production bundle + service worker generated.
+- Oxlint trên toàn bộ file code/test sửa đổi: 0 warning/error; `git diff --check`: PASS.
+

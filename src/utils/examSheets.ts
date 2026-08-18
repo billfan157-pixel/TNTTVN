@@ -1,6 +1,29 @@
 import { generateExamQrSvg, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
-import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, integratedGridCols, QR_X, QR_Y, QR_SIZE } from '../lib/answerSheetTemplate'
+import {
+  CORNER_MARKERS,
+  CORNER_SIZE,
+  INTEGRATED_BORDER_W,
+  INTEGRATED_BUBBLE_GAP,
+  INTEGRATED_BUBBLE_W,
+  INTEGRATED_GRID_GAP_X,
+  INTEGRATED_GRID_GAP_Y,
+  INTEGRATED_MARKER_SIZE,
+  INTEGRATED_PAD_X,
+  INTEGRATED_PAD_Y,
+  INTEGRATED_QNUM_GAP,
+  INTEGRATED_QNUM_W,
+  INTEGRATED_ROW_BORDER_W,
+  INTEGRATED_ROW_H,
+  allCells,
+  scoreToCell,
+  mcOptionToCell,
+  getMcColumnLayout,
+  integratedGridCols,
+  QR_X,
+  QR_Y,
+  QR_SIZE,
+} from '../lib/answerSheetTemplate'
 import { escapeHtml } from './grades'
 import { ReportExportService } from '../services/reportExportService'
 import type { ExamQuestion } from '../types'
@@ -152,8 +175,8 @@ export function buildSingleAnswerSheetSvgString(
           questionsMarkup += `<text x="${px(pos.x) - labelOffset}" y="${py(pos.y)}" font-size="${labelSize}" font-weight="bold" fill="#334155" text-anchor="end" dominant-baseline="central">câu ${q}:</text>`
         }
         questionsMarkup += `<g>
-          <circle cx="${px(pos.x)}" cy="${py(pos.y)}" r="${circleR}" fill="#FFFFFF" stroke="#334155" stroke-width="${strokeW}" />
-          <text x="${px(pos.x)}" y="${py(pos.y)}" font-size="${fontSize}" font-weight="bold" fill="#0F172A" text-anchor="middle" dominant-baseline="central">${opt}</text>
+          <circle cx="${px(pos.x)}" cy="${py(pos.y)}" r="${circleR}" fill="#FFFFFF" stroke="#64748B" stroke-width="${strokeW}" />
+          <text x="${px(pos.x)}" y="${py(pos.y)}" font-size="${fontSize}" font-weight="600" fill="#64748B" text-anchor="middle" dominant-baseline="central">${opt}</text>
         </g>`
       }
     }
@@ -187,6 +210,7 @@ export function buildSingleAnswerSheetSvgString(
   // Visual Markers
   let markersSvg = ''
   for (const m of CORNER_MARKERS) {
+    markersSvg += `<rect x="${px(m.x) - markerW * 0.72}" y="${py(m.y) - markerH * 0.72}" width="${markerW * 1.44}" height="${markerH * 1.44}" fill="#FFFFFF" />`
     markersSvg += `<rect x="${px(m.x) - markerW / 2}" y="${py(m.y) - markerH / 2}" width="${markerW}" height="${markerH}" fill="#000000" />`
   }
 
@@ -365,7 +389,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       margin: 0 auto;
       position: relative;
       /* Lề ngang 8mm — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
-         khung integrated nằm lệch -16px ra ngoài khung; không có lề này marker
+         khung integrated nằm lệch ra ngoài theo INTEGRATED_MARKER_SIZE; không có lề này marker
          TL/BL bị clip mép giấy → không bao giờ quét được phiếu in đơn. */
       padding: 0 8mm;
     }
@@ -539,22 +563,23 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     }
     .omr-frame {
       position: relative;
-      padding: 3px 5px;
-      border: 1.5px solid #0f172a;
+      padding: ${INTEGRATED_PAD_Y}px ${INTEGRATED_PAD_X}px;
+      border: ${INTEGRATED_BORDER_W}px solid #0f172a;
       border-radius: 4px;
     }
     .omr-corner-marker {
       position: absolute;
-      width: 16px;
-      height: 16px;
+      width: ${INTEGRATED_MARKER_SIZE}px;
+      height: ${INTEGRATED_MARKER_SIZE}px;
       background: #000000;
+      box-shadow: 0 0 0 3px #ffffff;
     }
-    /* Marker nằm LỆCH RA NGOÀI khung (.omr-frame) — không đè bubble cạnh mép;
-       kích thước 16px khớp cửa sổ detector INTEGRATED_CORNER_SIZE = 0.022 */
-    .omr-marker-tl { top: -16px; left: -16px; }
-    .omr-marker-tr { top: -16px; right: -16px; }
-    .omr-marker-bl { bottom: -16px; left: -16px; }
-    .omr-marker-br { bottom: -16px; right: -16px; }
+    /* Marker nằm LỆCH RA NGOÀI khung (.omr-frame) — không đè bubble cạnh mép.
+       Kích thước, overhang và detector dùng chung SSOT answerSheetTemplate.ts. */
+    .omr-marker-tl { top: -${INTEGRATED_MARKER_SIZE}px; left: -${INTEGRATED_MARKER_SIZE}px; }
+    .omr-marker-tr { top: -${INTEGRATED_MARKER_SIZE}px; right: -${INTEGRATED_MARKER_SIZE}px; }
+    .omr-marker-bl { bottom: -${INTEGRATED_MARKER_SIZE}px; left: -${INTEGRATED_MARKER_SIZE}px; }
+    .omr-marker-br { bottom: -${INTEGRATED_MARKER_SIZE}px; right: -${INTEGRATED_MARKER_SIZE}px; }
 
     .answer-sheet-header {
       display: flex;
@@ -589,23 +614,24 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     }
     .answer-grid-container {
       display: grid;
-      gap: 3px 4px;
+      gap: ${INTEGRATED_GRID_GAP_Y}px ${INTEGRATED_GRID_GAP_X}px;
     }
     .grid-q-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 2px;
+      gap: ${INTEGRATED_QNUM_GAP}px;
       background: #fff;
-      border: 1px solid #cbd5e1;
+      border: ${INTEGRATED_ROW_BORDER_W}px solid #cbd5e1;
       border-radius: 2px;
       padding: 0;
       box-sizing: border-box;
+      height: ${INTEGRATED_ROW_H}px;
     }
     .q-num {
       font-weight: bold;
       font-size: 6pt;
-      width: 12px;
+      width: ${INTEGRATED_QNUM_W}px;
       color: #1e293b;
       line-height: 1;
       white-space: nowrap;
@@ -615,19 +641,19 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .bubble-group {
       display: inline-flex;
       align-items: center;
-      gap: 2px;
+      gap: ${INTEGRATED_BUBBLE_GAP}px;
     }
     .bubble {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 14px;
-      height: 14px;
+      width: ${INTEGRATED_BUBBLE_W}px;
+      height: ${INTEGRATED_BUBBLE_W}px;
       border-radius: 50%;
-      border: 1.1px solid #334155;
+      border: 1.1px solid #64748b;
       font-size: 7pt;
-      font-weight: bold;
-      color: #0f172a;
+      font-weight: 600;
+      color: #64748b;
       line-height: 1;
       background: #fff;
       flex-shrink: 0;
@@ -793,7 +819,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
             <span class="omr-badge">OMR SCAN</span> BẢNG TRẢ LỜI TRẮC NGHIỆM (${totalQ} CÂU)
           </div>
           <div class="answer-sheet-guide">
-            * Tô kín đậm 01 ô đáp án đúng (A, B, C, D):
+            * Bút xanh/đen hoặc chì đậm; tô kín 01 ô (A, B, C, D):
           </div>
         </div>
 

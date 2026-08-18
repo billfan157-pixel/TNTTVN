@@ -109,11 +109,12 @@ describe('OMR detector (Phase 2 POC)', () => {
     expect(res.reason).toBe('NO_CELL_FILLED')
   })
 
-  it('nền không có giấy dù có vùng tối trùng template → bị chặn', () => {
+  it('nền không có giấy dù có vùng tối trùng template → bị chặn fail-closed', () => {
     const res = detectScoreFromImage(buildNonPaperLookalike(8))
     expect(res.ok).toBe(false)
     expect(res.score).toBeNull()
-    expect(res.reason).toBe('NO_PAPER_SURFACE')
+    // Locator mới có thể chặn sớm ở isolation/geometry trước paper-surface gate.
+    expect(res.reason).toMatch(/^(MISSING_MARKER_|NO_PAPER_SURFACE)/)
   })
 
   it('ô 8 tô đen → detect score 8 confidence cao', () => {

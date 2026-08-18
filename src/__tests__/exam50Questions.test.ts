@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_OMR_MARKERS, INTEGRATED_CORNER_SIZE, type FrameRect } from '../lib/answerSheetTemplate'
+import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_CORNER_SIZE, INTEGRATED_BUBBLE_W, type FrameRect } from '../lib/answerSheetTemplate'
 import { buildSingleAnswerSheetSvgString, buildExamPaperHtml } from '../utils/examSheets'
 import { detectAnswersFromImage } from '../lib/omr'
 import { buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
@@ -40,6 +40,34 @@ function buildMcSheet(fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {}, totalQue
     fillRect(cell.x * W - r, cell.y * H - r, cell.x * W + r, cell.y * H + r, 25)
   }
   return img
+}
+
+/** Mô phỏng tờ A4 nằm lọt trong camera, có nền bàn xung quanh. */
+function insetSheet(source: ImageData, scale = 0.72): ImageData {
+  const output = FakeImageData(source.width, source.height)
+  const destW = Math.round(source.width * scale)
+  const destH = Math.round(source.height * scale)
+  const offsetX = Math.round((source.width - destW) / 2)
+  const offsetY = Math.round((source.height - destH) / 2)
+  for (let i = 0; i < output.width * output.height; i++) {
+    output.data[i * 4] = 170
+    output.data[i * 4 + 1] = 150
+    output.data[i * 4 + 2] = 125
+    output.data[i * 4 + 3] = 255
+  }
+  for (let y = 0; y < destH; y++) {
+    const sourceY = Math.min(source.height - 1, Math.floor(y / scale))
+    for (let x = 0; x < destW; x++) {
+      const sourceX = Math.min(source.width - 1, Math.floor(x / scale))
+      const sourceIndex = (sourceY * source.width + sourceX) * 4
+      const targetIndex = ((offsetY + y) * output.width + offsetX + x) * 4
+      output.data[targetIndex] = source.data[sourceIndex]
+      output.data[targetIndex + 1] = source.data[sourceIndex + 1]
+      output.data[targetIndex + 2] = source.data[sourceIndex + 2]
+      output.data[targetIndex + 3] = 255
+    }
+  }
+  return output
 }
 
 /**
@@ -89,7 +117,7 @@ function buildIntegratedSheet(
   for (const [q, opt] of Object.entries(fill)) {
     const cell = integratedMcCellsForRect(totalQuestions, frame).find(c => c.questionIndex === Number(q) && c.option === opt)
     if (!cell) continue
-    // Ô tô kín ~bubble in 14px (scan 800px ≈ 14.1px) — phủ core ring 5.6px
+    // Ô tô kín theo bubble in; phủ trọn core ring mà detector lấy mẫu.
     const r = 0.00875 * Math.min(W, H) * contentScale
     fillRect(cell.x * W - r, cell.y * H - r, cell.x * W + r, cell.y * H + r, 25)
   }
@@ -224,6 +252,23 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
       expect(res.score).toBe(8) // 40/50 * 10 = 8.0
     })
 
+    it('quét phiếu A4 rời khi tờ giấy chỉ chiếm 72% khung camera', () => {
+      const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
+      for (let i = 1; i <= 50; i++) {
+        answerKey[i] = options[(i - 1) % 4]
+        filledAnswers[i] = answerKey[i]
+      }
+
+      const frame = insetSheet(buildMcSheet(filledAnswers, 50))
+      const res = detectAnswersFromImage(frame, answerKey, 50, 10, 'full_page')
+
+      expect(res.ok, res.reason).toBe(true)
+      expect(res.rawCorrectCount).toBe(50)
+      expect(res.score).toBe(10)
+    })
+
     it('handles fail-safe gracefully when image is too small', () => {
       const smallImg = FakeImageData(40, 40)
       const result = detectAnswersFromImage(smallImg, {}, 50, 10)
@@ -275,7 +320,7 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
       }
     })
 
-    it('bubble in HTML dùng đúng kích thước SSOT (14px) và 8 cột cho 50 câu', () => {
+    it('bubble in HTML dùng đúng kích thước SSOT và 8 cột cho 50 câu', () => {
       const questions = Array.from({ length: 50 }, (_, i) => ({
         index: i + 1,
         question: `Câu ${i + 1}: abc`,
@@ -291,8 +336,8 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
         student: { id: 'ST-001', code: 'TN001', name: 'Em 1' },
       })
       expect(html).toContain('repeat(8, 1fr)')
-      expect(html).toContain('width: 14px')
-      expect(html).toContain('height: 14px')
+      expect(html).toContain(`width: ${INTEGRATED_BUBBLE_W}px`)
+      expect(html).toContain(`height: ${INTEGRATED_BUBBLE_W}px`)
       expect(html).toContain('class="omr-frame"')
       expect(html).toContain('omr-marker-tl')
     })
@@ -348,23 +393,26 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
       expect(res.score).toBe(8)
     })
 
-    it('quét phiếu gộp ở vị trí template tĩnh (compat cũ) vẫn detect được', () => {
+    it('không fallback chéo từ chế độ full-page sang khung integrated', () => {
       const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
       const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
       for (let i = 1; i <= 50; i++) {
         answerKey[i] = 'A'
         filledAnswers[i] = 'A'
       }
-      const img = buildIntegratedSheet(filledAnswers, 50, {
-        x0: INTEGRATED_OMR_MARKERS[0].x,
-        y0: INTEGRATED_OMR_MARKERS[0].y,
-        x1: INTEGRATED_OMR_MARKERS[1].x,
-        y1: INTEGRATED_OMR_MARKERS[2].y,
-      })
-      const res = detectAnswersFromImage(img, answerKey, 50, 10)
-      expect(res.ok).toBe(true)
-      expect(res.rawCorrectCount).toBe(50)
-      expect(res.score).toBe(10)
+      const img = buildIntegratedSheet(filledAnswers, 50, REAL_SINGLE_PRINT_FRAME)
+      const res = detectAnswersFromImage(img, answerKey, 50, 10, 'full_page')
+      expect(res.ok).toBe(false)
+      expect(res.score).toBeNull()
+      expect(res.reason).toMatch(/MISSING_MARKER/)
+    })
+
+    it('không fallback chéo từ chế độ integrated sang phiếu A4 rời', () => {
+      const img = buildMcSheet({ 1: 'A' }, 50)
+      const res = detectAnswersFromImage(img, { 1: 'A' }, 50, 10, 'integrated')
+      expect(res.ok).toBe(false)
+      expect(res.score).toBeNull()
+      expect(res.reason).toMatch(/MISSING_MARKER/)
     })
 
     it('quét được khi tờ A4 nằm lọt bên trong frame camera và marker nhỏ theo giấy', () => {

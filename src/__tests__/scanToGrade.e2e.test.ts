@@ -14,23 +14,23 @@
  * giống cấu trúc thực tế của phiếu in, kiểm tra thuần logic detection.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   CORNER_MARKERS,
   CORNER_SIZE,
-  INTEGRATED_OMR_MARKERS,
   INTEGRATED_CORNER_SIZE,
   scoreToCell,
   allCells,
   mcOptionToCell,
   allMcCells,
   getMcColumnLayout,
-  integratedMcOptionToCell,
+  integratedMcOptionToCellForRect,
   integratedMcCells,
   integratedGridCols,
   integratedFrameH,
+  integratedFrameAspectRatio,
   QR_X, QR_Y, QR_SIZE,
-  SHEET_ASPECT_RATIO,
+  type FrameRect,
 } from '../lib/answerSheetTemplate'
 import { detectScoreFromImage, detectAnswersFromImage, toGrayscale, findMarker } from '../lib/omr'
 import { computeHomography, applyHomography, invertHomography } from '../lib/homography'
@@ -92,9 +92,8 @@ function fillMcCell(img: ImageData, questionIndex: number, option: 'A' | 'B' | '
   fillRect(img, cell.x * img.width - r, cell.y * img.height - r, cell.x * img.width + r, cell.y * img.height + r, 25)
 }
 
-/** Tô đậm ô trắc nghiệm trên phiếu tích hợp (INTEGRATED). */
-function fillIntegratedMcCell(img: ImageData, questionIndex: number, option: 'A' | 'B' | 'C' | 'D', totalQ = 20) {
-  const cell = integratedMcOptionToCell(questionIndex, option, totalQ)
+function fillIntegratedMcCellForRect(img: ImageData, questionIndex: number, option: 'A' | 'B' | 'C' | 'D', totalQ: number, frame: FrameRect) {
+  const cell = integratedMcOptionToCellForRect(questionIndex, option, totalQ, frame)
   const r = 0.012 * Math.min(img.width, img.height)
   fillRect(img, cell.x * img.width - r, cell.y * img.height - r, cell.x * img.width + r, cell.y * img.height + r, 25)
 }
@@ -447,15 +446,30 @@ describe('E2E: Scan-to-Grade Pipeline Integration', () => {
   // ═════════════════════════════════════════════════════════════════════════
   describe('6. OMR Integrated (Đề thi gộp khung OMR)', () => {
     it('integrated markers nhận diện được khi toàn trang markers không có', () => {
-      // Tạo ảnh chỉ có integrated markers (không có full-page markers)
-      const img = createBlankSheet(800, 1130, INTEGRATED_OMR_MARKERS, INTEGRATED_CORNER_SIZE)
-      fillIntegratedMcCell(img, 1, 'A', 4)
-      fillIntegratedMcCell(img, 2, 'B', 4)
-      fillIntegratedMcCell(img, 3, 'C', 4)
-      fillIntegratedMcCell(img, 4, 'D', 4)
+      // Tạo khung đúng tỷ lệ render của 4 câu, không dùng template tĩnh giả.
+      const x0 = 0.04
+      const x1 = 0.96
+      const framePixelW = (x1 - x0) * 800
+      const frame: FrameRect = {
+        x0,
+        x1,
+        y0: 0.16,
+        y1: 0.16 + framePixelW / integratedFrameAspectRatio(4) / 1130,
+      }
+      const markers = [
+        { id: 'TL', x: frame.x0, y: frame.y0 },
+        { id: 'TR', x: frame.x1, y: frame.y0 },
+        { id: 'BR', x: frame.x1, y: frame.y1 },
+        { id: 'BL', x: frame.x0, y: frame.y1 },
+      ]
+      const img = createBlankSheet(800, 1130, markers, INTEGRATED_CORNER_SIZE)
+      fillIntegratedMcCellForRect(img, 1, 'A', 4, frame)
+      fillIntegratedMcCellForRect(img, 2, 'B', 4, frame)
+      fillIntegratedMcCellForRect(img, 3, 'C', 4, frame)
+      fillIntegratedMcCellForRect(img, 4, 'D', 4, frame)
 
       const key4: Record<number, 'A' | 'B' | 'C' | 'D'> = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' }
-      const res = detectAnswersFromImage(img, key4, 4, 10)
+      const res = detectAnswersFromImage(img, key4, 4, 10, 'integrated')
       expect(res.ok).toBe(true)
       expect(res.rawCorrectCount).toBe(4)
       expect(res.score).toBe(10)

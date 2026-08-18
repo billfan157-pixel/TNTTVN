@@ -6,6 +6,7 @@ import { buildExamQrPayload } from '../lib/qr'
 import { scanExamCode } from '../lib/examCodeScanner'
 import { getObjectCoverSourceRect } from '../lib/cameraFrame'
 import { detectAnswersFromImage } from '../lib/omr'
+import { integratedMcOptionToCellForRect } from '../lib/answerSheetTemplate'
 
 let browser: Browser
 
@@ -91,6 +92,59 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
       sh: 1080,
     })
   })
+
+  it.each([10, 20, 50])('tọa độ detector khớp tâm bubble trên bản in Chromium (%i câu)', async totalQuestions => {
+    const page = await browser.newPage()
+    await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 1 })
+    await page.setContent(buildExamPaperHtml({
+      subject: 'Đo hình học OMR',
+      classLabel: 'Thiếu Nhi 2A',
+      academicYear: '2026-2027',
+      includeAnswerGrid: true,
+      questions: Array.from({ length: totalQuestions }, (_, index) => ({
+        index: index + 1,
+        question: `Câu ${index + 1}`,
+        options: { A: 'A', B: 'B', C: 'C', D: 'D' },
+        correctOption: 'A' as const,
+      })),
+    }), { waitUntil: 'load' })
+
+    const measured = await page.evaluate((lastIndex) => {
+      const center = (element: Element) => {
+        const rect = element.getBoundingClientRect()
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      }
+      const rows = Array.from(document.querySelectorAll('.grid-q-row'))
+      return {
+        width: innerWidth,
+        height: innerHeight,
+        markers: ['tl', 'tr', 'br', 'bl'].map(id => center(document.querySelector(`.omr-marker-${id}`)!)),
+        firstA: center(rows[0].querySelectorAll('.bubble')[0]),
+        lastD: center(rows[lastIndex].querySelectorAll('.bubble')[3]),
+      }
+    }, totalQuestions - 1)
+    await page.close()
+
+    const [tl, tr, , bl] = measured.markers
+    const frame = {
+      x0: tl.x / measured.width,
+      y0: tl.y / measured.height,
+      x1: tr.x / measured.width,
+      y1: bl.y / measured.height,
+    }
+    const expected = [
+      { cell: integratedMcOptionToCellForRect(1, 'A', totalQuestions, frame), actual: measured.firstA },
+      { cell: integratedMcOptionToCellForRect(totalQuestions, 'D', totalQuestions, frame), actual: measured.lastD },
+    ]
+    const errors = expected.map(({ cell, actual }) => ({
+      x: cell.x * measured.width - actual.x,
+      y: cell.y * measured.height - actual.y,
+    }))
+    for (const error of errors) {
+      expect(Math.abs(error.x), `Sai lệch X ${JSON.stringify(errors)}`).toBeLessThanOrEqual(2)
+      expect(Math.abs(error.y), `Sai lệch Y ${JSON.stringify(errors)}`).toBeLessThanOrEqual(2)
+    }
+  }, 20_000)
 
   it('đề thi tích hợp render QR đầy đủ, giải mã đúng payload', async () => {
     const sessionId = 'EXS-a1b2c3d4'

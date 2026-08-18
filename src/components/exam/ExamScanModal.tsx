@@ -15,12 +15,12 @@ import {
   FlashlightOff,
   Edit3
 } from 'lucide-react'
-import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult } from '../../lib/omr'
+import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult, type OmrTemplateMode } from '../../lib/omr'
 import { scanExamCode } from '../../lib/examCodeScanner'
 import { createManualExamIdentity, EXAM_CODE_LOCK_TTL_MS, resolveExamIdentity, type ExamCodeLock } from '../../lib/examScanIdentity'
 import { advanceOmrConsensus, OMR_REQUIRED_CONFIRMATIONS, shouldAutoAnalyzeOmrFrame, type OmrConsensusState } from '../../lib/omrScanConsensus'
 import { getObjectCoverSourceRect } from '../../lib/cameraFrame'
-import { CORNER_MARKERS } from '../../lib/answerSheetTemplate'
+import { CORNER_MARKERS, integratedFrameAspectRatio } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
 
@@ -76,6 +76,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     ? 'Chưa nhận diện được khung OMR trên phiếu.'
     : 'Không nhận diện được mã QR / Barcode trên phiếu.')
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment')
+  const [mcTemplateMode, setMcTemplateMode] = useState<Exclude<OmrTemplateMode, 'auto'>>('integrated')
 
   const [phase, setPhase] = useState<ScanState>({ kind: 'scanning' })
   const { saveScores, error, results } = useExamStore()
@@ -205,7 +206,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
       if (!resolveRef.current) {
         const omr = examType === 'multiple_choice'
-          ? detectAnswersFromImage(frame, answerKey, questionCount, maxScore)
+          ? detectAnswersFromImage(frame, answerKey, questionCount, maxScore, mcTemplateMode)
           : detectScoreFromImage(frame, maxScore)
 
         if (omr.ok && omr.score !== null) {
@@ -247,7 +248,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
 
     return false
-  }, [sessionId, maxScore, examType, questionCount, answerKey, fixedStudent, stopCamera])
+  }, [sessionId, maxScore, examType, questionCount, answerKey, fixedStudent, mcTemplateMode, stopCamera])
 
   const loopStart = useCallback(() => {
     liveRef.current = true
@@ -370,8 +371,14 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         try {
           const track = stream.getVideoTracks()[0]
           const capabilities = (track as any)?.getCapabilities?.()
-          if (Array.isArray(capabilities?.focusMode) && capabilities.focusMode.includes('continuous')) {
-            await (track as any).applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+          const continuousCapture: Record<string, string> = {}
+          for (const key of ['focusMode', 'exposureMode', 'whiteBalanceMode']) {
+            if (Array.isArray(capabilities?.[key]) && capabilities[key].includes('continuous')) {
+              continuousCapture[key] = 'continuous'
+            }
+          }
+          if (Object.keys(continuousCapture).length > 0) {
+            await (track as any).applyConstraints({ advanced: [continuousCapture] })
           }
           if (capabilities && 'torch' in capabilities) {
             setHasTorch(true)
@@ -572,6 +579,33 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           onChange={handleFileUpload}
         />
 
+        {examType === 'multiple_choice' && phase.kind !== 'detected' && (
+          <div className="grid grid-cols-2 gap-1 rounded-xl border border-surface-border bg-surface-app p-1" role="group" aria-label="Loại mẫu phiếu OMR">
+            <button
+              type="button"
+              className={`min-h-9 rounded-lg px-2 text-[11px] font-black transition-colors ${mcTemplateMode === 'integrated' ? 'bg-parish-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-card'}`}
+              onClick={() => {
+                setMcTemplateMode('integrated')
+                omrConsensusRef.current = null
+                setScanHint(codeLocked ? 'Căn riêng khung đáp án nằm trên đề thi.' : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
+              }}
+            >
+              Khung trên đề thi
+            </button>
+            <button
+              type="button"
+              className={`min-h-9 rounded-lg px-2 text-[11px] font-black transition-colors ${mcTemplateMode === 'full_page' ? 'bg-parish-primary text-white shadow-sm' : 'text-text-muted hover:bg-surface-card'}`}
+              onClick={() => {
+                setMcTemplateMode('full_page')
+                omrConsensusRef.current = null
+                setScanHint(codeLocked ? 'Giữ trọn phiếu trả lời A4 và đủ 4 ô đen trong ảnh.' : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
+              }}
+            >
+              Phiếu trả lời A4
+            </button>
+          </div>
+        )}
+
         {/* Video & Scan Container */}
         <div className={`relative rounded-xl overflow-hidden bg-black aspect-[3/4] max-h-[52vh] flex items-center justify-center ${phase.kind === 'detected' ? 'hidden' : 'block'}`}>
           <video
@@ -593,6 +627,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           {!cameraLoading && phase.kind === 'scanning' && (
             <SheetAlignmentGuide
               examType={examType}
+              questionCount={questionCount}
+              mcTemplateMode={mcTemplateMode}
               skipIdentityCode={Boolean(fixedStudent)}
               identityLocked={codeLocked}
             />
@@ -883,10 +919,10 @@ const OMR_FAIL_REASONS: Record<string, string> = {
   MISSING_MARKER_BR: 'Không thấy ô đen góc dưới phải — căn lại 4 góc',
   MISSING_MARKER_BL: 'Không thấy ô đen góc dưới trái — căn lại 4 góc',
   HOMOGRAPHY_FAILED: 'Góc chụp quá nghiêng — giữ điện thoại song song với mặt giấy',
-  NO_CELL_FILLED: 'Chưa nhận diện được ô tô — hãy tô đậm chì',
+  NO_CELL_FILLED: 'Chưa nhận diện được ô tô — dùng bút xanh/đen hoặc bút chì đậm',
   AMBIGUOUS: 'Tô chưa rõ — cần tô đậm duy nhất một ô',
   CELL_OUT_OF_IMAGE: 'Phiếu bị lệch ra ngoài khung camera',
-  ALL_BLANK: 'Phiếu chưa được tô điểm',
+  ALL_BLANK: 'Chưa thấy đáp án nào được tô — hệ thống chưa ghi điểm',
   LOW_CONFIDENCE: 'Hình ảnh bị mờ hoặc chói sáng — chụp lại rõ hơn',
 }
 
@@ -897,9 +933,11 @@ function formatOmrFailReason(reason: string): string {
 /** Hướng dẫn hai pha: QR cần cận cảnh; OMR cần khung đáp án đủ lớn. */
 const SheetAlignmentGuide: React.FC<{
   examType: 'written' | 'multiple_choice'
+  questionCount: number
+  mcTemplateMode: Exclude<OmrTemplateMode, 'auto'>
   skipIdentityCode?: boolean
   identityLocked?: boolean
-}> = ({ examType, skipIdentityCode = false, identityLocked = false }) => {
+}> = ({ examType, questionCount, mcTemplateMode, skipIdentityCode = false, identityLocked = false }) => {
   if (!skipIdentityCode && !identityLocked) {
     return (
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6">
@@ -913,10 +951,11 @@ const SheetAlignmentGuide: React.FC<{
     )
   }
 
-  if (examType === 'multiple_choice') {
+  if (examType === 'multiple_choice' && mcTemplateMode === 'integrated') {
+    const guideAspect = integratedFrameAspectRatio(questionCount)
     return (
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
-        <div className="relative w-[92%] aspect-[5/1] rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10 shadow-[0_0_18px_rgba(52,211,153,0.2)]">
+        <div className="relative w-[92%] rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10 shadow-[0_0_18px_rgba(52,211,153,0.2)]" style={{ aspectRatio: String(guideAspect) }}>
           <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-emerald-100">
             KHUNG ĐÁP ÁN OMR + 4 Ô ĐEN
           </span>
@@ -941,7 +980,7 @@ const SheetAlignmentGuide: React.FC<{
           />
         ))}
         <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1.5 text-center">
-          <p className="text-[10px] font-bold text-white">Căn 4 chấm xanh vào 4 ô đen trên phiếu</p>
+          <p className="text-[10px] font-bold text-white">{examType === 'multiple_choice' ? 'Giữ trọn phiếu A4 và căn đủ 4 ô đen' : 'Căn 4 chấm xanh vào 4 ô đen trên phiếu'}</p>
           <p className="mt-0.5 text-[9px] text-emerald-200">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Mã đã đọc, đang xác nhận OMR'}</p>
         </div>
       </div>
