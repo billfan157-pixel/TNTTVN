@@ -390,6 +390,23 @@ describe('E2E: Scan-to-Grade Pipeline Integration', () => {
       expect(res.reason).toBe('ALL_BLANK')
     })
 
+    it.each([10, 20, 50])('%i câu: chỉ tô 1 đáp án rõ vẫn nhận, các câu trắng tính sai', (totalQuestions) => {
+      const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      for (let i = 1; i <= totalQuestions; i++) answerKey[i] = 'A'
+
+      const img = createBlankSheet()
+      fillMcCell(img, 1, 'A', totalQuestions)
+      const res = detectAnswersFromImage(img, answerKey, totalQuestions, 10)
+
+      expect(res.ok).toBe(true)
+      expect(res.reason).toBe('OK')
+      expect(res.rawCorrectCount).toBe(1)
+      expect(res.score).toBe(Math.round((10 / totalQuestions) * 10) / 10)
+      expect(res.questions.filter(q => q.selectedAnswer !== null)).toHaveLength(1)
+      expect(res.questions.slice(1).every(q => q.isBlank)).toBe(true)
+      expect(res.confidence).toBeGreaterThanOrEqual(0.06)
+    })
+
     // Test với số câu lớn (20 câu)
     it('20 câu: tô đúng 18/20 → score = 9', () => {
       const key20: Record<number, 'A' | 'B' | 'C' | 'D'> = {}

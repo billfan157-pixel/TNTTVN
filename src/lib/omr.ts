@@ -46,6 +46,7 @@ export interface GrayImage {
 const DARK_THRESHOLD = 0.38
 const MIN_GAP = 0.08
 const MIN_FILL = 0.38
+const MIN_ANSWER_CONFIDENCE = 0.06
 const PAPER_SAMPLE_COLS = 24
 const PAPER_SAMPLE_ROWS = 18
 const PAPER_MIN_LUMA = 105
@@ -559,7 +560,6 @@ export function detectAnswersFromImage(
 
   const questions: OmrQuestionResult[] = []
   let rawCorrectCount = 0
-  let totalConfidence = 0
 
   for (let q = 1; q <= totalQuestions; q++) {
     const readings = questionReadingsMap[q] || []
@@ -572,7 +572,6 @@ export function detectAnswersFromImage(
     const isMultiFill = filledCount > 1
     const selectedAnswer = (!isBlank && !isMultiFill && top && top.coverage >= MIN_FILL) ? top.option : null
     const confidence = top ? top.coverage - second.coverage : 0
-    totalConfidence += confidence
 
     const correctAnswer = answerKey?.[q]
     const isCorrect = selectedAnswer && correctAnswer ? selectedAnswer === correctAnswer : undefined
@@ -590,10 +589,10 @@ export function detectAnswersFromImage(
     })
   }
 
-  const avgConfidence = totalQuestions > 0 ? totalConfidence / totalQuestions : 0
   const scaledScore = totalQuestions > 0 ? Math.round((rawCorrectCount / totalQuestions) * maxScore * 10) / 10 : 0
 
-  const answeredCount = questions.filter(q => q.selectedAnswer !== null).length
+  const answeredQuestions = questions.filter(q => q.selectedAnswer !== null)
+  const answeredCount = answeredQuestions.length
 
   // Reject if no questions were answered at all
   if (answeredCount === 0) {
@@ -608,14 +607,19 @@ export function detectAnswersFromImage(
     }
   }
 
-  // Reject if confidence is too low — likely bad scan
-  if (avgConfidence < 0.06) {
+  // Blank questions are legitimate and still count as wrong in `scaledScore`.
+  // They must not dilute the scan confidence: a clearly filled answer on a
+  // 50-question sheet is just as readable as one on a 4-question sheet.
+  const answeredConfidence = answeredQuestions.reduce((sum, question) => sum + question.confidence, 0) / answeredCount
+
+  // Reject if the answers that were actually detected are ambiguous.
+  if (answeredConfidence < MIN_ANSWER_CONFIDENCE) {
     return {
       ok: false,
       score: null,
       rawCorrectCount,
       totalQuestions,
-      confidence: avgConfidence,
+      confidence: answeredConfidence,
       questions,
       reason: 'LOW_CONFIDENCE',
     }
@@ -626,7 +630,7 @@ export function detectAnswersFromImage(
     score: scaledScore,
     rawCorrectCount,
     totalQuestions,
-    confidence: avgConfidence,
+    confidence: answeredConfidence,
     questions,
     reason: 'OK',
   }
