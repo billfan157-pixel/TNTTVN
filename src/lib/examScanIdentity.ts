@@ -1,6 +1,7 @@
 import type { ExamCodeScanResult } from './examCodeScanner'
 
-export const EXAM_CODE_LOCK_TTL_MS = 5_000
+/** Đủ thời gian để đưa QR lại gần camera rồi lùi ra căn toàn bộ khung OMR. */
+export const EXAM_CODE_LOCK_TTL_MS = 20_000
 
 export interface ExamCodeLock {
   sessionId: string

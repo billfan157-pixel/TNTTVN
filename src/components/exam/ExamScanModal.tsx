@@ -17,9 +17,10 @@ import {
 } from 'lucide-react'
 import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult } from '../../lib/omr'
 import { scanExamCode } from '../../lib/examCodeScanner'
-import { createManualExamIdentity, resolveExamIdentity, type ExamCodeLock } from '../../lib/examScanIdentity'
+import { createManualExamIdentity, EXAM_CODE_LOCK_TTL_MS, resolveExamIdentity, type ExamCodeLock } from '../../lib/examScanIdentity'
+import { advanceOmrConsensus, OMR_REQUIRED_CONFIRMATIONS, shouldAutoAnalyzeOmrFrame, type OmrConsensusState } from '../../lib/omrScanConsensus'
 import { getObjectCoverSourceRect } from '../../lib/cameraFrame'
-import { CORNER_MARKERS, QR_SIZE, QR_X, QR_Y } from '../../lib/answerSheetTemplate'
+import { CORNER_MARKERS } from '../../lib/answerSheetTemplate'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
 
@@ -69,6 +70,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const liveRef = useRef(false)
   const consecutiveNoCodeFramesRef = useRef(0)
   const codeLockRef = useRef<ExamCodeLock | null>(null)
+  const latestFrameRef = useRef<ImageData | null>(null)
+  const omrConsensusRef = useRef<OmrConsensusState | null>(null)
   const lastScanFailureRef = useRef(fixedStudent
     ? 'Chưa nhận diện được khung OMR trên phiếu.'
     : 'Không nhận diện được mã QR / Barcode trên phiếu.')
@@ -80,8 +83,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [scanHint, setScanHint] = useState(fixedStudent
-    ? `Đã chọn ${fixedStudent.name} — đang tìm khung OMR…`
-    : 'Đang tìm mã QR / Barcode…')
+    ? `Đã chọn ${fixedStudent.name} — căn khung OMR rồi bấm “Chụp & chấm”.`
+    : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
   const [codeLocked, setCodeLocked] = useState(false)
   const [batchMode, setBatchMode] = useState(false)
   const [scannedList, setScannedList] = useState<ScannedEntry[]>([])
@@ -93,6 +96,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     codeLockRef.current = fixedStudent
       ? createManualExamIdentity(sessionId, fixedStudent.id)
       : null
+    omrConsensusRef.current = null
     setCodeLocked(Boolean(fixedStudent))
   }, [fixedStudent, sessionId])
 
@@ -172,7 +176,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     })
   }
 
-  const processImageFrame = useCallback((frame: ImageData): boolean => {
+  const processImageFrame = useCallback((frame: ImageData, explicitCapture = false): boolean => {
     const now = Date.now()
     const activeLock = codeLockRef.current?.expiresAt && codeLockRef.current.expiresAt > now
       ? codeLockRef.current
@@ -182,6 +186,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     const codeResult = activeLock ? null : scanExamCode(frame)
     const identity = resolveExamIdentity(activeLock, codeResult, sessionId, now)
     codeLockRef.current = identity.lock
+
+    if (identity.kind === 'acquired') omrConsensusRef.current = null
 
     if (identity.kind === 'wrong_session') {
       setCodeLocked(false)
@@ -203,6 +209,14 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           : detectScoreFromImage(frame, maxScore)
 
         if (omr.ok && omr.score !== null) {
+          if (!explicitCapture && identity.lock.source !== 'manual') {
+            const consensus = advanceOmrConsensus(omrConsensusRef.current, omr, now)
+            omrConsensusRef.current = consensus.state
+            if (!consensus.confirmed) {
+              setScanHint(`Đã thấy khung OMR — giữ yên để xác nhận (${consensus.state.confirmations}/${OMR_REQUIRED_CONFIRMATIONS}).`)
+              return false
+            }
+          }
           resolveRef.current = true
           stopCamera()
           playFeedback()
@@ -212,20 +226,22 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           setPhase({ kind: 'detected', studentId: identity.lock.studentId, omr, frame })
           return true
         }
+        omrConsensusRef.current = null
         const message = identity.lock.source === 'manual'
           ? `Đã chọn ${fixedStudent?.name ?? identity.lock.studentId} — ${formatOmrFailReason(omr.reason)}`
-          : `Mã phiếu đã đọc và được giữ trong 5 giây — ${formatOmrFailReason(omr.reason)}`
+          : `Mã phiếu đã đọc và được giữ trong ${EXAM_CODE_LOCK_TTL_MS / 1_000} giây — ${formatOmrFailReason(omr.reason)}`
         lastScanFailureRef.current = message
         setScanHint(message)
       }
     } else {
+      omrConsensusRef.current = null
       setCodeLocked(false)
       consecutiveNoCodeFramesRef.current += 1
       const message = codeResult?.rawText
         ? 'Đã đọc được mã nhưng mã này không phải mã phiếu chấm điểm TNTT.'
         : consecutiveNoCodeFramesRef.current >= 4
-          ? 'Chưa đọc được mã QR / Barcode — đưa mã lại gần hơn, giữ nét và tránh chói sáng.'
-          : 'Đang tìm mã QR / Barcode…'
+          ? 'Chưa đọc được mã — đưa riêng QR vào gần camera, giữ nét và tránh chói sáng.'
+          : 'Bước 1/2 — đưa riêng mã QR lại gần camera.'
       lastScanFailureRef.current = message
       setScanHint(message)
     }
@@ -263,27 +279,44 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           }
           ctx.drawImage(video, source.sx, source.sy, source.sw, source.sh, 0, 0, targetW, targetH)
           const frame = ctx.getImageData(0, 0, targetW, targetH)
-          const handled = processImageFrame(frame)
-          if (handled) return
+          latestFrameRef.current = frame
+          // Chế độ đã chọn học sinh không được tự suy đoán từ camera. Chỉ phân
+          // tích frame khi người dùng chủ động bấm “Chụp & chấm”.
+          if (shouldAutoAnalyzeOmrFrame(Boolean(fixedStudent))) {
+            const handled = processImageFrame(frame)
+            if (handled) return
+          }
         }
       }
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
-  }, [processImageFrame])
+  }, [fixedStudent, processImageFrame])
+
+  const captureFixedStudentOmr = useCallback(() => {
+    if (!fixedStudent) return
+    const frame = latestFrameRef.current
+    if (!frame) {
+      setScanHint('Camera chưa sẵn sàng — chờ hình ảnh hiện rõ rồi bấm lại.')
+      return
+    }
+    setScanHint(`Đang phân tích khung OMR của ${fixedStudent.name}…`)
+    processImageFrame(frame, true)
+  }, [fixedStudent, processImageFrame])
 
   const startCamera = useCallback(async (mode: 'environment' | 'user' = facingMode) => {
     setCameraLoading(true)
     setPhase({ kind: 'scanning' })
     resolveRef.current = false
     resetIdentity()
+    latestFrameRef.current = null
     consecutiveNoCodeFramesRef.current = 0
     lastScanFailureRef.current = fixedStudent
       ? 'Chưa nhận diện được khung OMR trên phiếu.'
       : 'Không nhận diện được mã QR / Barcode trên phiếu.'
     setScanHint(fixedStudent
-      ? `Đã chọn ${fixedStudent.name} — đang tìm khung OMR…`
-      : 'Đang tìm mã QR / Barcode…')
+      ? `Đã chọn ${fixedStudent.name} — căn khung OMR rồi bấm “Chụp & chấm”.`
+      : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
 
     // Stop existing camera stream
     stopCamera()
@@ -337,6 +370,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         try {
           const track = stream.getVideoTracks()[0]
           const capabilities = (track as any)?.getCapabilities?.()
+          if (Array.isArray(capabilities?.focusMode) && capabilities.focusMode.includes('continuous')) {
+            await (track as any).applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+          }
           if (capabilities && 'torch' in capabilities) {
             setHasTorch(true)
           }
@@ -394,8 +430,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     setSaving(false)
     consecutiveNoCodeFramesRef.current = 0
     setScanHint(fixedStudent
-      ? `Đã chọn ${fixedStudent.name} — đang tìm khung OMR…`
-      : 'Đang tìm mã QR / Barcode…')
+      ? `Đã chọn ${fixedStudent.name} — căn khung OMR rồi bấm “Chụp & chấm”.`
+      : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
     setPhase({ kind: 'scanning' })
     await startCamera()
   }
@@ -442,7 +478,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       const frame = ctx.getImageData(0, 0, w, h)
       setCameraLoading(false)
 
-      const handled = processImageFrame(frame)
+      const handled = processImageFrame(frame, true)
       if (!handled) {
         setPhase({
           kind: 'error',
@@ -475,7 +511,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         answerMap['_confidence'] = String(Math.round(phase.omr.confidence * 100) / 100)
         answers = JSON.stringify(answerMap)
       }
-      await saveScores([{ studentId: phase.studentId, score, source: fixedStudent ? 'omr' : 'qr_scan', answers }])
+      const saveResult = await saveScores([{ studentId: phase.studentId, score, source: fixedStudent ? 'omr' : 'qr_scan', answers }])
+      // Không được báo “Đã lưu” hoặc đóng modal khi API/offline queue từ chối.
+      if (!saveResult) return
 
       const studentName = students.find(s => s.id === phase.studentId)?.fullName ?? phase.studentId
       setScannedList(prev => [...prev, { studentId: phase.studentId, studentName, score, timestamp: Date.now() }])
@@ -487,7 +525,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           resetIdentity()
           setSaved(false)
           setSaving(false)
-          setScanHint('Đang tìm mã QR / Barcode…')
+          setScanHint('Bước 1/2 — đưa riêng mã QR lại gần camera.')
           setPhase({ kind: 'scanning' })
           void startCamera()
         }, 600)
@@ -552,8 +590,13 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             </div>
           )}
 
-          {/* Khung A4 dùng cùng hệ toạ độ với marker phiếu rời. */}
-          {!cameraLoading && phase.kind === 'scanning' && <SheetAlignmentGuide examType={examType} skipIdentityCode={Boolean(fixedStudent)} />}
+          {!cameraLoading && phase.kind === 'scanning' && (
+            <SheetAlignmentGuide
+              examType={examType}
+              skipIdentityCode={Boolean(fixedStudent)}
+              identityLocked={codeLocked}
+            />
+          )}
 
           {/* Floating Controls inside Camera View */}
           {phase.kind === 'scanning' && !cameraLoading && (
@@ -584,10 +627,10 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
               <Info size={14} className="shrink-0" />
               <span className="flex flex-col gap-0.5">
                 <span>{fixedStudent
-                  ? `✓ Học sinh: ${fixedStudent.name} (${fixedStudent.code}) · Khung OMR: đang tìm`
+                  ? `✓ Học sinh: ${fixedStudent.name} (${fixedStudent.code}) · Chờ bạn chụp`
                   : codeLocked
-                    ? '✓ Mã phiếu: đã đọc · Khung OMR: đang tìm'
-                    : 'Mã phiếu: đang tìm · Khung OMR: chờ mã'}</span>
+                    ? '✓ Bước 1/2 xong · Bước 2/2: căn khung OMR'
+                    : 'Bước 1/2: quét cận cảnh QR · OMR chưa chạy'}</span>
                 <span className="font-medium opacity-95">{scanHint}</span>
               </span>
             </div>
@@ -759,7 +802,15 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 Quét liên tiếp
               </label> : <span className="text-xs font-bold text-emerald-600">Không cần QR</span>}
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {fixedStudent && phase.kind === 'scanning' && (
+                  <button
+                    className="btn btn-primary btn-sm flex items-center gap-1"
+                    onClick={captureFixedStudentOmr}
+                  >
+                    <Camera size={14} /> Chụp &amp; chấm
+                  </button>
+                )}
                 <button
                   className="btn btn-secondary btn-sm flex items-center gap-1"
                   onClick={() => fileInputRef.current?.click()}
@@ -826,6 +877,7 @@ function frameToDataUrl(imageData: ImageData): string {
 
 const OMR_FAIL_REASONS: Record<string, string> = {
   IMAGE_TOO_SMALL: 'Ảnh quá nhỏ — hãy đưa phiếu lại gần camera hơn',
+  NO_PAPER_SURFACE: 'Không thấy nền giấy hợp lệ — đưa khung đáp án trên tờ giấy vào camera',
   MISSING_MARKER_TL: 'Không thấy ô đen góc trên trái — căn lại 4 góc',
   MISSING_MARKER_TR: 'Không thấy ô đen góc trên phải — căn lại 4 góc',
   MISSING_MARKER_BR: 'Không thấy ô đen góc dưới phải — căn lại 4 góc',
@@ -842,43 +894,57 @@ function formatOmrFailReason(reason: string): string {
   return OMR_FAIL_REASONS[reason] || `Đang nhận diện (${reason})…`
 }
 
-/** Overlay chỉ hướng dẫn căn ảnh. Phiếu rời dùng toạ độ SSOT của marker;
- * đề gộp có khung OMR dịch theo nội dung nên không vẽ marker cố định giả. */
-const SheetAlignmentGuide: React.FC<{ examType: 'written' | 'multiple_choice'; skipIdentityCode?: boolean }> = ({ examType, skipIdentityCode = false }) => (
-  <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
-    <div className="relative h-[88%] aspect-[210/297] rounded-[3%] border border-dashed border-sky-300/80 bg-sky-950/10 shadow-[0_0_0_1px_rgba(255,255,255,0.12)]">
-      {!skipIdentityCode && (
-        <div
-          className="absolute rounded border border-dashed border-sky-300/90 bg-sky-400/10"
-          style={{ left: `${QR_X * 100}%`, top: `${QR_Y * 100}%`, width: `${QR_SIZE * 100}%`, height: `${QR_SIZE * 100}%` }}
-        >
-          <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-bold text-sky-100">QR / Barcode</span>
+/** Hướng dẫn hai pha: QR cần cận cảnh; OMR cần khung đáp án đủ lớn. */
+const SheetAlignmentGuide: React.FC<{
+  examType: 'written' | 'multiple_choice'
+  skipIdentityCode?: boolean
+  identityLocked?: boolean
+}> = ({ examType, skipIdentityCode = false, identityLocked = false }) => {
+  if (!skipIdentityCode && !identityLocked) {
+    return (
+      <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6">
+        <div className="relative w-[68%] aspect-square rounded-2xl border-2 border-dashed border-sky-300 bg-sky-950/10 shadow-[0_0_20px_rgba(125,211,252,0.25)]">
+          <div className="absolute inset-x-[-12%] -bottom-20 rounded-lg bg-black/75 px-3 py-2 text-center">
+            <p className="text-xs font-black text-white">Bước 1/2 · Đưa riêng mã QR vào khung</p>
+            <p className="mt-1 text-[10px] text-sky-200">Giữ gần và rõ nét; đọc xong app sẽ chuyển sang căn OMR</p>
+          </div>
         </div>
-      )}
+      </div>
+    )
+  }
 
-      {examType === 'written' ? CORNER_MARKERS.map(marker => (
-        <span
-          key={marker.id}
-          aria-hidden="true"
-          className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-[2px] border border-emerald-100 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.95)]"
-          style={{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }}
-        />
-      )) : (
-        <div className="absolute inset-x-[5%] top-[30%] bottom-[8%] rounded border border-dashed border-emerald-400/60 bg-emerald-950/10" />
-      )}
+  if (examType === 'multiple_choice') {
+    return (
+      <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
+        <div className="relative w-[92%] aspect-[5/1] rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10 shadow-[0_0_18px_rgba(52,211,153,0.2)]">
+          <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-emerald-100">
+            KHUNG ĐÁP ÁN OMR + 4 Ô ĐEN
+          </span>
+          <div className="absolute inset-x-0 -bottom-20 rounded-lg bg-black/75 px-3 py-2 text-center">
+            <p className="text-[11px] font-black text-white">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Lùi camera và căn khung đáp án'}</p>
+            <p className="mt-1 text-[9px] text-emerald-200">Không dùng khung lớn giả bao quanh phần câu hỏi bên dưới</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
-      <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/65 px-2 py-1.5 text-center backdrop-blur-xs">
-        <p className="text-[10px] font-bold leading-tight text-white">
-          {examType === 'written' ? 'Căn 4 chấm xanh vào 4 ô đen trên phiếu' : 'Giữ toàn bộ tờ A4 và 4 ô đen trong ảnh'}
-        </p>
-        <p className="mt-0.5 text-[9px] leading-tight text-emerald-200">
-          {skipIdentityCode
-            ? 'Đã chọn học sinh — camera chỉ cần nhận khung OMR, không cần QR'
-            : examType === 'written'
-              ? 'Chấm xanh mô phỏng đúng vị trí marker của phiếu rời'
-              : 'Đề gộp có khung OMR thay đổi theo nội dung — không căn theo marker giả'}
-        </p>
+  return (
+    <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
+      <div className="relative h-[88%] aspect-[210/297] rounded-[3%] border border-dashed border-sky-300/80 bg-sky-950/10 shadow-[0_0_0_1px_rgba(255,255,255,0.12)]">
+        {CORNER_MARKERS.map(marker => (
+          <span
+            key={marker.id}
+            aria-hidden="true"
+            className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-[2px] border border-emerald-100 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.95)]"
+            style={{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }}
+          />
+        ))}
+        <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1.5 text-center">
+          <p className="text-[10px] font-bold text-white">Căn 4 chấm xanh vào 4 ô đen trên phiếu</p>
+          <p className="mt-0.5 text-[9px] text-emerald-200">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Mã đã đọc, đang xác nhận OMR'}</p>
+        </div>
       </div>
     </div>
-  </div>
-)
+  )
+}

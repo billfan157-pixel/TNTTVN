@@ -43,6 +43,43 @@ function buildSheetImage(opts: { fill?: number } = {}): ImageData {
   return img
 }
 
+/** Cảnh nền nâu có bốn vật tối và một vùng tối trùng tọa độ template nhưng
+ * không hề có tờ giấy. Dùng để tái hiện false-positive từ camera điện thoại. */
+function buildNonPaperLookalike(fill = 8): ImageData {
+  const W = 800
+  const H = 1130
+  const img = FakeImageData(W, H)
+  const fillRectRgb = (x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number) => {
+    for (let y = Math.max(0, Math.floor(y0)); y < Math.min(H, Math.ceil(y1)); y++) {
+      for (let x = Math.max(0, Math.floor(x0)); x < Math.min(W, Math.ceil(x1)); x++) {
+        const i = (y * W + x) * 4
+        img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255
+      }
+    }
+  }
+  fillRectRgb(0, 0, W, H, 155, 92, 42)
+  const markerHalf = (CORNER_SIZE / 2) * Math.min(W, H)
+  for (const marker of CORNER_MARKERS) {
+    fillRectRgb(
+      marker.x * W - markerHalf,
+      marker.y * H - markerHalf,
+      marker.x * W + markerHalf,
+      marker.y * H + markerHalf,
+      8, 8, 8,
+    )
+  }
+  const cell = scoreToCell(fill)
+  const cellHalf = 0.028 * Math.min(W, H)
+  fillRectRgb(
+    cell.x * W - cellHalf,
+    cell.y * H - cellHalf,
+    cell.x * W + cellHalf,
+    cell.y * H + cellHalf,
+    15, 15, 15,
+  )
+  return img
+}
+
 /** Làm lệch ảnh (dịch + xoay nhỏ) — mô phỏng camera nghiêng. */
 function warpImage(img: ImageData, tx: number, ty: number, rot: number): ImageData {
   const W = img.width, H = img.height
@@ -70,6 +107,13 @@ describe('OMR detector (Phase 2 POC)', () => {
     const res = detectScoreFromImage(buildSheetImage())
     expect(res.ok).toBe(false)
     expect(res.reason).toBe('NO_CELL_FILLED')
+  })
+
+  it('nền không có giấy dù có vùng tối trùng template → bị chặn', () => {
+    const res = detectScoreFromImage(buildNonPaperLookalike(8))
+    expect(res.ok).toBe(false)
+    expect(res.score).toBeNull()
+    expect(res.reason).toBe('NO_PAPER_SURFACE')
   })
 
   it('ô 8 tô đen → detect score 8 confidence cao', () => {

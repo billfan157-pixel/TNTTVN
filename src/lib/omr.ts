@@ -46,6 +46,11 @@ export interface GrayImage {
 const DARK_THRESHOLD = 0.38
 const MIN_GAP = 0.08
 const MIN_FILL = 0.38
+const PAPER_SAMPLE_COLS = 24
+const PAPER_SAMPLE_ROWS = 18
+const PAPER_MIN_LUMA = 105
+const PAPER_MAX_CHANNEL_SPREAD = 70
+const PAPER_MIN_NEUTRAL_LIGHT_FRACTION = 0.38
 
 /** RGBA ImageData → grayscale luma. */
 export function toGrayscale(img: ImageData): GrayImage {
@@ -73,9 +78,11 @@ export function findMarker(
   expectX: number,
   expectY: number,
   sizePx: number,
-  searchMarginMultiplier = 3.5
+  searchMarginMultiplier = 3.5,
+  summedArea?: Uint32Array,
 ): MarkerHit | null {
-  const { width, height, data } = gray
+  const { width, height } = gray
+  const sat = summedArea ?? buildSummedArea(gray)
   const cx = expectX * width
   const cy = expectY * height
   const win = Math.max(14, sizePx * searchMarginMultiplier)
@@ -90,19 +97,13 @@ export function findMarker(
   let best: { x: number; y: number; cov: number } | null = null
   for (let yy = y0; yy < y1; yy++) {
     for (let xx = x0; xx < x1; xx++) {
-      let sum = 0
-      let cnt = 0
-      for (let dy = -half; dy <= half; dy++) {
-        const row = yy + dy
-        if (row < 0 || row >= height) continue
-        for (let dx = -half; dx <= half; dx++) {
-          const col = xx + dx
-          if (col < 0 || col >= width) continue
-          sum += data[row * width + col]
-          cnt++
-        }
-      }
+      const ax0 = Math.max(0, xx - half)
+      const ay0 = Math.max(0, yy - half)
+      const ax1 = Math.min(width, xx + half + 1)
+      const ay1 = Math.min(height, yy + half + 1)
+      const cnt = (ax1 - ax0) * (ay1 - ay0)
       if (cnt === 0) continue
+      const sum = windowSum(sat, width, ax0, ay0, ax1, ay1)
       const cov = 1 - sum / cnt / 255
       if (!best || cov > best.cov) best = { x: xx, y: yy, cov }
     }
@@ -167,9 +168,10 @@ function tryLocateMarkers(
   markerSizeRatio: number
 ): { markers: MarkerHit[]; sizePx: number } | null {
   const sizePx = markerSizeRatio * Math.min(gray.width, gray.height)
+  const sat = buildSummedArea(gray)
   const markers: MarkerHit[] = []
   for (const m of templateMarkers) {
-    const hit = findMarker(gray, m.id, m.x, m.y, sizePx)
+    const hit = findMarker(gray, m.id, m.x, m.y, sizePx, 3.5, sat)
     if (!hit) return null
     markers.push(hit)
   }
@@ -355,6 +357,44 @@ export function tryLocateIntegratedFrame(gray: GrayImage): IntegratedFrameLocati
 }
 
 /**
+ * Xác nhận bốn marker thực sự nằm trên một bề mặt giấy sáng/trung tính.
+ * Marker-only trước đây có thể ghép bốn vật tối trên bàn thành một phiếu giả.
+ * Lấy mẫu theo phép nội suy tứ giác để vẫn hoạt động khi tờ giấy bị phối cảnh.
+ */
+export function hasLikelyPaperSurface(img: ImageData, markers: MarkerHit[]): boolean {
+  if (markers.length !== 4 || !img?.data?.length) return false
+  const [tl, tr, br, bl] = markers
+  let neutralLight = 0
+  let sampled = 0
+
+  for (let row = 1; row < PAPER_SAMPLE_ROWS - 1; row++) {
+    const v = row / (PAPER_SAMPLE_ROWS - 1)
+    const leftX = tl.x + (bl.x - tl.x) * v
+    const leftY = tl.y + (bl.y - tl.y) * v
+    const rightX = tr.x + (br.x - tr.x) * v
+    const rightY = tr.y + (br.y - tr.y) * v
+
+    for (let col = 1; col < PAPER_SAMPLE_COLS - 1; col++) {
+      const u = col / (PAPER_SAMPLE_COLS - 1)
+      const x = Math.round(leftX + (rightX - leftX) * u)
+      const y = Math.round(leftY + (rightY - leftY) * u)
+      if (x < 0 || x >= img.width || y < 0 || y >= img.height) continue
+
+      const pixel = (y * img.width + x) * 4
+      const r = img.data[pixel]
+      const g = img.data[pixel + 1]
+      const b = img.data[pixel + 2]
+      const luma = 0.299 * r + 0.587 * g + 0.114 * b
+      const spread = Math.max(r, g, b) - Math.min(r, g, b)
+      sampled++
+      if (luma >= PAPER_MIN_LUMA && spread <= PAPER_MAX_CHANNEL_SPREAD) neutralLight++
+    }
+  }
+
+  return sampled > 0 && neutralLight / sampled >= PAPER_MIN_NEUTRAL_LIGHT_FRACTION
+}
+
+/**
  * Full pipeline: ảnh → 4 marker → homography → 11 cell coverage → score.
  */
 export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
@@ -376,6 +416,7 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
   }
 
   const { markers, sizePx } = located
+  if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
 
   // 2. Homography: normalized template → ảnh
   const src = activeTemplate.map(m => ({ x: m.x, y: m.y }))
@@ -474,6 +515,7 @@ export function detectAnswersFromImage(
   }
 
   const { markers, sizePx } = located
+  if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
 
   // 2. Homography: nguồn = rect khung (đo được) hoặc template → ảnh
   const src = frameRect
