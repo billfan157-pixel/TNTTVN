@@ -13,13 +13,14 @@ import { QuickScoreEntry } from './QuickScoreEntry'
 import { ExamResultsTable } from './ExamResultsTable'
 import { AnswerSheetModal } from './AnswerSheetModal'
 import { ExamScanModal } from './ExamScanModal'
+import { GuidedGradeModal, type GuidedGradeStudent } from './GuidedGradeModal'
 import { ExamImportModal } from './ExamImportModal'
 import { useToastStore } from '../../stores/toastStore'
 import { ExamPaperModal } from './ExamPaperModal'
 import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
-  ListChecks, X, Sparkles, BookOpen, FileText, RefreshCw,
+  ListChecks, X, Sparkles, FileText, RefreshCw,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion } from '../../types'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
@@ -121,6 +122,8 @@ export const ExamSessionView: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false)
   const [showPrintSheets, setShowPrintSheets] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
+  const [showGuidedGrade, setShowGuidedGrade] = useState(false)
+  const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
   const [showAnswerKeyModal, setShowAnswerKeyModal] = useState(false)
   const [rescoreLoading, setRescoreLoading] = useState(false)
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
@@ -295,7 +298,7 @@ export const ExamSessionView: React.FC = () => {
   }
 
   const handleSaveScore = async (studentId: string, score: number) => {
-    await saveScores([{ studentId, score, source: 'quick_entry' }])
+    return (await saveScores([{ studentId, score, source: 'quick_entry' }])) !== null
   }
 
   const handleRemoveResult = async (resultId: string) => {
@@ -500,9 +503,14 @@ export const ExamSessionView: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {canScan && activeSession.status === 'draft' && (
-                <button className="btn btn-primary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => setShowScanner(true)}>
-                  <ScanLine size={14} /> Quét Phiếu
-                </button>
+                <>
+                  <button className="btn btn-primary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => setShowGuidedGrade(true)} disabled={classStudents.length === 0}>
+                    <ListChecks size={14} /> Chấm Ổn Định
+                  </button>
+                  <button className="btn btn-secondary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
+                    <ScanLine size={14} /> Quét QR + OMR
+                  </button>
+                </>
               )}
               {activeSessionQuestions.length > 0 && (
                 <button
@@ -626,7 +634,22 @@ export const ExamSessionView: React.FC = () => {
             </div>
           )}
 
-      {/* Scan modal — Phase 2 & 4: quét phiếu trả lời */}
+      {showGuidedGrade && activeSession && (
+        <GuidedGradeModal
+          students={classStudents}
+          savedScores={savedScores}
+          maxScore={activeSession.maxScore}
+          onSave={handleSaveScore}
+          onScanOmr={student => {
+            setFixedScanStudent(student)
+            setShowGuidedGrade(false)
+            setShowScanner(true)
+          }}
+          onClose={() => setShowGuidedGrade(false)}
+        />
+      )}
+
+      {/* Scan modal — tự động QR+OMR hoặc OMR với học sinh đã chọn. */}
       {showScanner && activeSession && (
         <ExamScanModal
           sessionId={activeSession.id}
@@ -634,7 +657,8 @@ export const ExamSessionView: React.FC = () => {
           examType={activeSession.examType}
           questionCount={activeSession.questionCount}
           answerKey={parseAnswerKeySafe(activeSession.answerKey)}
-          onClose={() => setShowScanner(false)}
+          fixedStudent={fixedScanStudent ?? undefined}
+          onClose={() => { setShowScanner(false); setFixedScanStudent(null) }}
         />
       )}
 

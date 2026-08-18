@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveExamIdentity } from '../lib/examScanIdentity'
+import { createManualExamIdentity, resolveExamIdentity } from '../lib/examScanIdentity'
 import type { ExamCodeScanResult } from '../lib/examCodeScanner'
 
 const validCode: ExamCodeScanResult = {
@@ -32,5 +32,12 @@ describe('exam scan identity lock', () => {
       lock: null,
       scannedSessionId: 'EXS-12345678',
     })
+  })
+
+  it('giữ danh tính được chọn thủ công để quét OMR mà không cần QR', () => {
+    const manual = createManualExamIdentity('EXS-12345678', 'ST-abcdef12')
+    const result = resolveExamIdentity(manual, null, 'EXS-12345678', 99_999_999)
+    expect(result.kind).toBe('retained')
+    expect(result.lock).toMatchObject({ studentId: 'ST-abcdef12', source: 'manual' })
   })
 })

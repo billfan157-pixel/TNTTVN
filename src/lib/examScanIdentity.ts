@@ -5,7 +5,7 @@ export const EXAM_CODE_LOCK_TTL_MS = 5_000
 export interface ExamCodeLock {
   sessionId: string
   studentId: string
-  source: 'qr' | 'barcode'
+  source: 'qr' | 'barcode' | 'manual'
   expiresAt: number
 }
 
@@ -13,6 +13,16 @@ export type ExamIdentityResolution =
   | { kind: 'missing'; lock: null }
   | { kind: 'wrong_session'; lock: null; scannedSessionId: string }
   | { kind: 'acquired' | 'retained'; lock: ExamCodeLock }
+
+/** Danh tính do giáo lý viên chọn rõ ràng từ danh sách lớp, không cần QR. */
+export function createManualExamIdentity(sessionId: string, studentId: string): ExamCodeLock {
+  return {
+    sessionId,
+    studentId,
+    source: 'manual',
+    expiresAt: Number.POSITIVE_INFINITY,
+  }
+}
 
 /**
  * Giữ định danh QR/Barcode qua nhiều frame camera. QR và OMR không nhất thiết
