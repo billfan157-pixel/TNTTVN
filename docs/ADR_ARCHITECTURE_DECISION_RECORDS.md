@@ -479,6 +479,14 @@ Dự án chuyển sang dual-platform Capacitor 8 (ADR nền tảng: commit `7560
 - **Reversibility**: R1 (redeploy — xóa codemagic.yaml/ios/ là về trạng thái PWA-only, không mất chi phí cam kết).
 - **Verify**: YAML được kiểm tra schema bởi Codemagic UI khi thêm workflow; build web cục bộ `npm run build:frontend` pass; benchmark build iOS đầu tiên sẽ đo trên runner cloud (không đo được cục bộ).
 
+### Cập nhật (2026-08-19): GitHub Actions build IPA sideload (unsigned, không cần Apple Developer)
+
+- **Động lực**: Cần app native trên iPhone ngay, nhưng chưa có Apple Developer $99 và Codemagic workflow `ios` yêu cầu App Store Connect integration (bắt buộc Apple Developer). PWA đã hoạt động nhưng người dùng yêu cầu app native sideload.
+- **Quyết định**: Thêm workflow `.github/workflows/ios-ipa.yml` (trigger thủ công `workflow_dispatch`, runner `macos-15`) — build web (env `VITE_API_BASE=https://tnttvn-production.up.railway.app/api`) → `npx cap sync ios` → `xcodebuild archive` với `CODE_SIGNING_ALLOWED=NO` → đóng gói **IPA unsigned** (`Payload/App.app`) → upload artifact `tnttvn-ipa`. IPA unsigned cài qua **Sideloadly (Windows)** hoặc **AltStore** — hai công cụ này tự ký lại bằng Apple ID thường của người dùng khi cài. Không có `.entitlements` trong project (iOS deployment target 15.0, bundle id `com.tnttvn.app`) nên không vướng entitlement (push native không dùng — ADR-029 §3).
+- **So sánh (Decision Matrix GENERAL, lần này):** A) GH Actions unsigned IPA 8.2 vs B) dùng Codemagic TestFlight (chặn bởi chưa có Apple Developer — không gate được) vs C) PWA-only 8.5. Chọn **A**: không phụ thuộc dịch vụ ngoài (giữ nguyên repo), R0 reversibility (xóa workflow là hết), chi phí macOS runner GH Actions (public repo free; private repo tính phí phút macOS). Codemagic vẫn là pipeline chính thức cho TestFlight/App Store khi có Apple Developer — **không xung đột ADR-029**, chỉ bổ sung đường sideload.
+- **Giới hạn (ghi rõ)**: tài khoản Apple ID free phải **re-sign mỗi 7 ngày** (AltStore tự re-sign qua Wi-Fi khi AltServer chạy), tối đa 3 app/Apple ID; app cài qua sideload không có push (đã disable trên native) và không qua App Store.
+- **Verify**: `yaml-lint` pass workflow; đã build thành công chuỗi web + `cap sync ios` + Android `assembleDebug` cục bộ (cùng công cụ chain); build IPA đầu tiên đo trên runner (không build được cục bộ vì thiếu macOS).
+
 ## ADR-030: Hợp Nhất Design System — Token `index.css` Làm SSOT Duy Nhất (2026-08-13)
 
 ### Context

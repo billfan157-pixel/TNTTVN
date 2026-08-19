@@ -1,0 +1,76 @@
+# GitHub Actions — iOS IPA (Sideload, unsigned)
+#
+# Build file .ipa KHÔNG ký (unsigned) từ repo để cài sideload trên iPhone
+# qua Sideloadly / AltStore bằng Apple ID thường (free):
+#   - Không cần Apple Developer $99, không cần certificate
+#   - Sideloadly/AltStore sẽ tự ký lại bằng Apple ID khi cài
+#   - Lưu ý: tài khoản free phải re-sign lại mỗi 7 ngày (AltStore có thể
+#     tự re-sign qua Wi-Fi); tối đa 3 app trên cùng Apple ID
+#
+# Cách dùng:
+#   1. Commit + push file này lên GitHub
+#   2. GitHub → Actions → "iOS IPA Build (Sideload)" → Run workflow
+#   3. Tải artifact `tnttvn-ipa` → cài qua Sideloadly (Windows) hoặc AltStore
+#
+# Pipeline chính thức (TestFlight/App Store) vẫn dùng Codemagic — xem
+# codemagic.yaml + ADR-029.
+
+name: iOS IPA Build (Sideload)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+
+    env:
+      VITE_API_BASE: https://tnttvn-production.up.railway.app/api
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --allow-remote=all
+
+      - name: Build Web Assets (production)
+        run: npm run build:frontend
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: Archive App (no code signing)
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_ENTITLEMENTS=""
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/App.xcarchive/Products/Applications/App.app build/ipa/Payload/
+          cd build/ipa && zip -qry ../tnttvn-sideload-unsigned.ipa Payload
+          ls -lh ../tnttvn-sideload-unsigned.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tnttvn-ipa
+          path: build/tnttvn-sideload-unsigned.ipa
+          retention-days: 30
+          if-no-files-found: error

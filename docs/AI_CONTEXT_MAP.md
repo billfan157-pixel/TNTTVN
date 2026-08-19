@@ -37,6 +37,7 @@ When starting a task, AI Agents MUST read documents in the following order:
 | **Domain Business Rules** | [`docs/BUSINESS_RULES.md`](./BUSINESS_RULES.md) | `server/src/services/AttendanceApplicationService.ts`, `PromotionApplicationService.ts`, `AcademicYearLifecycleService.ts` |
 | **Import / Export** | [`docs/IMPORT_EXPORT_SPECIFICATION.md`](./IMPORT_EXPORT_SPECIFICATION.md) | `src/utils/excelParser.ts`, `excelGradeParser.ts`, `excelImporter.ts` |
 | **Deployment & Docker** | [`docs/DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) | `Dockerfile`, `docker-compose.yml`, `nginx.conf` |
+| **CI/CD (Web + Native)** | `.github/workflows/ci.yml` (lint/test/build), `.github/workflows/ios-ipa.yml` (IPA unsigned sideload, ADR-029 amendment 2026-08-19), `codemagic.yaml` (TestFlight/App Store + Android APK, ADR-029) | `dist/`, `android/`, `ios/`, `capacitor.config.json` |
 | **UI Design System (SSOT, ADR-030/032)** | [`docs/03_DESIGN_SYSTEM.md`](./03_DESIGN_SYSTEM.md) — token + component classes (định nghĩa code tại `src/index.css`) | `src/index.css`, `src/components/*`, `src/pages/*` |
 
 ---
