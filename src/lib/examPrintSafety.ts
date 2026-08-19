@@ -17,6 +17,7 @@ const OMR_MARKER_STYLE_PATTERN = /\.omr-corner-marker\s*\{[^}]*\}/gi
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
 const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^\"]*)?)">([ABCD])<\/span>/g
 const FULL_PAGE_BUBBLE_LABEL_PATTERN = /<text\s+x="[^"]+"\s+y="[^"]+"\s+font-size="[^"]+"\s+font-weight="600"\s+fill="#64748B"\s+text-anchor="middle"\s+dominant-baseline="central">([ABCD])<\/text>/g
+const FULL_PAGE_SCORE_LABEL_PATTERN = /<text\s+x="([^"]+)"\s+y="([^"]+)"\s+font-size="18"\s+font-weight="800"\s+fill="#0F172A"\s+text-anchor="middle"\s+dominant-baseline="central">(\d+)<\/text>/g
 const GUIDE_PATTERN = /\* Bút xanh\/đen hoặc chì đậm; tô kín 01 ô \(A, B, C, D\):/g
 const BATCH_PRINT_SAFE_MARGIN_STYLE = `<style data-omr-batch-safe-margin>
 @media print {
@@ -132,19 +133,30 @@ export function convertIntegratedMarkersToForegroundSvg(html: string): string {
   ))
 }
 
+/** Move written 0..10 labels above their boxes while preserving every scan center. */
+function moveFullPageScoreLabelsOutsideRoi(html: string): string {
+  return html.replace(FULL_PAGE_SCORE_LABEL_PATTERN, (whole, x: string, y: string, score: string) => {
+    const numericY = Number(y)
+    if (!Number.isFinite(numericY)) return whole
+    const labelY = Math.round((numericY - 30) * 100) / 100
+    return `<text x="${x}" y="${labelY}" font-size="12" font-weight="800" fill="#0F172A" text-anchor="middle">${score}</text>`
+  })
+}
+
 /**
  * Printed option glyphs used to sit exactly in detector core disks. ROI-based
  * darkness measurement then sees baseline ink even when no answer is marked.
- * Keep every bubble/circle element and its geometry unchanged, but remove A/B/C/D
- * glyphs from both integrated HTML bubbles and full-page SVG circles. Integrated
- * forms retain semantics through aria-label; all forms use left→right A,B,C,D.
+ * Keep every bubble/circle/score-box center unchanged, but remove A/B/C/D glyphs
+ * from option cores and move written score labels above their boxes. Integrated
+ * forms retain semantics through aria-label; all MC forms use left→right A,B,C,D.
  */
 export function cleanIntegratedBubbleRoi(html: string): string {
   const withoutIntegratedGlyphs = html.replace(BUBBLE_LABEL_PATTERN, (_whole, className: string, option: string) => (
     `<span class="${className}" aria-label="${option}"></span>`
   ))
   const withoutFullPageGlyphs = withoutIntegratedGlyphs.replace(FULL_PAGE_BUBBLE_LABEL_PATTERN, '')
-  return withoutFullPageGlyphs.replace(
+  const cleanWrittenScoreRoi = moveFullPageScoreLabelsOutsideRoi(withoutFullPageGlyphs)
+  return cleanWrittenScoreRoi.replace(
     GUIDE_PATTERN,
     '* Bút xanh/đen hoặc chì đậm; tô kín 01 ô — 4 ô từ trái sang phải lần lượt là A, B, C, D:'
   )
