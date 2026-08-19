@@ -211,7 +211,10 @@ function calibrateMcThresholds(readings: OmrOptionReading[]): { fill: number; we
 
   const adaptiveFill = baseline + separation * 0.54
   const fill = Math.max(ADAPTIVE_FILL_MIN, Math.min(ADAPTIVE_FILL_MAX, adaptiveFill))
-  const weak = Math.max(0.20, Math.min(0.25, fill - 0.17))
+  // Fail-safe: adaptive calibration may lower the weak-mark threshold when the
+  // sheet is unusually clean, but it must never RAISE it above the production
+  // weak floor. Raising it silently turns a meaningful faint mark into “blank”.
+  const weak = Math.max(0.20, Math.min(MIN_WEAK_FILL, fill - 0.17))
   return { fill, weak }
 }
 
@@ -477,7 +480,12 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
     if (!isFinite(center.x) || !isFinite(center.y)) return fail('CELL_OUT_OF_IMAGE')
     const px = center.x * gray.width
     const py = center.y * gray.height
-    const r = Math.max(1.5, sizePx * 0.22)
+    // Written-score cells are 36px boxes at the reference render. A small MC-like
+    // radius puts the local-background annulus inside the same filled box, which
+    // cancels the very contrast we are trying to measure. Expand the written
+    // radius so the core remains inside the cell while the annulus samples paper
+    // outside the box; score-cell spacing leaves ample separation at this scale.
+    const r = Math.max(1.5, sizePx * 0.45)
     readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r) })
   }
 
