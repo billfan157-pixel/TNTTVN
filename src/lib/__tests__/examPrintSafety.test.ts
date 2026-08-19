@@ -43,11 +43,11 @@ describe('examPrintSafety', () => {
   })
 
   it.each([
-    [1, 1, 3],
-    [1, 3, 2],
-    [2, 3, 4],
-    [1, 2, 4],
-  ])('fails closed for duplicate/gap/reordered OMR indexes: %j', indexes => {
+    { indexes: [1, 1, 3] },
+    { indexes: [1, 3, 2] },
+    { indexes: [2, 3, 4] },
+    { indexes: [1, 2, 4] },
+  ])('fails closed for duplicate/gap/reordered OMR indexes: $indexes', ({ indexes }) => {
     expect(() => assertContiguousOmrQuestionRows(rows(indexes))).toThrow(ExamPrintIntegrityError)
   })
 
