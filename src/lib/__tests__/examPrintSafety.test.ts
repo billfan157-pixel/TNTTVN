@@ -92,6 +92,17 @@ describe('examPrintSafety', () => {
     expect(clean).not.toContain('dominant-baseline="central">B</text>')
   })
 
+  it('moves written score labels above the boxes without changing scan-box geometry', () => {
+    const html = `
+      <rect x="82" y="182" width="36" height="36" rx="7" fill="#FFFFFF" stroke="#1E293B" stroke-width="2" />
+      <text x="100" y="200" font-size="18" font-weight="800" fill="#0F172A" text-anchor="middle" dominant-baseline="central">8</text>
+    `
+    const clean = cleanIntegratedBubbleRoi(html)
+    expect(clean).toContain('<rect x="82" y="182" width="36" height="36"')
+    expect(clean).toContain('<text x="100" y="170" font-size="12" font-weight="800" fill="#0F172A" text-anchor="middle">8</text>')
+    expect(clean).not.toContain('y="200" font-size="18"')
+  })
+
   it('removes homography markers from teacher answer key', () => {
     const html = `<div>ĐÁP ÁN GLV — KHÔNG CHẤM</div>${markers}${rows([1, 2])}`
     const safe = invalidateTeacherAnswerKeyOmr(html)
