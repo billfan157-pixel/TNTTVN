@@ -377,7 +377,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
   return `
     @page {
       size: A4 portrait;
-      margin: 12mm 8mm 10mm 8mm;
+      margin: 10mm 8mm 8mm 8mm;
     }
     * {
       box-sizing: border-box;
@@ -397,8 +397,10 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       max-width: 210mm;
       margin: 0 auto;
       position: relative;
-      /* Lề ngang 8mm và lề trên 4mm để đẩy nội dung đề thi xuống dưới, tránh bị sát mép viền trên giấy in */
-      padding: 4mm 8mm 0 8mm;
+      /* Lề ngang 8mm — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
+         khung integrated nằm lệch ra ngoài theo INTEGRATED_MARKER_SIZE; không có lề này marker
+         TL/BL bị clip mép giấy → không bao giờ quét được phiếu in đơn. */
+      padding: 0 8mm;
     }
     .watermark {
       position: absolute;
