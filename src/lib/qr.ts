@@ -55,6 +55,11 @@ function v3ChecksumInput(sessionId: string, studentId: string, mode: 'I' | 'F', 
   return `${v2ChecksumInput(sessionId, studentId, mode, questionCount)}|${examVersion}`
 }
 
+function isReservedLegacyExamIdentity(studentId: string): boolean {
+  const normalized = studentId.trim().toUpperCase()
+  return normalized === 'GENERIC' || normalized === 'KEY' || normalized.startsWith('KEY:')
+}
+
 export function buildExamQrPayload(
   sessionId: string,
   studentId: string,
@@ -156,7 +161,12 @@ export function parseExamQrPayload(payload: string): ParsedExamQrPayload | null 
     }
   }
   if (parts.length < 3 || parts[0] !== EXAM_QR_PREFIX) return null
-  return { sessionId: parts[1], studentId: parts.slice(2).join(':') }
+  const studentId = parts.slice(2).join(':')
+  // `GENERIC` (mẫu chung) và `KEY:*` (đáp án GLV) là namespace tài liệu,
+  // không bao giờ là danh tính học sinh. Fail-closed ngay tại parser để mọi
+  // scanner path (live, batch, fixed-student/manual) cùng có semantics an toàn.
+  if (isReservedLegacyExamIdentity(studentId)) return null
+  return { sessionId: parts[1], studentId }
 }
 
 export function parseCertificateQrPayload(payload: string): { certId: string; studentId: string; certType: 'completion' | 'promotion' } | null {
