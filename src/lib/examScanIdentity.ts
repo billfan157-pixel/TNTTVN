@@ -1,8 +1,11 @@
 import type { ExamCodeScanResult } from './examCodeScanner'
 import type { ExamFormTemplateMode, ExamVersionCode } from './qr'
 
-/** Đủ thời gian để đưa QR lại gần camera rồi lùi ra căn toàn bộ khung OMR. */
-export const EXAM_CODE_LOCK_TTL_MS = 20_000
+/**
+ * Đủ thời gian để đưa QR lại gần camera rồi lùi ra căn khung OMR, nhưng ngắn
+ * hơn đáng kể so với 20s cũ để giảm cửa sổ gán đáp án của tờ kế tiếp vào học sinh trước.
+ */
+export const EXAM_CODE_LOCK_TTL_MS = 8_000
 
 export interface ExamCodeLock {
   sessionId: string
