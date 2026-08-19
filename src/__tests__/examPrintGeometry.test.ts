@@ -82,10 +82,27 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
           const rect = element.getBoundingClientRect()
           return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
         }
+        const bounds = (element: Element) => {
+          const rect = element.getBoundingClientRect()
+          return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }
+        }
         const markers = ['tl', 'tr', 'br', 'bl'].map(id => center(document.querySelector(`.omr-marker-${id}`)!))
+        const frameElement = document.querySelector('.omr-frame')!
+        const gridElement = document.querySelector('.answer-grid-container')!
         const rows = Array.from(document.querySelectorAll('.grid-q-row'))
         const bubbles = rows.map(row => Array.from(row.querySelectorAll('.bubble')).map(center))
-        return { width: innerWidth, height: innerHeight, markers, bubbles }
+        const bubbleBounds = rows.map(row => Array.from(row.querySelectorAll('.bubble')).map(bounds))
+        return {
+          width: innerWidth,
+          height: innerHeight,
+          markers,
+          bubbles,
+          frameBounds: bounds(frameElement),
+          gridBounds: bounds(gridElement),
+          rowBounds: rows.map(bounds),
+          bubbleBounds,
+          documentOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        }
       })
 
       expect(measured.markers).toHaveLength(4)
@@ -109,6 +126,25 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
           expect(Math.abs(expected.y * measured.height - actual.y), `Q${q}${options[optionIndex]} Y`).toBeLessThanOrEqual(2)
         }
       }
+
+      // Regression for the 50-question overflow shown in the real print preview:
+      // CSS Grid must never let min-content widen the 8-column OMR strip beyond
+      // the homography frame. Check real DOMRect edges, not only bubble centers.
+      const tolerance = 1
+      expect(measured.gridBounds.left).toBeGreaterThanOrEqual(measured.frameBounds.left - tolerance)
+      expect(measured.gridBounds.right).toBeLessThanOrEqual(measured.frameBounds.right + tolerance)
+      for (const [index, row] of measured.rowBounds.entries()) {
+        expect(row.left, `Q${index + 1} row left`).toBeGreaterThanOrEqual(measured.frameBounds.left - tolerance)
+        expect(row.right, `Q${index + 1} row right`).toBeLessThanOrEqual(measured.frameBounds.right + tolerance)
+      }
+      for (let rowIndex = 0; rowIndex < measured.bubbleBounds.length; rowIndex++) {
+        for (let optionIndex = 0; optionIndex < measured.bubbleBounds[rowIndex].length; optionIndex++) {
+          const bubble = measured.bubbleBounds[rowIndex][optionIndex]
+          expect(bubble.left, `Q${rowIndex + 1}${options[optionIndex]} left`).toBeGreaterThanOrEqual(measured.frameBounds.left - tolerance)
+          expect(bubble.right, `Q${rowIndex + 1}${options[optionIndex]} right`).toBeLessThanOrEqual(measured.frameBounds.right + tolerance)
+        }
+      }
+      expect(measured.documentOverflowX).toBeLessThanOrEqual(1)
 
       // DOM geometry must be checked at every layout boundary. Producing the
       // exact same A4 PDF eleven times adds minutes of Chromium work without
