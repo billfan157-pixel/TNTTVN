@@ -772,8 +772,9 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
   } = options
 
   const title = `Đề Thi & Phiếu Trả Lời — ${subject} (${classLabel})`
+  const effectiveQuestions = [...questions].sort((a, b) => (a.index || 0) - (b.index || 0))
 
-  const questionsHtml = questions.map((q) => {
+  const questionsHtml = effectiveQuestions.map((q) => {
     const isA = q.correctOption === 'A' && showAnswerKey
     const isB = q.correctOption === 'B' && showAnswerKey
     const isC = q.correctOption === 'C' && showAnswerKey
@@ -803,19 +804,24 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
   }).join('')
 
   // Sinh QR code định danh dạng Base64 Data URL (tương thích 100% cả trình duyệt, in ấn, PDF và Microsoft Word)
-  const qrPayload = student
-    ? buildExamQrPayload(sessionId, student.id, {
-        templateMode: 'integrated',
-        questionCount: Math.max(1, questions.length),
-        examVersion,
-      })
-    : `tntt-exam:${sessionId}:GENERIC`
+  // P0 Guard: Nếu là bản Đáp Án GLV hoặc không có khung OMR (includeAnswerGrid = false), không encode templateMode: 'integrated'
+  const qrPayload = showAnswerKey
+    ? `tntt-exam:${sessionId}:KEY:${examVersion}`
+    : student
+      ? (includeAnswerGrid && effectiveQuestions.length > 0
+          ? buildExamQrPayload(sessionId, student.id, {
+              templateMode: 'integrated',
+              questionCount: Math.max(1, effectiveQuestions.length),
+              examVersion,
+            })
+          : buildExamQrPayload(sessionId, student.id))
+      : `tntt-exam:${sessionId}:GENERIC`
   const qrDataUrl = generateExamQrDataUrl(qrPayload, 4)
 
   // Bảng ma trận phiếu trả lời trắc nghiệm tích hợp (gộp trực tiếp trên tờ đề)
   let answerGridHtml = ''
-  if (includeAnswerGrid && questions.length > 0) {
-    const totalQ = questions.length
+  if (includeAnswerGrid && effectiveQuestions.length > 0) {
+    const totalQ = effectiveQuestions.length
     // A-NEW-50: số cột lấy từ SSOT (5 cột ≤20 câu, 8 cột 21..50 câu) — detector
     // `integratedMcCells` dùng đúng cùng con số này để quét khớp từng bubble.
     const gridCols = integratedGridCols(totalQ)
@@ -839,7 +845,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           <div class="omr-corner-marker omr-marker-br" title="Marker BR"></div>
 
           <div class="answer-grid-container" style="grid-template-columns: repeat(${gridCols}, 1fr);">
-            ${questions.map((q) => {
+            ${effectiveQuestions.map((q) => {
               const correct = q.correctOption
               return `
                 <div class="grid-q-row">
@@ -859,29 +865,35 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     `
   }
 
-  const answerKeyTableHtml = showAnswerKey ? `
-    <div class="answer-key-summary">
-      <div class="key-header">BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN (${questions.length} CÂU)</div>
-      <div class="key-grid">
-        ${questions.map(q => `
-          <div class="key-cell">
-            <span class="key-q">C${q.index}:</span>
-            <span class="key-ans">${q.correctOption}</span>
-          </div>
-        `).join('')}
-      </div>
-      ${options.includeExplanations && questions.some(q => Boolean(q.explanation)) ? `
-        <div class="explanations-wrapper" style="margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
-          <div style="font-weight: bold; color: #1e3a8a; font-size: 10pt; margin-bottom: 4px;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
-          ${questions.filter(q => Boolean(q.explanation)).map(q => `
-            <div style="font-size: 9.5pt; margin-bottom: 3px; line-height: 1.3;">
-              <strong>Câu ${q.index} (${q.correctOption}):</strong> <em>${escapeHtml(q.explanation || '')}</em>
+  // Bảng đáp án chuẩn tóm tắt (nếu bật chế độ Hiện Đáp Án)
+  let answerKeyTableHtml = ''
+  if (showAnswerKey && effectiveQuestions.length > 0) {
+    answerKeyTableHtml = `
+      <div class="answer-key-summary">
+        <div class="key-header">
+          📋 BẢNG ĐÁP ÁN CHUẨN — MÃ ĐỀ: <strong>${examVersion}</strong> (${effectiveQuestions.length} CÂU)
+        </div>
+        <div class="key-grid">
+          ${effectiveQuestions.map(q => `
+            <div class="key-cell">
+              <span class="key-q">C${q.index}:</span>
+              <span class="key-ans">${q.correctOption}</span>
             </div>
           `).join('')}
         </div>
-      ` : ''}
-    </div>
-  ` : ''
+        ${options.includeExplanations && effectiveQuestions.some(q => Boolean(q.explanation)) ? `
+          <div class="explanations-wrapper" style="margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+            <div style="font-weight: bold; color: #1e3a8a; font-size: 10pt; margin-bottom: 4px;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
+            ${effectiveQuestions.filter(q => Boolean(q.explanation)).map(q => `
+              <div style="font-size: 9.5pt; margin-bottom: 3px; line-height: 1.3;">
+                <strong>Câu ${q.index} (${q.correctOption}):</strong> <em>${escapeHtml(q.explanation || '')}</em>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `
+  }
 
   const styles = getExamPaperStyles(layoutColumns, includeGradingBox)
 
@@ -916,7 +928,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
 <body>
   <div class="Section1">
     <div class="exam-paper-container">
-      <div class="watermark">${escapeHtml(parishName || 'TNTT')}</div>
+      <div class="watermark">${escapeHtml(showAnswerKey ? 'ĐÁP ÁN GIÁO VIÊN' : (parishName || 'TNTT'))}</div>
       <div class="paper-header">
         <div class="header-left">
           <div class="org-top">${escapeHtml(dioceseName)}</div>
@@ -927,13 +939,13 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
         <div class="header-right">
           <div class="exam-title">${escapeHtml(subject)}</div>
           <div class="exam-sub">Niên Khóa: ${escapeHtml(academicYear)}</div>
-          <div class="exam-time">Thời gian: ${durationMinutes} phút (${questions.length} câu)</div>
+          <div class="exam-time">Thời gian: ${durationMinutes} phút (${effectiveQuestions.length} câu)</div>
         </div>
         <div class="header-qr-zone">
           <div class="qr-box">
             <img src="${qrDataUrl}" width="105" height="105" alt="QR" style="display: block; width: 105px; height: 105px; margin: 0 auto;" />
           </div>
-          <div class="qr-label">MÃ QUÉT TỰ ĐỘNG</div>
+          <div class="qr-label">${showAnswerKey ? 'ĐÁP ÁN GLV — KHÔNG CHẤM' : 'MÃ QUÉT TỰ ĐỘNG'}</div>
         </div>
       </div>
 
@@ -1002,6 +1014,11 @@ export function buildBatchExamPapersHtml(
   const { layoutColumns = 2, includeGradingBox = true, subject, classLabel } = options
   const title = `Đề Thi & Phiếu Trả Lời Hàng Loạt — ${subject} (${classLabel})`
   const baseStyles = getExamPaperStyles(layoutColumns, includeGradingBox)
+
+  // P0 Guard: Không bao giờ in hàng loạt đề thi kèm đáp án và mã QR học sinh (tránh gian lận điểm)
+  if (options.showAnswerKey) {
+    return buildExamPaperHtml(options)
+  }
 
   const pagesHtml = students.map((student) => {
     const singleHtml = buildExamPaperHtml({

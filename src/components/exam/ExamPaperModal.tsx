@@ -81,12 +81,21 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }, [answerVariants, answerKey, questions.length])
 
   const availableVersions = useMemo(() => {
-    return EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
+    const list = EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
+    return list.length > 0 ? list : (['A'] as ExamVersionCode[])
   }, [variants])
+
+  // P0 Guard: Tự động chuyển về Mẫu Chung (single) khi bật Hiện Đáp Án
+  useEffect(() => {
+    if (showAnswerKey && printMode === 'batch') {
+      setPrintMode('single')
+    }
+  }, [showAnswerKey, printMode])
 
   const effectiveQuestions = useMemo(() => {
     const activeKey = variants[selectedVersion] || answerKey || {}
-    return questions.map((q, idx) => {
+    const sorted = [...questions].sort((a, b) => (a.index || 0) - (b.index || 0))
+    return sorted.map((q, idx) => {
       const qNum = q.index || idx + 1
       return {
         ...q,
@@ -349,11 +358,22 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
                 <button
                   type="button"
-                  onClick={() => setPrintMode('batch')}
+                  onClick={() => {
+                    if (!showAnswerKey) setPrintMode('batch')
+                  }}
+                  disabled={showAnswerKey}
                   className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
-                    printMode === 'batch' ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                    showAnswerKey
+                      ? 'opacity-40 cursor-not-allowed text-text-muted'
+                      : printMode === 'batch'
+                        ? 'bg-parish-primary text-white'
+                        : 'text-text-muted hover:text-text-main'
                   }`}
-                  title="In cho từng học sinh, mỗi em có mã QR và họ tên riêng"
+                  title={
+                    showAnswerKey
+                      ? 'Không thể in cả lớp ở chế độ Hiện Đáp Án (đáp án chỉ dành cho Giáo Lý Viên)'
+                      : 'In cho từng học sinh, mỗi em có mã QR và họ tên riêng'
+                  }
                 >
                   <Users size={13} /> In Cả Lớp ({students.length} em)
                 </button>
@@ -371,13 +391,13 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
             )}
 
             {/* Mã Đề Selector */}
-            {docType !== 'qr_sheet' && (availableVersions.length > 1 || docType === 'answer_sheet') && (
+            {docType !== 'qr_sheet' && availableVersions.length > 1 && (
               <div className="flex items-center gap-1.5 text-xs">
                 <span className="text-text-muted font-semibold flex items-center gap-1">
                   <Layers3 size={13} /> Mã Đề:
                 </span>
                 <div className="flex bg-surface-card rounded-lg border border-surface-border p-0.5">
-                  {(docType === 'answer_sheet' ? EXAM_VERSION_CODES : availableVersions).map(code => (
+                  {availableVersions.map(code => (
                     <button
                       key={code}
                       type="button"
@@ -518,7 +538,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                   type="button"
                   onClick={handleDownloadWord}
                   className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
-                  title="Xuất bản đề thi Microsoft Word (.doc) chuẩn OMR"
+                  title="Xuất file Word (.doc) để chỉnh sửa câu hỏi (khuyến khích in trực tiếp hoặc xuất PDF để đảm bảo chuẩn OMR)"
                 >
                   <FileText size={14} className="text-blue-600" /> {printMode === 'batch' && students.length > 0 ? `Xuất Word (${students.length} Bản)` : 'Xuất Word'}
                 </button>
