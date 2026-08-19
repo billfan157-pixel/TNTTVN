@@ -680,10 +680,10 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       ${layoutColumns === 2 ? 'column-count: 2; column-gap: 14px; column-rule: 1px dashed #cbd5e1;' : ''}
     }
     .question-block {
-      margin-bottom: 7px;
+      margin-bottom: 5px;
       break-inside: avoid;
       page-break-inside: avoid;
-      font-size: 11pt;
+      font-size: 10.5pt;
     }
     .question-title {
       font-weight: normal;
