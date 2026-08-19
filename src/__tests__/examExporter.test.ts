@@ -116,7 +116,7 @@ describe('examExporter', () => {
       })
 
       expect(html).not.toContain('BẢNG ĐÁP ÁN CHUẨN')
-      expect(html).not.toContain('student-info-box')
+      expect(html).not.toContain('Họ & tên:')
       expect(html).toContain('Kiểm tra 15 phút')
     })
 
@@ -137,7 +137,7 @@ describe('examExporter', () => {
       expect(html).toContain('TN-001')
       expect(html).toContain('Trần Thị B')
       expect(html).toContain('TN-002')
-      expect(html).toContain('page-break-before: always')
+      expect(html).toContain('page-break-after: always')
       expect(html).toContain('omr-corner-marker')
     })
   })

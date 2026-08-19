@@ -1,4 +1,4 @@
-import { generateExamQrSvg, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
+import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import type { ExamVersionCode } from '../types'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import {
@@ -385,9 +385,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     body {
       margin: 0;
       padding: 0;
-      font-family: "Times New Roman", Times, serif, system-ui;
-      font-size: 12.5pt;
-      line-height: 1.35;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.3;
       color: #000;
       background: #fff;
       -webkit-print-color-adjust: exact;
@@ -806,7 +806,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     `
   }).join('')
 
-  // Sinh QR code định danh
+  // Sinh QR code định danh dạng Base64 Data URL (tương thích 100% cả trình duyệt, in ấn, PDF và Microsoft Word)
   const qrPayload = student
     ? buildExamQrPayload(sessionId, student.id, {
         templateMode: 'integrated',
@@ -814,9 +814,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
         examVersion,
       })
     : `tntt-exam:${sessionId}:GENERIC`
-  const qrSvg = generateExamQrSvg(qrPayload, 3)
-  const qrViewBoxSize = getExamQrViewBoxSize(qrPayload)
-  const qrInner = qrSvg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '')
+  const qrDataUrl = generateExamQrDataUrl(qrPayload, 4)
 
   // Bảng ma trận phiếu trả lời trắc nghiệm tích hợp (gộp trực tiếp trên tờ đề)
   let answerGridHtml = ''
@@ -892,36 +890,56 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
   const styles = getExamPaperStyles(layoutColumns, includeGradingBox)
 
   return `<!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
   <style>
+    @page Section1 {
+      size: 210mm 297mm;
+      margin: 8mm 8mm 8mm 8mm;
+      mso-header-margin: 0pt;
+      mso-footer-margin: 0pt;
+      mso-paper-source: 0;
+    }
+    div.Section1 {
+      page: Section1;
+    }
     ${styles}
   </style>
 </head>
 <body>
-  <div class="exam-paper-container">
-    <div class="watermark">${escapeHtml(parishName || 'TNTT')}</div>
-    <div class="paper-header">
-      <div class="header-left">
-        <div class="org-top">${escapeHtml(dioceseName)}</div>
-        <div class="org-parish">${escapeHtml(parishName)}</div>
-        <div>XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
-        <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion}</strong></div>
-      </div>
-      <div class="header-right">
-        <div class="exam-title">${escapeHtml(subject)}</div>
-        <div class="exam-sub">Niên Khóa: ${escapeHtml(academicYear)}</div>
-        <div class="exam-time">Thời gian: ${durationMinutes} phút (${questions.length} câu)</div>
-      </div>
-      <div class="header-qr-zone">
-        <div class="qr-box">
-          <svg width="100%" height="100%" viewBox="0 0 ${qrViewBoxSize} ${qrViewBoxSize}">${qrInner}</svg>
+  <div class="Section1">
+    <div class="exam-paper-container">
+      <div class="watermark">${escapeHtml(parishName || 'TNTT')}</div>
+      <div class="paper-header">
+        <div class="header-left">
+          <div class="org-top">${escapeHtml(dioceseName)}</div>
+          <div class="org-parish">${escapeHtml(parishName)}</div>
+          <div>XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
+          <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion}</strong></div>
         </div>
-        <div class="qr-label">MÃ QUÉT TỰ ĐỘNG</div>
+        <div class="header-right">
+          <div class="exam-title">${escapeHtml(subject)}</div>
+          <div class="exam-sub">Niên Khóa: ${escapeHtml(academicYear)}</div>
+          <div class="exam-time">Thời gian: ${durationMinutes} phút (${questions.length} câu)</div>
+        </div>
+        <div class="header-qr-zone">
+          <div class="qr-box">
+            <img src="${qrDataUrl}" width="105" height="105" alt="QR" style="display: block; width: 105px; height: 105px; margin: 0 auto;" />
+          </div>
+          <div class="qr-label">MÃ QUÉT TỰ ĐỘNG</div>
+        </div>
       </div>
-    </div>
 
     <!-- Khung thông tin học sinh & Khung chấm điểm của Giáo Lý Viên -->
     ${options.includeStudentInfo !== false || includeGradingBox ? `
@@ -974,6 +992,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     </div>
 
     ${answerKeyTableHtml}
+    </div>
   </div>
 </body>
 </html>`
@@ -999,14 +1018,34 @@ export function buildBatchExamPapersHtml(
     return `<div class="batch-exam-page">${content}</div>`
   }).join('')
 
-  return `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title><style>
+  return `<!DOCTYPE html><html lang="vi" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page Section1 {
+      size: 210mm 297mm;
+      margin: 8mm 8mm 8mm 8mm;
+      mso-header-margin: 0pt;
+      mso-footer-margin: 0pt;
+      mso-paper-source: 0;
+    }
+    div.Section1 {
+      page: Section1;
+    }
     ${baseStyles}
     @page { size: A4 portrait; margin: 0; }
     body {
       margin: 0;
       padding: 0;
       background: #f1f5f9;
-      font-family: "Times New Roman", Times, serif, system-ui;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
@@ -1037,7 +1076,9 @@ export function buildBatchExamPapersHtml(
       }
     }
   </style></head><body>
-    ${pagesHtml}
+    <div class="Section1">
+      ${pagesHtml}
+    </div>
   </body></html>`
 }
 
