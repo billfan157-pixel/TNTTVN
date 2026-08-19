@@ -145,10 +145,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     examVersion: effectiveSelectedVersion,
   }), [parishName, dioceseName, subject, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion])
 
+  // Mẫu Chung phải là tài liệu không định danh. `GENERIC` cố ý đi qua legacy
+  // payload và bị shared QR parser reject, nên scanner không thể auto-bind nhầm.
   const sampleStudent: StudentSheetInfo = useMemo(() => ({
-    id: 'sample-student',
-    code: 'TN-001',
-    name: 'Nguyễn Văn A',
+    id: 'GENERIC',
+    code: '',
+    name: '',
   }), [])
 
   const effectiveStudents = useMemo(() => (
@@ -222,7 +224,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const handlePrint = () => {
     if (!guardExamPaperIntegrity()) return
     if (docType === 'answer_sheet') {
-      printBatchAnswerSheets(effectiveStudents, batchAnswerSheetParams)
+      const answerSheetStudents = printMode === 'batch' && students.length > 0 ? students : [sampleStudent]
+      printBatchAnswerSheets(answerSheetStudents, batchAnswerSheetParams)
       return
     }
     if (docType === 'qr_sheet') {
@@ -241,7 +244,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     const isBatch = printMode === 'batch' && students.length > 0
 
     if (docType === 'answer_sheet') {
-      const htmlToExport = buildBatchAnswerSheetsHtml(effectiveStudents, batchAnswerSheetParams)
+      const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
       const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`
       ReportExportService.exportPdf(htmlToExport, filename)
       return
@@ -267,7 +270,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     const isBatch = printMode === 'batch' && students.length > 0
 
     if (docType === 'answer_sheet') {
-      const htmlToExport = buildBatchAnswerSheetsHtml(effectiveStudents, batchAnswerSheetParams)
+      const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
       const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`
       ReportExportService.downloadHTML(htmlToExport, filename)
       useToastStore.getState().addToast(`Đã xuất file HTML Phiếu Trả Lời: ${filename}`, 'success')
