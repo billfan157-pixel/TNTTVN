@@ -8,6 +8,7 @@ const ANSWER_KEY_SENTINELS = [
 const OMR_MARKER_PATTERN = /<div\s+class="omr-corner-marker\s+(omr-marker-(?:tl|tr|bl|br))"\s+title="Marker\s+(TL|TR|BL|BR)"\s*><\/div>/gi
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
 const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^\"]*)?)">([ABCD])<\/span>/g
+const FULL_PAGE_BUBBLE_LABEL_PATTERN = /<text\s+x="[^"]+"\s+y="[^"]+"\s+font-size="[^"]+"\s+font-weight="600"\s+fill="#64748B"\s+text-anchor="middle"\s+dominant-baseline="central">([ABCD])<\/text>/g
 const GUIDE_PATTERN = /\* Bút xanh\/đen hoặc chì đậm; tô kín 01 ô \(A, B, C, D\):/g
 const BATCH_PRINT_SAFE_MARGIN_STYLE = `<style data-omr-batch-safe-margin>
 @media print {
@@ -88,17 +89,18 @@ export function convertIntegratedMarkersToForegroundSvg(html: string): string {
 }
 
 /**
- * Printed A/B/C/D glyphs used to sit exactly in the detector's core disk. With
- * ROI-based darkness measurement that creates avoidable baseline ink and makes
- * empty A/B/C/D bubbles intrinsically different. Keep the 16px bubble elements
- * and all geometry unchanged, but move the option semantics to aria-label plus a
- * single printed legend. The four circles are always A→D from left to right.
+ * Printed option glyphs used to sit exactly in detector core disks. ROI-based
+ * darkness measurement then sees baseline ink even when no answer is marked.
+ * Keep every bubble/circle element and its geometry unchanged, but remove A/B/C/D
+ * glyphs from both integrated HTML bubbles and full-page SVG circles. Integrated
+ * forms retain semantics through aria-label; all forms use left→right A,B,C,D.
  */
 export function cleanIntegratedBubbleRoi(html: string): string {
-  const withoutGlyphs = html.replace(BUBBLE_LABEL_PATTERN, (_whole, className: string, option: string) => (
+  const withoutIntegratedGlyphs = html.replace(BUBBLE_LABEL_PATTERN, (_whole, className: string, option: string) => (
     `<span class="${className}" aria-label="${option}"></span>`
   ))
-  return withoutGlyphs.replace(
+  const withoutFullPageGlyphs = withoutIntegratedGlyphs.replace(FULL_PAGE_BUBBLE_LABEL_PATTERN, '')
+  return withoutFullPageGlyphs.replace(
     GUIDE_PATTERN,
     '* Bút xanh/đen hoặc chì đậm; tô kín 01 ô — 4 ô từ trái sang phải lần lượt là A, B, C, D:'
   )
