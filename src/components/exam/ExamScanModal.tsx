@@ -31,7 +31,8 @@ import { captureHighResolutionCameraFrame } from '../../lib/cameraStillCapture'
 import { assessScanQuality, type ScanQualityAssessment } from '../../lib/scanQuality'
 import { decideScanAcceptance, type ScanAcceptanceDecision } from '../../lib/scanAcceptancePolicy'
 import { recordScanDiagnostic } from '../../lib/scanDiagnostics'
-import { CORNER_MARKERS, integratedFrameAspectRatio } from '../../lib/answerSheetTemplate'
+import { CORNER_MARKERS } from '../../lib/answerSheetTemplate'
+import { getIntegratedScanGuideLayout } from '../../lib/examScanGuide'
 import { getConfiguredExamVersions, normalizeAnswerVariants } from '../../lib/examVariants'
 import { purgeExpiredScanReviewSnapshots, saveScanReviewSnapshot } from '../../lib/scanReviewStorage'
 import { useExamStore } from '../../stores/examStore'
@@ -1217,16 +1218,27 @@ const SheetAlignmentGuide: React.FC<{
   }
 
   if (examType === 'multiple_choice' && mcTemplateMode === 'integrated') {
-    const guideAspect = integratedFrameAspectRatio(questionCount)
+    const guideLayout = getIntegratedScanGuideLayout(questionCount)
     return (
-      <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
-        <div className="relative w-[92%] rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10 shadow-[0_0_18px_rgba(52,211,153,0.2)]" style={{ aspectRatio: String(guideAspect) }}>
-          <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-emerald-100">
-            KHUNG ĐÁP ÁN OMR + 4 Ô ĐEN
+      <div className="absolute inset-0 pointer-events-none">
+        <div
+          data-testid="integrated-omr-guide"
+          className="absolute rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10"
+          style={{
+            width: `${guideLayout.widthFraction * 100}%`,
+            left: '50%',
+            top: `${guideLayout.centerYFraction * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            aspectRatio: String(guideLayout.aspectRatio),
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.16), 0 0 18px rgba(52,211,153,0.32)',
+          }}
+        >
+          <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-emerald-100 drop-shadow-sm">
+            CĂN 4 Ô ĐEN VÀO 4 GÓC KHUNG
           </span>
-          <div className="absolute inset-x-0 -bottom-20 rounded-lg bg-black/75 px-3 py-2 text-center">
-            <p className="text-[11px] font-black text-white">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Lùi camera và căn khung đáp án'}</p>
-            <p className="mt-1 text-[9px] text-emerald-200">Không dùng khung lớn giả bao quanh phần câu hỏi bên dưới</p>
+          <div className="absolute inset-x-0 -bottom-20 rounded-lg bg-black/80 px-3 py-2 text-center">
+            <p className="text-[11px] font-black text-white">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Đưa riêng khung đáp án vào vùng sáng'}</p>
+            <p className="mt-1 text-[9px] text-emerald-200">Giữ đủ 4 ô đen trong khung; không cần đưa phần câu hỏi bên dưới vào vùng quét</p>
           </div>
         </div>
       </div>
