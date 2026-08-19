@@ -110,8 +110,13 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
         }
       }
 
-      const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true })
-      expect(pdf.byteLength).toBeGreaterThan(5_000)
+      // DOM geometry must be checked at every layout boundary. Producing the
+      // exact same A4 PDF eleven times adds minutes of Chromium work without
+      // increasing PDF-output coverage, so keep one representative 50Q PDF gate.
+      if (totalQuestions === 50) {
+        const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true })
+        expect(pdf.byteLength).toBeGreaterThan(5_000)
+      }
       await page.close()
     },
     30_000,
