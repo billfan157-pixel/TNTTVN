@@ -55,30 +55,48 @@ export function assertContiguousQuestionIndexes(questions: readonly ExamQuestion
 
 /**
  * Physical OMR rows are positional: row 1 is question 1, row 2 is question 2...
- * Each page/frame MUST therefore contain 1..N with no duplicate/gap/reordering.
- * Batch documents concatenate several valid frames, so C1 is the only legal reset
- * point between sheets. Fail closed before print/export rather than silently
- * grading against a shifted key.
+ * Every physical frame must therefore contain exactly 1..N. Batch documents
+ * concatenate several frames, each beginning at C1, and every frame must have the
+ * same N; otherwise a truncated page could pass a simple reset-only validator.
  */
 export function assertContiguousOmrQuestionRows(html: string): void {
   const indexes = Array.from(html.matchAll(QNUM_PATTERN), match => Number(match[1]))
   if (indexes.length === 0) return
 
-  let expected = 1
-  let sheet = 1
-  for (let i = 0; i < indexes.length; i++) {
-    const actual = indexes[i]
-    if (i > 0 && actual === 1) {
-      expected = 1
-      sheet++
+  const sheets: number[][] = []
+  let current: number[] = []
+  for (const actual of indexes) {
+    if (actual === 1 && current.length > 0) {
+      sheets.push(current)
+      current = []
     }
-    if (!Number.isInteger(actual) || actual !== expected) {
+    current.push(actual)
+  }
+  if (current.length > 0) sheets.push(current)
+
+  for (let sheetIndex = 0; sheetIndex < sheets.length; sheetIndex++) {
+    const sheet = sheets[sheetIndex]
+    for (let rowIndex = 0; rowIndex < sheet.length; rowIndex++) {
+      const expected = rowIndex + 1
+      const actual = sheet[rowIndex]
+      if (!Number.isInteger(actual) || actual !== expected) {
+        throw new ExamPrintIntegrityError(
+          `Khung OMR phiếu ${sheetIndex + 1} có thứ tự câu không hợp lệ tại vị trí ${expected}: nhận C${actual ?? '?'}. `
+          + 'Mỗi phiếu phải có câu liên tục 1..N trước khi in/chấm tự động.'
+        )
+      }
+    }
+  }
+
+  if (sheets.length > 1) {
+    const expectedQuestionCount = sheets[0].length
+    const truncatedIndex = sheets.findIndex(sheet => sheet.length !== expectedQuestionCount)
+    if (truncatedIndex >= 0) {
       throw new ExamPrintIntegrityError(
-        `Khung OMR phiếu ${sheet} có thứ tự câu không hợp lệ tại vị trí ${expected}: nhận C${actual ?? '?'}. `
-        + 'Mỗi phiếu phải có câu liên tục 1..N trước khi in/chấm tự động.'
+        `Khung OMR phiếu ${truncatedIndex + 1} có ${sheets[truncatedIndex].length} câu; `
+        + `batch yêu cầu đồng nhất ${expectedQuestionCount} câu trên mọi phiếu.`
       )
     }
-    expected++
   }
 }
 
