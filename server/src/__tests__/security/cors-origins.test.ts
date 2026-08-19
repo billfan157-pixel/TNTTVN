@@ -44,17 +44,36 @@ describe('A13 — CORS allowlist (no wildcard)', () => {
     }
   })
 
-  it('A-NEW-12: NODE_ENV=production KHÔNG chứa localhost trong default allowlist', () => {
+  it('A-NEW-12: NODE_ENV=production KHÔNG chứa localhost dev ports trong default allowlist', () => {
     process.env.NODE_ENV = 'production'
     try {
       const origins = resolveAllowedOrigins()
-      expect(origins).toEqual(['https://tnttvn.vercel.app'])
+      expect(origins).toEqual(['https://tnttvn.vercel.app', 'capacitor://localhost', 'https://localhost', 'http://localhost'])
       expect(isOriginAllowed('http://localhost:5173', origins)).toBe(false)
       expect(isOriginAllowed('http://localhost:5174', origins)).toBe(false)
       expect(isOriginAllowed('https://tnttvn.vercel.app', origins)).toBe(true)
     } finally {
       delete process.env.NODE_ENV
     }
+  })
+
+  it('NATIVE (2026-08-19): production cho phép origin native shell Capacitor (iOS capacitor://localhost, Android https://localhost)', () => {
+    process.env.NODE_ENV = 'production'
+    try {
+      const origins = resolveAllowedOrigins()
+      expect(isOriginAllowed('capacitor://localhost', origins)).toBe(true)
+      expect(isOriginAllowed('https://localhost', origins)).toBe(true)
+      expect(isOriginAllowed('http://localhost', origins)).toBe(true)
+      expect(isOriginAllowed('http://localhost:5173', origins)).toBe(false)
+    } finally {
+      delete process.env.NODE_ENV
+    }
+  })
+
+  it('NATIVE (2026-08-19): chỉ đúng scheme native được phép — capacitor://evil không lọt', () => {
+    expect(isOriginAllowed('capacitor://evil.example.com', DEFAULT_ALLOWED_ORIGINS)).toBe(false)
+    expect(isOriginAllowed('https://localhost.evil.io', DEFAULT_ALLOWED_ORIGINS)).toBe(false)
+    expect(isOriginAllowed('https://evil.com', DEFAULT_ALLOWED_ORIGINS)).toBe(false)
   })
 
   it('A-NEW-12: NODE_ENV=production + CLIENT_ORIGIN vẫn ghi đè (thêm origin có chủ đích)', () => {
