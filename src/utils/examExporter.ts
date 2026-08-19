@@ -65,6 +65,7 @@ function resolveParishHeaders(options: ExamExportOptions) {
 import { buildExamQrPayload, generateExamQrDataUrl } from '../lib/qr'
 import { integratedGridCols } from '../lib/answerSheetTemplate'
 import { ReportExportService } from '../services/reportExportService'
+import { buildExamPaperHtml } from './examSheets'
 
 /**
  * Xây dựng hàng ma trận ô tròn đáp án trắc nghiệm OMR tương thích hoàn toàn Microsoft Word.
@@ -86,12 +87,12 @@ function buildWordOmrBubbleGrid(questions: ExamQuestion[], showAnswerKey: boolea
         const isD = showAnswerKey && correct === 'D'
 
         const bubble = (letter: string, isCorrect: boolean) => `
-          <span style="display: inline-block; width: 13px; height: 13px; line-height: 13px; border: 1pt solid #000000; border-radius: 50%; font-size: 7.5pt; font-weight: bold; text-align: center; margin: 0 1px; ${isCorrect ? 'background: #16a34a; color: #ffffff;' : 'background: #ffffff; color: #000000;'}">${letter}</span>
+          <span style="display: inline-block; width: 13px; height: 13px; line-height: 13px; border: 1.1px solid ${isCorrect ? '#15803d' : '#64748b'}; border-radius: 50%; font-size: 7pt; font-weight: ${isCorrect ? '900' : '600'}; text-align: center; margin: 0 1px; ${isCorrect ? 'background: #16a34a; color: #ffffff;' : 'background: #ffffff; color: #64748b;'}">${letter}</span>
         `
 
         cells.push(`
-          <td style="padding: 1.5pt 2.5pt; vertical-align: middle; white-space: nowrap; border: none; font-size: 8pt; text-align: left;">
-            <strong style="font-size: 8.5pt;">C${q.index}:</strong>
+          <td style="padding: 1.5pt 2.5pt; vertical-align: middle; white-space: nowrap; border: 1px solid #cbd5e1; border-radius: 2px; font-size: 7.5pt; text-align: left; background: #ffffff;">
+            <strong style="font-size: 6.5pt; color: #1e293b;">C${q.index}:</strong>
             ${bubble('A', isA)}${bubble('B', isB)}${bubble('C', isC)}${bubble('D', isD)}
           </td>
         `)
@@ -108,32 +109,43 @@ function buildWordOmrBubbleGrid(questions: ExamQuestion[], showAnswerKey: boolea
 /**
  * Bố cục câu hỏi đề thi dạng 2 cột (hoặc 1 cột) bằng cấu trúc Table tương thích Microsoft Word.
  */
-function buildWordQuestionsLayout(questions: ExamQuestion[], layoutColumns: 1 | 2): string {
-  const renderQ = (q: ExamQuestion) => `
-    <div style="margin-bottom: 5pt; page-break-inside: avoid;">
-      <div style="font-size: 10pt; line-height: 1.25;">
-        <strong>Câu ${q.index}:</strong> ${escapeHtml(q.question)}
+function buildWordQuestionsLayout(questions: ExamQuestion[], layoutColumns: 1 | 2, showAnswerKey: boolean): string {
+  const renderQ = (q: ExamQuestion) => {
+    const isA = showAnswerKey && q.correctOption === 'A'
+    const isB = showAnswerKey && q.correctOption === 'B'
+    const isC = showAnswerKey && q.correctOption === 'C'
+    const isD = showAnswerKey && q.correctOption === 'D'
+
+    const optStyle = (isCorrect: boolean) => isCorrect
+      ? 'background: #dcfce7; color: #15803d; font-weight: bold; padding: 1pt 3pt; border-radius: 2pt;'
+      : 'padding: 1pt 3pt;'
+
+    return `
+      <div style="margin-bottom: 6pt; page-break-inside: avoid;">
+        <div style="font-size: 10.5pt; line-height: 1.3; text-align: justify;">
+          <strong>Câu ${q.index}:</strong> ${escapeHtml(q.question)}
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 2pt; font-size: 10pt;">
+          <tr>
+            <td style="width: 50%; padding: 1pt 3pt; vertical-align: top;">
+              <div style="${optStyle(isA)}"><strong>A.</strong> ${escapeHtml(q.options?.A || '')}</div>
+            </td>
+            <td style="width: 50%; padding: 1pt 3pt; vertical-align: top;">
+              <div style="${optStyle(isB)}"><strong>B.</strong> ${escapeHtml(q.options?.B || '')}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="width: 50%; padding: 1pt 3pt; vertical-align: top;">
+              <div style="${optStyle(isC)}"><strong>C.</strong> ${escapeHtml(q.options?.C || '')}</div>
+            </td>
+            <td style="width: 50%; padding: 1pt 3pt; vertical-align: top;">
+              <div style="${optStyle(isD)}"><strong>D.</strong> ${escapeHtml(q.options?.D || '')}</div>
+            </td>
+          </tr>
+        </table>
       </div>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 1.5pt; font-size: 9.5pt;">
-        <tr>
-          <td style="width: 50%; padding: 1pt 2pt; vertical-align: top;">
-            <strong>A.</strong> ${escapeHtml(q.options?.A || '')}
-          </td>
-          <td style="width: 50%; padding: 1pt 2pt; vertical-align: top;">
-            <strong>B.</strong> ${escapeHtml(q.options?.B || '')}
-          </td>
-        </tr>
-        <tr>
-          <td style="width: 50%; padding: 1pt 2pt; vertical-align: top;">
-            <strong>C.</strong> ${escapeHtml(q.options?.C || '')}
-          </td>
-          <td style="width: 50%; padding: 1pt 2pt; vertical-align: top;">
-            <strong>D.</strong> ${escapeHtml(q.options?.D || '')}
-          </td>
-        </tr>
-      </table>
-    </div>
-  `
+    `
+  }
 
   if (layoutColumns === 1) {
     return questions.map(renderQ).join('')
@@ -146,10 +158,10 @@ function buildWordQuestionsLayout(questions: ExamQuestion[], layoutColumns: 1 | 
   return `
     <table style="width: 100%; border-collapse: collapse; margin-top: 4pt;">
       <tr>
-        <td style="width: 50%; vertical-align: top; padding-right: 6pt;">
+        <td style="width: 50%; vertical-align: top; padding-right: 8pt;">
           ${col1.map(renderQ).join('')}
         </td>
-        <td style="width: 50%; vertical-align: top; padding-left: 6pt;">
+        <td style="width: 50%; vertical-align: top; padding-left: 8pt; border-left: 1pt dashed #cbd5e1;">
           ${col2.map(renderQ).join('')}
         </td>
       </tr>
@@ -166,21 +178,21 @@ function buildWordAnswerKeyTable(questions: ExamQuestion[]): string {
 
   for (let i = 0; i < questions.length; i += chunkSize) {
     const chunk = questions.slice(i, i + chunkSize)
-    const headerCells = chunk.map(q => `<th style="border: 1pt solid #1e3a8a; padding: 2pt; background: #dbeafe; font-size: 8.5pt;">C${q.index}</th>`).join('')
-    const ansCells = chunk.map(q => `<td style="border: 1pt solid #1e3a8a; padding: 2pt; font-weight: bold; color: #b91c1c; font-size: 9.5pt; height: 16pt;">${q.correctOption || 'A'}</td>`).join('')
+    const headerCells = chunk.map(q => `<th style="border: 1pt solid #94a3b8; padding: 2pt; background: #f8fafc; font-size: 8pt; color: #64748b;">C${q.index}</th>`).join('')
+    const ansCells = chunk.map(q => `<td style="border: 1pt solid #94a3b8; padding: 2pt; font-weight: bold; color: #b91c1c; font-size: 10pt; height: 16pt;">${q.correctOption || 'A'}</td>`).join('')
     
     const emptyCount = chunkSize - chunk.length
-    const emptyHeaders = emptyCount > 0 ? `<th colspan="${emptyCount}" style="border: 1pt solid #1e3a8a; background: #dbeafe;">&nbsp;</th>` : ''
-    const emptyAns = emptyCount > 0 ? `<td colspan="${emptyCount}" style="border: 1pt solid #1e3a8a;">&nbsp;</td>` : ''
+    const emptyHeaders = emptyCount > 0 ? `<th colspan="${emptyCount}" style="border: 1pt solid #94a3b8; background: #f8fafc;">&nbsp;</th>` : ''
+    const emptyAns = emptyCount > 0 ? `<td colspan="${emptyCount}" style="border: 1pt solid #94a3b8;">&nbsp;</td>` : ''
 
     tables.push(`
       <table style="width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 2pt;">
         <tr>
-          <th style="width: 60pt; border: 1pt solid #1e3a8a; background: #1e3a8a; color: #ffffff; font-size: 8.5pt;">Câu số</th>
+          <th style="width: 50pt; border: 1pt solid #94a3b8; background: #1e3a8a; color: #ffffff; font-size: 8pt;">Câu</th>
           ${headerCells}${emptyHeaders}
         </tr>
         <tr>
-          <th style="width: 60pt; border: 1pt solid #1e3a8a; background: #eff6ff; font-size: 8.5pt;">Đáp án</th>
+          <th style="width: 50pt; border: 1pt solid #94a3b8; background: #f1f5f9; font-size: 8pt;">Đáp án</th>
           ${ansCells}${emptyAns}
         </tr>
       </table>
@@ -259,8 +271,8 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
       page: Section1;
     }
     body {
-      font-family: "Times New Roman", Times, serif;
-      font-size: 11pt;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 10.5pt;
       line-height: 1.25;
       color: #000000;
       background: #ffffff;
@@ -290,19 +302,19 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
   <!-- Header Đề Thi & Mã QR Quét Tự Động -->
   <table style="width: 100%; border-bottom: 2pt solid #000000; padding-bottom: 4pt; margin-bottom: 4pt;">
     <tr>
-      <td style="width: 36%; vertical-align: top; text-align: center; font-size: 10pt; line-height: 1.2;">
+      <td style="width: 38%; vertical-align: top; text-align: center; font-size: 10pt; line-height: 1.25;">
         <div style="font-weight: bold; text-transform: uppercase;">${escapeHtml(dioceseName)}</div>
         <div style="font-weight: 800; color: #1e3a8a; text-transform: uppercase;">${escapeHtml(parishName)}</div>
         <div style="font-size: 9.5pt;">XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
         <div style="margin-top: 2pt;">Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${escapeHtml(versionCode)}</strong></div>
       </td>
-      <td style="width: 44%; vertical-align: top; text-align: center; line-height: 1.2;">
+      <td style="width: 42%; vertical-align: top; text-align: center; line-height: 1.25;">
         <div style="font-size: 12.5pt; font-weight: 800; color: #b91c1c; text-transform: uppercase;">${escapeHtml(subject)}</div>
         <div style="font-size: 10pt; font-weight: bold;">Niên Khóa: ${escapeHtml(academicYear)}</div>
         <div style="font-size: 9.5pt; font-style: italic;">Thời gian: ${durationMinutes} phút (${mappedQuestions.length} câu)</div>
       </td>
       <td style="width: 20%; vertical-align: top; text-align: center;">
-        <div style="border: 1pt solid #0f172a; padding: 1pt; display: inline-block; background: #ffffff;">
+        <div style="border: 1pt solid #0f172a; padding: 1pt; display: inline-block; background: #ffffff; border-radius: 4px;">
           <img src="${qrDataUrl}" width="105" height="105" style="width: 105px; height: 105px; display: block;" alt="QR" />
         </div>
         <div style="font-size: 6.5pt; font-weight: bold; color: #475569; margin-top: 1pt;">MÃ QUÉT TỰ ĐỘNG</div>
@@ -315,7 +327,7 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
   <table style="width: 100%; margin-bottom: 4pt;">
     <tr>
       ${includeStudentInfo ? `
-      <td style="width: 48%; vertical-align: top; border: 1pt solid #cbd5e1; padding: 3pt 6pt; font-size: 9.5pt; background: #f8fafc;" class="student-info-box">
+      <td style="width: 52%; vertical-align: top; border: 1pt solid #000000; padding: 4pt 6pt; font-size: 10pt; background: #fafafa; border-radius: 3pt;" class="student-info-box">
         <div style="margin-bottom: 2pt;">
           Họ & tên: ........................................................................
         </div>
@@ -328,8 +340,8 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
       </td>` : ''}
       ${includeStudentInfo && includeGradingBox ? '<td style="width: 2%;"></td>' : ''}
       ${includeGradingBox ? `
-      <td style="width: ${includeStudentInfo ? '50%' : '100%'}; vertical-align: top;">
-        <table style="width: 100%; border: 1pt solid #000000; text-align: center; font-size: 9pt;">
+      <td style="width: ${includeStudentInfo ? '46%' : '100%'}; vertical-align: top;">
+        <table style="width: 100%; border: 1pt solid #000000; text-align: center; font-size: 8.5pt;">
           <thead>
             <tr style="background: #f1f5f9;">
               <th style="border: 1pt solid #000000; padding: 2pt; font-weight: bold; width: 25%;">TRẮC NGHIỆM</th>
@@ -340,10 +352,10 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
           </thead>
           <tbody>
             <tr>
-              <td style="border: 1pt solid #000000; height: 18pt;"></td>
-              <td style="border: 1pt solid #000000; height: 18pt;"></td>
-              <td style="border: 1pt solid #000000; height: 18pt;"></td>
-              <td style="border: 1pt solid #000000; height: 18pt;"></td>
+              <td style="border: 1pt solid #000000; height: 26pt;"></td>
+              <td style="border: 1pt solid #000000; height: 26pt;"></td>
+              <td style="border: 1pt solid #000000; height: 26pt;"></td>
+              <td style="border: 1pt solid #000000; height: 26pt;"></td>
             </tr>
           </tbody>
         </table>
@@ -353,11 +365,11 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
 
   <!-- Khung OMR Tích Hợp (4 Marker Đen Homography + Ma Trận Bubble) -->
   ${includeQuickAnswerGrid && mappedQuestions.length > 0 ? `
-  <div style="margin: 4pt 0 6pt 0;">
-    <div style="font-size: 9.5pt; font-weight: bold; margin-bottom: 2pt;">
-      <span style="background: #1e40af; color: #ffffff; padding: 1pt 4pt; font-size: 8pt; font-weight: 800;">OMR SCAN</span>
+  <div style="margin: 4pt 0 6pt 0; background: #f8fafc; border-radius: 4px;">
+    <div style="font-size: 8.5pt; font-weight: 800; color: #1e3a8a; margin-bottom: 2pt; padding: 1pt 0;">
+      <span style="background: #0f172a; color: #ffffff; padding: 0.5pt 3.5pt; font-size: 6.5pt; font-weight: 900; border-radius: 2px; margin-right: 3px;">OMR SCAN</span>
       BẢNG TRẢ LỜI TRẮC NGHIỆM (${mappedQuestions.length} CÂU)
-      <span style="font-size: 8.5pt; font-weight: normal; font-style: italic; color: #475569;">* Tô kín 01 ô (A, B, C, D) bằng bút chì đậm hoặc bút xanh/đen:</span>
+      <span style="font-size: 7.5pt; font-weight: normal; font-style: italic; color: #475569; margin-left: 4pt;">* Tô kín 01 ô (A, B, C, D) bằng bút xanh/đen hoặc chì đậm:</span>
     </div>
 
     <table style="width: 100%; border: 1.5pt solid #0f172a; border-collapse: collapse; background: #ffffff;">
@@ -379,23 +391,23 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
 
   <!-- Nội Dung Câu Hỏi Đề Thi (1 Cột hoặc 2 Cột Table) -->
   <div class="questions-wrapper">
-    ${buildWordQuestionsLayout(mappedQuestions, layoutColumns)}
+    ${buildWordQuestionsLayout(mappedQuestions, layoutColumns, includeAnswerKey)}
   </div>
 
   <!-- Bảng Đáp Án Chuẩn & Giải Thích Chi Tiết Cho Giáo Lý Viên -->
   ${includeAnswerKey ? `
-  <div style="margin-top: 8pt; page-break-inside: avoid;">
-    <div style="background: #1e3a8a; color: #ffffff; padding: 2.5pt 6pt; font-weight: bold; font-size: 9.5pt; text-align: center;">
+  <div style="margin-top: 8pt; page-break-inside: avoid; border-top: 2pt solid #000000; padding-top: 4pt;">
+    <div style="color: #1e3a8a; padding: 2pt 0; font-weight: bold; font-size: 10.5pt; text-align: center;">
       BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN (${mappedQuestions.length} CÂU)
     </div>
     <div style="margin-top: 2pt;">
       ${buildWordAnswerKeyTable(mappedQuestions)}
     </div>
     ${includeExplanations && mappedQuestions.some(q => Boolean(q.explanation)) ? `
-    <div style="margin-top: 5pt; border-top: 1pt dashed #94a3b8; padding-top: 3pt;">
-      <div style="font-weight: bold; color: #1e3a8a; font-size: 9pt; margin-bottom: 2pt;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
+    <div style="margin-top: 5pt; border-top: 1pt dashed #cbd5e1; padding-top: 3pt;">
+      <div style="font-weight: bold; color: #1e3a8a; font-size: 9.5pt; margin-bottom: 2pt;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
       ${mappedQuestions.filter(q => Boolean(q.explanation)).map(q => `
-        <div style="font-size: 8.5pt; margin-bottom: 2pt; line-height: 1.25;">
+        <div style="font-size: 9pt; margin-bottom: 2pt; line-height: 1.25;">
           <strong>Câu ${q.index} (${q.correctOption}):</strong> <em>${escapeHtml(q.explanation || '')}</em>
         </div>
       `).join('')}
@@ -408,11 +420,27 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
 }
 
 /**
- * Xuất đề thi ra file HTML độc lập (.html) có thể mở trên mọi trình duyệt và in chuẩn A4.
+ * Xuất đề thi ra file HTML độc lập (.html) có thể mở trên mọi trình duyệt và in chuẩn A4,
+ * sử dụng trực tiếp buildExamPaperHtml để đảm bảo 100% đồng nhất với bản xem trước và bản in.
  */
 export function exportExamToHtml(options: ExamExportOptions): void {
   try {
-    const html = generateExamWordHtml(options)
+    const html = buildExamPaperHtml({
+      parishName: options.parishName,
+      dioceseName: options.dioceseName,
+      subject: options.subject,
+      classLabel: options.classLabel || 'Lớp',
+      academicYear: options.academicYear || '',
+      durationMinutes: options.durationMinutes || 45,
+      questions: resolveExportQuestions(options),
+      showAnswerKey: options.includeAnswerKey ?? false,
+      includeExplanations: options.includeExplanations ?? true,
+      includeStudentInfo: options.includeStudentInfo ?? true,
+      includeAnswerGrid: options.includeQuickAnswerGrid ?? true,
+      includeGradingBox: true,
+      layoutColumns: options.layoutColumns || 2,
+      examVersion: options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A',
+    })
     const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.html`
     ReportExportService.downloadHTML(html, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')

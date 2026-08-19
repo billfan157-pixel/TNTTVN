@@ -126,21 +126,10 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }
 
   const handleDownloadHtml = () => {
-    exportExamToHtml({
-      parishName,
-      dioceseName,
-      subject,
-      classLabel,
-      academicYear,
-      durationMinutes,
-      questions: effectiveQuestions,
-      selectedVersion,
-      includeAnswerKey: showAnswerKey,
-      includeExplanations,
-      includeStudentInfo: true,
-      includeQuickAnswerGrid: includeAnswerGrid,
-      layoutColumns,
-    })
+    if (!previewHtml) return
+    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_Ma${selectedVersion}.html`
+    ReportExportService.downloadHTML(previewHtml, filename)
+    useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')
   }
 
   const handleDownloadWord = () => {
