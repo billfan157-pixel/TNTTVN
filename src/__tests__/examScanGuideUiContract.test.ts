@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const modalSource = readFileSync(new URL('../components/exam/ExamScanModal.tsx', import.meta.url), 'utf8')
+const modalSource = readFileSync(
+  resolve(process.cwd(), 'src/components/exam/ExamScanModal.tsx'),
+  'utf8',
+)
 
 describe('integrated scan guide UI contract', () => {
   it('renders the integrated guide from the centralized placement helper', () => {
