@@ -12,13 +12,13 @@ import {
   printBatchExamPapers,
   buildBatchAnswerSheetsHtml,
   printBatchAnswerSheets,
-  generateExamQrCodes,
   printQrSheet,
   buildQrSheetHtml,
   type ExamPaperPrintOptions,
   type StudentSheetInfo,
   type BatchAnswerSheetParams
 } from '../../utils/examSheets'
+import { generateExamQrCodes } from '../../lib/qr'
 import { ReportExportService } from '../../services/reportExportService'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
