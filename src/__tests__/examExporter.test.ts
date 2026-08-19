@@ -15,6 +15,7 @@ import {
   downloadExamMarkdown,
 } from '../utils/examExporter'
 import type { ExamQuestion } from '../types'
+import { ExamPrintIntegrityError } from '../lib/examPrintSafety'
 
 describe('examExporter', () => {
   const sampleQuestions: ExamQuestion[] = [
@@ -73,7 +74,7 @@ describe('examExporter', () => {
   })
 
   describe('generateExamWordHtml', () => {
-    it('generates valid Word HTML with parish header and questions', () => {
+    it('generates teacher answer-key Word HTML but strips scan-valid OMR markers', () => {
       const html = generateExamWordHtml({
         parishName: 'Giáo Xứ Mẫu Tâm',
         dioceseName: 'Tổng Giáo Phận Sài Gòn',
@@ -102,10 +103,10 @@ describe('examExporter', () => {
       expect(html).toContain('Sách Sáng Thế ghi nhận')
       expect(html).toContain('BẢNG TRẢ LỜI TRẮC NGHIỆM')
       expect(html).toContain('ĐÁP ÁN GLV — KHÔNG CHẤM')
-      expect(html).toContain('omr-corner-marker')
+      expect(html).not.toContain('omr-corner-marker')
     })
 
-    it('omits answer key when includeAnswerKey is false', () => {
+    it('omits answer key when includeAnswerKey is false and keeps foreground SVG markers', () => {
       const html = generateExamWordHtml({
         subject: 'Kiểm tra 15 phút',
         classLabel: 'Ấu 1',
@@ -118,6 +119,36 @@ describe('examExporter', () => {
       expect(html).not.toContain('BẢNG ĐÁP ÁN CHUẨN')
       expect(html).not.toContain('Họ & tên:')
       expect(html).toContain('Kiểm tra 15 phút')
+      expect(html.match(/<svg class="omr-corner-marker/g)).toHaveLength(4)
+      expect(html).not.toContain('<div class="omr-corner-marker')
+    })
+
+    it('fails closed when source question indexes have duplicate or gap', () => {
+      const malformed: ExamQuestion[] = [
+        { ...sampleQuestions[0], index: 1 },
+        { ...sampleQuestions[1], index: 3 },
+      ]
+      expect(() => generateExamWordHtml({
+        subject: 'Broken OMR',
+        classLabel: 'Lớp 1',
+        academicYear: '2026-2027',
+        questions: malformed,
+        includeQuickAnswerGrid: true,
+      })).toThrow(ExamPrintIntegrityError)
+    })
+
+    it('falls back from stale selected version to an actually configured version', () => {
+      const html = generateExamWordHtml({
+        subject: 'Version guard',
+        classLabel: 'Lớp 1',
+        academicYear: '2026-2027',
+        questions: sampleQuestions,
+        answerVariants: { A: { 1: 'B', 2: 'C' } },
+        selectedVersion: 'B',
+        includeAnswerKey: false,
+      })
+      expect(html).toContain('Mã đề: <strong>A</strong>')
+      expect(html).not.toContain('Mã đề: <strong>B</strong>')
     })
 
     it('generates multi-student batch Word HTML with distinct QR codes and names', () => {
@@ -138,7 +169,7 @@ describe('examExporter', () => {
       expect(html).toContain('Trần Thị B')
       expect(html).toContain('TN-002')
       expect(html).toContain('page-break-after: always')
-      expect(html).toContain('omr-corner-marker')
+      expect(html.match(/<svg class="omr-corner-marker/g)?.length).toBeGreaterThanOrEqual(8)
     })
   })
 
