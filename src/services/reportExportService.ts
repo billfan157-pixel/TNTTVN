@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react'
 import { useToastStore } from '../stores/toastStore'
+import { prepareExamDocumentForOutputIfApplicable } from '../lib/examPrintSafety'
 
 // SECURITY_AUDIT_A01 Phase 2 — KHÔNG còn document.write. Nội dung HTML (đã escape ở
 // tầng builder — xem utils/pdfGenerator) được render qua Blob URL thay vì ghi trực tiếp
@@ -35,6 +36,10 @@ function injectAutoPrintScript(html: string): string {
   return `${html}${printScript}`
 }
 
+function prepareOutput(htmlContent: string): string {
+  return prepareExamDocumentForOutputIfApplicable(htmlContent)
+}
+
 export class ReportExportService {
   /**
    * Opens print preview window in a new tab
@@ -46,7 +51,7 @@ export class ReportExportService {
         useToastStore.getState().addToast('Cửa sổ Xem trước bị trình duyệt chặn (Popup Blocked). Vui lòng cho phép Popup cho trang web này!', 'info', 6000)
         return false
       }
-      const url = htmlBlobUrl(htmlContent)
+      const url = htmlBlobUrl(prepareOutput(htmlContent))
       previewWindow.location.href = url
       try {
         previewWindow.focus()
@@ -55,7 +60,8 @@ export class ReportExportService {
       return true
     } catch (err) {
       Sentry.captureException(err)
-      useToastStore.getState().addToast('Không thể mở cửa sổ xem trước!', 'error')
+      const message = err instanceof Error ? err.message : 'Không thể mở cửa sổ xem trước!'
+      useToastStore.getState().addToast(message, 'error', 7000)
       return false
     }
   }
@@ -65,7 +71,8 @@ export class ReportExportService {
    */
   public static print(htmlContent: string): void {
     try {
-      const htmlWithPrint = injectAutoPrintScript(htmlContent)
+      const safeHtml = prepareOutput(htmlContent)
+      const htmlWithPrint = injectAutoPrintScript(safeHtml)
       const url = htmlBlobUrl(htmlWithPrint)
 
       const printWindow = window.open('', '_blank')
@@ -118,7 +125,8 @@ export class ReportExportService {
       }, 60_000)
     } catch (err) {
       Sentry.captureException(err)
-      useToastStore.getState().addToast('Không thể mở cửa sổ in. Vui lòng cho phép Popup trên trình duyệt!', 'error')
+      const message = err instanceof Error ? err.message : 'Không thể mở cửa sổ in. Vui lòng cho phép Popup trên trình duyệt!'
+      useToastStore.getState().addToast(message, 'error', 7000)
     }
   }
 
@@ -127,7 +135,7 @@ export class ReportExportService {
    */
   public static downloadHTML(htmlContent: string, filename: string): void {
     try {
-      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' })
+      const blob = new Blob([prepareOutput(htmlContent)], { type: 'text/html;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -140,7 +148,8 @@ export class ReportExportService {
       }, 100)
     } catch (err) {
       Sentry.captureException(err)
-      useToastStore.getState().addToast('Lỗi khi tải file HTML!', 'error')
+      const message = err instanceof Error ? err.message : 'Lỗi khi tải file HTML!'
+      useToastStore.getState().addToast(message, 'error', 7000)
     }
   }
 
@@ -153,7 +162,7 @@ export class ReportExportService {
     try {
       const pdfTitle = filename.replace(/\.pdf$/i, '')
       // Đảm bảo thẻ <title> trong HTML là tên file để trình duyệt tự điền tên khi lưu PDF
-      let customHtml = htmlContent
+      let customHtml = prepareOutput(htmlContent)
       if (customHtml.includes('<title>')) {
         customHtml = customHtml.replace(/<title>[\s\S]*?<\/title>/i, `<title>${pdfTitle}</title>`)
       } else {
@@ -197,7 +206,8 @@ export class ReportExportService {
     } catch (err) {
       Sentry.captureException(err)
       console.error('Error in exportPdf:', err)
-      useToastStore.getState().addToast('Lỗi khi xuất PDF!', 'error')
+      const message = err instanceof Error ? err.message : 'Lỗi khi xuất PDF!'
+      useToastStore.getState().addToast(message, 'error', 7000)
     }
   }
 }

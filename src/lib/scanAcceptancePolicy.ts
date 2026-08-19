@@ -10,8 +10,8 @@ export type ScanAcceptanceDecision =
  * Một SSOT cho live scan + batch scan.
  *
  * - OMR rejected luôn fail-closed.
- * - OMR review_required luôn cần người chấm xử lý.
- * - quality=bad không được lưu tự động dù OMR đọc ra đáp án.
+ * - quality=bad luôn fail-closed, kể cả OMR đồng thời có câu cần review.
+ * - OMR review_required cần người chấm xử lý khi ảnh vẫn đủ chất lượng.
  * - quality=review được route review thay vì silently accept.
  */
 export function decideScanAcceptance(
@@ -19,10 +19,10 @@ export function decideScanAcceptance(
   quality: ScanQualityAssessment,
 ): ScanAcceptanceDecision {
   if (!omr.ok || omr.score === null) return { status: 'rejected', reason: 'OMR_REJECTED' }
+  if (quality.status === 'bad') return { status: 'rejected', reason: 'QUALITY_REJECTED' }
   if ('status' in omr && omr.status === 'review_required') {
     return { status: 'review_required', reason: 'OMR_REVIEW_REQUIRED' }
   }
-  if (quality.status === 'bad') return { status: 'rejected', reason: 'QUALITY_REJECTED' }
   if (quality.status === 'review') return { status: 'review_required', reason: 'QUALITY_REVIEW_REQUIRED' }
   return { status: 'accepted', reason: 'OK' }
 }

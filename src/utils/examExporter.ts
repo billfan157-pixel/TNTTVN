@@ -4,6 +4,7 @@ import { escapeHtml } from './grades'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
+import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../lib/examPrintSafety'
 
 export interface ExamExportOptions {
   subject: string
@@ -73,19 +74,25 @@ import { buildExamPaperHtml, buildBatchExamPapersHtml } from './examSheets'
  */
 function convertExportOptionsToPrintOptions(options: ExamExportOptions) {
   const { parishName, dioceseName } = resolveParishHeaders(options)
-  const questions = resolveExportQuestions(options)
-  const versionCode: ExamVersionCode =
-    options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
+  const sourceQuestions = resolveExportQuestions(options)
+  assertContiguousQuestionIndexes(sourceQuestions)
+  const questions = [...sourceQuestions].sort((a, b) => a.index - b.index)
+
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
+  const configuredVersions = EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
+  const requestedVersion: ExamVersionCode =
+    options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
+  // A stale UI selection must never leak into a printed/scannable form. If the
+  // configured variants changed while the modal was open, fall back to the first
+  // actually configured key (normally A) instead of emitting an unknown QR version.
+  const versionCode: ExamVersionCode = configuredVersions.includes(requestedVersion)
+    ? requestedVersion
+    : (configuredVersions[0] ?? 'A')
   const activeKey = variants[versionCode] || options.answerKey || {}
-  const mappedQuestions = questions.map((q, idx) => {
-    const qNum = q.index || idx + 1
-    return {
-      ...q,
-      index: qNum,
-      correctOption: activeKey[qNum] || q.correctOption || 'A',
-    }
-  })
+  const mappedQuestions = questions.map(q => ({
+    ...q,
+    correctOption: activeKey[q.index] || q.correctOption || 'A',
+  }))
 
   return {
     parishName: parishName || 'Giáo Xứ',
@@ -108,24 +115,24 @@ function convertExportOptionsToPrintOptions(options: ExamExportOptions) {
 }
 
 /**
- * Tạo nội dung HTML của đề thi tương thích 100% với Microsoft Word (.doc format),
- * sử dụng trực tiếp engine SSOT buildExamPaperHtml để đảm bảo tuyệt đối không có sự sai lệch giữa bản in và bản xuất file.
+ * Tạo nội dung HTML của đề thi tương thích Microsoft Word (.doc format).
+ * Word không phải scan-certified, nhưng vẫn đi qua safety gate để answer-key
+ * không còn homography marker và malformed OMR rows không thể được xuất/in nhầm.
  */
 export function generateExamWordHtml(options: ExamExportOptions): string {
   const printOptions = convertExportOptionsToPrintOptions(options)
-  return buildExamPaperHtml(printOptions)
+  return prepareExamDocumentForOutput(buildExamPaperHtml(printOptions))
 }
 
 /**
- * Tạo nội dung HTML xuất hàng loạt cho Microsoft Word (.doc format),
- * sử dụng trực tiếp engine SSOT buildBatchExamPapersHtml để tạo từng trang đề thi kèm tên và mã QR riêng biệt cho từng em.
+ * Tạo nội dung HTML xuất hàng loạt cho Microsoft Word (.doc format).
  */
 export function generateBatchExamWordHtml(
   students: { id: string; code: string; name: string }[],
   options: ExamExportOptions
 ): string {
   const printOptions = convertExportOptionsToPrintOptions(options)
-  return buildBatchExamPapersHtml(students, printOptions)
+  return prepareExamDocumentForOutput(buildBatchExamPapersHtml(students, printOptions))
 }
 
 /**
@@ -143,12 +150,13 @@ export function exportExamToHtml(options: ExamExportOptions): void {
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')
   } catch (err) {
     console.error('Error exporting exam to HTML:', err)
-    useToastStore.getState().addToast('Lỗi khi xuất file HTML!', 'error')
+    useToastStore.getState().addToast(err instanceof Error ? err.message : 'Lỗi khi xuất file HTML!', 'error', 7000)
   }
 }
 
 /**
  * Xuất đề thi ra file Microsoft Word (.doc), hỗ trợ cả xuất đơn và xuất hàng loạt cho toàn bộ học sinh.
+ * Tài liệu Word vẫn là định dạng chỉnh sửa, không được coi là scan-certified.
  */
 export function exportExamToWord(options: ExamExportOptions): void {
   try {
@@ -171,7 +179,7 @@ export function exportExamToWord(options: ExamExportOptions): void {
     useToastStore.getState().addToast(`Đã xuất file Word ${isBatch ? `cho ${options.students!.length} học sinh` : ''}: ${filename}`, 'success')
   } catch (err) {
     console.error('Error exporting exam to Word:', err)
-    useToastStore.getState().addToast('Lỗi khi xuất file Word!', 'error')
+    useToastStore.getState().addToast(err instanceof Error ? err.message : 'Lỗi khi xuất file Word!', 'error', 7000)
   }
 }
 
@@ -209,15 +217,15 @@ export function generateExamExcelWorkbook(options: ExamExportOptions): Uint8Arra
 
   const wsQuestions = XLSX.utils.aoa_to_sheet(questionsData)
   wsQuestions['!cols'] = [
-    { wch: 8 },  // Câu Số
-    { wch: 45 }, // Nội Dung Câu Hỏi
-    { wch: 25 }, // A
-    { wch: 25 }, // B
-    { wch: 25 }, // C
-    { wch: 25 }, // D
-    { wch: 20 }, // Đáp Án Đúng
-    { wch: 8 },  // Điểm
-    { wch: 35 }, // Giải Thích
+    { wch: 8 },
+    { wch: 45 },
+    { wch: 25 },
+    { wch: 25 },
+    { wch: 25 },
+    { wch: 25 },
+    { wch: 20 },
+    { wch: 8 },
+    { wch: 35 },
   ]
   XLSX.utils.book_append_sheet(wb, wsQuestions, 'Danh_Sach_Cau_Hoi')
 
@@ -261,9 +269,7 @@ export function generateExamExcelWorkbook(options: ExamExportOptions): Uint8Arra
   return new Uint8Array(out)
 }
 
-/**
- * Xuất đề thi ra file Excel (.xlsx).
- */
+/** Xuất đề thi ra file Excel (.xlsx). */
 export function exportExamToExcel(options: ExamExportOptions): void {
   try {
     const bytes = generateExamExcelWorkbook(options)
@@ -288,9 +294,7 @@ export function exportExamToExcel(options: ExamExportOptions): void {
   }
 }
 
-/**
- * Xuất đề thi dạng văn bản thuần Text (.txt).
- */
+/** Xuất đề thi dạng văn bản thuần Text (.txt). */
 export function exportExamToText(options: ExamExportOptions): string {
   const { parishName, dioceseName } = resolveParishHeaders(options)
   const questions = resolveExportQuestions(options)
@@ -350,9 +354,7 @@ export function exportExamToText(options: ExamExportOptions): string {
   return text
 }
 
-/**
- * Tải file văn bản Text (.txt).
- */
+/** Tải file văn bản Text (.txt). */
 export function downloadExamText(options: ExamExportOptions): void {
   try {
     const content = exportExamToText(options)
@@ -375,9 +377,7 @@ export function downloadExamText(options: ExamExportOptions): void {
   }
 }
 
-/**
- * Xuất đề thi dạng Markdown (.md).
- */
+/** Xuất đề thi dạng Markdown (.md). */
 export function exportExamToMarkdown(options: ExamExportOptions): string {
   const { parishName, dioceseName } = resolveParishHeaders(options)
   const questions = resolveExportQuestions(options)
@@ -419,8 +419,8 @@ export function exportExamToMarkdown(options: ExamExportOptions): string {
     questions.forEach((q, idx) => {
       const qNum = q.index || idx + 1
       const ans = activeKey[qNum] || q.correctOption || 'A'
-      const text = q.options?.[ans] || ''
-      md += `| **${qNum}** | **${ans}** | ${text} |\n`
+      const optionText = q.options?.[ans] || ''
+      md += `| **${qNum}** | **${ans}** | ${optionText} |\n`
     })
     md += `\n`
 
@@ -441,9 +441,7 @@ export function exportExamToMarkdown(options: ExamExportOptions): string {
   return md
 }
 
-/**
- * Tải file Markdown (.md).
- */
+/** Tải file Markdown (.md). */
 export function downloadExamMarkdown(options: ExamExportOptions): void {
   try {
     const content = exportExamToMarkdown(options)
@@ -466,9 +464,7 @@ export function downloadExamMarkdown(options: ExamExportOptions): void {
   }
 }
 
-/**
- * Sinh chuỗi JSON có cấu trúc chứa thông tin đề thi, đáp án và danh sách câu hỏi.
- */
+/** Sinh chuỗi JSON có cấu trúc chứa thông tin đề thi, đáp án và danh sách câu hỏi. */
 export function generateExamJsonString(options: ExamExportOptions): string {
   const questions = resolveExportQuestions(options)
   const payload = {
@@ -492,9 +488,7 @@ export function generateExamJsonString(options: ExamExportOptions): string {
   return JSON.stringify(payload, null, 2)
 }
 
-/**
- * Xuất gói dữ liệu đề thi JSON (.json) phục vụ backup hoặc tích hợp.
- */
+/** Xuất gói dữ liệu đề thi JSON (.json) phục vụ backup hoặc tích hợp. */
 export function exportExamToJson(options: ExamExportOptions): void {
   try {
     const jsonStr = generateExamJsonString(options)

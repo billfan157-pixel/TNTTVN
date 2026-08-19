@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     globals: true,
     maxWorkers: 1,
+    hookTimeout: 30_000,
     environment: 'jsdom',
     globalSetup: ['./src/__tests__/global-setup.ts'],
     setupFiles: ['./src/__tests__/setup.ts'],

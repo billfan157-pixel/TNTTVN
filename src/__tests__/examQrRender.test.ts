@@ -10,8 +10,20 @@ import { integratedMcOptionToCellForRect } from '../lib/answerSheetTemplate'
 
 let browser: Browser
 
+type SerializedPixels = { width: number; height: number; rgbaBase64: string }
+
+function serializedPixelsToImageData(pixels: SerializedPixels): ImageData {
+  const rgba = Buffer.from(pixels.rgbaBase64, 'base64')
+  return {
+    width: pixels.width,
+    height: pixels.height,
+    data: new Uint8ClampedArray(rgba),
+    colorSpace: 'srgb',
+  } as ImageData
+}
+
 async function pngImageData(page: Page, png: Uint8Array): Promise<ImageData> {
-  const pixels = await page.evaluate(async (dataUrl) => {
+  const pixels = await page.evaluate(async (dataUrl): Promise<SerializedPixels> => {
     const img = new Image()
     img.src = dataUrl
     await img.decode()
@@ -21,14 +33,14 @@ async function pngImageData(page: Page, png: Uint8Array): Promise<ImageData> {
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!
     ctx.drawImage(img, 0, 0)
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    return { width: frame.width, height: frame.height, data: Array.from(frame.data) }
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let offset = 0; offset < frame.data.length; offset += chunkSize) {
+      binary += String.fromCharCode(...frame.data.subarray(offset, offset + chunkSize))
+    }
+    return { width: frame.width, height: frame.height, rgbaBase64: btoa(binary) }
   }, `data:image/png;base64,${Buffer.from(png).toString('base64')}`)
-  return {
-    width: pixels.width,
-    height: pixels.height,
-    data: new Uint8ClampedArray(pixels.data),
-    colorSpace: 'srgb',
-  } as ImageData
+  return serializedPixelsToImageData(pixels)
 }
 
 async function elementImageData(page: Page, selector: string): Promise<ImageData> {
@@ -40,7 +52,7 @@ async function elementImageData(page: Page, selector: string): Promise<ImageData
 async function cameraFrameFromPage(page: Page, blurPx = 0): Promise<ImageData> {
   const pagePng = await page.screenshot({ type: 'png' })
   const dataUrl = `data:image/png;base64,${Buffer.from(pagePng).toString('base64')}`
-  const pixels = await page.evaluate(async ({ source, blurPx }) => {
+  const pixels = await page.evaluate(async ({ source, blurPx }): Promise<SerializedPixels> => {
     const img = new Image()
     img.src = source
     await img.decode()
@@ -65,14 +77,14 @@ async function cameraFrameFromPage(page: Page, blurPx = 0): Promise<ImageData> {
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!
     ctx.drawImage(raw, (raw.width - canvas.width) / 2, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height)
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    return { width: frame.width, height: frame.height, data: Array.from(frame.data) }
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let offset = 0; offset < frame.data.length; offset += chunkSize) {
+      binary += String.fromCharCode(...frame.data.subarray(offset, offset + chunkSize))
+    }
+    return { width: frame.width, height: frame.height, rgbaBase64: btoa(binary) }
   }, { source: dataUrl, blurPx })
-  return {
-    width: pixels.width,
-    height: pixels.height,
-    data: new Uint8ClampedArray(pixels.data),
-    colorSpace: 'srgb',
-  } as ImageData
+  return serializedPixelsToImageData(pixels)
 }
 
 describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
@@ -268,7 +280,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     })
   }, 20_000)
 
-  it('vẫn đọc phiếu legacy mật độ 29 module khi camera bị mất nét nhẹ', async () => {
+  it('đọc được QR compact không-OMR khi camera bị mất nét nhẹ', async () => {
     const sessionId = 'EXS-7e8f798z'
     const student = { id: 'ST-12345678', code: 'TN005', name: 'Em Test 5' }
     const html = buildExamPaperHtml({
@@ -277,6 +289,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
       academicYear: '2026-2027',
       sessionId,
       student,
+      includeAnswerGrid: false,
       questions: [{ index: 1, question: 'Câu hỏi', options: { A: 'A', B: 'B', C: 'C', D: 'D' }, correctOption: 'A' }],
     })
     const page = await browser.newPage()

@@ -133,11 +133,11 @@ function clamp01(value: number): number {
  * Cách này vẫn giữ ưu điểm local-background normalization nhưng bớt phụ thuộc
  * việc nét bút có tình cờ đi qua 16 điểm sample cố định hay không.
  */
-function sampleDarkness(gray: GrayImage, cx: number, cy: number, r: number): number {
+function sampleDarkness(gray: GrayImage, cx: number, cy: number, r: number, backgroundScale = 1): number {
   const { width, height, data } = gray
   const coreR = Math.max(1.2, r * 0.74)
-  const bgInnerR = Math.max(coreR + 1, r * 1.55)
-  const bgOuterR = Math.max(bgInnerR + 1, r * 2.35)
+  const bgInnerR = Math.max(coreR + 1, r * 1.55 * backgroundScale)
+  const bgOuterR = Math.max(bgInnerR + 1, r * 2.35 * backgroundScale)
   const x0 = Math.max(0, Math.floor(cx - bgOuterR))
   const x1 = Math.min(width - 1, Math.ceil(cx + bgOuterR))
   const y0 = Math.max(0, Math.floor(cy - bgOuterR))
@@ -211,7 +211,10 @@ function calibrateMcThresholds(readings: OmrOptionReading[]): { fill: number; we
 
   const adaptiveFill = baseline + separation * 0.54
   const fill = Math.max(ADAPTIVE_FILL_MIN, Math.min(ADAPTIVE_FILL_MAX, adaptiveFill))
-  const weak = Math.max(0.20, Math.min(0.25, fill - 0.17))
+  // Fail-safe: adaptive calibration may lower the weak-mark threshold when the
+  // sheet is unusually clean, but it must never RAISE it above the production
+  // weak floor. Raising it silently turns a meaningful faint mark into “blank”.
+  const weak = Math.max(0.20, Math.min(MIN_WEAK_FILL, fill - 0.17))
   return { fill, weak }
 }
 
@@ -477,8 +480,11 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
     if (!isFinite(center.x) || !isFinite(center.y)) return fail('CELL_OUT_OF_IMAGE')
     const px = center.x * gray.width
     const py = center.y * gray.height
+    // Keep the written core compact enough to detect partial pencil/pen marks,
+    // but move only the local-paper annulus beyond the 36px printed score box.
+    // This avoids contrast cancellation without diluting a small real mark.
     const r = Math.max(1.5, sizePx * 0.22)
-    readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r) })
+    readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r, 1.45) })
   }
 
   const sorted = [...readings].sort((a, b) => b.coverage - a.coverage)

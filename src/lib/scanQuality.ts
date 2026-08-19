@@ -10,8 +10,15 @@ export interface ScanQualityAssessment {
 }
 
 /**
- * Chỉ lưu số đo tổng hợp, không lưu ảnh hay pixel. Ngưỡng hiện tại mang tính
- * cảnh báo; detector OMR/marker vẫn là hard gate cho quyết định chấm.
+ * Chỉ lưu số đo tổng hợp, không lưu ảnh hay pixel.
+ *
+ * Contract với scanAcceptancePolicy:
+ * - good: có thể auto-accept nếu OMR cũng accepted;
+ * - review: bắt buộc người chấm rà soát;
+ * - bad: hard reject, không được ghi điểm từ frame đó.
+ *
+ * Detector marker/OMR vẫn là gate độc lập; quality không thể biến một OMR lỗi
+ * thành kết quả hợp lệ.
  */
 export function assessScanQuality(image: ImageData): ScanQualityAssessment {
   const { width, height, data } = image

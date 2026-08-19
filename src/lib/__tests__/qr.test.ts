@@ -55,6 +55,12 @@ describe('Smart Exam Grading — QR (Phase 1)', () => {
     expect(parseExamQrPayload('')).toBeNull()
   })
 
+  it('reject namespace tài liệu KEY/GENERIC để không biến answer-key hoặc mẫu chung thành identity học sinh', () => {
+    expect(parseExamQrPayload('tntt-exam:EXS-12345678:GENERIC')).toBeNull()
+    expect(parseExamQrPayload('tntt-exam:EXS-12345678:KEY:A')).toBeNull()
+    expect(parseExamQrPayload('tntt-exam:EXS-12345678:key:b')).toBeNull()
+  })
+
   it('studentId chứa dấu ":" vẫn parse đúng (join các phần sau sessionId)', () => {
     const payload = buildExamQrPayload('EXS-1', 'ST-a:b:c')
     const parsed = parseExamQrPayload(payload)

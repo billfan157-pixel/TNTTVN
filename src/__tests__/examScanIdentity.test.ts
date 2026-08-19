@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createManualExamIdentity, resolveExamIdentity } from '../lib/examScanIdentity'
+import {
+  createManualExamIdentity,
+  EXAM_CODE_RECHECK_INTERVAL_MS,
+  isSameExamIdentity,
+  resolveExamIdentity,
+  shouldRecheckExamCode,
+} from '../lib/examScanIdentity'
 import type { ExamCodeScanResult } from '../lib/examCodeScanner'
 
 const validCode: ExamCodeScanResult = {
@@ -65,5 +71,26 @@ describe('exam scan identity lock', () => {
     const result = resolveExamIdentity(manual, null, 'EXS-12345678', 99_999_999)
     expect(result.kind).toBe('retained')
     expect(result.lock).toMatchObject({ studentId: 'ST-abcdef12', source: 'manual' })
+    expect(shouldRecheckExamCode(manual, 0, 99_999_999)).toBe(false)
+  })
+
+  it('đọc lại QR định kỳ khi đang giữ lock camera nhưng không đọc liên tục mỗi frame', () => {
+    const first = resolveExamIdentity(null, validCode, 'EXS-12345678', 1_000)
+    expect(shouldRecheckExamCode(first.lock, 1_000, 1_000 + EXAM_CODE_RECHECK_INTERVAL_MS - 1)).toBe(false)
+    expect(shouldRecheckExamCode(first.lock, 1_000, 1_000 + EXAM_CODE_RECHECK_INTERVAL_MS)).toBe(true)
+  })
+
+  it('refresh cùng một QR không bị coi là đổi tờ, nhưng đổi student thì có', () => {
+    const first = resolveExamIdentity(null, validCode, 'EXS-12345678', 1_000)
+    const refreshed = resolveExamIdentity(first.lock, validCode, 'EXS-12345678', 2_500)
+    expect(isSameExamIdentity(first.lock, refreshed.lock)).toBe(true)
+
+    const otherStudent: ExamCodeScanResult = {
+      ...validCode,
+      rawText: 'TE:12345678:11111111',
+      payload: { sessionId: 'EXS-12345678', studentId: 'ST-11111111' },
+    }
+    const changed = resolveExamIdentity(first.lock, otherStudent, 'EXS-12345678', 2_500)
+    expect(isSameExamIdentity(first.lock, changed.lock)).toBe(false)
   })
 })

@@ -24,6 +24,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
+import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../../lib/examPrintSafety'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
 
 export type ExamDocType = 'exam_paper' | 'answer_sheet' | 'qr_sheet'
@@ -85,6 +86,18 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     return list.length > 0 ? list : (['A'] as ExamVersionCode[])
   }, [variants])
 
+  const effectiveSelectedVersion = availableVersions.includes(selectedVersion)
+    ? selectedVersion
+    : (availableVersions[0] ?? 'A')
+
+  // Nếu cấu hình mã đề thay đổi khi modal đang mở, không để state cũ lọt vào
+  // QR / answer sheet / filename. Đồng bộ UI về một mã thực sự còn cấu hình.
+  useEffect(() => {
+    if (selectedVersion !== effectiveSelectedVersion) {
+      setSelectedVersion(effectiveSelectedVersion)
+    }
+  }, [selectedVersion, effectiveSelectedVersion])
+
   // P0 Guard: Tự động chuyển về Mẫu Chung (single) khi bật Hiện Đáp Án
   useEffect(() => {
     if (showAnswerKey && printMode === 'batch') {
@@ -92,8 +105,18 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     }
   }, [showAnswerKey, printMode])
 
+  const questionIntegrityError = useMemo(() => {
+    if (questions.length === 0) return null
+    try {
+      assertContiguousQuestionIndexes(questions)
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Thứ tự câu hỏi không hợp lệ cho OMR.'
+    }
+  }, [questions])
+
   const effectiveQuestions = useMemo(() => {
-    const activeKey = variants[selectedVersion] || answerKey || {}
+    const activeKey = variants[effectiveSelectedVersion] || answerKey || {}
     const sorted = [...questions].sort((a, b) => (a.index || 0) - (b.index || 0))
     return sorted.map((q, idx) => {
       const qNum = q.index || idx + 1
@@ -103,7 +126,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         correctOption: activeKey[qNum] || q.correctOption || 'A',
       }
     })
-  }, [questions, variants, selectedVersion, answerKey])
+  }, [questions, variants, effectiveSelectedVersion, answerKey])
 
   const printOptions: ExamPaperPrintOptions = useMemo(() => ({
     parishName,
@@ -119,13 +142,15 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     includeAnswerGrid,
     includeGradingBox,
     sessionId,
-    examVersion: selectedVersion,
-  }), [parishName, dioceseName, subject, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, selectedVersion])
+    examVersion: effectiveSelectedVersion,
+  }), [parishName, dioceseName, subject, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion])
 
+  // Mẫu Chung phải là tài liệu không định danh. `GENERIC` cố ý đi qua legacy
+  // payload và bị shared QR parser reject, nên scanner không thể auto-bind nhầm.
   const sampleStudent: StudentSheetInfo = useMemo(() => ({
-    id: 'sample-student',
-    code: 'TN-001',
-    name: 'Nguyễn Văn A',
+    id: 'GENERIC',
+    code: '',
+    name: '',
   }), [])
 
   const effectiveStudents = useMemo(() => (
@@ -140,8 +165,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     maxScore: maxScore || 10,
     examType: examType || 'multiple_choice',
     questionCount: questionCount || questions.length || 20,
-    examVersion: selectedVersion,
-  }), [sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, questions.length, selectedVersion])
+    examVersion: effectiveSelectedVersion,
+  }), [sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, questions.length, effectiveSelectedVersion])
 
   const qrSvgs = useMemo(() => {
     return generateExamQrCodes(sessionId, effectiveStudents).map((q, i) => ({
@@ -154,24 +179,30 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const previewHtml = useMemo(() => {
     if (docType === 'answer_sheet') {
       if (printMode === 'batch' && students.length > 0) {
-        return buildBatchAnswerSheetsHtml(students.slice(0, 2), batchAnswerSheetParams)
+        return prepareExamDocumentForOutput(buildBatchAnswerSheetsHtml(students.slice(0, 2), batchAnswerSheetParams))
       }
-      return buildBatchAnswerSheetsHtml([sampleStudent], batchAnswerSheetParams)
+      return prepareExamDocumentForOutput(buildBatchAnswerSheetsHtml([sampleStudent], batchAnswerSheetParams))
     }
 
     if (docType === 'qr_sheet') {
       return buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
     }
 
+    if (questionIntegrityError) {
+      return `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;text-align:center;color:#b91c1c;"><h3>Không thể tạo phiếu OMR an toàn.</h3><p>${questionIntegrityError}</p><p>Hãy sửa thứ tự câu thành duy nhất và liên tục 1..N.</p></body></html>`
+    }
+
     // docType === 'exam_paper'
     if (effectiveQuestions.length === 0) {
       return `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;text-align:center;color:#64748b;"><h3>Chưa có nội dung câu hỏi cho đề thi gộp.</h3><p>Vui lòng chuyển qua tab <b>Phiếu Trả Lời Rời A4</b> hoặc <b>Thẻ Mã QR</b> để in phiếu làm bài.</p></body></html>`
     }
-    if (printMode === 'batch' && students.length > 0) {
-      return buildBatchExamPapersHtml(students.slice(0, 2), printOptions)
-    }
-    return buildExamPaperHtml(printOptions)
-  }, [docType, printMode, students, sampleStudent, batchAnswerSheetParams, classLabel, subject, qrSvgs, effectiveQuestions, printOptions])
+    const rawHtml = printMode === 'batch' && students.length > 0
+      ? buildBatchExamPapersHtml(students.slice(0, 2), printOptions)
+      : buildExamPaperHtml(printOptions)
+    // Preview phải phản ánh đúng tài liệu vật lý: answer-key không còn marker
+    // machine-readable, student form dùng foreground SVG markers.
+    return prepareExamDocumentForOutput(rawHtml)
+  }, [docType, printMode, students, sampleStudent, batchAnswerSheetParams, classLabel, subject, qrSvgs, effectiveQuestions, printOptions, questionIntegrityError])
 
   useEffect(() => {
     if (!isOpen) return
@@ -184,9 +215,17 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   if (!isOpen) return null
 
+  const guardExamPaperIntegrity = (): boolean => {
+    if (docType !== 'exam_paper' || !questionIntegrityError) return true
+    useToastStore.getState().addToast(questionIntegrityError, 'error', 7000)
+    return false
+  }
+
   const handlePrint = () => {
+    if (!guardExamPaperIntegrity()) return
     if (docType === 'answer_sheet') {
-      printBatchAnswerSheets(effectiveStudents, batchAnswerSheetParams)
+      const answerSheetStudents = printMode === 'batch' && students.length > 0 ? students : [sampleStudent]
+      printBatchAnswerSheets(answerSheetStudents, batchAnswerSheetParams)
       return
     }
     if (docType === 'qr_sheet') {
@@ -201,11 +240,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }
 
   const handleDownloadPdf = () => {
+    if (!guardExamPaperIntegrity()) return
     const isBatch = printMode === 'batch' && students.length > 0
 
     if (docType === 'answer_sheet') {
-      const htmlToExport = buildBatchAnswerSheetsHtml(effectiveStudents, batchAnswerSheetParams)
-      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}`
+      const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
+      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`
       ReportExportService.exportPdf(htmlToExport, filename)
       return
     }
@@ -221,16 +261,17 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       ? buildBatchExamPapersHtml(students, printOptions)
       : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
-    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}`
+    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`
     ReportExportService.exportPdf(htmlToExport, filename)
   }
 
   const handleDownloadHtml = () => {
+    if (!guardExamPaperIntegrity()) return
     const isBatch = printMode === 'batch' && students.length > 0
 
     if (docType === 'answer_sheet') {
-      const htmlToExport = buildBatchAnswerSheetsHtml(effectiveStudents, batchAnswerSheetParams)
-      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}.html`
+      const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
+      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`
       ReportExportService.downloadHTML(htmlToExport, filename)
       useToastStore.getState().addToast(`Đã xuất file HTML Phiếu Trả Lời: ${filename}`, 'success')
       return
@@ -248,12 +289,13 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       ? buildBatchExamPapersHtml(students, printOptions)
       : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
-    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}.html`
+    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`
     ReportExportService.downloadHTML(htmlToExport, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi (${isBatch ? `${students.length} học viên` : 'Mẫu chung'}): ${filename}`, 'success')
   }
 
   const handleDownloadWord = () => {
+    if (!guardExamPaperIntegrity()) return
     const isBatch = printMode === 'batch' && students.length > 0
     exportExamToWord({
       parishName,
@@ -263,7 +305,9 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       academicYear,
       durationMinutes,
       questions: effectiveQuestions,
-      selectedVersion,
+      selectedVersion: effectiveSelectedVersion,
+      answerVariants,
+      answerKey,
       includeAnswerKey: showAnswerKey,
       includeExplanations,
       includeStudentInfo: true,
@@ -280,7 +324,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       classLabel,
       academicYear,
       questions: effectiveQuestions,
-      selectedVersion,
+      selectedVersion: effectiveSelectedVersion,
       answerVariants,
       answerKey,
       includeAnswerKey: true,
@@ -403,7 +447,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                       type="button"
                       onClick={() => setSelectedVersion(code)}
                       className={`px-2 py-0.5 rounded text-xs font-black transition-all ${
-                        selectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                        effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                       }`}
                     >
                       {code}
