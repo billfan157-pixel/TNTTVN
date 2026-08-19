@@ -205,7 +205,7 @@ function isSqliteBusyError(error: unknown): boolean {
   return false
 }
 
-async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts = 8): Promise<T> {
+async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts = 16): Promise<T> {
   let attempt = 0
   while (true) {
     try {
@@ -213,11 +213,13 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts =
     } catch (error) {
       attempt++
       if (!isSqliteBusyError(error) || attempt >= maxAttempts) throw error
-      // @libsql/client local file transactions may fail immediately under writer
-      // contention even with PRAGMA busy_timeout. Retry the whole idempotent exam
-      // result transaction; validation/constraint/business errors are never retried.
-      const delayMs = Math.min(200, 20 * 2 ** (attempt - 1))
-      await new Promise(resolve => setTimeout(resolve, delayMs))
+      // Local @libsql/client can fail immediately when several write transactions
+      // contend. Exponential backoff alone synchronizes the losers again, so add
+      // jitter and retry the whole idempotent save transaction. Business errors
+      // and non-BUSY database failures are never retried.
+      const baseDelayMs = Math.min(250, 20 * 2 ** (attempt - 1))
+      const jitterMs = Math.floor(Math.random() * Math.max(20, Math.floor(baseDelayMs * 0.35)))
+      await new Promise(resolve => setTimeout(resolve, baseDelayMs + jitterMs))
     }
   }
 }
