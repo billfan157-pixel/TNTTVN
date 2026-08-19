@@ -7,6 +7,8 @@ const ANSWER_KEY_SENTINELS = [
 
 const OMR_MARKER_PATTERN = /<div\s+class="omr-corner-marker\s+(omr-marker-(?:tl|tr|bl|br))"\s+title="Marker\s+(TL|TR|BL|BR)"\s*><\/div>/gi
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
+const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^\"]*)?)">([ABCD])<\/span>/g
+const GUIDE_PATTERN = /\* Bút xanh\/đen hoặc chì đậm; tô kín 01 ô \(A, B, C, D\):/g
 
 export class ExamPrintIntegrityError extends Error {
   constructor(message: string) {
@@ -75,6 +77,23 @@ export function convertIntegratedMarkersToForegroundSvg(html: string): string {
 }
 
 /**
+ * Printed A/B/C/D glyphs used to sit exactly in the detector's core disk. With
+ * ROI-based darkness measurement that creates avoidable baseline ink and makes
+ * empty A/B/C/D bubbles intrinsically different. Keep the 16px bubble elements
+ * and all geometry unchanged, but move the option semantics to aria-label plus a
+ * single printed legend. The four circles are always A→D from left to right.
+ */
+export function cleanIntegratedBubbleRoi(html: string): string {
+  const withoutGlyphs = html.replace(BUBBLE_LABEL_PATTERN, (_whole, className: string, option: string) => (
+    `<span class="${className}" aria-label="${option}"></span>`
+  ))
+  return withoutGlyphs.replace(
+    GUIDE_PATTERN,
+    '* Bút xanh/đen hoặc chì đậm; tô kín 01 ô — 4 ô từ trái sang phải lần lượt là A, B, C, D:'
+  )
+}
+
+/**
  * Teacher answer keys must be visually useful but machine-invalid. Removing the
  * four homography fiducials guarantees integrated OMR cannot accept the key even
  * in fixed-student/manual mode where QR identity is intentionally bypassed.
@@ -86,11 +105,12 @@ export function invalidateTeacherAnswerKeyOmr(html: string): string {
 
 /**
  * Canonical safety gate for every physical/exported exam document.
- * Order matters: validate the semantic row mapping first, then invalidate keys,
- * then convert remaining student-form markers to print-safe foreground SVG.
+ * Order matters: validate semantic mapping, remove detector-noise glyphs, then
+ * invalidate answer keys, then convert remaining student markers to foreground SVG.
  */
 export function prepareExamDocumentForOutput(html: string): string {
   assertContiguousOmrQuestionRows(html)
-  const machineSafe = invalidateTeacherAnswerKeyOmr(html)
+  const cleanBubbles = cleanIntegratedBubbleRoi(html)
+  const machineSafe = invalidateTeacherAnswerKeyOmr(cleanBubbles)
   return convertIntegratedMarkersToForegroundSvg(machineSafe)
 }
