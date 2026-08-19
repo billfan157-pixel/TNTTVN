@@ -145,72 +145,59 @@ export class ReportExportService {
   }
 
   /**
-   * Export as PDF: trực tiếp sinh file nhị phân PDF và kích hoạt tải về máy của người dùng (Direct Download).
-   * Có cơ chế fallback mở cửa sổ in ấn dự phòng nếu trình duyệt gặp sự cố canvas.
+   * Export as PDF: Sử dụng engine vector chuẩn của trình duyệt thông qua hidden iframe,
+   * đặt title chính xác bằng filename để khi lưu file PDF tự động đặt đúng tên file.
+   * Đảm bảo 100% chất lượng vector, không bị lệch chữ, không mất chữ, không mờ nét như canvas.
    */
-  public static async exportPdf(htmlContent: string, filename: string): Promise<void> {
-    const pdfFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
+  public static exportPdf(htmlContent: string, filename: string): void {
     try {
-      useToastStore.getState().addToast('Đang tạo và tải file PDF về máy...', 'info', 3000)
-
-      // Tạo một container ẩn để parse và render HTML chính xác
-      const container = document.createElement('div')
-      container.style.position = 'fixed'
-      container.style.top = '-99999px'
-      container.style.left = '-99999px'
-      container.style.width = '210mm'
-      container.innerHTML = htmlContent
-      document.body.appendChild(container)
-
-      const targetElement = container.querySelector('.Section1') || container.querySelector('body') || container
-
-      const html2pdfModule = await import('html2pdf.js')
-      const html2pdf = html2pdfModule.default || html2pdfModule
-
-      const opt = {
-        margin: [0, 0, 0, 0],
-        filename: pdfFilename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          letterRendering: true,
-          logging: false,
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: 'a4',
-          orientation: 'portrait',
-        },
-        pagebreak: {
-          mode: ['avoid-all', 'css', 'legacy'],
-          after: ['.batch-exam-page', '.student-exam-page'],
-        },
+      const pdfTitle = filename.replace(/\.pdf$/i, '')
+      // Đảm bảo thẻ <title> trong HTML là tên file để trình duyệt tự điền tên khi lưu PDF
+      let customHtml = htmlContent
+      if (customHtml.includes('<title>')) {
+        customHtml = customHtml.replace(/<title>[\s\S]*?<\/title>/i, `<title>${pdfTitle}</title>`)
+      } else {
+        customHtml = customHtml.replace('<head>', `<head><title>${pdfTitle}</title>`)
       }
 
-      await (html2pdf() as any).set(opt).from(targetElement as HTMLElement).save()
-      if (document.body.contains(container)) {
-        document.body.removeChild(container)
+      useToastStore.getState().addToast(`Đang mở hộp thoại lưu PDF "${pdfTitle}.pdf"... Vui lòng chọn "Lưu dưới dạng PDF" (Save as PDF)`, 'info', 5000)
+
+      let iframe = document.getElementById('__tntt_pdf_export_frame__') as HTMLIFrameElement | null
+      if (iframe && iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe)
       }
-      useToastStore.getState().addToast(`Đã tải về máy file PDF: ${pdfFilename}`, 'success')
+
+      iframe = document.createElement('iframe')
+      iframe.id = '__tntt_pdf_export_frame__'
+      iframe.style.position = 'fixed'
+      iframe.style.right = '0'
+      iframe.style.bottom = '0'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+      iframe.style.border = '0'
+      iframe.style.visibility = 'hidden'
+      document.body.appendChild(iframe)
+
+      const url = htmlBlobUrl(customHtml)
+      iframe.src = url
+      iframe.onload = () => {
+        try {
+          iframe?.contentWindow?.focus()
+          iframe?.contentWindow?.print()
+        } catch (printErr) {
+          console.error('Error printing via iframe:', printErr)
+        }
+        setTimeout(() => {
+          if (iframe && iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe)
+          }
+          URL.revokeObjectURL(url)
+        }, 120_000)
+      }
     } catch (err) {
       Sentry.captureException(err)
-      console.error('Error generating direct PDF:', err)
-      // Fallback: Mở cửa sổ in ấn dự phòng
-      try {
-        const url = htmlBlobUrl(htmlContent)
-        const pdfWindow = window.open(url, '_blank')
-        if (pdfWindow) {
-          pdfWindow.onload = () => {
-            try {
-              pdfWindow.focus()
-              pdfWindow.print()
-            } catch {}
-          }
-          setTimeout(() => URL.revokeObjectURL(url), 60_000)
-        }
-      } catch {}
-      useToastStore.getState().addToast('Đã mở cửa sổ in/lưu PDF dự phòng!', 'info')
+      console.error('Error in exportPdf:', err)
+      useToastStore.getState().addToast('Lỗi khi xuất PDF!', 'error')
     }
   }
 }

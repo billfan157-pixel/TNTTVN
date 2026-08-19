@@ -46,7 +46,6 @@
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.45.1",
     "hono": "^4.7.6",
-    "html2pdf.js": "^0.14.0",
     "jsonwebtoken": "^9.0.2",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.25.0",
