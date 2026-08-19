@@ -1,6 +1,7 @@
 import { detectAnswersFromImage, detectScoreFromImage, type OmrTemplateMode } from './omr'
 import { scanExamCode } from './examCodeScanner'
 import { assessScanQuality, type ScanQualityAssessment } from './scanQuality'
+import { decideScanAcceptance } from './scanAcceptancePolicy'
 import type { ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../types'
 
 export type BatchScanStatus = 'accepted' | 'review_required' | 'rejected'
@@ -56,11 +57,30 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
   const omr = config.examType === 'multiple_choice'
     ? detectAnswersFromImage(image, answerKey, config.questionCount, config.maxScore, templateMode)
     : detectScoreFromImage(image, config.maxScore)
-  if (!omr.ok || omr.score === null) {
-    return { status: 'rejected', reason: omr.reason, studentId: code.payload.studentId, examVersion }
+  const quality = assessScanQuality(image)
+  const decision = decideScanAcceptance(omr, quality)
+
+  if (decision.status === 'rejected') {
+    return {
+      status: 'rejected',
+      reason: decision.reason === 'QUALITY_REJECTED'
+        ? `Chất lượng ảnh quá kém: ${quality.reasons.join(', ') || quality.status}.`
+        : omr.reason,
+      studentId: code.payload.studentId,
+      examVersion,
+      quality,
+    }
   }
-  if ('status' in omr && omr.status === 'review_required') {
-    return { status: 'review_required', reason: 'Có ô tô nhiều lựa chọn hoặc quá nhạt; cần quét riêng để hiệu đính.', studentId: code.payload.studentId, examVersion }
+  if (decision.status === 'review_required') {
+    return {
+      status: 'review_required',
+      reason: decision.reason === 'QUALITY_REVIEW_REQUIRED'
+        ? `Chất lượng ảnh cần kiểm tra: ${quality.reasons.join(', ') || quality.status}.`
+        : 'Có ô tô nhiều lựa chọn, quá nhạt hoặc hai lựa chọn quá sát; cần quét riêng để hiệu đính.',
+      studentId: code.payload.studentId,
+      examVersion,
+      quality,
+    }
   }
 
   let answers: string | undefined
@@ -70,24 +90,18 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     answerMap._confidence = String(Math.round(omr.confidence * 100) / 100)
     answers = JSON.stringify(answerMap)
   }
-  const quality = assessScanQuality(image)
-  if (quality.status !== 'good') {
-    return {
-      status: 'review_required',
-      reason: `Chất lượng ảnh cần kiểm tra: ${quality.reasons.join(', ') || quality.status}.`,
-      studentId: code.payload.studentId,
-      examVersion,
-      quality,
-    }
-  }
   const scanMetadata = JSON.stringify({
-    engineVersion: 'omr-v2-batch',
+    engineVersion: 'omr-v3-batch',
     protocolVersion: code.payload.protocolVersion ?? 1,
     templateMode,
     questionCount: config.examType === 'multiple_choice' ? config.questionCount : undefined,
     examVersion,
     formChecksum: code.payload.formChecksum,
+    initialDetectionStatus: 'status' in omr ? omr.status : (omr.ok ? 'accepted' : 'rejected'),
+    initialDetectionReason: omr.reason,
+    initialConfidence: Math.round(omr.confidence * 1000) / 1000,
     detectionStatus: 'accepted',
+    correctionCount: 0,
     quality,
     durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
   })
