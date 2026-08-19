@@ -46,7 +46,7 @@ const DARK_THRESHOLD = 0.38
 const MIN_GAP = 0.08
 const MIN_FILL = 0.38
 /** Vết tô đáng kể nhưng chưa đạt ngưỡng chấp nhận: bắt buộc người chấm xác nhận. */
-const MIN_WEAK_FILL = 0.24
+const MIN_WEAK_FILL = 0.22
 /** MC phải đạt margin riêng cho từng câu; không cho confidence trung bình che một câu mơ hồ. */
 const MIN_QUESTION_GAP = 0.07
 const MIN_ANSWER_CONFIDENCE = 0.06
@@ -211,7 +211,7 @@ function calibrateMcThresholds(readings: OmrOptionReading[]): { fill: number; we
 
   const adaptiveFill = baseline + separation * 0.54
   const fill = Math.max(ADAPTIVE_FILL_MIN, Math.min(ADAPTIVE_FILL_MAX, adaptiveFill))
-  const weak = Math.max(0.22, Math.min(0.29, fill - 0.14))
+  const weak = Math.max(0.20, Math.min(0.25, fill - 0.17))
   return { fill, weak }
 }
 
@@ -232,24 +232,14 @@ function calibrateMcThresholds(readings: OmrOptionReading[]): { fill: number; we
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const INTEGRATED_MARKER_BANDS = [
-  // Camera thật luôn có lề bàn quanh tờ A4. Vì vậy marker không nằm sát 0%/100%
-  // của frame video như ảnh render trang đầy khung. Các band rộng này vẫn chia
-  // trái/phải rõ ràng, còn geometry + kiểm tra kích thước phía dưới chặn blob giả.
   { id: 'TL', xMin: 0.02, xMax: 0.38, yMin: 0.05, yMax: 0.45, ax: 0.02, ay: 0.05 },
   { id: 'TR', xMin: 0.62, xMax: 0.98, yMin: 0.05, yMax: 0.45, ax: 0.98, ay: 0.05 },
   { id: 'BR', xMin: 0.62, xMax: 0.98, yMin: 0.18, yMax: 0.82, ax: 0.98, ay: 0.82 },
   { id: 'BL', xMin: 0.02, xMax: 0.38, yMin: 0.18, yMax: 0.82, ax: 0.02, ay: 0.82 },
 ] as const
-/** Marker integrated là ô vuông đặc 18px trên bản in chuẩn; camera có thể thu
- * nhỏ còn khoảng 10–16px. Coverage kết hợp quadrant + isolation ở locator. */
 const INTEGRATED_MARKER_MIN_COVERAGE = 0.72
-/** Sai số tie coverage giữa các marker giống hệt nhau — chọn vị trí gần góc band hơn.
- * 0.005 đủ lớn để nuốt noise render giữa các marker y hệt nhau (đo thực tế: chênh
- * ≤0.002 do anti-aliasing) nhưng vẫn nhỏ hơn nhiều khoảng cách cov tới blob lạ
- * (QR ~0.4-0.5, bubble tô ~0.68, marker ~0.89). */
 const COVERAGE_TIE_EPSILON = 0.005
 
-/** Integral image (summed-area table) — tổng cửa sổ O(1). */
 function buildSummedArea(gray: GrayImage): Uint32Array {
   const { width, height, data } = gray
   const sat = new Uint32Array((width + 1) * (height + 1))
@@ -271,13 +261,6 @@ function windowSum(sat: Uint32Array, w: number, x0: number, y0: number, x1: numb
   return sat[r1 + x1] - sat[r0 + x1] - sat[r1 + x0] + sat[r0 + x0]
 }
 
-/** Quét band tìm một ô vuông tối, đồng đều và có nền sáng bao quanh.
- *
- * Bản cũ lấy blob tối nhất trước rồi mới kiểm tra kích thước. Nếu QR/chữ/icon
- * trong band tối hơn marker thật, blob đó bị loại nhưng detector không quay lại
- * ứng viên đứng thứ hai. Bản này chấm đồng thời cửa sổ marker và cửa sổ 2×,
- * loại blob lớn ngay trong lúc tìm; bốn quadrant phải cùng tối để loại nét chữ.
- */
 function findMarkerInBand(
   gray: GrayImage,
   sat: Uint32Array,
@@ -291,10 +274,6 @@ function findMarkerInBand(
   const x1 = Math.min(width, Math.ceil(band.xMax * width))
   const y0 = Math.max(0, Math.floor(band.yMin * height))
   const y1 = Math.min(height, Math.ceil(band.yMax * height))
-
-  // Vành kiểm tra chỉ lớn hơn marker khoảng 1.55× bán kính. Dùng 2× làm cửa
-  // sổ chạm bubble sát mép khung trên bản 8 cột, khiến marker thật bị loại;
-  // 1.55× vẫn loại QR/khối chữ lớn nhưng không nuốt ô đáp án lân cận.
   const bigHalf = Math.max(2, Math.round(half * 1.55))
   const stride = Math.max(1, Math.floor(half / 3))
   let best: { x: number; y: number; cov: number; quality: number; d: number } | null = null
@@ -354,15 +333,8 @@ export interface IntegratedFrameLocation {
   rect: FrameRect
 }
 
-/** Tìm 4 marker khung integrated (thứ tự TL, TR, BR, BL) → rect khung.
- * 2 bước: tìm hàng trên trước (TL/TR), rồi giới hạn band dưới BẮT ĐẦU dưới
- * hàng trên (tránh TR/TL được quét lại trong band BR/BL — các marker là ô
- * vuông giống hệt nên cov bằng nhau, scan tie sẽ chọn nhầm marker hàng trên). */
 export function tryLocateIntegratedFrame(gray: GrayImage, totalQuestions = 50): IntegratedFrameLocation | null {
   const sat = buildSummedArea(gray)
-  // Ảnh iPhone thực tế cho thấy A4 có thể chỉ chiếm 50–70% khung camera và
-  // marker 18px khi in chỉ còn 10–16px. Quét tới scale 0.4 để không bỏ marker
-  // thật chỉ vì frame có lề bàn/UI lớn.
   for (const scale of [1, 0.82, 0.68, 0.55, 0.45, 0.38]) {
     const sizePx = INTEGRATED_CORNER_SIZE * Math.min(gray.width, gray.height) * scale
     const half = Math.max(2, Math.floor(sizePx / 2))
@@ -388,8 +360,6 @@ export function tryLocateIntegratedFrame(gray: GrayImage, totalQuestions = 50): 
     const rectW = rect.x1 - rect.x0
     const rectH = rect.y1 - rect.y0
     const alignTolerance = Math.max(4, sizePx * 2.5)
-    // Bốn hit phải thật sự tạo thành một hình chữ nhật thấp và rộng. Gate này
-    // ngăn bubble/marker toàn trang rải rác trong band rộng bị ghép thành khung giả.
     if (rectW < 0.45 || rectH < 0.045 || rectH > 0.35) continue
     if (rectW / rectH < 3) continue
     const pixelAspect = (rectW * gray.width) / (rectH * gray.height)
@@ -409,15 +379,6 @@ const FULL_PAGE_MARKER_BANDS = [
   { id: 'BL', xMin: 0.01, xMax: 0.44, yMin: 0.65, yMax: 0.99, ax: 0.05, ay: 0.93 },
 ] as const
 
-/**
- * Dò marker phiếu A4 rời độc lập với mép frame camera.
- *
- * Locator cũ chỉ tìm quanh x=5%/95% của toàn video, trong khi guide yêu cầu để
- * trọn A4 trong ảnh (marker thực tế thường ở x≈18–82%). Khi không thấy marker
- * thật nó có thể lấy chữ/viền tối làm marker và sinh đáp án giả. Locator rộng
- * này bắt buộc bốn ô vuông cô lập tạo thành một tứ giác gần vuông trong pixel
- * (khung marker full-page có width≈height trên A4 dọc).
- */
 export function tryLocateFullPageFrame(gray: GrayImage): { markers: MarkerHit[]; sizePx: number } | null {
   const sat = buildSummedArea(gray)
   for (const scale of [1, 0.84, 0.70, 0.58]) {
@@ -429,9 +390,6 @@ export function tryLocateFullPageFrame(gray: GrayImage): { markers: MarkerHit[];
     const bl = findMarkerInBand(gray, sat, 'BL', FULL_PAGE_MARKER_BANDS[3], half, 0.62)
     if (!tl || !tr || !br || !bl) continue
 
-    // Guide yêu cầu giữ trọn A4. Marker thật có lề giấy và halo trắng nên tâm
-    // không thể sát mép ảnh. Đây là guard quan trọng chống lấy cạnh UI/vật tối
-    // bị crop làm marker (đã tái hiện trên ảnh iPhone: TR cách mép chỉ 13px).
     const edgeMargin = sizePx * 0.62
     if ([tl, tr, br, bl].some(marker => (
       marker.x < edgeMargin
@@ -448,8 +406,6 @@ export function tryLocateFullPageFrame(gray: GrayImage): { markers: MarkerHit[];
     const meanH = (leftH + rightH) / 2
     if (meanW < gray.width * 0.36 || meanH < gray.height * 0.30) continue
     const aspect = meanW / meanH
-    // Marker full-page trên A4 dọc có tỷ lệ gần 1:1. Giữ biên cho phối cảnh
-    // camera nhưng loại tứ giác cực cao/rộng ghép từ các phần tử UI rời rạc.
     if (aspect < 0.72 || aspect > 1.40) continue
     if (Math.min(topW, bottomW) / Math.max(topW, bottomW) < 0.68) continue
     if (Math.min(leftH, rightH) / Math.max(leftH, rightH) < 0.68) continue
@@ -464,11 +420,6 @@ export function tryLocateFullPageFrame(gray: GrayImage): { markers: MarkerHit[];
   return null
 }
 
-/**
- * Xác nhận bốn marker thực sự nằm trên một bề mặt giấy sáng/trung tính.
- * Marker-only trước đây có thể ghép bốn vật tối trên bàn thành một phiếu giả.
- * Lấy mẫu theo phép nội suy tứ giác để vẫn hoạt động khi tờ giấy bị phối cảnh.
- */
 export function hasLikelyPaperSurface(img: ImageData, markers: MarkerHit[]): boolean {
   if (markers.length !== 4 || !img?.data?.length) return false
   const [tl, tr, br, bl] = markers
@@ -502,33 +453,23 @@ export function hasLikelyPaperSurface(img: ImageData, markers: MarkerHit[]): boo
   return sampled > 0 && neutralLight / sampled >= PAPER_MIN_NEUTRAL_LIGHT_FRACTION
 }
 
-/**
- * Full pipeline: ảnh → 4 marker → homography → 11 cell coverage → score.
- */
 export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
   const fail = (reason: string): OmrResult => ({ ok: false, score: null, confidence: 0, cells: [], reason })
 
   if (!img || img.width < 100 || img.height < 100) return fail('IMAGE_TOO_SMALL')
   const gray = toGrayscale(img)
-
-  // Phiếu điểm tự luận luôn là mẫu A4 rời. Không fallback sang khung integrated:
-  // hai mẫu có geometry khác nhau và fallback mù có thể biến chữ thành marker.
   const located = tryLocateFullPageFrame(gray)
 
-  if (!located) {
-    return fail('MISSING_MARKER_TL')
-  }
+  if (!located) return fail('MISSING_MARKER_TL')
 
   const { markers, sizePx } = located
   if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
 
-  // 2. Homography: normalized template → ảnh
   const src = CORNER_MARKERS.map(m => ({ x: m.x, y: m.y }))
   const dst = markers.map(m => ({ x: m.x / gray.width, y: m.y / gray.height }))
   const H: Mat3 | null = computeHomography(src, dst)
   if (!H) return fail('HOMOGRAPHY_FAILED')
 
-  // 3. Cell coverage
   const cells = allCells(maxScore)
   const readings: OmrCell[] = []
   for (const cell of cells) {
@@ -540,7 +481,6 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
     readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r) })
   }
 
-  // 4. Pick: cell tối nhất; gap với cell nhì phải đủ lớn
   const sorted = [...readings].sort((a, b) => b.coverage - a.coverage)
   const top = sorted[0]
   const second = sorted[1] ?? { coverage: 0 }
@@ -606,8 +546,6 @@ export function detectAnswersFromImage(
   if (!img || img.width < 100 || img.height < 100) return fail('IMAGE_TOO_SMALL')
   const gray = toGrayscale(img)
 
-  // Chỉ chạy locator của mode được chọn. `auto` thử hai locator đã có geometry
-  // gate; production UI luôn truyền integrated/full_page rõ để cấm fallback chéo.
   let located: IntegratedFrameLocation | { markers: MarkerHit[]; sizePx: number } | null = null
   let frameRect: FrameRect | null = null
   if (templateMode !== 'full_page') {
@@ -617,18 +555,13 @@ export function detectAnswersFromImage(
       frameRect = integratedLocation.rect
     }
   }
-  if (!located && templateMode !== 'integrated') {
-    located = tryLocateFullPageFrame(gray)
-  }
+  if (!located && templateMode !== 'integrated') located = tryLocateFullPageFrame(gray)
 
-  if (!located) {
-    return fail('MISSING_MARKER_TL')
-  }
+  if (!located) return fail('MISSING_MARKER_TL')
 
   const { markers, sizePx } = located
   if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
 
-  // 2. Homography: nguồn = rect khung (đo được) hoặc template → ảnh
   const src = frameRect
     ? [
         { x: frameRect.x0, y: frameRect.y0 },
@@ -641,11 +574,6 @@ export function detectAnswersFromImage(
   const H: Mat3 | null = computeHomography(src, dst)
   if (!H) return fail('HOMOGRAPHY_FAILED')
 
-  // A-NEW-50: tọa độ ô phụ thuộc template đang active — phiếu toàn trang dùng
-  // `allMcCells` (hệ tọa độ trang), phiếu gộp dùng `integratedMcCellsForRect`
-  // (hệ tọa độ KHUNG đo được — không còn phụ thuộc vị trí khung trên trang).
-  // Trước đây nhánh integrated lấy tọa độ toàn trang → sample lệch khỏi bubble
-  // in thực tế (không bao giờ đọc được).
   const mcCells = (
     frameRect
       ? integratedMcCellsForRect(totalQuestions, frameRect)
@@ -661,9 +589,7 @@ export function detectAnswersFromImage(
     const py = center.y * gray.height
     const r = Math.max(1.5, sizePx * 0.24)
     const reading = { option: cell.option, coverage: sampleDarkness(gray, px, py, r) }
-    if (!questionReadingsMap[cell.questionIndex]) {
-      questionReadingsMap[cell.questionIndex] = []
-    }
+    if (!questionReadingsMap[cell.questionIndex]) questionReadingsMap[cell.questionIndex] = []
     questionReadingsMap[cell.questionIndex].push(reading)
     allOptionReadings.push(reading)
   }
@@ -706,13 +632,10 @@ export function detectAnswersFromImage(
   }
 
   const scaledScore = totalQuestions > 0 ? Math.round((rawCorrectCount / totalQuestions) * maxScore * 10) / 10 : 0
-
   const answeredQuestions = questions.filter(q => q.selectedAnswer !== null)
   const answeredCount = answeredQuestions.length
   const reviewQuestions = questions.filter(q => q.needsReview)
 
-  // Không có đáp án rõ nhưng có vết tô đáng kể là ngoại lệ cần người chấm xử lý,
-  // không được đánh đồng với phiếu trắng và cũng không được tự ghi 0 điểm.
   if (answeredCount === 0) {
     if (reviewQuestions.length > 0) {
       const reviewConfidence = reviewQuestions.reduce((sum, question) => sum + question.confidence, 0) / reviewQuestions.length
@@ -739,13 +662,8 @@ export function detectAnswersFromImage(
     }
   }
 
-  // Blank questions are legitimate and still count as wrong in `scaledScore`.
-  // They must not dilute the scan confidence: a clearly filled answer on a
-  // 50-question sheet is just as readable as one on a 4-question sheet.
   const answeredConfidence = answeredQuestions.reduce((sum, question) => sum + question.confidence, 0) / answeredCount
 
-  // Safety net toàn bài vẫn giữ lại cho distribution bất thường; ambiguous riêng
-  // từng câu đã bị route review ở phía trên.
   if (answeredConfidence < MIN_ANSWER_CONFIDENCE) {
     return {
       ok: false,
