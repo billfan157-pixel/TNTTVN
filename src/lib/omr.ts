@@ -47,7 +47,12 @@ const MIN_GAP = 0.08
 const MIN_FILL = 0.38
 /** Vết tô đáng kể nhưng chưa đạt ngưỡng chấp nhận: bắt buộc người chấm xác nhận. */
 const MIN_WEAK_FILL = 0.24
+/** MC phải đạt margin riêng cho từng câu; không cho confidence trung bình che một câu mơ hồ. */
+const MIN_QUESTION_GAP = 0.07
 const MIN_ANSWER_CONFIDENCE = 0.06
+/** Adaptive threshold chỉ được dao động trong biên hẹp để tránh overfit một ảnh bất thường. */
+const ADAPTIVE_FILL_MIN = 0.34
+const ADAPTIVE_FILL_MAX = 0.42
 const PAPER_SAMPLE_COLS = 24
 const PAPER_SAMPLE_ROWS = 18
 const PAPER_MIN_LUMA = 105
@@ -114,51 +119,100 @@ export function findMarker(
   return { id, x: best.x, y: best.y, coverage: best.cov }
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
 /**
- * Đo độ đen cục bộ với phân tích đa vòng tròn (core disk vs outer baseline)
- * Giúp miễn nhiễm với bóng mờ tay cầm điện thoại hoặc ánh sáng không đều.
+ * Đo mực trong TOÀN vùng lõi bubble thay vì chỉ vài sample point.
+ *
+ * Hai tín hiệu được kết hợp:
+ * - mean contrast giữa lõi bubble và nền giấy lân cận;
+ * - tỷ lệ pixel thật sự tối hơn nền một khoảng lớn (bắt nét tô/scribble không đều).
+ *
+ * Cách này vẫn giữ ưu điểm local-background normalization nhưng bớt phụ thuộc
+ * việc nét bút có tình cờ đi qua 16 điểm sample cố định hay không.
  */
 function sampleDarkness(gray: GrayImage, cx: number, cy: number, r: number): number {
   const { width, height, data } = gray
+  const coreR = Math.max(1.2, r * 0.74)
+  const bgInnerR = Math.max(coreR + 1, r * 1.55)
+  const bgOuterR = Math.max(bgInnerR + 1, r * 2.35)
+  const x0 = Math.max(0, Math.floor(cx - bgOuterR))
+  const x1 = Math.min(width - 1, Math.ceil(cx + bgOuterR))
+  const y0 = Math.max(0, Math.floor(cy - bgOuterR))
+  const y1 = Math.min(height - 1, Math.ceil(cy + bgOuterR))
+  const coreR2 = coreR * coreR
+  const bgInnerR2 = bgInnerR * bgInnerR
+  const bgOuterR2 = bgOuterR * bgOuterR
+
   let coreSum = 0
-  let coreCnt = 0
-
-  // 1. Lấy mẫu tâm lõi ô (Core disk)
-  const S = 16
-  for (let k = 0; k < S; k++) {
-    const ang = (k / S) * Math.PI * 2
-    const xi = Math.round(cx + Math.cos(ang) * (r * 0.65))
-    const yi = Math.round(cy + Math.sin(ang) * (r * 0.65))
-    if (xi >= 0 && xi < width && yi >= 0 && yi < height) {
-      coreSum += data[yi * width + xi]
-      coreCnt++
-    }
-  }
-  const xc = Math.round(cx), yc = Math.round(cy)
-  if (xc >= 0 && xc < width && yc >= 0 && yc < height) {
-    coreSum += data[yc * width + xc]
-    coreCnt++
-  }
-  if (coreCnt === 0) return 0
-  const rawCoreDarkness = 1 - (coreSum / coreCnt) / 255
-
-  // 2. Lấy mẫu nền giấy xung quanh (Outer Annulus baseline)
+  let coreCount = 0
   let bgSum = 0
-  let bgCnt = 0
-  const bgR = r * 2.2
-  for (let k = 0; k < 8; k++) {
-    const ang = (k / 8) * Math.PI * 2
-    const xi = Math.round(cx + Math.cos(ang) * bgR)
-    const yi = Math.round(cy + Math.sin(ang) * bgR)
-    if (xi >= 0 && xi < width && yi >= 0 && yi < height) {
-      bgSum += data[yi * width + xi]
-      bgCnt++
+  let bgCount = 0
+
+  for (let y = y0; y <= y1; y++) {
+    const dy = y - cy
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx
+      const d2 = dx * dx + dy * dy
+      const luma = data[y * width + x]
+      if (d2 <= coreR2) {
+        coreSum += luma
+        coreCount++
+      } else if (d2 >= bgInnerR2 && d2 <= bgOuterR2) {
+        bgSum += luma
+        bgCount++
+      }
     }
   }
-  const bgDarkness = bgCnt > 0 ? 1 - (bgSum / bgCnt) / 255 : 0.05
-  // Độ đen tương đối so với nền giấy trắng xung quanh
-  const relativeCoverage = Math.max(0, Math.min(1, rawCoreDarkness - bgDarkness * 0.45))
-  return relativeCoverage
+
+  if (coreCount === 0) return 0
+  const coreMean = coreSum / coreCount
+  const bgMean = bgCount > 0 ? bgSum / bgCount : 245
+  const meanContrast = clamp01((bgMean - coreMean) / Math.max(96, bgMean))
+
+  // Đếm pixel mực đậm sau khi đã biết nền địa phương. Delta 82 giữ nét chì nhạt
+  // trong vùng review thay vì đẩy thẳng sang filled, còn bút xanh/đen vẫn rõ.
+  const darkCutoff = Math.max(0, bgMean - 82)
+  let darkPixels = 0
+  for (let y = y0; y <= y1; y++) {
+    const dy = y - cy
+    for (let x = x0; x <= x1; x++) {
+      const dx = x - cx
+      if (dx * dx + dy * dy > coreR2) continue
+      if (data[y * width + x] <= darkCutoff) darkPixels++
+    }
+  }
+  const darkRatio = darkPixels / coreCount
+
+  return clamp01(meanContrast * 0.82 + darkRatio * 0.18)
+}
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.round((sorted.length - 1) * p)))
+  return sorted[index]
+}
+
+/**
+ * Hiệu chuẩn ngưỡng theo chính tờ phiếu nhưng luôn bị clamp quanh ngưỡng production.
+ * Nếu distribution không có hai cụm đủ tách biệt thì fallback hoàn toàn về fixed threshold.
+ */
+function calibrateMcThresholds(readings: OmrOptionReading[]): { fill: number; weak: number } {
+  const coverages = readings.map(reading => reading.coverage).filter(Number.isFinite)
+  if (coverages.length < 8) return { fill: MIN_FILL, weak: MIN_WEAK_FILL }
+
+  const baseline = percentile(coverages, 0.55)
+  const high = percentile(coverages, 0.90)
+  const separation = high - baseline
+  if (separation < 0.20) return { fill: MIN_FILL, weak: MIN_WEAK_FILL }
+
+  const adaptiveFill = baseline + separation * 0.54
+  const fill = Math.max(ADAPTIVE_FILL_MIN, Math.min(ADAPTIVE_FILL_MAX, adaptiveFill))
+  const weak = Math.max(0.22, Math.min(0.29, fill - 0.14))
+  return { fill, weak }
 }
 
 /**
@@ -509,7 +563,7 @@ export interface OmrQuestionResult {
   isCorrect?: boolean
   isBlank: boolean
   isMultiFill: boolean
-  /** Có dấu tô yếu hoặc nhiều ô; không được lưu trước khi người chấm xử lý. */
+  /** Có dấu tô yếu, nhiều ô hoặc top-vs-second quá sát; không lưu trước khi xử lý. */
   needsReview: boolean
   isWeakMark: boolean
   /** UI đã xác nhận/sửa thủ công câu này sau khi detector trả kết quả. */
@@ -599,19 +653,22 @@ export function detectAnswersFromImage(
   ) as Array<{ questionIndex: number; option: 'A' | 'B' | 'C' | 'D'; x: number; y: number }>
 
   const questionReadingsMap: Record<number, OmrOptionReading[]> = {}
+  const allOptionReadings: OmrOptionReading[] = []
   for (const cell of mcCells) {
     const center = applyHomography(H, { x: cell.x, y: cell.y })
     if (!isFinite(center.x) || !isFinite(center.y)) return fail('CELL_OUT_OF_IMAGE')
     const px = center.x * gray.width
     const py = center.y * gray.height
     const r = Math.max(1.5, sizePx * 0.24)
-    const cov = sampleDarkness(gray, px, py, r)
+    const reading = { option: cell.option, coverage: sampleDarkness(gray, px, py, r) }
     if (!questionReadingsMap[cell.questionIndex]) {
       questionReadingsMap[cell.questionIndex] = []
     }
-    questionReadingsMap[cell.questionIndex].push({ option: cell.option, coverage: cov })
+    questionReadingsMap[cell.questionIndex].push(reading)
+    allOptionReadings.push(reading)
   }
 
+  const thresholds = calibrateMcThresholds(allOptionReadings)
   const questions: OmrQuestionResult[] = []
   let rawCorrectCount = 0
 
@@ -620,14 +677,15 @@ export function detectAnswersFromImage(
     const sorted = [...readings].sort((a, b) => b.coverage - a.coverage)
     const top = sorted[0]
     const second = sorted[1] ?? { coverage: 0 }
-    const filledCount = readings.filter(r => r.coverage >= MIN_FILL).length
+    const filledCount = readings.filter(r => r.coverage >= thresholds.fill).length
 
     const isBlank = filledCount === 0
     const isMultiFill = filledCount > 1
-    const isWeakMark = isBlank && Boolean(top && top.coverage >= MIN_WEAK_FILL)
-    const needsReview = isMultiFill || isWeakMark
-    const selectedAnswer = (!isBlank && !isMultiFill && top && top.coverage >= MIN_FILL) ? top.option : null
+    const isWeakMark = isBlank && Boolean(top && top.coverage >= thresholds.weak)
     const confidence = top ? top.coverage - second.coverage : 0
+    const isSingleAmbiguous = filledCount === 1 && Boolean(top && top.coverage >= thresholds.fill) && confidence < MIN_QUESTION_GAP
+    const needsReview = isMultiFill || isWeakMark || isSingleAmbiguous
+    const selectedAnswer = (!isBlank && !isMultiFill && !isSingleAmbiguous && top && top.coverage >= thresholds.fill) ? top.option : null
 
     const correctAnswer = answerKey?.[q]
     const isCorrect = selectedAnswer && correctAnswer ? selectedAnswer === correctAnswer : undefined
@@ -686,7 +744,8 @@ export function detectAnswersFromImage(
   // 50-question sheet is just as readable as one on a 4-question sheet.
   const answeredConfidence = answeredQuestions.reduce((sum, question) => sum + question.confidence, 0) / answeredCount
 
-  // Reject if the answers that were actually detected are ambiguous.
+  // Safety net toàn bài vẫn giữ lại cho distribution bất thường; ambiguous riêng
+  // từng câu đã bị route review ở phía trên.
   if (answeredConfidence < MIN_ANSWER_CONFIDENCE) {
     return {
       ok: false,
