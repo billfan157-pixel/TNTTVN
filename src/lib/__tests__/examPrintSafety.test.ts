@@ -6,7 +6,9 @@ import {
   cleanIntegratedBubbleRoi,
   convertIntegratedMarkersToForegroundSvg,
   invalidateTeacherAnswerKeyOmr,
+  isExamDocumentHtml,
   prepareExamDocumentForOutput,
+  prepareExamDocumentForOutputIfApplicable,
 } from '../examPrintSafety'
 
 const markers = `
@@ -112,5 +114,21 @@ describe('examPrintSafety', () => {
 
     const broken = `<div>MÃ QUÉT TỰ ĐỘNG</div>${markers}${rows([1, 3])}`
     expect(() => prepareExamDocumentForOutput(broken)).toThrow(ExamPrintIntegrityError)
+  })
+
+  it('shared export adapter leaves generic report HTML byte-for-byte unchanged', () => {
+    const generic = `<html><body><span class="bubble">A</span>${rows([2, 1])}</body></html>`
+    expect(isExamDocumentHtml(generic)).toBe(false)
+    expect(prepareExamDocumentForOutputIfApplicable(generic)).toBe(generic)
+  })
+
+  it('shared export adapter still hardens full-page answer sheets without integrated marker classes', () => {
+    const fullPage = `
+      <div>PHIẾU TRẢ LỜI KIỂM TRA</div>
+      <circle cx="100" cy="200" r="10" fill="#FFFFFF" stroke="#64748B" stroke-width="2" />
+      <text x="100" y="200" font-size="11.5" font-weight="600" fill="#64748B" text-anchor="middle" dominant-baseline="central">A</text>
+    `
+    expect(isExamDocumentHtml(fullPage)).toBe(true)
+    expect(prepareExamDocumentForOutputIfApplicable(fullPage)).not.toContain('dominant-baseline="central">A</text>')
   })
 })
