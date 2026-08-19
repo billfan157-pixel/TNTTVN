@@ -18,6 +18,11 @@ function questions(total: number) {
   }))
 }
 
+/**
+ * Puppeteer/CDP serializes arrays element-by-element. Moving millions of RGBA
+ * numbers through JSON made this safety test disproportionately expensive in CI.
+ * Transfer the exact same raw pixels as one base64 string instead.
+ */
 async function pageImageData(page: Page): Promise<ImageData> {
   const png = await page.screenshot({ type: 'png' })
   const dataUrl = `data:image/png;base64,${Buffer.from(png).toString('base64')}`
@@ -31,12 +36,18 @@ async function pageImageData(page: Page): Promise<ImageData> {
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!
     ctx.drawImage(img, 0, 0)
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    return { width: frame.width, height: frame.height, data: Array.from(frame.data) }
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let offset = 0; offset < frame.data.length; offset += chunkSize) {
+      binary += String.fromCharCode(...frame.data.subarray(offset, offset + chunkSize))
+    }
+    return { width: frame.width, height: frame.height, dataBase64: btoa(binary) }
   }, dataUrl)
+  const bytes = Buffer.from(pixels.dataBase64, 'base64')
   return {
     width: pixels.width,
     height: pixels.height,
-    data: new Uint8ClampedArray(pixels.data),
+    data: new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength),
     colorSpace: 'srgb',
   } as ImageData
 }
