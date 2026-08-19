@@ -36,7 +36,7 @@ function isSqliteBusy(error: unknown): boolean {
   return false
 }
 
-async function retryCleanupContention<T>(operation: () => Promise<T>, maxAttempts = 12): Promise<T> {
+async function retryCleanupContention<T>(operation: () => Promise<T>, maxAttempts = 16): Promise<T> {
   let attempt = 0
   while (true) {
     try {
@@ -44,7 +44,7 @@ async function retryCleanupContention<T>(operation: () => Promise<T>, maxAttempt
     } catch (error) {
       attempt++
       if (!isSqliteBusy(error) || attempt >= maxAttempts) throw error
-      await new Promise(resolve => setTimeout(resolve, Math.min(200, 20 * 2 ** (attempt - 1))))
+      await new Promise(resolve => setTimeout(resolve, Math.min(250, 20 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 30)))
     }
   }
 }
@@ -132,7 +132,7 @@ describe('exam result atomic upsert', () => {
 
   it('production save path converges concurrent writes into exactly one row', async () => {
     const scores = [4, 5, 6, 7, 8]
-    const writes = await Promise.all(scores.map(score => upsertExamResults(
+    const settled = await Promise.allSettled(scores.map(score => upsertExamResults(
       sessionId,
       [{ studentId, score, source: 'quick_entry' }],
       userId,
@@ -141,6 +141,13 @@ describe('exam result atomic upsert', () => {
       'vitest',
       null,
     )))
+
+    const failures = settled.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    expect(failures, failures.map(result => String(result.reason)).join('\n')).toHaveLength(0)
+
+    const writes = settled
+      .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof upsertExamResults>>> => result.status === 'fulfilled')
+      .map(result => result.value)
 
     expect(writes).toHaveLength(scores.length)
     expect(writes.every(result => result.total === 1)).toBe(true)
