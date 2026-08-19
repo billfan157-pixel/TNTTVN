@@ -42,6 +42,11 @@ describe('examPrintSafety', () => {
     expect(() => assertContiguousOmrQuestionRows('<html>no OMR grid</html>')).not.toThrow()
   })
 
+  it('validates each concatenated batch sheet independently at the C1 boundary', () => {
+    expect(() => assertContiguousOmrQuestionRows(rows([1, 2, 3, 1, 2, 3]))).not.toThrow()
+    expect(() => assertContiguousOmrQuestionRows(rows([1, 2, 3, 1, 3]))).toThrow(ExamPrintIntegrityError)
+  })
+
   it('fails closed for duplicate/gap/reordered OMR indexes', () => {
     const invalidRows: number[][] = [
       [1, 1, 3],
