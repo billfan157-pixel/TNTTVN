@@ -433,8 +433,6 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .header-left .org-top {
       text-transform: uppercase;
       font-weight: bold;
-      /* Chừa mép trên máy in và giữ khoảng cách với dòng bên dưới. */
-      padding-top: 10px;
     }
     .header-left .org-parish {
       text-transform: uppercase;
@@ -452,8 +450,6 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       text-transform: uppercase;
       color: #b91c1c;
       margin: 2px 0;
-      /* Hạ nhẹ tiêu đề và đẩy subtitle theo, tránh chồng chữ. */
-      padding-top: 10px;
     }
     .header-right .exam-sub {
       font-size: 10.5pt;

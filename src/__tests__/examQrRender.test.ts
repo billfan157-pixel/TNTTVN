@@ -38,7 +38,7 @@ async function elementImageData(page: Page, selector: string): Promise<ImageData
 }
 
 async function cameraFrameFromPage(page: Page, blurPx = 0): Promise<ImageData> {
-  const pagePng = await page.screenshot({ type: 'png' })
+  const pagePng = await page.screenshot({ type: 'png', fullPage: true })
   const dataUrl = `data:image/png;base64,${Buffer.from(pagePng).toString('base64')}`
   const pixels = await page.evaluate(async ({ source, blurPx }) => {
     const img = new Image()
