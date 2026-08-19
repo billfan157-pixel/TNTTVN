@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import puppeteer, { type Browser } from 'puppeteer'
+import puppeteer, { type Browser, type Page } from 'puppeteer'
 import { buildBatchExamPapersHtml, buildExamPaperHtml } from '../utils/examSheets'
 import { prepareExamDocumentForOutput } from '../lib/examPrintSafety'
 import { integratedMcOptionToCellForRect } from '../lib/answerSheetTemplate'
+import { detectAnswersFromImage } from '../lib/omr'
 
 let browser: Browser
 
@@ -15,6 +16,29 @@ function questions(total: number) {
     options: { A: 'A', B: 'B', C: 'C', D: 'D' },
     correctOption: 'A' as const,
   }))
+}
+
+async function pageImageData(page: Page): Promise<ImageData> {
+  const png = await page.screenshot({ type: 'png' })
+  const dataUrl = `data:image/png;base64,${Buffer.from(png).toString('base64')}`
+  const pixels = await page.evaluate(async source => {
+    const img = new Image()
+    img.src = source
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+    ctx.drawImage(img, 0, 0)
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    return { width: frame.width, height: frame.height, data: Array.from(frame.data) }
+  }, dataUrl)
+  return {
+    width: pixels.width,
+    height: pixels.height,
+    data: new Uint8ClampedArray(pixels.data),
+    colorSpace: 'srgb',
+  } as ImageData
 }
 
 describe('OMR print-media geometry — renderer → safety gate → Chromium print CSS', () => {
@@ -75,8 +99,6 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
         }
       }
 
-      // Exercise Chromium's actual print/PDF layout path as a smoke test. Geometry
-      // is asserted above under print media; this additionally catches page CSS/PDF failures.
       const pdf = await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true })
       expect(pdf.byteLength).toBeGreaterThan(5_000)
       await page.close()
@@ -121,24 +143,32 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
     await page.close()
   }, 20_000)
 
-  it('teacher answer key becomes machine-invalid before print/PDF output', async () => {
+  it('teacher answer key becomes machine-invalid even in fixed-student/manual OMR path', async () => {
+    const totalQuestions = 20
     const html = prepareExamDocumentForOutput(buildExamPaperHtml({
       subject: 'Đáp án',
       classLabel: 'Thiếu Nhi 2A',
       academicYear: '2026-2027',
       showAnswerKey: true,
       includeAnswerGrid: true,
-      questions: questions(20),
+      questions: questions(totalQuestions),
     }))
 
     expect(html).toContain('ĐÁP ÁN GLV — KHÔNG CHẤM')
     expect(html).not.toContain('omr-corner-marker')
 
     const page = await browser.newPage()
+    await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 1 })
     await page.emulateMediaType('print')
     await page.setContent(html, { waitUntil: 'load' })
     expect(await page.$$eval('.omr-corner-marker', elements => elements.length)).toBe(0)
-    expect(await page.$$eval('.bubble-correct', elements => elements.length)).toBe(20)
+    expect(await page.$$eval('.bubble-correct', elements => elements.length)).toBe(totalQuestions)
+
+    const frame = await pageImageData(page)
+    const answerKey = Object.fromEntries(Array.from({ length: totalQuestions }, (_, index) => [index + 1, 'A'])) as Record<number, 'A'>
+    const omr = detectAnswersFromImage(frame, answerKey, totalQuestions, 10, 'integrated')
+    expect(omr.ok).toBe(false)
+    expect(omr.reason).toBe('MISSING_MARKER_TL')
     await page.close()
-  }, 20_000)
+  }, 30_000)
 })
