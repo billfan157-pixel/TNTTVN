@@ -37,10 +37,10 @@ describe('exam scan identity lock', () => {
     expect(retained.lock).toMatchObject({ protocolVersion: 2, templateMode: 'full_page', questionCount: 50 })
   })
 
-  it('giữ mã mặc định 20 giây để đủ thời gian chuyển từ cận cảnh QR sang toàn tờ A4', () => {
+  it('giữ mã mặc định theo TTL để đủ thời gian chuyển từ cận cảnh QR sang toàn tờ A4', () => {
     const first = resolveExamIdentity(null, validCode, 'EXS-12345678', 1_000)
-    const retained = resolveExamIdentity(first.lock, null, 'EXS-12345678', 20_999)
-    const expired = resolveExamIdentity(first.lock, null, 'EXS-12345678', 21_001)
+    const retained = resolveExamIdentity(first.lock, null, 'EXS-12345678', 8_999)
+    const expired = resolveExamIdentity(first.lock, null, 'EXS-12345678', 9_001)
     expect(retained.kind).toBe('retained')
     expect(expired).toEqual({ kind: 'missing', lock: null })
   })

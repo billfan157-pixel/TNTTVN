@@ -871,7 +871,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     answerKeyTableHtml = `
       <div class="answer-key-summary">
         <div class="key-header">
-          📋 BẢNG ĐÁP ÁN CHUẨN — MÃ ĐỀ: <strong>${examVersion}</strong> (${effectiveQuestions.length} CÂU)
+          📋 BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN — MÃ ĐỀ: <strong>${examVersion}</strong> (${effectiveQuestions.length} CÂU)
         </div>
         <div class="key-grid">
           ${effectiveQuestions.map(q => `

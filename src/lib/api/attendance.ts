@@ -1,4 +1,4 @@
-import React from 'react'
+
 import { httpFetch } from '../api'
 import type { AttendanceType } from '../../types'
 

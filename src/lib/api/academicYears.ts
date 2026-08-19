@@ -1,4 +1,3 @@
-import React from 'react'
 import { httpFetch } from '../api'
 
 export type AcademicYearStatus = 'OPEN' | 'SEMESTER_1_LOCKED' | 'SEMESTER_2_OPEN' | 'SEMESTER_2_LOCKED' | 'FINALIZED' | 'PROMOTED' | 'ARCHIVED'

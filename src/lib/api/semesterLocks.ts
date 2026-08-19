@@ -1,4 +1,3 @@
-import React from 'react'
 import { httpFetch } from '../api'
 
 export interface SemesterLockDTO {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { api, setTokens } from '../../lib/api'
 
@@ -83,7 +82,7 @@ describe('A12 — method-aware retry (api request)', () => {
 
   it('PATCH overrideGrade CÓ key: retry + Idempotency-Key header giữ nguyên 2 lần (A12, sửa lỗi retry rơi header)', async () => {
     fetchMock.mockResolvedValueOnce(fakeResponse(503, { success: false })).mockResolvedValueOnce(fakeResponse(200, { success: true, data: { ok: true } }))
-    const p = api.overrideGrade('G-1', { scoreField: 'Score1', manualValue: 9 }, 'KEY-ABC')
+    const _p = api.overrideGrade('G-1', { scoreField: 'Score1', manualValue: 9 }, 'KEY-ABC')
     await vi.advanceTimersByTimeAsync(1000)
     const headers1 = fetchMock.mock.calls[0][1].headers as Record<string, string>
     const headers2 = fetchMock.mock.calls[1][1].headers as Record<string, string>

@@ -101,7 +101,7 @@ describe('examExporter', () => {
       expect(html).toContain('BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN')
       expect(html).toContain('Sách Sáng Thế ghi nhận')
       expect(html).toContain('BẢNG TRẢ LỜI TRẮC NGHIỆM')
-      expect(html).toContain('MÃ QUÉT TỰ ĐỘNG')
+      expect(html).toContain('ĐÁP ÁN GLV — KHÔNG CHẤM')
       expect(html).toContain('omr-corner-marker')
     })
 

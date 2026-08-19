@@ -81,20 +81,20 @@ function fillRect(img: ImageData, x0: number, y0: number, x1: number, y1: number
 /** Tô đậm ô điểm score trên phiếu tự luận. */
 function fillScoreCell(img: ImageData, score: number, maxScore = 10) {
   const cell = scoreToCell(score, maxScore)
-  const r = 0.028 * Math.min(img.width, img.height)
+  const r = 0.010 * Math.min(img.width, img.height)
   fillRect(img, cell.x * img.width - r, cell.y * img.height - r, cell.x * img.width + r, cell.y * img.height + r, 25)
 }
 
 /** Tô đậm ô trắc nghiệm A/B/C/D trên phiếu toàn trang. */
 function fillMcCell(img: ImageData, questionIndex: number, option: 'A' | 'B' | 'C' | 'D', totalQ = 20) {
   const cell = mcOptionToCell(questionIndex, option, totalQ)
-  const r = 0.016 * Math.min(img.width, img.height)
+  const r = 0.009 * Math.min(img.width, img.height)
   fillRect(img, cell.x * img.width - r, cell.y * img.height - r, cell.x * img.width + r, cell.y * img.height + r, 25)
 }
 
 function fillIntegratedMcCellForRect(img: ImageData, questionIndex: number, option: 'A' | 'B' | 'C' | 'D', totalQ: number, frame: FrameRect) {
   const cell = integratedMcOptionToCellForRect(questionIndex, option, totalQ, frame)
-  const r = 0.012 * Math.min(img.width, img.height)
+  const r = 0.0055 * Math.min(img.width, img.height)
   fillRect(img, cell.x * img.width - r, cell.y * img.height - r, cell.x * img.width + r, cell.y * img.height + r, 25)
 }
 
