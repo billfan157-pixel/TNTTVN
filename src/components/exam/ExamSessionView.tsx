@@ -17,7 +17,6 @@ import { GuidedGradeModal, type GuidedGradeStudent } from './GuidedGradeModal'
 import { ExamImportModal } from './ExamImportModal'
 import { useToastStore } from '../../stores/toastStore'
 import { ExamPaperModal } from './ExamPaperModal'
-import { ExamExportModal } from './ExamExportModal'
 import { ExamBatchScanModal } from './ExamBatchScanModal'
 import { ExamAnalyticsPanel } from './ExamAnalyticsPanel'
 import { ExamVariantsModal } from './ExamVariantsModal'
@@ -135,7 +134,6 @@ export const ExamSessionView: React.FC = () => {
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showPaperModal, setShowPaperModal] = useState(false)
-  const [showExportModal, setShowExportModal] = useState(false)
   const [showBatchScan, setShowBatchScan] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [showVariants, setShowVariants] = useState(false)
@@ -550,19 +548,6 @@ export const ExamSessionView: React.FC = () => {
                   <FileText size={14} /> In & Xuất Đề Gộp
                 </button>
               )}
-              <button
-                className="btn btn-secondary btn-sm min-h-11 justify-center"
-                onClick={() => {
-                  if (activeSessionQuestions.length > 0) {
-                    setShowPaperModal(true)
-                  } else {
-                    setShowExportModal(true)
-                  }
-                }}
-                title="Xuất đề thi và bảng đáp án ra Word (.doc), PDF, HTML, Excel (.xlsx), Text, Markdown hoặc JSON"
-              >
-                <Download size={14} /> Xuất Đề Thi
-              </button>
               <button
                 className="btn btn-secondary btn-sm min-h-11 justify-center"
                 onClick={() => setShowPrintSheets(true)}
@@ -1083,23 +1068,6 @@ export const ExamSessionView: React.FC = () => {
           sessionId={activeSession.id}
           answerKey={activeSession.answerKey}
           answerVariants={activeSession.answerVariants}
-        />
-      )}
-
-      {/* Export Exam Modal */}
-      {showExportModal && activeSession && (
-        <ExamExportModal
-          isOpen={showExportModal}
-          onClose={() => setShowExportModal(false)}
-          subject={activeSession.subject}
-          classLabel={activeSessionClassId ? findClassById(activeSessionClassId)?.name ?? 'Lớp' : 'Lớp'}
-          academicYear={activeSession.academicYear}
-          semester={activeSession.semester}
-          questions={activeSessionQuestions}
-          questionCount={activeSession.questionCount}
-          answerKey={activeSession.answerKey}
-          answerVariants={activeSession.answerVariants}
-          maxScore={activeSession.maxScore}
         />
       )}
 
