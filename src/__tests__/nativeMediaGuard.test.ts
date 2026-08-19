@@ -7,7 +7,7 @@ function restoreMediaDevices(): void {
   if (originalDescriptor) {
     Object.defineProperty(navigator, 'mediaDevices', originalDescriptor)
   } else {
-    delete (navigator as Navigator & { mediaDevices?: MediaDevices }).mediaDevices
+    delete (navigator as unknown as { mediaDevices?: MediaDevices }).mediaDevices
   }
 }
 
