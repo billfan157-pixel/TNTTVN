@@ -83,6 +83,21 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     }
   }
 
+  // `decideScanAcceptance()` guarantees accepted scans have a numeric score at
+  // runtime, but TypeScript cannot infer that relationship across the helper.
+  // Keep an explicit fail-closed guard here so the accepted path is narrowed to
+  // `number` and a future policy regression can never persist a null score.
+  const acceptedScore = omr.score
+  if (acceptedScore === null) {
+    return {
+      status: 'rejected',
+      reason: 'OMR_REJECTED',
+      studentId: code.payload.studentId,
+      examVersion,
+      quality,
+    }
+  }
+
   let answers: string | undefined
   if ('questions' in omr) {
     const answerMap: Record<string, MultipleChoiceOption | null | string> = {}
@@ -110,7 +125,7 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     reason: 'Đủ điều kiện lưu',
     studentId: code.payload.studentId,
     examVersion,
-    score: omr.score,
+    score: acceptedScore,
     answers,
     scanMetadata,
     quality,
