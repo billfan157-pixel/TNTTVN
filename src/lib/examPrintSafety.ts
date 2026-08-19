@@ -5,6 +5,13 @@ const ANSWER_KEY_SENTINELS = [
   'ĐÁP ÁN GIÁO VIÊN',
 ]
 
+const EXAM_DOCUMENT_HINTS = [
+  'omr-corner-marker',
+  'PHIẾU TRẢ LỜI KIỂM TRA',
+  'BẢNG TRẢ LỜI TRẮC NGHIỆM',
+  ...ANSWER_KEY_SENTINELS,
+]
+
 const OMR_MARKER_PATTERN = /<div\s+class="omr-corner-marker\s+(omr-marker-(?:tl|tr|bl|br))"\s+title="Marker\s+(TL|TR|BL|BR)"\s*><\/div>/gi
 const OMR_MARKER_STYLE_PATTERN = /\.omr-corner-marker\s*\{[^}]*\}/gi
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
@@ -32,6 +39,15 @@ export class ExamPrintIntegrityError extends Error {
 
 export function isTeacherAnswerKeyHtml(html: string): boolean {
   return ANSWER_KEY_SENTINELS.some(sentinel => html.includes(sentinel))
+}
+
+/**
+ * ReportExportService is shared by many non-exam reports. Keep exam-specific
+ * transforms strictly scoped so a generic report that happens to use a class
+ * such as `bubble` or `q-num` is never mutated accidentally.
+ */
+export function isExamDocumentHtml(html: string): boolean {
+  return EXAM_DOCUMENT_HINTS.some(hint => html.includes(hint))
 }
 
 /**
@@ -170,4 +186,9 @@ export function prepareExamDocumentForOutput(html: string): string {
   const machineSafe = invalidateTeacherAnswerKeyOmr(cleanBubbles)
   const foregroundMarkers = convertIntegratedMarkersToForegroundSvg(machineSafe)
   return addBatchIntegratedPrintSafeMargin(foregroundMarkers)
+}
+
+/** Safe adapter for shared export paths: non-exam HTML is returned byte-for-byte. */
+export function prepareExamDocumentForOutputIfApplicable(html: string): string {
+  return isExamDocumentHtml(html) ? prepareExamDocumentForOutput(html) : html
 }
