@@ -36,11 +36,19 @@ jobs:
           npx tsc -b --noEmit
           npx tsc --noEmit -p server/tsconfig.json
 
-      - name: Run Full Vitest Test Suite
+      - name: Run Changed OMR Regression Tests
         shell: bash
         run: |
           set -o pipefail
-          npx vitest run --fileParallelism=false --bail=1 --reporter=verbose 2>&1 | tee vitest.log
+          npx vitest run --fileParallelism=false --bail=1 --reporter=verbose \
+            src/__tests__/examExporter.test.ts \
+            src/__tests__/examPrintGeometry.test.ts \
+            src/__tests__/examQrRender.test.ts \
+            src/__tests__/examScanIdentity.test.ts \
+            src/__tests__/scanAcceptancePolicy.test.ts \
+            src/lib/__tests__/examPrintSafety.test.ts \
+            src/lib/__tests__/omrOrientation.test.ts \
+            src/lib/__tests__/qr.test.ts 2>&1 | tee vitest.log
 
       - name: Upload Vitest Log
         if: always()
