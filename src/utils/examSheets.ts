@@ -421,8 +421,8 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       justify-content: space-between;
       align-items: flex-start;
       border-bottom: 2px solid #000;
-      padding-bottom: 5px;
-      margin-bottom: 6px;
+      padding-bottom: 3px;
+      margin-bottom: 4px;
     }
     .header-left {
       text-align: center;
@@ -488,7 +488,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .top-meta-container {
       display: flex;
       gap: 6px;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
       align-items: stretch;
     }
     .student-info-box {
@@ -680,16 +680,16 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       ${layoutColumns === 2 ? 'column-count: 2; column-gap: 14px; column-rule: 1px dashed #cbd5e1;' : ''}
     }
     .question-block {
-      margin-bottom: 5px;
+      margin-bottom: 3px;
       break-inside: avoid;
       page-break-inside: avoid;
-      font-size: 10.5pt;
+      font-size: 10pt;
     }
     .question-title {
       font-weight: normal;
-      margin-bottom: 2px;
+      margin-bottom: 1px;
       text-align: justify;
-      line-height: 1.3;
+      line-height: 1.25;
     }
     .options-grid {
       display: grid;
@@ -698,8 +698,8 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       padding-left: 4px;
     }
     .option-item {
-      font-size: 10.5pt;
-      line-height: 1.2;
+      font-size: 10pt;
+      line-height: 1.18;
     }
     .option-label {
       font-weight: bold;
