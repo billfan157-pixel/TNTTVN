@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer, { type Browser } from 'puppeteer'
-import { buildExamPaperHtml } from '../utils/examSheets'
+import { buildBatchExamPapersHtml, buildExamPaperHtml } from '../utils/examSheets'
 import { prepareExamDocumentForOutput } from '../lib/examPrintSafety'
 import { integratedMcOptionToCellForRect } from '../lib/answerSheetTemplate'
 
@@ -83,6 +83,43 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
     },
     30_000,
   )
+
+  it('batch print keeps integrated marker ink at least 6mm from both A4 side edges', async () => {
+    const html = prepareExamDocumentForOutput(buildBatchExamPapersHtml([
+      { id: 'ST-12345678', code: 'TN-001', name: 'Nguyễn Văn A' },
+      { id: 'ST-87654321', code: 'TN-002', name: 'Trần Văn B' },
+    ], {
+      subject: 'Batch safe margin',
+      classLabel: 'Thiếu Nhi 2A',
+      academicYear: '2026-2027',
+      sessionId: 'EXS-ABCDEF12',
+      includeAnswerGrid: true,
+      questions: questions(50),
+    }))
+
+    expect(html).toContain('data-omr-batch-safe-margin')
+
+    const page = await browser.newPage()
+    await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 1 })
+    await page.emulateMediaType('print')
+    await page.setContent(html, { waitUntil: 'load' })
+
+    const margins = await page.evaluate(() => {
+      const pageRect = document.querySelector('.batch-exam-page')!.getBoundingClientRect()
+      const leftMarker = document.querySelector('.batch-exam-page .omr-marker-tl')!.getBoundingClientRect()
+      const rightMarker = document.querySelector('.batch-exam-page .omr-marker-tr')!.getBoundingClientRect()
+      return {
+        pageWidth: pageRect.width,
+        left: leftMarker.left - pageRect.left,
+        right: pageRect.right - rightMarker.right,
+      }
+    })
+
+    const sixMmOfA4 = margins.pageWidth * (6 / 210)
+    expect(margins.left).toBeGreaterThanOrEqual(sixMmOfA4)
+    expect(margins.right).toBeGreaterThanOrEqual(sixMmOfA4)
+    await page.close()
+  }, 20_000)
 
   it('teacher answer key becomes machine-invalid before print/PDF output', async () => {
     const html = prepareExamDocumentForOutput(buildExamPaperHtml({
