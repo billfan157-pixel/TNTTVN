@@ -133,11 +133,11 @@ function clamp01(value: number): number {
  * Cách này vẫn giữ ưu điểm local-background normalization nhưng bớt phụ thuộc
  * việc nét bút có tình cờ đi qua 16 điểm sample cố định hay không.
  */
-function sampleDarkness(gray: GrayImage, cx: number, cy: number, r: number): number {
+function sampleDarkness(gray: GrayImage, cx: number, cy: number, r: number, backgroundScale = 1): number {
   const { width, height, data } = gray
   const coreR = Math.max(1.2, r * 0.74)
-  const bgInnerR = Math.max(coreR + 1, r * 1.55)
-  const bgOuterR = Math.max(bgInnerR + 1, r * 2.35)
+  const bgInnerR = Math.max(coreR + 1, r * 1.55 * backgroundScale)
+  const bgOuterR = Math.max(bgInnerR + 1, r * 2.35 * backgroundScale)
   const x0 = Math.max(0, Math.floor(cx - bgOuterR))
   const x1 = Math.min(width - 1, Math.ceil(cx + bgOuterR))
   const y0 = Math.max(0, Math.floor(cy - bgOuterR))
@@ -480,13 +480,11 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
     if (!isFinite(center.x) || !isFinite(center.y)) return fail('CELL_OUT_OF_IMAGE')
     const px = center.x * gray.width
     const py = center.y * gray.height
-    // Written-score cells are 36px boxes at the reference render. A small MC-like
-    // radius puts the local-background annulus inside the same filled box, which
-    // cancels the very contrast we are trying to measure. Expand the written
-    // radius so the core remains inside the cell while the annulus samples paper
-    // outside the box; score-cell spacing leaves ample separation at this scale.
-    const r = Math.max(1.5, sizePx * 0.45)
-    readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r) })
+    // Keep the written core compact enough to detect partial pencil/pen marks,
+    // but move only the local-paper annulus beyond the 36px printed score box.
+    // This avoids contrast cancellation without diluting a small real mark.
+    const r = Math.max(1.5, sizePx * 0.22)
+    readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r, 1.45) })
   }
 
   const sorted = [...readings].sort((a, b) => b.coverage - a.coverage)
