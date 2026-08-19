@@ -94,13 +94,14 @@ describe('examExporter', () => {
       expect(html).toContain('Tổng Giáo Phận Sài Gòn')
       expect(html).toContain('Khảo Sát Giáo Lý Khối Thêm Sức')
       expect(html).toContain('Thêm Sức 2')
-      expect(html).toContain('MÃ ĐỀ THI: A')
+      expect(html).toContain('Mã đề: <strong>A</strong>')
       expect(html).toContain('Thiên Chúa sáng tạo trời đất trong mấy ngày?')
       expect(html).toContain('Bí tích nào là khởi đầu đời sống Kitô hữu?')
-      expect(html).toContain('HƯỚNG DẪN CHẤM & BẢNG ĐÁP ÁN')
+      expect(html).toContain('BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN')
       expect(html).toContain('Sách Sáng Thế ghi nhận')
       expect(html).toContain('BẢNG TRẢ LỜI TRẮC NGHIỆM')
-      expect(html).toContain('Họ và tên:')
+      expect(html).toContain('MÃ QUÉT TỰ ĐỘNG')
+      expect(html).toContain('omr-corner-marker')
     })
 
     it('omits answer key when includeAnswerKey is false', () => {
@@ -113,8 +114,8 @@ describe('examExporter', () => {
         includeStudentInfo: false,
       })
 
-      expect(html).not.toContain('HƯỚNG DẪN CHẤM')
-      expect(html).not.toContain('Họ và tên:')
+      expect(html).not.toContain('BẢNG ĐÁP ÁN CHUẨN')
+      expect(html).not.toContain('<div class="student-info-box">')
       expect(html).toContain('Kiểm tra 15 phút')
     })
   })

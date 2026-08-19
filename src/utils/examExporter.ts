@@ -62,31 +62,57 @@ function resolveParishHeaders(options: ExamExportOptions) {
   return { parishName, dioceseName }
 }
 
+import { buildExamPaperHtml, type ExamPaperPrintOptions } from './examSheets'
+
 /**
- * Tạo nội dung HTML tương thích hoàn toàn với Microsoft Word (.doc format).
+ * Tạo nội dung HTML tương thích hoàn toàn với Microsoft Word (.doc format),
+ * đảm bảo layout và các thành phần (Header, QR Code quét tự động, Khung thông tin học sinh,
+ * Khung chấm điểm GLV, Khung 4 Marker OMR Homography, Ô tròn trắc nghiệm, và Bảng đáp án)
+ * khớp 100% với bản đề thi dùng để quét chấm điểm trên app.
  */
 export function generateExamWordHtml(options: ExamExportOptions): string {
   const { parishName, dioceseName } = resolveParishHeaders(options)
   const questions = resolveExportQuestions(options)
-  const subject = options.subject || 'BÀI KIỂM TRA'
-  const classLabel = options.classLabel || 'Lớp Giáo Lý'
-  const academicYear = options.academicYear || ''
-  const duration = options.durationMinutes || 45
   const versionCode = options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
-  const layoutCols = options.layoutColumns || 1
-  const includeStudentInfo = options.includeStudentInfo !== false
-  const includeQuickGrid = options.includeQuickAnswerGrid !== false
-  const includeKey = options.includeAnswerKey !== false
-  const includeExp = options.includeExplanations !== false
 
+  // Đồng bộ đáp án chuẩn cho mã đề đang chọn nếu có cấu hình answerVariants
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
   const activeKey = variants[versionCode] || options.answerKey || {}
+  const mappedQuestions = questions.map((q, idx) => {
+    const qNum = q.index || idx + 1
+    return {
+      ...q,
+      index: qNum,
+      correctOption: activeKey[qNum] || q.correctOption || 'A',
+    }
+  })
 
-  return `<!DOCTYPE html>
+  const printOptions: ExamPaperPrintOptions = {
+    parishName,
+    dioceseName,
+    subject: options.subject || 'BÀI KIỂM TRA',
+    classLabel: options.classLabel || 'Lớp Giáo Lý',
+    academicYear: options.academicYear || '',
+    durationMinutes: options.durationMinutes || 45,
+    questions: mappedQuestions,
+    showAnswerKey: options.includeAnswerKey !== false,
+    layoutColumns: options.layoutColumns || 2,
+    includeAnswerGrid: options.includeQuickAnswerGrid !== false,
+    includeGradingBox: true,
+    includeStudentInfo: options.includeStudentInfo !== false,
+    includeExplanations: options.includeExplanations !== false,
+    sessionId: 'SESS-001',
+    examVersion: versionCode,
+  }
+
+  const baseHtml = buildExamPaperHtml(printOptions)
+
+  // Nhúng Word Office XML tags để Microsoft Word nhận diện khổ A4 portrait và lề in chuẩn
+  const wordHeader = `<!DOCTYPE html>
 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(subject)}</title>
+  <title>${escapeHtml(options.subject || 'Đề Thi')}</title>
   <!--[if gte mso 9]>
   <xml>
     <w:WordDocument>
@@ -95,275 +121,9 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
       <w:DoNotOptimizeForBrowser/>
     </w:WordDocument>
   </xml>
-  <![endif]-->
-  <style>
-    @page {
-      size: A4 portrait;
-      margin: 1.5cm 1.5cm 1.5cm 1.5cm;
-      mso-header-margin: 35.4pt;
-      mso-footer-margin: 35.4pt;
-      mso-paper-source: 0;
-    }
-    body {
-      font-family: 'Times New Roman', Times, serif;
-      font-size: 13pt;
-      line-height: 1.35;
-      color: #000;
-      margin: 0;
-      padding: 0;
-    }
-    table.header-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 12pt;
-      border: none;
-    }
-    table.header-table td {
-      border: none;
-      padding: 2pt 4pt;
-      vertical-align: top;
-    }
-    .org-title {
-      font-size: 11pt;
-      font-weight: bold;
-      text-transform: uppercase;
-      text-align: center;
-    }
-    .parish-sub {
-      font-size: 11pt;
-      text-align: center;
-      margin-bottom: 4pt;
-    }
-    .exam-main-title {
-      font-size: 14pt;
-      font-weight: bold;
-      text-transform: uppercase;
-      text-align: center;
-      color: #000;
-    }
-    .exam-sub-title {
-      font-size: 12pt;
-      font-weight: bold;
-      text-align: center;
-    }
-    .exam-meta {
-      font-size: 11pt;
-      font-style: italic;
-      text-align: center;
-    }
-    .divider {
-      border-bottom: 1.5pt solid #000;
-      margin: 4pt auto 8pt auto;
-      width: 60%;
-    }
-    .student-box {
-      border: 1pt solid #000;
-      padding: 6pt 10pt;
-      margin-bottom: 14pt;
-      font-size: 12pt;
-    }
-    .student-box table {
-      width: 100%;
-      border-collapse: collapse;
-      border: none;
-    }
-    .student-box td {
-      border: none;
-      padding: 2pt 4pt;
-    }
-    .question-block {
-      margin-bottom: 10pt;
-      page-break-inside: avoid;
-    }
-    .question-title {
-      font-weight: bold;
-      margin-bottom: 3pt;
-    }
-    .options-grid {
-      margin-left: 12pt;
-      margin-bottom: 4pt;
-    }
-    .option-item {
-      margin-bottom: 2pt;
-    }
-    .option-letter {
-      font-weight: bold;
-    }
-    .correct-highlight {
-      font-weight: bold;
-      text-decoration: underline;
-    }
-    .answer-grid-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 12pt 0;
-      text-align: center;
-      page-break-inside: avoid;
-    }
-    .answer-grid-table th, .answer-grid-table td {
-      border: 1pt solid #000;
-      padding: 4pt 2pt;
-      font-size: 11pt;
-    }
-    .answer-grid-table th {
-      background-color: #f0f0f0;
-      font-weight: bold;
-    }
-    .page-break {
-      page-break-before: always;
-    }
-    .key-section-title {
-      font-size: 14pt;
-      font-weight: bold;
-      text-align: center;
-      text-transform: uppercase;
-      margin: 16pt 0 10pt 0;
-      border-bottom: 1.5pt solid #000;
-      padding-bottom: 4pt;
-    }
-    .explanation-text {
-      font-size: 11pt;
-      font-style: italic;
-      color: #333;
-      margin-left: 12pt;
-      margin-top: 2pt;
-    }
-    .two-column-wrapper {
-      column-count: ${layoutCols};
-      column-gap: 18pt;
-    }
-  </style>
-</head>
-<body>
+  <![endif]-->`
 
-  <!-- Header Header -->
-  <table class="header-table">
-    <tr>
-      <td style="width: 45%; text-align: center;">
-        <div class="org-title">${escapeHtml(dioceseName)}</div>
-        <div class="org-title">${escapeHtml(parishName)}</div>
-        <div class="parish-sub">BAN GIÁO LÝ - TNTT</div>
-        <div class="divider"></div>
-      </td>
-      <td style="width: 55%; text-align: center;">
-        <div class="exam-main-title">${escapeHtml(subject)}</div>
-        <div class="exam-sub-title">LỚP: ${escapeHtml(classLabel).toUpperCase()}${academicYear ? ` - NH: ${escapeHtml(academicYear)}` : ''}</div>
-        <div class="exam-meta">Thời gian làm bài: ${duration} phút (Không kể phát đề)</div>
-        <div style="font-weight: bold; font-size: 11pt; margin-top: 2pt;">MÃ ĐỀ THI: ${escapeHtml(versionCode)}</div>
-      </td>
-    </tr>
-  </table>
-
-  <!-- Student Info Box -->
-  ${includeStudentInfo ? `
-  <div class="student-box">
-    <table>
-      <tr>
-        <td style="width: 65%;"><strong>Họ và tên:</strong> ................................................................................</td>
-        <td style="width: 35%;"><strong>Lớp:</strong> ${escapeHtml(classLabel)}</td>
-      </tr>
-      <tr>
-        <td><strong>Tên thánh:</strong> ................................................................................</td>
-        <td><strong>Mã số:</strong> .......................</td>
-      </tr>
-    </table>
-    <div style="margin-top: 4pt; border-top: 0.5pt dashed #666; padding-top: 4pt; display: flex; justify-content: space-between;">
-      <span><strong>Điểm số:</strong> .....................</span>
-      <span><strong>Lời phê của Giáo Lý Viên:</strong> ..........................................................................</span>
-    </div>
-  </div>` : ''}
-
-  <!-- Quick Answer Grid for Students -->
-  ${includeQuickGrid && questions.length > 0 ? `
-  <div style="margin-bottom: 12pt;">
-    <div style="font-weight: bold; font-size: 11pt; margin-bottom: 3pt;">BẢNG TRẢ LỜI TRẮC NGHIỆM (Học sinh điền A, B, C hoặc D vào ô tương ứng):</div>
-    ${buildAnswerGridHtmlTable(questions.length)}
-  </div>` : ''}
-
-  <!-- Exam Questions Content -->
-  <div class="two-column-wrapper">
-    ${questions.map((q, idx) => {
-      const qNum = q.index || idx + 1
-      return `
-      <div class="question-block">
-        <div class="question-title">Câu ${qNum}: ${escapeHtml(q.question)}</div>
-        <div class="options-grid">
-          <div class="option-item"><span class="option-letter">A.</span> ${escapeHtml(q.options?.A || '')}</div>
-          <div class="option-item"><span class="option-letter">B.</span> ${escapeHtml(q.options?.B || '')}</div>
-          <div class="option-item"><span class="option-letter">C.</span> ${escapeHtml(q.options?.C || '')}</div>
-          <div class="option-item"><span class="option-letter">D.</span> ${escapeHtml(q.options?.D || '')}</div>
-        </div>
-      </div>`
-    }).join('')}
-  </div>
-
-  <div style="text-align: center; margin-top: 14pt; font-style: italic; font-size: 11pt;">
-    --- HẾT (Giáo sinh không được sử dụng tài liệu) ---
-  </div>
-
-  <!-- Teacher Answer Key Section (Optional) -->
-  ${includeKey ? `
-  <div class="page-break"></div>
-  <div class="key-section-title">HƯỚNG DẪN CHẤM & BẢNG ĐÁP ÁN (DÀNH CHO GLV)</div>
-  <div style="text-align: center; font-weight: bold; margin-bottom: 8pt;">MÔN: ${escapeHtml(subject).toUpperCase()} - MÃ ĐỀ: ${escapeHtml(versionCode)}</div>
-
-  <table class="answer-grid-table">
-    <thead>
-      <tr>
-        <th style="width: 15%;">Câu</th>
-        <th style="width: 15%;">Đáp án</th>
-        <th style="width: 70%;">Nội dung phương án đúng</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${questions.map((q, idx) => {
-        const qNum = q.index || idx + 1
-        const correct = activeKey[qNum] || q.correctOption || 'A'
-        const correctText = q.options ? q.options[correct] : ''
-        return `
-        <tr>
-          <td style="font-weight: bold;">Câu ${qNum}</td>
-          <td style="font-weight: bold; font-size: 12pt; color: #b91c1c;">${correct}</td>
-          <td style="text-align: left; padding-left: 8pt;">
-            ${escapeHtml(correctText || '')}
-            ${includeExp && q.explanation ? `<div class="explanation-text">💡 Giải thích: ${escapeHtml(q.explanation)}</div>` : ''}
-          </td>
-        </tr>`
-      }).join('')}
-    </tbody>
-  </table>
-  ` : ''}
-
-</body>
-</html>`
-}
-
-/**
- * Xây dựng bảng ô trả lời trắc nghiệm chia thành các hàng 10 câu cho gọn gàng.
- */
-function buildAnswerGridHtmlTable(totalQuestions: number): string {
-  const chunkSize = 10
-  const chunks: number[][] = []
-  for (let i = 1; i <= totalQuestions; i += chunkSize) {
-    const chunk: number[] = []
-    for (let j = i; j < i + chunkSize && j <= totalQuestions; j++) {
-      chunk.push(j)
-    }
-    chunks.push(chunk)
-  }
-
-  return chunks.map(chunk => `
-    <table class="answer-grid-table" style="margin-bottom: 6pt;">
-      <tr>
-        <th style="width: 70pt; background: #e5e7eb;">Câu số</th>
-        ${chunk.map(num => `<td style="font-weight: bold; background: #f3f4f6; width: 35pt;">${num}</td>`).join('')}
-      </tr>
-      <tr>
-        <th style="background: #e5e7eb;">Trả lời</th>
-        ${chunk.map(() => `<td style="height: 22pt;">&nbsp;</td>`).join('')}
-      </tr>
-    </table>
-  `).join('')
+  return baseHtml.replace(/^<!DOCTYPE html>\s*<html[^>]*>\s*<head>/i, wordHeader)
 }
 
 /**

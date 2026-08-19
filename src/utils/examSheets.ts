@@ -361,6 +361,8 @@ export interface ExamPaperPrintOptions {
   layoutColumns?: 1 | 2
   includeAnswerGrid?: boolean
   includeGradingBox?: boolean
+  includeStudentInfo?: boolean
+  includeExplanations?: boolean
   sessionId?: string
   examVersion?: ExamVersionCode
   student?: {
@@ -874,6 +876,16 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           </div>
         `).join('')}
       </div>
+      ${options.includeExplanations && questions.some(q => Boolean(q.explanation)) ? `
+        <div class="explanations-wrapper" style="margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+          <div style="font-weight: bold; color: #1e3a8a; font-size: 10pt; margin-bottom: 4px;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
+          ${questions.filter(q => Boolean(q.explanation)).map(q => `
+            <div style="font-size: 9.5pt; margin-bottom: 3px; line-height: 1.3;">
+              <strong>Câu ${q.index} (${q.correctOption}):</strong> <em>${escapeHtml(q.explanation || '')}</em>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     </div>
   ` : ''
 
@@ -912,7 +924,9 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     </div>
 
     <!-- Khung thông tin học sinh & Khung chấm điểm của Giáo Lý Viên -->
+    ${options.includeStudentInfo !== false || includeGradingBox ? `
     <div class="top-meta-container">
+      ${options.includeStudentInfo !== false ? `
       <div class="student-info-box">
         <div class="student-info-row">
           <span>Họ & tên: <strong>${student ? escapeHtml(student.name) : ''}</strong></span>
@@ -925,7 +939,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           <span>Phòng: <div class="dots" style="max-width: 60px;"></div></span>
           <span>Ngày thi: <div class="dots" style="max-width: 90px;"></div></span>
         </div>
-      </div>
+      </div>` : ''}
 
       ${includeGradingBox ? `
         <div class="grading-box">
@@ -949,7 +963,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           </table>
         </div>
       ` : ''}
-    </div>
+    </div>` : ''}
 
     <!-- Bảng ma trận phiếu trả lời trắc nghiệm tích hợp (nếu bật) -->
     ${answerGridHtml}
