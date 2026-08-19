@@ -7,6 +7,13 @@ import type { ExamFormTemplateMode, ExamVersionCode } from './qr'
  */
 export const EXAM_CODE_LOCK_TTL_MS = 8_000
 
+/**
+ * Khi camera đang giữ một identity QR, vẫn đọc lại mã theo nhịp nhẹ để phát hiện
+ * người chấm đã đổi sang tờ khác trước khi TTL cũ hết hạn. Không áp dụng cho
+ * identity do giáo lý viên chọn thủ công.
+ */
+export const EXAM_CODE_RECHECK_INTERVAL_MS = 1_200
+
 export interface ExamCodeLock {
   sessionId: string
   studentId: string
@@ -32,6 +39,33 @@ export function createManualExamIdentity(sessionId: string, studentId: string): 
     source: 'manual',
     expiresAt: Number.POSITIVE_INFINITY,
   }
+}
+
+/**
+ * Chỉ so sánh phần identity/protocol của tờ giấy; `expiresAt` thay đổi mỗi lần
+ * QR được refresh nên không được dùng để quyết định đổi tờ.
+ */
+export function isSameExamIdentity(left: ExamCodeLock | null, right: ExamCodeLock | null): boolean {
+  if (!left || !right) return left === right
+  return left.sessionId === right.sessionId
+    && left.studentId === right.studentId
+    && left.source === right.source
+    && left.protocolVersion === right.protocolVersion
+    && left.templateMode === right.templateMode
+    && left.questionCount === right.questionCount
+    && left.examVersion === right.examVersion
+    && left.formChecksum === right.formChecksum
+}
+
+export function shouldRecheckExamCode(
+  lock: ExamCodeLock | null,
+  lastCheckedAt: number,
+  now: number,
+  intervalMs = EXAM_CODE_RECHECK_INTERVAL_MS,
+): boolean {
+  if (!lock) return true
+  if (lock.source === 'manual') return false
+  return now - lastCheckedAt >= intervalMs
 }
 
 /**
