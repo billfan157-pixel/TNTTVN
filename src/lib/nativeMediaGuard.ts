@@ -1,5 +1,11 @@
 const NATIVE_CAMERA_FALLBACK_MESSAGE = 'Camera trực tiếp chưa khả dụng trong WebView của thiết bị này. Hãy bấm “Tải ảnh” để chụp phiếu bằng camera iPhone hoặc chọn ảnh phiếu đã chụp.'
 
+type RuntimeNavigator = {
+  mediaDevices?: {
+    getUserMedia?: MediaDevices['getUserMedia']
+  }
+}
+
 /**
  * WKWebView only exposes navigator.mediaDevices when the native media/privacy
  * configuration is valid. Keep the scanner fail-safe on older/misconfigured
@@ -11,7 +17,8 @@ const NATIVE_CAMERA_FALLBACK_MESSAGE = 'Camera trực tiếp chưa khả dụng 
  */
 export function installNativeMediaDevicesGuard(): void {
   if (typeof navigator === 'undefined') return
-  if (navigator.mediaDevices?.getUserMedia) return
+  const runtimeNavigator = navigator as unknown as RuntimeNavigator
+  if (typeof runtimeNavigator.mediaDevices?.getUserMedia === 'function') return
 
   const fallback = {
     getUserMedia: async () => {
@@ -26,7 +33,7 @@ export function installNativeMediaDevicesGuard(): void {
     })
   } catch {
     try {
-      ;(navigator as Navigator & { mediaDevices: MediaDevices }).mediaDevices = fallback
+      ;(runtimeNavigator as { mediaDevices?: MediaDevices }).mediaDevices = fallback
     } catch {
       // If WebKit keeps the property non-configurable, the scanner's outer
       // camera error boundary still prevents the rest of the app from failing.
