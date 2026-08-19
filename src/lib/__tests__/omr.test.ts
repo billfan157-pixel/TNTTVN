@@ -37,7 +37,10 @@ function buildSheetImage(opts: { fill?: number } = {}): ImageData {
   }
   if (opts.fill !== undefined) {
     const c = scoreToCell(opts.fill)
-    const r = 0.028 * Math.min(W, H)
+    // Renderer dùng ô 36px trên viewBox 1000px → ở ảnh rộng 800px còn ~28.8px,
+    // tức half-size ~14.4px = 0.018 * 800. Fixture cũ dùng 0.028 (~44.8px)
+    // lớn hơn hẳn ô in thật và làm local-background annulus nằm trong chính nét tô.
+    const r = 0.018 * Math.min(W, H)
     fillRect(c.x * W - r, c.y * H - r, c.x * W + r, c.y * H + r, 25)
   }
   return img
