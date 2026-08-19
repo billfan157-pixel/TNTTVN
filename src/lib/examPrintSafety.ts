@@ -1,3 +1,5 @@
+import type { ExamQuestion } from '../types'
+
 const ANSWER_KEY_SENTINELS = [
   'ĐÁP ÁN GLV — KHÔNG CHẤM',
   'ĐÁP ÁN GIÁO VIÊN',
@@ -15,6 +17,25 @@ export class ExamPrintIntegrityError extends Error {
 
 export function isTeacherAnswerKeyHtml(html: string): boolean {
   return ANSWER_KEY_SENTINELS.some(sentinel => html.includes(sentinel))
+}
+
+/**
+ * Validate source questions before render. Sorting alone is insufficient because
+ * duplicates/gaps remain ambiguous for a positional OMR grid.
+ */
+export function assertContiguousQuestionIndexes(questions: readonly ExamQuestion[]): void {
+  if (questions.length === 0) return
+  const sortedIndexes = questions.map(question => question.index).sort((a, b) => a - b)
+  for (let i = 0; i < sortedIndexes.length; i++) {
+    const expected = i + 1
+    const actual = sortedIndexes[i]
+    if (!Number.isInteger(actual) || actual !== expected) {
+      throw new ExamPrintIntegrityError(
+        `Danh sách câu hỏi không liên tục tại vị trí ${expected}: nhận C${String(actual)}. `
+        + 'Đề dùng OMR phải có index duy nhất và liên tục 1..N.'
+      )
+    }
+  }
 }
 
 /**
