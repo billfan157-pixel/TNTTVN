@@ -54,7 +54,7 @@ describe('examPrintSafety', () => {
     }
   })
 
-  it('removes printed A/B/C/D glyphs from bubble ROI without changing bubble elements', () => {
+  it('removes printed A/B/C/D glyphs from integrated bubble ROI without changing bubble elements', () => {
     const html = `
       <div class="answer-sheet-guide">* Bút xanh/đen hoặc chì đậm; tô kín 01 ô (A, B, C, D):</div>
       <span class="bubble">A</span>
@@ -69,6 +69,19 @@ describe('examPrintSafety', () => {
     expect(clean).not.toContain('>A</span>')
     expect(clean).not.toContain('>B</span>')
     expect(clean).toContain('4 ô từ trái sang phải lần lượt là A, B, C, D')
+  })
+
+  it('removes A/B/C/D text from full-page SVG bubble cores without touching circles', () => {
+    const html = `
+      <circle cx="100" cy="200" r="10" fill="#FFFFFF" stroke="#64748B" stroke-width="2" />
+      <text x="100" y="200" font-size="11.5" font-weight="600" fill="#64748B" text-anchor="middle" dominant-baseline="central">A</text>
+      <circle cx="140" cy="200" r="10" fill="#FFFFFF" stroke="#64748B" stroke-width="2" />
+      <text x="140" y="200" font-size="11.5" font-weight="600" fill="#64748B" text-anchor="middle" dominant-baseline="central">B</text>
+    `
+    const clean = cleanIntegratedBubbleRoi(html)
+    expect(clean.match(/<circle/g)).toHaveLength(2)
+    expect(clean).not.toContain('dominant-baseline="central">A</text>')
+    expect(clean).not.toContain('dominant-baseline="central">B</text>')
   })
 
   it('removes homography markers from teacher answer key', () => {
