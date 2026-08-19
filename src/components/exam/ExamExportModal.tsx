@@ -14,6 +14,7 @@ import {
   exportExamToText,
   exportExamToMarkdown,
   generateExamWordHtml,
+  generateExamJsonString,
   resolveExportQuestions,
   type ExamExportOptions,
 } from '../../utils/examExporter'
@@ -116,7 +117,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
   const previewContent = useMemo(() => {
     if (activeFormat === 'text') return exportExamToText(exportOptions)
     if (activeFormat === 'markdown') return exportExamToMarkdown(exportOptions)
-    if (activeFormat === 'json') return JSON.stringify(exportOptions, null, 2)
+    if (activeFormat === 'json') return generateExamJsonString(exportOptions)
     if (activeFormat === 'word' || activeFormat === 'pdf') return generateExamWordHtml(exportOptions)
     return ''
   }, [activeFormat, exportOptions])
@@ -161,7 +162,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
     let contentToCopy = ''
     if (activeFormat === 'text') contentToCopy = exportExamToText(exportOptions)
     else if (activeFormat === 'markdown') contentToCopy = exportExamToMarkdown(exportOptions)
-    else if (activeFormat === 'json') contentToCopy = JSON.stringify(exportOptions, null, 2)
+    else if (activeFormat === 'json') contentToCopy = generateExamJsonString(exportOptions)
     else contentToCopy = exportExamToText(exportOptions)
 
     try {
