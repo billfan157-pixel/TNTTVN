@@ -177,9 +177,9 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const previewHtml = useMemo(() => {
     if (docType === 'answer_sheet') {
       if (printMode === 'batch' && students.length > 0) {
-        return buildBatchAnswerSheetsHtml(students.slice(0, 2), batchAnswerSheetParams)
+        return prepareExamDocumentForOutput(buildBatchAnswerSheetsHtml(students.slice(0, 2), batchAnswerSheetParams))
       }
-      return buildBatchAnswerSheetsHtml([sampleStudent], batchAnswerSheetParams)
+      return prepareExamDocumentForOutput(buildBatchAnswerSheetsHtml([sampleStudent], batchAnswerSheetParams))
     }
 
     if (docType === 'qr_sheet') {
