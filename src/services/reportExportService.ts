@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react'
 import { useToastStore } from '../stores/toastStore'
-import { prepareExamDocumentForOutput } from '../lib/examPrintSafety'
+import { prepareExamDocumentForOutputIfApplicable } from '../lib/examPrintSafety'
 
 // SECURITY_AUDIT_A01 Phase 2 — KHÔNG còn document.write. Nội dung HTML (đã escape ở
 // tầng builder — xem utils/pdfGenerator) được render qua Blob URL thay vì ghi trực tiếp
@@ -37,7 +37,7 @@ function injectAutoPrintScript(html: string): string {
 }
 
 function prepareOutput(htmlContent: string): string {
-  return prepareExamDocumentForOutput(htmlContent)
+  return prepareExamDocumentForOutputIfApplicable(htmlContent)
 }
 
 export class ReportExportService {
