@@ -121,19 +121,28 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }
 
   const handleDownloadPdf = () => {
-    if (!previewHtml) return
-    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_Ma${selectedVersion}`
-    ReportExportService.exportPdf(previewHtml, filename)
+    const isBatch = printMode === 'batch' && students.length > 0
+    const htmlToExport = isBatch
+      ? buildBatchExamPapersHtml(students, printOptions)
+      : previewHtml
+    if (!htmlToExport) return
+    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}`
+    ReportExportService.exportPdf(htmlToExport, filename)
   }
 
   const handleDownloadHtml = () => {
-    if (!previewHtml) return
-    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_Ma${selectedVersion}.html`
-    ReportExportService.downloadHTML(previewHtml, filename)
-    useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')
+    const isBatch = printMode === 'batch' && students.length > 0
+    const htmlToExport = isBatch
+      ? buildBatchExamPapersHtml(students, printOptions)
+      : previewHtml
+    if (!htmlToExport) return
+    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}.html`
+    ReportExportService.downloadHTML(htmlToExport, filename)
+    useToastStore.getState().addToast(`Đã xuất file HTML đề thi (${isBatch ? `${students.length} học viên` : 'Mẫu chung'}): ${filename}`, 'success')
   }
 
   const handleDownloadWord = () => {
+    const isBatch = printMode === 'batch' && students.length > 0
     exportExamToWord({
       parishName,
       dioceseName,
@@ -148,6 +157,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       includeStudentInfo: true,
       includeQuickAnswerGrid: includeAnswerGrid,
       layoutColumns,
+      sessionId,
+      students: isBatch ? students : undefined,
     })
   }
 
@@ -344,7 +355,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
               title="Xuất bản đề thi Microsoft Word (.doc) chuẩn OMR"
             >
-              <FileText size={14} className="text-blue-600" /> Xuất Word
+              <FileText size={14} className="text-blue-600" /> {printMode === 'batch' && students.length > 0 ? `Xuất Word (${students.length} Bản)` : 'Xuất Word'}
             </button>
             <button
               type="button"
@@ -352,7 +363,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
               title="Xuất trực tiếp file PDF chất lượng cao"
             >
-              <Printer size={14} className="text-rose-600" /> Xuất PDF
+              <Printer size={14} className="text-rose-600" /> {printMode === 'batch' && students.length > 0 ? `Xuất PDF (${students.length} Bản)` : 'Xuất PDF'}
             </button>
             <button
               type="button"
@@ -360,7 +371,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
               title="Tải file HTML độc lập để mở trên trình duyệt và in"
             >
-              <Globe size={14} className="text-sky-600" /> Tải HTML
+              <Globe size={14} className="text-sky-600" /> {printMode === 'batch' && students.length > 0 ? `Tải HTML (${students.length} Bản)` : 'Tải HTML'}
             </button>
             <button
               type="button"

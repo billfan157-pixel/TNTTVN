@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import * as XLSX from 'xlsx'
 import {
   generateExamWordHtml,
+  generateBatchExamWordHtml,
   generateExamExcelWorkbook,
   exportExamToText,
   exportExamToMarkdown,
@@ -117,6 +118,27 @@ describe('examExporter', () => {
       expect(html).not.toContain('BẢNG ĐÁP ÁN CHUẨN')
       expect(html).not.toContain('student-info-box')
       expect(html).toContain('Kiểm tra 15 phút')
+    })
+
+    it('generates multi-student batch Word HTML with distinct QR codes and names', () => {
+      const students = [
+        { id: 'st-1', code: 'TN-001', name: 'Nguyễn Văn A' },
+        { id: 'st-2', code: 'TN-002', name: 'Trần Thị B' },
+      ]
+      const html = generateBatchExamWordHtml(students, {
+        subject: 'Khảo Sát Giáo Lý',
+        classLabel: 'Khai Tâm 1',
+        academicYear: '2025-2026',
+        questions: sampleQuestions,
+        includeAnswerKey: false,
+      })
+
+      expect(html).toContain('Nguyễn Văn A')
+      expect(html).toContain('TN-001')
+      expect(html).toContain('Trần Thị B')
+      expect(html).toContain('TN-002')
+      expect(html).toContain('page-break-before: always')
+      expect(html).toContain('omr-corner-marker')
     })
   })
 

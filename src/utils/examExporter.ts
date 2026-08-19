@@ -420,6 +420,229 @@ export function generateExamWordHtml(options: ExamExportOptions): string {
 }
 
 /**
+ * Tạo nội dung HTML xuất hàng loạt cho Microsoft Word (.doc format),
+ * mỗi học sinh nằm trên 1 trang riêng với tên, mã TN và mã QR định danh riêng biệt.
+ */
+export function generateBatchExamWordHtml(
+  students: { id: string; code: string; name: string }[],
+  options: ExamExportOptions
+): string {
+  const { parishName, dioceseName } = resolveParishHeaders(options)
+  const questions = resolveExportQuestions(options)
+  const subject = options.subject || 'BÀI KIỂM TRA'
+  const classLabel = options.classLabel || 'Lớp Giáo Lý'
+  const academicYear = options.academicYear || ''
+  const durationMinutes = options.durationMinutes || 45
+  const versionCode = options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
+  const layoutColumns = options.layoutColumns || 2
+  const includeStudentInfo = options.includeStudentInfo !== false
+  const includeQuickAnswerGrid = options.includeQuickAnswerGrid !== false
+  const includeAnswerKey = options.includeAnswerKey !== false
+  const includeExplanations = options.includeExplanations !== false
+  const includeGradingBox = true
+  const sessionId = options.sessionId || 'SESS-001'
+
+  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
+  const activeKey = variants[versionCode] || options.answerKey || {}
+  const mappedQuestions = questions.map((q, idx) => {
+    const qNum = q.index || idx + 1
+    return {
+      ...q,
+      index: qNum,
+      correctOption: activeKey[qNum] || q.correctOption || 'A',
+    }
+  })
+
+  const gridCols = integratedGridCols(mappedQuestions.length)
+
+  const pages = students.map((student, idx) => {
+    const qrPayload = buildExamQrPayload(sessionId, student.id, {
+      templateMode: 'integrated',
+      questionCount: Math.max(1, mappedQuestions.length),
+      examVersion: versionCode,
+    })
+    const qrDataUrl = generateExamQrDataUrl(qrPayload, 3)
+
+    return `
+    <div class="student-exam-page" style="${idx > 0 ? 'page-break-before: always; mso-break-type: section-break;' : ''}">
+      <div class="watermark">${escapeHtml(parishName || 'TNTT')}</div>
+
+      <!-- Header Đề Thi & Mã QR Riêng Từng Học Sinh -->
+      <table style="width: 100%; border-bottom: 2pt solid #000000; padding-bottom: 4pt; margin-bottom: 4pt;">
+        <tr>
+          <td style="width: 38%; vertical-align: top; text-align: center; font-size: 10pt; line-height: 1.25;">
+            <div style="font-weight: bold; text-transform: uppercase;">${escapeHtml(dioceseName)}</div>
+            <div style="font-weight: 800; color: #1e3a8a; text-transform: uppercase;">${escapeHtml(parishName)}</div>
+            <div style="font-size: 9.5pt;">XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
+            <div style="margin-top: 2pt;">Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${escapeHtml(versionCode)}</strong></div>
+          </td>
+          <td style="width: 42%; vertical-align: top; text-align: center; line-height: 1.25;">
+            <div style="font-size: 12.5pt; font-weight: 800; color: #b91c1c; text-transform: uppercase;">${escapeHtml(subject)}</div>
+            <div style="font-size: 10pt; font-weight: bold;">Niên Khóa: ${escapeHtml(academicYear)}</div>
+            <div style="font-size: 9.5pt; font-style: italic;">Thời gian: ${durationMinutes} phút (${mappedQuestions.length} câu)</div>
+          </td>
+          <td style="width: 20%; vertical-align: top; text-align: center;">
+            <div style="border: 1pt solid #0f172a; padding: 1pt; display: inline-block; background: #ffffff; border-radius: 4px;">
+              <img src="${qrDataUrl}" width="105" height="105" style="width: 105px; height: 105px; display: block;" alt="QR" />
+            </div>
+            <div style="font-size: 6.5pt; font-weight: bold; color: #475569; margin-top: 1pt;">MÃ QUÉT TỰ ĐỘNG</div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Khung Thông Tin Từng Học Sinh & Bảng Điểm GLV -->
+      ${includeStudentInfo || includeGradingBox ? `
+      <table style="width: 100%; margin-bottom: 4pt;">
+        <tr>
+          ${includeStudentInfo ? `
+          <td style="width: 52%; vertical-align: top; border: 1pt solid #000000; padding: 4pt 6pt; font-size: 10pt; background: #fafafa; border-radius: 3pt;" class="student-info-box">
+            <div style="margin-bottom: 2pt;">
+              Họ & tên: <strong>${escapeHtml(student.name)}</strong>
+            </div>
+            <div style="margin-bottom: 2pt;">
+              Mã TN: <strong>${escapeHtml(student.code)}</strong> · Lớp: <strong>${escapeHtml(classLabel)}</strong>
+            </div>
+            <div>
+              Phòng: .............. Ngày thi: ........................
+            </div>
+          </td>` : ''}
+          ${includeStudentInfo && includeGradingBox ? '<td style="width: 2%;"></td>' : ''}
+          ${includeGradingBox ? `
+          <td style="width: ${includeStudentInfo ? '46%' : '100%'}; vertical-align: top;">
+            <table style="width: 100%; border: 1pt solid #000000; text-align: center; font-size: 8.5pt;">
+              <thead>
+                <tr style="background: #f1f5f9;">
+                  <th style="border: 1pt solid #000000; padding: 2pt; font-weight: bold; width: 25%;">TRẮC NGHIỆM</th>
+                  <th style="border: 1pt solid #000000; padding: 2pt; font-weight: bold; width: 25%;">TỰ LUẬN</th>
+                  <th style="border: 1pt solid #000000; padding: 2pt; font-weight: bold; width: 25%;">TỔNG ĐIỂM</th>
+                  <th style="border: 1pt solid #000000; padding: 2pt; font-weight: bold; width: 25%;">LỜI PHÊ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="border: 1pt solid #000000; height: 26pt;"></td>
+                  <td style="border: 1pt solid #000000; height: 26pt;"></td>
+                  <td style="border: 1pt solid #000000; height: 26pt;"></td>
+                  <td style="border: 1pt solid #000000; height: 26pt;"></td>
+                </tr>
+              </tbody>
+            </table>
+          </td>` : ''}
+        </tr>
+      </table>` : ''}
+
+      <!-- Khung OMR Tích Hợp (4 Marker Đen Homography + Ma Trận Bubble) -->
+      ${includeQuickAnswerGrid && mappedQuestions.length > 0 ? `
+      <div style="margin: 4pt 0 6pt 0; background: #f8fafc; border-radius: 4px;">
+        <div style="font-size: 8.5pt; font-weight: 800; color: #1e3a8a; margin-bottom: 2pt; padding: 1pt 0;">
+          <span style="background: #0f172a; color: #ffffff; padding: 0.5pt 3.5pt; font-size: 6.5pt; font-weight: 900; border-radius: 2px; margin-right: 3px;">OMR SCAN</span>
+          BẢNG TRẢ LỜI TRẮC NGHIỆM (${mappedQuestions.length} CÂU)
+          <span style="font-size: 7.5pt; font-weight: normal; font-style: italic; color: #475569; margin-left: 4pt;">* Tô kín 01 ô (A, B, C, D) bằng bút xanh/đen hoặc chì đậm:</span>
+        </div>
+
+        <table style="width: 100%; border: 1.5pt solid #0f172a; border-collapse: collapse; background: #ffffff;">
+          <tr>
+            <td style="width: 18px; height: 18px; background: #000000; padding: 0; margin: 0; font-size: 0; line-height: 0;" class="omr-corner-marker omr-marker-tl">&nbsp;</td>
+            <td style="padding: 2pt 4pt; vertical-align: middle;" rowspan="2">
+              <table style="width: 100%; border-collapse: collapse;">
+                ${buildWordOmrBubbleGrid(mappedQuestions, includeAnswerKey, gridCols)}
+              </table>
+            </td>
+            <td style="width: 18px; height: 18px; background: #000000; padding: 0; margin: 0; font-size: 0; line-height: 0;" class="omr-corner-marker omr-marker-tr">&nbsp;</td>
+          </tr>
+          <tr>
+            <td style="width: 18px; height: 18px; background: #000000; padding: 0; margin: 0; font-size: 0; line-height: 0;" class="omr-corner-marker omr-marker-bl">&nbsp;</td>
+            <td style="width: 18px; height: 18px; background: #000000; padding: 0; margin: 0; font-size: 0; line-height: 0;" class="omr-corner-marker omr-marker-br">&nbsp;</td>
+          </tr>
+        </table>
+      </div>` : ''}
+
+      <!-- Nội Dung Câu Hỏi Đề Thi (1 Cột hoặc 2 Cột Table) -->
+      <div class="questions-wrapper">
+        ${buildWordQuestionsLayout(mappedQuestions, layoutColumns, includeAnswerKey)}
+      </div>
+
+      <!-- Bảng Đáp Án Chuẩn & Giải Thích Chi Tiết Cho Giáo Lý Viên -->
+      ${includeAnswerKey ? `
+      <div style="margin-top: 8pt; page-break-inside: avoid; border-top: 2pt solid #000000; padding-top: 4pt;">
+        <div style="color: #1e3a8a; padding: 2pt 0; font-weight: bold; font-size: 10.5pt; text-align: center;">
+          BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN (${mappedQuestions.length} CÂU)
+        </div>
+        <div style="margin-top: 2pt;">
+          ${buildWordAnswerKeyTable(mappedQuestions)}
+        </div>
+        ${includeExplanations && mappedQuestions.some(q => Boolean(q.explanation)) ? `
+        <div style="margin-top: 5pt; border-top: 1pt dashed #cbd5e1; padding-top: 3pt;">
+          <div style="font-weight: bold; color: #1e3a8a; font-size: 9.5pt; margin-bottom: 2pt;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
+          ${mappedQuestions.filter(q => Boolean(q.explanation)).map(q => `
+            <div style="font-size: 9pt; margin-bottom: 2pt; line-height: 1.25;">
+              <strong>Câu ${q.index} (${q.correctOption}):</strong> <em>${escapeHtml(q.explanation || '')}</em>
+            </div>
+          `).join('')}
+        </div>` : ''}
+      </div>` : ''}
+    </div>
+    `
+  }).join('')
+
+  return `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(subject)} (${escapeHtml(classLabel)}) - ${students.length} Học Viên</title>
+  <!--[if gte mso 9]>
+  <xml>
+    <w:WordDocument>
+      <w:View>Print</w:View>
+      <w:Zoom>100</w:Zoom>
+      <w:DoNotOptimizeForBrowser/>
+    </w:WordDocument>
+  </xml>
+  <![endif]-->
+  <style>
+    @page Section1 {
+      size: 210mm 297mm;
+      margin: 8mm 8mm 8mm 8mm;
+      mso-header-margin: 0pt;
+      mso-footer-margin: 0pt;
+      mso-paper-source: 0;
+    }
+    div.Section1 {
+      page: Section1;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.25;
+      color: #000000;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+    table {
+      border-collapse: collapse;
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+    }
+    .watermark {
+      text-align: center;
+      color: #f1f5f9;
+      font-size: 32pt;
+      font-weight: bold;
+      letter-spacing: 6px;
+      margin-bottom: 2pt;
+    }
+  </style>
+</head>
+<body>
+<div class="Section1">
+  ${pages}
+</div>
+</body>
+</html>`
+}
+
+/**
  * Xuất đề thi ra file HTML độc lập (.html) có thể mở trên mọi trình duyệt và in chuẩn A4,
  * sử dụng trực tiếp buildExamPaperHtml để đảm bảo 100% đồng nhất với bản xem trước và bản in.
  */
@@ -451,15 +674,18 @@ export function exportExamToHtml(options: ExamExportOptions): void {
 }
 
 /**
- * Xuất đề thi ra file Microsoft Word (.doc).
+ * Xuất đề thi ra file Microsoft Word (.doc), hỗ trợ cả xuất đơn và xuất hàng loạt cho toàn bộ học sinh.
  */
 export function exportExamToWord(options: ExamExportOptions): void {
   try {
-    const html = generateExamWordHtml(options)
+    const isBatch = Boolean(options.students && options.students.length > 0)
+    const html = isBatch
+      ? generateBatchExamWordHtml(options.students!, options)
+      : generateExamWordHtml(options)
     const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.doc`
+    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.doc`
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -468,7 +694,7 @@ export function exportExamToWord(options: ExamExportOptions): void {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     }, 100)
-    useToastStore.getState().addToast(`Đã xuất file Word: ${filename}`, 'success')
+    useToastStore.getState().addToast(`Đã xuất file Word ${isBatch ? `cho ${options.students!.length} học sinh` : ''}: ${filename}`, 'success')
   } catch (err) {
     console.error('Error exporting exam to Word:', err)
     useToastStore.getState().addToast('Lỗi khi xuất file Word!', 'error')
