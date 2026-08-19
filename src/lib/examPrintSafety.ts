@@ -9,6 +9,17 @@ const OMR_MARKER_PATTERN = /<div\s+class="omr-corner-marker\s+(omr-marker-(?:tl|
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
 const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^\"]*)?)">([ABCD])<\/span>/g
 const GUIDE_PATTERN = /\* Bút xanh\/đen hoặc chì đậm; tô kín 01 ô \(A, B, C, D\):/g
+const BATCH_PRINT_SAFE_MARGIN_STYLE = `<style data-omr-batch-safe-margin>
+@media print {
+  /* Batch HTML historically used @page margin:0, leaving integrated marker ink
+     only ~3.2mm from the physical A4 edge. Uniform 96% scaling around page center
+     adds ~4.2mm each side while preserving every marker↔bubble affine ratio. */
+  .batch-exam-page > .Section1 {
+    transform: scale(0.96);
+    transform-origin: top center;
+  }
+}
+</style>`
 
 export class ExamPrintIntegrityError extends Error {
   constructor(message: string) {
@@ -94,6 +105,18 @@ export function cleanIntegratedBubbleRoi(html: string): string {
 }
 
 /**
+ * Batch integrated exam pages use zero @page margin. Add physical printer safety
+ * without touching SSOT geometry: a uniform transform preserves normalized
+ * marker/bubble coordinates exactly, which homography is designed to tolerate.
+ */
+export function addBatchIntegratedPrintSafeMargin(html: string): string {
+  if (!html.includes('batch-exam-page') || !html.includes('omr-corner-marker')) return html
+  if (html.includes('data-omr-batch-safe-margin')) return html
+  if (html.includes('</head>')) return html.replace('</head>', `${BATCH_PRINT_SAFE_MARGIN_STYLE}</head>`)
+  return `${BATCH_PRINT_SAFE_MARGIN_STYLE}${html}`
+}
+
+/**
  * Teacher answer keys must be visually useful but machine-invalid. Removing the
  * four homography fiducials guarantees integrated OMR cannot accept the key even
  * in fixed-student/manual mode where QR identity is intentionally bypassed.
@@ -106,11 +129,13 @@ export function invalidateTeacherAnswerKeyOmr(html: string): string {
 /**
  * Canonical safety gate for every physical/exported exam document.
  * Order matters: validate semantic mapping, remove detector-noise glyphs, then
- * invalidate answer keys, then convert remaining student markers to foreground SVG.
+ * invalidate answer keys, convert student markers to foreground SVG, and finally
+ * add the batch physical-edge guard without altering relative OMR geometry.
  */
 export function prepareExamDocumentForOutput(html: string): string {
   assertContiguousOmrQuestionRows(html)
   const cleanBubbles = cleanIntegratedBubbleRoi(html)
   const machineSafe = invalidateTeacherAnswerKeyOmr(cleanBubbles)
-  return convertIntegratedMarkersToForegroundSvg(machineSafe)
+  const foregroundMarkers = convertIntegratedMarkersToForegroundSvg(machineSafe)
+  return addBatchIntegratedPrintSafeMargin(foregroundMarkers)
 }
