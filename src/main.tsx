@@ -8,12 +8,14 @@ import { initSentry } from './lib/sentry'
 import { initDB } from './lib/db'
 import { loadTokens } from './lib/api'
 import { registerServiceWorkerOnly } from './lib/pushManager'
+import { installNativeMediaDevicesGuard } from './lib/nativeMediaGuard'
 import { useClassStore } from './stores/classStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useAcademicYearStore } from './stores/academicYearStore'
 import { useAuthStore } from './stores/authStore'
 import './index.css'
 
+installNativeMediaDevicesGuard()
 initSentry()
 loadTokens()
 useAuthStore.getState().loadFromStorage()
