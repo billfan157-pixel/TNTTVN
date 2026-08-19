@@ -661,8 +661,8 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       white-space: normal;
       overflow-wrap: break-word;
     }
-    /* `1fr` có min-content floor; với 8 cột × (số câu + 4 bubble), Chromium
-       từng nới grid vượt frame ở 50 câu. `minmax(0,1fr)` ép track tuân theo
+    /* 1fr có min-content floor; với 8 cột × (số câu + 4 bubble), Chromium
+       từng nới grid vượt frame ở 50 câu. minmax(0,1fr) ép track tuân theo
        frame thật. Bubble được neo tuyệt đối vào content-box đúng công thức
        integratedMcOptionToCellForRect nên tâm OMR không đổi. */
     .answer-grid-container {
