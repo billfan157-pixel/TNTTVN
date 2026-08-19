@@ -394,7 +394,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       print-color-adjust: exact;
     }
     .exam-paper-container {
+      width: 100%;
       max-width: 210mm;
+      min-width: 0;
       margin: 0 auto;
       position: relative;
       /* Lề ngang 8mm — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
@@ -416,19 +418,25 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       user-select: none;
       letter-spacing: 8px;
     }
+    /* Header V4: tổng chiều rộng hữu hạn. Bản cũ dùng 40% + 46% + 20% =
+       106%, khiến browser/driver in tự shrink khác nhau và làm QR/header lệch. */
     .paper-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr) 122px;
+      column-gap: 8px;
+      align-items: start;
+      width: 100%;
+      min-width: 0;
       border-bottom: 2px solid #000;
-      padding-bottom: 3px;
-      margin-bottom: 4px;
+      padding-bottom: 4px;
+      margin-bottom: 5px;
     }
     .header-left {
       text-align: center;
-      width: 40%;
-      font-size: 10.5pt;
-      line-height: 1.25;
+      width: auto;
+      min-width: 0;
+      font-size: 10.25pt;
+      line-height: 1.22;
     }
     .header-left .org-top {
       text-transform: uppercase;
@@ -441,8 +449,10 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     }
     .header-right {
       text-align: center;
-      width: 46%;
-      line-height: 1.25;
+      width: auto;
+      min-width: 0;
+      line-height: 1.22;
+      padding-top: 1px;
     }
     .header-right .exam-title {
       font-size: 12.5pt;
@@ -450,17 +460,19 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       text-transform: uppercase;
       color: #b91c1c;
       margin: 2px 0;
+      overflow-wrap: break-word;
     }
     .header-right .exam-sub {
       font-size: 10.5pt;
       font-weight: bold;
     }
     .header-right .exam-time {
-      font-size: 10pt;
+      font-size: 9.75pt;
       font-style: italic;
     }
     .header-qr-zone {
-      width: 20%;
+      width: 122px;
+      min-width: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -482,21 +494,25 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       color: #475569;
       text-align: center;
       margin-top: 2px;
+      line-height: 1.1;
     }
 
     /* Khung thông tin học sinh & Khung chấm điểm của Giáo Lý Viên gộp chung */
     .top-meta-container {
       display: flex;
       gap: 6px;
-      margin-bottom: 4px;
+      width: 100%;
+      min-width: 0;
+      margin-bottom: 5px;
       align-items: stretch;
     }
     .student-info-box {
-      flex: 1;
+      flex: 1 1 auto;
+      min-width: 0;
       border: 1px solid #000;
       border-radius: 4px;
       padding: 5px 8px;
-      font-size: 10.5pt;
+      font-size: 10.25pt;
       background: #fafafa;
       display: flex;
       flex-direction: column;
@@ -506,17 +522,27 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .student-info-row {
       display: flex;
       justify-content: space-between;
+      align-items: baseline;
+      min-width: 0;
       gap: 6px;
+    }
+    .student-info-row > span {
+      min-width: 0;
+      white-space: nowrap;
     }
     .dots {
       border-bottom: 1px dotted #666;
       flex: 1;
+      min-width: 24px;
       margin-bottom: 3px;
     }
 
     /* Bảng chấm điểm & Lời phê của GLV */
     .grading-box {
       width: ${includeGradingBox ? '280px' : '0'};
+      max-width: ${includeGradingBox ? '39%' : '0'};
+      min-width: ${includeGradingBox ? '250px' : '0'};
+      flex: ${includeGradingBox ? '0 1 280px' : '0 0 0'};
       display: ${includeGradingBox ? 'flex' : 'none'};
       flex-direction: column;
       border: 1px solid #000;
@@ -527,6 +553,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .grading-table {
       width: 100%;
       border-collapse: collapse;
+      table-layout: fixed;
       height: 100%;
       text-align: center;
       font-size: 9pt;
@@ -538,6 +565,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       font-weight: bold;
       font-size: 8pt;
       line-height: 1.15;
+      overflow-wrap: break-word;
     }
     .grading-table td {
       border: 1px solid #000;
@@ -558,19 +586,25 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       padding-left: 4px;
     }
 
-    /* Khung OMR Tích Hợp với 4 Góc Định Vị Homography — A-NEW-50: geometry
-       px phải khớp 100% hằng số SSOT (INTEGRATED_* trong answerSheetTemplate.ts)
-       vì detector integratedMcCells quét theo đúng các con số này. */
+    /* Khung OMR Tích Hợp với 4 Góc Định Vị Homography — geometry px phải
+       khớp 100% hằng số SSOT (INTEGRATED_* trong answerSheetTemplate.ts).
+       V4 chỉ sửa cách browser phân bổ track; không thay tâm marker/bubble. */
     .integrated-omr-wrapper {
-      margin-bottom: 7px;
+      width: 100%;
+      min-width: 0;
+      margin-bottom: 8px;
       background: #f8fafc;
       border-radius: 4px;
     }
     .omr-frame {
       position: relative;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
       padding: ${INTEGRATED_PAD_Y}px ${INTEGRATED_PAD_X}px;
       border: ${INTEGRATED_BORDER_W}px solid #0f172a;
       border-radius: 4px;
+      box-sizing: border-box;
     }
     .omr-corner-marker {
       position: absolute;
@@ -587,12 +621,15 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .omr-marker-br { bottom: -${INTEGRATED_MARKER_SIZE}px; right: -${INTEGRATED_MARKER_SIZE}px; }
 
     .answer-sheet-header {
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+      gap: 8px;
       align-items: center;
-      margin-bottom: 3px;
+      width: 100%;
+      min-width: 0;
+      margin-bottom: 4px;
       border-bottom: 1px dashed #cbd5e1;
-      padding-bottom: 2px;
+      padding-bottom: 3px;
     }
     .omr-badge {
       display: inline-block;
@@ -606,26 +643,39 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       letter-spacing: 0.4px;
     }
     .answer-sheet-title {
+      min-width: 0;
       font-size: 8.5pt;
       font-weight: 800;
       color: #1e3a8a;
       text-transform: uppercase;
       letter-spacing: 0.2px;
+      line-height: 1.15;
     }
     .answer-sheet-guide {
-      font-size: 7.5pt;
+      min-width: 0;
+      font-size: 7.25pt;
       font-style: italic;
       color: #475569;
+      text-align: right;
+      line-height: 1.15;
+      white-space: normal;
+      overflow-wrap: break-word;
     }
+    /* `1fr` có min-content floor; với 8 cột × (số câu + 4 bubble), Chromium
+       từng nới grid vượt frame ở 50 câu. `minmax(0,1fr)` ép track tuân theo
+       frame thật. Bubble được neo tuyệt đối vào content-box đúng công thức
+       integratedMcOptionToCellForRect nên tâm OMR không đổi. */
     .answer-grid-container {
       display: grid;
+      width: 100%;
+      min-width: 0;
       gap: ${INTEGRATED_GRID_GAP_Y}px ${INTEGRATED_GRID_GAP_X}px;
     }
     .grid-q-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: ${INTEGRATED_QNUM_GAP}px;
+      position: relative;
+      display: block;
+      min-width: 0;
+      overflow: hidden;
       background: #fff;
       border: ${INTEGRATED_ROW_BORDER_W}px solid #cbd5e1;
       border-radius: 2px;
@@ -634,19 +684,29 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       height: ${INTEGRATED_ROW_H}px;
     }
     .q-num {
-      font-weight: bold;
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      display: block;
+      font-weight: 800;
       font-size: 6pt;
       width: ${INTEGRATED_QNUM_W}px;
       color: #1e293b;
       line-height: 1;
+      text-align: center;
       white-space: nowrap;
       overflow: hidden;
-      flex-shrink: 0;
     }
     .bubble-group {
+      position: absolute;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
       display: inline-flex;
       align-items: center;
       gap: ${INTEGRATED_BUBBLE_GAP}px;
+      white-space: nowrap;
     }
     .bubble {
       display: inline-flex;
@@ -654,6 +714,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       justify-content: center;
       width: ${INTEGRATED_BUBBLE_W}px;
       height: ${INTEGRATED_BUBBLE_W}px;
+      box-sizing: border-box;
       border-radius: 50%;
       border: 1.1px solid #64748b;
       font-size: 7pt;
@@ -661,7 +722,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       color: #64748b;
       line-height: 1;
       background: #fff;
-      flex-shrink: 0;
+      flex: 0 0 ${INTEGRATED_BUBBLE_W}px;
     }
     .bubble-correct {
       background: #16a34a !important;
@@ -677,29 +738,39 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
 
     /* Khối câu hỏi đề thi */
     .questions-wrapper {
-      ${layoutColumns === 2 ? 'column-count: 2; column-gap: 14px; column-rule: 1px dashed #cbd5e1;' : ''}
+      min-width: 0;
+      ${layoutColumns === 2 ? 'column-count: 2; column-gap: 16px; column-rule: 1px solid #e2e8f0;' : ''}
     }
     .question-block {
-      margin-bottom: 3px;
+      min-width: 0;
+      margin-bottom: 5px;
       break-inside: avoid;
       page-break-inside: avoid;
       font-size: 10pt;
     }
     .question-title {
+      min-width: 0;
       font-weight: normal;
-      margin-bottom: 1px;
-      text-align: justify;
-      line-height: 1.25;
+      margin-bottom: 2px;
+      text-align: left;
+      line-height: 1.27;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     .options-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1px 6px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+      gap: 2px 8px;
+      min-width: 0;
       padding-left: 4px;
     }
     .option-item {
+      min-width: 0;
       font-size: 10pt;
-      line-height: 1.18;
+      line-height: 1.2;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     .option-label {
       font-weight: bold;
@@ -727,11 +798,12 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     }
     .key-grid {
       display: grid;
-      grid-template-columns: repeat(10, 1fr);
+      grid-template-columns: repeat(10, minmax(0, 1fr));
       gap: 3px;
       text-align: center;
     }
     .key-cell {
+      min-width: 0;
       border: 1px solid #94a3b8;
       border-radius: 3px;
       padding: 2px;
@@ -822,18 +894,18 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
   let answerGridHtml = ''
   if (includeAnswerGrid && effectiveQuestions.length > 0) {
     const totalQ = effectiveQuestions.length
-    // A-NEW-50: số cột lấy từ SSOT (5 cột ≤20 câu, 8 cột 21..50 câu) — detector
-    // `integratedMcCells` dùng đúng cùng con số này để quét khớp từng bubble.
+    // V3 compatibility: giữ nguyên 5 cột ≤20 và 8 cột 21..50. V4 chỉ sửa
+    // CSS track sizing/min-content để không thay tọa độ detector hay phiếu cũ.
     const gridCols = integratedGridCols(totalQ)
 
     answerGridHtml = `
       <div class="integrated-omr-wrapper">
         <div class="answer-sheet-header">
           <div class="answer-sheet-title">
-            <span class="omr-badge">OMR SCAN</span> BẢNG TRẢ LỜI TRẮC NGHIỆM (${totalQ} CÂU)
+            <span class="omr-badge">OMR SCAN</span> BẢNG TRẢ LỜI TRẮC NGHIỆM · ${totalQ} CÂU
           </div>
           <div class="answer-sheet-guide">
-            * Bút xanh/đen hoặc chì đậm; tô kín 01 ô (A, B, C, D):
+            Tô kín 1 ô A/B/C/D bằng bút xanh/đen hoặc chì đậm.
           </div>
         </div>
 
@@ -844,12 +916,12 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           <div class="omr-corner-marker omr-marker-bl" title="Marker BL"></div>
           <div class="omr-corner-marker omr-marker-br" title="Marker BR"></div>
 
-          <div class="answer-grid-container" style="grid-template-columns: repeat(${gridCols}, 1fr);">
+          <div class="answer-grid-container" style="grid-template-columns: repeat(${gridCols}, minmax(0, 1fr));">
             ${effectiveQuestions.map((q) => {
               const correct = q.correctOption
               return `
                 <div class="grid-q-row">
-                  <span class="q-num">C${q.index}:</span>
+                  <span class="q-num">${q.index}</span>
                   <div class="bubble-group">
                     <span class="bubble ${showAnswerKey && correct === 'A' ? 'bubble-correct' : ''}">A</span>
                     <span class="bubble ${showAnswerKey && correct === 'B' ? 'bubble-correct' : ''}">B</span>
@@ -1111,4 +1183,3 @@ export function printBatchExamPapers(
   const htmlContent = buildBatchExamPapersHtml(students, options)
   ReportExportService.print(htmlContent)
 }
-
