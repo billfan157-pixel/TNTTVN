@@ -22,13 +22,21 @@ const userId = 'usr-exam-upsert-race'
 const sessionId = 'EXS-UPSERTRACE0001'
 
 function isSqliteBusy(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const candidate = error as { code?: unknown; cause?: unknown }
-  if (candidate.code === 'SQLITE_BUSY') return true
-  return candidate.cause !== error && isSqliteBusy(candidate.cause)
+  let current: unknown = error
+  const visited = new Set<unknown>()
+  for (let depth = 0; depth < 8 && current && typeof current === 'object' && !visited.has(current); depth++) {
+    visited.add(current)
+    const candidate = current as { code?: unknown; extendedCode?: unknown; cause?: unknown }
+    if (
+      (typeof candidate.code === 'string' && candidate.code.startsWith('SQLITE_BUSY'))
+      || (typeof candidate.extendedCode === 'string' && candidate.extendedCode.startsWith('SQLITE_BUSY'))
+    ) return true
+    current = candidate.cause
+  }
+  return false
 }
 
-async function retryLocalWriterContention<T>(operation: () => Promise<T>, maxAttempts = 6): Promise<T> {
+async function retryCleanupContention<T>(operation: () => Promise<T>, maxAttempts = 12): Promise<T> {
   let attempt = 0
   while (true) {
     try {
@@ -36,23 +44,20 @@ async function retryLocalWriterContention<T>(operation: () => Promise<T>, maxAtt
     } catch (error) {
       attempt++
       if (!isSqliteBusy(error) || attempt >= maxAttempts) throw error
-      // Local SQLite permits one writer. The product invariant under test is the
-      // atomic ON CONFLICT result once a writer obtains the transaction lock, not
-      // libSQL's transaction scheduler. All non-BUSY errors fail immediately.
-      await new Promise(resolve => setTimeout(resolve, 10 * 2 ** (attempt - 1)))
+      await new Promise(resolve => setTimeout(resolve, Math.min(200, 20 * 2 ** (attempt - 1))))
     }
   }
 }
 
 async function cleanup(): Promise<void> {
-  await retryLocalWriterContention(() => db.delete(auditLogs).where(eq(auditLogs.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(examResults).where(eq(examResults.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(examSessions).where(eq(examSessions.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(students).where(eq(students.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(classes).where(eq(classes.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(users).where(eq(users.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(branches).where(eq(branches.parishId, parishId)))
-  await retryLocalWriterContention(() => db.delete(academicYears).where(eq(academicYears.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(auditLogs).where(eq(auditLogs.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(examResults).where(eq(examResults.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(examSessions).where(eq(examSessions.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(students).where(eq(students.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(classes).where(eq(classes.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(users).where(eq(users.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(branches).where(eq(branches.parishId, parishId)))
+  await retryCleanupContention(() => db.delete(academicYears).where(eq(academicYears.parishId, parishId)))
 }
 
 describe('exam result atomic upsert', () => {
@@ -125,9 +130,9 @@ describe('exam result atomic upsert', () => {
     await cleanup()
   })
 
-  it('converges concurrent saves into exactly one row without unique violations', async () => {
+  it('production save path converges concurrent writes into exactly one row', async () => {
     const scores = [4, 5, 6, 7, 8]
-    const writes = await Promise.all(scores.map(score => retryLocalWriterContention(() => upsertExamResults(
+    const writes = await Promise.all(scores.map(score => upsertExamResults(
       sessionId,
       [{ studentId, score, source: 'quick_entry' }],
       userId,
@@ -135,7 +140,7 @@ describe('exam result atomic upsert', () => {
       '127.0.0.1',
       'vitest',
       null,
-    ))))
+    )))
 
     expect(writes).toHaveLength(scores.length)
     expect(writes.every(result => result.total === 1)).toBe(true)
