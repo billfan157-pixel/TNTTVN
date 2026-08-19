@@ -6,6 +6,7 @@ const ANSWER_KEY_SENTINELS = [
 ]
 
 const OMR_MARKER_PATTERN = /<div\s+class="omr-corner-marker\s+(omr-marker-(?:tl|tr|bl|br))"\s+title="Marker\s+(TL|TR|BL|BR)"\s*><\/div>/gi
+const OMR_MARKER_STYLE_PATTERN = /\.omr-corner-marker\s*\{[^}]*\}/gi
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
 const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^\"]*)?)">([ABCD])<\/span>/g
 const FULL_PAGE_BUBBLE_LABEL_PATTERN = /<text\s+x="[^"]+"\s+y="[^"]+"\s+font-size="[^"]+"\s+font-weight="600"\s+fill="#64748B"\s+text-anchor="middle"\s+dominant-baseline="central">([ABCD])<\/text>/g
@@ -130,11 +131,13 @@ export function addBatchIntegratedPrintSafeMargin(html: string): string {
 /**
  * Teacher answer keys must be visually useful but machine-invalid. Removing the
  * four homography fiducials guarantees integrated OMR cannot accept the key even
- * in fixed-student/manual mode where QR identity is intentionally bypassed.
+ * in fixed-student/manual mode where QR identity is intentionally bypassed. Strip
+ * the now-unused marker CSS as well so exported teacher documents cannot be
+ * mistaken for scan-certified forms by downstream tooling/tests.
  */
 export function invalidateTeacherAnswerKeyOmr(html: string): string {
   if (!isTeacherAnswerKeyHtml(html)) return html
-  return html.replace(OMR_MARKER_PATTERN, '')
+  return html.replace(OMR_MARKER_PATTERN, '').replace(OMR_MARKER_STYLE_PATTERN, '')
 }
 
 /**
