@@ -3,6 +3,7 @@ import {
   ExamPrintIntegrityError,
   assertContiguousQuestionIndexes,
   assertContiguousOmrQuestionRows,
+  cleanIntegratedBubbleRoi,
   convertIntegratedMarkersToForegroundSvg,
   invalidateTeacherAnswerKeyOmr,
   prepareExamDocumentForOutput,
@@ -48,6 +49,23 @@ describe('examPrintSafety', () => {
     [1, 2, 4],
   ])('fails closed for duplicate/gap/reordered OMR indexes: %j', indexes => {
     expect(() => assertContiguousOmrQuestionRows(rows(indexes))).toThrow(ExamPrintIntegrityError)
+  })
+
+  it('removes printed A/B/C/D glyphs from bubble ROI without changing bubble elements', () => {
+    const html = `
+      <div class="answer-sheet-guide">* Bút xanh/đen hoặc chì đậm; tô kín 01 ô (A, B, C, D):</div>
+      <span class="bubble">A</span>
+      <span class="bubble bubble-correct">B</span>
+      <span class="bubble">C</span>
+      <span class="bubble">D</span>
+    `
+    const clean = cleanIntegratedBubbleRoi(html)
+    expect(clean.match(/class="bubble/g)).toHaveLength(4)
+    expect(clean).toContain('class="bubble" aria-label="A"></span>')
+    expect(clean).toContain('class="bubble bubble-correct" aria-label="B"></span>')
+    expect(clean).not.toContain('>A</span>')
+    expect(clean).not.toContain('>B</span>')
+    expect(clean).toContain('4 ô từ trái sang phải lần lượt là A, B, C, D')
   })
 
   it('removes homography markers from teacher answer key', () => {
