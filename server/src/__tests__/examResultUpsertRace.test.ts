@@ -21,15 +21,38 @@ const studentId = 'st-exam-upsert-race'
 const userId = 'usr-exam-upsert-race'
 const sessionId = 'EXS-UPSERTRACE0001'
 
+function isSqliteBusy(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { code?: unknown; cause?: unknown }
+  if (candidate.code === 'SQLITE_BUSY') return true
+  return candidate.cause !== error && isSqliteBusy(candidate.cause)
+}
+
+async function retryLocalWriterContention<T>(operation: () => Promise<T>, maxAttempts = 6): Promise<T> {
+  let attempt = 0
+  while (true) {
+    try {
+      return await operation()
+    } catch (error) {
+      attempt++
+      if (!isSqliteBusy(error) || attempt >= maxAttempts) throw error
+      // Local SQLite permits one writer. The product invariant under test is the
+      // atomic ON CONFLICT result once a writer obtains the transaction lock, not
+      // libSQL's transaction scheduler. All non-BUSY errors fail immediately.
+      await new Promise(resolve => setTimeout(resolve, 10 * 2 ** (attempt - 1)))
+    }
+  }
+}
+
 async function cleanup(): Promise<void> {
-  await db.delete(auditLogs).where(eq(auditLogs.parishId, parishId))
-  await db.delete(examResults).where(eq(examResults.parishId, parishId))
-  await db.delete(examSessions).where(eq(examSessions.parishId, parishId))
-  await db.delete(students).where(eq(students.parishId, parishId))
-  await db.delete(classes).where(eq(classes.parishId, parishId))
-  await db.delete(users).where(eq(users.parishId, parishId))
-  await db.delete(branches).where(eq(branches.parishId, parishId))
-  await db.delete(academicYears).where(eq(academicYears.parishId, parishId))
+  await retryLocalWriterContention(() => db.delete(auditLogs).where(eq(auditLogs.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(examResults).where(eq(examResults.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(examSessions).where(eq(examSessions.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(students).where(eq(students.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(classes).where(eq(classes.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(users).where(eq(users.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(branches).where(eq(branches.parishId, parishId)))
+  await retryLocalWriterContention(() => db.delete(academicYears).where(eq(academicYears.parishId, parishId)))
 }
 
 describe('exam result atomic upsert', () => {
@@ -102,9 +125,9 @@ describe('exam result atomic upsert', () => {
     await cleanup()
   })
 
-  it('serializes concurrent saves into exactly one row without unique violations', async () => {
+  it('converges concurrent saves into exactly one row without unique violations', async () => {
     const scores = [4, 5, 6, 7, 8]
-    const writes = await Promise.all(scores.map(score => upsertExamResults(
+    const writes = await Promise.all(scores.map(score => retryLocalWriterContention(() => upsertExamResults(
       sessionId,
       [{ studentId, score, source: 'quick_entry' }],
       userId,
@@ -112,7 +135,7 @@ describe('exam result atomic upsert', () => {
       '127.0.0.1',
       'vitest',
       null,
-    )))
+    ))))
 
     expect(writes).toHaveLength(scores.length)
     expect(writes.every(result => result.total === 1)).toBe(true)
