@@ -268,7 +268,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     })
   }, 20_000)
 
-  it('vẫn đọc phiếu legacy mật độ 29 module khi camera bị mất nét nhẹ', async () => {
+  it('đọc được QR compact không-OMR khi camera bị mất nét nhẹ', async () => {
     const sessionId = 'EXS-7e8f798z'
     const student = { id: 'ST-12345678', code: 'TN005', name: 'Em Test 5' }
     const html = buildExamPaperHtml({
@@ -277,6 +277,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
       academicYear: '2026-2027',
       sessionId,
       student,
+      includeAnswerGrid: false,
       questions: [{ index: 1, question: 'Câu hỏi', options: { A: 'A', B: 'B', C: 'C', D: 'D' }, correctOption: 'A' }],
     })
     const page = await browser.newPage()
