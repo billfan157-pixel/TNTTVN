@@ -335,7 +335,8 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
         includeAnswerGrid: true,
         student: { id: 'ST-001', code: 'TN001', name: 'Em 1' },
       })
-      expect(html).toContain('repeat(8, 1fr)')
+      expect(html).toContain('repeat(8, minmax(0, 1fr))')
+      expect(html).not.toContain('repeat(8, 1fr)')
       expect(html).toContain(`width: ${INTEGRATED_BUBBLE_W}px`)
       expect(html).toContain(`height: ${INTEGRATED_BUBBLE_W}px`)
       expect(html).toContain('class="omr-frame"')
