@@ -27,6 +27,7 @@ jobs:
 
     env:
       VITE_API_BASE: https://tnttvn-production.up.railway.app/api
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
 
     steps:
       - name: Checkout Code
