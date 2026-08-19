@@ -145,29 +145,72 @@ export class ReportExportService {
   }
 
   /**
-   * Export as PDF: opens content in a visible window and triggers print dialog.
-   * User chooses "Save as PDF" in the print destination.
+   * Export as PDF: trực tiếp sinh file nhị phân PDF và kích hoạt tải về máy của người dùng (Direct Download).
+   * Có cơ chế fallback mở cửa sổ in ấn dự phòng nếu trình duyệt gặp sự cố canvas.
    */
-  public static exportPdf(htmlContent: string, filename: string): void {
+  public static async exportPdf(htmlContent: string, filename: string): Promise<void> {
+    const pdfFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
     try {
-      const url = htmlBlobUrl(htmlContent)
-      const pdfWindow = window.open('', '_blank')
-      if (!pdfWindow) {
-        useToastStore.getState().addToast('Cửa sổ PDF bị chặn (Popup). Vui lòng cho phép Popup cho trang web này!', 'info', 6000)
-        URL.revokeObjectURL(url)
-        return
+      useToastStore.getState().addToast('Đang tạo và tải file PDF về máy...', 'info', 3000)
+
+      // Tạo một container ẩn để parse và render HTML chính xác
+      const container = document.createElement('div')
+      container.style.position = 'fixed'
+      container.style.top = '-99999px'
+      container.style.left = '-99999px'
+      container.style.width = '210mm'
+      container.innerHTML = htmlContent
+      document.body.appendChild(container)
+
+      const targetElement = container.querySelector('.Section1') || container.querySelector('body') || container
+
+      const html2pdfModule = await import('html2pdf.js')
+      const html2pdf = html2pdfModule.default || html2pdfModule
+
+      const opt = {
+        margin: [0, 0, 0, 0],
+        filename: pdfFilename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          letterRendering: true,
+          logging: false,
+        },
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait',
+        },
+        pagebreak: {
+          mode: ['avoid-all', 'css', 'legacy'],
+          after: ['.batch-exam-page', '.student-exam-page'],
+        },
       }
-      pdfWindow.location.href = url
-      pdfWindow.onload = () => {
-        try {
-          pdfWindow.focus()
-          pdfWindow.print()
-        } catch {}
+
+      await (html2pdf() as any).set(opt).from(targetElement as HTMLElement).save()
+      if (document.body.contains(container)) {
+        document.body.removeChild(container)
       }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      useToastStore.getState().addToast(`Đã tải về máy file PDF: ${pdfFilename}`, 'success')
     } catch (err) {
       Sentry.captureException(err)
-      useToastStore.getState().addToast('Không thể mở cửa sổ xuất PDF!', 'error')
+      console.error('Error generating direct PDF:', err)
+      // Fallback: Mở cửa sổ in ấn dự phòng
+      try {
+        const url = htmlBlobUrl(htmlContent)
+        const pdfWindow = window.open(url, '_blank')
+        if (pdfWindow) {
+          pdfWindow.onload = () => {
+            try {
+              pdfWindow.focus()
+              pdfWindow.print()
+            } catch {}
+          }
+          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        }
+      } catch {}
+      useToastStore.getState().addToast('Đã mở cửa sổ in/lưu PDF dự phòng!', 'info')
     }
   }
 }
