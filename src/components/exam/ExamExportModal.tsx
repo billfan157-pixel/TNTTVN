@@ -2,11 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react'
 import {
   X, Download, FileText, FileSpreadsheet, Copy, Check,
   Printer, Sparkles, Settings2, Eye, LayoutGrid, Columns,
-  Layers3, BookOpen, CheckSquare, Square, Award, Code
+  Layers3, BookOpen, CheckSquare, Square, Award, Code, Globe
 } from 'lucide-react'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
 import {
   exportExamToWord,
+  exportExamToHtml,
   exportExamToExcel,
   downloadExamText,
   downloadExamMarkdown,
@@ -38,7 +39,7 @@ export interface ExamExportModalProps {
   maxScore?: number
 }
 
-type ExportFormat = 'word' | 'excel' | 'text' | 'markdown' | 'json' | 'pdf'
+type ExportFormat = 'word' | 'html' | 'pdf' | 'excel' | 'text' | 'markdown' | 'json'
 
 export const ExamExportModal: React.FC<ExamExportModalProps> = ({
   isOpen,
@@ -118,7 +119,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
     if (activeFormat === 'text') return exportExamToText(exportOptions)
     if (activeFormat === 'markdown') return exportExamToMarkdown(exportOptions)
     if (activeFormat === 'json') return generateExamJsonString(exportOptions)
-    if (activeFormat === 'word' || activeFormat === 'pdf') return generateExamWordHtml(exportOptions)
+    if (activeFormat === 'word' || activeFormat === 'html' || activeFormat === 'pdf') return generateExamWordHtml(exportOptions)
     return ''
   }, [activeFormat, exportOptions])
 
@@ -137,6 +138,9 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
     switch (activeFormat) {
       case 'word':
         exportExamToWord(exportOptions)
+        break
+      case 'html':
+        exportExamToHtml(exportOptions)
         break
       case 'excel':
         exportExamToExcel(exportOptions)
@@ -203,7 +207,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
         </div>
 
         {/* Format Selector Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 mb-4">
           <button
             type="button"
             onClick={() => setActiveFormat('word')}
@@ -214,20 +218,20 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             }`}
           >
             <FileText size={20} className={activeFormat === 'word' ? 'text-blue-600 dark:text-blue-400' : 'text-text-muted'} />
-            <span className="text-xs">Word (.doc)</span>
+            <span className="text-xs font-semibold">Word (.doc)</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveFormat('excel')}
+            onClick={() => setActiveFormat('html')}
             className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all ${
-              activeFormat === 'excel'
-                ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
+              activeFormat === 'html'
+                ? 'bg-sky-500/10 border-sky-500 text-sky-600 dark:text-sky-400 font-bold shadow-xs'
                 : 'bg-surface-card border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
             }`}
           >
-            <FileSpreadsheet size={20} className={activeFormat === 'excel' ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-muted'} />
-            <span className="text-xs">Excel (.xlsx)</span>
+            <Globe size={20} className={activeFormat === 'html' ? 'text-sky-600 dark:text-sky-400' : 'text-text-muted'} />
+            <span className="text-xs font-semibold">HTML (.html)</span>
           </button>
 
           <button
@@ -240,7 +244,20 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             }`}
           >
             <Printer size={20} className={activeFormat === 'pdf' ? 'text-rose-600 dark:text-rose-400' : 'text-text-muted'} />
-            <span className="text-xs">In / PDF</span>
+            <span className="text-xs font-semibold">In / PDF</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveFormat('excel')}
+            className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all ${
+              activeFormat === 'excel'
+                ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
+                : 'bg-surface-card border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
+            }`}
+          >
+            <FileSpreadsheet size={20} className={activeFormat === 'excel' ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-muted'} />
+            <span className="text-xs font-semibold">Excel (.xlsx)</span>
           </button>
 
           <button
@@ -253,7 +270,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             }`}
           >
             <Copy size={20} className={activeFormat === 'text' ? 'text-amber-600 dark:text-amber-400' : 'text-text-muted'} />
-            <span className="text-xs">Văn Bản (.txt)</span>
+            <span className="text-xs font-semibold">Văn Bản (.txt)</span>
           </button>
 
           <button
@@ -266,7 +283,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             }`}
           >
             <BookOpen size={20} className={activeFormat === 'markdown' ? 'text-purple-600 dark:text-purple-400' : 'text-text-muted'} />
-            <span className="text-xs">Markdown (.md)</span>
+            <span className="text-xs font-semibold">Markdown (.md)</span>
           </button>
 
           <button
@@ -279,7 +296,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             }`}
           >
             <Code size={20} className={activeFormat === 'json' ? 'text-indigo-600 dark:text-indigo-400' : 'text-text-muted'} />
-            <span className="text-xs">JSON (.json)</span>
+            <span className="text-xs font-semibold">JSON (.json)</span>
           </button>
         </div>
 
@@ -445,7 +462,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             </div>
           ) : (
             <div className="h-full flex flex-col">
-              {activeFormat === 'word' || activeFormat === 'pdf' ? (
+              {activeFormat === 'word' || activeFormat === 'html' || activeFormat === 'pdf' ? (
                 <div className="bg-slate-200 dark:bg-slate-900 rounded-xl overflow-hidden border border-surface-border flex justify-center p-3 h-[480px]">
                   <div className="w-full max-w-[210mm] h-full bg-white shadow-md rounded-sm overflow-hidden">
                     <iframe
@@ -502,6 +519,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
             >
               <Download size={14} />
               {activeFormat === 'word' && 'Tải File Word (.doc)'}
+              {activeFormat === 'html' && 'Tải File HTML (.html)'}
               {activeFormat === 'excel' && 'Tải File Excel (.xlsx)'}
               {activeFormat === 'pdf' && 'In / Xuất PDF'}
               {activeFormat === 'text' && 'Tải File Text (.txt)'}

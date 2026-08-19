@@ -176,6 +176,12 @@ export function generateExamQrSvg(payload: string, cellSize = 4): string {
   return createQrSvg(payload, cellSize)
 }
 
+/** Sinh Base64 Data URL hình ảnh QR code để tương thích hoàn toàn khi nhúng vào tài liệu Word (.doc). */
+export function generateExamQrDataUrl(payload: string, cellSize = 4): string {
+  const qr = createQr(payload)
+  return qr.createDataURL(cellSize, QR_QUIET_ZONE_MODULES)
+}
+
 /** Số data module mỗi cạnh của QR (không gồm quiet zone). */
 export function getExamQrModuleCount(payload: string): number {
   return createQr(payload).getModuleCount()

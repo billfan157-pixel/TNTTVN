@@ -115,7 +115,7 @@ describe('examExporter', () => {
       })
 
       expect(html).not.toContain('BẢNG ĐÁP ÁN CHUẨN')
-      expect(html).not.toContain('<div class="student-info-box">')
+      expect(html).not.toContain('student-info-box')
       expect(html).toContain('Kiểm tra 15 phút')
     })
   })
