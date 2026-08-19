@@ -17,11 +17,19 @@ import {
 } from 'lucide-react'
 import { detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult, type OmrTemplateMode } from '../../lib/omr'
 import { scanExamCode } from '../../lib/examCodeScanner'
-import { createManualExamIdentity, EXAM_CODE_LOCK_TTL_MS, resolveExamIdentity, type ExamCodeLock } from '../../lib/examScanIdentity'
+import {
+  createManualExamIdentity,
+  EXAM_CODE_LOCK_TTL_MS,
+  isSameExamIdentity,
+  resolveExamIdentity,
+  shouldRecheckExamCode,
+  type ExamCodeLock,
+} from '../../lib/examScanIdentity'
 import { advanceOmrConsensus, OMR_REQUIRED_CONFIRMATIONS, shouldAutoAnalyzeOmrFrame, type OmrConsensusState } from '../../lib/omrScanConsensus'
 import { getObjectCoverSourceRect } from '../../lib/cameraFrame'
 import { captureHighResolutionCameraFrame } from '../../lib/cameraStillCapture'
 import { assessScanQuality, type ScanQualityAssessment } from '../../lib/scanQuality'
+import { decideScanAcceptance, type ScanAcceptanceDecision } from '../../lib/scanAcceptancePolicy'
 import { recordScanDiagnostic } from '../../lib/scanDiagnostics'
 import { CORNER_MARKERS, integratedFrameAspectRatio } from '../../lib/answerSheetTemplate'
 import { getConfiguredExamVersions, normalizeAnswerVariants } from '../../lib/examVariants'
@@ -43,7 +51,7 @@ interface ExamScanModalProps {
 
 type ScanState =
   | { kind: 'scanning' }
-  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode }
+  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode }
   | { kind: 'error'; message: string }
 
 interface ScannedEntry {
@@ -73,7 +81,10 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const rafRef = useRef(0)
+  const loopGenerationRef = useRef(0)
+  const cameraGenerationRef = useRef(0)
   const lastScanAt = useRef(0)
+  const lastCodeCheckAtRef = useRef(0)
   const resolveRef = useRef(false)
   const liveRef = useRef(false)
   const consecutiveNoCodeFramesRef = useRef(0)
@@ -113,6 +124,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     codeLockRef.current = fixedStudent
       ? createManualExamIdentity(sessionId, fixedStudent.id)
       : null
+    lastCodeCheckAtRef.current = 0
     omrConsensusRef.current = null
     setCodeLocked(Boolean(fixedStudent))
   }, [fixedStudent, sessionId])
@@ -129,6 +141,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
   const stopCamera = useCallback(() => {
     liveRef.current = false
+    loopGenerationRef.current += 1
+    cameraGenerationRef.current += 1
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = 0
@@ -138,6 +152,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       streamRef.current = null
     }
     if (videoRef.current) {
+      videoRef.current.onloadedmetadata = null
       videoRef.current.srcObject = null
     }
     setTorchOn(false)
@@ -206,13 +221,15 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     const activeLock = codeLockRef.current?.expiresAt && codeLockRef.current.expiresAt > now
       ? codeLockRef.current
       : null
-    // Sau khi đã đọc đúng mã, dành CPU cho OMR ở các frame kế tiếp. Khi khóa
-    // hết hạn scanner sẽ đọc QR lại, tránh gán nhầm nếu người dùng đổi tờ giấy.
-    const codeResult = activeLock ? null : scanExamCode(frame)
+    const previousLock = activeLock
+    const recheckCode = shouldRecheckExamCode(activeLock, lastCodeCheckAtRef.current, now)
+    const codeResult = recheckCode ? scanExamCode(frame) : null
+    if (recheckCode) lastCodeCheckAtRef.current = now
     const identity = resolveExamIdentity(activeLock, codeResult, sessionId, now)
     codeLockRef.current = identity.lock
 
-    if (identity.kind === 'acquired') omrConsensusRef.current = null
+    const identityChanged = identity.kind === 'acquired' && !isSameExamIdentity(previousLock, identity.lock)
+    if (identityChanged) omrConsensusRef.current = null
 
     if (identity.kind === 'wrong_session') {
       recordScanDiagnostic({ outcome: 'rejected', reason: 'WRONG_SESSION' })
@@ -232,10 +249,10 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       const effectiveTemplateMode = identity.lock.templateMode ?? mcTemplateMode
       const effectiveExamVersion = identity.lock.examVersion ?? selectedExamVersion
       const effectiveAnswerKey = normalizedVariants[effectiveExamVersion]
-      if (identity.kind === 'acquired' && identity.lock.templateMode && identity.lock.templateMode !== mcTemplateMode) {
+      if (identityChanged && identity.lock.templateMode && identity.lock.templateMode !== mcTemplateMode) {
         setMcTemplateMode(identity.lock.templateMode)
       }
-      if (identity.kind === 'acquired' && identity.lock.examVersion && identity.lock.examVersion !== selectedExamVersion) {
+      if (identityChanged && identity.lock.examVersion && identity.lock.examVersion !== selectedExamVersion) {
         setSelectedExamVersion(identity.lock.examVersion)
       }
       if (
@@ -272,20 +289,36 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
               return false
             }
           }
-          resolveRef.current = true
+
           const quality = assessScanQuality(frame)
+          const acceptance = decideScanAcceptance(omr, quality)
           recordScanDiagnostic({
-            outcome: 'status' in omr ? omr.status : 'accepted',
-            reason: omr.reason,
+            outcome: acceptance.status,
+            reason: acceptance.reason,
             templateMode: effectiveTemplateMode,
             qualityStatus: quality.status,
             durationMs: performance.now() - analysisStartedAt,
           })
+
+          if (acceptance.status === 'rejected') {
+            omrConsensusRef.current = null
+            const qualityDetail = quality.reasons.length > 0
+              ? quality.reasons.map(formatScanQualityReason).join(' ')
+              : 'Ảnh chưa đạt ngưỡng chất lượng để ghi điểm tự động.'
+            const message = `${qualityDetail} Hãy chụp lại rõ hơn trước khi ghi điểm.`
+            lastScanFailureRef.current = message
+            setScanHint(message)
+            return false
+          }
+
+          resolveRef.current = true
           stopCamera()
           playFeedback()
-          setScanHint(identity.lock.source === 'manual'
-            ? 'Đã nhận diện khung OMR — đang xác nhận kết quả…'
-            : 'Đã nhận diện mã QR / Barcode — đang xác nhận phiếu…')
+          setScanHint(acceptance.status === 'review_required'
+            ? 'Đã đọc được phiếu nhưng cần người chấm rà soát trước khi ghi điểm.'
+            : identity.lock.source === 'manual'
+              ? 'Đã nhận diện khung OMR — đang xác nhận kết quả…'
+              : 'Đã nhận diện mã QR / Barcode — đang xác nhận phiếu…')
           setPhase({
             kind: 'detected',
             studentId: identity.lock.studentId,
@@ -293,6 +326,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             frame,
             identity: identity.lock,
             quality,
+            acceptance,
             templateMode: effectiveTemplateMode,
             examVersion: effectiveExamVersion,
           })
@@ -331,6 +365,11 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   }, [sessionId, maxScore, examType, questionCount, fixedStudent, mcTemplateMode, selectedExamVersion, normalizedVariants, stopCamera])
 
   const loopStart = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
+    }
+    const generation = ++loopGenerationRef.current
     liveRef.current = true
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -338,7 +377,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     if (!video || !canvas || !ctx) return
 
     const tick = () => {
-      if (!liveRef.current) return
+      if (!liveRef.current || loopGenerationRef.current !== generation) return
       const now = performance.now()
       if (now - lastScanAt.current > 350) {
         lastScanAt.current = now
@@ -369,7 +408,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           }
         }
       }
-      rafRef.current = requestAnimationFrame(tick)
+      if (liveRef.current && loopGenerationRef.current === generation) {
+        rafRef.current = requestAnimationFrame(tick)
+      }
     }
     rafRef.current = requestAnimationFrame(tick)
   }, [fixedStudent, processImageFrame])
@@ -404,12 +445,13 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       ? `Đã chọn ${fixedStudent.name} — căn khung OMR rồi bấm “Chụp & chấm”.`
       : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
 
-    // Stop existing camera stream
+    // Stop existing camera stream and invalidate every older async camera request.
     stopCamera()
+    const cameraGeneration = cameraGenerationRef.current
 
     try {
       let stream: MediaStream | null = null
-      
+
       // Tier 1: Try flexible environment resolution
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -436,22 +478,30 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         }
       }
 
+      if (cameraGenerationRef.current !== cameraGeneration) {
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
       streamRef.current = stream
 
       const video = videoRef.current
       if (video) {
         video.srcObject = stream
-        video.onloadedmetadata = async () => {
+        let playbackStarted = false
+        const beginPlayback = async () => {
+          if (playbackStarted || cameraGenerationRef.current !== cameraGeneration || streamRef.current !== stream) return
+          playbackStarted = true
           try {
             await video.play()
-            setCameraLoading(false)
-            loopStart()
           } catch (playErr) {
             console.warn('Video play interrupted:', playErr)
-            setCameraLoading(false)
-            loopStart()
           }
+          if (cameraGenerationRef.current !== cameraGeneration || streamRef.current !== stream) return
+          setCameraLoading(false)
+          loopStart()
         }
+        video.onloadedmetadata = () => { void beginPlayback() }
+
         // Check torch support
         try {
           const track = stream.getVideoTracks()[0]
@@ -472,19 +522,11 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           // ignore
         }
 
-        // If metadata is already loaded
-        if (video.readyState >= 1) {
-          try {
-            await video.play()
-            setCameraLoading(false)
-            loopStart()
-          } catch {
-            setCameraLoading(false)
-            loopStart()
-          }
-        }
+        // If metadata is already loaded, use the same one-shot playback path.
+        if (video.readyState >= 1) void beginPlayback()
       }
     } catch (err) {
+      if (cameraGenerationRef.current !== cameraGeneration) return
       setCameraLoading(false)
       setPhase({
         kind: 'error',
@@ -493,13 +535,16 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
   }, [facingMode, fixedStudent, loopStart, resetIdentity, stopCamera])
 
-  // Auto-start camera on mount
+  // Auto-start exactly once per mount. Keep the latest callback in a ref so
+  // template/version state changes do not tear down and reopen the camera.
+  const startCameraRef = useRef(startCamera)
+  useEffect(() => { startCameraRef.current = startCamera }, [startCamera])
   useEffect(() => {
-    startCamera()
+    void startCameraRef.current()
     return () => {
       stopCamera()
     }
-  }, [startCamera, stopCamera])
+  }, [stopCamera])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -619,13 +664,17 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         ? phase.omr.questions.filter(question => question.wasCorrected).map(question => question.questionIndex)
         : []
       const scanMetadata = JSON.stringify({
-        engineVersion: 'omr-v2',
+        engineVersion: 'omr-v3-live',
         protocolVersion: phase.identity.protocolVersion ?? 1,
         templateMode: phase.templateMode,
         questionCount: examType === 'multiple_choice' ? questionCount : undefined,
         formChecksum: phase.identity.formChecksum,
         examVersion: phase.examVersion,
         detectionStatus: 'accepted',
+        initialDetectionStatus: phase.acceptance.status,
+        initialDetectionReason: phase.acceptance.reason,
+        initialDetectionConfidence: phase.omr.confidence,
+        correctionCount: correctedQuestions.length,
         correctedQuestions,
         quality: phase.quality,
       })
@@ -872,6 +921,12 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 {phase.quality.reasons.length > 0 && (
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] font-semibold text-amber-700">
                     {phase.quality.reasons.map(reason => <div key={reason}>• {formatScanQualityReason(reason)}</div>)}
+                  </div>
+                )}
+
+                {phase.acceptance.status === 'review_required' && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] font-bold text-amber-700">
+                    Kết quả được chuyển sang rà soát. Chỉ bấm “Ghi Điểm” sau khi đã kiểm tra ảnh và đáp án bên dưới.
                   </div>
                 )}
 
