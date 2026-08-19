@@ -25,6 +25,9 @@ export interface ExamExportOptions {
   parishName?: string
   dioceseName?: string
   scoreTypeLabel?: string
+  sessionId?: string
+  student?: { id: string; code: string; name: string }
+  students?: { id: string; code: string; name: string }[]
 }
 
 /**
