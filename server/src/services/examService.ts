@@ -49,7 +49,7 @@ function parseSubmittedAnswers(input: string | undefined, questionCount: number)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) badRequest('answers phải là JSON object.')
   const normalized: Record<number, MultipleChoiceAnswer> = {}
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (key.startsWith('_')) continue // metadata legacy như _confidence không tham gia chấm
+    if (key.startsWith('_')) continue
     const index = Number(key)
     if (!Number.isInteger(index) || index < 1 || index > questionCount) {
       badRequest(`answers chứa số câu không hợp lệ: ${key}.`)
@@ -191,8 +191,6 @@ function audit(tx: DbTransaction, params: { userId: string; parishId: string; ip
 }
 
 export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string) {
-  // ADR-023 (Phase 3 offline): idempotencyKey = temp id của client — retry sau
-  // timeout trả về session đã tạo thay vì tạo trùng (pattern ADR-016 student/class).
   if (data.idempotencyKey) {
     const existing = await db
       .select()
@@ -347,21 +345,12 @@ export async function upsertExamResults(
         err.status = 400
         throw err
       }
-      const [existing] = await tx
-        .select({ id: examResults.id })
-        .from(examResults)
-        .where(and(eq(examResults.examSessionId, sessionId), eq(examResults.studentId, r.studentId), eq(examResults.parishId, parishId)))
-        .limit(1)
 
-      if (existing) {
-        await tx
-          .update(examResults)
-          .set({ score: authoritativeScore, source, answers: r.answers ?? null, scanMetadata, examVersion })
-          .where(and(eq(examResults.id, existing.id), eq(examResults.parishId, parishId)))
-        upserted++
-      } else {
-        await tx.insert(examResults).values({
-          id: generateId('EXR'),
+      const candidateId = generateId('EXR')
+      const [persisted] = await tx
+        .insert(examResults)
+        .values({
+          id: candidateId,
           examSessionId: sessionId,
           studentId: r.studentId,
           score: authoritativeScore,
@@ -372,8 +361,20 @@ export async function upsertExamResults(
           parishId,
           createdAt: now,
         })
-        saved++
-      }
+        .onConflictDoUpdate({
+          target: [examResults.examSessionId, examResults.studentId],
+          set: {
+            score: authoritativeScore,
+            source,
+            answers: r.answers ?? null,
+            examVersion,
+            scanMetadata,
+          },
+        })
+        .returning({ id: examResults.id })
+
+      if (persisted?.id === candidateId) saved++
+      else upserted++
     }
 
     await audit(tx, {
@@ -466,8 +467,6 @@ export async function deleteExamSession(
 ) {
   return db.transaction(async (tx) => {
     const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
-    // Dữ liệu integrity: chỉ xóa phiên draft. Phiên completed đã finalize →
-    // điểm đã ghi vào bảng điểm qua gradeService; xóa sẽ tạo orphan/ghi sai audit.
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất và đã ghi vào bảng điểm — không thể xóa. Nhờ admin mở lại phiên nếu cần chỉnh sửa.')
     }
@@ -517,11 +516,6 @@ function serializeFinalizationItem(row: typeof examFinalizationItems.$inferSelec
   }
 }
 
-/**
- * ADR-048: finalization is the sole server-side write boundary between an exam
- * result and the grade projection.  A session never becomes `completed` unless
- * every non-conflicting result has been projected and recorded in the ledger.
- */
 export async function finalizeExamSession(
   sessionId: string,
   userId: string,
@@ -541,15 +535,12 @@ export async function finalizeExamSession(
       throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
     }
 
-const [existingFinalization] = await tx
+    const [existingFinalization] = await tx
       .select()
       .from(examFinalizations)
       .where(and(eq(examFinalizations.parishId, parishId), eq(examFinalizations.examSessionId, sessionId)))
       .limit(1)
 
-    // Idempotent re-complete: chỉ khi session ĐÃ completed (ledger hiện có vẫn
-    // hợp lệ). Sau reopen (status trở lại draft) phải finalize LẠI — kết quả
-    // có thể đã thay đổi — thay vì trả ledger cũ với session còn draft.
     if (session.status === 'completed') {
       if (existingFinalization) {
         const priorItems = await tx
@@ -566,14 +557,9 @@ const [existingFinalization] = await tx
           legacy: false,
         }
       }
-
-      // Completed sessions made before ADR-048 have no trustworthy per-result
-      // receipt.  Do not manufacture a ledger from an aggregate grade projection.
       return { session, finalizationId: null, items: [], committed: 0, conflicts: 0, legacy: true }
     }
 
-    // Reopen → complete lại: ledger cũ không còn phản ánh kết quả mới. Xóa và
-    // tạo ledger mới (unique (parishId, examSessionId)).
     if (existingFinalization) {
       await tx
         .delete(examFinalizationItems)
@@ -662,8 +648,6 @@ const [existingFinalization] = await tx
             eq(assessmentEntries.semester, session.semester),
             eq(assessmentEntries.scoreType, session.scoreType),
           ))
-// A pre-ADR-048 daily aggregate has no recoverable attempt count.  Keep
-        // it as a visible baseline rather than silently discarding it.
         if (existingEntries.length === 0 && existingGrade && existingSource === 'daily_avg' && typeof (existingGrade as any)[scoreMap.field] === 'number') {
           const baseline = Number((existingGrade as any)[scoreMap.field])
           await tx.insert(assessmentEntries).values({
@@ -672,9 +656,6 @@ const [existingFinalization] = await tx
             rawScore: baseline, maxScore: 10, score: baseline, source: 'legacy_baseline', createdBy: 'system', createdAt: now,
           })
         }
-        // Reopen → complete lại: entry (parishId, examSessionId, studentId) đã tồn
-        // tại từ lần finalize trước — UPDATE thay vì INSERT (unique
-        // idx_assessment_entries_exam_student).
         const [existingSessionEntry] = await tx
           .select({ id: assessmentEntries.id })
           .from(assessmentEntries)
@@ -755,8 +736,6 @@ const [existingFinalization] = await tx
   })
 }
 
-// Backward-compatible endpoint/service used by offline clients.  It now receives
-// the same transactional guarantees as the explicit `/finalize` endpoint.
 export async function completeExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null) {
   const result = await finalizeExamSession(sessionId, userId, parishId, ip, userAgent, allowedClassIds)
   return result.session
@@ -766,7 +745,7 @@ export async function reopenExamSession(sessionId: string, userId: string, paris
   return db.transaction(async (tx) => {
     const session = await getExamSession(sessionId, parishId)
     if (session.status === 'draft') {
-      return session // idempotent
+      return session
     }
 
     const isUnlocked = await semesterLockSpecification.isSatisfiedBy(session.academicYear, session.semester, parishId, tx)
@@ -795,16 +774,6 @@ export async function reopenExamSession(sessionId: string, userId: string, paris
   })
 }
 
-// ─── Update answer key + re-score existing MC results ───
-
-/**
- * Cập nhật answer key và chấm lại điểm cho tất cả kết quả đã có trong phiên MC draft.
- * Chỉ re-score các kết quả có source='omr' hoặc 'qr_scan' (OMR-detected).
- * Kết quả 'quick_entry' giữ nguyên vì teacher nhập tay.
- *
- * Công thức: correctCount / totalQuestions × maxScore (đồng nhất với omr.ts:275 frontend).
- * Câu bỏ trống = sai (không đếm vào correctCount, nhưng vẫn đếm vào totalQuestions).
- */
 export async function updateAnswerKeyAndRescore(
   sessionId: string,
   parishId: string,
@@ -815,7 +784,6 @@ export async function updateAnswerKeyAndRescore(
   userAgent: string,
 ) {
   return db.transaction(async (tx) => {
-    // 1. Read session BEFORE update to capture old answer key for audit
     const [sessionBefore] = await tx
       .select()
       .from(examSessions)
@@ -831,7 +799,6 @@ export async function updateAnswerKeyAndRescore(
     const newAnswerVariants = JSON.stringify(variants)
     const maxScore = sessionBefore.maxScore ?? 10
 
-    // 2. Update session answer key + question count
     await tx
       .update(examSessions)
       .set({
@@ -841,14 +808,12 @@ export async function updateAnswerKeyAndRescore(
       })
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
 
-    // 3. Get all existing results for this session
     const existingResults = await tx
       .select()
       .from(examResults)
       .where(and(eq(examResults.examSessionId, sessionId), eq(examResults.parishId, parishId)))
 
     if (existingResults.length === 0) {
-      // Audit even when no results to re-score (answer key still changed)
       await audit(tx, {
         userId, parishId, ip, userAgent,
         action: 'EXAM_RESCORE',
@@ -861,36 +826,27 @@ export async function updateAnswerKeyAndRescore(
       return { session, rescored: 0, skipped: 0 }
     }
 
-    // 4. Parse new answer key
-    // 5. Re-score each result that has OMR answers
     let rescored = 0
     let skipped = 0
     const scoreChanges: { studentId: string; oldScore: number; newScore: number }[] = []
 
     for (const result of existingResults) {
-      // Skip quick_entry (teacher-entered scores)
       if (result.source === 'quick_entry') {
         skipped++
         continue
       }
 
-      // Parse existing answers
       let answers: Record<string, string | null> = {}
       if (result.answers) {
-        try { answers = JSON.parse(result.answers) } catch { /* skip */ }
+        try { answers = JSON.parse(result.answers) } catch { }
       }
 
-      // Check if this result has OMR-detected answers (keys like "1","2",...)
       const hasOmrAnswers = Object.keys(answers).some(k => /^\d+$/.test(k) && answers[k] !== null)
       if (!hasOmrAnswers) {
         skipped++
         continue
       }
 
-      // Re-calculate score from answers + new answer key
-      // FIX: chia cho totalQuestions (tổng số câu), KHÔNG chia totalAnswered.
-      // Câu bỏ trống = sai → không cộng correctCount, nhưng vẫn nằm trong mẫu số.
-      // Đồng nhất với omr.ts:275: rawCorrectCount / totalQuestions * maxScore
       let correctCount = 0
       const version = normalizeExamVersion(result.examVersion)
       const selectedKeyJson = resolveAnswerKeyForVersion(newAnswerKey, newAnswerVariants, version)
@@ -906,12 +862,9 @@ export async function updateAnswerKeyAndRescore(
         }
       }
 
-      // FIX: dùng session.maxScore thay vì hardcode 10
       const rawScore = newQuestionCount > 0
         ? Math.round((correctCount / newQuestionCount) * maxScore * 10) / 10
         : 0
-
-      // C3: Validate score <= maxScore (defensive clamp)
       const newScore = Math.min(rawScore, maxScore)
 
       const oldScore = result.score
@@ -919,7 +872,6 @@ export async function updateAnswerKeyAndRescore(
         scoreChanges.push({ studentId: result.studentId, oldScore, newScore })
       }
 
-      // Update score
       await tx
         .update(examResults)
         .set({ score: newScore })
@@ -928,7 +880,6 @@ export async function updateAnswerKeyAndRescore(
       rescored++
     }
 
-    // C2: Audit log for re-score — ghi đầy đủ old/new answer key + danh sách thay đổi điểm
     await audit(tx, {
       userId, parishId, ip, userAgent,
       action: 'EXAM_RESCORE',
@@ -950,10 +901,6 @@ export async function updateAnswerKeyAndRescore(
   })
 }
 
-/**
- * Thay toàn bộ bộ đáp án A..H và chấm lại từng bài theo `exam_results.exam_version`.
- * Giao dịch fail-closed nếu đang có kết quả thuộc một mã đề bị xóa.
- */
 export async function updateAnswerVariantsAndRescore(
   sessionId: string,
   parishId: string,
@@ -1018,4 +965,3 @@ export async function updateAnswerVariantsAndRescore(
     return { session: updated!, rescored, skipped }
   })
 }
-
