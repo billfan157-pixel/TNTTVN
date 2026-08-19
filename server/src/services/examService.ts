@@ -190,6 +190,38 @@ function audit(tx: DbTransaction, params: { userId: string; parishId: string; ip
   })
 }
 
+function isSqliteBusyError(error: unknown): boolean {
+  let current: unknown = error
+  const visited = new Set<unknown>()
+  for (let depth = 0; depth < 8 && current && typeof current === 'object' && !visited.has(current); depth++) {
+    visited.add(current)
+    const candidate = current as { code?: unknown; extendedCode?: unknown; cause?: unknown }
+    if (
+      (typeof candidate.code === 'string' && candidate.code.startsWith('SQLITE_BUSY'))
+      || (typeof candidate.extendedCode === 'string' && candidate.extendedCode.startsWith('SQLITE_BUSY'))
+    ) return true
+    current = candidate.cause
+  }
+  return false
+}
+
+async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts = 8): Promise<T> {
+  let attempt = 0
+  while (true) {
+    try {
+      return await operation()
+    } catch (error) {
+      attempt++
+      if (!isSqliteBusyError(error) || attempt >= maxAttempts) throw error
+      // @libsql/client local file transactions may fail immediately under writer
+      // contention even with PRAGMA busy_timeout. Retry the whole idempotent exam
+      // result transaction; validation/constraint/business errors are never retried.
+      const delayMs = Math.min(200, 20 * 2 ** (attempt - 1))
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+}
+
 export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string) {
   if (data.idempotencyKey) {
     const existing = await db
@@ -295,7 +327,7 @@ export async function upsertExamResults(
     throw err
   }
 
-  return db.transaction(async (tx) => {
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
     const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
@@ -386,7 +418,7 @@ export async function upsertExamResults(
     })
 
     return { session, saved, upserted, total: results.length, adjustments }
-  })
+  }))
 }
 
 export async function deleteExamResult(
