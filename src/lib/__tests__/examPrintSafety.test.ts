@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ExamPrintIntegrityError,
+  assertContiguousQuestionIndexes,
   assertContiguousOmrQuestionRows,
   convertIntegratedMarkersToForegroundSvg,
   invalidateTeacherAnswerKeyOmr,
@@ -18,7 +19,23 @@ function rows(indexes: number[]): string {
   return indexes.map(index => `<span class="q-num">C${index}:</span>`).join('')
 }
 
+function question(index: number) {
+  return {
+    index,
+    question: `Câu ${index}`,
+    options: { A: 'A', B: 'B', C: 'C', D: 'D' },
+    correctOption: 'A' as const,
+  }
+}
+
 describe('examPrintSafety', () => {
+  it('validates source questions as a unique contiguous 1..N set before render', () => {
+    expect(() => assertContiguousQuestionIndexes([question(3), question(1), question(2)])).not.toThrow()
+    expect(() => assertContiguousQuestionIndexes([question(1), question(1), question(3)])).toThrow(ExamPrintIntegrityError)
+    expect(() => assertContiguousQuestionIndexes([question(1), question(3)])).toThrow(ExamPrintIntegrityError)
+    expect(() => assertContiguousQuestionIndexes([question(0), question(1)])).toThrow(ExamPrintIntegrityError)
+  })
+
   it('accepts only physical OMR row labels 1..N in exact order', () => {
     expect(() => assertContiguousOmrQuestionRows(rows([1, 2, 3, 4]))).not.toThrow()
     expect(() => assertContiguousOmrQuestionRows('<html>no OMR grid</html>')).not.toThrow()
