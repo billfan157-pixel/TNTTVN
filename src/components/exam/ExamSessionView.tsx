@@ -7,11 +7,8 @@ import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useExamStore, SCORE_TYPE_LABELS, DAILY_TYPES } from '../../stores/examStore'
 import { api } from '../../lib/api'
-import { generateExamQrCodes } from '../../lib/qr'
-import { printQrSheet } from '../../utils/examSheets'
 import { QuickScoreEntry } from './QuickScoreEntry'
 import { ExamResultsTable } from './ExamResultsTable'
-import { AnswerSheetModal } from './AnswerSheetModal'
 import { ExamScanModal } from './ExamScanModal'
 import { GuidedGradeModal, type GuidedGradeStudent } from './GuidedGradeModal'
 import { ExamImportModal } from './ExamImportModal'
@@ -125,7 +122,6 @@ export const ExamSessionView: React.FC = () => {
   } = useExamStore()
 
   const [showCreate, setShowCreate] = useState(false)
-  const [showPrintSheets, setShowPrintSheets] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [showGuidedGrade, setShowGuidedGrade] = useState(false)
   const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
@@ -362,17 +358,6 @@ export const ExamSessionView: React.FC = () => {
     if (okResult) setConflictsConfirmed(false)
   }
 
-  const handlePrint = () => {
-    if (!activeSession || classStudents.length === 0) return
-    const svgs = generateExamQrCodes(activeSession.id, classStudents).map((q, i) => ({
-      ...q,
-      name: classStudents[i].name,
-      code: classStudents[i].code,
-    }))
-    const cls = activeSessionClassId ? findClassById(activeSessionClassId) : undefined
-    printQrSheet(`${cls?.name || 'Lớp'} — ${SCORE_TYPE_LABELS[activeSession.scoreType]} (${activeSession.subject})`, svgs)
-  }
-
   const hasBlockedConflicts = !!lastFinalize && lastFinalize.conflicts.length > 0
 
   return (
@@ -539,24 +524,12 @@ export const ExamSessionView: React.FC = () => {
               <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowAnalytics(true)} disabled={results.length === 0}>
                 <BarChart3 size={14} /> Phân Tích
               </button>
-              {activeSessionQuestions.length > 0 && (
-                <button
-                  className="btn btn-secondary btn-sm min-h-11 justify-center"
-                  onClick={() => setShowPaperModal(true)}
-                  title="Xem, in và xuất đề thi tích hợp phiếu trả lời OMR ra Word (.doc), PDF, HTML, Excel (.xlsx)"
-                >
-                  <FileText size={14} /> In & Xuất Đề Gộp
-                </button>
-              )}
               <button
                 className="btn btn-secondary btn-sm min-h-11 justify-center"
-                onClick={() => setShowPrintSheets(true)}
-                disabled={classStudents.length === 0}
+                onClick={() => setShowPaperModal(true)}
+                title="Trung tâm In & Xuất tài liệu: Đề thi gộp OMR, Phiếu trả lời trắc nghiệm A4, Thẻ mã QR học sinh"
               >
-                <Printer size={14} /> In Phiếu Trả Lời
-              </button>
-              <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={handlePrint} disabled={classStudents.length === 0 || activeSession.status === 'completed'}>
-                <QrCode size={14} /> In Mã QR
+                <Printer size={14} /> In Đề & Phiếu Gộp
               </button>
               {canManage && activeSession.status === 'completed' && can('admin') && (
                 <button
@@ -691,21 +664,7 @@ export const ExamSessionView: React.FC = () => {
         />
       )}
 
-      {/* Answer sheet printer modal — Phase 2 & 4 */}
-      {showPrintSheets && activeSession && (
-        <AnswerSheetModal
-          sessionId={activeSession.id}
-          students={classStudents}
-          subject={activeSession.subject}
-          scoreTypeLabel={SCORE_TYPE_LABELS[activeSession.scoreType]}
-          classLabel={activeSessionClassId ? findClassById(activeSessionClassId)?.name ?? 'Lớp' : 'Lớp'}
-          maxScore={activeSession.maxScore}
-          examType={activeSession.examType}
-          questionCount={activeSession.questionCount}
-          availableVersions={activeExamVersions}
-          onClose={() => setShowPrintSheets(false)}
-        />
-      )}
+
 
       {showBatchScan && activeSession && (
         <ExamBatchScanModal session={activeSession} students={classStudents} onClose={() => setShowBatchScan(false)} />
@@ -1068,6 +1027,10 @@ export const ExamSessionView: React.FC = () => {
           sessionId={activeSession.id}
           answerKey={activeSession.answerKey}
           answerVariants={activeSession.answerVariants}
+          examType={activeSession.examType}
+          maxScore={activeSession.maxScore}
+          questionCount={activeSession.questionCount}
+          scoreTypeLabel={SCORE_TYPE_LABELS[activeSession.scoreType]}
         />
       )}
 

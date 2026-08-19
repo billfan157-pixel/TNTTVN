@@ -1,23 +1,32 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import {
-  X, Printer, Download, Eye, EyeOff, LayoutGrid,
-  Columns, Settings2, FileText, CheckCircle2, CheckSquare,
-  Square, Award, Users, User, FileSpreadsheet, Layers3, Globe
+  X, Printer, Eye, EyeOff, LayoutGrid,
+  Columns, FileText, CheckSquare,
+  Square, Users, User, FileSpreadsheet, Layers3, Globe,
+  QrCode, ClipboardList
 } from 'lucide-react'
 import {
   buildExamPaperHtml,
   buildBatchExamPapersHtml,
   printExamPaper,
   printBatchExamPapers,
+  buildBatchAnswerSheetsHtml,
+  printBatchAnswerSheets,
+  generateExamQrCodes,
+  printQrSheet,
+  buildQrSheetHtml,
   type ExamPaperPrintOptions,
-  type StudentSheetInfo
+  type StudentSheetInfo,
+  type BatchAnswerSheetParams
 } from '../../utils/examSheets'
 import { ReportExportService } from '../../services/reportExportService'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
-import { exportExamToWord, exportExamToExcel, exportExamToHtml } from '../../utils/examExporter'
+import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
+
+export type ExamDocType = 'exam_paper' | 'answer_sheet' | 'qr_sheet'
 
 interface ExamPaperModalProps {
   isOpen: boolean
@@ -25,11 +34,16 @@ interface ExamPaperModalProps {
   subject: string
   classLabel: string
   academicYear: string
-  questions: ExamQuestion[]
+  questions?: ExamQuestion[]
   students?: StudentSheetInfo[]
   sessionId?: string
   answerKey?: Record<number, MultipleChoiceOption>
   answerVariants?: Partial<ExamAnswerVariants>
+  examType?: 'written' | 'multiple_choice'
+  maxScore?: number
+  questionCount?: number
+  scoreTypeLabel?: string
+  initialDocType?: ExamDocType
 }
 
 export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
@@ -38,12 +52,18 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   subject,
   classLabel,
   academicYear,
-  questions,
+  questions = [],
   students = [],
   sessionId = 'SESS-001',
   answerKey,
   answerVariants,
+  examType = 'multiple_choice',
+  maxScore = 10,
+  questionCount = 20,
+  scoreTypeLabel = 'Kiểm Tra',
+  initialDocType = 'exam_paper',
 }) => {
+  const [docType, setDocType] = useState<ExamDocType>(initialDocType)
   const [showAnswerKey, setShowAnswerKey] = useState(false)
   const [includeExplanations, setIncludeExplanations] = useState(true)
   const [layoutColumns, setLayoutColumns] = useState<1 | 2>(2)
@@ -93,13 +113,56 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     examVersion: selectedVersion,
   }), [parishName, dioceseName, subject, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, selectedVersion])
 
+  const sampleStudent: StudentSheetInfo = useMemo(() => ({
+    id: 'sample-student',
+    code: 'TN-001',
+    name: 'Nguyễn Văn A',
+  }), [])
+
+  const effectiveStudents = useMemo(() => (
+    students.length > 0 ? students : [sampleStudent]
+  ), [students, sampleStudent])
+
+  const batchAnswerSheetParams: BatchAnswerSheetParams = useMemo(() => ({
+    sessionId,
+    subject,
+    scoreTypeLabel: scoreTypeLabel || 'Kiểm Tra',
+    classLabel,
+    maxScore: maxScore || 10,
+    examType: examType || 'multiple_choice',
+    questionCount: questionCount || questions.length || 20,
+    examVersion: selectedVersion,
+  }), [sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, questions.length, selectedVersion])
+
+  const qrSvgs = useMemo(() => {
+    return generateExamQrCodes(sessionId, effectiveStudents).map((q, i) => ({
+      ...q,
+      name: effectiveStudents[i].name,
+      code: effectiveStudents[i].code,
+    }))
+  }, [sessionId, effectiveStudents])
+
   const previewHtml = useMemo(() => {
-    if (!effectiveQuestions || effectiveQuestions.length === 0) return ''
+    if (docType === 'answer_sheet') {
+      if (printMode === 'batch' && students.length > 0) {
+        return buildBatchAnswerSheetsHtml(students.slice(0, 2), batchAnswerSheetParams)
+      }
+      return buildBatchAnswerSheetsHtml([sampleStudent], batchAnswerSheetParams)
+    }
+
+    if (docType === 'qr_sheet') {
+      return buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
+    }
+
+    // docType === 'exam_paper'
+    if (effectiveQuestions.length === 0) {
+      return `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;text-align:center;color:#64748b;"><h3>Chưa có nội dung câu hỏi cho đề thi gộp.</h3><p>Vui lòng chuyển qua tab <b>Phiếu Trả Lời Rời A4</b> hoặc <b>Thẻ Mã QR</b> để in phiếu làm bài.</p></body></html>`
+    }
     if (printMode === 'batch' && students.length > 0) {
       return buildBatchExamPapersHtml(students.slice(0, 2), printOptions)
     }
     return buildExamPaperHtml(printOptions)
-  }, [printOptions, effectiveQuestions, printMode, students])
+  }, [docType, printMode, students, sampleStudent, batchAnswerSheetParams, classLabel, subject, qrSvgs, effectiveQuestions, printOptions])
 
   useEffect(() => {
     if (!isOpen) return
@@ -113,6 +176,14 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   if (!isOpen) return null
 
   const handlePrint = () => {
+    if (docType === 'answer_sheet') {
+      printBatchAnswerSheets(effectiveStudents, batchAnswerSheetParams)
+      return
+    }
+    if (docType === 'qr_sheet') {
+      printQrSheet(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
+      return
+    }
     if (printMode === 'batch' && students.length > 0) {
       printBatchExamPapers(students, printOptions)
     } else {
@@ -122,9 +193,24 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   const handleDownloadPdf = () => {
     const isBatch = printMode === 'batch' && students.length > 0
+
+    if (docType === 'answer_sheet') {
+      const htmlToExport = buildBatchAnswerSheetsHtml(effectiveStudents, batchAnswerSheetParams)
+      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}`
+      ReportExportService.exportPdf(htmlToExport, filename)
+      return
+    }
+
+    if (docType === 'qr_sheet') {
+      const htmlToExport = buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
+      const filename = `The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}`
+      ReportExportService.exportPdf(htmlToExport, filename)
+      return
+    }
+
     const htmlToExport = isBatch
       ? buildBatchExamPapersHtml(students, printOptions)
-      : previewHtml
+      : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
     const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}`
     ReportExportService.exportPdf(htmlToExport, filename)
@@ -132,9 +218,26 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   const handleDownloadHtml = () => {
     const isBatch = printMode === 'batch' && students.length > 0
+
+    if (docType === 'answer_sheet') {
+      const htmlToExport = buildBatchAnswerSheetsHtml(effectiveStudents, batchAnswerSheetParams)
+      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}.html`
+      ReportExportService.downloadHTML(htmlToExport, filename)
+      useToastStore.getState().addToast(`Đã xuất file HTML Phiếu Trả Lời: ${filename}`, 'success')
+      return
+    }
+
+    if (docType === 'qr_sheet') {
+      const htmlToExport = buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
+      const filename = `The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}.html`
+      ReportExportService.downloadHTML(htmlToExport, filename)
+      useToastStore.getState().addToast(`Đã xuất file HTML Thẻ Mã QR: ${filename}`, 'success')
+      return
+    }
+
     const htmlToExport = isBatch
       ? buildBatchExamPapersHtml(students, printOptions)
-      : previewHtml
+      : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
     const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${selectedVersion}`}.html`
     ReportExportService.downloadHTML(htmlToExport, filename)
@@ -178,18 +281,20 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="exam-paper-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-surface-card rounded-2xl p-6 w-full max-w-6xl shadow-2xl h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
+      <div className="bg-surface-card rounded-2xl p-4 sm:p-6 w-full max-w-6xl shadow-2xl h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-surface-border pb-4 mb-3">
+        <div className="flex items-center justify-between border-b border-surface-border pb-3 mb-2.5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center font-bold">
-              <FileText size={20} />
+              {docType === 'exam_paper' && <FileText size={20} />}
+              {docType === 'answer_sheet' && <ClipboardList size={20} />}
+              {docType === 'qr_sheet' && <QrCode size={20} />}
             </div>
             <div>
-              <h3 id="exam-paper-title" className="font-black text-lg text-parish-primary m-0">In & Xuất Đề Thi Gộp Chuẩn OMR</h3>
+              <h3 id="exam-paper-title" className="font-black text-lg text-parish-primary m-0">In & Xuất Tài Liệu Kiểm Tra</h3>
               <p className="text-xs text-text-muted m-0 mt-0.5">
-                {subject} · Lớp {classLabel} · Niên khóa {academicYear} ({questions.length} câu hỏi) — Tích hợp 4 Marker OMR và mã QR quét chấm tự động
+                {subject} · Lớp {classLabel} · Niên khóa {academicYear}
               </p>
             </div>
           </div>
@@ -198,11 +303,49 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
           </button>
         </div>
 
+        {/* 3 Document Type Selector Tabs */}
+        <div className="flex items-center gap-1.5 p-1 bg-surface-app rounded-xl border border-surface-border mb-3">
+          <button
+            type="button"
+            onClick={() => setDocType('exam_paper')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              docType === 'exam_paper'
+                ? 'bg-parish-primary text-white shadow-xs'
+                : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
+            }`}
+          >
+            <FileText size={15} /> 1. Đề Thi & Phiếu Gộp
+          </button>
+          <button
+            type="button"
+            onClick={() => setDocType('answer_sheet')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              docType === 'answer_sheet'
+                ? 'bg-parish-primary text-white shadow-xs'
+                : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
+            }`}
+          >
+            <ClipboardList size={15} /> 2. Phiếu Trả Lời Rời A4
+          </button>
+          <button
+            type="button"
+            onClick={() => setDocType('qr_sheet')}
+            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              docType === 'qr_sheet'
+                ? 'bg-parish-primary text-white shadow-xs'
+                : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
+            }`}
+          >
+            <QrCode size={15} /> 3. Thẻ Mã QR Học Sinh
+          </button>
+        </div>
+
         {/* Toolbar Controls */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-surface-app rounded-xl border border-surface-border mb-3">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Chế độ in: Mẫu chung vs Theo danh sách học sinh */}
-            {students.length > 0 && (
+            
+            {/* Chế độ in: Mẫu chung vs Theo danh sách học sinh (áp dụng cho Đề thi & Phiếu trả lời) */}
+            {docType !== 'qr_sheet' && students.length > 0 && (
               <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
                 <button
                   type="button"
@@ -220,21 +363,21 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                   className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
                     printMode === 'single' ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                   }`}
-                  title="In mẫu đề thi chung (học sinh tự điền họ tên/SBD)"
+                  title="In mẫu chung (học sinh tự điền họ tên/SBD)"
                 >
                   <User size={13} /> Mẫu Chung
                 </button>
               </div>
             )}
 
-            {/* Mã Đề Selector (nếu có cấu hình nhiều mã đề) */}
-            {availableVersions.length > 1 && (
+            {/* Mã Đề Selector */}
+            {docType !== 'qr_sheet' && (availableVersions.length > 1 || docType === 'answer_sheet') && (
               <div className="flex items-center gap-1.5 text-xs">
                 <span className="text-text-muted font-semibold flex items-center gap-1">
                   <Layers3 size={13} /> Mã Đề:
                 </span>
                 <div className="flex bg-surface-card rounded-lg border border-surface-border p-0.5">
-                  {availableVersions.map(code => (
+                  {(docType === 'answer_sheet' ? EXAM_VERSION_CODES : availableVersions).map(code => (
                     <button
                       key={code}
                       type="button"
@@ -250,120 +393,152 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               </div>
             )}
 
-            {/* Answer Key Toggle */}
-            <button
-              type="button"
-              onClick={() => setShowAnswerKey(!showAnswerKey)}
-              className={`btn btn-sm text-xs font-bold flex items-center gap-1.5 ${
-                showAnswerKey ? 'btn-primary' : 'btn-secondary'
-              }`}
-            >
-              {showAnswerKey ? <Eye size={14} /> : <EyeOff size={14} />}
-              {showAnswerKey ? 'Hiện Đáp Án (Bản Giáo Viên)' : 'Ẩn Đáp Án (Bản Học Sinh)'}
-            </button>
+            {/* Options for Exam Paper */}
+            {docType === 'exam_paper' && (
+              <>
+                {/* Answer Key Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowAnswerKey(!showAnswerKey)}
+                  className={`btn btn-sm text-xs font-bold flex items-center gap-1.5 ${
+                    showAnswerKey ? 'btn-primary' : 'btn-secondary'
+                  }`}
+                >
+                  {showAnswerKey ? <Eye size={14} /> : <EyeOff size={14} />}
+                  {showAnswerKey ? 'Hiện Đáp Án' : 'Ẩn Đáp Án'}
+                </button>
 
-            {/* Explanations Toggle (khi bật đáp án) */}
-            {showAnswerKey && (
-              <button
-                type="button"
-                onClick={() => setIncludeExplanations(!includeExplanations)}
-                className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  includeExplanations
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
-                    : 'bg-surface-card border-surface-border text-text-muted'
-                }`}
-                title="Kèm lời giải thích và hướng dẫn chấm chi tiết"
-              >
-                {includeExplanations ? <CheckSquare size={14} /> : <Square size={14} />}
-                💡 Lời Giải Chi Tiết
-              </button>
+                {/* Explanations Toggle */}
+                {showAnswerKey && (
+                  <button
+                    type="button"
+                    onClick={() => setIncludeExplanations(!includeExplanations)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      includeExplanations
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                        : 'bg-surface-card border-surface-border text-text-muted'
+                    }`}
+                    title="Kèm lời giải thích và hướng dẫn chấm chi tiết"
+                  >
+                    {includeExplanations ? <CheckSquare size={14} /> : <Square size={14} />}
+                    💡 Lời Giải
+                  </button>
+                )}
+
+                {/* Answer Grid Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIncludeAnswerGrid(!includeAnswerGrid)}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    includeAnswerGrid
+                      ? 'bg-parish-primary-light border-parish-primary/30 text-parish-primary'
+                      : 'bg-surface-card border-surface-border text-text-muted'
+                  }`}
+                  title="Khung tô đáp án nhanh (A B C D) ngay dưới tiêu đề"
+                >
+                  {includeAnswerGrid ? <CheckSquare size={14} /> : <Square size={14} />}
+                  Khung Tô Đáp Án
+                </button>
+
+                {/* Grading Box Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIncludeGradingBox(!includeGradingBox)}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    includeGradingBox
+                      ? 'bg-parish-primary-light border-parish-primary/30 text-parish-primary'
+                      : 'bg-surface-card border-surface-border text-text-muted'
+                  }`}
+                  title="Khung Điểm và Lời Phê của Giáo lý viên"
+                >
+                  {includeGradingBox ? <CheckSquare size={14} /> : <Square size={14} />}
+                  Khung Điểm
+                </button>
+
+                {/* Layout Column Toggle */}
+                <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setLayoutColumns(2)}
+                    className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
+                      layoutColumns === 2 ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                    }`}
+                    title="Bố cục 2 cột (tiết kiệm giấy A4)"
+                  >
+                    <Columns size={13} /> 2 Cột
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLayoutColumns(1)}
+                    className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
+                      layoutColumns === 1 ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                    }`}
+                    title="Bố cục 1 cột"
+                  >
+                    <LayoutGrid size={13} /> 1 Cột
+                  </button>
+                </div>
+
+                {/* Duration Minutes Input */}
+                <div className="flex items-center gap-1 text-xs text-text-muted">
+                  <span>Thời gian:</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={180}
+                    value={durationMinutes}
+                    onChange={e => setDurationMinutes(Math.max(5, Number(e.target.value) || 45))}
+                    className="w-12 px-1.5 py-1 bg-surface-card border border-surface-border rounded-lg text-center font-bold text-text-main focus:outline-hidden"
+                  />
+                  <span>phút</span>
+                </div>
+              </>
             )}
 
-            {/* Answer Grid Toggle */}
-            <button
-              type="button"
-              onClick={() => setIncludeAnswerGrid(!includeAnswerGrid)}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
-                includeAnswerGrid
-                  ? 'bg-parish-primary-light border-parish-primary/30 text-parish-primary'
-                  : 'bg-surface-card border-surface-border text-text-muted'
-              }`}
-              title="Khung tô đáp án nhanh (A B C D) ngay dưới tiêu đề"
-            >
-              {includeAnswerGrid ? <CheckSquare size={14} /> : <Square size={14} />}
-              Khung Tô Đáp Án
-            </button>
+            {/* Badges for Answer Sheet */}
+            {docType === 'answer_sheet' && (
+              <span className="badge badge-neutral text-xs font-bold">
+                {examType === 'multiple_choice' ? `${questionCount} Câu Trắc Nghiệm` : `Tự Luận (Tối đa ${maxScore} điểm)`}
+              </span>
+            )}
 
-            {/* Grading Box Toggle */}
-            <button
-              type="button"
-              onClick={() => setIncludeGradingBox(!includeGradingBox)}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
-                includeGradingBox
-                  ? 'bg-parish-primary-light border-parish-primary/30 text-parish-primary'
-                  : 'bg-surface-card border-surface-border text-text-muted'
-              }`}
-              title="Khung Điểm và Lời Phê của Giáo lý viên"
-            >
-              {includeGradingBox ? <CheckSquare size={14} /> : <Square size={14} />}
-              Khung Điểm & Lời Phê
-            </button>
-
-            {/* Layout Column Toggle */}
-            <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
-              <button
-                type="button"
-                onClick={() => setLayoutColumns(2)}
-                className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
-                  layoutColumns === 2 ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
-                }`}
-                title="Bố cục 2 cột (tiết kiệm giấy A4)"
-              >
-                <Columns size={13} /> 2 Cột
-              </button>
-              <button
-                type="button"
-                onClick={() => setLayoutColumns(1)}
-                className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
-                  layoutColumns === 1 ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
-                }`}
-                title="Bố cục 1 cột"
-              >
-                <LayoutGrid size={13} /> 1 Cột
-              </button>
-            </div>
-
-            {/* Duration Minutes Input */}
-            <div className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span>Thời gian:</span>
-              <input
-                type="number"
-                min={5}
-                max={180}
-                value={durationMinutes}
-                onChange={e => setDurationMinutes(Math.max(5, Number(e.target.value) || 45))}
-                className="w-14 px-2 py-1 bg-surface-card border border-surface-border rounded-lg text-center font-bold text-text-main focus:outline-hidden"
-              />
-              <span>phút</span>
-            </div>
+            {/* Badges for QR Sheet */}
+            {docType === 'qr_sheet' && (
+              <span className="badge badge-neutral text-xs font-bold">
+                {students.length} Học Viên Trong Lớp
+              </span>
+            )}
           </div>
 
+          {/* Action Export / Print Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={handleDownloadWord}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
-              title="Xuất bản đề thi Microsoft Word (.doc) chuẩn OMR"
-            >
-              <FileText size={14} className="text-blue-600" /> {printMode === 'batch' && students.length > 0 ? `Xuất Word (${students.length} Bản)` : 'Xuất Word'}
-            </button>
+            {docType === 'exam_paper' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownloadWord}
+                  className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
+                  title="Xuất bản đề thi Microsoft Word (.doc) chuẩn OMR"
+                >
+                  <FileText size={14} className="text-blue-600" /> {printMode === 'batch' && students.length > 0 ? `Xuất Word (${students.length} Bản)` : 'Xuất Word'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadExcel}
+                  className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
+                  title="Xuất bảng câu hỏi & đáp án Excel (.xlsx)"
+                >
+                  <FileSpreadsheet size={14} className="text-emerald-600" /> Xuất Excel
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handleDownloadPdf}
               className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
-              title="Xuất trực tiếp file PDF chất lượng cao"
+              title="Xuất trực tiếp file PDF vector chất lượng cao"
             >
-              <Printer size={14} className="text-rose-600" /> {printMode === 'batch' && students.length > 0 ? `Xuất PDF (${students.length} Bản)` : 'Xuất PDF'}
+              <Printer size={14} className="text-rose-600" /> {printMode === 'batch' && students.length > 0 && docType !== 'qr_sheet' ? `Xuất PDF (${students.length} Bản)` : 'Xuất PDF'}
             </button>
             <button
               type="button"
@@ -371,22 +546,20 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
               title="Tải file HTML độc lập để mở trên trình duyệt và in"
             >
-              <Globe size={14} className="text-sky-600" /> {printMode === 'batch' && students.length > 0 ? `Tải HTML (${students.length} Bản)` : 'Tải HTML'}
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadExcel}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
-              title="Xuất bảng câu hỏi & đáp án Excel (.xlsx)"
-            >
-              <FileSpreadsheet size={14} className="text-emerald-600" /> Xuất Excel
+              <Globe size={14} className="text-sky-600" /> {printMode === 'batch' && students.length > 0 && docType !== 'qr_sheet' ? `Tải HTML (${students.length} Bản)` : 'Tải HTML'}
             </button>
             <button
               type="button"
               onClick={handlePrint}
               className="btn btn-primary btn-sm flex items-center gap-1.5 text-xs font-bold shadow-xs"
             >
-              <Printer size={14} /> {printMode === 'batch' && students.length > 0 ? `In Cả Lớp (${students.length} Bản)` : 'In Đề Thi & Phiếu Gộp'}
+              <Printer size={14} /> {
+                docType === 'qr_sheet'
+                  ? 'In Thẻ Mã QR'
+                  : docType === 'answer_sheet'
+                    ? (printMode === 'batch' && students.length > 0 ? `In Phiếu Trả Lời (${students.length} Bản)` : 'In Phiếu Trả Lời')
+                    : (printMode === 'batch' && students.length > 0 ? `In Cả Lớp (${students.length} Bản)` : 'In Đề Thi & Phiếu Gộp')
+              }
             </button>
           </div>
         </div>
@@ -396,7 +569,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
           <div className="w-full max-w-[210mm] h-full bg-white shadow-xl rounded-sm overflow-hidden">
             <iframe
               srcDoc={previewHtml}
-              title="Xem trước đề thi gộp phiếu trả lời"
+              title="Xem trước tài liệu kiểm tra"
               className="w-full h-full border-none bg-white"
             />
           </div>
