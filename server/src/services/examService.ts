@@ -213,10 +213,6 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts =
     } catch (error) {
       attempt++
       if (!isSqliteBusyError(error) || attempt >= maxAttempts) throw error
-      // Local @libsql/client can fail immediately when several write transactions
-      // contend. Exponential backoff alone synchronizes the losers again, so add
-      // jitter and retry the whole idempotent save transaction. Business errors
-      // and non-BUSY database failures are never retried.
       const baseDelayMs = Math.min(250, 20 * 2 ** (attempt - 1))
       const jitterMs = Math.floor(Math.random() * Math.max(20, Math.floor(baseDelayMs * 0.35)))
       await new Promise(resolve => setTimeout(resolve, baseDelayMs + jitterMs))
@@ -330,7 +326,30 @@ export async function upsertExamResults(
   }
 
   return withSqliteBusyRetry(() => db.transaction(async (tx) => {
-    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
+    // libSQL/SQLite starts transactions as deferred. If every concurrent saver
+    // reads first, they all establish a read snapshot and the losers later fail
+    // with SQLITE_BUSY_SNAPSHOT while upgrading to a writer. Make a harmless
+    // conditional write the first statement so contenders serialize before any
+    // validation read snapshot is created. The status guard also prevents a save
+    // from racing past a concurrent finalization.
+    await tx
+      .update(examSessions)
+      .set({ status: 'draft' })
+      .where(and(
+        eq(examSessions.id, sessionId),
+        eq(examSessions.parishId, parishId),
+        eq(examSessions.status, 'draft'),
+      ))
+
+    const [session] = await tx
+      .select()
+      .from(examSessions)
+      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+      .limit(1)
+    if (!session) throw new ExamNotFoundError()
+    if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
+      throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
+    }
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
