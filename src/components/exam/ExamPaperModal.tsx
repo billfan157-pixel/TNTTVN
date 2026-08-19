@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import {
   X, Printer, Download, Eye, EyeOff, LayoutGrid,
   Columns, Settings2, FileText, CheckCircle2, CheckSquare,
-  Square, Award, Users, User
+  Square, Award, Users, User, FileSpreadsheet
 } from 'lucide-react'
 import {
   buildExamPaperHtml,
@@ -14,6 +14,7 @@ import {
 } from '../../utils/examSheets'
 import { ReportExportService } from '../../services/reportExportService'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import type { ExamQuestion } from '../../types'
 
 interface ExamPaperModalProps {
@@ -39,14 +40,13 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 }) => {
   const [showAnswerKey, setShowAnswerKey] = useState(false)
   const [layoutColumns, setLayoutColumns] = useState<1 | 2>(2)
-  const [durationMinutes, setDurationMinutes] = useState(45)
   const [includeAnswerGrid, setIncludeAnswerGrid] = useState(true)
   const [includeGradingBox, setIncludeGradingBox] = useState(true)
-  const [printMode, setPrintMode] = useState<'single' | 'batch'>(students.length > 0 ? 'batch' : 'single')
+  const [durationMinutes, setDurationMinutes] = useState(45)
+  const [printMode, setPrintMode] = useState<'single' | 'batch'>('single')
 
-  const settings = useSettingsStore(s => s.settings)
-  const parishName = settings.parishName || 'Giáo Xứ'
-  const dioceseName = settings.dioceseName || 'Giáo Phận Xuân Lộc'
+  const parishName = useSettingsStore(s => s.settings.parishName) || 'Giáo Xứ Mẫu Tâm'
+  const dioceseName = useSettingsStore(s => s.settings.dioceseName) || 'Giáo Phận Sài Gòn'
 
   const printOptions: ExamPaperPrintOptions = useMemo(() => ({
     parishName,
@@ -96,6 +96,34 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     ReportExportService.downloadHTML(previewHtml, filename)
   }
 
+  const handleDownloadWord = () => {
+    exportExamToWord({
+      parishName,
+      dioceseName,
+      subject,
+      classLabel,
+      academicYear,
+      durationMinutes,
+      questions,
+      includeAnswerKey: showAnswerKey,
+      includeExplanations: false,
+      includeStudentInfo: true,
+      includeQuickAnswerGrid: includeAnswerGrid,
+      layoutColumns,
+    })
+  }
+
+  const handleDownloadExcel = () => {
+    exportExamToExcel({
+      subject,
+      classLabel,
+      academicYear,
+      questions,
+      includeAnswerKey: true,
+      includeExplanations: true,
+    })
+  }
+
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="exam-paper-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-surface-card rounded-2xl p-6 w-full max-w-6xl shadow-2xl h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
@@ -140,59 +168,56 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                   className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
                     printMode === 'single' ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                   }`}
-                  title="In 1 bản mẫu chung (chấm dấu chấm để học sinh tự điền tên)"
+                  title="In mẫu đề thi chung (học sinh tự điền họ tên/SBD)"
                 >
-                  <User size={13} /> Bản Mẫu Chung
+                  <User size={13} /> Mẫu Chung
                 </button>
               </div>
             )}
 
-            {/* Gộp Khung Phiếu Trả Lời Trắc Nghiệm */}
+            {/* Answer Key Toggle */}
             <button
               type="button"
-              onClick={() => setIncludeAnswerGrid(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+              onClick={() => setShowAnswerKey(!showAnswerKey)}
+              className={`btn btn-sm text-xs font-bold flex items-center gap-1.5 ${
+                showAnswerKey ? 'btn-primary' : 'btn-secondary'
+              }`}
+            >
+              {showAnswerKey ? <Eye size={14} /> : <EyeOff size={14} />}
+              {showAnswerKey ? 'Hiện Đáp Án (Bản Giáo Viên)' : 'Ẩn Đáp Án (Bản Học Sinh)'}
+            </button>
+
+            {/* Answer Grid Toggle */}
+            <button
+              type="button"
+              onClick={() => setIncludeAnswerGrid(!includeAnswerGrid)}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
                 includeAnswerGrid
                   ? 'bg-parish-primary-light border-parish-primary/30 text-parish-primary'
-                  : 'bg-surface-card border-surface-border text-text-muted hover:text-text-main'
+                  : 'bg-surface-card border-surface-border text-text-muted'
               }`}
-              title="Tích hợp ma trận ô A/B/C/D cùng 4 Marker OMR ngay trên tờ đề thi"
+              title="Khung tô đáp án nhanh (A B C D) ngay dưới tiêu đề"
             >
-              {includeAnswerGrid ? <CheckSquare size={14} className="text-parish-primary" /> : <Square size={14} />}
-              <span>Khung OMR Tích Hợp</span>
+              {includeAnswerGrid ? <CheckSquare size={14} /> : <Square size={14} />}
+              Khung Tô Đáp Án
             </button>
 
-            {/* Gộp Khung Điểm & Lời Phê GLV */}
+            {/* Grading Box Toggle */}
             <button
               type="button"
-              onClick={() => setIncludeGradingBox(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+              onClick={() => setIncludeGradingBox(!includeGradingBox)}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1.5 ${
                 includeGradingBox
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300'
-                  : 'bg-surface-card border-surface-border text-text-muted hover:text-text-main'
+                  ? 'bg-parish-primary-light border-parish-primary/30 text-parish-primary'
+                  : 'bg-surface-card border-surface-border text-text-muted'
               }`}
-              title="Bảng điểm chi tiết & lời phê dành cho Giáo Lý Viên"
+              title="Khung Điểm và Lời Phê của Giáo lý viên"
             >
-              <Award size={14} className={includeGradingBox ? 'text-amber-600' : 'text-text-muted'} />
-              <span>Khung Chấm Điểm</span>
+              {includeGradingBox ? <CheckSquare size={14} /> : <Square size={14} />}
+              Khung Điểm & Lời Phê
             </button>
 
-            {/* Show/Hide Answer Key toggle */}
-            <button
-              type="button"
-              onClick={() => setShowAnswerKey(v => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                showAnswerKey
-                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-                  : 'bg-surface-card border-surface-border text-text-muted hover:text-text-main'
-              }`}
-              title="Bản in có sẵn đáp án để GLV làm khuôn chấm nhanh"
-            >
-              {showAnswerKey ? <Eye size={14} className="text-emerald-600" /> : <EyeOff size={14} />}
-              <span>{showAnswerKey ? 'Đáp Án Mẫu (Cho GLV)' : 'Đề Thi (Cho Học Sinh)'}</span>
-            </button>
-
-            {/* Layout Columns toggle */}
+            {/* Layout Column Toggle */}
             <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
               <button
                 type="button"
@@ -232,6 +257,22 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadWord}
+              className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
+              title="Xuất bản đề thi Microsoft Word (.doc)"
+            >
+              <FileText size={14} className="text-blue-600" /> Xuất Word
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadExcel}
+              className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
+              title="Xuất bảng câu hỏi & đáp án Excel (.xlsx)"
+            >
+              <FileSpreadsheet size={14} className="text-emerald-600" /> Xuất Excel
+            </button>
             <button
               type="button"
               onClick={handleDownloadHtml}

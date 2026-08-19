@@ -583,6 +583,16 @@ Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side,
 
 ---
 
+### 21.4 Xuất Đề Thi Đa Định Dạng (Multi-Format Exam Exporter - `src/utils/examExporter.ts`)
+Hệ thống cung cấp tính năng xuất đề thi và bảng đáp án đa định dạng 100% Client-side, hoạt động hoàn toàn Offline:
+1. **Microsoft Word (.doc)**: Header Giáo Phận / Giáo Xứ, lớp, niên khóa, khung thông tin học sinh, ô trả lời trắc nghiệm nhanh, 1 hoặc 2 cột, bảng đáp án và giải thích chi tiết cho GLV.
+2. **Excel (.xlsx)**: File đa sheet bằng SheetJS (`Danh_Sach_Cau_Hoi` tương thích import, `Bang_Dap_An_Ma_De` ma trận đáp án mã đề A–H, `Thong_Tin_De_Thi`).
+3. **Plain Text (.txt) & Markdown (.md)**: Định dạng phân đoạn rõ ràng, bảng Markdown GFM.
+4. **JSON (.json)**: Gói dữ liệu đầy đủ metadata, câu hỏi, điểm và đáp án.
+5. **Bảo mật**: Khử XSS toàn bộ nội dung HTML sinh ra bằng `escapeHtml`.
+
+---
+
 ## 22. QUY CHẾ QUẢN LÝ NGÂN QUỸ & THU CHI XỨ ĐOÀN TNTT (ADR-039)
 
 ### 22.1 Phân Quyền & Bảo Mật Ngân Quỹ (Strict Admin-Only RBAC)

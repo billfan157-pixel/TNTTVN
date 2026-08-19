@@ -384,6 +384,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | **OMR Fail Reasons** | `ExamScanModal.tsx` | Vietnamese tooltips for 10+ OMR failure codes, gồm `NO_PAPER_SURFACE`; trạng thái xanh xác nhận mã đã được giữ 20 giây và nêu riêng lý do OMR chưa đạt, trạng thái vàng dành cho mã chưa thấy/không hợp lệ. |
 | **Exam Type Instructions** | `AnswerSheetModal.tsx` | Differentiated MC vs Written instructions |
 | **Multi-fill + Blank Highlights** | `ExamScanModal.tsx` | Amber (multi-fill ⚡) + Gray (blank —) in scan detail grid |
+| **Multi-Format Exam Exporter** | `src/utils/examExporter.ts` + `ExamExportModal.tsx` | Xuất đề thi 6 định dạng client-side (Word .doc, Excel .xlsx đa sheet, Plain Text .txt, Markdown .md, JSON .json, In/PDF); cấu hình hiển thị đáp án, lời giải, khung thông tin học sinh, ô trả lời trắc nghiệm, bố cục 1/2 cột, mã đề A–H; 100% offline. |
 | **Re-score on Answer Key Edit** | `ExamSessionView.tsx` + `examService.ts` | `PATCH /api/exams/:id/answer-key` re-scores OMR results, preserves quick_entry |
 
 ## 8. PARISH SETTINGS API (`/api/settings`)

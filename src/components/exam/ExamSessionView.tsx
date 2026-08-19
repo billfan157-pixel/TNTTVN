@@ -17,6 +17,7 @@ import { GuidedGradeModal, type GuidedGradeStudent } from './GuidedGradeModal'
 import { ExamImportModal } from './ExamImportModal'
 import { useToastStore } from '../../stores/toastStore'
 import { ExamPaperModal } from './ExamPaperModal'
+import { ExamExportModal } from './ExamExportModal'
 import { ExamBatchScanModal } from './ExamBatchScanModal'
 import { ExamAnalyticsPanel } from './ExamAnalyticsPanel'
 import { ExamVariantsModal } from './ExamVariantsModal'
@@ -25,6 +26,7 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
+  Download,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion } from '../../types'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
@@ -133,6 +135,7 @@ export const ExamSessionView: React.FC = () => {
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showPaperModal, setShowPaperModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [showBatchScan, setShowBatchScan] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [showVariants, setShowVariants] = useState(false)
@@ -517,10 +520,10 @@ export const ExamSessionView: React.FC = () => {
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               {canScan && activeSession.status === 'draft' && (
                 <>
-                  <button className="btn btn-primary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => setShowGuidedGrade(true)} disabled={classStudents.length === 0}>
+                  <button className="btn btn-primary btn-sm min-h-11 col-span-2 justify-center sm:w-auto" onClick={() => setShowGuidedGrade(true)} disabled={classStudents.length === 0}>
                     <ListChecks size={14} /> Chấm Ổn Định
                   </button>
-                  <button className="btn btn-secondary btn-sm min-h-11 col-span-2 justify-center sm:col-auto" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
+                  <button className="btn btn-secondary btn-sm min-h-11 col-span-2 justify-center sm:w-auto" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
                     <ScanLine size={14} /> Quét QR + OMR
                   </button>
                   {activeSession.examType === 'multiple_choice' && (
@@ -547,6 +550,13 @@ export const ExamSessionView: React.FC = () => {
                   <FileText size={14} /> In Đề & Phiếu Gộp
                 </button>
               )}
+              <button
+                className="btn btn-secondary btn-sm min-h-11 justify-center"
+                onClick={() => setShowExportModal(true)}
+                title="Xuất đề thi và bảng đáp án ra Word (.doc), Excel (.xlsx), Text, Markdown, PDF hoặc JSON"
+              >
+                <Download size={14} /> Xuất Đề Thi
+              </button>
               <button
                 className="btn btn-secondary btn-sm min-h-11 justify-center"
                 onClick={() => setShowPrintSheets(true)}
@@ -584,82 +594,82 @@ export const ExamSessionView: React.FC = () => {
             </div>
           </div>
 
-              {/* Conflicts from last finalize */}
-              {hasBlockedConflicts && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
-                  <div className="flex items-center gap-2 font-bold text-sm text-amber-800 mb-1">
-                    <AlertTriangle size={16} /> {lastFinalize!.conflicts.length} học sinh bị chặn ghi đè điểm tay
-                  </div>
-                  <ul className="text-sm text-amber-800 list-disc ml-5">
-                    {lastFinalize!.conflicts.map(c => (
-                      <li key={c.studentId}>
-                        {c.studentName}: điểm hiện tại <b>{c.existingScore ?? '—'}</b> (nguồn {c.existingSource === 'excel_import' ? 'nhập Excel' : c.existingSource === 'override' ? 'ghi đè chính thức' : 'nhập tay'}) — điểm scan <b>{c.scannedScore}</b>. Không tự ghi đè — xử lý qua Ghi Đè Điểm ở Ma Trận.
-                      </li>
-                    ))}
-                  </ul>
-                  {conflictsConfirmed && (
-                    <div className="mt-2 flex items-center gap-2 text-sm text-emerald-700">
-                      <CheckCircle2 size={16} /> Phiên đã đóng. Những em bị chặn nằm ngoài finalize — không bị ảnh hưởng điểm tay.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Finalize success */}
-              {lastFinalize && lastFinalize.conflicts.length === 0 && conflictsConfirmed && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4 flex items-start gap-2 text-sm text-emerald-800">
-                  <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-                  <div>
-                    Hoàn tất phiên chấm thành công:{' '}
-                    <b>{lastFinalize.dailyCount}</b> học sinh vào điểm hằng ngày,
-                    <b> {lastFinalize.directCount}</b> học sinh ghi trực tiếp (Giữa Kỳ/Cuối Kỳ).
-                  </div>
-                </div>
-              )}
-
-              {canScan && activeSession.status === 'draft' && (
-                <div className="mb-4">
-                  <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2">
-                    <Save size={14} /> Nhập Điểm Nhanh (Enter để lưu)
-                  </div>
-                  <QuickScoreEntry
-                    students={classStudents}
-                    savedScores={savedScores}
-                    maxScore={activeSession.maxScore}
-                    onSave={handleSaveScore}
-                    disabled={saving}
-                  />
-                </div>
-              )}
-
-              <div className="mb-4">
-                <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2">
-                  <QrCode size={14} /> Kết quả đã lưu ({results.length})
-                </div>
-                <ExamResultsTable
-                  results={results}
-                  sessionId={activeSession.id}
-                  onRemove={canScan && activeSession.status === 'draft' ? handleRemoveResult : () => {}}
-                />
+          {/* Conflicts from last finalize */}
+          {hasBlockedConflicts && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+              <div className="flex items-center gap-2 font-bold text-sm text-amber-800 mb-1">
+                <AlertTriangle size={16} /> {lastFinalize!.conflicts.length} học sinh bị chặn ghi đè điểm tay
               </div>
-
-              {canManage && activeSession.status === 'draft' && (
-                <div className="flex flex-col gap-2 border-t border-surface-border pt-3 sm:flex-row sm:items-center sm:justify-end">
-                  <span className="text-xs text-text-muted sm:mr-auto">
-                    {results.length} học sinh có điểm — hoàn tất sẽ đóng phiên và ghi vào bảng điểm (không thể sửa trực tiếp).
-                  </span>
-                  <button
-                    className="btn btn-primary min-h-11 w-full justify-center sm:w-auto"
-                    onClick={handleFinalize}
-                    disabled={finalizing || results.length === 0}
-                  >
-                    {finalizing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                    {finalizing ? 'Đang hoàn tất…' : 'Hoàn Tất Phiên Chấm'}
-                  </button>
+              <ul className="text-sm text-amber-800 list-disc ml-5">
+                {lastFinalize!.conflicts.map(c => (
+                  <li key={c.studentId}>
+                    {c.studentName}: điểm hiện tại <b>{c.existingScore ?? '—'}</b> (nguồn {c.existingSource === 'excel_import' ? 'nhập Excel' : c.existingSource === 'override' ? 'ghi đè chính thức' : 'nhập tay'}) — điểm scan <b>{c.scannedScore}</b>. Không tự ghi đè — xử lý qua Ghi Đè Điểm ở Ma Trận.
+                  </li>
+                ))}
+              </ul>
+              {conflictsConfirmed && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-emerald-700">
+                  <CheckCircle2 size={16} /> Phiên đã đóng. Những em bị chặn nằm ngoài finalize — không bị ảnh hưởng điểm tay.
                 </div>
               )}
             </div>
           )}
+
+          {/* Finalize success */}
+          {lastFinalize && lastFinalize.conflicts.length === 0 && conflictsConfirmed && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4 flex items-start gap-2 text-sm text-emerald-800">
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+              <div>
+                Hoàn tất phiên chấm thành công:{' '}
+                <b>{lastFinalize.dailyCount}</b> học sinh vào điểm hằng ngày,
+                <b> {lastFinalize.directCount}</b> học sinh ghi trực tiếp (Giữa Kỳ/Cuối Kỳ).
+              </div>
+            </div>
+          )}
+
+          {canScan && activeSession.status === 'draft' && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2">
+                <Save size={14} /> Nhập Điểm Nhanh (Enter để lưu)
+              </div>
+              <QuickScoreEntry
+                students={classStudents}
+                savedScores={savedScores}
+                maxScore={activeSession.maxScore}
+                onSave={handleSaveScore}
+                disabled={saving}
+              />
+            </div>
+          )}
+
+          <div className="mb-4">
+            <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2">
+              <QrCode size={14} /> Kết quả đã lưu ({results.length})
+            </div>
+            <ExamResultsTable
+              results={results}
+              sessionId={activeSession.id}
+              onRemove={canScan && activeSession.status === 'draft' ? handleRemoveResult : () => {}}
+            />
+          </div>
+
+          {canManage && activeSession.status === 'draft' && (
+            <div className="flex flex-col gap-2 border-t border-surface-border pt-3 sm:flex-row sm:items-center sm:justify-end">
+              <span className="text-xs text-text-muted sm:mr-auto">
+                {results.length} học sinh có điểm — hoàn tất sẽ đóng phiên và ghi vào bảng điểm (không thể sửa trực tiếp).
+              </span>
+              <button
+                className="btn btn-primary min-h-11 w-full justify-center sm:w-auto"
+                onClick={handleFinalize}
+                disabled={finalizing || results.length === 0}
+              >
+                {finalizing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                {finalizing ? 'Đang hoàn tất…' : 'Hoàn Tất Phiên Chấm'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {showGuidedGrade && activeSession && (
         <GuidedGradeModal
@@ -718,7 +728,6 @@ export const ExamSessionView: React.FC = () => {
         <ExamVariantsModal session={activeSession} onClose={() => setShowVariants(false)} />
       )}
 
-      
       {/* Answer Key Viewer Modal for Active Session */}
       {showAnswerKeyModal && activeSession && (
         <div role="dialog" aria-modal="true" aria-labelledby="answer-key-title" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAnswerKeyModal(false)}>
@@ -841,7 +850,6 @@ export const ExamSessionView: React.FC = () => {
               </div>
             )}
 
-
             {/* Smart Exam Importer Banner */}
             <div className="flex items-center justify-between mb-4 bg-surface-hover/70 p-3 rounded-xl border border-surface-border">
               <div>
@@ -930,8 +938,8 @@ export const ExamSessionView: React.FC = () => {
             <label className="block text-xs font-bold text-text-secondary mb-1">Thang điểm tối đa</label>
             <input
               type="number"
-                  inputMode="decimal"
-                  pattern="[0-9]*"
+              inputMode="decimal"
+              pattern="[0-9]*"
               min={1}
               max={10}
               value={createForm.maxScore}
@@ -1067,6 +1075,23 @@ export const ExamSessionView: React.FC = () => {
           questions={activeSessionQuestions}
           students={classStudents}
           sessionId={activeSession.id}
+        />
+      )}
+
+      {/* Export Exam Modal */}
+      {showExportModal && activeSession && (
+        <ExamExportModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          subject={activeSession.subject}
+          classLabel={activeSessionClassId ? findClassById(activeSessionClassId)?.name ?? 'Lớp' : 'Lớp'}
+          academicYear={activeSession.academicYear}
+          semester={activeSession.semester}
+          questions={activeSessionQuestions}
+          questionCount={activeSession.questionCount}
+          answerKey={activeSession.answerKey}
+          answerVariants={activeSession.answerVariants}
+          maxScore={activeSession.maxScore}
         />
       )}
 
