@@ -545,15 +545,21 @@ export const ExamSessionView: React.FC = () => {
                 <button
                   className="btn btn-secondary btn-sm min-h-11 justify-center"
                   onClick={() => setShowPaperModal(true)}
-                  title="In đề thi tích hợp phiếu trả lời và khung điểm gộp tiết kiệm giấy"
+                  title="Xem, in và xuất đề thi tích hợp phiếu trả lời OMR ra Word (.doc), PDF, HTML, Excel (.xlsx)"
                 >
-                  <FileText size={14} /> In Đề & Phiếu Gộp
+                  <FileText size={14} /> In & Xuất Đề Gộp
                 </button>
               )}
               <button
                 className="btn btn-secondary btn-sm min-h-11 justify-center"
-                onClick={() => setShowExportModal(true)}
-                title="Xuất đề thi và bảng đáp án ra Word (.doc), Excel (.xlsx), Text, Markdown, PDF hoặc JSON"
+                onClick={() => {
+                  if (activeSessionQuestions.length > 0) {
+                    setShowPaperModal(true)
+                  } else {
+                    setShowExportModal(true)
+                  }
+                }}
+                title="Xuất đề thi và bảng đáp án ra Word (.doc), PDF, HTML, Excel (.xlsx), Text, Markdown hoặc JSON"
               >
                 <Download size={14} /> Xuất Đề Thi
               </button>
@@ -1064,7 +1070,7 @@ export const ExamSessionView: React.FC = () => {
         />
       )}
 
-      {/* Printable Exam Paper Modal */}
+      {/* Printable & Exportable Exam Paper Modal */}
       {showPaperModal && activeSession && (
         <ExamPaperModal
           isOpen={showPaperModal}
@@ -1075,6 +1081,8 @@ export const ExamSessionView: React.FC = () => {
           questions={activeSessionQuestions}
           students={classStudents}
           sessionId={activeSession.id}
+          answerKey={activeSession.answerKey}
+          answerVariants={activeSession.answerVariants}
         />
       )}
 
