@@ -14,6 +14,7 @@ import {
 } from '../../utils/examSheets'
 import { ReportExportService } from '../../services/reportExportService'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel, exportExamToHtml } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
