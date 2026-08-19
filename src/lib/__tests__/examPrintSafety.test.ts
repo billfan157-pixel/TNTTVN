@@ -42,13 +42,16 @@ describe('examPrintSafety', () => {
     expect(() => assertContiguousOmrQuestionRows('<html>no OMR grid</html>')).not.toThrow()
   })
 
-  it.each([
-    { indexes: [1, 1, 3] },
-    { indexes: [1, 3, 2] },
-    { indexes: [2, 3, 4] },
-    { indexes: [1, 2, 4] },
-  ])('fails closed for duplicate/gap/reordered OMR indexes: $indexes', ({ indexes }) => {
-    expect(() => assertContiguousOmrQuestionRows(rows(indexes))).toThrow(ExamPrintIntegrityError)
+  it('fails closed for duplicate/gap/reordered OMR indexes', () => {
+    const invalidRows: number[][] = [
+      [1, 1, 3],
+      [1, 3, 2],
+      [2, 3, 4],
+      [1, 2, 4],
+    ]
+    for (const indexes of invalidRows) {
+      expect(() => assertContiguousOmrQuestionRows(rows(indexes))).toThrow(ExamPrintIntegrityError)
+    }
   })
 
   it('removes printed A/B/C/D glyphs from bubble ROI without changing bubble elements', () => {
