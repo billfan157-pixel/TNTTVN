@@ -236,8 +236,8 @@ export const branches = sqliteTable('branches', {
    id: text('id').notNull(),
    name: text('name').notNull(),
    scarfColor: text('scarf_color').notNull(),
-   ageMin: integer('age_min').notNull(),
-   ageMax: integer('age_max').notNull(),
+   ageMin: integer('age_min', { mode: 'number' }).notNull(),
+   ageMax: integer('age_max', { mode: 'number' }).notNull(),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
    updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -774,7 +774,7 @@ export const examFinalizations = sqliteTable('exam_finalizations', {
 
 export const examFinalizationItems = sqliteTable('exam_finalization_items', {
   id: text('id').notNull(),
-  parishId: text('parish_id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
   finalizationId: text('finalization_id').notNull(),
   examResultId: text('exam_result_id').notNull(),
   studentId: text('student_id').notNull(),
@@ -889,7 +889,7 @@ export const financialTransactions = sqliteTable('financial_transactions', {
 
 export const studentFeeRecords = sqliteTable('student_fee_records', {
   id: text('id').notNull(),
-  parishId: text('parish_id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
   studentId: text('student_id').notNull(),
   classId: text('class_id').notNull(),
   academicYear: text('academic_year').notNull(),
