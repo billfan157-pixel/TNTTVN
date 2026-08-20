@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import bcrypt from 'bcryptjs'
 import backupRouter from '../../routes/backup.js'
 import { db } from '../../db/index.js'
-import { students, users, classes, branches, academicYears } from '../../db/schema.js'
+import { students, users, classes, branches, academicYears, examSessions, examResults } from '../../db/schema.js'
 import { generateId } from '../../utils/id.js'
 import { generateTokens } from '../../middleware/auth.js'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
   const adminId = generateId('USR')
@@ -146,5 +146,108 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
     const checkRestored = await db.select().from(students).where(eq(students.id, testId))
     expect(checkRestored.length).toBe(1)
     expect(checkRestored[0].fullName).toBe('Trần Thị Khôi Phục')
+  })
+
+  it('3. Export keeps exam results tenant-scoped when session/student IDs collide', async () => {
+    const localParish = 'gia-ton'
+    const foreignParish = 'backup-domain2-foreign'
+    const branchId = 'br-backup-domain2-shared'
+    const yearId = 'ay-backup-domain2-shared'
+    const classId = 'cls-backup-domain2-shared'
+    const studentId = 'st-backup-domain2-shared'
+    const sessionId = 'EXS-BACKUP-DOMAIN2-SHARED'
+    const localResultId = 'EXR-BACKUP-DOMAIN2-LOCAL'
+    const foreignResultId = 'EXR-BACKUP-DOMAIN2-FOREIGN'
+
+    for (const parishId of [localParish, foreignParish]) {
+      await db.delete(examResults).where(and(eq(examResults.parishId, parishId), eq(examResults.examSessionId, sessionId)))
+      await db.delete(examSessions).where(and(eq(examSessions.parishId, parishId), eq(examSessions.id, sessionId)))
+      await db.delete(students).where(and(eq(students.parishId, parishId), eq(students.id, studentId)))
+      await db.delete(classes).where(and(eq(classes.parishId, parishId), eq(classes.id, classId)))
+      await db.delete(branches).where(and(eq(branches.parishId, parishId), eq(branches.id, branchId)))
+      await db.delete(academicYears).where(and(eq(academicYears.parishId, parishId), eq(academicYears.id, yearId)))
+
+      await db.insert(branches).values({
+        id: branchId,
+        parishId,
+        name: `Backup Branch ${parishId}`,
+        scarfColor: 'Xanh',
+        ageMin: 6,
+        ageMax: 9,
+      })
+      await db.insert(academicYears).values({
+        id: yearId,
+        parishId,
+        startDate: '2026-09-01',
+        endDate: '2027-05-31',
+      })
+      await db.insert(classes).values({
+        id: classId,
+        parishId,
+        code: 'BK-D2-SHARED',
+        name: `Backup Class ${parishId}`,
+        branchId,
+        academicYearId: yearId,
+        idempotencyKey: 'backup-domain2-class-shared',
+      })
+      await db.insert(students).values({
+        id: studentId,
+        parishId,
+        code: 'BK-D2-STUDENT',
+        holyName: 'Giuse',
+        fullName: `Backup Student ${parishId}`,
+        gender: 'Nam',
+        dateOfBirth: '2015-01-01',
+        parentName: 'Backup Parent',
+        parentPhone: '0900999888',
+        address: 'Test',
+        branch: 'AuNhi',
+        classId,
+      })
+      await db.insert(examSessions).values({
+        id: sessionId,
+        parishId,
+        classId,
+        subject: 'Backup Tenant Isolation',
+        scoreType: '15m',
+        maxScore: 10,
+        semester: 1,
+        academicYear: yearId,
+        status: 'draft',
+        createdBy: parishId === localParish ? adminId : 'foreign-admin',
+        examType: 'written',
+        idempotencyKey: 'backup-domain2-session-shared',
+      })
+    }
+
+    await db.insert(examResults).values([
+      {
+        id: localResultId,
+        parishId: localParish,
+        examSessionId: sessionId,
+        studentId,
+        score: 7,
+        source: 'quick_entry',
+      },
+      {
+        id: foreignResultId,
+        parishId: foreignParish,
+        examSessionId: sessionId,
+        studentId,
+        score: 3,
+        source: 'quick_entry',
+      },
+    ])
+
+    const res = await backupRouter.request('/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ adminPassword: ADMIN_PASSWORD }),
+    })
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as any
+    expect(json.data.examResults.some((row: any) => row.id === localResultId)).toBe(true)
+    expect(json.data.examResults.some((row: any) => row.id === foreignResultId)).toBe(false)
   })
 })
