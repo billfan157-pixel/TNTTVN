@@ -1609,6 +1609,21 @@ CREATE INDEX IF NOT EXISTS idx_exam_finalization_items_lookup ON exam_finalizati
   // có thể tự phục hồi qua duplicate-column tolerance của migration runner.
   { version: '20260818-124', sql: `ALTER TABLE exam_sessions ADD COLUMN answer_variants TEXT` },
   { version: '20260818-125', sql: `ALTER TABLE exam_results ADD COLUMN exam_version TEXT NOT NULL DEFAULT 'A'` },
+  // Domain 2 multi-tenant hardening: migration 109 rebuilt these tenant-local
+  // unique keys without parish_id. Recreate only those explicit indexes with
+  // parish_id first so same logical IDs/codes can coexist in different parishes.
+  { version: '20260820-126', sql: `
+DROP INDEX IF EXISTS idx_classes_code_year;
+CREATE UNIQUE INDEX idx_classes_code_year ON classes(parish_id, code, academic_year_id);
+DROP INDEX IF EXISTS idx_catechist_assignments_unique;
+CREATE UNIQUE INDEX idx_catechist_assignments_unique ON catechist_assignments(parish_id, user_id, class_id);
+DROP INDEX IF EXISTS idx_role_permissions_pk;
+CREATE UNIQUE INDEX idx_role_permissions_pk ON role_permissions(parish_id, role, permission_id);
+DROP INDEX IF EXISTS idx_service_assignments_unique;
+CREATE UNIQUE INDEX idx_service_assignments_unique ON service_assignments(parish_id, student_id, service_type);
+DROP INDEX IF EXISTS idx_exam_results_unique;
+CREATE UNIQUE INDEX idx_exam_results_unique ON exam_results(parish_id, exam_session_id, student_id);
+` },
 ]
 
 async function runMigrations() {
