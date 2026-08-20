@@ -69,6 +69,15 @@ export function isOwnOp(item: SyncQueueItem): boolean {
   return item.userId === currentUserId
 }
 
+/** ADR-016: Conflict maintenance must obey the same per-user boundary as queue ops. */
+export function isOwnConflict(item: SyncConflict): boolean {
+  const currentUserId = getCurrentUserId()
+  if (!currentUserId) {
+    return !item.userId || item.userId === ''
+  }
+  return item.userId === currentUserId
+}
+
 async function getPendingQueueItems(): Promise<SyncQueueItem[]> {
   const db = getDB()
   const currentUserId = getCurrentUserId()
@@ -225,7 +234,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         .reverse()
         .sortBy('createdAt')
     }
-    return await db.syncConflicts.reverse().sortBy('createdAt')
+    return (await db.syncConflicts.reverse().sortBy('createdAt')).filter(isOwnConflict)
   },
 
   addConflict: async (conflict: Omit<SyncConflict, 'id' | 'createdAt' | 'resolved' | 'userId'>) => {
@@ -243,6 +252,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   resolveConflict: async (id) => {
     const db = getDB()
+    const conflict = await db.syncConflicts.get(id)
+    if (!conflict || !isOwnConflict(conflict)) return
     await db.syncConflicts.update(id, {
       resolved: true,
       resolvedAt: new Date().toISOString(),
@@ -251,8 +262,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   clearResolvedConflicts: async () => {
     const db = getDB()
-    // Chỉ xóa các bản ghi đã xác nhận (resolved === true).
-    await db.syncConflicts.where('resolved').equals(1).delete()
+    // ADR-016: only remove resolved conflicts owned by the current user.
+    const resolved = await db.syncConflicts.where('resolved').equals(1).toArray()
+    const mine = resolved.filter(isOwnConflict)
+    for (const conflict of mine) {
+      await db.syncConflicts.delete(conflict.id)
+    }
   },
 
   compactQueue: async () => {
@@ -372,4 +387,3 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
   },
 }))
-
