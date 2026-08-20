@@ -119,7 +119,7 @@ export const students = sqliteTable('students', {
     }).onDelete('restrict'),
     index('idx_students_parish_id').on(table.parishId),
    index('idx_students_class_id').on(table.classId),
-   uniqueIndex('idx_students_idempotency').on(table.idempotencyKey),
+   uniqueIndex('idx_students_idempotency').on(table.parishId, table.idempotencyKey),
    uniqueIndex('idx_students_code_parish').on(table.parishId, table.code),
  ])
 
@@ -209,7 +209,7 @@ export const notices = sqliteTable('notices', {
     primaryKey({ columns: [table.parishId, table.id] }),
     index('idx_notices_parish_id').on(table.parishId),
    index('idx_notices_date').on(table.parishId, table.date),
-   uniqueIndex('idx_notices_idempotency').on(table.idempotencyKey),
+   uniqueIndex('idx_notices_idempotency').on(table.parishId, table.idempotencyKey),
  ])
 
 export const auditLogs = sqliteTable('audit_logs', {
@@ -290,7 +290,7 @@ export const classes = sqliteTable('classes', {
     }).onDelete('restrict'),
     index('idx_classes_parish_id').on(table.parishId),
    uniqueIndex('idx_classes_code_year').on(table.parishId, table.code, table.academicYearId),
-   uniqueIndex('idx_classes_idempotency').on(table.idempotencyKey),
+   uniqueIndex('idx_classes_idempotency').on(table.parishId, table.idempotencyKey),
  ])
 
 export const systemSettings = sqliteTable('system_settings', {
@@ -695,7 +695,7 @@ export const examSessions = sqliteTable('exam_sessions', {
   // C1 (2026-08-14): UNIQUE idempotency guard (ADR-023) — rebuild 109 đánh rơi, khôi phục
   // qua migration 20260814-117 + INDICES defensive. NULL idempotency_key được phép trùng
   // (SQLite UNIQUE bỏ qua NULL) nên chỉ ràng buộc các key client gửi temp id.
-  uniqueIndex('idx_exam_sessions_idempotency').on(table.idempotencyKey),
+  uniqueIndex('idx_exam_sessions_idempotency').on(table.parishId, table.idempotencyKey),
 ])
 
 export const examResults = sqliteTable('exam_results', {
