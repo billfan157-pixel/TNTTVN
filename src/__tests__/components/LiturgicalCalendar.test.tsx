@@ -17,7 +17,9 @@ describe('Liturgical UI Components Tests', () => {
     render(<LiturgicalTodayWidget />)
 
     expect(screen.getByText(today.title)).toBeDefined()
-    expect(screen.getByText(/Năm/)).toBeDefined()
+    expect(
+      screen.getByText(`${today.seasonName} • Năm ${today.sundayCycle || 'A'}`),
+    ).toBeDefined()
     expect(screen.getByText('Xem Lịch Phụng Vụ')).toBeDefined()
   })
 
