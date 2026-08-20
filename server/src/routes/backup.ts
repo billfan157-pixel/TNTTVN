@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { eq, inArray, count, getTableColumns, sql, and, ne } from 'drizzle-orm'
+import { eq, inArray, count, getTableColumns, sql, and } from 'drizzle-orm'
 import { createHash } from 'crypto'
 import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
 import { students, grades, attendance, classes, semesterLocks, gradeOverrides, promotionRecords, examSessions, examResults, auditLogs, attendanceSessions, academicYearSnapshots, catechistAssignments } from '../db/schema.js'
@@ -93,15 +93,13 @@ function computeChecksum(dataObj: any): string {
 // verifyActualCount phát hiện lệch count → rollback (giữ nguyên hành vi A21).
 const UPSERT_BATCH_SIZE = 100
 
-// A-NEW-31 (2026-08-11): TENANT GUARD trên upsert. PK các bảng là id thuần
-// (không composite parish_id) nên row của parish KHÁC (sống sót sau bước xóa —
-// restore chỉ xóa theo parish hiện tại) có cùng id với row trong payload sẽ bị
-// INSERT..ON CONFLICT GHI ĐÈ bằng dữ liệu của file restore → dữ liệu parish khác
-// bị phá (và row bị 'cướp' sang parish hiện tại nên verifyActualCount không phát
-// hiện). Guard: trong transaction (BEGIN IMMEDIATE — TOCTOU-safe), với MỖI batch,
-// SELECT các id đã tồn tại mà parish_id != current → THROW → rollback toàn bộ.
-// Scan theo batch 100 ids nên không đụng giới hạn ~999 SQL variable.
-async function upsertAll(tx: DbTransaction, table: any, rows: any[], label: string, parishId: string) {
+// Domain 2 (2026-08-20): IDs are tenant-local. Every restored row is forced to
+// the authenticated parish and the conflict target is the composite PK
+// (parish_id, id). A row in another parish with the same logical id is therefore
+// valid and must not block restore; the old cross-parish-id guard encoded the
+// obsolete assumption that id was globally unique and caused false restore
+// failures after the composite-key migration.
+async function upsertAll(tx: DbTransaction, table: any, rows: any[], _label: string, parishId: string) {
   if (rows.length === 0) return
   const columns = Object.values(getTableColumns(table)) as { name: string }[]
   const setMap: Record<string, unknown> = {}
@@ -112,17 +110,6 @@ async function upsertAll(tx: DbTransaction, table: any, rows: any[], label: stri
     const batch = rows
       .slice(i, i + UPSERT_BATCH_SIZE)
       .map((row: Record<string, any>) => ({ ...row, parishId }))
-    const ids = batch.map((r: any) => r.id).filter((id): id is string => typeof id === 'string' && id !== '')
-    if (ids.length > 0) {
-      const foreign = await tx
-        .select({ id: table.id })
-        .from(table)
-        .where(and(inArray(table.id, ids), ne(table.parishId, parishId)))
-      if (foreign.length > 0) {
-        const sample = foreign.slice(0, 5).map((f: any) => f.id).join(', ')
-        throw new Error(`RESTORE_TENANT_VIOLATION [${label}]: ${foreign.length} id thuộc parish khác (${sample}${foreign.length > 5 ? ', …' : ''}) — đã rollback`)
-      }
-    }
     await tx
       .insert(table)
       .values(batch)
