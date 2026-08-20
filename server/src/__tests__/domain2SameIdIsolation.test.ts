@@ -11,7 +11,9 @@ import {
   students,
   users,
 } from '../db/schema.js'
+import { getClasses } from '../services/classService.js'
 import { upsertExamResults } from '../services/examService.js'
+import { getMyChildren } from '../services/parentService.js'
 
 const parishA = 'parish-domain2-same-id-a'
 const parishB = 'parish-domain2-same-id-b'
@@ -21,6 +23,8 @@ const branchId = 'br-domain2-shared'
 const academicYearId = 'ay-domain2-shared'
 const classId = 'cl-domain2-shared'
 const userId = 'usr-domain2-shared'
+const parentId = 'parent-domain2-shared'
+const parentPhone = '0900777888'
 const studentId = 'st-domain2-shared'
 const sessionId = 'EXS-DOMAIN2-SHARED'
 const classCode = 'D2-SHARED'
@@ -65,14 +69,25 @@ async function seedParish(parishId: string, suffix: string): Promise<void> {
     idempotencyKey: `class-domain2-${suffix}`,
   })
 
-  await db.insert(users).values({
-    id: userId,
-    parishId,
-    username: 'domain2_same_user',
-    fullName: `Domain 2 User ${suffix}`,
-    passwordHash: 'hash',
-    role: 'admin',
-  })
+  await db.insert(users).values([
+    {
+      id: userId,
+      parishId,
+      username: 'domain2_same_user',
+      fullName: `Domain 2 User ${suffix}`,
+      passwordHash: 'hash',
+      role: 'admin',
+    },
+    {
+      id: parentId,
+      parishId,
+      username: 'domain2_same_parent',
+      fullName: `Domain 2 Parent ${suffix}`,
+      passwordHash: 'hash',
+      phone: parentPhone,
+      role: 'phuhuynh',
+    },
+  ])
 
   await db.insert(students).values({
     id: studentId,
@@ -83,7 +98,7 @@ async function seedParish(parishId: string, suffix: string): Promise<void> {
     gender: 'Nam',
     dateOfBirth: '2016-01-01',
     parentName: `Phụ huynh ${suffix}`,
-    parentPhone: suffix === 'A' ? '0900000001' : '0900000002',
+    parentPhone,
     address: 'Test',
     branch: 'AuNhi',
     classId,
@@ -136,6 +151,29 @@ describe('Domain 2 same-ID tenant isolation', () => {
     expect(classRows.filter(row => parishes.includes(row.parishId)).every(row => row.code === classCode)).toBe(true)
     expect(studentRows.filter(row => parishes.includes(row.parishId))).toHaveLength(2)
     expect(sessionRows.filter(row => parishes.includes(row.parishId))).toHaveLength(2)
+  })
+
+  it('keeps class metadata joins inside the requested parish when IDs collide', async () => {
+    const rows = (await getClasses(parishA)).filter(row => row.id === classId)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.name).toBe('Lớp Domain 2 A')
+    expect(rows[0]?.branchName).toBe('Ấu Nhi A')
+    expect(rows[0]?.academicYear).toBe('2026-09-01')
+    expect(rows[0]?.studentCount).toBe(1)
+  })
+
+  it('keeps parent child/class joins inside the requested parish when IDs and phone collide', async () => {
+    const children = await getMyChildren(parentId, parishA)
+
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({
+      id: studentId,
+      fullName: 'Thiếu Nhi A',
+      classId,
+      className: 'Lớp Domain 2 A',
+      classCode,
+    })
   })
 
   it('upserts identical session/student IDs independently within each parish', async () => {
