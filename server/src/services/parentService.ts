@@ -21,6 +21,9 @@ export interface ParentChildDTO {
  * Danh sách con của phụ huynh: khớp users.phone (đã chuẩn hóa) với students.parentPhone.
  * Chỉ trả học sinh còn học (chưa soft-delete) trong cùng giáo xứ. ADR: khớp phone là
  * intent sẵn có của CanAccessStudentSpecification — không cần bảng liên kết riêng.
+ *
+ * Tenant invariant: classes dùng composite identity (parishId, id), nên JOIN phải giữ
+ * cả hai thành phần. JOIN chỉ theo classId có thể match lớp cùng id của giáo xứ khác.
  */
 export async function getMyChildren(userId: string, parishId: string): Promise<ParentChildDTO[]> {
   const [user] = await db
@@ -49,7 +52,10 @@ export async function getMyChildren(userId: string, parishId: string): Promise<P
       classCode: classes.code,
     })
     .from(students)
-    .innerJoin(classes, eq(classes.id, students.classId))
+    .innerJoin(classes, and(
+      eq(classes.id, students.classId),
+      eq(classes.parishId, students.parishId),
+    ))
     .where(and(
       eq(students.parishId, parishId),
       isNull(students.deletedAt),
