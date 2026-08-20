@@ -6,10 +6,12 @@ import reportingRouter from '../routes/reporting.js'
 import promotionRouter from '../routes/promotion.js'
 import importRouter from '../routes/import.js'
 import notificationsRouter from '../routes/notifications.js'
+import gradesRouter from '../routes/grades.js'
 
 describe('Authorization Boundaries & Data Isolation Audit Tests', () => {
   const parishA = 'parish-auth-test-a'
   const parishB = 'parish-auth-test-b'
+  const gradeImportHash = 'domain2-grade-import-assigned-class'
 
   let catechistA1Token: string
   let adminAToken: string
@@ -152,6 +154,60 @@ describe('Authorization Boundaries & Data Isolation Audit Tests', () => {
         body: JSON.stringify({ className: 'Lớp Phụ Trách A1', date: '2025-10-05' }),
       })
       expect(res.status).toBe(200)
+    })
+  })
+
+  describe('5. Grade Import Class Authorization Boundary', () => {
+    it('Catechist CAN check and register an import for the assigned class', async () => {
+      const checkRes = await gradesRouter.request('/check-import-duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${catechistA1Token}` },
+        body: JSON.stringify({
+          hash: gradeImportHash,
+          classId: 'cl-assigned-a',
+          semester: 1,
+          academicYear: '2025-2026',
+        }),
+      })
+      expect(checkRes.status).toBe(200)
+      const checkJson = (await checkRes.json()) as any
+      expect(checkJson.data.isDuplicate).toBe(false)
+
+      const registerRes = await gradesRouter.request('/register-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${catechistA1Token}` },
+        body: JSON.stringify({
+          hash: gradeImportHash,
+          classId: 'cl-assigned-a',
+          semester: 1,
+          academicYear: '2025-2026',
+          totalRows: 2,
+        }),
+      })
+      expect(registerRes.status).toBe(200)
+    })
+
+    it('Catechist is FORBIDDEN from checking or registering imports for an unassigned class', async () => {
+      const payload = {
+        hash: 'domain2-grade-import-unassigned-class',
+        classId: 'cl-unassigned-a',
+        semester: 1,
+        academicYear: '2025-2026',
+      }
+
+      const checkRes = await gradesRouter.request('/check-import-duplicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${catechistA1Token}` },
+        body: JSON.stringify(payload),
+      })
+      expect(checkRes.status).toBe(403)
+
+      const registerRes = await gradesRouter.request('/register-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${catechistA1Token}` },
+        body: JSON.stringify({ ...payload, totalRows: 2 }),
+      })
+      expect(registerRes.status).toBe(403)
     })
   })
 })
