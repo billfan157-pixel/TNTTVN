@@ -310,68 +310,81 @@ const parentResetPasswordSchema = z.object({
 auth.post('/parent-reset-password', parentForgotRateLimiter, zValidator('json', parentResetPasswordSchema), async (c) => {
   const { phone: rawPhone, childDob, childName, newPassword } = c.req.valid('json')
   const phone = normalizePhone(rawPhone)
+  const variants = phoneMatchVariants(phone)
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
+  const genericFailureMessage = 'Thông tin xác minh không khớp với hồ sơ thiếu nhi trong hệ thống. Vui lòng kiểm tra lại ngày sinh và tên của con, hoặc liên hệ Ban Giáo Lý.'
+  const maskedPhone = phone.slice(0, 3) + '****' + phone.slice(-3)
 
-  const [user] = await db
+  // Domain 2: phone is not globally unique. Resolve the tenant from child evidence,
+  // never from database row order. Multiple matching tenants are intentionally
+  // fail-closed so the endpoint cannot reset an arbitrary parish account.
+  const parentCandidates = await db
     .select()
     .from(users)
-    .where(and(eq(users.phone, phone), eq(users.role, 'phuhuynh')))
-    .limit(1)
+    .where(and(eq(users.role, 'phuhuynh'), inArray(users.phone, variants)))
 
-  if (!user || (user.status === 'LOCKED' && user.id !== getSuperAdminId())) {
-    // Timing-neutral: chạy bcrypt giả lập tránh lộ thông tin SĐT phụ huynh
+  if (parentCandidates.length === 0) {
     await consumeDummyPassword(newPassword)
     await db.insert(auditLogs).values({
       id: generateId('AUD'),
-      userId: user ? user.id : 'unknown',
+      userId: 'unknown',
       action: 'PARENT_RESET_PASSWORD_FAILED',
       entityType: 'auth',
-      entityId: user ? user.id : 'unknown',
-      newValue: JSON.stringify({ reason: 'user_not_found_or_locked', maskedPhone: phone.slice(0, 3) + '****' + phone.slice(-3) }),
+      entityId: 'unknown',
+      newValue: JSON.stringify({ reason: 'verification_failed', maskedPhone }),
       ip,
       userAgent,
-      parishId: user ? user.parishId : 'global',
+      parishId: 'global',
     })
-    return errorResponse(c, 'INVALID_VERIFICATION_DATA', 'Thông tin xác minh không khớp với hồ sơ thiếu nhi trong hệ thống. Vui lòng kiểm tra lại ngày sinh và tên của con, hoặc liên hệ Ban Giáo Lý.', 400)
+    return errorResponse(c, 'INVALID_VERIFICATION_DATA', genericFailureMessage, 400)
   }
 
-  const variants = phoneMatchVariants(phone)
-  const parishStudents = await db
+  const candidateParishIds = [...new Set(parentCandidates.map(candidate => candidate.parishId))]
+  const candidateStudents = await db
     .select({
       id: students.id,
+      parishId: students.parishId,
       holyName: students.holyName,
       fullName: students.fullName,
       dateOfBirth: students.dateOfBirth,
     })
     .from(students)
     .where(and(
-      eq(students.parishId, user.parishId),
+      inArray(students.parishId, candidateParishIds),
       isNull(students.deletedAt),
       inArray(students.parentPhone, variants),
     ))
 
   const normInputDob = normalizeDob(childDob)
-  const matchedStudent = parishStudents.find(
-    (s) => normalizeDob(s.dateOfBirth) === normInputDob && matchChildName(childName, s.holyName, s.fullName),
-  )
+  const matchedCandidates = parentCandidates.flatMap((candidate) => {
+    if (candidate.status === 'LOCKED' && candidate.id !== getSuperAdminId()) return []
+    const matchedStudent = candidateStudents.find((student) => (
+      student.parishId === candidate.parishId
+      && normalizeDob(student.dateOfBirth) === normInputDob
+      && matchChildName(childName, student.holyName, student.fullName)
+    ))
+    return matchedStudent ? [{ user: candidate, student: matchedStudent }] : []
+  })
 
-  if (!matchedStudent) {
+  if (matchedCandidates.length !== 1) {
     await consumeDummyPassword(newPassword)
+    const auditCandidate = matchedCandidates[0]?.user ?? parentCandidates[0]
     await db.insert(auditLogs).values({
       id: generateId('AUD'),
-      userId: user.id,
+      userId: auditCandidate?.id ?? 'unknown',
       action: 'PARENT_RESET_PASSWORD_FAILED',
       entityType: 'auth',
-      entityId: user.id,
-      newValue: JSON.stringify({ reason: 'student_verification_mismatch', maskedPhone: phone.slice(0, 3) + '****' + phone.slice(-3) }),
+      entityId: auditCandidate?.id ?? 'unknown',
+      newValue: JSON.stringify({ reason: matchedCandidates.length > 1 ? 'ambiguous_tenant_match' : 'verification_failed', maskedPhone }),
       ip,
       userAgent,
-      parishId: user.parishId,
+      parishId: matchedCandidates.length > 1 ? 'global' : (auditCandidate?.parishId ?? 'global'),
     })
-    return errorResponse(c, 'INVALID_VERIFICATION_DATA', 'Thông tin xác minh không khớp với hồ sơ thiếu nhi trong hệ thống. Vui lòng kiểm tra lại ngày sinh và tên của con, hoặc liên hệ Ban Giáo Lý.', 400)
+    return errorResponse(c, 'INVALID_VERIFICATION_DATA', genericFailureMessage, 400)
   }
 
+  const { user, student: matchedStudent } = matchedCandidates[0]
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
   const nextVersion = (user.tokenVersion || 1) + 1
   await db.update(users).set({
@@ -393,7 +406,7 @@ auth.post('/parent-reset-password', parentForgotRateLimiter, zValidator('json', 
     entityType: 'auth',
     entityId: user.id,
     newValue: JSON.stringify({
-      maskedPhone: phone.slice(0, 3) + '****' + phone.slice(-3),
+      maskedPhone,
       matchedStudentId: matchedStudent.id,
     }),
     ip,

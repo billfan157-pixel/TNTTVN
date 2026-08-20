@@ -67,8 +67,14 @@ export async function getClasses(parishId: string) {
       updatedBy: classes.updatedBy,
     })
     .from(classes)
-    .leftJoin(branches, eq(classes.branchId, branches.id))
-    .leftJoin(academicYears, eq(classes.academicYearId, academicYears.id))
+    .leftJoin(branches, and(
+      eq(classes.branchId, branches.id),
+      eq(classes.parishId, branches.parishId),
+    ))
+    .leftJoin(academicYears, and(
+      eq(classes.academicYearId, academicYears.id),
+      eq(classes.parishId, academicYears.parishId),
+    ))
     .where(and(eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     .orderBy(desc(classes.createdAt))
   return enrichClassList(classList, parishId)
@@ -240,8 +246,14 @@ export async function searchClassesByName(name: string, parishId: string) {
       academicYear: academicYears.startDate,
     })
     .from(classes)
-    .leftJoin(branches, eq(classes.branchId, branches.id))
-    .leftJoin(academicYears, eq(classes.academicYearId, academicYears.id))
+    .leftJoin(branches, and(
+      eq(classes.branchId, branches.id),
+      eq(classes.parishId, branches.parishId),
+    ))
+    .leftJoin(academicYears, and(
+      eq(classes.academicYearId, academicYears.id),
+      eq(classes.parishId, academicYears.parishId),
+    ))
     .where(and(
       eq(classes.parishId, parishId),
       isNull(classes.deletedAt),

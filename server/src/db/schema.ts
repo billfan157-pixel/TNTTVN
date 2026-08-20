@@ -119,7 +119,7 @@ export const students = sqliteTable('students', {
     }).onDelete('restrict'),
     index('idx_students_parish_id').on(table.parishId),
    index('idx_students_class_id').on(table.classId),
-   uniqueIndex('idx_students_idempotency').on(table.idempotencyKey),
+   uniqueIndex('idx_students_idempotency').on(table.parishId, table.idempotencyKey),
    uniqueIndex('idx_students_code_parish').on(table.parishId, table.code),
  ])
 
@@ -209,7 +209,7 @@ export const notices = sqliteTable('notices', {
     primaryKey({ columns: [table.parishId, table.id] }),
     index('idx_notices_parish_id').on(table.parishId),
    index('idx_notices_date').on(table.parishId, table.date),
-   uniqueIndex('idx_notices_idempotency').on(table.idempotencyKey),
+   uniqueIndex('idx_notices_idempotency').on(table.parishId, table.idempotencyKey),
  ])
 
 export const auditLogs = sqliteTable('audit_logs', {
@@ -289,8 +289,8 @@ export const classes = sqliteTable('classes', {
       foreignColumns: [academicYears.parishId, academicYears.id],
     }).onDelete('restrict'),
     index('idx_classes_parish_id').on(table.parishId),
-   uniqueIndex('idx_classes_code_year').on(table.code, table.academicYearId),
-   uniqueIndex('idx_classes_idempotency').on(table.idempotencyKey),
+   uniqueIndex('idx_classes_code_year').on(table.parishId, table.code, table.academicYearId),
+   uniqueIndex('idx_classes_idempotency').on(table.parishId, table.idempotencyKey),
  ])
 
 export const systemSettings = sqliteTable('system_settings', {
@@ -331,7 +331,7 @@ export const catechistAssignments = sqliteTable('catechist_assignments', {
     }).onDelete('restrict'),
     index('idx_catechist_assignments_parish_id').on(table.parishId),
    index('idx_catechist_assignments_user_id').on(table.userId),
-   uniqueIndex('idx_catechist_assignments_unique').on(table.userId, table.classId),
+   uniqueIndex('idx_catechist_assignments_unique').on(table.parishId, table.userId, table.classId),
  ])
 
 export const notifications = sqliteTable('notifications', {
@@ -383,7 +383,7 @@ export const rolePermissions = sqliteTable('role_permissions', {
      columns: [table.parishId, table.permissionId],
      foreignColumns: [permissions.parishId, permissions.id],
    }).onDelete('cascade'),
-   uniqueIndex('idx_role_permissions_pk').on(table.role, table.permissionId),
+   uniqueIndex('idx_role_permissions_pk').on(table.parishId, table.role, table.permissionId),
  ])
 
 export const importBatches = sqliteTable('import_batches', {
@@ -476,7 +476,7 @@ export const serviceAssignments = sqliteTable('service_assignments', {
      columns: [table.parishId, table.studentId],
      foreignColumns: [students.parishId, students.id],
    }).onDelete('cascade'),
-   uniqueIndex('idx_service_assignments_unique').on(table.studentId, table.serviceType),
+   uniqueIndex('idx_service_assignments_unique').on(table.parishId, table.studentId, table.serviceType),
  ])
 
 export const mappingMemory = sqliteTable('mapping_memory', {
@@ -695,7 +695,7 @@ export const examSessions = sqliteTable('exam_sessions', {
   // C1 (2026-08-14): UNIQUE idempotency guard (ADR-023) — rebuild 109 đánh rơi, khôi phục
   // qua migration 20260814-117 + INDICES defensive. NULL idempotency_key được phép trùng
   // (SQLite UNIQUE bỏ qua NULL) nên chỉ ràng buộc các key client gửi temp id.
-  uniqueIndex('idx_exam_sessions_idempotency').on(table.idempotencyKey),
+  uniqueIndex('idx_exam_sessions_idempotency').on(table.parishId, table.idempotencyKey),
 ])
 
 export const examResults = sqliteTable('exam_results', {
@@ -720,7 +720,7 @@ export const examResults = sqliteTable('exam_results', {
     columns: [table.parishId, table.studentId],
     foreignColumns: [students.parishId, students.id],
   }).onDelete('restrict'),
-  uniqueIndex('idx_exam_results_unique').on(table.examSessionId, table.studentId),
+  uniqueIndex('idx_exam_results_unique').on(table.parishId, table.examSessionId, table.studentId),
   index('idx_exam_results_lookup').on(table.parishId, table.examSessionId),
 ])
 
@@ -917,4 +917,3 @@ export const studentFeeRecords = sqliteTable('student_fee_records', {
   uniqueIndex('idx_student_fees_unique').on(table.parishId, table.studentId, table.academicYear, table.feeType),
   index('idx_student_fees_class').on(table.parishId, table.classId, table.academicYear),
 ])
-

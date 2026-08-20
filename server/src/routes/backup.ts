@@ -242,9 +242,15 @@ backupRouter.post('/export', roleMiddleware('admin'), adminReauthRateLimiter, zV
       const sessionIds = sessionRecords.map(s => s.id)
       
       if (sessionIds.length > 0) {
-        await streamTable('examResults', db.select().from(examResults).where(inArray(examResults.examSessionId, sessionIds)), false)
+        await streamTable('examResults', db.select().from(examResults).where(and(
+          eq(examResults.parishId, user.parishId),
+          inArray(examResults.examSessionId, sessionIds),
+        )), false)
       } else {
-        await streamTable('examResults', db.select().from(examResults).where(eq(examResults.id, '__none__')), false)
+        await streamTable('examResults', db.select().from(examResults).where(and(
+          eq(examResults.parishId, user.parishId),
+          eq(examResults.id, '__none__'),
+        )), false)
       }
 
       await writeData('}') // end of data
@@ -349,7 +355,10 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       const currentExamSessions = await db.select().from(examSessions).where(eq(examSessions.parishId, user.parishId))
       const currentSessionIds = currentExamSessions.map((s) => s.id)
       const currentExamResults = currentSessionIds.length > 0
-        ? await db.select().from(examResults).where(inArray(examResults.examSessionId, currentSessionIds))
+        ? await db.select().from(examResults).where(and(
+            eq(examResults.parishId, user.parishId),
+            inArray(examResults.examSessionId, currentSessionIds),
+          ))
         : []
       const currentAttendanceSessions = await db.select().from(attendanceSessions).where(eq(attendanceSessions.parishId, user.parishId))
       const currentYearSnapshots = await db.select().from(academicYearSnapshots).where(eq(academicYearSnapshots.parishId, user.parishId))
@@ -459,7 +468,10 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       await verifyActualCount(tx, gradeOverrides, 'gradeOverrides', (restoredGradeOverrides ?? []).length, eq(gradeOverrides.parishId, user.parishId))
       await verifyActualCount(tx, promotionRecords, 'promotionSnapshots', (restoredPromotionSnapshots ?? []).length, eq(promotionRecords.parishId, user.parishId))
       await verifyActualCount(tx, examSessions, 'examSessions', (restoredExamSessions ?? []).length, eq(examSessions.parishId, user.parishId))
-      await verifyActualCount(tx, examResults, 'examResults', (restoredExamResults ?? []).length, esIds.length > 0 ? inArray(examResults.examSessionId, esIds) : eq(examResults.examSessionId, '__none__'))
+      await verifyActualCount(tx, examResults, 'examResults', (restoredExamResults ?? []).length, and(
+        eq(examResults.parishId, user.parishId),
+        esIds.length > 0 ? inArray(examResults.examSessionId, esIds) : eq(examResults.examSessionId, '__none__'),
+      ))
     })
 
     await db.insert(auditLogs).values({

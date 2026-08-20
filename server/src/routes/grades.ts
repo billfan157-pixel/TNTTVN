@@ -156,7 +156,7 @@ gradesRouter.post('/check-import-duplicate', roleMiddleware('admin', 'chunhiem')
   const { hash, classId, semester, academicYear } = c.req.valid('json')
 
   if (user.role !== 'admin') {
-    const hasAccess = await checkUserClassAccess(user.userId, classId, user.parishId)
+    const hasAccess = await checkUserClassAccess(user.userId, user.parishId, classId)
     if (!hasAccess) return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền truy cập lớp học này', 403)
   }
 
@@ -194,7 +194,7 @@ gradesRouter.post('/register-import', roleMiddleware('admin', 'chunhiem'), zVali
   const { hash, classId, semester, academicYear, totalRows } = c.req.valid('json')
 
   if (user.role !== 'admin') {
-    const hasAccess = await checkUserClassAccess(user.userId, classId, user.parishId)
+    const hasAccess = await checkUserClassAccess(user.userId, user.parishId, classId)
     if (!hasAccess) return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền truy cập lớp học này', 403)
   }
 

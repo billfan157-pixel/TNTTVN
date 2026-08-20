@@ -58,6 +58,57 @@ const DEFAULT_FUNDS = [
   { code: 'LEADERS', name: 'Quỹ Huynh Trưởng', description: 'Quỹ sinh hoạt và đào tạo Ban Huynh Trưởng', isDefault: false },
 ]
 
+function financeBadRequest(message: string): never {
+  const err = new Error(message) as Error & { status: number }
+  err.status = 400
+  throw err
+}
+
+async function assertActiveFundInParish(fundId: string, parishId: string): Promise<void> {
+  const [fund] = await db
+    .select({ id: funds.id, isActive: funds.isActive })
+    .from(funds)
+    .where(and(eq(funds.id, fundId), eq(funds.parishId, parishId)))
+    .limit(1)
+  if (!fund || !fund.isActive) financeBadRequest('Quỹ không tồn tại hoặc đã ngừng hoạt động trong giáo xứ hiện tại')
+}
+
+async function assertClassInParish(classId: string, parishId: string): Promise<void> {
+  const [cls] = await db
+    .select({ id: classes.id })
+    .from(classes)
+    .where(and(eq(classes.id, classId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+    .limit(1)
+  if (!cls) financeBadRequest('Lớp học không tồn tại trong giáo xứ hiện tại')
+}
+
+async function assertStudentClassInParish(studentId: string, classId: string | undefined, parishId: string): Promise<void> {
+  const [student] = await db
+    .select({ id: students.id, classId: students.classId })
+    .from(students)
+    .where(and(eq(students.id, studentId), eq(students.parishId, parishId), isNull(students.deletedAt)))
+    .limit(1)
+  if (!student) financeBadRequest('Thiếu nhi không tồn tại trong giáo xứ hiện tại')
+  if (classId && student.classId !== classId) financeBadRequest('Thiếu nhi không thuộc lớp học đã chọn')
+  await assertClassInParish(classId || student.classId, parishId)
+}
+
+async function assertTransactionReferences(data: CreateTransactionInput, parishId: string): Promise<void> {
+  await assertActiveFundInParish(data.fundId, parishId)
+
+  if (data.type === 'TRANSFER') {
+    if (!data.targetFundId) financeBadRequest('Chuyển quỹ phải chọn quỹ nhận')
+    if (data.targetFundId === data.fundId) financeBadRequest('Quỹ nhận phải khác quỹ nguồn')
+    await assertActiveFundInParish(data.targetFundId, parishId)
+  }
+
+  if (data.studentId) {
+    await assertStudentClassInParish(data.studentId, data.classId, parishId)
+  } else if (data.classId) {
+    await assertClassInParish(data.classId, parishId)
+  }
+}
+
 /**
  * Ensures default funds exist for a parish.
  */
@@ -299,6 +350,8 @@ export async function createTransaction(
   ip: string,
   userAgent: string
 ): Promise<FinancialTransaction> {
+  await assertTransactionReferences(data, parishId)
+
   const id = generateId('TXN')
   const now = new Date().toISOString()
   const academicYear = data.academicYear || getCurrentAcademicYear()
@@ -619,6 +672,9 @@ export async function updateStudentFee(
   ip: string,
   userAgent: string
 ): Promise<StudentFeeRecord> {
+  // Domain 2: validate ownership before any optional transaction or fee write.
+  await assertStudentClassInParish(data.studentId, data.classId, parishId)
+
   const now = new Date().toISOString()
   const today = now.slice(0, 10)
 

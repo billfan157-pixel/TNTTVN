@@ -415,7 +415,7 @@ export async function upsertExamResults(
           createdAt: now,
         })
         .onConflictDoUpdate({
-          target: [examResults.examSessionId, examResults.studentId],
+          target: [examResults.parishId, examResults.examSessionId, examResults.studentId],
           set: {
             score: authoritativeScore,
             source,
@@ -504,7 +504,10 @@ export async function getExamResults(sessionId: string, parishId: string, allowe
       holyName: students.holyName,
     })
     .from(examResults)
-    .innerJoin(students, eq(examResults.studentId, students.id))
+    .innerJoin(students, and(
+      eq(examResults.studentId, students.id),
+      eq(examResults.parishId, students.parishId),
+    ))
     .where(and(eq(examResults.examSessionId, sessionId), eq(examResults.parishId, parishId)))
 
   return { session, results: rows }
@@ -531,7 +534,10 @@ export async function deleteExamSession(
     const resultIds = resultRows.map(r => r.id)
 
     if (resultIds.length > 0) {
-      await tx.delete(examResults).where(inArray(examResults.id, resultIds))
+      await tx.delete(examResults).where(and(
+        eq(examResults.parishId, parishId),
+        inArray(examResults.id, resultIds),
+      ))
     }
     await tx.delete(examSessions).where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
 
