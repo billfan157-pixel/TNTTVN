@@ -436,7 +436,7 @@ const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_users_parish_id ON users(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_students_parish_id ON students(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_students_class_id ON students(class_id)',
-  'CREATE UNIQUE INDEX IF NOT EXISTS idx_students_idempotency ON students(idempotency_key)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_students_idempotency ON students(parish_id, idempotency_key)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_students_code_parish ON students(parish_id, code)',
   'CREATE INDEX IF NOT EXISTS idx_grades_parish_id ON grades(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_grades_student_id ON grades(student_id)',
@@ -449,6 +449,7 @@ const INDICES = [
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_unique ON attendance(parish_id, student_id, date, type)',
   'CREATE INDEX IF NOT EXISTS idx_notices_parish_id ON notices(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_notices_date ON notices(parish_id, date)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_notices_idempotency ON notices(parish_id, idempotency_key)',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_id ON audit_logs(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(parish_id, entity_type, entity_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_branches_parish_id ON branches(parish_id)',
@@ -473,14 +474,14 @@ const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_promotion_records_target_class ON promotion_records(target_class_id)',
   'CREATE INDEX IF NOT EXISTS idx_promotion_records_approved_by ON promotion_records(approved_by)',
   // P2 audit: indexes declared in Drizzle schema.ts nhưng thiếu trong DDL — tự tạo ở boot mới + migration 074 cho DB đã deploy.
-  'CREATE INDEX IF NOT EXISTS idx_classes_idempotency ON classes(idempotency_key)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_idempotency ON classes(parish_id, idempotency_key)',
   'CREATE INDEX IF NOT EXISTS idx_mapping_memory_entity_id ON mapping_memory(entity_id)',
   'CREATE INDEX IF NOT EXISTS idx_grade_overrides_lookup ON grade_overrides(grade_id, score_field)',
   'CREATE INDEX IF NOT EXISTS idx_outbox_messages_status ON outbox_messages(status, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_semester_locks_lookup ON semester_locks(parish_id, academic_year, semester)',
   'CREATE INDEX IF NOT EXISTS idx_promotion_records_lookup ON promotion_records(parish_id, student_id, academic_year)',
   // C1 (2026-08-14): defensive recreate — idx_exam_sessions_idempotency UNIQUE (ADR-023).
-  'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_sessions_idempotency ON exam_sessions(idempotency_key)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key)',
   `CREATE TRIGGER IF NOT EXISTS check_grade_scores_insert BEFORE INSERT ON grades BEGIN SELECT CASE WHEN NEW.score_oral IS NOT NULL AND (NEW.score_oral < 0 OR NEW.score_oral > 10) THEN RAISE(ABORT, 'score_oral out of range 0-10') WHEN NEW.score_15m IS NOT NULL AND (NEW.score_15m < 0 OR NEW.score_15m > 10) THEN RAISE(ABORT, 'score_15m out of range 0-10') WHEN NEW.score_1_period IS NOT NULL AND (NEW.score_1_period < 0 OR NEW.score_1_period > 10) THEN RAISE(ABORT, 'score_1_period out of range 0-10') WHEN NEW.score_midterm IS NOT NULL AND (NEW.score_midterm < 0 OR NEW.score_midterm > 10) THEN RAISE(ABORT, 'score_midterm out of range 0-10') WHEN NEW.score_final IS NOT NULL AND (NEW.score_final < 0 OR NEW.score_final > 10) THEN RAISE(ABORT, 'score_final out of range 0-10') WHEN NEW.score_dao_duc IS NOT NULL AND (NEW.score_dao_duc < 0 OR NEW.score_dao_duc > 10) THEN RAISE(ABORT, 'score_dao_duc out of range 0-10') END; END`,
   `CREATE TRIGGER IF NOT EXISTS check_grade_scores_update BEFORE UPDATE ON grades BEGIN SELECT CASE WHEN NEW.score_oral IS NOT NULL AND (NEW.score_oral < 0 OR NEW.score_oral > 10) THEN RAISE(ABORT, 'score_oral out of range 0-10') WHEN NEW.score_15m IS NOT NULL AND (NEW.score_15m < 0 OR NEW.score_15m > 10) THEN RAISE(ABORT, 'score_15m out of range 0-10') WHEN NEW.score_1_period IS NOT NULL AND (NEW.score_1_period < 0 OR NEW.score_1_period > 10) THEN RAISE(ABORT, 'score_1_period out of range 0-10') WHEN NEW.score_midterm IS NOT NULL AND (NEW.score_midterm < 0 OR NEW.score_midterm > 10) THEN RAISE(ABORT, 'score_midterm out of range 0-10') WHEN NEW.score_final IS NOT NULL AND (NEW.score_final < 0 OR NEW.score_final > 10) THEN RAISE(ABORT, 'score_final out of range 0-10') WHEN NEW.score_dao_duc IS NOT NULL AND (NEW.score_dao_duc < 0 OR NEW.score_dao_duc > 10) THEN RAISE(ABORT, 'score_dao_duc out of range 0-10') END; END`,
   `CREATE TRIGGER IF NOT EXISTS check_outbox_messages_status_insert BEFORE INSERT ON outbox_messages BEGIN SELECT CASE WHEN NEW.status NOT IN ('pending', 'dispatched', 'failed') THEN RAISE(ABORT, 'outbox_messages status invalid') END; END`,
@@ -1623,6 +1624,19 @@ DROP INDEX IF EXISTS idx_service_assignments_unique;
 CREATE UNIQUE INDEX idx_service_assignments_unique ON service_assignments(parish_id, student_id, service_type);
 DROP INDEX IF EXISTS idx_exam_results_unique;
 CREATE UNIQUE INDEX idx_exam_results_unique ON exam_results(parish_id, exam_session_id, student_id);
+` },
+  // Domain 2 follow-up: request idempotency keys are tenant-local too. App lookups
+  // already include parish_id; DB uniqueness must use the same boundary or one
+  // parish can block another parish from retrying a request with the same key.
+  { version: '20260820-127', sql: `
+DROP INDEX IF EXISTS idx_students_idempotency;
+CREATE UNIQUE INDEX idx_students_idempotency ON students(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_notices_idempotency;
+CREATE UNIQUE INDEX idx_notices_idempotency ON notices(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_classes_idempotency;
+CREATE UNIQUE INDEX idx_classes_idempotency ON classes(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_exam_sessions_idempotency;
+CREATE UNIQUE INDEX idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key);
 ` },
 ]
 
