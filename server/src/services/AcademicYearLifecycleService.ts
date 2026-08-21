@@ -1,4 +1,4 @@
-import { db, type DbExecutor, type DbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbExecutor, type DbTransaction } from '../db/index.js'
 import {
   academicYears,
   academicYearSnapshots,
@@ -351,11 +351,22 @@ export class AcademicYearLifecycleService {
       return { yearId: year.id, currentSemester: 2 }
     }
     const now = new Date().toISOString()
-    await db
-      .update(academicYears)
-      .set({ currentSemester: 2, updatedAt: now, updatedBy: userId })
-      .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
-    await this.writeAuditLog('START_SEMESTER_2', 'academic_year', year.id, null, JSON.stringify({ currentSemester: 2 }), userId, parishId)
+    await runDbTransaction(async (tx) => {
+      await tx
+        .update(academicYears)
+        .set({ currentSemester: 2, updatedAt: now, updatedBy: userId })
+        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+      await this.writeAuditLog(
+        'START_SEMESTER_2',
+        'academic_year',
+        year.id,
+        null,
+        JSON.stringify({ currentSemester: 2 }),
+        userId,
+        parishId,
+        tx,
+      )
+    })
     return { yearId: year.id, currentSemester: 2 }
   }
 
@@ -419,7 +430,7 @@ export class AcademicYearLifecycleService {
     // AYL-03 (audit 2026-08-09): vòng snapshot + khóa năm + audit trong 1
     // transaction — trước đây đứt đoạn giữa loop và UPDATE isLocked nên lỗi giữa
     // chừng để lại snapshots partial + năm chưa chốt. Re-run vẫn an toàn (upsert).
-    const { snapshotCount, finalizedAt } = await db.transaction(async (tx: DbTransaction) => {
+    const { snapshotCount, finalizedAt } = await runDbTransaction(async (tx: DbTransaction) => {
       const now = new Date().toISOString()
       let count = 0
 
@@ -592,25 +603,31 @@ export class AcademicYearLifecycleService {
       }
 
       try {
-        await promotionApplicationService.approvePromotion({
-          studentId: snap.studentId,
-          academicYear: normalizeAcademicYear(year.id),
-          targetClassId,
-          nextClassId,
-          gpa: snap.yearGpa ?? 0,
-          attendanceRate: snap.attendanceRate ?? 0,
-          conductSnapshot: snap.classification,
-          manualDecision: snap.promotionStatus || undefined,
-          userId,
-          parishId,
+        // ADR-008 keeps batch-level partial success, but each individual student's
+        // promotion snapshot + class move is one atomic unit. A class update failure
+        // must roll the newly written promotion record back for that student.
+        await runDbTransaction(async (tx) => {
+          await promotionApplicationService.approvePromotion({
+            studentId: snap.studentId,
+            academicYear: normalizeAcademicYear(year.id),
+            targetClassId,
+            nextClassId,
+            gpa: snap.yearGpa ?? 0,
+            attendanceRate: snap.attendanceRate ?? 0,
+            conductSnapshot: snap.classification,
+            manualDecision: snap.promotionStatus || undefined,
+            userId,
+            parishId,
+          }, tx)
+          if (nextClassId) {
+            await tx
+              .update(students)
+              .set({ classId: nextClassId, updatedAt: now, updatedBy: userId })
+              .where(and(eq(students.id, snap.studentId), eq(students.parishId, parishId)))
+          }
         })
-        if (nextClassId) {
-          await db
-            .update(students)
-            .set({ classId: nextClassId, updatedAt: now, updatedBy: userId })
-            .where(and(eq(students.id, snap.studentId), eq(students.parishId, parishId)))
-          summary.movedToNextYear++
-        }
+
+        if (nextClassId) summary.movedToNextYear++
         if (snap.promotionStatus === 'GRADUATED' || snap.promotionStatus === 'TRANSFERRED') {
           summary.graduated++
         } else if (snap.promotionStatus === 'RETAINED') {
@@ -621,20 +638,25 @@ export class AcademicYearLifecycleService {
       }
     }
 
-    await db
-      .update(academicYears)
-      .set({ status: 'PROMOTED', updatedAt: now, updatedBy: userId })
-      .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+    // ADR-008 intentionally preserves per-student partial success. The terminal
+    // year status and its audit record, however, are still one state transition.
+    await runDbTransaction(async (tx) => {
+      await tx
+        .update(academicYears)
+        .set({ status: 'PROMOTED', updatedAt: now, updatedBy: userId })
+        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
 
-    await this.writeAuditLog(
-      'PROMOTE_ACADEMIC_YEAR',
-      'academic_year',
-      year.id,
-      null,
-      JSON.stringify({ nextYearId: nextYear.id, total: summary.total, movedToNextYear: summary.movedToNextYear, retained: summary.retained, graduated: summary.graduated, errorCount: summary.errors.length }),
-      userId,
-      parishId
-    )
+      await this.writeAuditLog(
+        'PROMOTE_ACADEMIC_YEAR',
+        'academic_year',
+        year.id,
+        null,
+        JSON.stringify({ nextYearId: nextYear.id, total: summary.total, movedToNextYear: summary.movedToNextYear, retained: summary.retained, graduated: summary.graduated, errorCount: summary.errors.length }),
+        userId,
+        parishId,
+        tx,
+      )
+    })
 
     return summary
   }
@@ -649,11 +671,22 @@ export class AcademicYearLifecycleService {
       throw httpError(`Năm học ${year.id} chưa được xét lên lớp (${year.status || 'OPEN'}) — chỉ lưu trữ sau khi Xét Lên Lớp`, 403)
     }
     const now = new Date().toISOString()
-    await db
-      .update(academicYears)
-      .set({ status: 'ARCHIVED', updatedAt: now, updatedBy: userId })
-      .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
-    await this.writeAuditLog('ARCHIVE_ACADEMIC_YEAR', 'academic_year', year.id, JSON.stringify({ status: 'PROMOTED' }), JSON.stringify({ status: 'ARCHIVED' }), userId, parishId)
+    await runDbTransaction(async (tx) => {
+      await tx
+        .update(academicYears)
+        .set({ status: 'ARCHIVED', updatedAt: now, updatedBy: userId })
+        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+      await this.writeAuditLog(
+        'ARCHIVE_ACADEMIC_YEAR',
+        'academic_year',
+        year.id,
+        JSON.stringify({ status: 'PROMOTED' }),
+        JSON.stringify({ status: 'ARCHIVED' }),
+        userId,
+        parishId,
+        tx,
+      )
+    })
     return { yearId: year.id, status: 'ARCHIVED', archivedAt: now }
   }
 
@@ -687,7 +720,7 @@ export class AcademicYearLifecycleService {
       .from(assessments)
       .where(and(eq(assessments.academicYearId, source.id), eq(assessments.parishId, parishId)))
 
-    await db.transaction(async (tx) => {
+    await runDbTransaction(async (tx) => {
       await tx.insert(academicYears).values({
         id: normNewYear,
         startDate: range.startDate,
@@ -729,17 +762,18 @@ export class AcademicYearLifecycleService {
           updatedAt: now,
         })
       }
-    })
 
-    await this.writeAuditLog(
-      'COPY_ACADEMIC_YEAR',
-      'academic_year',
-      normNewYear,
-      JSON.stringify({ sourceYearId: source.id }),
-      JSON.stringify({ copiedClasses: sourceClasses.length, copiedAssessments: sourceAssessments.length }),
-      userId,
-      parishId
-    )
+      await this.writeAuditLog(
+        'COPY_ACADEMIC_YEAR',
+        'academic_year',
+        normNewYear,
+        JSON.stringify({ sourceYearId: source.id }),
+        JSON.stringify({ copiedClasses: sourceClasses.length, copiedAssessments: sourceAssessments.length }),
+        userId,
+        parishId,
+        tx,
+      )
+    })
 
     return {
       year: { id: normNewYear, startDate: range.startDate, endDate: range.endDate },
