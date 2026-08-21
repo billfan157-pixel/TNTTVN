@@ -1,152 +1,205 @@
-# ADR-051: Critical Data-Integrity Hardening — Fail-Closed Schema Startup & Atomic Finance Commands
+# ADR-051: Critical Data-Integrity Hardening — Fail-Closed Bootstrap & Atomic Commands
 
 > Status: **APPROVED / IMPLEMENTED**  
 > Date: 2026-08-21  
 > Severity: **D3 — Critical**  
-> Profile: **ARCHITECTURE / INFRASTRUCTURE + DATA INTEGRITY**
+> Profile: **ARCHITECTURE / INFRASTRUCTURE + DATA INTEGRITY + AUTH**
 
 ## Context
 
-Architecture audit 2026-08-21 found two independently reproducible D3 failure windows.
+Architecture audit 2026-08-21 found several independently reproducible D3 failure windows. The first remediation pass fixed Finance command atomicity and added an executable-schema readiness gate. A follow-up audit of the resulting branch identified the remaining root causes in migration execution, initial bootstrap, and account lifecycle writes.
 
 ### Finding A — migration execution could fail open
 
-`server/src/db/index.ts` runs bootstrap DDL and versioned migrations during module initialization. For non-tolerable migration failures, the runner can log `Migration failed: <version>` and continue initialization. Defensive index/trigger creation also contains tolerant paths.
-
-This means the absence of a thrown migration error is not sufficient evidence that the executable database schema matches the current tenant/data-integrity contract.
+`server/src/db/index.ts` historically logged a non-tolerable migration failure and continued initialization. The first remediation added `assertDatabaseReady(client)` before HTTP bind, which prevented an unsafe schema from serving traffic, but the migration executor itself still had the fail-open branch.
 
 **Classification:** `CONFIRMED`, confidence `HIGH`, evidence `E3`.
 
-### Finding B — finance commands had split transaction boundaries
+### Finding B — Finance commands had split transaction boundaries
 
-The previous `financeService.ts` implementation executed financial business mutations and their audit trail as separate database statements without one enclosing transaction. In particular, `updateStudentFee()` could create an `INCOME` ledger transaction first and only afterwards write `student_fee_records`.
+The previous Finance implementation could commit a ledger transaction before the matching fee record/audit write. Deletion likewise separated ledger deletion, fee reset, and audit insertion.
 
-A later fee-record or audit failure could therefore leave a committed financial transaction without the matching fee state. `deleteTransaction()` similarly separated ledger deletion, fee reset, and audit insertion.
+**Classification:** `CONFIRMED`, confidence `HIGH`, evidence `E3`.
+
+### Finding C — initial seed could partially commit and startup could continue
+
+`seed()` previously inserted branches, academic years, classes, the initial admin, settings and permissions as independent statements. If a later write failed after the admin row committed, `seedIfEmpty()` could see an existing user on the next boot and skip the remainder forever. `server/src/index.ts` also logged seed failure and continued to `serve()`.
+
+**Classification:** `CONFIRMED`, confidence `HIGH`, evidence `E3`.
+
+### Finding D — fresh bootstrap had a known default privileged password
+
+`seed.ts` used `process.env.SEED_ADMIN_PASSWORD || 'admin123'`. A fresh installation without the environment variable therefore received a predictable admin credential. This also contradicted deployment documentation that described the value as generated.
+
+**Classification:** `CONFIRMED`, confidence `HIGH`, evidence `E3`.
+
+### Finding E — account lifecycle state and session/audit state could diverge
+
+User creation inserted the account before class assignments and audit. Lock/reset/force-logout updated the user independently from refresh-session revocation and audit. A later failure could therefore leave a login-capable orphan account, an unaudited security transition, or stale refresh-session rows.
 
 **Classification:** `CONFIRMED`, confidence `HIGH`, evidence `E3`.
 
 ## Existing constraints
 
-- ADR-011 requires Application Services to own transaction boundaries.
-- ADR-031 / subsequent tenant hardening require tenant-local keys and composite identifiers to remain enforced by the executable schema.
-- Public Finance HTTP contracts and database schema must remain backward compatible in this remediation.
-- No migration is introduced by this fix; the goal is to enforce already-approved schema and business invariants.
+- ADR-011 requires Application Services / command boundaries to own transactions.
+- Tenant-local identifiers and composite keys must remain parish-scoped.
+- Public HTTP contracts must remain backward compatible.
+- No database schema migration is introduced by this remediation.
+- Integrity intentionally wins over availability at startup and during security-sensitive state transitions.
 
 ## Decision
 
-### 1. Add a fail-closed executable-schema readiness gate
+### 1. Make migration execution itself fail closed
 
-Create `server/src/db/schemaHealth.ts` and call `assertDatabaseReady(client)` in `server/src/index.ts` **after DB initialization/migrations but before seeding, `serve()`, or background workers**.
+Move migration execution policy to `server/src/db/migrationRunner.ts` and invoke `applyMigrations(client, MIGRATIONS)` from the production DB bootstrap.
 
-The gate verifies:
+Rules:
 
-1. **the complete intentional migration manifest** represented by `MIGRATIONS` in `db/index.ts` — including historical migrations, while excluding only version numbers intentionally absent from source (`020`, `030`, `036`, `046`);
-2. tenant/data-integrity unique indexes and their required column order;
-3. required integrity triggers for grade range, outbox status, and grade-override field validation;
-4. important columns introduced by migrations, including import, auth, notification, ethics-score and exam evolution;
-5. composite primary-key shape `(parish_id, id)` for critical tenant and Finance tables;
-6. `PRAGMA foreign_key_check` returns no violations.
+1. an unapplied migration executes in manifest order;
+2. a successful migration records its marker;
+3. the existing historical recovery path is retained only for duplicate-column / already-exists errors on a single-statement migration;
+4. multi-statement migration failures are never tolerated;
+5. every other error is rethrown immediately and later migrations do not run.
 
-A migration that is logged-and-continued without recording its marker is therefore still a startup-blocking failure. A marker alone is also insufficient for key invariants: indexes, triggers, columns and primary-key shape are independently verified against the executable schema.
+The executable-schema readiness gate remains in place as defense in depth. Migration execution and runtime readiness are therefore two independent fail-closed boundaries.
 
-Any mismatch throws and aborts server startup. An unhealthy/partially migrated database is unavailable rather than writable.
+### 2. Keep the executable-schema readiness gate
 
-This is a defense-in-depth boundary around the existing migration runner: **runtime schema readiness**, not log output, is the authority for whether the application may serve traffic.
+`assertDatabaseReady(client)` runs after DB bootstrap/migrations and before seed, HTTP bind, or background workers. It verifies:
 
-### 2. Make Finance writes Application-Service-owned and atomic
+- the complete intentional migration manifest;
+- tenant/data-integrity unique indexes and column order;
+- required integrity triggers;
+- important migrated columns;
+- critical composite primary keys `(parish_id, id)`;
+- `PRAGMA foreign_key_check` has no violations.
 
-Create `server/src/services/FinanceApplicationService.ts` as the sole implementation for Finance commands:
+A migration marker alone is not sufficient evidence that the executable schema is safe.
 
-- `createFund()`
-- `createTransaction()`
-- `deleteTransaction()`
-- `updateStudentFee()`
+### 3. Make Finance writes atomic
 
-Each command uses `runDbTransaction()` from `db/index.ts`.
+`FinanceApplicationService.ts` owns `createFund`, `createTransaction`, `deleteTransaction`, and `updateStudentFee`. All use `runDbTransaction()`.
 
-`updateStudentFee()` uses an internal `createTransactionInTx()` helper so payment ledger creation does **not** start a nested transaction. Validation, receipt allocation, ledger write, fee write, and audit entries share the same transaction handle.
+`updateStudentFee()` uses `createTransactionInTx()` so payment validation, receipt allocation, ledger insert, transaction audit, fee upsert and fee audit all use the same transaction handle. `financeService.ts` keeps query functions and backward-compatible command re-exports so callers cannot bypass the atomic implementation.
 
-`financeService.ts` retains query/read-model functions and backward-compatible re-exports of command functions from `FinanceApplicationService`; the previous non-atomic write implementations are removed so an old import path cannot bypass the ACID boundary.
+### 4. Make initial bootstrap all-or-nothing and fail closed
 
-The HTTP route keeps the same request/response contract and delegates write operations to `FinanceApplicationService`.
+`seed()` now executes all seed writes inside one `runDbTransaction()` transaction. If any branch/year/class/admin/settings/permission/role-permission write fails, none of the bootstrap rows commit.
 
-## Transaction invariants after the change
+`seedIfEmpty()` no longer swallows an unexpected read failure. In `server/src/index.ts`, seed failure is rethrown before `serve()` or workers start.
+
+This eliminates the state where a partial seed creates the first user and permanently suppresses the rest of bootstrap.
+
+### 5. Remove the default bootstrap-admin credential
+
+Fresh initialization requires an explicit `SEED_ADMIN_PASSWORD`. There is no password fallback.
+
+`requireSeedAdminPassword()` enforces the same baseline as the strong-password contract: 8–128 characters with at least one uppercase letter, one digit and one special character. An empty/weak value causes fresh bootstrap to fail closed.
+
+Existing databases are unaffected because `seedIfEmpty()` returns before invoking `seed()` when a user already exists. Re-running `seed()` still uses `onConflictDoNothing()` for the admin and cannot overwrite an existing password.
+
+### 6. Make account lifecycle state transitions atomic
+
+Security-sensitive user commands now use `runDbTransaction()`:
+
+- create user → user row + class assignments + audit;
+- lock user → status/tokenVersion + refresh-session revocation + audit;
+- reset password → password/status/tokenVersion + refresh-session revocation + audit;
+- force logout → tokenVersion + refresh-session revocation + audit;
+- update phone → account mutation + audit;
+- update class assignments → assignment replacement + audit.
+
+`refreshSessionService.ts` exposes a transaction-aware `revokeAllSessionsWith(executor, ...)` primitive so application services can reuse the current transaction instead of opening a second write boundary. Refresh-token reuse containment also commits the tokenVersion bump and revoke-all together.
+
+The bulk parent-provision flow remains an intentional itemized partial-success workflow; its per-item semantics are not converted to all-or-nothing by this ADR.
+
+## Transaction invariants
 
 ### Collect student fee
 
 ```text
 validate tenant/student/class/fund
         ↓
-allocate receipt number
+allocate receipt
         ↓
-INSERT financial_transactions
+ledger + transaction audit
         ↓
-INSERT transaction audit
-        ↓
-UPSERT student_fee_records
-        ↓
-INSERT fee audit
+fee record + fee audit
         ↓
 COMMIT
 ```
 
-Any failure before `COMMIT` rolls back every preceding mutation.
-
-### Delete transaction
+### Create account
 
 ```text
-load tenant-scoped transaction
+insert user
+    ↓
+insert requested class assignments
+    ↓
+insert audit
+    ↓
+COMMIT
+```
+
+An invalid class FK or audit failure rolls the user insert back.
+
+### Force logout / lock / reset
+
+```text
+mutate user security state
         ↓
-DELETE financial_transactions
+revoke refresh sessions
         ↓
-RESET linked student_fee_records
-        ↓
-INSERT delete audit
+insert audit
         ↓
 COMMIT
 ```
 
-The ledger, fee state, and audit lineage cannot commit independently.
+No half-applied containment state may commit.
 
 ## Compatibility gate
 
-- API contract: **PASS — unchanged**.
-- Database schema: **PASS — unchanged**.
-- Tenant isolation: **PASS — validation remains parish-scoped and schema readiness explicitly checks tenant-critical indexes/PKs**.
-- ADR-011 transaction ownership: **PASS — Finance command transactions live in an Application Service**.
-- Existing read/query semantics: **PASS — `financeService.ts` continues to expose prior read functions and backward-compatible command exports**.
+- Public Finance/User HTTP contracts: **PASS — unchanged**.
+- Database schema: **PASS — unchanged; no new migration**.
+- Existing initialized deployments: **PASS — seed password is only consulted when explicit `seed()` runs or DB is empty**.
+- Tenant isolation: **PASS — command predicates and readiness checks remain parish-scoped**.
+- ADR-011 transaction ownership: **PASS**.
+- Rollback: **code-only**.
 
 ## D3 hard gates
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Security | PASS | No new externally reachable surface; startup gate only reduces unsafe availability. |
-| Privacy | PASS | No new personal data collection/storage/logging. |
-| Data Integrity | PASS | Finance mutations are atomic; incomplete migration/schema state cannot serve traffic. |
-| Tenant Isolation | PASS | Readiness gate checks tenant-critical indexes/composite PKs; command validation remains parish-scoped. |
+| Security | PASS | Default privileged credential removed; lock/reset/logout session revocation is atomic. |
+| Privacy | PASS | No new personal-data collection or logging. |
+| Data Integrity | PASS | Finance, bootstrap and account state transitions have explicit transaction boundaries; migration/bootstrap fail closed. |
+| Tenant Isolation | PASS | Parish scope preserved and schema readiness verifies tenant-critical guards. |
 | Reversibility | PASS | No schema migration; rollback is code-only. |
 
-## Verification
+## Regression coverage
 
-Regression coverage added:
+- `financeService.test.ts`: later fee-write failure leaves no orphan ledger/fee/audit rows.
+- `schemaHealth.test.ts`: healthy manifest passes; missing migration/index/trigger fails closed.
+- `migrationRunner.test.ts`: non-tolerable error aborts immediately and is not marked; single duplicate recovery remains; multi-statement failure is never tolerated.
+- `seedAdminPassword.test.ts`: missing/weak bootstrap password is rejected and a strong explicit password is accepted.
+- `userLifecycleAtomicity.test.ts`: invalid class assignment rolls a newly inserted user back; force logout bumps tokenVersion and revokes refresh sessions.
+- Existing Finance tenant-isolation and auth suites continue to exercise public behavior.
 
-- `server/src/__tests__/financeService.test.ts`: deliberately causes a fee write to fail **after** the payment-ledger path has begun, then verifies there is no orphan `financial_transactions`, no partial `student_fee_records`, and no leaked audit row.
-- `server/src/__tests__/schemaHealth.test.ts`: verifies a healthy full-manifest schema snapshot passes; a missing historical migration marker or tenant index fails; a missing required integrity trigger fails.
-- Existing `financeTenantIsolation.test.ts` now exercises the atomic command implementation.
-
-CI must run repository-standard lint, client/server TypeScript checks, full Vitest suite, and build before this ADR is considered fully verified.
+Repository-standard ESLint, client/server TypeScript, full Vitest and production build are required before the PR is ready for review.
 
 ## Operational impact
 
-The startup policy deliberately favors integrity over availability. If production contains an unapplied migration, malformed tenant/index guard, missing required column/trigger, wrong composite PK, or FK violation, the release will fail health/startup rather than continue accepting writes.
+Startup now deliberately fails when any of these conditions occur:
 
-Operational response is to repair/complete the database migration or restore a known-good snapshot; bypassing the readiness gate is not an approved recovery mechanism.
+- a non-tolerable migration fails;
+- executable schema readiness fails;
+- a fresh database has no valid `SEED_ADMIN_PASSWORD`;
+- atomic seed execution fails.
+
+For a fresh deployment, provision `SEED_ADMIN_PASSWORD` before first startup. Do not bypass a failed migration/readiness/seed gate to recover availability; repair the underlying database/configuration or restore a known-good snapshot.
 
 ## Rollback
 
-**Reversibility:** R1/R2 code rollback; no destructive migration was added.
+**Reversibility:** R1/R2 code rollback; no destructive migration was introduced by this remediation.
 
-- Finance rollback: revert `FinanceApplicationService` routing/re-export changes.
-- Startup-gate rollback: revert the entrypoint call and `schemaHealth.ts`.
-
-Rollback must only be used for a verified false-positive in the new guard. A real schema-integrity failure must be repaired, not bypassed.
+A rollback is appropriate only for a verified false-positive/regression in the new guards. A real schema, security or data-integrity failure must be repaired rather than bypassed.
