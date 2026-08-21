@@ -45,10 +45,10 @@ export const BRANCHES: Record<string, BranchInfo> = {
   HiepSi: {
     id: 'HiepSi',
     name: 'Hiệp Sĩ',
-    scarfColor: '#854D0E', // Brown/Dark
-    bgColor: '#FFFBEB',
-    badgeBg: '#FDE68A',
-    textColor: '#78350F',
+    scarfColor: '#8B4513', // Brown (Màu Nâu)
+    bgColor: '#FAF5F0',
+    badgeBg: '#EDE0D4',
+    textColor: '#5C2E0B',
     description: 'Dấn thân phục vụ Giáo hội và Xã hội',
     ageRange: '16 - 18 tuổi'
   }

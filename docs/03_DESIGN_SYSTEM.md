@@ -97,7 +97,7 @@ Nguồn: `src/constants/branches.ts` + `--color-branch-*` (`index.css:39-43`). �
 | Ấu Nhi | `#16A34A` (xanh lá) |
 | Thiếu Nhi | `#2563EB` (xanh dương) — **lưu ý: ≠ parish-primary** |
 | Nghĩa Sĩ | `#EAB308` (vàng) |
-| Hiệp Sĩ | `#854D0E` (nâu) |
+| Hiệp Sĩ | `#8B4513` (nâu) |
 
 ---
 

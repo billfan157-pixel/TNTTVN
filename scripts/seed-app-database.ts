@@ -16,8 +16,8 @@ async function seed() {
     { id: 'ChienCon', name: 'Chiên Con', scarfColor: '#EC4899', ageMin: 4, ageMax: 6 },
     { id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#16A34A', ageMin: 7, ageMax: 9 },
     { id: 'ThieuNhi', name: 'Thiếu Nhi', scarfColor: '#2563EB', ageMin: 10, ageMax: 12 },
-    { id: 'NghiaSi', name: 'Nghĩa Sĩ', scarfColor: '#9333EA', ageMin: 13, ageMax: 15 },
-    { id: 'HiepSi', name: 'Hiệp Sĩ', scarfColor: '#DC2626', ageMin: 16, ageMax: 18 },
+    { id: 'NghiaSi', name: 'Nghĩa Sĩ', scarfColor: '#EAB308', ageMin: 13, ageMax: 15 },
+    { id: 'HiepSi', name: 'Hiệp Sĩ', scarfColor: '#8B4513', ageMin: 16, ageMax: 18 },
   ]
   for (const b of branches) {
     await client.execute({
