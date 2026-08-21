@@ -11,9 +11,9 @@ Architecture audit 2026-08-21 found two independently reproducible D3 failure wi
 
 ### Finding A — migration execution could fail open
 
-`server/src/db/index.ts` runs bootstrap DDL and versioned migrations during module initialization. For non-tolerable migration failures, the runner logged `Migration failed: <version>` but did not necessarily stop initialization. Defensive index/trigger creation also caught errors without propagating them.
+`server/src/db/index.ts` runs bootstrap DDL and versioned migrations during module initialization. For non-tolerable migration failures, the runner can log `Migration failed: <version>` and continue initialization. Defensive index/trigger creation also contains tolerant paths.
 
-This means the absence of a thrown startup error was not sufficient evidence that the executable database schema matched the current tenant/data-integrity contract. The affected migration history includes composite tenant primary keys, tenant-local unique indexes, and recent exam columns.
+This means the absence of a thrown migration error is not sufficient evidence that the executable database schema matches the current tenant/data-integrity contract.
 
 **Classification:** `CONFIRMED`, confidence `HIGH`, evidence `E3`.
 
@@ -30,7 +30,7 @@ A later fee-record or audit failure could therefore leave a committed financial 
 - ADR-011 requires Application Services to own transaction boundaries.
 - ADR-031 / subsequent tenant hardening require tenant-local keys and composite identifiers to remain enforced by the executable schema.
 - Public Finance HTTP contracts and database schema must remain backward compatible in this remediation.
-- No migration is introduced by this fix; the goal is to enforce the already-approved schema and business invariants.
+- No migration is introduced by this fix; the goal is to enforce already-approved schema and business invariants.
 
 ## Decision
 
@@ -40,15 +40,18 @@ Create `server/src/db/schemaHealth.ts` and call `assertDatabaseReady(client)` in
 
 The gate verifies:
 
-1. required migration markers through tenant hardening migrations `20260820-126/127`;
-2. tenant-critical unique/index definitions and their column order;
-3. recent required exam columns (`scan_metadata`, `exam_version`, `answer_variants`);
-4. composite primary-key shape `(parish_id, id)` for critical tenant tables;
-5. `PRAGMA foreign_key_check` returns no violations.
+1. **the complete intentional migration manifest** represented by `MIGRATIONS` in `db/index.ts` — including historical migrations, while excluding only version numbers intentionally absent from source (`020`, `030`, `036`, `046`);
+2. tenant/data-integrity unique indexes and their required column order;
+3. required integrity triggers for grade range, outbox status, and grade-override field validation;
+4. important columns introduced by migrations, including import, auth, notification, ethics-score and exam evolution;
+5. composite primary-key shape `(parish_id, id)` for critical tenant and Finance tables;
+6. `PRAGMA foreign_key_check` returns no violations.
 
-Any mismatch throws and aborts server startup. An unhealthy/partially migrated database is therefore unavailable rather than writable.
+A migration that is logged-and-continued without recording its marker is therefore still a startup-blocking failure. A marker alone is also insufficient for key invariants: indexes, triggers, columns and primary-key shape are independently verified against the executable schema.
 
-This guard is intentionally independent from the migration runner's logging behavior: the **runtime executable schema**, not a successful log message, is the final readiness authority.
+Any mismatch throws and aborts server startup. An unhealthy/partially migrated database is unavailable rather than writable.
+
+This is a defense-in-depth boundary around the existing migration runner: **runtime schema readiness**, not log output, is the authority for whether the application may serve traffic.
 
 ### 2. Make Finance writes Application-Service-owned and atomic
 
@@ -109,9 +112,9 @@ The ledger, fee state, and audit lineage cannot commit independently.
 
 - API contract: **PASS — unchanged**.
 - Database schema: **PASS — unchanged**.
-- Tenant isolation: **PASS — validation remains parish-scoped and schema readiness now explicitly checks tenant-critical indexes/PKs**.
-- ADR-011 transaction ownership: **PASS — finance command transactions now live in an Application Service**.
-- Existing read/query semantics: **PASS — `financeService.ts` continues to expose the previous read functions and backward-compatible command exports**.
+- Tenant isolation: **PASS — validation remains parish-scoped and schema readiness explicitly checks tenant-critical indexes/PKs**.
+- ADR-011 transaction ownership: **PASS — Finance command transactions live in an Application Service**.
+- Existing read/query semantics: **PASS — `financeService.ts` continues to expose prior read functions and backward-compatible command exports**.
 
 ## D3 hard gates
 
@@ -119,7 +122,7 @@ The ledger, fee state, and audit lineage cannot commit independently.
 |---|---|---|
 | Security | PASS | No new externally reachable surface; startup gate only reduces unsafe availability. |
 | Privacy | PASS | No new personal data collection/storage/logging. |
-| Data Integrity | PASS | Finance mutations are atomic; partially migrated schema cannot serve traffic. |
+| Data Integrity | PASS | Finance mutations are atomic; incomplete migration/schema state cannot serve traffic. |
 | Tenant Isolation | PASS | Readiness gate checks tenant-critical indexes/composite PKs; command validation remains parish-scoped. |
 | Reversibility | PASS | No schema migration; rollback is code-only. |
 
@@ -128,14 +131,14 @@ The ledger, fee state, and audit lineage cannot commit independently.
 Regression coverage added:
 
 - `server/src/__tests__/financeService.test.ts`: deliberately causes a fee write to fail **after** the payment-ledger path has begun, then verifies there is no orphan `financial_transactions`, no partial `student_fee_records`, and no leaked audit row.
-- `server/src/__tests__/schemaHealth.test.ts`: verifies a healthy schema snapshot passes and a snapshot missing migration `20260820-127` plus a tenant idempotency index is rejected.
+- `server/src/__tests__/schemaHealth.test.ts`: verifies a healthy full-manifest schema snapshot passes; a missing historical migration marker or tenant index fails; a missing required integrity trigger fails.
 - Existing `financeTenantIsolation.test.ts` now exercises the atomic command implementation.
 
-CI must run the repository-standard lint, client/server TypeScript checks, full Vitest suite, and build before this ADR is considered fully verified.
+CI must run repository-standard lint, client/server TypeScript checks, full Vitest suite, and build before this ADR is considered fully verified.
 
 ## Operational impact
 
-The startup policy deliberately favors integrity over availability. If production contains a partially applied migration, malformed tenant index, missing required column, wrong composite PK, or FK violation, the release will fail health/startup rather than continue accepting writes.
+The startup policy deliberately favors integrity over availability. If production contains an unapplied migration, malformed tenant/index guard, missing required column/trigger, wrong composite PK, or FK violation, the release will fail health/startup rather than continue accepting writes.
 
 Operational response is to repair/complete the database migration or restore a known-good snapshot; bypassing the readiness gate is not an approved recovery mechanism.
 
