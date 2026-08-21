@@ -569,8 +569,12 @@ Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side,
 2. **Định dạng File Bảng Tính Excel (`.xlsx`, `.xls`, `.csv`)**:
    - Nhận diện tự động file 7 cột: `[Câu số, Nội dung, Phương án A, B, C, D, Đáp án đúng]`.
    - Cung cấp sẵn file mẫu chuẩn `.xlsx` để tải về và nhập liệu.
+   - **QB-F1 (2026-08-21)**: ô đáp án TRỐNG hoặc không chứa A/B/C/D → mặc định gán `A` **kèm warning** hiển thị cho người nhập; TUYỆT ĐỐI không suy đoán đáp án từ nội dung phương án (trước đây "Bác Hồ" → B im lặng). Ô dạng dài hợp lệ như `Đáp án: C` vẫn trích được `C`.
 3. **Giới Hạn & Ràng Buộc**:
    - Tự động đồng bộ số câu `questionCount` (tối đa 50 câu) và bảng đáp án `answerKey` vào phiên chấm bài.
+4. **Hợp đồng lưu trữ ngân hàng câu hỏi (QB-F2/F3, 2026-08-21)**:
+   - Server validate `questions` ở `POST /api/exams`: mảng 1–50 ExamQuestion, mỗi câu có `index` 1..50, `question` 1..2000 ký tự, đủ `options.A–D` (≤500 ký tự), `correctOption ∈ A/B/C/D`; chuỗi ≤200KB. Vi phạm → 400 ngay tại create.
+   - `questions[].correctOption` là **bản chiếu của key mã A**: khi admin đổi answer-key (`PATCH /:id/answer-key`), server tự sync `correctOption` theo key mới (câu nào có trong key). Questions hỏng/không parse được → bỏ qua silently, rescore vẫn chạy. Renderers (ExamPaperModal/ExamExportModal) vẫn remap theo activeKey khi hiển thị — questions JSON trong DB giờ luôn nhất quán với key mã A.
 
 ### 21.2 Bản In Đề Thi A4 Chuẩn Nhà Xứ (`src/utils/examSheets.ts` - `buildExamPaperHtml`)
 - **Nhận diện Giáo Xứ**: Header trang trọng gồm Giáo phận, Giáo xứ, Xứ đoàn TNTT, Tên lớp, Niên khóa, Tên bài kiểm tra và thời gian làm bài.

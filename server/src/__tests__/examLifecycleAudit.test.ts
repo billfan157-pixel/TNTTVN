@@ -225,4 +225,63 @@ describe('EXAM-AUDIT F1–F6 (2026-08-21) — Exam Lifecycle hardening', () => {
     // chấp nhận cả hai nhưng PHẢI là một năm học có thật của giáo xứ.
     expect(['2025-2026', '2026-2027']).toContain(created.data.academicYear)
   })
+
+  it('QB-F2. questions JSON rác (không phải mảng / correctOption sai) → 400 ngay tại create', async () => {
+    const notArray = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: { classId: 'cl-aud-a', subject: 'QB-F2a', scoreType: '15m', semester: 1, academicYear: '2025-2026', questions: '{"index":1}' },
+    })
+    expect(notArray.status).toBe(400)
+    expect(JSON.stringify(notArray.body)).toMatch(/mảng/)
+
+    const badOption = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: {
+        classId: 'cl-aud-a', subject: 'QB-F2b', scoreType: '15m', semester: 1, academicYear: '2025-2026',
+        questions: JSON.stringify([{ index: 1, question: 'Câu 1?', options: { A: 'a', B: 'b', C: 'c', D: 'd' }, correctOption: 'E' }]),
+      },
+    })
+    expect(badOption.status).toBe(400)
+    expect(JSON.stringify(badOption.body)).toMatch(/correctOption/)
+
+    const valid = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: {
+        classId: 'cl-aud-a', subject: 'QB-F2c', scoreType: '15m', semester: 1, academicYear: '2025-2026',
+        questions: JSON.stringify([{ index: 1, question: 'Câu 1?', options: { A: 'a', B: 'b', C: 'c', D: 'd' }, correctOption: 'B' }]),
+        answerKey: '{"1":"B"}',
+      },
+    })
+    expect(valid.status).toBe(201)
+  })
+
+  it('QB-F3. PATCH answer-key → questions[].correctOption được sync theo key mã A mới', async () => {
+    const questions = [
+      { index: 1, question: 'Câu 1?', options: { A: 'a', B: 'b', C: 'c', D: 'd' }, correctOption: 'A' },
+      { index: 2, question: 'Câu 2?', options: { A: 'a', B: 'b', C: 'c', D: 'd' }, correctOption: 'A' },
+    ]
+    const created = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: {
+        classId: 'cl-aud-a', subject: 'QB-F3 Sync', scoreType: '15m', semester: 1, academicYear: '2025-2026',
+        examType: 'multiple_choice', questionCount: 2,
+        questions: JSON.stringify(questions),
+        answerKey: '{"1":"A","2":"A"}',
+      },
+    })
+    expect(created.status).toBe(201)
+    const sessionId = created.data.id
+
+    const patched = await jsonReq(`/${sessionId}/answer-key`, {
+      method: 'PATCH', token: adminToken,
+      body: { answerKey: '{"1":"C","2":"D"}', questionCount: 2 },
+    })
+    expect(patched.status).toBe(200)
+
+    const detail = await jsonReq(`/${sessionId}`, { token: adminToken })
+    expect(detail.status).toBe(200)
+    const syncedQuestions = JSON.parse(detail.data.questions)
+    expect(syncedQuestions[0].correctOption).toBe('C')
+    expect(syncedQuestions[1].correctOption).toBe('D')
+  })
 })

@@ -918,6 +918,31 @@ export async function updateAnswerKeyAndRescore(
       })
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
 
+    // QB-F3 (audit 2026-08-21): đồng bộ correctOption trong ngân hàng câu hỏi
+    // theo key MÃ A mới — trước đây questions[].correctOption giữ giá trị cũ sau
+    // khi đổi key, mọi renderer phải tự remap và consumer trực tiếp JSON thấy
+    // đáp án stale. Questions hỏng/không có → bỏ qua, không chặn rescore.
+    if (sessionBefore.questions) {
+      try {
+        const parsedQuestions = JSON.parse(sessionBefore.questions) as unknown
+        if (Array.isArray(parsedQuestions)) {
+          const newKeyMap = JSON.parse(newAnswerKey) as Record<string, string>
+          const synced = parsedQuestions.map((q) => {
+            if (!q || typeof q !== 'object' || Array.isArray(q)) return q
+            const item = q as Record<string, unknown>
+            const option = newKeyMap[String(Number(item.index))]
+            return option ? { ...item, correctOption: option } : item
+          })
+          await tx
+            .update(examSessions)
+            .set({ questions: JSON.stringify(synced) })
+            .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+        }
+      } catch {
+        // questions không parse được → giữ nguyên, rescore vẫn tiếp tục
+      }
+    }
+
     const existingResults = await tx
       .select()
       .from(examResults)

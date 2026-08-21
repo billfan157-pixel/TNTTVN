@@ -321,22 +321,34 @@ export function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array): ExamParseR
 
       // Hỗ trợ format 7 cột hoặc format 2 cột (Câu, Đáp án)
       const qIndex = parseInt(String(row[0]), 10) || parsedQuestions.length + 1
+      const finalIndex = parsedQuestions.length + 1
       const qText = String(row[1] || '').trim() || `Câu hỏi ${qIndex}`
       const optA = String(row[2] || '').trim() || 'Phương án A'
       const optB = String(row[3] || '').trim() || 'Phương án B'
       const optC = String(row[4] || '').trim() || 'Phương án C'
       const optD = String(row[5] || '').trim() || 'Phương án D'
 
-      let correct = String(row[6] || row[2] || 'A').trim().toUpperCase()
-      if (correct.length > 1) {
-        const match = correct.match(/[A-D]/)
-        correct = match ? match[0] : 'A'
+      // QB-F1 (audit 2026-08-21): ô đáp án TRỐNG/KHÔNG HỢP LỆ phải mặc định 'A'
+      // kèm warning — tuyệt đối KHÔNG fallback sang nội dung phương án A rồi trích
+      // chữ [A-D] (trước đây "Bác Hồ" → B, "Du lịch biển" → D im lặng, làm hỏng
+      // answerKey → đề in và chấm OMR sai theo). Chấp nhận dạng dài hợp lệ như
+      // "Đáp án: C" bằng cách trích chữ trong CHÍNH Ô ĐÁP ÁN.
+      const rawAnswerCell = String(row[6] ?? '').trim()
+      let correctOption: MultipleChoiceOption
+      if (!rawAnswerCell) {
+        warnings.push(`Câu ${finalIndex}: Thiếu đáp án đúng trong file Excel. Mặc định gán là A.`)
+        correctOption = 'A'
+      } else {
+        const normalizedAnswer = rawAnswerCell.toUpperCase()
+        const answerMatch = normalizedAnswer.match(/^[A-D]$/) || normalizedAnswer.match(/[A-D]/)
+        if (answerMatch) {
+          correctOption = answerMatch[0] as MultipleChoiceOption
+        } else {
+          warnings.push(`Câu ${finalIndex}: Đáp án "${rawAnswerCell}" không hợp lệ (cần A/B/C/D). Mặc định gán là A.`)
+          correctOption = 'A'
+        }
       }
-      const correctOption: MultipleChoiceOption = ['A', 'B', 'C', 'D'].includes(correct)
-        ? (correct as MultipleChoiceOption)
-        : 'A'
 
-      const finalIndex = parsedQuestions.length + 1
       parsedQuestions.push({
         index: finalIndex,
         question: qText,

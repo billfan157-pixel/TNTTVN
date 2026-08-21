@@ -548,4 +548,13 @@ Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`)
 
 Điểm của học sinh bị xóa kết quả sau reopen giữ nguyên giá trị last-finalized (không tự đè dữ liệu trước kỳ thi) — semantics khớp midterm/final; xem BUSINESS_RULES "Tạo phiên chấm" quy tắc (6).
 
+### Question Bank contract (QB-F1/F2/F3 — 2026-08-21)
+
+| Endpoint | Thay đổi | Lỗi/Response mới |
+| :--- | :--- | :--- |
+| `POST /api/exams` — `questions` | Bắt buộc mảng JSON 1–50 ExamQuestion hợp lệ: `index` 1..50 (integer), `question` string 1..2000, `options.{A,B,C,D}` string ≤500, `correctOption` ∈ A/B/C/D; chuỗi ≤200KB | 400 validation kèm message chỉ câu/index lỗi |
+| `PATCH /api/exams/:id/answer-key` | Sau khi đổi key, server **tự sync** `questions[].correctOption` theo key mã A mới (câu nào có trong key); questions hỏng → bỏ qua silently | Response shape không đổi |
+
+Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/không hợp lệ → mặc định `A` + warning hiển thị trong preview import (không còn suy đoán từ nội dung phương án).
+
 

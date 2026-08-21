@@ -2921,3 +2921,28 @@ Không finding bảo mật critical: điểm MC server-authoritative, scanMetada
 - [x] Targeted: examLifecycleAudit (8 test mới) + examService + syncProcessor + examStore + examFinalizeService + gradeAuditSync = **104 PASS**.
 - [x] Full server suite **111 files / 691 tests PASS**.
 - [x] Docs sync: BUSINESS_RULES "Tạo phiên chấm" quy tắc (2)/(6)/(7), FRONTEND_API_CONTRACT §16.
+
+---
+
+## Audit AUDIT-QB-01 — Question Bank & Exam Generation Deep Audit + Remediation — 🔴 P2×1 + P3×2 → ✅ FIXED (2026-08-21)
+
+### 1. Phạm vi & phương pháp
+Audit ngân hàng câu hỏi + sinh đề: `examParser.ts`, `examSheets.ts`, `examExporter.ts`, `examVariants.ts`, `examPrintSafety.ts`, Exam{SessionView,ImportModal,PaperModal,ExportModal,VariantsModal}, server schema `questions`. Kiến trúc xác minh: không có bảng bank riêng — câu hỏi sống trong `exam_sessions.questions` (JSON); sinh đề client-side. **Mọi finding được verify bằng thực nghiệm/test trước khi fix.**
+
+### 2. Findings & xử lý
+
+| ID | Mức | Finding (evidence) | Xử lý |
+| :--- | :--- | :--- | :--- |
+| QB-F1 | 🔴 P2 | Excel import: ô đáp án TRỐNG → fallback sang **nội dung phương án A** rồi trích chữ `[A-D]` (`examParser.ts:330` cũ) — **E2 xác minh**: "Bác Hồ"→B, "Du lịch biển"→D, warnings=[] → answerKey sai âm thầm, đề in + chấm OMR sai theo. Text-parser thì có warning → bất nhất | ✅ FIXED: ô trống/rác → mặc định `A` + warning; chỉ trích chữ trong chính ô đáp án ("Đáp án: C" vẫn OK). 2 regression test mới |
+| QB-F2 | 🟡 P3 | Server nhận `questions` không validation shape/không giới hạn (`exams.ts:95` cũ — so sánh answerVariants max 100KB) → dữ liệu rác tích trữ tới ~10MB body limit | ✅ FIXED: `parseQuestions` validate mảng 1–50 ExamQuestion (index/question/options/correctOption) + `.max(200_000)`; vi phạm → 400 tại create. Test QB-F2 |
+| QB-F3 | 🟡 P3 | DB dual-source: PATCH answer-key đổi scoring key nhưng `questions[].correctOption` giữ giá trị cũ — mọi renderer hiện hành phải tự remap (ExamPaperModal:126, resolveExportQuestions:94), consumer trực tiếp JSON thấy đáp án stale | ✅ FIXED: server tự sync `correctOption` theo key mã A mới khi PATCH thành công; questions hỏng → skip silently. Test QB-F3 |
+| QB-F4 | ⚪ P4 | Không có sinh mã đề tự động — "Thêm mã đề" clone key A (`ExamVariantsModal.tsx:30`); UI đã cảnh báo B–H dành cho đề đảo ngoài | 📝 DOCUMENTED (đúng thiết kế, gap sản phẩm ghi nhận tại BUSINESS_RULES §21) |
+| QB-F5 | ⚪ P4 | Heuristic dò bảng đáp án cuối đề có thể cắt nhầm dòng chứa ≥3 cặp số-chữ (`examParser.ts:52-56`) | 📝 ACCEPTED (đặc tính parser linh hoạt, guard câu/bài có sẵn) |
+
+Verified-safe: escapeHtml đầy đủ trên mọi interpolation user-data (~30 điểm, `grades.ts:13-21`); print-integrity gates (index liên tục, teacher-key vô hiệu marker, SVG foreground markers); defensive parse client-side; clamp 50 câu + reindex đồng bộ key.
+
+### 3. Verification (double-check)
+- [x] Targeted 13 file exam-related: **176/176 PASS** (gồm 4 test mới QB-F1×2, QB-F2, QB-F3).
+- [x] Client `tsc -b` + server `tsc`: PASS. Lint: 0 warning mới (4 warning `no-useless-escape` tại examParser:159/162/179 verified pre-existing qua stash).
+- [x] Full server suite: **111 files / 693 tests PASS**.
+- [x] Docs sync: BUSINESS_RULES §21.1 (mục 2/3/4), FRONTEND_API_CONTRACT §16 (Question Bank contract).

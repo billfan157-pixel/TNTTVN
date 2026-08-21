@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import * as XLSX from 'xlsx'
 import {
   parseExamFromText,
   parseExamFromExcel,
@@ -115,5 +116,38 @@ describe('examParser utility', () => {
     const result = parseExamFromText('')
     expect(result.ok).toBe(false)
     expect(result.errors.length).toBeGreaterThan(0)
+  })
+
+  // QB-F1 (audit 2026-08-21): ô đáp án trống/không hợp lệ KHÔNG được trích chữ
+  // [A-D] từ nội dung phương án A ("Bác Hồ" từng → B, "Du lịch biển" → D im lặng).
+  it('7. QB-F1: Excel đáp án TRỐNG → mặc định A + warning, không trích chữ từ phương án', () => {
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Câu Số', 'Nội Dung', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng'],
+      [1, 'Câu hỏi 1', 'Bác Hồ', 'Đáp án B', 'Đáp án C', 'Đáp án D', ''],
+      [2, 'Câu hỏi 2', 'Du lịch biển', 'Đáp án B', 'Đáp án C', 'Đáp án D', null],
+    ])
+    XLSX.utils.book_append_sheet(wb, ws, 'S')
+    const result = parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
+
+    expect(result.questions[0].correctOption).toBe('A')
+    expect(result.answerKey[1]).toBe('A')
+    expect(result.questions[1].correctOption).toBe('A')
+    expect(result.warnings.filter(w => w.includes('Mặc định gán là A'))).toHaveLength(2)
+  })
+
+  it('8. QB-F1: Excel đáp án dạng dài hợp lệ "Đáp án: C" → C; rác hoàn toàn → A + warning', () => {
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Câu Số', 'Nội Dung', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng'],
+      [1, 'Câu 1', 'PA A', 'PA B', 'PA C', 'PA D', 'Đáp án: C'],
+      [2, 'Câu 2', 'PA A', 'PA B', 'PA C', 'PA D', 'xyz'],
+    ])
+    XLSX.utils.book_append_sheet(wb, ws, 'S')
+    const result = parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
+
+    expect(result.answerKey[1]).toBe('C')
+    expect(result.questions[1].correctOption).toBe('A')
+    expect(result.warnings.some(w => w.includes('không hợp lệ'))).toBe(true)
   })
 })

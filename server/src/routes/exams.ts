@@ -80,6 +80,47 @@ function parseAnswerVariants(input: string | undefined, questionCount: number | 
   return { ok: true, variants }
 }
 
+// QB-F2 (audit 2026-08-21): ngân hàng câu hỏi phải là mảng ExamQuestion hợp lệ —
+// trước đây chỉ z.string() trần không shape/không giới hạn, dữ liệu rác được tích
+// trữ và client phải tự liều lĩnh parse.
+function parseQuestions(input: string | undefined): { ok: true } | { ok: false; message: string } {
+  if (!input) return { ok: true }
+  let parsed: unknown
+  try { parsed = JSON.parse(input) } catch { return { ok: false, message: 'questions phải là chuỗi JSON hợp lệ (mảng ExamQuestion).' } }
+  if (!Array.isArray(parsed)) return { ok: false, message: 'questions phải là mảng các câu hỏi.' }
+  if (parsed.length < 1 || parsed.length > 50) {
+    return { ok: false, message: `questions phải có từ 1 đến 50 câu (nhận ${parsed.length}).` }
+  }
+  for (const q of parsed) {
+    if (!q || typeof q !== 'object' || Array.isArray(q)) return { ok: false, message: 'questions chứa câu hỏi không hợp lệ.' }
+    const item = q as Record<string, unknown>
+    const index = Number(item.index)
+    if (!Number.isInteger(index) || index < 1 || index > 50) {
+      return { ok: false, message: `questions chứa index không hợp lệ: ${JSON.stringify(item.index)}.` }
+    }
+    if (typeof item.question !== 'string' || item.question.trim().length === 0 || item.question.length > 2000) {
+      return { ok: false, message: `Câu ${index}: nội dung câu hỏi phải là chuỗi 1..2000 ký tự.` }
+    }
+    const options = item.options as Record<string, unknown> | undefined
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      return { ok: false, message: `Câu ${index}: thiếu options.` }
+    }
+    for (const opt of ['A', 'B', 'C', 'D'] as const) {
+      const value = options[opt]
+      if (typeof value !== 'string' || value.length > 500) {
+        return { ok: false, message: `Câu ${index}: phương án ${opt} phải là chuỗi 0..500 ký tự.` }
+      }
+    }
+    if (item.correctOption !== 'A' && item.correctOption !== 'B' && item.correctOption !== 'C' && item.correctOption !== 'D') {
+      return { ok: false, message: `Câu ${index}: correctOption phải là A/B/C/D.` }
+    }
+    if (item.explanation !== undefined && item.explanation !== null && typeof item.explanation !== 'string') {
+      return { ok: false, message: `Câu ${index}: explanation phải là chuỗi.` }
+    }
+  }
+  return { ok: true }
+}
+
 const createSchema = z.object({
   classId: z.string().trim().min(1),
   subject: z.string().trim().min(1).max(100),
@@ -92,7 +133,7 @@ const createSchema = z.object({
   questionCount: z.coerce.number().int().min(1).max(50).optional(),
   answerKey: z.string().optional(),
   answerVariants: z.string().max(100_000).optional(),
-  questions: z.string().optional(),
+  questions: z.string().max(200_000).optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
 }).superRefine((data, ctx) => {
   if (data.examType === 'multiple_choice' && data.questionCount === undefined) {
@@ -113,6 +154,8 @@ const createSchema = z.object({
   }
   const variantsCheck = parseAnswerVariants(data.answerVariants, data.questionCount)
   if (!variantsCheck.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerVariants'], message: variantsCheck.message })
+  const questionsCheck = parseQuestions(data.questions)
+  if (!questionsCheck.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: questionsCheck.message })
 })
 
 const resultsSchema = z.object({
