@@ -33,41 +33,84 @@ jobs:
                   raise SystemExit(f'{path}: expected {expected} occurrence(s), found {count}')
               p.write_text(text.replace(old, new))
 
-          # Central SQLite contention detection: handle wrapped SQLITE_BUSY_* errors.
-          replace(
-              'server/src/db/index.ts',
-              "import { createClient, LibsqlError } from '@libsql/client'",
-              "import { createClient } from '@libsql/client'",
-          )
-          replace(
-              'server/src/db/index.ts',
-              "import { applyMigrations } from './migrationRunner.js'\n",
-              "import { applyMigrations } from './migrationRunner.js'\nimport { isSqliteBusyError } from './sqliteErrors.js'\n",
-          )
-          replace(
-              'server/src/db/index.ts',
-              "      const busy = err instanceof LibsqlError && err.code === 'SQLITE_BUSY'\n      if (!busy || attempt >= MAX_TX_BUSY_RETRY) throw err\n      await new Promise((r) => setTimeout(r, 25 * 2 ** attempt))",
-              "      const busy = isSqliteBusyError(err)\n      if (!busy || attempt >= MAX_TX_BUSY_RETRY) throw err\n      const baseDelayMs = Math.min(250, 25 * 2 ** attempt)\n      const jitterMs = Math.floor(Math.random() * Math.max(20, Math.floor(baseDelayMs * 0.35)))\n      await new Promise((r) => setTimeout(r, baseDelayMs + jitterMs))",
-          )
+          # Central SQLite contention detection: wrapped SQLITE_BUSY / SQLITE_BUSY_SNAPSHOT
+          # must be retried at the transaction boundary, not only in Exam-specific code.
+          replace('server/src/db/index.ts',
+                  "import { createClient, LibsqlError } from '@libsql/client'",
+                  "import { createClient } from '@libsql/client'")
+          replace('server/src/db/index.ts',
+                  "import { applyMigrations } from './migrationRunner.js'\n",
+                  "import { applyMigrations } from './migrationRunner.js'\nimport { isSqliteBusyError } from './sqliteErrors.js'\n")
+          replace('server/src/db/index.ts',
+                  "      const busy = err instanceof LibsqlError && err.code === 'SQLITE_BUSY'\n      if (!busy || attempt >= MAX_TX_BUSY_RETRY) throw err\n      await new Promise((r) => setTimeout(r, 25 * 2 ** attempt))",
+                  "      const busy = isSqliteBusyError(err)\n      if (!busy || attempt >= MAX_TX_BUSY_RETRY) throw err\n      const baseDelayMs = Math.min(250, 25 * 2 ** attempt)\n      const jitterMs = Math.floor(Math.random() * Math.max(20, Math.floor(baseDelayMs * 0.35)))\n      await new Promise((r) => setTimeout(r, baseDelayMs + jitterMs))")
 
-          # Backup v3 is an intentional contract change; update stale v2 assertions.
+          # BR §23.3: receipt/disbursement voucher numbers are sequential and unique.
+          # The index migration deliberately fails closed if legacy duplicates already exist;
+          # it never renumbers historical accounting rows silently.
+          marker_127 = """  { version: '20260820-127', sql: `
+DROP INDEX IF EXISTS idx_students_idempotency;
+CREATE UNIQUE INDEX idx_students_idempotency ON students(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_notices_idempotency;
+CREATE UNIQUE INDEX idx_notices_idempotency ON notices(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_classes_idempotency;
+CREATE UNIQUE INDEX idx_classes_idempotency ON classes(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_exam_sessions_idempotency;
+CREATE UNIQUE INDEX idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key);
+` },
+]"""
+          marker_128 = """  { version: '20260820-127', sql: `
+DROP INDEX IF EXISTS idx_students_idempotency;
+CREATE UNIQUE INDEX idx_students_idempotency ON students(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_notices_idempotency;
+CREATE UNIQUE INDEX idx_notices_idempotency ON notices(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_classes_idempotency;
+CREATE UNIQUE INDEX idx_classes_idempotency ON classes(parish_id, idempotency_key);
+DROP INDEX IF EXISTS idx_exam_sessions_idempotency;
+CREATE UNIQUE INDEX idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key);
+` },
+  { version: '20260821-128', sql: `
+CREATE UNIQUE INDEX idx_financial_transactions_receipt_unique
+ON financial_transactions(parish_id, receipt_number);
+` },
+]"""
+          replace('server/src/db/index.ts', marker_127, marker_128)
+
+          replace('server/src/db/schema.ts',
+                  "  index('idx_transactions_class').on(table.parishId, table.classId),\n])",
+                  "  index('idx_transactions_class').on(table.parishId, table.classId),\n  uniqueIndex('idx_financial_transactions_receipt_unique').on(table.parishId, table.receiptNumber),\n])")
+
+          replace('server/src/db/schemaHealth.ts',
+                  "  ...migrationRange('20260820', 126, 127),\n] as const",
+                  "  ...migrationRange('20260820', 126, 127),\n  '20260821-128',\n] as const")
+          replace('server/src/db/schemaHealth.ts',
+                  "  idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],\n}",
+                  "  idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],\n  idx_financial_transactions_receipt_unique: ['parish_id', 'receipt_number'],\n}")
+
+          # Acquire the SQLite writer before validation/MAX reads so two concurrent issuers
+          # cannot both observe the same maximum receipt number in DEFERRED transactions.
+          replace('server/src/services/FinanceApplicationService.ts',
+                  "): Promise<FinancialTransaction> {\n  await assertTransactionReferences(tx, data, parishId)",
+                  "): Promise<FinancialTransaction> {\n  await tx\n    .update(funds)\n    .set({ updatedAt: sql`${funds.updatedAt}` })\n    .where(and(eq(funds.parishId, parishId), eq(funds.id, data.fundId)))\n\n  await assertTransactionReferences(tx, data, parishId)")
+
+          # Backup v3 is the intentional public contract now emitted by the route.
           for path in [
               'server/src/__tests__/routes/backup.test.ts',
               'server/src/__tests__/security/backup-reauth.test.ts',
               'server/src/__tests__/security/backup-scale.test.ts',
           ]:
               replace(path, "'2.0-production'", "'3.0-operational'")
+          replace('server/src/__tests__/security/authorization-matrix-audit-b.test.ts',
+                  '      expect(res.status).toBe(500)',
+                  '      expect(res.status).toBe(409)')
 
-          # Cross-tenant restore preflight now rejects explicitly as conflict, rather than surfacing generic 500.
-          replace(
-              'server/src/__tests__/security/authorization-matrix-audit-b.test.ts',
-              '      expect(res.status).toBe(500)',
-              '      expect(res.status).toBe(409)',
-          )
-
-          # Keep schema-health test fixture aligned with the expanded authoritative lifecycle coverage.
+          # Keep schema-health test fixture aligned with lifecycle + receipt coverage.
           p = Path('server/src/__tests__/schemaHealth.test.ts')
           text = p.read_text()
+          if "idx_financial_transactions_receipt_unique" not in text:
+              text = text.replace(
+                  "  idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],\n}",
+                  "  idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],\n  idx_financial_transactions_receipt_unique: ['parish_id', 'receipt_number'],\n}")
           old_pk = "const COMPOSITE_PK_TABLES = new Set([\n  'users',\n  'students',\n  'classes',\n  'grades',\n  'attendance',\n  'audit_logs',\n  'funds',\n  'financial_transactions',\n  'student_fee_records',\n])"
           new_pk = "const COMPOSITE_PK_TABLES = new Set([\n  'users', 'students', 'classes', 'grades', 'attendance', 'audit_logs',\n  'funds', 'financial_transactions', 'student_fee_records',\n  'assessment_entries', 'exam_finalizations', 'exam_finalization_items', 'leave_requests',\n  'exam_sessions', 'exam_results', 'attendance_sessions', 'academic_year_snapshots',\n  'promotion_records', 'catechist_assignments', 'notifications', 'service_assignments',\n  'import_batches', 'import_batch_students', 'mapping_memory', 'notices', 'outbox_messages',\n  'semester_locks', 'assessments', 'academic_years', 'branches', 'permissions',\n  'refresh_tokens', 'push_subscriptions', 'telegram_link_tokens', 'telegram_links',\n])"
           if old_pk in text:
@@ -82,10 +125,9 @@ jobs:
               raise SystemExit('schemaHealth.test.ts: required columns fixture pattern not found')
           p.write_text(text)
 
-          # Grade concurrency test cleanup must tolerate the same SQLite writer contention it is testing.
+          # Grade concurrency cleanup uses the same retried transaction primitive under test.
           p = Path('server/src/__tests__/gradeConcurrentOcc.test.ts')
-          text = p.read_text()
-          text = text.replace("import { db } from '../db/index.js'", "import { db, runDbTransaction } from '../db/index.js'")
+          text = p.read_text().replace("import { db } from '../db/index.js'", "import { db, runDbTransaction } from '../db/index.js'")
           old_cleanup = "async function cleanup() {\n  await db.delete(auditLogs).where(eq(auditLogs.parishId, parishId))\n  await db.delete(grades).where(eq(grades.parishId, parishId))\n  await db.delete(students).where(eq(students.parishId, parishId))\n  await db.delete(classes).where(eq(classes.parishId, parishId))\n  await db.delete(users).where(eq(users.parishId, parishId))\n  await db.delete(branches).where(eq(branches.parishId, parishId))\n  await db.delete(academicYears).where(eq(academicYears.parishId, parishId))\n}"
           new_cleanup = "async function cleanup() {\n  await runDbTransaction(async (tx) => {\n    await tx.delete(auditLogs).where(eq(auditLogs.parishId, parishId))\n    await tx.delete(grades).where(eq(grades.parishId, parishId))\n    await tx.delete(students).where(eq(students.parishId, parishId))\n    await tx.delete(classes).where(eq(classes.parishId, parishId))\n    await tx.delete(users).where(eq(users.parishId, parishId))\n    await tx.delete(branches).where(eq(branches.parishId, parishId))\n    await tx.delete(academicYears).where(eq(academicYears.parishId, parishId))\n  })\n}"
           if old_cleanup in text:
@@ -94,8 +136,7 @@ jobs:
               raise SystemExit('gradeConcurrentOcc.test.ts: cleanup pattern not found')
           p.write_text(text)
 
-          # The exam invariant is one-way: completed => result + finalization exist.
-          # A draft session with its original result is a safe unchanged state if neither contender committed.
+          # Exam race tests distinguish unchanged/rejected contention from inconsistent state.
           p = Path('server/src/__tests__/examLifecycleRace.test.ts')
           text = p.read_text()
           text = text.replace("    await Promise.allSettled([\n      finalizeExamSession(sessionId, userId, parishId, '127.0.0.1', 'vitest', null),\n      deleteExamResult(sessionId, studentId, userId, parishId, '127.0.0.1', 'vitest', null),\n    ])", "    const [finalizeOutcome, deleteOutcome] = await Promise.allSettled([\n      finalizeExamSession(sessionId, userId, parishId, '127.0.0.1', 'vitest', null),\n      deleteExamResult(sessionId, studentId, userId, parishId, '127.0.0.1', 'vitest', null),\n    ])")
@@ -103,8 +144,98 @@ jobs:
           text = text.replace("    await Promise.allSettled([\n      finalizeExamSession(sessionId, userId, parishId, '127.0.0.1', 'vitest', null),\n      deleteExamSession(sessionId, userId, parishId, '127.0.0.1', 'vitest', null),\n    ])", "    const [finalizeOutcome, deleteOutcome] = await Promise.allSettled([\n      finalizeExamSession(sessionId, userId, parishId, '127.0.0.1', 'vitest', null),\n      deleteExamSession(sessionId, userId, parishId, '127.0.0.1', 'vitest', null),\n    ])")
           text = text.replace("    } else {\n      expect(session.status).toBe('completed')\n      const results = await db.select().from(examResults)", "    } else {\n      if (session.status === 'draft') {\n        expect(finalizeOutcome.status).toBe('rejected')\n        expect(deleteOutcome.status).toBe('rejected')\n        return\n      }\n      expect(session.status).toBe('completed')\n      const results = await db.select().from(examResults)")
           p.write_text(text)
+
+          # True concurrent voucher allocation regression.
+          Path('server/src/__tests__/financeReceiptConcurrency.test.ts').write_text("""import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { and, eq, sql } from 'drizzle-orm'
+import { db, runDbTransaction } from '../db/index.js'
+import { auditLogs, financialTransactions, funds } from '../db/schema.js'
+import { createTransaction } from '../services/FinanceApplicationService.js'
+
+const parishId = 'finance-receipt-concurrency'
+const fundId = 'finance-receipt-concurrency-fund'
+const year = '2098'
+
+async function cleanup() {
+  await runDbTransaction(async (tx) => {
+    await tx.delete(auditLogs).where(eq(auditLogs.parishId, parishId))
+    await tx.delete(financialTransactions).where(eq(financialTransactions.parishId, parishId))
+    await tx.delete(funds).where(eq(funds.parishId, parishId))
+  })
+}
+
+describe('finance sequential voucher allocation under concurrency', () => {
+  beforeAll(async () => {
+    await cleanup()
+    const now = new Date().toISOString()
+    await db.insert(funds).values({
+      id: fundId,
+      parishId,
+      name: 'Concurrency Fund',
+      code: 'CONCURRENCY',
+      initialBalance: 0,
+      isDefault: true,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+  })
+
+  afterAll(cleanup)
+
+  it('issues distinct consecutive PT numbers for simultaneous writers', async () => {
+    const makeIncome = (title: string) => createTransaction({
+      fundId,
+      type: 'INCOME',
+      amount: 100000,
+      category: 'Test',
+      title,
+      academicYear: `${year}-${Number(year) + 1}`,
+      transactionDate: `${year}-08-21`,
+    }, 'finance-race-user', 'Finance Race User', parishId, '127.0.0.1', 'vitest')
+
+    const [first, second] = await Promise.all([makeIncome('Income A'), makeIncome('Income B')])
+    expect([first.receiptNumber, second.receiptNumber].sort()).toEqual([
+      `PT-${year}-0001`,
+      `PT-${year}-0002`,
+    ])
+
+    const rows = await db.select({ receiptNumber: financialTransactions.receiptNumber })
+      .from(financialTransactions)
+      .where(and(
+        eq(financialTransactions.parishId, parishId),
+        sql`${financialTransactions.receiptNumber} LIKE ${`PT-${year}-%`}`,
+      ))
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map(row => row.receiptNumber)).size).toBe(2)
+  })
+})
+""")
+
+          # Authoritative docs: record executable enforcement without inventing a voucher-cancellation policy.
+          p = Path('docs/BUSINESS_RULES.md')
+          text = p.read_text()
+          anchor = "- Số phiếu thu (`PT-YYYY-XXXX`) và phiếu chi (`PC-YYYY-XXXX`) được sinh tuần tự tăng dần dựa trên dữ liệu thực tế của từng năm trong CSDL (bắt đầu từ `0001`), không sử dụng số ngẫu nhiên nhằm đảm bảo tính duy nhất và tính liên tục của sổ sách kế toán Xứ Đoàn."
+          note = anchor + "\n- Enforcement (2026-08-21): việc cấp số được serialize tại transaction boundary trước khi đọc số lớn nhất; CSDL enforce `UNIQUE(parish_id, receipt_number)` qua migration `20260821-128`. Migration fail-closed nếu dữ liệu lịch sử đã có số phiếu trùng; hệ thống không tự renumber chứng từ cũ. Quy tắc hủy chứng từ/voiding không được suy diễn từ mục này và cần business rule riêng nếu thay đổi physical-delete semantics."
+          if note not in text:
+              if anchor not in text: raise SystemExit('BUSINESS_RULES §23.3 anchor not found')
+              p.write_text(text.replace(anchor, note))
+
+          p = Path('docs/07_DATABASE_PLAN.md')
+          text = p.read_text()
+          section = """
+
+### 2026-08-21 — Data Integrity & Concurrency Hardening
+- Operational backup/restore and SYSTEM_PURGE coverage are driven by the central data-lifecycle registry, including assessment/finalization, leave and Finance tables.
+- Logical backup v3 is exported from one read transaction with stable ordering; restore verification and the success audit commit atomically.
+- `runDbTransaction` retries the SQLite `SQLITE_BUSY*` family through wrapped causes with capped exponential backoff and jitter.
+- Finance voucher allocation serializes writers before `MAX(receipt_number)+1`; migration `20260821-128` enforces tenant-scoped receipt uniqueness and fails closed on legacy duplicates.
+- Schema readiness checks migration markers, required columns/indexes, tenant composite primary keys and `PRAGMA foreign_key_check` before HTTP/workers start.
+"""
+          if '### 2026-08-21 — Data Integrity & Concurrency Hardening' not in text:
+              p.write_text(text.rstrip() + section + '\n')
           PY
-      - name: Commit patched sources
+      - name: Commit patched sources and docs
         shell: bash
         run: |
           if git diff --quiet; then
@@ -113,6 +244,6 @@ jobs:
           fi
           git config user.name "openai-agent"
           git config user.email "openai-agent@users.noreply.github.com"
-          git add server/src
-          git commit -m "fix: resolve db integrity CI regressions"
+          git add server/src docs
+          git commit -m "fix: close database integrity and concurrency gaps"
           git push origin HEAD:agent/fix-db-integrity-concurrency-audit
