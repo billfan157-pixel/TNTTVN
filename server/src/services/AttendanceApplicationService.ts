@@ -58,7 +58,6 @@ export class AttendanceApplicationService {
     const semester = cmd.semester || resolveSemester(cmd.date)
 
     return db.transaction(async (tx) => {
-      // 1. Verify student exists and is active.
       const [student] = await tx
         .select({ id: students.id, classId: students.classId })
         .from(students)
@@ -77,7 +76,6 @@ export class AttendanceApplicationService {
         throw err
       }
 
-      // 2. Check the semester lock using the SAME transaction snapshot.
       const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(academicYear, semester, cmd.parishId, tx)
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${semester} năm học ${academicYear} đã bị khóa sổ điểm. Không thể điểm danh.`) as any
@@ -85,7 +83,6 @@ export class AttendanceApplicationService {
         throw err
       }
 
-      // 3. Load existing AttendanceRecord Entity or create new.
       const existing = await this.attendanceRepo.findByStudentAndSession(
         cmd.studentId,
         cmd.date,
@@ -100,6 +97,9 @@ export class AttendanceApplicationService {
           existing.toJSON()
         )
       }
+
+      const existingSnapshot = existing?.toJSON() ?? null
+      const existingVersion = existing?.version ?? 0
 
       let record: AttendanceRecord
       if (existing) {
@@ -120,18 +120,15 @@ export class AttendanceApplicationService {
         })
       }
 
-      // 4. Save + audit atomically. Idempotent no-op requests intentionally do
-      // not write a duplicate audit record because the persisted state is unchanged.
-      const beforeVersion = existing?.version ?? 0
       await this.attendanceRepo.save(record, cmd.userId, cmd.parishId, tx)
-      if (!existing || record.version !== beforeVersion) {
+      if (!existing || record.version !== existingVersion) {
         await tx.insert(auditLogs).values({
           id: generateId('AUD'),
           userId: cmd.userId,
           action: 'MARK_ATTENDANCE',
           entityType: 'attendance',
           entityId: record.id,
-          oldValue: existing ? JSON.stringify(existing.toJSON()) : null,
+          oldValue: existingSnapshot ? JSON.stringify(existingSnapshot) : null,
           newValue: JSON.stringify(record.toJSON()),
           ip: cmd.ip || null,
           userAgent: cmd.userAgent || null,
