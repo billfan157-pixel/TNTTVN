@@ -10,6 +10,7 @@ describe('Server undoGradeImport Layer Tests (ADR-028)', () => {
   let studentB: string
   let studentC: string
   let studentD: string
+  let studentE: string
 
   const semester = 1
   const academicYear = '2025 - 2026'
@@ -41,10 +42,12 @@ describe('Server undoGradeImport Layer Tests (ADR-028)', () => {
     const b = await createWithRetry({ holyName: 'UndoB', fullName: 'UndoB', ...base })
     const c = await createWithRetry({ holyName: 'UndoC', fullName: 'UndoC', ...base })
     const d = await createWithRetry({ holyName: 'UndoD', fullName: 'UndoD', ...base })
+    const e = await createWithRetry({ holyName: 'UndoE', fullName: 'UndoE', ...base })
     studentA = a!.id
     studentB = b!.id
     studentC = c!.id
     studentD = d!.id
+    studentE = e!.id
   })
 
   it('restores a grade row to its pre-import state (UPDATE entry)', async () => {
@@ -59,6 +62,25 @@ describe('Server undoGradeImport Layer Tests (ADR-028)', () => {
     expect(row).toBeDefined()
     expect(row.scoreOral).toBe(5)
     expect(row.scoreFinal).toBe(5)
+  })
+
+  it('GRADE-UNDO-F1: chặn undo khi lần ghi gần nhất là CHỈNH TAY (_source manual) sau import', async () => {
+    // 1) "Import" tạo row
+    await upsertGrade({ studentId: studentE, academicYear, semester, scoreOral: 3 }, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
+    // 2) Giáo lý viên sửa tay (source manual) — trước đây undo vẫn chạy và xóa luôn sửa tay
+    await upsertGrade(
+      { studentId: studentE, academicYear, semester, scoreOral: 7, scoreOral_source: 'manual' },
+      'USR-001', 'gia-ton', '127.0.0.1', 'Vitest',
+    )
+
+    const [res] = await undoGradeImport([{ studentId: studentE }], semester, academicYear, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
+    expect(res.status).toBe('not-clean')
+    expect(res.message).toMatch(/chỉnh tay/i)
+
+    // Sửa tay của GV phải còn nguyên
+    const grades = await getGrades('gia-ton', studentE, semester)
+    const row = grades.find(g => g.studentId === studentE)
+    expect(row?.scoreOral).toBe(7)
   })
 
   it('deletes a grade row created by the import (CREATE entry)', async () => {

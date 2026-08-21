@@ -462,6 +462,26 @@ export async function undoGradeImport(
             return { studentId: item.studentId, status: 'not-clean', message: 'Đã có thay đổi khác sau đợt nhập — không thể hoàn tác tự động' }
           }
 
+          // GRADE-UNDO-F1 (audit 2026-08-21): chỉnh tay của giáo lý viên sau import
+          // dùng chung action 'UPDATE' với đợt import nên không phân biệt được bằng
+          // action. Phân biệt qua nguồn điểm trong newValue: có field nào mang
+          // `_source === 'manual'` ⇒ lần ghi gần nhất là CHỈNH TAY, không phải
+          // import → chặn hoàn tác tự động để không lặng lẽ xóa sửa tay của GV
+          // (đúng tuyên bố ADR-028: "tránh mất dữ liệu sửa tay sau import").
+          if (entry.action === 'UPDATE' && entry.newValue) {
+            try {
+              const written = JSON.parse(entry.newValue) as Record<string, unknown>
+              const hasManualSource = Object.keys(written).some(
+                (key) => key.endsWith('_source') && (written as Record<string, unknown>)[key] === 'manual',
+              )
+              if (hasManualSource) {
+                return { studentId: item.studentId, status: 'not-clean', message: 'Đã có chỉnh tay của giáo lý viên sau đợt nhập — không thể hoàn tác tự động' }
+              }
+            } catch {
+              // newValue không parse được → giữ hành vi cũ
+            }
+          }
+
           const windowMs = UNDO_GRADE_WINDOW_DAYS * 24 * 60 * 60 * 1000
           if (Date.now() - new Date(entry.createdAt).getTime() > windowMs) {
             return { studentId: item.studentId, status: 'expired', message: `Chỉ có thể hoàn tác trong ${UNDO_GRADE_WINDOW_DAYS} ngày kể từ khi nhập điểm` }

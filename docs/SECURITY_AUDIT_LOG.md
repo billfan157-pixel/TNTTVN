@@ -2971,3 +2971,26 @@ Verified-safe: safety gate `prepareOutput` chạy nhất quán mọi output (pre
 - [x] Targeted: reportExportService (4 test mới) + exporter/printSafety/answerSheet×2/50q/parser/pdfExportRoutes = **77 PASS**; sau đó full exam-related 108 PASS.
 - [x] Full suite: **1604/1605 PASS** — 1 fail duy nhất `examQrRender.test.ts` verified pre-existing trên HEAD sạch (stash).
 - [x] Docs sync: BUSINESS_RULES §21.4, SECURITY_AUDIT_LOG mục này.
+
+---
+
+## Audit AUDIT-GRADE-01 — Grading Engine & Result Integrity Deep Audit + Remediation — 🟠 P3×1 → ✅ FIXED (2026-08-21)
+
+### 1. Phạm vi & phương pháp
+Audit tính điểm & lưu kết quả: `gradeService.ts` (565 dòng — upsert/batch/undo), `routes/grades.ts` (schema + 8 endpoints), GradeAggregate/override repository, `utils/grades.ts` + `gradePolicy.ts`, `gradeStore.ts`, ReportCardProjectionRepository. Đối chiếu ADR-016/018/028/047.
+
+### 2. Findings & xử lý
+
+| ID | Mức | Finding (evidence) | Xử lý |
+| :--- | :--- | :--- | :--- |
+| GRADE-F1 | 🟠 P3 | **Undo import lặng lẽ xóa sửa tay của GV**: import và chỉnh tay dùng chung audit signature (`entityType='grade'` + `action='UPDATE'` — `gradeService.ts:291-302`), guard not-clean chỉ chặn `GRADE_UNDO` lặp → chuỗi import → GV sửa tay → "Hoàn Tác Đợt Nhập" restore về oldValue của lần CHỈNH TAY (= trạng thái sau import) = xóa sửa tay. Mâu thuẫn Negative consequence ADR-028 đã tuyên bố ("nếu sau import đã sửa tay, undo sẽ bị từ chối") nhưng code chưa từng đáp ứng | ✅ **FIXED (GRADE-UNDO-F1)**: entry UPDATE có field `_source === 'manual'` trong newValue → `not-clean`. Regression test mới (import → manual edit → undo phải not-clean, điểm manual còn nguyên) |
+| GRADE-O1 | ⚪ P4 | `scoreDaoDuc` không cộng vào GPA ở CẢ client (`gradePolicy.ts:233-237`) lẫn server (`gradeCalculation.ts`) — nhất quán nhưng BUSINESS_RULES chưa tuyên bố rõ | 📝 Ghi nhận; cần 1 dòng docs khi đụng mục GPA |
+| GRADE-O2 | ⚪ P4 | Client optimistic merge giữ `_source` cũ khi payload mới không mang source — đúng hướng, kết hợp guard server P5 | 📝 Không phải lỗi |
+
+Verified-safe: validate điểm 3 lớp độc lập (zod preprocess ↔ service pre-check ↔ DB trigger RAISE ABORT + schemaHealth gate); OCC 2 tầng bắt buộc (không env flag); P5 manual-override protection; lock+access trong tx (S24); audit full-row oldValue + policyVersionId; parity công thức client↔server khóa bằng `gradesParity.test.ts`; batch rehydrate chống temp-id/version drift.
+
+### 3. Verification
+- [x] Server tsc PASS; lint 0 warning mới.
+- [x] Targeted grading suites (12 file): **79/79 PASS** (gồm test mới GRADE-UNDO-F1).
+- [x] Full server suite: **111 files / 694 tests PASS**.
+- [x] Docs sync: ADR-028 amendment, FRONTEND_API_CONTRACT §13, SECURITY_AUDIT_LOG mục này.

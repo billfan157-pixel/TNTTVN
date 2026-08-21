@@ -451,6 +451,7 @@ Nhập điểm sai từ Excel/dán bảng không có cơ chế khôi phục — 
 2. **Đảo ngược lần ghi gần nhất** (audit entry mới nhất `entityType='grade'`): `CREATE` → xóa row (kèm `grade_overrides`); `UPDATE` → khôi phục cột từ `oldValue` (version +1, updatedBy ghi).
 3. **Cửa sổ 7 ngày** (`UNDO_GRADE_WINDOW_DAYS`): entry cũ hơn → status `expired`.
 4. **Điều kiện sạch**: entry mới nhất phải là `CREATE`/`UPDATE` — nếu là thao tác khác (VD: `GRADE_UNDO` trước đó) → status `not-clean`, từ chối (chống undo lặp và mất sửa tay sau import).
+   - **Amendment GRADE-UNDO-F1 (2026-08-21)**: chỉnh tay của GLV sau import dùng chung action `UPDATE` với đợt import nên guard cũ không phân biệt được — undo lặng lẽ revert cả sửa tay. Bổ sung phát hiện qua nguồn điểm trong `newValue`: entry UPDATE chứa field nào `_source === 'manual'` → `not-clean` ("Đã có chỉnh tay của giáo lý viên sau đợt nhập"). Code giờ khớp đúng Negative consequence đã tuyên bố.
 5. **Access + semester lock**: `allowedClassIds` check trong cùng tx (ADR-016 S24 — đóng TOCTOU); học kỳ đã khóa sổ → status `locked`.
 6. **Audit chính thao tác**: mỗi item ghi `GRADE_UNDO` (oldValue = trạng thái trước undo, newValue = trạng thái sau / null khi xóa).
 7. **Client**: `ExcelGradeImportModal` lưu snapshot (studentIds, HK, năm, thời điểm) vào localStorage sau import; hiện nút "Hoàn Tác Đợt Nhập Trước" trong 7 ngày; sau undo refetch grades.
@@ -458,7 +459,7 @@ Nhập điểm sai từ Excel/dán bảng không có cơ chế khôi phục — 
 ### Consequences
 - **Positive**: khôi phục điểm import sai trong 1 cú bấm; không migration (tận dụng audit đã có); chủ nhiệm chỉ undo được điểm lớp được bổ nhiệm (class-access như quyền sửa điểm); mọi thay đổi sau import đều từ chối an toàn (`not-clean`).
 - **Negative**: undo lần ghi gần nhất — nếu sau import đã sửa tay, undo sẽ bị từ chối (an toàn > tiện lợi); offline: chỉ undo được khi có mạng (server-side); snapshot localStorage có thể bị xóa — thao tác vẫn khả dụng qua audit nếu gọi API trực tiếp.
-- **Tests**: `server/src/__tests__/services/gradeUndoImport.test.ts` (6: restore UPDATE → oldValue, delete CREATE, expired 8 ngày, chặn undo lần 2 → not-clean, not-found, chunhiem khác lớp → forbidden). `tsc -b` + oxlint + vitest (full suite) pass.
+- **Tests**: `server/src/__tests__/services/gradeUndoImport.test.ts` (7: restore UPDATE → oldValue, delete CREATE, **GRADE-UNDO-F1 chặn undo khi lần ghi gần nhất là chỉnh tay manual → not-clean**, expired 8 ngày, chặn undo lần 2 → not-clean, not-found, chunhiem khác lớp → forbidden). `tsc -b` + oxlint + vitest (full suite) pass.
 
 ## ADR-029: Codemagic CI/CD cho Native Builds (Android APK + iOS TestFlight) khi không có máy Mac
 
