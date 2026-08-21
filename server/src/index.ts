@@ -15,6 +15,7 @@ import auditLogsRouter from './routes/auditLogs.js'
 import importRouter from './routes/import.js'
 import settingsRouter from './routes/settings.js'
 import { client } from './db/index.js'
+import { assertDatabaseReady } from './db/schemaHealth.js'
 import { seedIfEmpty } from './seed.js'
 import { isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
@@ -107,6 +108,18 @@ app.route('/api/finances', financesRouter)
 // Railway (docker-compose cũng dùng PORT=3000 theo .env.example) — fallback 3001 dev.
 const PORT = Number(process.env.SERVER_PORT) || Number(process.env.PORT) || 3001
 const HOST = process.env.HOST || '0.0.0.0'
+
+// D3 data-integrity hard gate: db/index.ts has already run bootstrap/migrations as
+// part of module initialization. Validate the executable schema BEFORE seeding,
+// opening the HTTP port, or starting background workers. Any partial migration,
+// malformed tenant index, missing latest column, composite-PK drift, or FK
+// violation must abort startup rather than serving traffic on an unsafe schema.
+try {
+  await assertDatabaseReady(client)
+} catch (err) {
+  console.error('[startup] Database schema readiness check failed:', err)
+  throw err
+}
 
 try {
   await seedIfEmpty()
