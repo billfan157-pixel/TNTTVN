@@ -138,6 +138,27 @@ async function createTransactionInTx(
 ): Promise<FinancialTransaction> {
   await assertTransactionReferences(tx, data, parishId)
 
+  // FIN-1 (audit 2026-08-21): receiptNumber do client cung cấp phải duy nhất trong
+  // giáo xứ — trước đây insert im lặng chấp nhận trùng. Auto-allocation (không có
+  // client receiptNumber) KHÔNG cần check: runDbTransaction = BEGIN IMMEDIATE
+  // (@libsql/core transactionModeToBegin) nên SELECT-max → INSERT được serialize,
+  // không thể hai tx cùng tính ra một số.
+  if (data.receiptNumber) {
+    const [dupReceipt] = await tx
+      .select({ id: financialTransactions.id })
+      .from(financialTransactions)
+      .where(
+        and(
+          eq(financialTransactions.parishId, parishId),
+          eq(financialTransactions.receiptNumber, data.receiptNumber),
+        ),
+      )
+      .limit(1)
+    if (dupReceipt) {
+      financeBadRequest(`Số phiếu "${data.receiptNumber}" đã tồn tại trong giáo xứ`)
+    }
+  }
+
   const id = generateId('TXN')
   const now = new Date().toISOString()
   const academicYear = data.academicYear || getCurrentAcademicYear()

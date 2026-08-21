@@ -58,6 +58,16 @@ leaveRequestsRouter.post('/', zValidator('json', createLeaveRequestSchema), asyn
   let parentPhone = body.parentPhone || student.parentPhone
   let parentId: string | null = null
 
+  // LV-1 (audit 2026-08-21): GLV chỉ được nộp đơn cho HS thuộc lớp mình phụ trách —
+  // đồng nhất class-scope với review/list (:150-153, :267-268); admin không hạn chế;
+  // phuhuynh giữ gate con-mình bên dưới.
+  if (user.role === 'chunhiem' || user.role === 'phuta') {
+    const allowedClassIds = await getUserClassIds(user.userId, user.parishId)
+    if (!allowedClassIds.includes(student.classId)) {
+      return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền nộp đơn xin phép cho thiếu nhi ngoài lớp phụ trách', 403)
+    }
+  }
+
   if (user.role === 'phuhuynh') {
     parentId = user.userId
     const myChildren = await getMyChildren(user.userId, user.parishId)

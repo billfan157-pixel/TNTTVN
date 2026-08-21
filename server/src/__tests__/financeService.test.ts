@@ -358,6 +358,55 @@ describe('Parish Financial & Fund Management Tests (ADR-039)', () => {
     expect(leakedAuditRows).toHaveLength(0)
   })
 
+  it('FIN-1: receiptNumber do client cung cấp phải duy nhất trong giáo xứ', async () => {
+    const fundsList = await listFunds(parishId)
+    const generalFund = fundsList.find((f) => f.code === 'GENERAL')!
+
+    const first = await createTransaction(
+      {
+        fundId: generalFund.id,
+        type: 'INCOME',
+        amount: 500000,
+        category: 'Ủng hộ',
+        title: 'Phiếu thủ công FIN-1',
+        receiptNumber: 'PT-FIN1-MANUAL',
+        academicYear: '2025-2026',
+      },
+      adminId,
+      'Admin',
+      parishId,
+      '127.0.0.1',
+      'TestAgent',
+    )
+    expect(first.receiptNumber).toBe('PT-FIN1-MANUAL')
+
+    // Trùng số phiếu → từ chối, không ghi ledger
+    await expect(
+      createTransaction(
+        {
+          fundId: generalFund.id,
+          type: 'INCOME',
+          amount: 999,
+          category: 'Ủng hộ',
+          title: 'Phiếu trùng số',
+          receiptNumber: 'PT-FIN1-MANUAL',
+          academicYear: '2025-2026',
+        },
+        adminId,
+        'Admin',
+        parishId,
+        '127.0.0.1',
+        'TestAgent',
+      ),
+    ).rejects.toThrow(/đã tồn tại/)
+
+    const dupCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(financialTransactions)
+      .where(and(eq(financialTransactions.parishId, parishId), eq(financialTransactions.receiptNumber, 'PT-FIN1-MANUAL')))
+    expect(Number(dupCount[0].count)).toBe(1)
+  })
+
   it('enforces RBAC: non-admin roles receive 403 Forbidden on finance routes', async () => {
     // Admin request should succeed (200)
     const adminRes = await financesRouter.request('/summary', {
