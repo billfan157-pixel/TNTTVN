@@ -121,10 +121,14 @@ try {
   throw err
 }
 
+// Initial bootstrap is also part of the serving boundary. seedIfEmpty() writes the
+// required admin/config/permissions atomically; if it fails (including missing or
+// weak SEED_ADMIN_PASSWORD on a fresh DB), do not bind HTTP or start workers.
 try {
   await seedIfEmpty()
 } catch (err) {
-  console.error('Seed failed:', err)
+  console.error('[startup] Initial database seed failed:', err)
+  throw err
 }
 
 // A-NEW-38 (2026-08-11): XÓA block reset admin password khỏi startup.
