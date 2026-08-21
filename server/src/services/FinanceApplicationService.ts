@@ -207,6 +207,17 @@ async function createTransactionInTx(
   return row as FinancialTransaction
 }
 
+function feeStateMatches(existing: typeof studentFeeRecords.$inferSelect, data: UpdateStudentFeeInput): boolean {
+  return existing.classId === data.classId
+    && existing.academicYear === data.academicYear
+    && existing.feeType === data.feeType
+    && existing.title === data.title
+    && existing.expectedAmount === data.expectedAmount
+    && existing.paidAmount === data.paidAmount
+    && existing.status === data.status
+    && (existing.note ?? null) === (data.note || null)
+}
+
 /**
  * D3 data-integrity boundary: the fund row and its audit record commit together.
  */
@@ -316,6 +327,10 @@ export async function deleteTransaction(
  * D3 data-integrity boundary: optional payment ledger entry, fee record and both
  * audit records share one transaction. A failure at any later step rolls back all
  * preceding writes, eliminating orphaned receipts.
+ *
+ * ADR-015 retry invariant: an identical fee command is a no-op. In particular,
+ * retrying a successful PAID + createTransaction command must return the existing
+ * fee/ledger link instead of creating another INCOME row.
  */
 export async function updateStudentFee(
   parishId: string,
@@ -327,6 +342,37 @@ export async function updateStudentFee(
 ): Promise<StudentFeeRecord> {
   return runDbTransaction(async (tx) => {
     await assertStudentClassInParish(tx, data.studentId, data.classId, parishId)
+
+    const existing = await tx
+      .select()
+      .from(studentFeeRecords)
+      .where(
+        and(
+          eq(studentFeeRecords.studentId, data.studentId),
+          eq(studentFeeRecords.parishId, parishId),
+          eq(studentFeeRecords.academicYear, data.academicYear),
+          eq(studentFeeRecords.feeType, data.feeType),
+        ),
+      )
+      .limit(1)
+    const existingRow = existing[0]
+
+    if (existingRow && feeStateMatches(existingRow, data)) {
+      const needsLedger = Boolean(data.createTransaction && data.paidAmount > 0 && data.status === 'PAID')
+      if (!needsLedger) return existingRow as StudentFeeRecord
+
+      if (existingRow.transactionId) {
+        const [linkedTransaction] = await tx
+          .select({ id: financialTransactions.id })
+          .from(financialTransactions)
+          .where(and(
+            eq(financialTransactions.id, existingRow.transactionId),
+            eq(financialTransactions.parishId, parishId),
+          ))
+          .limit(1)
+        if (linkedTransaction) return existingRow as StudentFeeRecord
+      }
+    }
 
     const now = new Date().toISOString()
     const today = now.slice(0, 10)
@@ -377,20 +423,7 @@ export async function updateStudentFee(
       }
     }
 
-    const existing = await tx
-      .select()
-      .from(studentFeeRecords)
-      .where(
-        and(
-          eq(studentFeeRecords.studentId, data.studentId),
-          eq(studentFeeRecords.parishId, parishId),
-          eq(studentFeeRecords.academicYear, data.academicYear),
-          eq(studentFeeRecords.feeType, data.feeType),
-        ),
-      )
-      .limit(1)
-
-    const id = existing[0]?.id || generateId('FEE')
+    const id = existingRow?.id || generateId('FEE')
     const row = {
       id,
       parishId,
@@ -403,13 +436,13 @@ export async function updateStudentFee(
       paidAmount: data.paidAmount,
       status: data.status,
       paidDate: data.paidAmount > 0 ? today : null,
-      transactionId: transactionId || existing[0]?.transactionId || null,
+      transactionId: transactionId || existingRow?.transactionId || null,
       note: data.note || null,
       updatedBy: userId,
       updatedAt: now,
     }
 
-    if (existing.length > 0) {
+    if (existingRow) {
       await tx
         .update(studentFeeRecords)
         .set(row)
