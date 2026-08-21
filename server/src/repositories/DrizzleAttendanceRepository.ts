@@ -21,7 +21,7 @@ export class DrizzleAttendanceRepository {
           eq(attendance.parishId, parishId),
           eq(attendance.studentId, studentId),
           eq(attendance.date, date),
-           eq(attendance.type, type as 'SundayMass' | 'CatechismClass')
+          eq(attendance.type, type)
         )
       )
       .limit(1)
@@ -33,7 +33,7 @@ export class DrizzleAttendanceRepository {
       studentId: row.studentId,
       parishId: row.parishId,
       date: row.date,
-      type: row.type as AttendanceSessionType,
+      type: row.type,
       status: row.status as AttendanceStatus,
       note: row.note,
       version: row.version,
@@ -54,10 +54,8 @@ export class DrizzleAttendanceRepository {
 
     if (existing) {
       if (existing.version === record.version) {
-        // Idempotent skip: zero version mutation, no DB write needed
         return
       }
-      // ATT-03 (audit 2026-08-08): UPDATE scoped parishId — không sửa dòng bảng khác tenant
       await this.applyOccUpdate(record, existing.id, record.version - 1, now, userId, parishId, tx)
       return
     }
@@ -67,7 +65,7 @@ export class DrizzleAttendanceRepository {
         id: record.id,
         studentId: record.studentId,
         date: record.date,
-        type: record.type as 'SundayMass' | 'CatechismClass',
+        type: record.type,
         status: record.status,
         note: record.note,
         version: record.version,
@@ -77,9 +75,6 @@ export class DrizzleAttendanceRepository {
         updatedBy: userId,
       })
     } catch (err: any) {
-      // ATT-01 (audit 2026-08-08): race — thiết bị khác đã chèn dòng cùng
-      // (parishId, studentId, date, type) khiến UNIQUE ném 500 thô. Re-query theo
-      // composite key rồi đi đúng OCC path (idempotent skip / update / conflict).
       if (!this.isUniqueViolation(err)) throw err
       const [racer] = await tx
         .select()
@@ -89,7 +84,7 @@ export class DrizzleAttendanceRepository {
             eq(attendance.parishId, parishId),
             eq(attendance.studentId, record.studentId),
             eq(attendance.date, record.date),
-            eq(attendance.type, record.type as 'SundayMass' | 'CatechismClass')
+            eq(attendance.type, record.type)
           )
         )
         .limit(1)
@@ -119,7 +114,6 @@ export class DrizzleAttendanceRepository {
     parishId: string,
     tx: DbExecutor
   ): Promise<void> {
-    // Optimistic Locking: UPDATE ... WHERE id = ? AND parish_id = ? AND version = ?
     const updateRes = await tx
       .update(attendance)
       .set({
