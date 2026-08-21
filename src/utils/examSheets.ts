@@ -377,7 +377,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
   return `
     @page {
       size: A4 portrait;
-      margin: 10mm 8mm 8mm 8mm;
+      /* QB-MARGIN (2026-08-21): 10/8/8/8 → 8/6/6/6 theo yêu cầu thu hẹp viền in.
+         Marker khung OMR còn cách mép giấy ~8.2mm (>5mm hardware margin thông thường). */
+      margin: 8mm 6mm 6mm 6mm;
     }
     * {
       box-sizing: border-box;
@@ -399,10 +401,11 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       min-width: 0;
       margin: 0 auto;
       position: relative;
-      /* Lề ngang 8mm — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
-         khung integrated nằm lệch ra ngoài theo INTEGRATED_MARKER_SIZE; không có lề này marker
-         TL/BL bị clip mép giấy → không bao giờ quét được phiếu in đơn. */
-      padding: 0 8mm;
+      /* Lề ngang 7mm (QB-MARGIN 2026-08-21, trước 8mm) — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
+         khung integrated nằm lệch ra ngoài theo INTEGRATED_MARKER_SIZE; lề này cùng
+         @page margin bảo đảm marker TL/BL không bị clip mép giấy (~8.2mm đề đơn /
+         ~6.4mm đề gộp tính đến mép marker). KHÔNG giảm thêm nếu không chạy lại E2E scan. */
+      padding: 0 7mm;
     }
     .watermark {
       position: absolute;
@@ -1138,8 +1141,9 @@ export function buildBatchExamPapersHtml(
       width: 210mm;
       min-height: 297mm;
       /* A-NEW-50: padding 0 — khớp hoàn toàn layout buildExamPaperHtml (container
-         lề 8mm) để khung OMR integrated có cùng geometry trên cả 2 luồng in —
-         detector hiệu chỉnh tọa độ ô theo rect đo được của đúng layout chuẩn này. */
+         lề 7mm — QB-MARGIN 2026-08-21) để khung OMR integrated có cùng geometry
+         trên cả 2 luồng in — detector hiệu chỉnh tọa độ ô theo rect đo được của
+         đúng layout chuẩn này. */
       padding: 0;
       margin: 0 auto 10mm auto;
       background: #ffffff;

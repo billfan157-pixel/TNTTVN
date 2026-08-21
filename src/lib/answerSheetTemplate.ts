@@ -263,7 +263,7 @@ export function integratedDefaultFrameRect(): FrameRect {
  * (cùng hệ tọa độ với marker và homography), nhưng vị trí trong khung tính theo
  * geometry px in (INTEGRATED_*). `frame` là rect khung đo được thực tế trên ảnh
  * (độc lập vị trí khung trên trang — bản in thật đặt khung lệch khỏi template
- * tĩnh do header/meta phía trên và lề in batch 8mm). */
+ * tĩnh do header/meta phía trên và lề in batch 7mm — QB-MARGIN 2026-08-21). */
 export function integratedMcOptionToCellForRect(
   questionIndex: number,
   option: 'A' | 'B' | 'C' | 'D',
