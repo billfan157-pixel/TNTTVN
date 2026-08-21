@@ -1,5 +1,5 @@
 import { db } from '../db/index.js'
-import { students } from '../db/schema.js'
+import { auditLogs, students } from '../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
 import { drizzleAttendanceRepository, DrizzleAttendanceRepository } from '../repositories/DrizzleAttendanceRepository.js'
 import { semesterLockSpecification, SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
@@ -23,6 +23,9 @@ export interface MarkAttendanceCommand {
   parishId: string
   /** ADR-016 (S24): Class IDs mà user được phân công — check trong tx để đóng TOCTOU (audit #12). */
   allowedClassIds?: string[] | null
+  /** Audit metadata is carried into the application transaction. */
+  ip?: string
+  userAgent?: string
 }
 
 export class AttendanceApplicationService {
@@ -39,6 +42,9 @@ export class AttendanceApplicationService {
 
   /**
    * Single-use case: Mark or correct attendance status for a student session.
+   * The semester-lock read, attendance mutation and audit log share one database
+   * transaction so callers never receive a failure after the business write has
+   * already committed without its audit evidence.
    */
   public async markAttendance(cmd: MarkAttendanceCommand): Promise<AttendanceRecord> {
     const todayStr = new Date().toISOString().substring(0, 10)
@@ -52,7 +58,7 @@ export class AttendanceApplicationService {
     const semester = cmd.semester || resolveSemester(cmd.date)
 
     return db.transaction(async (tx) => {
-      // 1. Verify student exists and is active
+      // 1. Verify student exists and is active.
       const [student] = await tx
         .select({ id: students.id, classId: students.classId })
         .from(students)
@@ -65,23 +71,21 @@ export class AttendanceApplicationService {
         throw err
       }
 
-      // ADR-016 (S24): Access check trong cùng transaction với write → đóng
-      // TOCTOU "check từng item trước khi chạy batch" (audit finding #12).
       if (cmd.allowedClassIds && !cmd.allowedClassIds.includes(student.classId)) {
         const err = new Error('Bạn không có quyền điểm danh thiếu nhi này') as any
         err.status = 403
         throw err
       }
 
-      // 2. Check Semester Lock Specification
-      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(academicYear, semester, cmd.parishId)
+      // 2. Check the semester lock using the SAME transaction snapshot.
+      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(academicYear, semester, cmd.parishId, tx)
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${semester} năm học ${academicYear} đã bị khóa sổ điểm. Không thể điểm danh.`) as any
         err.status = 403
         throw err
       }
 
-      // 2. Load existing AttendanceRecord Entity or create new
+      // 3. Load existing AttendanceRecord Entity or create new.
       const existing = await this.attendanceRepo.findByStudentAndSession(
         cmd.studentId,
         cmd.date,
@@ -90,9 +94,6 @@ export class AttendanceApplicationService {
         tx
       )
 
-      // ADR-016 (S21): Client-version conflict detection. Trước đây client không
-      // gửi version → hai thiết bị sửa cùng bản ghi offline = last-write-wins im
-      // lặng, không bao giờ báo conflict.
       if (existing && cmd.version !== undefined && cmd.version !== null && existing.version !== cmd.version) {
         throw new VersionConflictError(
           'Bản ghi điểm danh đã bị thay đổi bởi người dùng khác. Vui lòng tải lại trang.',
@@ -119,8 +120,25 @@ export class AttendanceApplicationService {
         })
       }
 
-      // 3. Save Entity via Repository with SQL Optimistic Locking
+      // 4. Save + audit atomically. Idempotent no-op requests intentionally do
+      // not write a duplicate audit record because the persisted state is unchanged.
+      const beforeVersion = existing?.version ?? 0
       await this.attendanceRepo.save(record, cmd.userId, cmd.parishId, tx)
+      if (!existing || record.version !== beforeVersion) {
+        await tx.insert(auditLogs).values({
+          id: generateId('AUD'),
+          userId: cmd.userId,
+          action: 'MARK_ATTENDANCE',
+          entityType: 'attendance',
+          entityId: record.id,
+          oldValue: existing ? JSON.stringify(existing.toJSON()) : null,
+          newValue: JSON.stringify(record.toJSON()),
+          ip: cmd.ip || null,
+          userAgent: cmd.userAgent || null,
+          parishId: cmd.parishId,
+          createdAt: new Date().toISOString(),
+        })
+      }
       return record
     })
   }
