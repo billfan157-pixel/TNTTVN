@@ -20,6 +20,7 @@ const INDEXES: Record<string, string[]> = {
   idx_notices_idempotency: ['parish_id', 'idempotency_key'],
   idx_classes_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],
+  idx_financial_transactions_receipt_unique: ['parish_id', 'receipt_number'],
 }
 
 const TRIGGERS = [
@@ -32,15 +33,14 @@ const TRIGGERS = [
 ]
 
 const COMPOSITE_PK_TABLES = new Set([
-  'users',
-  'students',
-  'classes',
-  'grades',
-  'attendance',
-  'audit_logs',
-  'funds',
-  'financial_transactions',
-  'student_fee_records',
+  'users', 'students', 'classes', 'grades', 'attendance', 'audit_logs',
+  'funds', 'financial_transactions', 'student_fee_records',
+  'assessment_entries', 'exam_finalizations', 'exam_finalization_items', 'leave_requests',
+  'exam_sessions', 'exam_results', 'attendance_sessions', 'academic_year_snapshots',
+  'promotion_records', 'catechist_assignments', 'notifications', 'service_assignments',
+  'import_batches', 'import_batch_students', 'mapping_memory', 'notices', 'outbox_messages',
+  'semester_locks', 'assessments', 'academic_years', 'branches', 'permissions',
+  'refresh_tokens', 'push_subscriptions', 'telegram_link_tokens', 'telegram_links',
 ])
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
@@ -50,6 +50,12 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   users: ['password_encrypted', 'holy_name'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  assessment_entries: ['parish_id', 'student_id', 'exam_session_id', 'source'],
+  exam_finalizations: ['parish_id', 'exam_session_id'],
+  exam_finalization_items: ['parish_id', 'finalization_id', 'student_id'],
+  leave_requests: ['parish_id', 'student_id', 'class_id', 'status'],
+  financial_transactions: ['parish_id', 'fund_id', 'student_id', 'class_id'],
+  student_fee_records: ['parish_id', 'student_id', 'class_id', 'transaction_id'],
 }
 
 function createHealthyClient(
