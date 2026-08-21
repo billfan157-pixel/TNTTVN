@@ -220,67 +220,100 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts =
   }
 }
 
-export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string) {
-  if (data.idempotencyKey) {
-    const existing = await db
-      .select()
-      .from(examSessions)
-      .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
-      .limit(1)
-    if (existing.length > 0) return existing[0]
-  }
+/**
+ * SQLite/libSQL begins transactions as DEFERRED. Mutating a draft session with
+ * a no-op conditional write as the first statement acquires/queues the writer
+ * before any validation read snapshot is established. Save/delete/finalize then
+ * serialize on the same session state transition instead of making a global-db
+ * status check outside their transaction.
+ */
+async function acquireSessionMutation(
+  tx: DbTransaction,
+  sessionId: string,
+  parishId: string,
+  allowedClassIds: string[] | null,
+) {
+  await tx
+    .update(examSessions)
+    .set({ status: 'draft' })
+    .where(and(
+      eq(examSessions.id, sessionId),
+      eq(examSessions.parishId, parishId),
+      eq(examSessions.status, 'draft'),
+    ))
 
-  const normYear = data.academicYear ? normalizeAcademicYear(data.academicYear) : getCurrentAcademicYear()
-  const id = generateId('EXS')
-  const now = new Date().toISOString()
-
-  const [cls] = await db
-    .select({ id: classes.id })
-    .from(classes)
-    .where(and(eq(classes.id, data.classId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+  const [session] = await tx
+    .select()
+    .from(examSessions)
+    .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
     .limit(1)
-  if (!cls) {
-    const err = new Error('Lớp học không tồn tại hoặc đã bị xóa') as any
-    err.status = 404
-    throw err
+  if (!session) throw new ExamNotFoundError()
+  if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
+    throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
   }
+  return session
+}
 
-  const row = {
-    id,
-    parishId,
-    classId: data.classId,
-    subject: data.subject,
-    scoreType: data.scoreType,
-    maxScore: data.maxScore ?? 10,
-    semester: data.semester,
-    academicYear: normYear,
-    examType: data.examType ?? 'written',
-    questionCount: data.questionCount ?? null,
-    answerKey: data.answerKey ?? null,
-    answerVariants: data.answerVariants ?? (data.answerKey ? JSON.stringify({ A: JSON.parse(data.answerKey) }) : null),
-    questions: data.questions ?? null,
-    idempotencyKey: data.idempotencyKey ?? undefined,
-    status: 'draft' as const,
-    createdBy: userId,
-    completedBy: null,
-    completedAt: null,
-    createdAt: now,
-  }
-  await db.insert(examSessions).values(row)
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId,
-    action: 'EXAM_CREATE',
-    entityType: 'exam_session',
-    entityId: id,
-    oldValue: null,
-    newValue: JSON.stringify(row),
-    ip,
-    userAgent,
-    parishId,
-    createdAt: now,
-  })
-  return row
+export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string) {
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
+    if (data.idempotencyKey) {
+      const existing = await tx
+        .select()
+        .from(examSessions)
+        .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
+        .limit(1)
+      if (existing.length > 0) return existing[0]
+    }
+
+    const normYear = data.academicYear ? normalizeAcademicYear(data.academicYear) : getCurrentAcademicYear()
+    const id = generateId('EXS')
+    const now = new Date().toISOString()
+
+    const [cls] = await tx
+      .select({ id: classes.id })
+      .from(classes)
+      .where(and(eq(classes.id, data.classId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      .limit(1)
+    if (!cls) {
+      const err = new Error('Lớp học không tồn tại hoặc đã bị xóa') as any
+      err.status = 404
+      throw err
+    }
+
+    const row = {
+      id,
+      parishId,
+      classId: data.classId,
+      subject: data.subject,
+      scoreType: data.scoreType,
+      maxScore: data.maxScore ?? 10,
+      semester: data.semester,
+      academicYear: normYear,
+      examType: data.examType ?? 'written',
+      questionCount: data.questionCount ?? null,
+      answerKey: data.answerKey ?? null,
+      answerVariants: data.answerVariants ?? (data.answerKey ? JSON.stringify({ A: JSON.parse(data.answerKey) }) : null),
+      questions: data.questions ?? null,
+      idempotencyKey: data.idempotencyKey ?? undefined,
+      status: 'draft' as const,
+      createdBy: userId,
+      completedBy: null,
+      completedAt: null,
+      createdAt: now,
+    }
+    await tx.insert(examSessions).values(row)
+    await audit(tx, {
+      userId,
+      parishId,
+      ip,
+      userAgent,
+      action: 'EXAM_CREATE',
+      entityType: 'exam_session',
+      entityId: id,
+      newValue: JSON.stringify(row),
+    })
+    return row
+  }))
 }
 
 export async function listExamSessions(parishId: string, classIds: string[] | null, filters?: { subject?: string; scoreType?: ExamScoreType; status?: ExamSessionStatus }) {
@@ -326,30 +359,7 @@ export async function upsertExamResults(
   }
 
   return withSqliteBusyRetry(() => db.transaction(async (tx) => {
-    // libSQL/SQLite starts transactions as deferred. If every concurrent saver
-    // reads first, they all establish a read snapshot and the losers later fail
-    // with SQLITE_BUSY_SNAPSHOT while upgrading to a writer. Make a harmless
-    // conditional write the first statement so contenders serialize before any
-    // validation read snapshot is created. The status guard also prevents a save
-    // from racing past a concurrent finalization.
-    await tx
-      .update(examSessions)
-      .set({ status: 'draft' })
-      .where(and(
-        eq(examSessions.id, sessionId),
-        eq(examSessions.parishId, parishId),
-        eq(examSessions.status, 'draft'),
-      ))
-
-    const [session] = await tx
-      .select()
-      .from(examSessions)
-      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
-      .limit(1)
-    if (!session) throw new ExamNotFoundError()
-    if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
-      throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
-    }
+    const session = await acquireSessionMutation(tx, sessionId, parishId, allowedClassIds)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
@@ -451,8 +461,8 @@ export async function deleteExamResult(
   userAgent: string,
   allowedClassIds: string[] | null
 ) {
-  return db.transaction(async (tx) => {
-    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
+    const session = await acquireSessionMutation(tx, sessionId, parishId, allowedClassIds)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
@@ -481,7 +491,7 @@ export async function deleteExamResult(
     })
 
     return { deleted: true, studentId: existing.studentId }
-  })
+  }))
 }
 
 export async function getExamResults(sessionId: string, parishId: string, allowedClassIds: string[] | null) {
@@ -521,8 +531,8 @@ export async function deleteExamSession(
   userAgent: string,
   allowedClassIds: string[] | null
 ) {
-  return db.transaction(async (tx) => {
-    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
+    const session = await acquireSessionMutation(tx, sessionId, parishId, allowedClassIds)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất và đã ghi vào bảng điểm — không thể xóa. Nhờ admin mở lại phiên nếu cần chỉnh sửa.')
     }
@@ -559,7 +569,7 @@ export async function deleteExamSession(
     })
 
     return { deleted: true, sessionId, resultsDeleted: resultIds.length }
-  })
+  }))
 }
 
 function serializeFinalizationItem(row: typeof examFinalizationItems.$inferSelect): ExamFinalizationItemResult {
@@ -583,16 +593,8 @@ export async function finalizeExamSession(
   userAgent: string,
   allowedClassIds: string[] | null,
 ): Promise<ExamFinalizationResult> {
-  return db.transaction(async (tx) => {
-    const [session] = await tx
-      .select()
-      .from(examSessions)
-      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
-      .limit(1)
-    if (!session) throw new ExamNotFoundError()
-    if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
-      throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
-    }
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
+    const session = await acquireSessionMutation(tx, sessionId, parishId, allowedClassIds)
 
     const [existingFinalization] = await tx
       .select()
@@ -776,9 +778,14 @@ export async function finalizeExamSession(
       items.push(item)
     }
 
-    await tx.update(examSessions)
+    const updateResult = await tx.update(examSessions)
       .set({ status: 'completed', completedBy: userId, completedAt: now })
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId), eq(examSessions.status, 'draft')))
+    const changed = Number((updateResult as { changes?: number; rowsAffected?: number }).changes ?? (updateResult as { changes?: number; rowsAffected?: number }).rowsAffected ?? 0)
+    if (changed === 0) {
+      throw new ExamStateError('Trạng thái phiên chấm đã thay đổi đồng thời. Vui lòng tải lại và thử lại.')
+    }
+
     await audit(tx, {
       userId, parishId, ip, userAgent,
       action: 'EXAM_FINALIZE', entityType: 'exam_session', entityId: sessionId,
@@ -792,7 +799,7 @@ export async function finalizeExamSession(
       conflicts: items.filter((item) => item.status === 'conflict').length,
       legacy: false,
     }
-  })
+  }))
 }
 
 export async function completeExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null) {
@@ -801,11 +808,12 @@ export async function completeExamSession(sessionId: string, userId: string, par
 }
 
 export async function reopenExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string) {
-  return db.transaction(async (tx) => {
-    const session = await getExamSession(sessionId, parishId)
-    if (session.status === 'draft') {
-      return session
-    }
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
+    const [session] = await tx.select().from(examSessions)
+      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+      .limit(1)
+    if (!session) throw new ExamNotFoundError()
+    if (session.status === 'draft') return session
 
     const isUnlocked = await semesterLockSpecification.isSatisfiedBy(session.academicYear, session.semester, parishId, tx)
     if (!isUnlocked) {
@@ -817,7 +825,7 @@ export async function reopenExamSession(sessionId: string, userId: string, paris
     await tx
       .update(examSessions)
       .set({ status: 'draft', completedBy: null, completedAt: null })
-      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
+      .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId), eq(examSessions.status, 'completed')))
 
     await audit(tx, {
       userId, parishId, ip, userAgent,
@@ -830,7 +838,7 @@ export async function reopenExamSession(sessionId: string, userId: string, paris
 
     const [updated] = await tx.select().from(examSessions).where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId))).limit(1)
     return updated
-  })
+  }))
 }
 
 export async function updateAnswerKeyAndRescore(
