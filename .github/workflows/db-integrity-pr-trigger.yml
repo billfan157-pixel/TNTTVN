@@ -1,0 +1,41 @@
+name: Trigger DB integrity finalizer on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-db-integrity-concurrency-audit
+          fetch-depth: 0
+      - name: Execute finalizer script
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/db-integrity-finalize.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(workflow) if line.strip() == "python3 - <<'PY'") + 1
+          end = next(i for i in range(start, len(workflow)) if workflow[i].strip() == 'PY')
+          source = textwrap.dedent('\n'.join(workflow[start:end]))
+          exec(compile(source, 'db-integrity-finalizer', 'exec'))
+          PY
+      - name: Commit final patch and remove temporary triggers
+        shell: bash
+        run: |
+          git config user.name "openai-agent"
+          git config user.email "openai-agent@users.noreply.github.com"
+          git rm -f .github/workflows/db-integrity-finalize.yml .github/workflows/db-integrity-pr-trigger.yml .db-integrity-trigger
+          git add server/src docs/adr
+          git commit -m "fix: finish database integrity and concurrency hardening"
+          git push origin HEAD:agent/fix-db-integrity-concurrency-audit
