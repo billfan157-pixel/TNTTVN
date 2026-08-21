@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
 import { and, eq, isNull } from 'drizzle-orm'
-import { db, runDbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbExecutor } from '../db/index.js'
 import { refreshTokens, users } from '../db/schema.js'
 import { generateTokens, verifyRefreshToken, getSuperAdminId } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
@@ -84,11 +84,17 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
     return { status: 'rejected', code: 'INVALID_REFRESH_TOKEN', message: 'Refresh token không hợp lệ' }
   }
   if (session.revokedAt) {
-    // Reuse detection: token này đã bị thu hồi (rotation/logout) nhưng vẫn được dùng
-    // → dấu hiệu đánh cắp → thu hồi toàn bộ phiên + tăng tokenVersion.
-    const nextVersion = (user.tokenVersion || 1) + 1
-    await db.update(users).set({ tokenVersion: nextVersion }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-    await revokeAllSessions(user.id, user.parishId)
+    // Reuse detection is a security state transition: tokenVersion bump and session
+    // revocation must commit together. Otherwise a transient failure can leave one
+    // half of the containment action applied and the other half missing.
+    await runDbTransaction(async (tx) => {
+      const nextVersion = (user.tokenVersion || 1) + 1
+      await tx
+        .update(users)
+        .set({ tokenVersion: nextVersion })
+        .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
+      await revokeAllSessionsWith(tx, user.id, user.parishId)
+    })
     return { status: 'rejected', code: 'SESSION_REUSE_DETECTED', message: 'Phát hiện refresh token bị tái sử dụng — đã thu hồi toàn bộ phiên đăng nhập' }
   }
   if (session.expiresAt <= new Date().toISOString()) {
@@ -108,9 +114,7 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
   // A-NEW-13 (2026-08-11): rotation ATOMIC qua runDbTransaction (BEGIN IMMEDIATE +
   // retry SQLITE_BUSY — libsql local mở connection mới mỗi transaction nên busy_timeout
   // phải set lại trong tx). Conditional UPDATE `revoked_at IS NULL` là atomic claim:
-  // đúng 1 request đồng thời claim được token; request thua → rowsAffected=0
-  // → SESSION_REUSE_DETECTED mà KHÔNG revoke-all (reuse thật đã bị bắt ở SELECT phía trên
-  // với fail-closed revoke all + bump tokenVersion — xem comment trong nhánh claim-fail).
+  // đúng 1 request đồng thời claim được token; request thua → rowsAffected=0.
   return await runDbTransaction(async (tx) => {
     const res = await tx.update(refreshTokens)
       .set({ revokedAt: now, replacedBy: newId })
@@ -119,9 +123,7 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
 
     if (res.rowsAffected !== 1) {
       // RACE (2 tab/hai thiết bị refresh cùng lúc, window vài ms) — request thua claim.
-      // KHÔNG revoke-all/bump ở đây: session mới của request thắng còn hợp lệ (activeCount=1).
-      // Reuse THẬT (dùng lại token đã rotate từ trước) đã bị bắt ở bước SELECT `revokedAt`
-      // phía trên với revoke all + bump tokenVersion (fail-closed) — giữ nguyên.
+      // KHÔNG revoke-all/bump ở đây: session mới của request thắng còn hợp lệ.
       return { status: 'rejected', code: 'SESSION_REUSE_DETECTED', message: 'Phát hiện refresh token bị tái sử dụng — vui lòng đăng nhập lại' }
     }
 
@@ -142,8 +144,20 @@ export async function revokeSessionByTokenHash(tokenHash: string, parishId: stri
     .where(and(eq(refreshTokens.tokenHash, tokenHash), eq(refreshTokens.parishId, parishId)))
 }
 
-export async function revokeAllSessions(userId: string, parishId: string): Promise<void> {
-  await db.update(refreshTokens)
+/**
+ * Transaction-aware revocation primitive. Application services that also mutate
+ * user state pass their current transaction so the whole auth transition is ACID.
+ */
+export async function revokeAllSessionsWith(
+  executor: DbExecutor,
+  userId: string,
+  parishId: string,
+): Promise<void> {
+  await executor.update(refreshTokens)
     .set({ revokedAt: new Date().toISOString() })
     .where(and(eq(refreshTokens.userId, userId), eq(refreshTokens.parishId, parishId)))
+}
+
+export async function revokeAllSessions(userId: string, parishId: string): Promise<void> {
+  await revokeAllSessionsWith(db, userId, parishId)
 }
