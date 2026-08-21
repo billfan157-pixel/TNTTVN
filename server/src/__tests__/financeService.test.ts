@@ -1,17 +1,20 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+import { and, eq, sql } from 'drizzle-orm'
 import { financesRouter } from '../routes/finances.js'
 import { generateTokens } from '../middleware/auth.js'
 import { db } from '../db/index.js'
-import { users, classes, students, branches, academicYears } from '../db/schema.js'
+import { users, classes, students, branches, academicYears, financialTransactions, studentFeeRecords, auditLogs } from '../db/schema.js'
 import {
   listFunds,
+  getFinanceSummary,
+  listClassFeeRecords,
+} from '../services/financeService.js'
+import {
   createFund,
   createTransaction,
   deleteTransaction,
-  getFinanceSummary,
-  listClassFeeRecords,
   updateStudentFee,
-} from '../services/financeService.js'
+} from '../services/FinanceApplicationService.js'
 
 const PREFIX = Date.now()
 const parishId = `parish-fin-${PREFIX}`
@@ -296,6 +299,63 @@ describe('Parish Financial & Fund Management Tests (ADR-039)', () => {
     expect(summary.feeStats.paidCount).toBe(1)
     expect(summary.feeStats.totalCollected).toBe(150000)
     expect(summary.feeStats.collectionRate).toBe(100)
+  })
+
+  it('rolls back payment ledger and audit when the fee write fails', async () => {
+    const fundsList = await listFunds(parishId)
+    const generalFund = fundsList.find((f) => f.code === 'GENERAL')!
+    const rollbackAcademicYear = `ROLLBACK-${PREFIX}`
+
+    await expect(updateStudentFee(
+      parishId,
+      {
+        studentId,
+        classId,
+        academicYear: rollbackAcademicYear,
+        feeType: 'OTHER',
+        // Runtime-invalid value intentionally bypasses the TypeScript contract.
+        // The ledger insert happens first; fee.title NOT NULL then forces the later write to fail.
+        title: null as unknown as string,
+        expectedAmount: 123000,
+        paidAmount: 123000,
+        status: 'PAID',
+        createTransaction: true,
+        fundId: generalFund.id,
+      },
+      adminId,
+      'Admin',
+      '127.0.0.1',
+      'TestAgent'
+    )).rejects.toThrow()
+
+    const orphanTransactions = await db
+      .select()
+      .from(financialTransactions)
+      .where(and(
+        eq(financialTransactions.parishId, parishId),
+        eq(financialTransactions.studentId, studentId),
+        eq(financialTransactions.academicYear, rollbackAcademicYear),
+      ))
+    expect(orphanTransactions).toHaveLength(0)
+
+    const partialFeeRows = await db
+      .select()
+      .from(studentFeeRecords)
+      .where(and(
+        eq(studentFeeRecords.parishId, parishId),
+        eq(studentFeeRecords.studentId, studentId),
+        eq(studentFeeRecords.academicYear, rollbackAcademicYear),
+      ))
+    expect(partialFeeRows).toHaveLength(0)
+
+    const leakedAuditRows = await db
+      .select()
+      .from(auditLogs)
+      .where(and(
+        eq(auditLogs.parishId, parishId),
+        sql`${auditLogs.newValue} LIKE ${`%${rollbackAcademicYear}%`}`,
+      ))
+    expect(leakedAuditRows).toHaveLength(0)
   })
 
   it('enforces RBAC: non-admin roles receive 403 Forbidden on finance routes', async () => {

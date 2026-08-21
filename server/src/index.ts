@@ -15,6 +15,7 @@ import auditLogsRouter from './routes/auditLogs.js'
 import importRouter from './routes/import.js'
 import settingsRouter from './routes/settings.js'
 import { client } from './db/index.js'
+import { assertDatabaseReady } from './db/schemaHealth.js'
 import { seedIfEmpty } from './seed.js'
 import { isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
 import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
@@ -108,10 +109,26 @@ app.route('/api/finances', financesRouter)
 const PORT = Number(process.env.SERVER_PORT) || Number(process.env.PORT) || 3001
 const HOST = process.env.HOST || '0.0.0.0'
 
+// D3 data-integrity hard gate: db/index.ts has already run bootstrap/migrations as
+// part of module initialization. Validate the executable schema BEFORE seeding,
+// opening the HTTP port, or starting background workers. Any partial migration,
+// malformed tenant index, missing latest column, composite-PK drift, or FK
+// violation must abort startup rather than serving traffic on an unsafe schema.
+try {
+  await assertDatabaseReady(client)
+} catch (err) {
+  console.error('[startup] Database schema readiness check failed:', err)
+  throw err
+}
+
+// Initial bootstrap is also part of the serving boundary. seedIfEmpty() writes the
+// required admin/config/permissions atomically; if it fails (including missing or
+// weak SEED_ADMIN_PASSWORD on a fresh DB), do not bind HTTP or start workers.
 try {
   await seedIfEmpty()
 } catch (err) {
-  console.error('Seed failed:', err)
+  console.error('[startup] Initial database seed failed:', err)
+  throw err
 }
 
 // A-NEW-38 (2026-08-11): XÓA block reset admin password khỏi startup.

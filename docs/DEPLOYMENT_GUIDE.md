@@ -2,7 +2,7 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-08-19 (A-NEW-58: production CORS default thêm origin native Capacitor — capacitor://localhost / https://localhost / http://localhost); 2026-08-16 (FE-07: PWA freshness — no-store sw.js/index.html, updateViaCache none, reload-on-activate); 2026-08-12 (Web Push §8 VAPID setup — fix production 501 `VAPID_NOT_CONFIGURED`; env table VAPID ⚠️ conditional); 2026-08-10 (A-NEW-12: CORS split dev/prod — production default CHỈ tnttvn.vercel.app; A-NEW-08: xlsx 0.20.3; A-NEW-04/01/02: refresh cookie SameSite=None;Secure ở production cho Vercel→Railway cross-site)  
+Last Updated: 2026-08-21 (ADR-051: migration + schema readiness + initial seed fail-closed; `SEED_ADMIN_PASSWORD` explicit strong bootstrap secret, no default); 2026-08-19 (A-NEW-58: production CORS default thêm origin native Capacitor — capacitor://localhost / https://localhost / http://localhost); 2026-08-16 (FE-07: PWA freshness — no-store sw.js/index.html, updateViaCache none, reload-on-activate); 2026-08-12 (Web Push §8 VAPID setup — fix production 501 `VAPID_NOT_CONFIGURED`; env table VAPID ⚠️ conditional); 2026-08-10 (A-NEW-12: CORS split dev/prod — production default CHỈ tnttvn.vercel.app; A-NEW-08: xlsx 0.20.3; A-NEW-04/01/02: refresh cookie SameSite=None;Secure ở production cho Vercel→Railway cross-site)  
 
 ---
 
@@ -49,7 +49,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `TRUST_PROXY` | ⚠️ Có điều kiện | `false` | **A15 (2026-08-10)**: `getClientIp` chỉ tin `x-real-ip` / `x-forwarded-for` (giá trị cuối) khi `TRUST_PROXY=true` — **BẮT BUỘC bật khi chạy sau Nginx** (docker-compose đã set sẵn). Deploy thẳng không proxy (Railway DOCKERFILE) **KHÔNG bật** — server lấy socket IP thật, chống spoof header bypass rate limit |
 | `OPS_TOKEN` | ⚠️ Có điều kiện | Empty → **fail-closed 403** | **A-NEW-28 (2026-08-11)**: token (Bearer) gate `/ready` + `/metrics` — **thiếu token → 403 (fail-closed, KHÔNG public)**; đúng token → 200. `/health` giữ public (probe dùng endpoint này). **Set trên Railway + docker-compose để mở monitoring** — nếu chưa set, chỉ mất /metrics + /ready (không ảnh hưởng healthcheck) |
 | `SAFETY_BACKUP_DIR` | ❌ No | `{DB_PATH dir}/backups/safety` | Safety snapshot directory for destructive ops (purge) |
-| `SEED_ADMIN_PASSWORD` | ❌ No | Auto-generated | **A-NEW-38 (2026-08-11):** Chỉ dùng để **tạo admin lần đầu khi DB trống** (`seedIfEmpty`/`npm run db:seed`) — **KHÔNG reset mật khẩu khi server khởi động** nữa (block startup đã xóa; chạy lại seed = `onConflictDoNothing`, không ghi đè `passwordHash`). Reset mật khẩu admin production qua admin flow / `admin-change-password` |
+| `SEED_ADMIN_PASSWORD` | ⚠️ Required khi DB trống | **Không có default**; 8–128 ký tự, ≥1 chữ hoa, ≥1 chữ số, ≥1 ký tự đặc biệt | **ADR-051 (2026-08-21):** chỉ được đọc khi chạy seed ban đầu (`seedIfEmpty` trên DB chưa có user hoặc `npm run db:seed`). Fresh startup **fail-closed** nếu thiếu/yếu; tuyệt đối không fallback về credential biết trước. Khi DB đã có user, startup không dùng biến này để reset mật khẩu; seed rerun vẫn `onConflictDoNothing` cho admin. Docker Compose truyền biến từ `.env`; Railway phải set trong dashboard trước lần init DB đầu tiên. |
 | `SUPER_ADMIN_ID` | ❌ No | `USR-001` | User ID bypassing role checks (super admin) |
 | `VAPID_PUBLIC_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID public key — client subscribe cần (trả qua `GET /api/notifications/vapid-public-key`); thiếu → endpoint trả 501 `VAPID_NOT_CONFIGURED`, `/send` trả 501 và queue đánh `failed` (không `sent` giả) — **fail-closed đúng thiết kế** (xem §8 Web Push Setup) |
 | `VAPID_PRIVATE_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID private key — **điều kiện**: BẮT BUỘC set cùng `VAPID_PUBLIC_KEY` nếu muốn tính năng thông báo web push hoạt động (thiếu → 501, client skip graceful) |
@@ -67,6 +67,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 - **Base Image**: `node:22-alpine`
 - **Build Stage**: Installs dependencies, compiles TypeScript (`npm run build:server`), sets `outDir: dist`.
 - **Production Stage**: Runs `scripts/entrypoint.sh` which initializes environment variables for cron, executes startup backup, starts `crond`, and launches `node dist/index.js`.
+- **ADR-051 startup contract**: DB migrations must complete without a non-tolerable error, executable-schema readiness must pass, and initial seed (only when DB is empty) must commit atomically before the HTTP listener/background workers start. Any failure aborts startup rather than serving a partially initialized database.
 
 ### 4.2 Web Frontend (`Dockerfile.web`)
 - **Base Image**: `node:22-alpine` $\rightarrow$ `nginx:1.27-alpine`
@@ -107,7 +108,7 @@ docker-compose exec app node scripts/backup-db.js
 ## 7. ALTERNATIVE DEPLOYMENT (RAILWAY) — KHÔNG CÓ NGINX
 
 - `railway.json` dùng `"builder": "DOCKERFILE"` (**không phải Nixpacks**) → Railway chạy **cùng Dockerfile** nhưng **không có Nginx** đứng trước.
-- Hệ quả bảo mật (A15): nếu publish thẳng cổng Node **KHÔNG được set `TRUST_PROXY`** — `getClientIp` fallback về socket IP thật (chống spoof header).
+- Hệ quả bảo mật (A15): nếu publish thẳng cổng Node **KHÔNG được set `TRUST_PROXY`** — `getClientIp` fallback về socket IP thật (chống spoof header bypass rate limit).
 - Muốn tin proxy header khi chạy Railway: đặt Cloudflare (hoặc proxy khác có kiểm soát) phía trước, rồi mới bật `TRUST_PROXY` khi chắc chắn proxy luôn ghi đè `X-Real-IP`.
 - Frontend `vercel.json` định tuyến proxy `/api/:path*` $\rightarrow$ `https://tnttvn-production.up.railway.app/api/:path*` để chuyển tiếp an toàn mọi REST API methods (POST/GET/PUT/DELETE) về backend Railway, tránh lỗi 405 Method Not Allowed do static SPA fallback.
 - **PWA freshness (FE-07, 2026-08-16)**: `vercel.json` ép `Cache-Control: no-store` cho `/sw.js` và `no-cache, no-store` cho `/index.html`; `pushManager` đăng ký SW với `updateViaCache: 'none'`; SW có `skipWaiting()` + `clientsClaim()` và **tự động reload mọi tab đang mở** khi có build mới activate (trừ `/login`). Hệ quả: sau mỗi deploy, mọi tab cũ nhảy lên build mới ngay — không còn hiện tượng tab mở nhiều ngày chạy JS cũ ("0 thiếu nhi" ảo, sync queue kẹt). Người dùng không cần thao tác gì; nếu tab treo quá lâu vẫn chưa reload, hard refresh 1 lần (`Ctrl+Shift+R` / Clear site data).
