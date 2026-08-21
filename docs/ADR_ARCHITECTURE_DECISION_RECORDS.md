@@ -372,6 +372,7 @@ Phase 1-2 of Smart Exam Grading ran **online-only** (plan §11) — `examStore` 
 ### Consequences
 - **Positive**: Exam grading now works fully offline (scan → save → finalize); zero duplicate sessions on retry; consistent with ADR-016 remap semantics; local cache survives reload via `parish_store_exams` (Dexie v3).
 - **Negative**: Offline complete cannot be rejected server-side at click-time — if the semester is locked or class access is revoked, the op fails at sync and the user is notified via sync status (System Diagnostics). Offline-created sessions appear in the list with a temp id until the next successful sync.
+  - **Amendment FE-F1 (2026-08-21)**: trước đây local session vẫn hiển thị `completed` sau khi op 'complete' bị từ chối vĩnh viễn (không có rollback). Giờ engine gọi `examStore.revertLocalComplete(sessionId)` ở nhánh permanent-fail → phiên quay về `draft` ngay, khớp trạng thái server.
 - **Tests**: `examStore.test.ts` (6 offline-path cases), `syncProcessor.test.ts` (5 exam cases), `examService.test.ts` (idempotency + column persistence), `migration-integrity.test.ts` (Phase 4 columns). `tsc` clean both sides.
 
 ## ADR-024: Multiple-Choice OMR — Bubble-Grid Reading, Answer-Key Scoring & Answers Persistence (Phase 4)

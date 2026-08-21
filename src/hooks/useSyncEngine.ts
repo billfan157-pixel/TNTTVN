@@ -54,6 +54,36 @@ async function parseQueuePayload(raw: unknown): Promise<Record<string, unknown>>
   }
 }
 
+/**
+ * FE-F1 (audit 2026-08-21): hoàn tác optimistic "Hoàn tất phiên" offline.
+ * examStore.completeAndFinalize offline set local status='completed' TRƯỚC khi
+ * server xác nhận (op 'complete' vào queue). Nếu op bị server từ chối VĨNH VIỄN
+ * (điển hình 403 học kỳ đã khóa — negative ADR-024), trạng thái local phải revert
+ * về draft; trước đây không có đường nào nên teacher tiếp tục thấy phiên "đã
+ * hoàn tất" trong khi server vẫn draft và điểm chưa ghi.
+ */
+export async function revertFailedExamCompleteOp(op: SyncQueueItem): Promise<void> {
+  const entity = String(op.entity || '').toLowerCase()
+  if (entity !== 'exam' && entity !== 'exams') return
+  if (String(op.operation || '').toLowerCase() !== 'update') return
+
+  let raw: unknown = op.payload
+  if (typeof raw === 'string') {
+    raw = await decryptQueueValue(raw)
+    if (raw === null) return
+  }
+  let data: unknown = raw
+  try {
+    if (typeof data === 'string') data = JSON.parse(data)
+  } catch {
+    return
+  }
+  if (!data || typeof data !== 'object' || (data as Record<string, unknown>).action !== 'complete') return
+
+  const sessionId = (data as Record<string, unknown>).sessionId || op.entityId
+  if (sessionId) useExamStore.getState().revertLocalComplete(String(sessionId))
+}
+
 export function useSyncEngine() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isAuthed = useAuthStore(s => s.isAuthenticated)
@@ -354,6 +384,8 @@ export async function runSyncFlow() {
 
         if (retryCount >= 5) {
           store.setLastError(`Thao tác ${op.entity}/${op.entityId} đã thất bại sau ${retryCount} lần thử`)
+          // FE-F1: op chuyển failed vĩnh viễn → revert optimistic complete nếu có
+          await revertFailedExamCompleteOp(op)
         } else {
           store.setStatus('retrying')
           store.setLastError(result.error || null)
@@ -363,6 +395,9 @@ export async function runSyncFlow() {
       } else {
         await store.updateOp(op.id, { status: 'failed', lastError: result.error })
         store.setLastError(result.error || null)
+        // FE-F1: permanent fail (4xx — vd 403 học kỳ đã khóa) → revert optimistic
+        // complete để UI không tiếp tục hiển thị phiên "đã hoàn tất" sai.
+        await revertFailedExamCompleteOp(op)
       }
 
       ops = (await store.getPendingOps()).filter(o => o.entity !== 'grade' && o.entity !== 'attendance')

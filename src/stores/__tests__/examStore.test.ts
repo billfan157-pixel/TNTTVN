@@ -341,6 +341,27 @@ describe('examStore — Phase 3 offline path (ADR-023)', () => {
     expect(grade?.score15m).toBe(8)
   })
 
+  it('FE-F1: revertLocalComplete đưa phiên optimistic completed về draft, không đụng phiên khác', () => {
+    useExamStore.setState({
+      sessions: [
+        mkSession({ id: 'EXS-opt', status: 'completed', completedBy: 'usr-1', completedAt: '2026-08-21T00:00:00Z' }),
+        mkSession({ id: 'EXS-other', status: 'completed', completedBy: 'usr-2', completedAt: '2026-08-20T00:00:00Z' }),
+        mkSession({ id: 'EXS-draft' }),
+      ],
+    })
+
+    useExamStore.getState().revertLocalComplete('EXS-opt')
+
+    const sessions = useExamStore.getState().sessions
+    const reverted = sessions.find(s => s.id === 'EXS-opt')!
+    expect(reverted.status).toBe('draft')
+    expect(reverted.completedBy).toBeNull()
+    expect(reverted.completedAt).toBeNull()
+    // Phiên completed khác (server-confirmed) và phiên draft giữ nguyên
+    expect(sessions.find(s => s.id === 'EXS-other')!.status).toBe('completed')
+    expect(sessions.find(s => s.id === 'EXS-draft')!.status).toBe('draft')
+  })
+
   it('reopenSession offline: enqueue reopen + local status draft', async () => {
     setOffline(true)
     const syncSpy = vi.spyOn(syncService, 'syncReopenExam')

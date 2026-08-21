@@ -116,6 +116,13 @@ interface ExamState {
   deleteSession: (id: string) => Promise<boolean>
   updateAnswerVariants: (answerVariants: Partial<Record<ExamVersionCode, Record<number, MultipleChoiceOption>>>, questionCount: number) => Promise<{ rescored: number; skipped: number } | null>
   replaceSessionId: (oldId: string, serverData: ExamSession) => void
+  /**
+   * FE-F1 (audit 2026-08-21): hoàn tác optimistic "Hoàn tất phiên" offline —
+   * khi op 'complete' bị server từ chối VĨNH VIỄN (vd 403 học kỳ đã khóa),
+   * trạng thái local không được tiếp tục hiển thị 'completed' trong khi server
+   * vẫn draft và điểm chưa ghi. Engine gọi action này ở nhánh permanent-fail.
+   */
+  revertLocalComplete: (sessionId: string) => void
   clearError: () => void
 }
 
@@ -427,6 +434,12 @@ export const useExamStore = create<ExamState>()(
       results: state.results.map(r => r.examSessionId === oldId ? { ...r, examSessionId: serverData.id } : r),
     }))
   },
+
+  revertLocalComplete: (sessionId) => set(state => ({
+    sessions: state.sessions.map(s => s.id === sessionId && s.status === 'completed'
+      ? { ...s, status: 'draft' as const, completedBy: null, completedAt: null }
+      : s),
+  })),
 
   clearError: () => set({ error: null }),
 }),
