@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { academicYears, branches, classes, financialTransactions, funds, studentFeeRecords, students } from '../db/schema.js'
-import { createTransaction, updateStudentFee } from '../services/financeService.js'
+import { createTransaction, updateStudentFee } from '../services/FinanceApplicationService.js'
 
 const PARISH_A = 'finance-tenant-a'
 const PARISH_B = 'finance-tenant-b'
