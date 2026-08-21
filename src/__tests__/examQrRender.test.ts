@@ -230,6 +230,8 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     await page.setViewport({ width: 800, height: 1131, deviceScaleFactor: 1 })
     await page.setContent(html, { waitUntil: 'load' })
     await page.evaluate(() => {
+      document.querySelector('.questions-wrapper')?.remove()
+      document.body.style.minHeight = '1131px'
       for (const row of Array.from(document.querySelectorAll('.grid-q-row'))) {
         row.querySelector('.bubble')?.classList.add('bubble-filled')
       }

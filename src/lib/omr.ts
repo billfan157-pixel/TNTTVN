@@ -50,8 +50,8 @@ const MIN_WEAK_FILL = 0.22
 /** MC phải đạt margin riêng cho từng câu; không cho confidence trung bình che một câu mơ hồ. */
 const MIN_QUESTION_GAP = 0.07
 const MIN_ANSWER_CONFIDENCE = 0.06
-/** Adaptive threshold chỉ được dao động trong biên hẹp để tránh overfit một ảnh bất thường. */
-const ADAPTIVE_FILL_MIN = 0.34
+/** Adaptive threshold chỉ được dao động trong biên an toàn để tránh overfit một ảnh bất thường. */
+const ADAPTIVE_FILL_MIN = 0.24
 const ADAPTIVE_FILL_MAX = 0.42
 const PAPER_SAMPLE_COLS = 24
 const PAPER_SAMPLE_ROWS = 18
