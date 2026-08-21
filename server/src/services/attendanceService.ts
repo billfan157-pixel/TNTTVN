@@ -4,18 +4,17 @@ import { eq, and, gte, inArray, isNull } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
 import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import type { AttendanceSessionType } from '../domain/AttendanceRecord.js'
 import { VersionConflictError } from './gradeService.js'
 
 export async function getAttendance(
   parishId: string,
   studentId?: string,
   date?: string,
-  type?: 'SundayMass' | 'CatechismClass',
+  type?: AttendanceSessionType,
   updatedAfter?: string,
   studentIds?: string[],
 ) {
-  // ADR-016: Exclude attendance rows belonging to soft-deleted students, matching
-  // gradeService.getGrades which filters with `activeStudentSubquery`.
   const activeStudentSubquery = db
     .select({ id: students.id })
     .from(students)
@@ -37,7 +36,7 @@ export interface AttendanceData {
   id?: string
   studentId: string
   date: string
-  type: 'SundayMass' | 'CatechismClass'
+  type: AttendanceSessionType
   status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
   note?: string
   version?: number
@@ -55,9 +54,6 @@ export async function upsertAttendance(data: AttendanceData, userId: string, par
     }
   }
 
-  // ADR-016: Reject attendance for soft-deleted / non-existent students.
-  // The attendance table FK alone is not enough — we must enforce the business
-  // rule "no attendance for deleted students" explicitly, matching gradeService.
   const [activeStudent] = await tx
     .select({ id: students.id })
     .from(students)
@@ -85,8 +81,6 @@ export async function upsertAttendance(data: AttendanceData, userId: string, par
   const now = new Date().toISOString()
   const existingVersion = existing?.version
   if (existing) {
-    // ADR-016 (S24): Enforce OCC the same way gradeService does — luôn bắt buộc,
-    // bỏ cờ env STRICT_OCC_ENFORCEMENT (audit finding #11).
     if (typeof data.version !== 'number' && (existing.version || 1) > 1) {
       throw new VersionConflictError('Thiếu thông tin phiên bản (version) để cập nhật điểm danh.', existing)
     }
@@ -96,8 +90,6 @@ export async function upsertAttendance(data: AttendanceData, userId: string, par
       throw new VersionConflictError('Điểm danh đã bị thay đổi bởi người khác. Vui lòng làm mới trang.', existing)
     }
 
-    // ADR-016: Idempotency — if status & note are unchanged, skip the audit log write
-    // so re-submitting an unchanged attendance batch does not bloat audit_logs.
     const statusChanged = existing.status !== data.status
     const noteChanged = (existing.note || '') !== (data.note || '')
     const unchanged = !statusChanged && !noteChanged
@@ -148,9 +140,6 @@ export async function upsertAttendance(data: AttendanceData, userId: string, par
       || err?.extendedCode === 'SQLITE_CONSTRAINT_UNIQUE'
       || String(err?.message || '').includes('UNIQUE constraint failed')
     if (isUnique) {
-      // ADR-016: Concurrent duplicate creation — another request won the race and
-      // inserted the row first. Fall back to the single-row upsert path instead of
-      // surfacing a 500.
       return upsertAttendance(
         { ...data, version: existingVersion ?? 1 },
         userId,
@@ -181,7 +170,7 @@ export async function upsertAttendance(data: AttendanceData, userId: string, par
 
 export async function upsertAttendanceBatch(
   date: string,
-  type: 'SundayMass' | 'CatechismClass',
+  type: AttendanceSessionType,
   records: { studentId: string; status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note?: string }[],
   userId: string,
   parishId: string,
@@ -192,7 +181,6 @@ export async function upsertAttendanceBatch(
     return { ok: true, total: 0, successCount: 0, errorCount: 0, results: [] }
   }
 
-  // 1. Check semester lock ONCE for the entire batch date
   const academicYear = resolveAcademicYear(date)
   const semester = resolveSemester(date)
   const isSemesterUnlocked = await semesterLockSpecification.isSatisfiedBy(academicYear, semester, parishId, db)
@@ -204,14 +192,12 @@ export async function upsertAttendanceBatch(
 
   const studentIds = [...new Set(records.map(r => r.studentId))]
 
-  // 2. Pre-fetch active students in 1 batch query
   const activeStudentRows = await db
     .select({ id: students.id })
     .from(students)
     .where(and(inArray(students.id, studentIds), eq(students.parishId, parishId), isNull(students.deletedAt)))
   const activeStudentSet = new Set(activeStudentRows.map(s => s.id))
 
-  // 3. Pre-fetch existing attendance in 1 batch query
   const existingRows = await db
     .select()
     .from(attendance)
@@ -224,9 +210,7 @@ export async function upsertAttendanceBatch(
       ),
     )
   const existingMap = new Map<string, typeof existingRows[0]>()
-  for (const row of existingRows) {
-    existingMap.set(row.studentId, row)
-  }
+  for (const row of existingRows) existingMap.set(row.studentId, row)
 
   const results: { studentId: string; status: 'saved' | 'skipped' | 'error'; error?: string; record?: any }[] = []
   const now = new Date().toISOString()

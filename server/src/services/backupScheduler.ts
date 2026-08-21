@@ -16,10 +16,6 @@ function getBackupDir(): string {
   return process.env.BACKUP_DIR || path.join(process.cwd(), 'backups')
 }
 
-function getDbFile(): string {
-  return process.env.DB_PATH || path.join(process.cwd(), 'server/data/parish.db')
-}
-
 function getRetentionCount(): number {
   return Number(process.env.BACKUP_RETENTION_COUNT) || 5
 }
@@ -38,6 +34,12 @@ function dateKey(d: Date): string {
 /**
  * Performs snapshot-consistent database backup.
  * INF-01 / INF-02 / INF-03 (2026-08-14): Tự động sao lưu định kỳ với VACUUM INTO + WAL checkpoint.
+ *
+ * D3 data-integrity rule (2026-08-21): never fall back to copying the live
+ * SQLite main file. In WAL mode the .db file alone may not contain committed
+ * frames that still live in the -wal file. If VACUUM INTO cannot produce a
+ * coherent SQLite snapshot, the backup attempt fails closed and the daily
+ * marker is not advanced.
  */
 export async function runBackupNow(): Promise<{ success: boolean; destFile?: string; error?: string }> {
   // ADR-041: VACUUM INTO / WAL checkpoint là thao tác LOCAL SQLite. Với DB remote
@@ -52,7 +54,6 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
 
   try {
     const backupDir = getBackupDir()
-    const dbFile = getDbFile()
     const retentionCount = getRetentionCount()
 
     if (!fs.existsSync(backupDir)) {
@@ -62,25 +63,22 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const destFile = path.join(backupDir, `parish-backup-${timestamp}.sqlite`)
 
-    // 1. Flush WAL pages to main database file
+    // 1. Best-effort checkpoint before the snapshot. A checkpoint failure is not
+    // itself fatal because VACUUM INTO reads through SQLite and can still produce
+    // a transactionally consistent snapshot of the database.
     try {
       await client.execute('PRAGMA wal_checkpoint(TRUNCATE)')
     } catch (e: any) {
       console.warn('[BACKUP WARNING] Pre-backup WAL checkpoint failed:', e?.message || e)
     }
 
-    // 2. Snapshot-safe backup via VACUUM INTO
+    // 2. Snapshot-safe backup via SQLite itself. Never copy the live .db file as
+    // a fallback: doing so without its WAL can silently omit committed data.
     const normalizedDest = path.resolve(destFile).replace(/\\/g, '/')
     try {
       await client.execute(`VACUUM INTO '${normalizedDest}'`)
     } catch (vacuumErr: any) {
-      console.warn('[BACKUP WARNING] VACUUM INTO failed, falling back to safe file copy:', vacuumErr?.message || vacuumErr)
-      if (fs.existsSync(dbFile)) {
-        const buf = fs.readFileSync(dbFile)
-        fs.writeFileSync(destFile, buf)
-      } else {
-        throw new Error(`Database file ${dbFile} not found`)
-      }
+      throw new Error(`VACUUM INTO failed; refusing unsafe raw-file fallback: ${vacuumErr?.message || vacuumErr}`)
     }
 
     console.log(`[BACKUP SUCCESS] Automatic backup created at ${destFile}`)
@@ -179,9 +177,7 @@ export function initBackupScheduler(intervalMs = CHECK_INTERVAL_MS): void {
 }
 
 export function stopBackupScheduler(): void {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
-  }
+  if (timer) clearInterval(timer)
+  timer = null
   running = false
 }

@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import { sql, and, eq } from 'drizzle-orm'
 import { db, client } from '../db/index.js'
 import { auditLogs, systemSettings } from '../db/schema.js'
+import { PURGE_DELETE_ORDER, PURGE_TABLES, type PurgeTableName } from '../db/dataLifecycle.js'
 import { generateId } from '../utils/id.js'
 import { writeSafetySnapshot, pruneSafetySnapshots } from './safetySnapshot.js'
 
@@ -10,63 +11,7 @@ export const PURGE_CONFIRM_KEY = 'XÓA TẤT CẢ'
 export const PURGE_VERSION_KEY = 'purge_version'
 export const DEFAULT_PURGE_VERSION = 1
 
-// ─── 23 bảng nghiệp vụ bị purge (mọi thứ trừ users/branches/permissions/rolePermissions/auditLogs/pushSubscriptions/systemSettings) ───
-// Mọi bảng đều có cột parish_id → xóa theo parish (audit P4:
-// grade_overrides + outbox_messages đã add-column migration 096/097 — bỏ join-workaround v1.0).
-export const PURGE_TABLES = [
-  'grade_overrides',
-  'academic_year_snapshots',
-  'assessments',
-  'promotion_records',
-  'attendance_sessions',
-  'exam_results',
-  'exam_sessions',
-  'catechist_assignments',
-  'notifications',
-  'refresh_tokens',
-  'attendance',
-  'grades',
-  'service_assignments',
-  'import_batch_students',
-  'import_batches',
-  'grade_import_hashes',
-  'mapping_memory',
-  'notices',
-  'outbox_messages',
-  'semester_locks',
-  'students',
-  'classes',
-  'academic_years',
-] as const
-
-export type PurgeTableName = (typeof PURGE_TABLES)[number]
-
-// Thứ tự DELETE con-trước-cha-trước (an toàn ngay cả khi không dùng defer_foreign_keys).
-const DELETE_ORDER: PurgeTableName[] = [
-  'grade_overrides',        // FK → grades
-  'academic_year_snapshots', // FK → academicYears, students
-  'assessments',            // FK → academicYears
-  'promotion_records',      // FK → students
-  'attendance_sessions',    // FK → classes
-  'exam_results',           // FK → exam_sessions, students
-  'exam_sessions',          // FK → classes
-  'catechist_assignments',  // FK → classes, users (giữ users)
-  'notifications',          // FK → students (set null), users (set null)
-  'refresh_tokens',         // FK → users (cascade) — xóa phiên đăng nhập tránh ghost session
-  'attendance',             // FK → students
-  'grades',                 // FK → students
-  'service_assignments',    // FK → students
-  'import_batch_students',  // FK → importBatches, students
-  'import_batches',         // FK → users
-  'grade_import_hashes',    // FK → users
-  'mapping_memory',         // không FK
-  'notices',                // không FK
-  'outbox_messages',        // không FK — xóa sạch để không replay event của dữ liệu đã purge
-  'semester_locks',         // không FK
-  'students',               // FK → classes
-  'classes',                // FK → branches (giữ), academicYears
-  'academic_years',
-]
+export { PURGE_TABLES }
 
 function computeChecksum(dataObj: any): string {
   return createHash('sha256').update(JSON.stringify(dataObj)).digest('hex')
@@ -78,14 +23,14 @@ interface PurgeSnapshotOptions {
 }
 
 /**
- * PURGE v2.3 — Xóa TOÀN BỘ dữ liệu giáo xứ (23 bảng nghiệp vụ) trong 1 transaction.
- * Giữ nguyên: users, branches, permissions, rolePermissions, auditLogs, pushSubscriptions, systemSettings.
- * - Không DROP bảng / không xóa function / trigger / schema — chỉ DELETE rows.
- * - DELETE scope theo parish_id (toàn bộ 23 bảng — P4: grade_overrides/outbox_messages
- *   đã có cột parish_id từ migration 096/097, không còn special-case join).
- * - Snapshot v3.0 (23 bảng, SHA256 checksum) ghi file trước khi xóa.
- * - purge_version tăng 1 → client khác phát hiện ghost data và tự reset.
- * - auditLogs ghi 1 entry 'SYSTEM_PURGE' kèm counts trước-khi-xóa.
+ * PURGE v3 — Xóa toàn bộ dữ liệu vận hành của giáo xứ theo data-lifecycle
+ * registry trong 1 transaction. Giữ nguyên identity/reference/security state:
+ * users, branches, permissions, rolePermissions, auditLogs, pushSubscriptions,
+ * systemSettings và Telegram account links.
+ *
+ * D3 invariant: every table that this operation deletes directly is included in
+ * the pre-purge safety snapshot. New business tables must be classified in
+ * dataLifecycle.ts instead of being silently omitted from a local hard-coded list.
  */
 export async function purgeParishData(
   options: PurgeSnapshotOptions,
@@ -95,8 +40,8 @@ export async function purgeParishData(
   const countsBefore: Record<string, number> = {}
   const snapshotData: Record<string, any[]> = {}
 
-  // 1. Đếm + snapshot toàn bộ dữ liệu trước khi xóa (v3.0: đủ 23 bảng, scope theo parish).
-  for (const name of DELETE_ORDER) {
+  // 1. Snapshot every destructive target before touching production rows.
+  for (const name of PURGE_DELETE_ORDER) {
     const rows = (await client.execute(
       `SELECT * FROM ${name} WHERE parish_id = ?`,
       [parishId],
@@ -107,7 +52,7 @@ export async function purgeParishData(
 
   const snapshotPayload = {
     type: 'PURGE_SAFETY_SNAPSHOT',
-    version: '3.0',
+    version: '4.0',
     parishId,
     exportedBy: userId,
     exportedAt: new Date().toISOString(),
@@ -116,34 +61,27 @@ export async function purgeParishData(
     data: snapshotData,
   }
 
-  // A-NEW-34 + ADR-041: ghi safety snapshot qua blobStorage (R2 nếu cấu hình,
-  // fallback local chmod 0600). Chứa toàn bộ PII → giữ 5 bản mới nhất/parish.
   await writeSafetySnapshot('purge-safety', parishId, snapshotPayload)
   await pruneSafetySnapshots(5)
 
-  // 2. Purge trong 1 transaction (AD-011: service sở hữu transaction boundary).
-  // PRAGMA defer_foreign_keys: FK chỉ được kiểm tra tại commit — vì mọi row reference
-  // đều đã bị xóa trong cùng transaction nên commit luôn hợp lệ (bảo hiểm kép cho thứ tự DELETE).
-  // Verify nằm TRONG transaction: nếu bất kỳ bảng nào không về 0 → throw → rollback toàn bộ.
+  // 2. Purge child-before-parent in one transaction. defer_foreign_keys remains
+  // defense in depth; the explicit order also satisfies immediate RESTRICT rules.
   const nextVersion = await db.transaction(async (tx) => {
     try {
       await tx.run(sql`PRAGMA defer_foreign_keys = ON`)
-    } catch { /* pragma không bắt buộc — thứ tự DELETE đã an toàn */ }
+    } catch { /* explicit child-before-parent order is sufficient */ }
 
-    for (const name of DELETE_ORDER) {
+    for (const name of PURGE_DELETE_ORDER) {
       await tx.run(sql`DELETE FROM ${sql.raw(name)} WHERE parish_id = ${parishId}`)
     }
 
-    for (const name of DELETE_ORDER) {
+    for (const name of PURGE_DELETE_ORDER) {
       const countRow = await tx.get<{ n: number }>(sql`SELECT count(*) AS n FROM ${sql.raw(name)} WHERE parish_id = ${parishId}`)
       if (Number(countRow?.n ?? 0) !== 0) {
         throw new Error(`PURGE_VERIFY_FAILED: bảng ${name} còn ${countRow?.n} row sau purge`)
       }
     }
 
-    // A-NEW-36 (2026-08-11): lọc theo CẢ key + parishId — trước đây SELECT chỉ theo
-    // key GLOBAL (PK cũ) → purge của parish này có thể đọc/upsert đè purge_version
-    // của parish khác (dữ liệu bị 'cướp', ghost data không bao giờ wipe).
     const [existing] = await tx.select().from(systemSettings)
       .where(and(eq(systemSettings.key, PURGE_VERSION_KEY), eq(systemSettings.parishId, parishId)))
       .limit(1)
@@ -163,8 +101,6 @@ export async function purgeParishData(
         parishId,
       })
       .onConflictDoUpdate({
-        // A-NEW-36: target phải khớp composite PK (key, parish_id) — target key đơn
-        // sẽ sinh ON CONFLICT(key) không khớp PK → SQLITE_CONSTRAINT mọi lần purge.
         target: [systemSettings.key, systemSettings.parishId],
         set: {
           value: String(nextVersion),
@@ -174,7 +110,6 @@ export async function purgeParishData(
         },
       })
 
-    // Audit log — ghi SAU khi purge, trong cùng transaction (audit_logs không bị xóa).
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),
       userId,
@@ -182,7 +117,7 @@ export async function purgeParishData(
       entityType: 'system',
       entityId: 'purge',
       oldValue: JSON.stringify(countsBefore),
-      newValue: JSON.stringify({ purgeVersion: nextVersion }),
+      newValue: JSON.stringify({ purgeVersion: nextVersion, lifecycleTables: PURGE_TABLES.length }),
       parishId,
       createdAt: now,
     })
@@ -192,3 +127,5 @@ export async function purgeParishData(
 
   return { countsBefore, purgeVersion: nextVersion }
 }
+
+export type { PurgeTableName }

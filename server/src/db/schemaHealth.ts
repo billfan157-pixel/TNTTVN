@@ -1,3 +1,5 @@
+import { REQUIRED_TENANT_COMPOSITE_PRIMARY_KEYS } from './dataLifecycle.js'
+
 export interface SchemaHealthClient {
   execute(statement: string): Promise<{ rows: readonly unknown[] }>
 }
@@ -73,19 +75,13 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   users: ['password_encrypted', 'holy_name'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  assessment_entries: ['parish_id', 'student_id', 'exam_session_id', 'source'],
+  exam_finalizations: ['parish_id', 'exam_session_id'],
+  exam_finalization_items: ['parish_id', 'finalization_id', 'student_id'],
+  leave_requests: ['parish_id', 'student_id', 'class_id', 'status'],
+  financial_transactions: ['parish_id', 'fund_id', 'student_id', 'class_id'],
+  student_fee_records: ['parish_id', 'student_id', 'class_id', 'transaction_id'],
 }
-
-const REQUIRED_TENANT_COMPOSITE_PRIMARY_KEYS = [
-  'users',
-  'students',
-  'classes',
-  'grades',
-  'attendance',
-  'audit_logs',
-  'funds',
-  'financial_transactions',
-  'student_fee_records',
-] as const
 
 function rowValue(row: unknown, key: string, index: number): unknown {
   if (Array.isArray(row)) return row[index]
