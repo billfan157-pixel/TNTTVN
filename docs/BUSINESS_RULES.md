@@ -604,8 +604,8 @@ Hệ thống cung cấp tính năng xuất đề thi và bảng đáp án đa đ
 1. **Microsoft Word (.doc)**: Header Giáo Phận / Giáo Xứ, lớp, niên khóa, khung thông tin học sinh, ô trả lời trắc nghiệm nhanh, 1 hoặc 2 cột, bảng đáp án và giải thích chi tiết cho GLV.
 2. **Excel (.xlsx)**: File đa sheet bằng SheetJS (`Danh_Sach_Cau_Hoi` tương thích import, `Bang_Dap_An_Ma_De` ma trận đáp án mã đề A–H, `Thong_Tin_De_Thi`).
 3. **Plain Text (.txt) & Markdown (.md)**: Định dạng phân đoạn rõ ràng, bảng Markdown GFM.
-4. **JSON (.json)**: Gói dữ liệu đầy đủ metadata, câu hỏi, điểm và đáp án.
-5. **Bảo mật**: Khử XSS toàn bộ nội dung HTML sinh ra bằng `escapeHtml`.
+4. **JSON (.json)**: Gói dữ liệu đầy đủ metadata, câu hỏi, điểm và đáp án. Phiên key-only (không có ngân hàng câu hỏi) đánh dấu `metadata.syntheticQuestions = true` — danh sách câu hỏi kèm theo là PLACEHOLDER, không phải dữ liệu thật (EP-F3).
+5. **Bảo mật**: Khử XSS toàn bộ nội dung HTML sinh ra bằng `escapeHtml`; tên file xuất qua `sanitizeFilename` (thay `[<>:"/\\|?*]`) và `<title>` PDF export được sanitize qua `applyPdfTitle` — chặn stored XSS từ `subject` của phiên chấm khi nạn nhân bấm "Tải PDF" (EP-F1/F2, AUDIT-EP-01 2026-08-21).
 
 ---
 

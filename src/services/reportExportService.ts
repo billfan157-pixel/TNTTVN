@@ -40,6 +40,28 @@ function prepareOutput(htmlContent: string): string {
   return prepareExamDocumentForOutputIfApplicable(htmlContent)
 }
 
+/**
+ * EP-F1 (audit 2026-08-21): làm sạch tên file xuất tài liệu.
+ * - Thay ký tự bất hợp lệ trên filesystem Windows (`\ / : * ? " < > |`) bằng `_`.
+ * - Chặn sập sink `<title>` khi tên file được inject vào HTML PDF export
+ *   (subject do GLV nhập, ví dụ `X</title><img src=x onerror=…>`).
+ */
+export function sanitizeFilename(name: string): string {
+  return String(name || '').replace(/[<>:"/\\|?*]/g, '_').trim()
+}
+
+/**
+ * EP-F1: chèn `<title>` cho tài liệu PDF export từ tên file ĐÃ sanitize.
+ * Hàm thuần để regression-test được mà không cần DOM.
+ */
+export function applyPdfTitle(html: string, rawFilename: string): string {
+  const pdfTitle = sanitizeFilename(rawFilename).replace(/\.pdf$/i, '')
+  if (html.includes('<title>')) {
+    return html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${pdfTitle}</title>`)
+  }
+  return html.replace('<head>', `<head><title>${pdfTitle}</title>`)
+}
+
 export class ReportExportService {
   /**
    * Opens print preview window in a new tab
@@ -160,14 +182,11 @@ export class ReportExportService {
    */
   public static exportPdf(htmlContent: string, filename: string): void {
     try {
-      const pdfTitle = filename.replace(/\.pdf$/i, '')
-      // Đảm bảo thẻ <title> trong HTML là tên file để trình duyệt tự điền tên khi lưu PDF
-      let customHtml = prepareOutput(htmlContent)
-      if (customHtml.includes('<title>')) {
-        customHtml = customHtml.replace(/<title>[\s\S]*?<\/title>/i, `<title>${pdfTitle}</title>`)
-      } else {
-        customHtml = customHtml.replace('<head>', `<head><title>${pdfTitle}</title>`)
-      }
+      // EP-F1 (2026-08-21): title/filename ĐÃ sanitize qua applyPdfTitle — trước
+      // đây pdfTitle raw được inject vào <title> → stored XSS qua subject của
+      // phiên chấm khi nạn nhân bấm "Tải PDF" (blob URL = same-origin document).
+      const customHtml = applyPdfTitle(prepareOutput(htmlContent), filename)
+      const pdfTitle = sanitizeFilename(filename).replace(/\.pdf$/i, '')
 
       useToastStore.getState().addToast(`Đang mở hộp thoại lưu PDF "${pdfTitle}.pdf"... Vui lòng chọn "Lưu dưới dạng PDF" (Save as PDF)`, 'info', 5000)
 

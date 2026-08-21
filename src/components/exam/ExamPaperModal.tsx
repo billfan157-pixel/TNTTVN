@@ -19,7 +19,7 @@ import {
   type BatchAnswerSheetParams
 } from '../../utils/examSheets'
 import { generateExamQrCodes } from '../../lib/qr'
-import { ReportExportService } from '../../services/reportExportService'
+import { ReportExportService, sanitizeFilename } from '../../services/reportExportService'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
@@ -245,14 +245,14 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
     if (docType === 'answer_sheet') {
       const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
-      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`
+      const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`)
       ReportExportService.exportPdf(htmlToExport, filename)
       return
     }
 
     if (docType === 'qr_sheet') {
       const htmlToExport = buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
-      const filename = `The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}`
+      const filename = sanitizeFilename(`The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}`)
       ReportExportService.exportPdf(htmlToExport, filename)
       return
     }
@@ -261,7 +261,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       ? buildBatchExamPapersHtml(students, printOptions)
       : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
-    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`
+    const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`)
     ReportExportService.exportPdf(htmlToExport, filename)
   }
 
@@ -271,7 +271,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
     if (docType === 'answer_sheet') {
       const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
-      const filename = `Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`
+      const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`)
       ReportExportService.downloadHTML(htmlToExport, filename)
       useToastStore.getState().addToast(`Đã xuất file HTML Phiếu Trả Lời: ${filename}`, 'success')
       return
@@ -279,7 +279,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
     if (docType === 'qr_sheet') {
       const htmlToExport = buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
-      const filename = `The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}.html`
+      const filename = sanitizeFilename(`The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}.html`)
       ReportExportService.downloadHTML(htmlToExport, filename)
       useToastStore.getState().addToast(`Đã xuất file HTML Thẻ Mã QR: ${filename}`, 'success')
       return
@@ -289,7 +289,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       ? buildBatchExamPapersHtml(students, printOptions)
       : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
-    const filename = `De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`
+    const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`)
     ReportExportService.downloadHTML(htmlToExport, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi (${isBatch ? `${students.length} học viên` : 'Mẫu chung'}): ${filename}`, 'success')
   }

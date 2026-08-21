@@ -2946,3 +2946,28 @@ Verified-safe: escapeHtml đầy đủ trên mọi interpolation user-data (~30 
 - [x] Client `tsc -b` + server `tsc`: PASS. Lint: 0 warning mới (4 warning `no-useless-escape` tại examParser:159/162/179 verified pre-existing qua stash).
 - [x] Full server suite: **111 files / 693 tests PASS**.
 - [x] Docs sync: BUSINESS_RULES §21.1 (mục 2/3/4), FRONTEND_API_CONTRACT §16 (Question Bank contract).
+
+---
+
+## Audit AUDIT-EP-01 — Exam Paper / Print / PDF / Word Deep Audit + Remediation — 🟠 P2×1 + P4×3 → ✅ FIXED (2026-08-21)
+
+### 1. Phạm vi & phương pháp
+Audit format đề & xuất tài liệu: `examSheets.ts` (6 builder + print fns), `examExporter.ts` (7 định dạng), `reportExportService.ts` (pipeline in/PDF/HTML), ExamPaperModal/ExamExportModal handlers, server PDF (`reporting.ts` + `pdfService.ts` + `pdfSanitizer.ts`). Đối chiếu A01/A-NEW-23/A-NEW-42; không trùng lặp với AUDIT-QB-01.
+
+### 2. Findings & xử lý
+
+| ID | Mức | Finding (evidence) | Xử lý |
+| :--- | :--- | :--- | :--- |
+| EP-F1 | 🟠 P2 | **Stored XSS qua `<title>` khi Tải PDF**: `subject` (GLV nhập tự do ≤100 ký tự) → filename → inject RAW vào `<title>${pdfTitle}</title>` (`reportExportService.ts:167-169` cũ). Blob URL = same-origin document → payload chạy dưới phiên nạn nhân (admin bấm export). Paradox: builder HTML escape đầy đủ, `exportAnswerSheetPdf` (`examSheets.ts:349`) có sanitize filename riêng nhưng path chính lại không | ✅ FIXED: `sanitizeFilename()` (thay `[<>:"/\\|?*]`) + `applyPdfTitle()` thuần (test được); `exportPdf` dùng helper mới. Regression test XSS payload `</title><img onerror>` |
+| EP-F2 | ⚪ P4 | Filename chỉ thay whitespace tại 12 chỗ (examExporter ×6, ExamPaperModal ×6) — ký tự `\ / : * ? " < > |` để nguyên, phụ thuộc browser tự vệ sinh | ✅ FIXED: áp `sanitizeFilename` toàn bộ 12 chỗ |
+| EP-F3 | ⚪ P4 | JSON/Excel export bịa placeholder câu hỏi cho phiên key-only (`resolveExportQuestions:41-55`) — backup/tích hợp đọc nhầm dữ liệu giả là thật | ✅ FIXED: metadata `syntheticQuestions: true` trong JSON export |
+| EP-F4 | ⚪ P4 | `/generate-pdf` không rate-limit riêng / không cap htmlContent (chỉ global 10MB + global limiter); Puppeteer render tốn CPU | 📝 ACCEPTED (khớp pattern A-NEW-29 backlog) |
+| EP-F5 | ⚪ P4 | Markdown export chèn raw question text — file tự chứa, risk thấp | 📝 ACCEPTED |
+
+Verified-safe: safety gate `prepareOutput` chạy nhất quán mọi output (preview/print/download/PDF/Word/HTML); SSRF/LFI 2 lớp ở server PDF (sanitizer + request interception chặn file:/private IP/websocket/xhr/fetch); Excel không bị formula injection (SheetJS string-type cell); QR SVG qua `sanitizeSvgInner`; teacher-key vô hiệu marker trên mọi đường output.
+
+### 3. Verification
+- [x] Client `tsc -b`: PASS. Lint: dọn thêm 1 unused import cũ (escapeHtml examExporter).
+- [x] Targeted: reportExportService (4 test mới) + exporter/printSafety/answerSheet×2/50q/parser/pdfExportRoutes = **77 PASS**; sau đó full exam-related 108 PASS.
+- [x] Full suite: **1604/1605 PASS** — 1 fail duy nhất `examQrRender.test.ts` verified pre-existing trên HEAD sạch (stash).
+- [x] Docs sync: BUSINESS_RULES §21.4, SECURITY_AUDIT_LOG mục này.

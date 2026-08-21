@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../types'
-import { escapeHtml } from './grades'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
@@ -66,7 +65,7 @@ function resolveParishHeaders(options: ExamExportOptions) {
   return { parishName, dioceseName }
 }
 
-import { ReportExportService } from '../services/reportExportService'
+import { ReportExportService, sanitizeFilename } from '../services/reportExportService'
 import { buildExamPaperHtml, buildBatchExamPapersHtml } from './examSheets'
 
 /**
@@ -145,7 +144,7 @@ export function exportExamToHtml(options: ExamExportOptions): void {
     const html = isBatch
       ? generateBatchExamWordHtml(options.students!, options)
       : generateExamWordHtml(options)
-    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.html`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.html`)
     ReportExportService.downloadHTML(html, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')
   } catch (err) {
@@ -167,7 +166,7 @@ export function exportExamToWord(options: ExamExportOptions): void {
     const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.doc`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.doc`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -278,7 +277,7 @@ export function exportExamToExcel(options: ExamExportOptions): void {
     })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}.xlsx`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}.xlsx`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -361,7 +360,7 @@ export function downloadExamText(options: ExamExportOptions): void {
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.txt`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.txt`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -448,7 +447,7 @@ export function downloadExamMarkdown(options: ExamExportOptions): void {
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = `De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.md`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.md`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -467,6 +466,10 @@ export function downloadExamMarkdown(options: ExamExportOptions): void {
 /** Sinh chuỗi JSON có cấu trúc chứa thông tin đề thi, đáp án và danh sách câu hỏi. */
 export function generateExamJsonString(options: ExamExportOptions): string {
   const questions = resolveExportQuestions(options)
+  // EP-F3 (audit 2026-08-21): đánh dấu khi danh sách câu hỏi là PLACEHOLDER được
+  // bịa ra (phiên key-only không có ngân hàng câu hỏi) để backup/tích hợp không
+  // nhầm với dữ liệu thật.
+  const syntheticQuestions = !(options.questions && options.questions.length > 0)
   const payload = {
     version: '1.0',
     exportedAt: new Date().toISOString(),
@@ -480,6 +483,7 @@ export function generateExamJsonString(options: ExamExportOptions): string {
       parishName: options.parishName,
       dioceseName: options.dioceseName,
       questionCount: questions.length,
+      syntheticQuestions,
     },
     answerKey: options.answerKey,
     answerVariants: options.answerVariants,
@@ -495,7 +499,7 @@ export function exportExamToJson(options: ExamExportOptions): void {
     const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = `De_Thi_JSON_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}.json`
+    const filename = sanitizeFilename(`De_Thi_JSON_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}.json`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
