@@ -534,4 +534,18 @@ Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`)
 
 `PromoteSummary` (response của `/promote`) thêm trường `warnings: { studentId, reason }[]` — học sinh không được chuyển lớp do thiếu lớp cùng `code` ở năm mới (PRM-F4); năm học vẫn `PROMOTED`, admin xử lý thủ công.
 
+---
+
+## 16. EXAM LIFECYCLE HARDENING (`/api/exams`) — EXAM-AUDIT (2026-08-21)
+
+| Endpoint | Thay đổi | Lỗi/Response mới |
+| :--- | :--- | :--- |
+| `GET /api/exams/my-classes` | **Chỉ `admin`/`chunhiem`/`phuta`** (F1); GLV chưa phân công lớp nào → danh sách rỗng, không còn thấy toàn bộ phiên giáo xứ | 403 với role khác |
+| `POST /api/exams` | `academicYear` (nếu gửi) bắt buộc định dạng `YYYY-YYYY` (F3); khi bỏ trống, server tự dùng năm hoạt động của giáo xứ qua `getActiveAcademicYearId` (F4) | 400 validation kèm message `YYYY-YYYY` |
+| `PATCH /api/exams/:id/answer-key` | Guard draft nằm trong service transaction (F5) — song song với guard route; TOCTOU route-check vs complete đã đóng | 409 `STATE_TRANSITION_INVALID` |
+| `POST /api/exams/:id/complete` (re-finalize sau reopen) | Ledger `assessment_entries` được reconcile theo kết quả hiện hành — entry của HS bị xóa kết quả bị dọn, không còn góp vào daily_avg (F2); audit `EXAM_FINALIZE` thêm `orphanLedgerEntriesDeleted` | — |
+| `POST /api/exams` (idempotency) | Insert + audit trong 1 transaction; request đồng thời cùng `idempotencyKey` trả về phiên của request thắng thay vì 500 (F6) | — |
+
+Điểm của học sinh bị xóa kết quả sau reopen giữ nguyên giá trị last-finalized (không tự đè dữ liệu trước kỳ thi) — semantics khớp midterm/final; xem BUSINESS_RULES "Tạo phiên chấm" quy tắc (6).
+
 

@@ -2894,3 +2894,30 @@ Không finding bảo mật mới mức critical: tenant isolation (composite PK 
 - [x] Targeted tests: studentService (10) + academicYearLifecycle (12) + BatchPromotionService (5) + students routes = **32 PASS**.
 - [x] Full server suite **110 files / 683 tests PASS**; client store tests 23 PASS.
 - [x] Docs sync: BUSINESS_RULES §1.8/§4.5/§4.6/§4.8, FRONTEND_API_CONTRACT §15, ADR-052.
+
+---
+
+## Audit AUDIT-EXAM-LC-01 — Exam Lifecycle Deep Audit + Remediation — 🟠 P2×2 + P3×3 → ✅ FIXED (2026-08-21)
+
+### 1. Phạm vi & phương pháp
+Audit vòng đời kỳ thi (create → draft → results → complete/finalize → reopen → re-finalize/delete): `examService.ts` (1026 dòng), `routes/exams.ts`, schema 5 bảng exam, client `examStore`/`syncProcessor`, đối chiếu ADR-023/024/025/049/050 + BUSINESS_RULES + audit cũ (EXAM-01/02, A-NEW-56/57 — không trùng lặp). **Research trước khi fix**: mỗi finding được trace chéo service↔route↔schema↔client để xác định đúng root cause và impact trước khi chọn phương án.
+
+### 2. Findings & xử lý
+
+| ID | Mức | Finding (evidence) | Research điều chỉnh gì | Xử lý |
+| :--- | :--- | :--- | :--- | :--- |
+| EX-F1 | 🟠 P2 | `GET /exams/my-classes`: GLV chưa phân công nhận `[]` từ `getUserClassIds` nhưng `listExamSessions` chỉ filter khi `length > 0` (`examService.ts:288` cũ) → thấy toàn bộ phiên giáo xứ; route thiếu roleMiddleware → phuhuynh gọi được (`exams.ts:177` cũ). Test cũ chỉ cover phuta CÓ phân công | — | ✅ Service: `[]` → trả rỗng; Route: `roleMiddleware('admin','chunhiem','phuta')`. Test F1a/F1b |
+| EX-F2 | 🟠 P2 | Ledger mồ côi: reopen → xóa kết quả → re-finalize, entry `assessment_entries` của HS bị xóa vẫn góp vào daily_avg mãi (`deleteExamResult` không đụng ledger; finalize loop chạy theo results còn lại) | Fix tại deleteExamResult sẽ tạo grade-không-nguồn sau re-finalize → chuyển fix vào finalize: reconcile ledger theo kết quả hiện hành; điểm HS bị xóa giữ giá trị last-finalized (khớp semantics midterm/final, không bịa business rule mới) | ✅ Reconcile-delete trong finalize + audit `orphanLedgerEntriesDeleted`. Test F2 |
+| EX-F3 | 🟡 P4 (↓từ P3) | `academicYear` chấp nhận chuỗi tự do ở create | **Research hạ mức**: `upsertGrade` từ chối năm không tồn tại (`gradeService.ts:155-165`) → KHÔNG có orphan grades/bypass khóa học kỳ như suy đoán ban đầu; residual = phiên rác + 400 khó hiểu lúc complete | ✅ Fail-fast `parseAcademicYear` trong createSchema. Test F3 |
+| EX-F4 | 🟡 P3 | Docs yêu cầu default year = "năm hoạt động của giáo xứ" nhưng server fallback theo lịch tháng 8 (`getCurrentAcademicYear`) | E4 (docs) thắng theo Source Authority; cần helper resolve năm hoạt động phía server | ✅ `getActiveAcademicYearId(parishId, now?)`: range chứa hôm nay → fallback năm mới nhất → quy ước tháng 8. Test F4 + integration |
+| EX-F5 | 🟡 P3 | Draft-guard PATCH answer-key chỉ ở route ngoài tx (`exams.ts:316`), service không guard — TOCTOU với complete → rescore đè điểm trên phiên completed mà grades/ledger không cập nhật; path answer-VARIANTS thì có guard trong service (`:977`) — bất nhất layering | — | ✅ Guard draft trong `updateAnswerKeyAndRescore`. Test F5 (route 409 + service ExamStateError) |
+| EX-F6 | ⚪ P4 | createExamSession insert+audit không transaction; idempotency race → UNIQUE 500 | — | ✅ runDbTransaction + backstop trả về phiên request thắng. Test F6 (Promise.all race) |
+| EX-F7 | ⚪ P4 | Mixed executor: `assertSessionAccess`/`getExamSession` dùng global `db` bên trong transaction callback | — | ✅ Nhận `DbExecutor` optional; truyền tx tại deleteExamResult/deleteExamSession/reopen |
+
+Không finding bảo mật critical: điểm MC server-authoritative, scanMetadata fail-closed, protected-source conflict matrix, tenant scope mọi query đều verified tốt (B1–B6).
+
+### 3. Verification
+- [x] Server tsc + client `tsc -b` PASS.
+- [x] Targeted: examLifecycleAudit (8 test mới) + examService + syncProcessor + examStore + examFinalizeService + gradeAuditSync = **104 PASS**.
+- [x] Full server suite **111 files / 691 tests PASS**.
+- [x] Docs sync: BUSINESS_RULES "Tạo phiên chấm" quy tắc (2)/(6)/(7), FRONTEND_API_CONTRACT §16.

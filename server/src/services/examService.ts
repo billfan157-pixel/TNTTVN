@@ -1,10 +1,11 @@
-import { db, type DbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbExecutor, type DbTransaction } from '../db/index.js'
 import { examSessions, examResults, examFinalizations, examFinalizationItems, assessmentEntries, auditLogs, students, classes, grades, gradeOverrides } from '../db/schema.js'
-import { eq, and, inArray, isNull } from 'drizzle-orm'
+import { eq, and, inArray, isNull, notInArray } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
-import { getCurrentAcademicYear, normalizeAcademicYear } from '../utils/academicYear.js'
+import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { upsertGrade } from './gradeService.js'
+import { getActiveAcademicYearId } from './academicYearService.js'
 
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
@@ -230,7 +231,12 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
     if (existing.length > 0) return existing[0]
   }
 
-  const normYear = data.academicYear ? normalizeAcademicYear(data.academicYear) : getCurrentAcademicYear()
+  // EXAM-AUDIT F4 (2026-08-21): fallback mặc định = NĂM HỌC ĐANG HOẠT ĐỘNG của
+  // giáo xứ (năm có range ngày chứa hôm nay, fallback năm mới nhất — khớp
+  // BUSINESS_RULES "Tạo phiên chấm" quy tắc 2 và getOpenSemester), KHÔNG còn
+  // theo lịch tháng 8. Client luôn gửi năm hoạt động; fallback này cho API call
+  // trực tiếp để điểm finalize không rơi nhầm năm.
+  const normYear = data.academicYear ? normalizeAcademicYear(data.academicYear) : await getActiveAcademicYearId(parishId)
   const id = generateId('EXS')
   const now = new Date().toISOString()
 
@@ -266,26 +272,48 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
     completedAt: null,
     createdAt: now,
   }
-  await db.insert(examSessions).values(row)
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId,
-    action: 'EXAM_CREATE',
-    entityType: 'exam_session',
-    entityId: id,
-    oldValue: null,
-    newValue: JSON.stringify(row),
-    ip,
-    userAgent,
-    parishId,
-    createdAt: now,
-  })
+  // EXAM-AUDIT F6 (2026-08-21): insert + audit trong 1 transaction; request song
+  // song cùng idempotencyKey thắng UNIQUE → trả về bản ghi của request thắng
+  // (cùng pattern IDEM-F3 của studentService) thay vì 500.
+  try {
+    await runDbTransaction(async (tx) => {
+      await tx.insert(examSessions).values(row)
+      await audit(tx as DbTransaction, {
+        userId, parishId, ip, userAgent,
+        action: 'EXAM_CREATE',
+        entityType: 'exam_session',
+        entityId: id,
+        oldValue: null,
+        newValue: JSON.stringify(row),
+      })
+    })
+  } catch (err) {
+    const messages = `${String((err as any)?.message ?? '')} ${String((err as any)?.cause?.message ?? '')}`
+    const isUnique = String((err as any)?.code ?? '').includes('SQLITE_CONSTRAINT_UNIQUE')
+      || String((err as any)?.cause?.code ?? '').includes('SQLITE_CONSTRAINT_UNIQUE')
+      || messages.includes('UNIQUE constraint failed')
+    if (isUnique && data.idempotencyKey && messages.includes('idempotency_key')) {
+      const [winner] = await db
+        .select()
+        .from(examSessions)
+        .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
+        .limit(1)
+      if (winner) return winner
+    }
+    throw err
+  }
   return row
 }
 
 export async function listExamSessions(parishId: string, classIds: string[] | null, filters?: { subject?: string; scoreType?: ExamScoreType; status?: ExamSessionStatus }) {
   const conditions = [eq(examSessions.parishId, parishId)]
-  if (classIds && classIds.length > 0) conditions.push(inArray(examSessions.classId, classIds))
+  // EXAM-AUDIT F1 (2026-08-21): classIds = [] (không được phân công lớp nào)
+  // phải trả DANH SÁCH RỖNG — trước đây `length > 0` khiến filter bị bỏ qua và
+  // trả TOÀN BỘ phiên chấm của giáo xứ cho tài khoản không có phân công.
+  if (classIds !== null) {
+    if (classIds.length === 0) return []
+    conditions.push(inArray(examSessions.classId, classIds))
+  }
   if (filters?.subject) conditions.push(eq(examSessions.subject, filters.subject))
   if (filters?.scoreType) conditions.push(eq(examSessions.scoreType, filters.scoreType))
   if (filters?.status) conditions.push(eq(examSessions.status, filters.status))
@@ -293,8 +321,8 @@ export async function listExamSessions(parishId: string, classIds: string[] | nu
   return rows.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
 }
 
-export async function getExamSession(sessionId: string, parishId: string) {
-  const [session] = await db
+export async function getExamSession(sessionId: string, parishId: string, executor: DbExecutor = db) {
+  const [session] = await executor
     .select().from(examSessions)
     .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
     .limit(1)
@@ -302,8 +330,10 @@ export async function getExamSession(sessionId: string, parishId: string) {
   return session
 }
 
-async function assertSessionAccess(sessionId: string, parishId: string, allowedClassIds: string[] | null) {
-  const session = await getExamSession(sessionId, parishId)
+async function assertSessionAccess(sessionId: string, parishId: string, allowedClassIds: string[] | null, executor: DbExecutor = db) {
+  // EXAM-AUDIT F7 (2026-08-21): nhận executor để caller trong transaction đọc
+  // cùng snapshot thay vì qua global db (mixed-executor hygiene).
+  const session = await getExamSession(sessionId, parishId, executor)
   if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
     throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
   }
@@ -452,7 +482,7 @@ export async function deleteExamResult(
   allowedClassIds: string[] | null
 ) {
   return db.transaction(async (tx) => {
-    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
+    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds, tx)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
@@ -522,7 +552,7 @@ export async function deleteExamSession(
   allowedClassIds: string[] | null
 ) {
   return db.transaction(async (tx) => {
-    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
+    const session = await assertSessionAccess(sessionId, parishId, allowedClassIds, tx)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất và đã ghi vào bảng điểm — không thể xóa. Nhờ admin mở lại phiên nếu cần chỉnh sửa.')
     }
@@ -635,6 +665,20 @@ export async function finalizeExamSession(
     if (results.length === 0) {
       throw new ExamStateError('Phiên chấm chưa có kết quả nào — không thể hoàn tất')
     }
+
+    // EXAM-AUDIT F2 (2026-08-21): đồng bộ ledger theo kết quả HIỆN HÀNH của
+    // phiên. Sau reopen → xóa kết quả → re-finalize, entry của học sinh bị xóa
+    // phải rời khỏi trung bình daily_avg; trước đây entry mồ côi vẫn góp điểm
+    // mãi mãi. (Entry legacy_baseline có examSessionId = NULL nên không bị đụng.)
+    const resultStudentIds = results.map((r) => r.studentId)
+    const orphanEntries = await tx
+      .delete(assessmentEntries)
+      .where(and(
+        eq(assessmentEntries.parishId, parishId),
+        eq(assessmentEntries.examSessionId, sessionId),
+        notInArray(assessmentEntries.studentId, resultStudentIds),
+      ))
+      .returning({ id: assessmentEntries.id })
 
     const isUnlocked = await semesterLockSpecification.isSatisfiedBy(session.academicYear, session.semester, parishId, tx)
     if (!isUnlocked) {
@@ -783,7 +827,7 @@ export async function finalizeExamSession(
       userId, parishId, ip, userAgent,
       action: 'EXAM_FINALIZE', entityType: 'exam_session', entityId: sessionId,
       oldValue: JSON.stringify({ status: session.status, completedAt: session.completedAt }),
-      newValue: JSON.stringify({ status: 'completed', completedBy: userId, completedAt: now, resultCount: results.length, finalizationId, committed: items.filter((item) => item.status === 'committed').length, conflicts: items.filter((item) => item.status === 'conflict').length }),
+      newValue: JSON.stringify({ status: 'completed', completedBy: userId, completedAt: now, resultCount: results.length, finalizationId, committed: items.filter((item) => item.status === 'committed').length, conflicts: items.filter((item) => item.status === 'conflict').length, orphanLedgerEntriesDeleted: orphanEntries.length }),
     })
     const [updated] = await tx.select().from(examSessions).where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId))).limit(1)
     return {
@@ -802,7 +846,7 @@ export async function completeExamSession(sessionId: string, userId: string, par
 
 export async function reopenExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string) {
   return db.transaction(async (tx) => {
-    const session = await getExamSession(sessionId, parishId)
+    const session = await getExamSession(sessionId, parishId, tx)
     if (session.status === 'draft') {
       return session
     }
@@ -849,6 +893,13 @@ export async function updateAnswerKeyAndRescore(
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
       .limit(1)
     if (!sessionBefore) throw new ExamNotFoundError()
+    // EXAM-AUDIT F5 (2026-08-21): guard trạng thái nằm TRONG transaction (cùng
+    // tầng với updateAnswerVariantsAndRescore) — trước đây chỉ có check ở route
+    // ngoài tx, complete xen giữa check và rescore sẽ đè điểm exam_results trên
+    // phiên completed mà grades/ledger không được cập nhật → desync vĩnh viễn.
+    if (sessionBefore.status !== 'draft') {
+      throw new ExamStateError('Phiên đã hoàn tất — mở lại phiên trước khi sửa đáp án.')
+    }
     const oldAnswerKey = sessionBefore.answerKey
     let variants: Record<string, Record<string, string>> = {}
     if (sessionBefore.answerVariants) {

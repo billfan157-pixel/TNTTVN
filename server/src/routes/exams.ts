@@ -5,6 +5,7 @@ import { authMiddleware, roleMiddleware, getUserClassIds, isAdmin, checkUserClas
 import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, listResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
+import { parseAcademicYear } from '../utils/academicYear.js'
 import {
   createExamSession,
   listExamSessions,
@@ -97,6 +98,12 @@ const createSchema = z.object({
   if (data.examType === 'multiple_choice' && data.questionCount === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questionCount'], message: 'questionCount bắt buộc với hình thức trắc nghiệm' })
   }
+  // EXAM-AUDIT F3 (2026-08-21): chặn năm học tự do ("abc") ngay tại create —
+  // trước đây phiên tạo được nhưng complete sẽ fail 400 "Năm học không tồn tại"
+  // (upsertGrade verify) với thông báo khó hiểu.
+  if (data.academicYear && !parseAcademicYear(data.academicYear.trim())) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['academicYear'], message: 'academicYear phải có định dạng YYYY-YYYY (ví dụ 2025-2026)' })
+  }
   if (data.examType === 'multiple_choice' && !data.answerKey && !data.answerVariants) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: 'answerKey hoặc answerVariants đầy đủ bắt buộc với hình thức trắc nghiệm' })
   }
@@ -174,7 +181,9 @@ examsRouter.get('/class/:classId', zValidator('query', z.object({
 })
 
 // ─── Danh sách phiên theo lớp của tôi ───
-examsRouter.get('/my-classes', async (c) => {
+// EXAM-AUDIT F1 (2026-08-21): chỉ admin/GLV — phuhuynh không có nghiệp vụ xem
+// phiên chấm; service trả [] khi user chưa được phân công lớp nào.
+examsRouter.get('/my-classes', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const classIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
   const sessions = await listExamSessions(user.parishId, classIds)
