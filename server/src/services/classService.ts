@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { classes, branches, academicYears, auditLogs, users, catechistAssignments, students, mappingMemory } from '../db/schema.js'
 import { eq, and, desc, isNull, inArray, like, or, sql } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
@@ -109,7 +109,7 @@ export async function createClass(data: CreateClassData, userId: string, parishI
   const id = generateId('CLS')
   const now = new Date().toISOString()
 
-  return await db.transaction(async (tx) => {
+  return await runDbTransaction(async (tx) => {
     await tx.insert(classes).values({
       id,
       code: data.code,
@@ -151,7 +151,7 @@ export async function updateClass(id: string, data: UpdateClassData, userId: str
   if (!existing) return null
 
   const now = new Date().toISOString()
-  return await db.transaction(async (tx) => {
+  return await runDbTransaction(async (tx) => {
     await tx.update(classes)
       .set({
         code: data.code,
@@ -192,7 +192,7 @@ export async function deleteClass(id: string, userId: string, parishId: string, 
   if (!existing) return false
 
   const now = new Date().toISOString()
-  return await db.transaction(async (tx) => {
+  return await runDbTransaction(async (tx) => {
     await tx.update(classes)
       .set({ deletedAt: now, updatedAt: now, updatedBy: userId })
       .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
@@ -274,7 +274,7 @@ export async function assignUserToClass(
   ip: string,
   userAgent: string,
 ) {
-  const result = await db.transaction(async (tx) => {
+  const result = await runDbTransaction(async (tx) => {
     const [cls] = await tx
       .select()
       .from(classes)
@@ -388,30 +388,34 @@ export async function removeUserFromClass(
   ip: string,
   userAgent: string,
 ) {
-  const [existing] = await db
-    .select()
-    .from(catechistAssignments)
-    .where(and(eq(catechistAssignments.userId, userId), eq(catechistAssignments.classId, classId), eq(catechistAssignments.parishId, parishId)))
-    .limit(1)
-  if (!existing) return { error: 'NOT_FOUND', message: 'Phân công không tồn tại' }
+  // ATOMIC-F6 (audit 2026-08-21): delete + audit log trong 1 transaction —
+  // trước đây delete chạy riêng nên audit insert fail = xóa không còn vết.
+  return runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(catechistAssignments)
+      .where(and(eq(catechistAssignments.userId, userId), eq(catechistAssignments.classId, classId), eq(catechistAssignments.parishId, parishId)))
+      .limit(1)
+    if (!existing) return { error: 'NOT_FOUND', message: 'Phân công không tồn tại' }
 
-  await db.delete(catechistAssignments).where(and(
-    eq(catechistAssignments.userId, userId),
-    eq(catechistAssignments.classId, classId),
-    eq(catechistAssignments.parishId, parishId),
-  ))
+    await tx.delete(catechistAssignments).where(and(
+      eq(catechistAssignments.userId, userId),
+      eq(catechistAssignments.classId, classId),
+      eq(catechistAssignments.parishId, parishId),
+    ))
 
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: adminUserId,
-    action: 'DELETE_CLASS_ASSIGNMENT',
-    entityType: 'class',
-    entityId: classId,
-    oldValue: JSON.stringify({ userId, roleInClass: existing.roleInClass }),
-    ip,
-    userAgent,
-    parishId,
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: adminUserId,
+      action: 'DELETE_CLASS_ASSIGNMENT',
+      entityType: 'class',
+      entityId: classId,
+      oldValue: JSON.stringify({ userId, roleInClass: existing.roleInClass }),
+      ip,
+      userAgent,
+      parishId,
+    })
+
+    return { ok: true }
   })
-
-  return { ok: true }
 }

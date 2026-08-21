@@ -9,7 +9,7 @@ import { getClientIp } from '../utils/ip.js'
 import { getClasses, getClassById, createClass, updateClass, deleteClass, getAvailableTeachers, assignUserToClass, removeUserFromClass } from '../services/classService.js'
 import { db } from '../db/index.js'
 import { academicYears } from '../db/schema.js'
-import { normalizeAcademicYear, computeAcademicYearDateRange } from '../utils/academicYear.js'
+import { normalizeAcademicYear, computeAcademicYearDateRange, parseAcademicYear } from '../utils/academicYear.js'
 
 const classesRouter = new Hono()
 classesRouter.use('*', authMiddleware)
@@ -90,6 +90,18 @@ const academicYearSchema = z.object({
   endDate: z.string().trim().optional(),
 })
 
+// AY-F5 (audit 2026-08-21): chặn năm học id tự do ("abc") và ngày không hợp lệ.
+// Trước đây normalizeAcademicYear giữ nguyên chuỗi lạ và computeAcademicYearDateRange
+// trả range 2000-2099 cho năm không parse được → getOpenSemester (match theo khoảng
+// ngày) và bounding chuyên cần ADR-017-F2 bị lệch.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function isValidDateString(value: string): boolean {
+  if (!DATE_RE.test(value)) return false
+  const d = new Date(`${value}T00:00:00Z`)
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value
+}
+
 /**
  * F7 (audit): Tạo năm học server-side. Trước đây "Mở Năm Học Mới" chỉ set local
  * (AcademicYearPage → setCurrentYear) → các thiết bị khác không thấy năm học mới,
@@ -100,14 +112,28 @@ classesRouter.post('/academic-years', roleMiddleware('admin'), zValidator('json'
   const user = c.get('user') as JwtPayload
   const { id, startDate, endDate } = c.req.valid('json')
   const normId = normalizeAcademicYear(id)
+
+  if (!parseAcademicYear(normId)) {
+    return errorResponse(c, 'ACADEMIC_YEAR_INVALID', `Định dạng năm học không hợp lệ (phải là YYYY-YYYY, ví dụ 2025-2026): "${normId}"`, 400)
+  }
+
   const range = computeAcademicYearDateRange(normId)
+  const effectiveStart = startDate || range.startDate
+  const effectiveEnd = endDate || range.endDate
+  if (!isValidDateString(effectiveStart) || !isValidDateString(effectiveEnd)) {
+    return errorResponse(c, 'ACADEMIC_YEAR_INVALID', 'Ngày bắt đầu/kết thúc phải đúng định dạng YYYY-MM-DD', 400)
+  }
+  if (effectiveStart >= effectiveEnd) {
+    return errorResponse(c, 'ACADEMIC_YEAR_INVALID', 'Ngày bắt đầu phải trước ngày kết thúc', 400)
+  }
+
   const now = new Date().toISOString()
 
   try {
     const row = {
       id: normId,
-      startDate: startDate || range.startDate,
-      endDate: endDate || range.endDate,
+      startDate: effectiveStart,
+      endDate: effectiveEnd,
       isLocked: 0,
       parishId: user.parishId,
       createdAt: now,
@@ -161,8 +187,21 @@ classesRouter.post('/', roleMiddleware('admin'), zValidator('json', classSchema)
     return errorResponse(c, 'ACADEMIC_YEAR_REQUIRED', 'Vui lòng tạo năm học trước khi tạo lớp học', 409)
   }
 
-  const created = await createClass(data, user.userId, user.parishId, ip, userAgent, data.idempotencyKey)
-  return successResponse(c, created, 201)
+  try {
+    const created = await createClass(data, user.userId, user.parishId, ip, userAgent, data.idempotencyKey)
+    return successResponse(c, created, 201)
+  } catch (err: any) {
+    // ERR-F6 (audit 2026-08-21): ràng buộc DB phải trả 4xx rõ nghĩa thay vì
+    // lộ 500 INTERNAL qua app.onError.
+    const msg = String(err?.message || '')
+    if (msg.includes('UNIQUE constraint failed')) {
+      return errorResponse(c, 'CLASS_CODE_EXISTS', 'Mã lớp đã tồn tại trong năm học này', 409)
+    }
+    if (msg.includes('FOREIGN KEY constraint failed')) {
+      return errorResponse(c, 'INVALID_REFERENCE', 'Ngành học (branchId) hoặc năm học (academicYearId) không tồn tại', 400)
+    }
+    throw err
+  }
 })
 
 classesRouter.put('/:id', roleMiddleware('admin'), zValidator('json', classSchema.partial()), async (c) => {
@@ -172,9 +211,20 @@ classesRouter.put('/:id', roleMiddleware('admin'), zValidator('json', classSchem
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  const updated = await updateClass(id, data, user.userId, user.parishId, ip, userAgent)
-  if (!updated) return errorResponse(c, 'NOT_FOUND', 'Lớp học không tồn tại', 404)
-  return successResponse(c, updated)
+  try {
+    const updated = await updateClass(id, data, user.userId, user.parishId, ip, userAgent)
+    if (!updated) return errorResponse(c, 'NOT_FOUND', 'Lớp học không tồn tại', 404)
+    return successResponse(c, updated)
+  } catch (err: any) {
+    const msg = String(err?.message || '')
+    if (msg.includes('UNIQUE constraint failed')) {
+      return errorResponse(c, 'CLASS_CODE_EXISTS', 'Mã lớp đã tồn tại trong năm học này', 409)
+    }
+    if (msg.includes('FOREIGN KEY constraint failed')) {
+      return errorResponse(c, 'INVALID_REFERENCE', 'Ngành học (branchId) hoặc năm học (academicYearId) không tồn tại', 400)
+    }
+    throw err
+  }
 })
 
 classesRouter.delete('/:id', roleMiddleware('admin'), async (c) => {

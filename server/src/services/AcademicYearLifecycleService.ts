@@ -7,15 +7,17 @@ import {
   attendanceSessions,
   auditLogs,
   classes,
+  gradeOverrides,
   grades,
   semesterLocks,
   students,
 } from '../db/schema.js'
 import { eq, and, isNull, inArray, gte, lte, desc, sql } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
-import { normalizeAcademicYear, computeAcademicYearDateRange } from '../utils/academicYear.js'
+import { normalizeAcademicYear, computeAcademicYearDateRange, parseAcademicYear } from '../utils/academicYear.js'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import { getClassificationLabel } from '../utils/gradeCalculation.js'
+import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import { getAcademicYearDateRange } from './academicYearService.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getParishClassificationThresholds } from './parishSettingsService.js'
 import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
@@ -63,6 +65,12 @@ export interface PromoteSummary {
   retained: number
   graduated: number
   errors: { studentId: string; reason: string }[]
+  /**
+   * PRM-F4 (audit 2026-08-21): học sinh KHÔNG được chuyển lớp nhưng cũng không
+   * lỗi — trước đây im lặng (năm vẫn PROMOTED) khi lớp năm mới không có cùng
+   * `code` hoặc HS không tìm thấy lớp nguồn. Giờ ghi rõ để admin xử lý thủ công.
+   */
+  warnings: { studentId: string; reason: string }[]
 }
 
 function httpError(message: string, status: number): Error & { status: number; details?: unknown } {
@@ -165,7 +173,13 @@ export class AcademicYearLifecycleService {
     const studentCountRows = await db
       .select({ yearId: classes.academicYearId, count: sql<number>`count(*)` })
       .from(students)
-      .innerJoin(classes, eq(students.classId, classes.id))
+      // TENANT-F7 (audit 2026-08-21): join phải scope cả hai phía theo parish —
+      // composite PK cho phép 2 giáo xứ trùng classes.id; thiếu predicate thì
+      // count có thể khớp nhầm lớp của giáo xứ khác.
+      .innerJoin(classes, and(
+        eq(students.classId, classes.id),
+        eq(classes.parishId, students.parishId),
+      ))
       .where(and(eq(students.parishId, parishId), isNull(students.deletedAt)))
       .groupBy(classes.academicYearId)
 
@@ -416,6 +430,26 @@ export class AcademicYearLifecycleService {
       .select()
       .from(grades)
       .where(and(eq(grades.academicYear, normYear), eq(grades.parishId, parishId)))
+
+    // AYL-F2 (audit 2026-08-21): snapshot GPA phải ÁP grade overrides để khớp
+    // với bước verify authoritative lúc promote (PromotionApplicationService.
+    // computeAuthoritativeMetrics — G-02 có áp override) và với báo cáo
+    // (ReportCardProjectionRepository). Trước đây finalize dùng điểm thô → học
+    // sinh có override active bị 409 DATA_MISMATCH khi promoteYear chạy
+    // approvePromotion. Override lookup 1 lần cho cả năm (perf), filter theo
+    // gradeId + parish + chưa xóa — cùng ngữ nghĩa G-02.
+    const gradeIds = gradeRows.map((g) => g.id)
+    const activeOverrides = gradeIds.length > 0
+      ? await db
+          .select()
+          .from(gradeOverrides)
+          .where(and(
+            inArray(gradeOverrides.gradeId, gradeIds),
+            eq(gradeOverrides.parishId, parishId),
+            isNull(gradeOverrides.deletedAt),
+          ))
+      : []
+
     const range = await getAcademicYearDateRange(parishId, year.id)
     const attendanceRows = await db
       .select()
@@ -426,6 +460,14 @@ export class AcademicYearLifecycleService {
     const attendancePolicy = await getParishAttendancePolicy(parishId)
     const policy = await getParishPromotionPolicy(parishId)
     const thresholds = await getParishClassificationThresholds(parishId)
+
+    const effectiveGpa = (g: typeof gradeRows[number] | undefined): number | null => {
+      if (!g || isEmptyGrade(g)) return null
+      return computeWeightedGpa(
+        applyOverridesToGrade(g as any, activeOverrides as any[]) as any,
+        weights,
+      )
+    }
 
     // AYL-03 (audit 2026-08-09): vòng snapshot + khóa năm + audit trong 1
     // transaction — trước đây đứt đoạn giữa loop và UPDATE isLocked nên lỗi giữa
@@ -438,8 +480,8 @@ export class AcademicYearLifecycleService {
         if (student.status !== 'Đang học') continue
         const g1 = gradeRows.find((g) => g.studentId === student.id && g.semester === 1)
         const g2 = gradeRows.find((g) => g.studentId === student.id && g.semester === 2)
-        const gpa1 = g1 && !isEmptyGrade(g1) ? computeWeightedGpa(g1, weights) : null
-        const gpa2 = g2 && !isEmptyGrade(g2) ? computeWeightedGpa(g2, weights) : null
+        const gpa1 = effectiveGpa(g1)
+        const gpa2 = effectiveGpa(g2)
         let yearGpa: number | null = null
         if (gpa1 !== null && gpa2 !== null) {
           const rounding = Number(weights.roundingDecimal ?? 1)
@@ -550,6 +592,12 @@ export class AcademicYearLifecycleService {
     if (normNextYear === year.id) {
       throw httpError('Năm học mới phải khác năm học hiện tại', 400)
     }
+    // AY-F5 (audit 2026-08-21): chặn năm đích tự do — năm không parse được sẽ nhận
+    // range 2000-2099 (computeAcademicYearDateRange) làm hỏng getOpenSemester và
+    // bounding chuyên cần ADR-017-F2.
+    if (!parseAcademicYear(normNextYear)) {
+      throw httpError(`Định dạng năm học mới không hợp lệ (phải là YYYY-YYYY): "${normNextYear}"`, 400)
+    }
 
     let nextYear = await this.getYearOrThrow(normNextYear, parishId).catch(() => null)
     if (!nextYear) {
@@ -588,11 +636,15 @@ export class AcademicYearLifecycleService {
       retained: 0,
       graduated: 0,
       errors: [],
+      warnings: [],
     }
 
     for (const snap of snapshotRows) {
       const student = studentMap.get(snap.studentId)
-      if (!student) continue
+      if (!student) {
+        summary.warnings.push({ studentId: snap.studentId, reason: 'Không tìm thấy học sinh tương ứng snapshot' })
+        continue
+      }
       const sourceClass = oldClasses.find((c) => c.id === student.classId)
       const targetClassId = sourceClass?.id || student.classId
 
@@ -600,6 +652,9 @@ export class AcademicYearLifecycleService {
       if (sourceClass) {
         const mapped = classCodeMap.get(sourceClass.code)
         if (mapped) nextClassId = mapped
+        else summary.warnings.push({ studentId: snap.studentId, reason: `Lớp năm mới không có cùng mã "${sourceClass.code}" — học sinh ở lại lớp năm cũ` })
+      } else {
+        summary.warnings.push({ studentId: snap.studentId, reason: `Không tìm thấy lớp nguồn (classId=${student.classId}) — học sinh ở lại lớp cũ` })
       }
 
       try {
@@ -651,7 +706,7 @@ export class AcademicYearLifecycleService {
         'academic_year',
         year.id,
         null,
-        JSON.stringify({ nextYearId: nextYear.id, total: summary.total, movedToNextYear: summary.movedToNextYear, retained: summary.retained, graduated: summary.graduated, errorCount: summary.errors.length }),
+        JSON.stringify({ nextYearId: nextYear.id, total: summary.total, movedToNextYear: summary.movedToNextYear, retained: summary.retained, graduated: summary.graduated, errorCount: summary.errors.length, warningCount: summary.warnings.length }),
         userId,
         parishId,
         tx,
@@ -699,6 +754,10 @@ export class AcademicYearLifecycleService {
   ): Promise<{ year: { id: string; startDate: string; endDate: string }; copiedClasses: number; copiedAssessments: number }> {
     const source = await this.getYearOrThrow(sourceYearId, parishId)
     const normNewYear = normalizeAcademicYear(newYearId)
+    // AY-F5 (audit 2026-08-21): cùng lý do promoteYear — chặn id năm mới tự do.
+    if (!parseAcademicYear(normNewYear)) {
+      throw httpError(`Định dạng năm học mới không hợp lệ (phải là YYYY-YYYY): "${normNewYear}"`, 400)
+    }
 
     const [existing] = await db
       .select()

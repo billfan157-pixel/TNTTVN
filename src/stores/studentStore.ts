@@ -28,6 +28,7 @@ interface StudentState {
   deleteStudent: (id: string) => Promise<void>
   deleteStudents: (ids: string[]) => Promise<void>
   batchPromote: (promotions: PromotionAction[]) => Promise<void>
+  applyLocalPromotions: (promotions: PromotionAction[]) => void
   setPagination: (pagination: Partial<StudentState['pagination']>) => void
 }
 
@@ -167,6 +168,27 @@ export const useStudentStore = create<StudentState>()(
           return { students: next }
         })
         runSyncFlow()
+      },
+
+      /**
+       * F1 (audit 2026-08-21): cập nhật state local sau khi server đã duyệt
+       * promotion qua POST /promotion/batch-approve (snapshot + move trong 1 tx).
+       * KHÔNG enqueue sync — server là nguồn sự thật, chỉ mirror kết quả.
+       */
+      applyLocalPromotions: (promotions) => {
+        if (!promotions.length) return
+        set((state) => ({
+          students: state.students.map((s) => {
+            const p = promotions.find((pr) => pr.studentId === s.id)
+            if (!p) return s
+            return {
+              ...s,
+              branch: p.newBranch as BranchType,
+              classId: p.newClassId,
+              status: 'Đang học' as const,
+            }
+          }),
+        }))
       },
 
       setPagination: (patch) =>

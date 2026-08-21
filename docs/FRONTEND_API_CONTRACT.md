@@ -505,4 +505,33 @@ Client: `src/lib/api.ts` (`getLeaveRequests`, `getPendingLeaveRequestsCount`, `c
 | `PATCH` | `/api/leave-requests/:id/review` | Duyệt (`APPROVED`) hoặc Từ chối (`REJECTED`) đơn xin nghỉ. Khi APPROVED, tự động upsert vào `attendance` (`AbsentExcused`) | `chunhiem`, `phuta` (chỉ lớp phụ trách), `admin` | `{ status: 'APPROVED'\|'REJECTED', reviewNote?: string }` | 200 `{ success: true, data: LeaveRequest }` |
 | `DELETE` | `/api/leave-requests/:id` | Hủy đơn xin phép nghỉ (chỉ khi còn ở trạng thái `PENDING`) | `phuhuynh` (đơn của mình), `admin` | Không | 200 `{ success: true, data: { ok: true, id, status: 'CANCELLED' } }` |
 
+---
+
+## 15. PROMOTION BATCH APPROVE API (`/api/promotion/batch-approve`) — ADR-052 (2026-08-21)
+
+Client: `src/lib/api/promotion.ts` (`promotionApiClient.batchApproveStudents`) · Store: `src/stores/promotionStore.ts` (`batchApproveStudents`) · Server: `server/src/routes/promotion.ts`, `server/src/services/BatchPromotionApplicationService.ts`
+
+> **F1 (audit 2026-08-21)**: đây là đường duyệt thăng tiến thủ công SSOT khi online —
+> sinh `promotion_records` snapshot + chuyển lớp/ngành **trong cùng transaction**,
+> enforce SemesterLock HK2 + policy phía server. Panel "Xét Lên Lớp"
+> (`PromotionPanel`) KHÔNG còn dùng `PUT /api/students/:id` khi online; offline
+> fallback cũ giữ nguyên (hạn chế đã ghi nhận trong ADR-052).
+
+| Method | Endpoint | Mô tả | Quyền | Body | Response |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `POST` | `/api/promotion/batch-approve` | Duyệt thăng tiến hàng loạt (partial success ADR-008). Mỗi item 1 transaction: `approvePromotion` (snapshot + verify GPA/chuyên cần authoritative) → update `students.classId`/`students.branch` nếu có `nextClassId`/`newBranch`. Move được áp cho cả item `skipped` (idempotent re-run hội tụ) | `admin`, `chunhiem` (bị chặn bởi `CanAccessStudentSpecification` + `checkUserClassAccess(nextClassId)`) | `{ items: [{ studentId, academicYear, targetClassId, nextClassId?, newBranch? ('ChienCon'\|'AuNhi'\|'ThieuNhi'\|'NghiaSi'\|'HiepSi'), gpa, attendanceRate, manualDecision?, overrideReason? }], chunkSize? }` | 200 Partial-Success Payload (§2): `saved`/`skipped`/`error`; lỗi từng item kèm `reason` |
+
+Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`), `409` GPA/chuyên cần lệch máy chủ (`DATA_MISMATCH` — client phải lấy giá trị từ `GET /promotion/evaluate/:studentId`), `400` override thiếu lý do, `404` học sinh đã xóa/hết `'Đang học'`.
+
+### Endpoint liên quan — validate năm học (AY-F5, cùng đợt)
+
+| Method | Endpoint | Thay đổi | Lỗi mới |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/classes/academic-years` | Bắt buộc `id` khớp `YYYY-YYYY` (`parseAcademicYear`); `startDate`/`endDate` (nếu gửi) phải `YYYY-MM-DD` hợp lệ và start < end | 400 `ACADEMIC_YEAR_INVALID` |
+| `POST` | `/api/classes` | Trùng `(parish, code, academicYear)` hoặc FK sai trả rõ nghĩa thay vì 500 | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
+| `PUT` | `/api/classes/:id` | Như trên | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
+| `POST` | `/api/academic-years/:id/copy` · `/:id/promote` | Năm đích bắt buộc định dạng `YYYY-YYYY` | 400 `COPY_YEAR_ERROR` / `PROMOTE_ERROR` kèm message định dạng |
+
+`PromoteSummary` (response của `/promote`) thêm trường `warnings: { studentId, reason }[]` — học sinh không được chuyển lớp do thiếu lớp cùng `code` ở năm mới (PRM-F4); năm học vẫn `PROMOTED`, admin xử lý thủ công.
+
 

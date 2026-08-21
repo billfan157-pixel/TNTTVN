@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { students, auditLogs, classes, academicYears } from '../db/schema.js'
 import { eq, and, gte, isNull, inArray, sql } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
@@ -146,6 +146,31 @@ function validateDateOfBirth(dob: string | undefined | null) {
   }
 }
 
+/** Collect all human-readable messages carried by a libsql/drizzle error chain. */
+function collectErrorMessages(err: unknown): string {
+  const e = err as { message?: unknown; cause?: { message?: unknown } } | null
+  return `${String(e?.message ?? '')} ${String(e?.cause?.message ?? '')}`
+}
+
+export function isUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: unknown; extendedCode?: unknown; cause?: { code?: unknown; extendedCode?: unknown } } | null
+  return e?.code === 'SQLITE_CONSTRAINT_UNIQUE'
+    || e?.extendedCode === 'SQLITE_CONSTRAINT_UNIQUE'
+    || e?.cause?.extendedCode === 'SQLITE_CONSTRAINT_UNIQUE'
+    || e?.cause?.code === 'SQLITE_CONSTRAINT_UNIQUE'
+    || collectErrorMessages(err).includes('UNIQUE constraint failed')
+}
+
+/**
+ * IDEM-F3 (audit 2026-08-21): phân biệt UNIQUE violation do idx_students_idempotency
+ * (parish_id, idempotency_key) với violation do trùng mã học sinh. Trước đây mọi
+ * UNIQUE đều bị coi là trùng code → request đồng thời cùng idempotencyKey retry
+ * hết 12 lần rồi rơi vào nhánh fallback KHÔNG có key → tạo học sinh trùng im lặng.
+ */
+export function isIdempotencyKeyViolation(err: unknown): boolean {
+  return isUniqueViolation(err) && collectErrorMessages(err).includes('idempotency_key')
+}
+
 export async function createStudent(
   rawData: CreateStudentData | Record<string, unknown>,
   userId: string,
@@ -188,7 +213,7 @@ export async function createStudent(
   for (let attempt = 0; attempt < 12; attempt++) {
     const code = `TN${year}${generateStudentCodeSuffix()}`
     try {
-      return await db.transaction(async (tx) => {
+      return await runDbTransaction(async (tx) => {
         await tx.insert(students).values({
           holyName: data.holyName,
           fullName: data.fullName,
@@ -237,17 +262,24 @@ export async function createStudent(
         return created
       })
     } catch (err: any) {
-      const isUnique = err?.code === 'SQLITE_CONSTRAINT_UNIQUE'
-        || err?.extendedCode === 'SQLITE_CONSTRAINT_UNIQUE'
-        || err?.cause?.extendedCode === 'SQLITE_CONSTRAINT_UNIQUE'
-        || err?.cause?.code === 'SQLITE_CONSTRAINT_UNIQUE'
-      if (!isUnique) throw err
+      // IDEM-F3: trùng idempotency_key = request song song cùng key đã thắng —
+      // trả về bản ghi của request đó thay vì retry vô ích / tạo bản sao.
+      if (isIdempotencyKeyViolation(err) && idempotencyKey) {
+        const [winner] = await db
+          .select()
+          .from(students)
+          .where(and(eq(students.idempotencyKey, idempotencyKey), eq(students.parishId, parishId)))
+          .limit(1)
+        if (winner && !winner.deletedAt) return winner
+        throw new Error('Idempotency key đã được sử dụng cho học sinh khác')
+      }
+      if (!isUniqueViolation(err)) throw err
     }
   }
-  // Last resort: include timestamp fragment
+  // Last resort: include timestamp fragment (vẫn GIỮ idempotencyKey — IDEM-F3)
   const fallbackNum = Date.now() % 1_000_000
   const code = `TN${year}${String(fallbackNum).padStart(6, '0')}`
-  return await db.transaction(async (tx) => {
+  return await runDbTransaction(async (tx) => {
     await tx.insert(students).values({
       holyName: data.holyName,
       fullName: data.fullName,
@@ -266,6 +298,7 @@ export async function createStudent(
       notes: data.notes ?? null,
       id,
       code,
+      idempotencyKey: idempotencyKey || null,
       deletedAt: null,
       parishId,
       updatedBy: userId,
@@ -320,7 +353,7 @@ export async function updateStudent(
   }
 
   const now = new Date().toISOString()
-  return await db.transaction(async (tx) => {
+  return await runDbTransaction(async (tx) => {
     await tx
       .update(students)
       .set({
@@ -358,7 +391,7 @@ export async function deleteStudent(id: string, userId: string, parishId: string
   if (!existing) return false
 
   const now = new Date().toISOString()
-  return await db.transaction(async (tx) => {
+  return await runDbTransaction(async (tx) => {
     await tx
       .update(students)
       .set({ deletedAt: now, updatedAt: now, updatedBy: userId })

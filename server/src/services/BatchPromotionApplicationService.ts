@@ -1,4 +1,6 @@
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
+import { students } from '../db/schema.js'
+import { eq, and } from 'drizzle-orm'
 import { promotionApplicationService, PromotionApplicationService } from './PromotionApplicationService.js'
 import type { ApprovePromotionCommand } from './PromotionApplicationService.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
@@ -18,6 +20,15 @@ export interface BatchPromotionResponse {
   results: BatchItemResult[]
 }
 
+/**
+ * F1 (audit 2026-08-21): item batch có thể kèm chuyển lớp/ngành — `nextClassId`
+ * (đã có trong command, được PRM-03 verify thuộc parish) và `newBranch`. Việc
+ * chuyển được thực hiện TRONG CÙNG transaction với snapshot promotion_record
+ * nên không thể có snapshot mà mất move hoặc ngược lại. Semester-lock vẫn được
+ * enforce bên trong approvePromotion (403 nếu HK2 chưa khóa).
+ */
+export type BatchApproveItem = ApprovePromotionCommand & { newBranch?: string | null }
+
 export class BatchPromotionApplicationService {
   private promotionAppService: PromotionApplicationService
 
@@ -28,7 +39,7 @@ export class BatchPromotionApplicationService {
   }
 
   public async approveBatch(
-    items: ApprovePromotionCommand[],
+    items: BatchApproveItem[],
     chunkSize = 10
   ): Promise<BatchPromotionResponse> {
     const results: BatchItemResult[] = []
@@ -45,9 +56,21 @@ export class BatchPromotionApplicationService {
 
       for (const item of chunk) {
         try {
-          await db.transaction(async (tx) => {
+          await runDbTransaction(async (tx) => {
             const snapshot = await this.promotionAppService.approvePromotion(item, tx)
             const approvedTime = new Date(snapshot.approvedAt).getTime()
+
+            // F1: áp move cho cả 'saved' lẫn 'skipped' (idempotent re-run phải
+            // hội tụ về cùng trạng thái — move trước đó có thể đã đứt giữa chừng).
+            if (item.nextClassId || item.newBranch) {
+              const update: Record<string, unknown> = { updatedAt: new Date().toISOString(), updatedBy: item.userId }
+              if (item.nextClassId) update.classId = item.nextClassId
+              if (item.newBranch) update.branch = item.newBranch
+              await tx
+                .update(students)
+                .set(update)
+                .where(and(eq(students.id, item.studentId), eq(students.parishId, item.parishId)))
+            }
 
             // If approvedAt was generated prior to this batch execution, it was an idempotent skip
             if (approvedTime < batchStartTime) {

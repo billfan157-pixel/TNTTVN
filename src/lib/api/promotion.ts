@@ -5,6 +5,8 @@ export interface ApprovePromotionPayload {
   academicYear: string
   targetClassId: string
   nextClassId?: string | null
+  /** F1 (audit 2026-08-21): chuyển ngành cùng transaction với snapshot (batch-approve). */
+  newBranch?: 'ChienCon' | 'AuNhi' | 'ThieuNhi' | 'NghiaSi' | 'HiepSi' | null
   gpa: number
   attendanceRate: number
   conductSnapshot?: string | null

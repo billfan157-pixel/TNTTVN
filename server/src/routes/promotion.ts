@@ -43,6 +43,9 @@ const approveSchema = z.object({
   academicYear: z.string().min(1),
   targetClassId: z.string().min(1),
   nextClassId: z.string().optional().nullable(),
+  // F1 (audit 2026-08-21): chuyển ngành cùng transaction với snapshot — dùng bởi
+  // batch-approve (panel "Xét Lên Lớp"); /approve đơn lẻ giữ ngữ nghĩa snapshot-only.
+  newBranch: z.enum(['ChienCon', 'AuNhi', 'ThieuNhi', 'NghiaSi', 'HiepSi']).optional().nullable(),
   gpa: z.number().min(0).max(10),
   attendanceRate: z.number().min(0).max(100),
   conductSnapshot: z.string().optional().nullable(),

@@ -1311,3 +1311,51 @@ UX/UI audit app-wide (2026-08-16) ghi nhận "mỗi trang tự dựng một ki�
 - Targeted QR v3, variant normalization, batch fail-closed, analytics, local retention, render/store và exam route/service: **8 files / 79 tests PASS**.
 - Full Vitest: **199 files / 1491 tests PASS**. Production build client/server và lint PASS (lint chỉ còn baseline warnings, không error). Không suy diễn accuracy camera từ unit tests.
 
+---
+
+## ADR-052: Unify Promotion Write-Path + Student/Class/Academic Structure Hardening (2026-08-21)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2 (cross-module, chạm protected business behavior). Profile: GENERAL + SECURITY.**
+
+### Context (audit 2026-08-21 — Student / Class / Academic Structure)
+
+Audit toàn diện phát hiện đường xét lên lớp thủ công của client (`PromotionPanel` → `studentStore.batchPromote` → `PUT /api/students/:id`) **không sinh `promotion_records`** và không được server enforce SemesterLock/policy — vi phạm BUSINESS_RULES §1.1/§1.6 (SSOT snapshot + HK2 lock bắt buộc). Gate "F1" cũ thuần client và tự bỏ qua khi server lỗi/decision null/offline. Kèm 6 finding phụ (F2–F7): finalize không áp grade overrides (409 `DATA_MISMATCH` lúc promote cho HS có override), race idempotency tạo HS trùng không key, năm học chấp nhận id tự do (range 2000-2099 làm lệch `getOpenSemester`), promoteYear im lặng khi mapping lớp trượt, lỗi ràng buộc class route thành 500, join đếm thiếu predicate parish.
+
+### Decision matrix (F1 — đường duyệt thăng tiến)
+
+| Criterion | Weight | A: Giữ client-gate + `PUT /students` | B: batch-approve SSOT + move atomic (chọn) | C: Cấm promotion offline hoàn toàn |
+|---|---:|---:|---:|---:|
+| Security & Privacy | 25% | 5 | 9 | 9 |
+| Data Integrity | 25% | 4 | 10 | 9 |
+| Reliability | 15% | 7 | 9 | 6 |
+| Business fit | 15% | 6 | 9 | 4 |
+| Testability | 10% | 5 | 9 | 8 |
+| Maintainability | 5% | 6 | 8 | 8 |
+| Reversibility | 5% | 8 | 8 | 6 |
+| **Weighted** | **100%** | **5.45** | **9.15** | **7.35** |
+
+**Decision: B.** A bị loại: Data Integrity 4 < gate 7 (snapshot bị bypass là chính). C bị loại vì phá offline-first (ADR-016) mà không tăng integrity so với B.
+
+### Implementation
+
+1. **F1**: `POST /api/promotion/batch-approve` nhận thêm `newBranch`; `BatchPromotionApplicationService` update `students.classId`/`students.branch` **trong cùng transaction** với snapshot (áp cả item `skipped` — idempotent hội tụ). `PromotionPanel` khi online gọi endpoint này; decision null/network error → **DỪNG**, không duyệt mù (đóng bypass); offline giữ fallback queue (hạn chế ghi rõ ở BUSINESS_RULES §1.8).
+2. **F2 (AYL-F2)**: `finalizeYear` load active `grade_overrides` 1 lần/năm và tính GPA qua `applyOverridesToGrade` — snapshot khớp `computeAuthoritativeMetrics` (G-02) và ReportCard; HS có override không còn 409 khi promote.
+3. **F3 (IDEM-F3)**: `createStudent` phân biệt UNIQUE violation do `idempotency_key` (`isIdempotencyKeyViolation`) → trả về bản ghi request thắng; nhánh fallback giữ nguyên key (trước đây drop key → HS trùng im lặng).
+4. **F5 (AY-F5)**: `parseAcademicYear` bắt buộc ở `POST /api/classes/academic-years`, `/copy`, `/promote`; validate ngày `YYYY-MM-DD` + start<end → 400 `ACADEMIC_YEAR_INVALID`.
+5. **F4 (PRM-F4)**: `PromoteSummary.warnings[]` ghi rõ HS không chuyển được lớp do thiếu mã tương ứng (năm vẫn PROMOTED — hành vi movement giữ nguyên, hết im lặng).
+6. **F6 (ERR-F6)**: `POST/PUT /api/classes` map UNIQUE→409 `CLASS_CODE_EXISTS`, FK→400 `INVALID_REFERENCE`; `removeUserFromClass` bọc transaction; `studentService`/`classService` chuyển sang `runDbTransaction` (retry SQLITE_BUSY).
+7. **F7 (TENANT-F7)**: join đếm học viên theo năm trong `listAcademicYears` thêm `eq(classes.parishId, students.parishId)`.
+
+### Gates and compatibility
+
+- **D2 gates**: Security & Privacy 9, Data Integrity 10, Testability 9 — PASS.
+- **Business Rule Gate**: snapshot-SSOT + HK2-lock enforcement = `CONFIRMED` (test 4/5 BatchPromotionService, test 8b lifecycle). Hành vi GRADUATED có bị move sang lớp cùng code hay không = `CONDITIONAL` — chưa có chủ sản phẩm xác nhận, KHÔNG đổi trong đợt này (giữ nguyên, chỉ quan sát qua `warnings`).
+- **ADR compatibility**: ADR-008 (partial success per item) `PASS`; ADR-016 (offline-first — fallback queue giữ nguyên) `PASS`; ADR-031 (composite PK tenant scope) `PASS`; BUSINESS_RULES §1/§4 đã sync.
+- **Reversibility**: R1 (redeploy). Không migration schema; `newBranch`/`warnings` là field optional additive.
+
+### Verification
+
+- Server tsc + client `tsc -b` PASS; oxlint 0 error (chỉ baseline warnings cũ).
+- Targeted: studentService (10, gồm IDEM-F3 race), academicYearLifecycle (12, gồm AYL-F2 + PRM-F4), BatchPromotionService (5, gồm F1 move + rollback), students routes — **32 tests PASS**.
+- Full server suite: **110 files / 683 tests PASS**. Client store tests (promotionStore/studentStore/zustandStores): 23 PASS.
+

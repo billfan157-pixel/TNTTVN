@@ -117,6 +117,40 @@ describe('Server studentService Layer Unit Tests', () => {
     cleanupStudentIds.push(first!.id)
   })
 
+  it('IDEM-F3: 2 request ĐỒNG THỜI cùng idempotencyKey → đúng 1 học sinh, không tạo bản sao không key', async () => {
+    const data = {
+      holyName: 'Tôma',
+      fullName: 'Nguyễn Văn Race Idem',
+      gender: 'Nam' as const,
+      dateOfBirth: '2015-04-10',
+      parentName: 'Nguyễn Văn Ba',
+      parentPhone: '0901234568',
+      address: 'Xóm Giáo 3',
+      branch: 'AuNhi' as const,
+      classId: 'AU1',
+      status: 'Đang học' as const,
+    }
+    const key = 'IDEM-RACE-001'
+
+    // Cả 2 gọi vượt qua pre-check trước khi bên kia kịp commit → bên thua gặp
+    // UNIQUE(parish_id, idempotency_key). Trước fix: rơi vào fallback KHÔNG key
+    // → 2 học sinh. Sau fix: trả về bản ghi của request thắng.
+    const [a, b] = await Promise.all([
+      createStudent(data, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest', key),
+      createStudent(data, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest', key),
+    ])
+
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(b!.id).toBe(a!.id)
+
+    const rows = await db.select().from(students).where(eq(students.parishId, 'gia-ton'))
+    const withKey = rows.filter(s => (s as any).idempotencyKey === key)
+    expect(withKey).toHaveLength(1)
+
+    cleanupStudentIds.push(a!.id)
+  })
+
   it('deleteStudent performs soft delete (deletedAt set)', async () => {
     const deleted = await deleteStudent(createdId, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
     expect(deleted).toBe(true)

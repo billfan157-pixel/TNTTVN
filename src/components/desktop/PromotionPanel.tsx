@@ -8,6 +8,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { getAcademicYear, checkPromotionEligibility, getSacramentStatus, getNextBranch, getClassIdForBranch } from '../../utils/sacraments';
 import { getClassificationLabel, calculateYearlyGpa } from '../../utils/grades';
 import { usePromotionStore } from '../../stores/promotionStore';
+import type { ApprovePromotionPayload } from '../../lib/api/promotion';
 import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
@@ -28,6 +29,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   const canPromoteAction = can('admin', 'chunhiem');
   const students = useStudentStore(s => s.students);
   const batchPromote = useStudentStore(s => s.batchPromote);
+  const applyLocalPromotions = useStudentStore(s => s.applyLocalPromotions);
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
   const getStudentAttendanceRate = useAttendanceStore(s => s.getStudentAttendanceRate);
   // ADR-017 (F1): Ngưỡng xét duyệt lấy từ settings (mặc định 5.0/80) — khớp
@@ -47,6 +49,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   // store (evaluationMap + error/lockError); business logic (điều kiện thăng tiến,
   // fallback offline-first, alert khóa sổ) vẫn nằm ở panel/service, KHÔNG trong store.
   const evaluateStudent = usePromotionStore(s => s.evaluateStudent);
+  const batchApproveStudents = usePromotionStore(s => s.batchApproveStudents);
   const done = usePromotionStore(s => s.done);
   const setDone = usePromotionStore(s => s.setDone);
 
@@ -81,78 +84,141 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
 
   const handleExecutePromotion = async () => {
     setPromoting(true)
-    const actions: PromotionAction[] = canPromote.map(p => {
+    // F1 (audit 2026-08-21): mỗi action nhớ nguồn gốc classId — lớp ngành kế tiếp
+    // phải TỒN TẠI trong danh sách lớp (server-scoped) mới được gửi nextClassId;
+    // fallback id cứng ('AU1'…) của getClassIdForBranch không tồn tại trong DB.
+    const actions: { action: PromotionAction; hasRealClass: boolean; student: Student }[] = canPromote.map(p => {
       const nextBranch = p.promotion.recommendedBranch || getNextBranch(p.student.branch) || p.student.branch
       const existingClasses = classList.filter(c => c.branch === nextBranch)
-      const classId = existingClasses.length > 0 ? existingClasses[0].id : getClassIdForBranch(nextBranch)
-      return { studentId: p.student.id, newBranch: nextBranch, newClassId: classId }
+      const hasRealClass = existingClasses.length > 0
+      const classId = hasRealClass ? existingClasses[0].id : getClassIdForBranch(nextBranch)
+      return {
+        action: { studentId: p.student.id, newBranch: nextBranch, newClassId: classId },
+        hasRealClass,
+        student: p.student,
+      }
     })
 
     // F1 (audit): Server-side gate khi online. Trước đây batchPromote chỉ sửa
     // branch/classId local rồi sync như UPDATE student bình thường — bỏ qua hoàn
     // toàn PromotionEligibilitySpecification server (SemesterLock HK2 + policy),
     // nên admin có thể thăng tiến cả em chưa đủ điều kiện khi client bị lệch
-    // server. Khi online: nhờ server đánh giá lại; có em bị từ chối (chưa khóa
-    // HK2 / dưới ngưỡng) thì loại khỏi danh sách. Offline: giữ hành vi cũ.
-    let finalActions = actions
+    // server, và KHÔNG sinh promotion_records (vi phạm SSOT BUSINESS_RULES §1.1).
+    // Khi online: duyệt qua POST /promotion/batch-approve — server tự đánh giá
+    // lại, sinh snapshot và chuyển lớp/ngành trong cùng transaction. Offline:
+    // giữ hành vi cũ qua hàng đợi sync (hạn chế đã ghi nhận — xem ADR-052).
     const online = typeof navigator !== 'undefined' && navigator.onLine && isAuthenticated()
     if (online && actions.length > 0) {
-      const names = new Map(canPromote.map(p => [p.student.id, `${p.student.holyName} ${p.student.fullName}`]))
+      const names = new Map(actions.map(a => [a.action.studentId, `${a.student.holyName} ${a.student.fullName}`]))
       try {
         const results = await Promise.all(
-          actions.map(async a => {
-            const d = await evaluateStudent(a.studentId, ACADEMIC_YEAR)
-            return { action: a, decision: d }
-          })
+          actions.map(async a => ({
+            ...a,
+            decision: await evaluateStudent(a.action.studentId, ACADEMIC_YEAR),
+          }))
         )
-        // Store trả null khi server lỗi/không phản hồi (isEvaluating + error/lockError
-        // đã được store cập nhật) → fallback offline-first giữ nguyên hành vi cũ.
+        // Server không xác thực được → DỪNG, không duyệt mù (trước đây fallback
+        // duyệt TẤT CẢ khi decision null / exception — lỗ hổng F1).
         if (results.some(r => r.decision === null)) {
-          finalActions = actions
-        } else {
-          const eligible = results.filter(r => r.decision!.isEligible)
-          const rejected = results.filter(r => !r.decision!.isEligible)
-          finalActions = eligible.map(r => r.action)
-
-          if (rejected.length > 0) {
-            const lockMsg = rejected.find(r =>
-              (r.decision!.rejectionReasons ?? (r.decision!.reason ? [r.decision!.reason] : [])).some(x => (x || '').includes('khóa'))
-            )
-            if (lockMsg && finalActions.length === 0) {
-              setPromoting(false)
-              await askConfirm({
-                title: 'Không thể thăng tiến',
-                message:
-                  'Học kỳ 2 chưa được khóa sổ điểm.\n' +
-                  'Vào trang "Năm Học" → bật khóa Học Kỳ II cho năm học hiện tại trước khi xét lên lớp.',
-                confirmText: 'OK',
-                variant: 'warning',
-                showCancel: false,
-              })
-              return
-            }
-            await askConfirm({
-              title: 'Kết quả xét duyệt',
-              message:
-                `${finalActions.length} em được server xác nhận đủ điều kiện và sẽ được thăng tiến.\n\n` +
-                `${rejected.length} em bị server từ chối (sẽ chuyển sang "Cần xem xét"):\n` +
-                rejected.map(r => {
-                  const reasons = (r.decision!.rejectionReasons ?? [r.decision!.reason]).filter(Boolean)
-                  return `- ${names.get(r.action.studentId) || r.action.studentId}: ${reasons.join('; ') || 'không đủ điều kiện'}`
-                }).join('\n'),
-              confirmText: 'OK',
-              variant: 'info',
-              showCancel: false,
-            })
-          }
+          setPromoting(false)
+          await askConfirm({
+            title: 'Không thể xét lên lớp',
+            message:
+              'Không lấy được kết quả đánh giá từ máy chủ cho một số học sinh.\n' +
+              'Vui lòng kiểm tra kết nối và thử lại. Hệ thống không thực hiện thăng tiến khi chưa được máy chủ xác nhận.',
+            confirmText: 'OK',
+            variant: 'warning',
+            showCancel: false,
+          })
+          return
         }
+
+        const eligible = results.filter(r => r.decision!.isEligible)
+        const rejected = results.filter(r => !r.decision!.isEligible)
+
+        const lockMsg = rejected.find(r =>
+          (r.decision!.rejectionReasons ?? (r.decision!.reason ? [r.decision!.reason] : [])).some(x => (x || '').includes('khóa'))
+        )
+        if (lockMsg && eligible.length === 0) {
+          setPromoting(false)
+          await askConfirm({
+            title: 'Không thể thăng tiến',
+            message:
+              'Học kỳ 2 chưa được khóa sổ điểm.\n' +
+              'Vào trang "Năm Học" → bật khóa Học Kỳ II cho năm học hiện tại trước khi xét lên lớp.',
+            confirmText: 'OK',
+            variant: 'warning',
+            showCancel: false,
+          })
+          return
+        }
+
+        // Không có lớp thật cho ngành kế tiếp → loại khỏi batch, báo rõ thay vì
+        // gửi id không tồn tại để rồi fail im lặng trong hàng đợi sync.
+        const noClass = eligible.filter(r => !r.hasRealClass)
+        const approvable = eligible.filter(r => r.hasRealClass)
+
+        let batchErrorCount = 0
+        if (approvable.length > 0) {
+          const items: ApprovePromotionPayload[] = approvable.map(r => ({
+            studentId: r.action.studentId,
+            academicYear: ACADEMIC_YEAR,
+            targetClassId: r.student.classId,
+            nextClassId: r.action.newClassId,
+            newBranch: r.action.newBranch as ApprovePromotionPayload['newBranch'],
+            gpa: r.decision!.gpa,
+            attendanceRate: r.decision!.attendanceRate,
+          }))
+          const result = await batchApproveStudents(items)
+          if (!result) {
+            setPromoting(false)
+            return
+          }
+          const okIds = new Set(
+            result.results.filter(x => x.status === 'saved' || x.status === 'skipped').map(x => x.studentId)
+          )
+          applyLocalPromotions(approvable.filter(r => okIds.has(r.action.studentId)).map(r => r.action))
+          batchErrorCount = result.errorCount
+        }
+
+        setPromoting(false)
+        await askConfirm({
+          title: 'Kết quả xét duyệt',
+          message:
+            `${approvable.length} em đã được máy chủ phê duyệt và chuyển ngành/lớp (có snapshot promotion_records).\n` +
+            (rejected.length > 0 ? `${rejected.length} em bị máy chủ từ chối:\n` + rejected.map(r => {
+              const reasons = (r.decision!.rejectionReasons ?? [r.decision!.reason]).filter(Boolean)
+              return `- ${names.get(r.action.studentId) || r.action.studentId}: ${reasons.join('; ') || 'không đủ điều kiện'}`
+            }).join('\n') + '\n' : '') +
+            (noClass.length > 0 ? `\n${noClass.length} em đủ điều kiện nhưng CHƯA có lớp cho ngành "${noClass[0].action.newBranch}" — hãy tạo lớp trước rồi xét lại:\n` + noClass.map(r => `- ${names.get(r.action.studentId) || r.action.studentId}`).join('\n') + '\n' : '') +
+            (batchErrorCount > 0 ? `\n${batchErrorCount} em lỗi khi lưu trên máy chủ (xem Nhật Ký Hệ Thống).` : ''),
+          confirmText: 'OK',
+          variant: rejected.length > 0 || noClass.length > 0 || batchErrorCount > 0 ? 'warning' : 'info',
+          showCancel: false,
+        })
+        setTimeout(() => {
+          setConfirmOpen(false)
+          setDone(true)
+          setTimeout(() => setDone(false), 4000)
+        }, 100)
+        return
       } catch {
-        // Lỗi network / server evaluate thất bại → fallback offline-first
-        finalActions = actions
+        // Lỗi network giữa chừng evaluate/batch → DỪNG an toàn (không duyệt mù).
+        setPromoting(false)
+        await askConfirm({
+          title: 'Không thể xét lên lớp',
+          message: 'Có lỗi khi kết nối máy chủ. Hệ thống không thực hiện thăng tiến khi offline gate không xác nhận được.',
+          confirmText: 'OK',
+          variant: 'warning',
+          showCancel: false,
+        })
+        return
       }
     }
 
-    batchPromote(finalActions)
+    // OFFLINE fallback (giữ nguyên hành vi cũ): client tự tính điều kiện, ghi vào
+    // hàng đợi sync — server sẽ từ chối lúc sync nếu vi phạm lock/policy.
+    batchPromote(actions.map(a => a.action))
     setTimeout(() => {
       setPromoting(false)
       setConfirmOpen(false)

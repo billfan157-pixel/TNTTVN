@@ -15,12 +15,19 @@ describe('Batch Promotion Micro-Step P3 Integration Tests', () => {
   const branchId = 'br-batch-01'
   const yearId = 'AY-2025-2026'
   const academicYear = '2025-2026'
+  const nextYearId = 'AY-2026-2027'
+  const nextClassId = 'cl-batch-next'
 
   beforeAll(async () => {
     await db.insert(branches).values({ id: branchId, name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId: testParish }).onConflictDoNothing()
+    await db.insert(branches).values({ id: 'br-batch-thieu-nhi', name: 'Thiếu Nhi', scarfColor: 'Xanh dương', ageMin: 10, ageMax: 11, parishId: testParish }).onConflictDoNothing()
     await db.insert(academicYears).values({ id: yearId, startDate: '2025-09-01', endDate: '2026-05-31', parishId: testParish }).onConflictDoNothing()
     await db.insert(classes).values({ id: classId, code: 'CL-BATCH', name: 'Lớp Batch', branchId, academicYearId: yearId, parishId: testParish }).onConflictDoNothing()
     await db.insert(users).values({ id: adminUserId, username: 'adminbatchprm', fullName: 'Admin Batch Prm', passwordHash: 'hash', role: 'admin', parishId: testParish }).onConflictDoNothing()
+
+    // F1 (audit 2026-08-21): lớp đích năm học kế tiếp cho test chuyển lớp/ngành
+    await db.insert(academicYears).values({ id: nextYearId, startDate: '2026-09-01', endDate: '2027-05-31', parishId: testParish }).onConflictDoNothing()
+    await db.insert(classes).values({ id: nextClassId, code: 'CL-BATCH-NEXT', name: 'Lớp Batch Kế Tiếp', branchId: 'br-batch-thieu-nhi', academicYearId: nextYearId, parishId: testParish }).onConflictDoNothing()
 
     const studentList = [
       { id: student1Id, code: 'ST-BATCH-01', fullName: 'Học sinh 1' },
@@ -166,5 +173,61 @@ describe('Batch Promotion Micro-Step P3 Integration Tests', () => {
     expect(res.results[1].status).toBe('saved')
     expect(res.results[2].status).toBe('error')
     expect(res.results[2].reason).toMatch(/Failed query|FOREIGN KEY|constraint/i)
+  })
+
+  it('4. F1: batch-approve chuyển lớp + ngành TRONG CÙNG transaction với snapshot', async () => {
+    await drizzleSemesterLockRepository.setLockState(academicYear, 2, true, adminUserId, testParish)
+
+    const res = await batchPromotionApplicationService.approveBatch([
+      {
+        studentId: student1Id,
+        academicYear,
+        targetClassId: classId,
+        nextClassId,
+        newBranch: 'ThieuNhi' as const,
+        gpa: 8.0,
+        attendanceRate: 90,
+        userId: adminUserId,
+        parishId: testParish,
+      },
+    ], 5)
+
+    expect(res.successCount).toBe(1)
+    expect(res.errorCount).toBe(0)
+
+    const [moved] = await db.select().from(students).where(eq(students.id, student1Id))
+    expect(moved.classId).toBe(nextClassId)
+    expect(moved.branch).toBe('ThieuNhi')
+
+    // Snapshot ghi nextClassId tương ứng
+    const [record] = await db.select().from(promotionRecords).where(eq(promotionRecords.studentId, student1Id))
+    expect(record.nextClassId).toBe(nextClassId)
+  })
+
+  it('5. F1: HK2 chưa khóa → item lỗi 403 và KHÔNG move (rollback cả snapshot lẫn class-move)', async () => {
+    // Không setLockState — HK2 mở
+    const res = await batchPromotionApplicationService.approveBatch([
+      {
+        studentId: student2Id,
+        academicYear,
+        targetClassId: classId,
+        nextClassId,
+        newBranch: 'ThieuNhi' as const,
+        gpa: 9.0,
+        attendanceRate: 95,
+        userId: adminUserId,
+        parishId: testParish,
+      },
+    ], 5)
+
+    expect(res.errorCount).toBe(1)
+    expect(res.results[0].reason).toMatch(/khóa|không đủ/i)
+
+    const [notMoved] = await db.select().from(students).where(eq(students.id, student2Id))
+    expect(notMoved.classId).toBe(classId)
+    expect(notMoved.branch).toBe('AuNhi')
+
+    const records = await db.select().from(promotionRecords).where(eq(promotionRecords.studentId, student2Id))
+    expect(records).toHaveLength(0)
   })
 })

@@ -71,6 +71,14 @@ export interface PromotionRecordSnapshot {
 - Both `autoDecision` (calculated by `PromotionEligibilitySpecification`) and `finalDecision` (manual choice) are preserved.
 - If `autoDecision !== finalDecision`: `isOverridden = true` and `overrideReason` is **MANDATORY**.
 
+### 1.8 Đường duyệt thăng tiến thủ công — SSOT qua `POST /api/promotion/batch-approve` (ADR-052, 2026-08-21)
+Panel "Xét Lên Lớp" (`PromotionPanel`) khi **online** PHẢI đi qua `POST /api/promotion/batch-approve`:
+- Server tự đánh giá lại (`PromotionEligibilitySpecification`) — HK2 chưa khóa → item lỗi 403, KHÔNG có ngoại lệ cho client bỏ qua.
+- Mỗi item 1 transaction: snapshot `promotion_records` → update `students.classId` (từ `nextClassId`, đã verify thuộc parish — PRM-03) và `students.branch` (từ `newBranch`). Không thể có snapshot mà mất move hoặc ngược lại.
+- `gpa`/`attendanceRate` client gửi BẮT BUỘC lấy từ `GET /api/promotion/evaluate/:studentId` (authoritative); lệch → 409 `DATA_MISMATCH`.
+- Move được áp lại cho item `skipped` khi chạy lần 2 (idempotent hội tụ).
+- **Offline fallback** (hàng đợi sync `PUT /students/:id`) chỉ là biện pháp tạm: không sinh snapshot, server sẽ từ chối lúc sync nếu vi phạm lock/policy — hạn chế đã ghi nhận trong ADR-052; ưu tiên đưa về đường online SSOT.
+
 ---
 
 ## 2. ATTENDANCE
@@ -198,14 +206,17 @@ Action (per active student, `status = 'Đang học'`):
 - Set `is_locked=1, status='FINALIZED'` + audit log.
 
 ### 4.5 Promote Year (Xét Lên Lớp)
-Pre-conditions: status must be `FINALIZED` (403); already `PROMOTED` → 409.
+Pre-conditions: status must be `FINALIZED` (403); already `PROMOTED` → 409; năm đích phải định dạng `YYYY-YYYY` (400 — AY-F5).
 - If next year does not exist → auto-copy (see 4.6).
 - Per snapshot: `approvePromotion(...)` with `manualDecision = snapshot.promotionStatus` (lớp mapping by class `code`; class id = `<nextYearId>-<code>`), move student to next-year class.
-- Summary: `total`, `movedToNextYear`, `retained` (RETAINED), `graduated` (GRADUATED/TRANSFERRED), `errors`.
+- **PRM-F4 (2026-08-21)**: học sinh không tìm được lớp cùng `code` ở năm mới (hoặc không có lớp nguồn) → ghi vào `summary.warnings[]` (kèm lý do), KHÔNG chuyển lớp, KHÔNG tính lỗi — năm học vẫn `PROMOTED`, admin tự xử lý thủ công. Trước đây trường hợp này im lặng.
+- Snapshot GPA ÁP grade overrides (AYL-F2, 2026-08-21) — khớp `computeAuthoritativeMetrics` lúc verify promote và báo cáo phiếu điểm; HS có override không còn bị 409 `DATA_MISMATCH`.
+- Summary: `total`, `movedToNextYear`, `retained` (RETAINED), `graduated` (GRADUATED/TRANSFERRED), `errors`, `warnings`.
 - Partial success per student (ADR-008); set `status='PROMOTED'` + audit log.
 
 ### 4.6 Create / Copy Next Academic Year
 `POST /api/academic-years/:id/copy` (idempotent; returns existing year with `copiedClasses=0` if present):
+- Năm mới bắt buộc định dạng `YYYY-YYYY` (400 nếu sai — AY-F5, 2026-08-21).
 - Creates `academic_years` row (`OPEN`, `current_semester=1`, date range from `computeAcademicYearDateRange`).
 - Copies **classes** (new ids, same `code`) and **assessments** (new `ASM-` ids, same weights).
 - **NEVER copies** grades, attendance, reports, promotion_records, snapshots.
@@ -217,7 +228,8 @@ Pre-conditions: status must be `FINALIZED` (403); already `PROMOTED` → 409.
 
 ### 4.8 Onboarding Order Gates (Năm học → Lớp → Học sinh)
 Quy trình sử dụng bắt buộc theo thứ tự: **tạo năm học → tạo lớp học → nhập danh sách học sinh**. Server là SSOT enforcement:
-- `POST /api/classes` trả **409 `ACADEMIC_YEAR_REQUIRED`** nếu giáo xứ chưa có bất kỳ `academic_years` nào ("Vui lòng tạo năm học trước khi tạo lớp học").
+- `POST /api/classes/academic-years` (tạo năm học) validate: `id` khớp `YYYY-YYYY`, `startDate`/`endDate` (nếu gửi) `YYYY-MM-DD` hợp lệ và start < end → 400 `ACADEMIC_YEAR_INVALID` (AY-F5, 2026-08-21 — trước đây chấp nhận chuỗi tự do dẫn tới range 2000-2099 làm lệch `getOpenSemester` và bounding chuyên cần).
+- `POST /api/classes` trả **409 `ACADEMIC_YEAR_REQUIRED`** nếu giáo xứ chưa có bất kỳ `academic_years` nào ("Vui lòng tạo năm học trước khi tạo lớp học"); trùng `(parish, code, year)` → **409 `CLASS_CODE_EXISTS`**, FK sai → **400 `INVALID_REFERENCE`** (ERR-F6 — trước đây 500).
 - `POST /api/students` trả **409 `CLASS_REQUIRED`** nếu giáo xứ chưa có lớp nào (không tính lớp đã soft-delete) ("Vui lòng tạo lớp học trước khi thêm học sinh").
 - UI đồng bộ: nút "Thêm Lớp"/"Thêm Thiếu Nhi" được thay bằng nút điều hướng + banner hướng dẫn khi chưa đủ điều kiện; `StudentModal` chặn form khi không có lớp.
 

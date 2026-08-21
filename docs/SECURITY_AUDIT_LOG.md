@@ -2867,3 +2867,30 @@ Thêm 3 origin native vào `DEFAULT_ALLOWED_ORIGINS` + `PRODUCTION_ALLOWED_ORIGI
 - [x] `cors-origins.test.ts` 11/11 PASS (3 test mới: production cho native origins; `capacitor://evil.example.com` / `https://localhost.evil.io` / `https://evil.com` bị từ chối; A-NEW-12 cập nhật kỳ vọng allowlist mới).
 - [x] `npx tsc --noEmit -p server/tsconfig.json` 0 error.
 - [x] Probe production sau redeploy: `Origin: capacitor://localhost` phải có `ACAO: capacitor://localhost`.
+
+---
+
+## Audit AUDIT-SCA-01 — Student / Class / Academic Structure Deep Audit + Remediation — 🟠 P1×1 + P2×3 → ✅ FIXED (2026-08-21, ADR-052)
+
+### 1. Phạm vi & phương pháp
+Audit toàn diện Student/Class/Academic Structure theo Decision Matrix v4.1.2: routes (`students.ts`, `classes.ts`, `academicYears.ts`, `promotion.ts`), services (`studentService`, `classService`, `AcademicYearLifecycleService`, `PromotionApplicationService`, `BatchPromotionApplicationService`), schema/migrations (`schemaHealth` gate), client promotion path, đối chiếu BUSINESS_RULES/ADR. Mọi finding đều có evidence `file:line`; phân loại CONFIRMED/CONDITIONAL.
+
+### 2. Findings & xử lý
+
+| ID | Mức | Finding (evidence) | Xử lý |
+| :--- | :--- | :--- | :--- |
+| SCA-F1 | 🔴 P1 | **Đường xét lên lớp client bypass SSOT**: `PromotionPanel` → `batchPromote` → `PUT /students/:id` không sinh `promotion_records`, không enforce SemesterLock/policy server-side; gate thuần client tự bỏ qua khi decision null/error/offline (`PromotionPanel.tsx:110-152` cũ) — vi phạm BUSINESS_RULES §1.1/§1.6 | ✅ **FIXED (ADR-052)**: online đi qua `POST /promotion/batch-approve` — snapshot + move classId/branch trong 1 tx, server enforce lock/policy; decision null/network error → DỪNG (hết duyệt mù); offline giữ fallback queue (hạn chế ghi rõ). Test: BatchPromotionService #4/#5 |
+| SCA-F2 | 🟠 P2 | `finalizeYear` tính GPA từ điểm thô, bỏ qua grade overrides (`AcademicYearLifecycleService` cũ :439-447) trong khi verify lúc promote CÓ áp override (`PromotionApplicationService.ts:76-97,251-270`) → HS có override chắc chắn 409 `DATA_MISMATCH`, năm vẫn bị đánh PROMOTED | ✅ **FIXED (AYL-F2)**: finalize load active overrides 1 lần/năm + `applyOverridesToGrade`. Test lifecycle 8b |
+| SCA-F3 | 🟠 P2 | Race idempotency `createStudent`: mọi UNIQUE violation coi là trùng code; request song song cùng key thua 12 lần retry rồi rơi vào fallback **drop key** → tạo HS trùng im lặng (`studentService.ts:239-274` cũ) | ✅ **FIXED (IDEM-F3)**: `isIdempotencyKeyViolation` → trả về bản ghi request thắng; fallback giữ key. Test race Promise.all |
+| SCA-F4 | 🟠 P2 | `promoteYear` im lặng khi lớp năm mới thiếu cùng `code`: HS ở lại lớp năm cũ, không warning/error, năm vẫn PROMOTED (`:596-631` cũ). GRADUATED cũng bị move nếu trùng code — **CONDITIONAL** nghiệp vụ, chưa đổi | ✅ **FIXED (PRM-F4)**: thêm `summary.warnings[]` + audit `warningCount`; hành vi movement giữ nguyên chờ chủ sản phẩm xác nhận. Test lifecycle 8c |
+| SCA-F5 | 🟡 P3 | Năm học chấp nhận id tự do ("abc") + ngày free-text; range fallback 2000-2099 làm lệch `getOpenSemester` + bounding chuyên cần ADR-017-F2 (`academicYear.ts:4-8,57-59`, `classes.ts:87-117` cũ) | ✅ **FIXED (AY-F5)**: `parseAcademicYear` bắt buộc tại create/copy/promote; validate `YYYY-MM-DD` + start<end → 400 `ACADEMIC_YEAR_INVALID` |
+| SCA-F6 | 🟡 P3 | Lỗi ràng buộc class route → 500 INTERNAL (`classes.ts:149-178` cũ + `index.ts:29-36`); `removeUserFromClass` delete+audit không atomic; student/class service dùng `db.transaction` không retry SQLITE_BUSY | ✅ **FIXED (ERR-F6)**: map UNIQUE→409 `CLASS_CODE_EXISTS`, FK→400 `INVALID_REFERENCE`; removeUserFromClass bọc transaction; chuyển `runDbTransaction` |
+| SCA-F7 | 🟢 P4 | Join đếm học viên theo năm thiếu predicate parish phía classes (`AcademicYearLifecycleService.ts:165-170` cũ) — composite PK cho phép trùng id liên giáo xứ | ✅ **FIXED (TENANT-F7)**: thêm `eq(classes.parishId, students.parishId)` |
+
+Không finding bảo mật mới mức critical: tenant isolation (composite PK + gate `schemaHealth`), RBAC class-scope, PII redaction audit-log đều verified tốt (test tenantIsolation 19/19).
+
+### 3. Verification
+- [x] Server `tsc` + client `tsc -b` PASS; oxlint 0 error mới.
+- [x] Targeted tests: studentService (10) + academicYearLifecycle (12) + BatchPromotionService (5) + students routes = **32 PASS**.
+- [x] Full server suite **110 files / 683 tests PASS**; client store tests 23 PASS.
+- [x] Docs sync: BUSINESS_RULES §1.8/§4.5/§4.6/§4.8, FRONTEND_API_CONTRACT §15, ADR-052.

@@ -6,6 +6,7 @@ import {
   assessments,
   branches,
   classes,
+  gradeOverrides,
   grades,
   promotionRecords,
   semesterLocks,
@@ -31,6 +32,7 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     await db.delete(promotionRecords).where(eq(promotionRecords.parishId, testParish))
     await db.delete(academicYearSnapshots).where(eq(academicYearSnapshots.parishId, testParish))
     await db.delete(semesterLocks).where(eq(semesterLocks.parishId, testParish))
+    await db.delete(gradeOverrides).where(eq(gradeOverrides.parishId, testParish))
     await db.delete(grades).where(eq(grades.parishId, testParish))
     await db.delete(students).where(eq(students.parishId, testParish))
     await db.delete(assessments).where(eq(assessments.parishId, testParish))
@@ -214,6 +216,78 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     await expect(
       academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)
     ).rejects.toThrow(/đã xét lên lớp/)
+  })
+
+  it('8b. AYL-F2: finalize ÁP grade overrides — snapshot khớp verify lúc promote (không DATA_MISMATCH)', async () => {
+    await lockBothSemesters()
+    await seedGrade(studentGood, 9, 1)
+    await seedGrade(studentGood, 9, 2)
+    await seedGrade(studentLow, 3, 1)
+    await seedGrade(studentLow, 3, 2)
+
+    // Override điểm final HK1 của studentGood: 9 → 6
+    const [g1] = await db.select().from(grades).where(and(eq(grades.studentId, studentGood), eq(grades.semester, 1)))
+    await db.insert(gradeOverrides).values({
+      id: 'grov-ayl-f2',
+      gradeId: g1.id,
+      parishId: testParish,
+      scoreField: 'scoreFinal' as const,
+      manualValue: 6,
+      reasonCode: 'TeacherAdjustment',
+      overriddenBy: adminUserId,
+      overriddenAt: new Date().toISOString(),
+    })
+
+    // Trước fix: snapshot yearGpa = 9 (điểm thô) nhưng approvePromotion tính lại
+    // với override = 7.5 → 409 DATA_MISMATCH cho toàn bộ HS có override.
+    const res = await academicYearLifecycleService.finalizeYear(yearId, adminUserId, testParish)
+    expect(res.status).toBe('FINALIZED')
+
+    const snapshots = await db.select().from(academicYearSnapshots)
+    const good = snapshots.find((s) => s.studentId === studentGood)
+    expect(good?.semester1Gpa).toBe(6)
+    expect(good?.semester2Gpa).toBe(9)
+    expect(good?.yearGpa).toBe(7.5)
+    expect(good?.classification).toBe('Khá')
+
+    // Promote phải thành công không lỗi cho HS này
+    const promoted = await academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)
+    expect(promoted.errors).toHaveLength(0)
+    expect(promoted.movedToNextYear).toBe(2)
+
+    const records = await db.select().from(promotionRecords).where(eq(promotionRecords.parishId, testParish))
+    const goodRecord = records.find((r) => r.studentId === studentGood)
+    expect(goodRecord?.gpaSnapshot).toBe(7.5)
+  })
+
+  it('8c. PRM-F4: promoteYear ghi warnings khi lớp năm mới thiếu mã tương ứng', async () => {
+    await lockBothSemesters()
+    await seedGrade(studentGood, 9, 1)
+    await seedGrade(studentGood, 9, 2)
+    await seedGrade(studentLow, 3, 1)
+    await seedGrade(studentLow, 3, 2)
+    await academicYearLifecycleService.finalizeYear(yearId, adminUserId, testParish)
+
+    // Tạo sẵn năm mới + lớp KHÁC MÃ để mapping theo code trượt
+    await db.insert(academicYears).values({
+      id: nextYearId, startDate: '2027-08-01', endDate: '2028-07-31', parishId: testParish,
+    }).onConflictDoNothing()
+    await db.insert(classes).values({
+      id: `${nextYearId}-OTHER`, code: 'OTHER-CODE', name: 'Lớp khác mã',
+      branchId, academicYearId: nextYearId, parishId: testParish,
+    }).onConflictDoNothing()
+
+    const res = await academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)
+    expect(res.errors).toHaveLength(0)
+    expect(res.movedToNextYear).toBe(0)
+    expect(res.warnings).toHaveLength(2)
+    for (const w of res.warnings) {
+      expect(w.reason).toMatch(/không có cùng mã/)
+    }
+
+    // HS vẫn ở lại lớp cũ (năm học cũ) — hành vi giữ nguyên, chỉ không còn im lặng
+    const [goodStudent] = await db.select().from(students).where(eq(students.id, studentGood))
+    expect(goodStudent.classId).toBe(classId)
   })
 
   it('9. archiveYear rejects khi chưa PROMOTED (403) và thành công sau promote, chạy lại 409', async () => {
