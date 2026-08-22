@@ -87,8 +87,11 @@ auditLogsRouter.get('/policy-history', async (c) => {
   const limit = Math.min(500, Math.max(1, parseInt(c.req.query('limit') || '50')))
   const offset = (page - 1) * limit
 
+  // AUDIT-F1 fix (2026-08-22): bỏ generic 'UPDATE' khỏi list — nó kéo TẤT CẢ row
+  // update (grade/attendance/student...) vào kết quả (DB thật: 60% nhiễu, badge rơi
+  // vào "Unknown"). Row chính sách dạng UPDATE đã được phủ đủ qua entityType
+  // 'settings' bên dưới; các bậc lễ riêng có action chuyên biệt.
   const policyActions = [
-    'UPDATE', // Settings updates
     'OVERRIDE_GRADE',
     'RESTORE_GRADE',
     'APPROVE_PROMOTION',

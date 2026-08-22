@@ -215,7 +215,7 @@ function canAutoRetry(method: string, customHeaders?: Record<string, string>, al
  * - Retry logic with exponential backoff for transient failures (method-aware — A12)
  * - Proper error classification
  */
-async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json'): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false): Promise<T> {
   // SECURITY (2026-08-11): KHÔNG nạp access token từ localStorage — memory-only.
   // Nếu memory rỗng (sau reload), caller phải gọi bootstrapAccessToken() trước
   // (xem authStore.loadFromStorage / main.tsx). Refresh token nguồn duy nhất là
@@ -329,7 +329,12 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
     return res.blob() as Promise<T>
   }
   const json = await res.json()
-  if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+  // AUDIT-F8 fix (2026-08-22): keepEnvelope=true dành cho endpoint phân trang
+  // (paginatedResponse) — caller cần cả `meta` (total/totalPages) chứ không chỉ
+  // `data`. Trước đây envelope luôn bị bóc → AuditLogPage nhận mảng trần, đọc
+  // res.data/res.meta = undefined → trang nhật ký hiển thị rỗng vĩnh viễn dù
+  // backend trả đủ 92 bản ghi.
+  if (!keepEnvelope && json && typeof json === 'object' && 'success' in json && 'data' in json) {
     return json.data as T
   }
   return json as T
@@ -646,7 +651,8 @@ export const api = {
     if (params?.action) qs.set('action', params.action)
     if (params?.entityType) qs.set('entityType', params.entityType)
     const q = qs.toString()
-    return request<{ data: any[]; meta: { page: number; limit: number; total: number } }>('GET', `/audit-logs${q ? `?${q}` : ''}`)
+    // keepEnvelope=true — cần meta (total/totalPages) cho phân trang
+    return request<{ success: boolean; data: any[]; meta: { page: number; limit: number; total: number; totalPages: number } }>('GET', `/audit-logs${q ? `?${q}` : ''}`, undefined, 0, undefined, false, 'json', true)
   },
 
   // ADR-047 / P3 — Policy Visualization Dashboard. Returns policy-related audit
@@ -657,7 +663,9 @@ export const api = {
     if (params?.page) qs.set('page', String(params.page))
     if (params?.limit) qs.set('limit', String(params.limit))
     const q = qs.toString()
+    // keepEnvelope=true — cần meta (total/totalPages/summary) cho phân trang + KPI
     return request<{
+      success: boolean
       data: any[]
       meta: {
         page: number
@@ -666,7 +674,7 @@ export const api = {
         totalPages: number
         summary?: { policyUpdates: number; gradeOverrides: number; promotionDecisions: number; semesterLocks: number; total: number }
       }
-    }>('GET', `/audit-logs/policy-history${q ? `?${q}` : ''}`)
+    }>('GET', `/audit-logs/policy-history${q ? `?${q}` : ''}`, undefined, 0, undefined, false, 'json', true)
   },
 
   // ─── System (Purge v2.3) ───

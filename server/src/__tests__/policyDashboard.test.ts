@@ -154,6 +154,27 @@ describe('P3 POLICY-DASHBOARD: GET /api/audit-logs/policy-history enrichment', (
     expect(promo.policyMetadata.decision).toBe('PROMOTED')
   })
 
+  // AUDIT-F1 fix (2026-08-22): generic 'UPDATE' đã bị loại khỏi policyActions —
+  // row update thường (vd UPDATE|grade) phải KHÔNG xuất hiện trong policy history
+  // (trước đây chiếm ~60% kết quả với badge "Unknown").
+  it('AUDIT-F1 regression: generic UPDATE|grade rows are EXCLUDED from policy history', async () => {
+    await db.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: 'usr-policy-admin',
+      action: 'UPDATE',
+      entityType: 'grade',
+      entityId: gradeId,
+      newValue: JSON.stringify({ scoreFinal: 9 }),
+      parishId,
+      createdAt: new Date(Date.now() + 2000).toISOString(),
+    })
+
+    const { status, body } = await jsonReq(auditLogsApp, '/policy-history?limit=50', { token: adminToken })
+    expect(status).toBe(200)
+    const leaked = body.data.filter((e: any) => e.action === 'UPDATE' && e.entityType === 'grade')
+    expect(leaked).toHaveLength(0)
+  })
+
   it('returns meta.summary stats derived from full matching set', async () => {
     const { body } = await jsonReq(auditLogsApp, '/policy-history?limit=10', { token: adminToken })
     expect(body.meta.summary).toBeDefined()

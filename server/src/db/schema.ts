@@ -227,8 +227,10 @@ export const auditLogs = sqliteTable('audit_logs', {
  }, (table) => [
     primaryKey({ columns: [table.parishId, table.id] }),
     index('idx_audit_logs_parish_id').on(table.parishId),
-   index('idx_audit_logs_entity').on(table.parishId, table.entityType, table.entityId, table.createdAt),
- ])
+    index('idx_audit_logs_entity').on(table.parishId, table.entityType, table.entityId, table.createdAt),
+    // AUDIT-F2 (2026-08-22): phục vụ GET /audit-logs orderBy createdAt DESC
+    index('idx_audit_logs_parish_created_at').on(table.parishId, table.createdAt),
+  ])
 
 // ─── New Tables ───
 

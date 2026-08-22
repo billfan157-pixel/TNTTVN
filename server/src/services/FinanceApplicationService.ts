@@ -10,6 +10,7 @@ import {
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { getCurrentAcademicYear } from '../utils/academicYear.js'
+import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import type {
   CreateFundInput,
   CreateTransactionInput,
@@ -214,6 +215,9 @@ async function createTransactionInTx(
   }
 
   await tx.insert(financialTransactions).values(row)
+  // AUDIT-F5 (2026-08-22): bản sao audit KHÔNG lưu SĐT người nộp/nhận nguyên vẹn —
+  // che giữ 4 số cuối như quy ước A16 cho student (auditRedact). personName giữ
+  // nguyên văn để truy vết nghiệp vụ (nhất quán với fullName học sinh).
   await audit(tx, {
     userId,
     parishId,
@@ -222,7 +226,7 @@ async function createTransactionInTx(
     action: `TXN_${data.type}`,
     entityType: 'financial_transaction',
     entityId: id,
-    newValue: JSON.stringify(row),
+    newValue: JSON.stringify({ ...row, personPhone: maskPhoneForAudit(row.personPhone) }),
   })
 
   return row as FinancialTransaction
@@ -326,7 +330,8 @@ export async function deleteTransaction(
       action: 'TXN_DELETE',
       entityType: 'financial_transaction',
       entityId: id,
-      oldValue: JSON.stringify(existing),
+      // AUDIT-F5: che SĐT trong oldValue (A16 — như TXN_CREATE)
+      oldValue: JSON.stringify({ ...existing, personPhone: maskPhoneForAudit((existing as { personPhone?: string }).personPhone) }),
     })
 
     return true

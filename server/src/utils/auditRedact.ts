@@ -20,6 +20,13 @@ function maskPhone(value: unknown): unknown {
   return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****'
 }
 
+/** AUDIT-F5 (2026-08-22): che SĐT dùng chung cho mọi loại audit row có liên hệ
+ * (student parentPhone, finance personPhone...). Export để service khác tái dùng
+ * thay vì lưu plaintext vi phạm A16. */
+export function maskPhoneForAudit(value: unknown): unknown {
+  return maskPhone(value)
+}
+
 export function redactStudentForAudit(row: unknown): unknown {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return row
   const out: Record<string, unknown> = { ...(row as Record<string, unknown>) }

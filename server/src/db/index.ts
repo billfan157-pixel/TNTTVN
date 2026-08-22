@@ -1509,6 +1509,12 @@ CREATE UNIQUE INDEX idx_classes_idempotency ON classes(parish_id, idempotency_ke
 DROP INDEX IF EXISTS idx_exam_sessions_idempotency;
 CREATE UNIQUE INDEX idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key);
 ` },
+  // AUDIT-F2 (2026-08-22): index phục vụ GET /audit-logs — orderBy createdAt DESC
+  // + filter theo parish. Trước đây chỉ có PK(parish_id,id) + idx_parish_id +
+  // idx_entity → mỗi lần mở trang quét toàn bộ row của parish rồi sort.
+  { version: '20260822-128', sql: `
+CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_created_at ON audit_logs(parish_id, created_at);
+` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate

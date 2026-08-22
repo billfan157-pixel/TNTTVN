@@ -52,12 +52,13 @@ describe('AuditLogPage', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(api, 'getAuditLogs').mockResolvedValue({
+      success: true,
       data: [
         makeLog({ action: 'CREATE', entityType: 'grade' }),
         makeLog({ action: 'UPDATE', entityType: 'grade' }),
         makeLog({ action: 'CREATE_USER', entityType: 'user' }),
       ],
-      meta: { page: 1, limit: 25, total: 3 },
+      meta: { page: 1, limit: 25, total: 3, totalPages: 1 },
     })
   })
 
@@ -94,6 +95,7 @@ describe('AuditLogPage', () => {
 
   it('tab "Chính Sách & Tác Động" gọi /policy-history và hiển thị nội dung enriched (ADR-047 merge)', async () => {
     vi.spyOn(api, 'getPolicyHistory').mockResolvedValue({
+      success: true,
       data: [makePolicyEntry({})],
       meta: {
         page: 1,

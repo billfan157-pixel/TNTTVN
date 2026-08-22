@@ -18,6 +18,8 @@ import {
 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import { PageHeader } from '../components/common/PageHeader'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
+import { EmptyState, SkeletonTable } from '../components/common/StateFeedback'
 
 interface AuditLog {
   id: string
@@ -170,6 +172,9 @@ const SPECIAL_ACTIONS: Record<string, string> = {
   UPDATE_TELEGRAM_NOTIFICATIONS: 'Cập nhật thông báo Telegram',
   REVOKE_TELEGRAM_LINK: 'Hủy liên kết Telegram',
   SYNC_PARENTS: 'Đồng bộ tài khoản phụ huynh',
+  UPDATE_PROFILE: 'Cập nhật hồ sơ cá nhân',
+  NOTIFICATION_SEND: 'Gửi thông báo toàn xứ',
+  VERIFICATION_SIGN: 'Cấp chữ ký phiếu điểm',
 }
 
 const FALLBACK_ACTION_LABELS: Record<string, string> = {
@@ -252,6 +257,9 @@ const SPECIAL_ACTION_COLORS: Record<string, string> = {
   UPDATE_TELEGRAM_NOTIFICATIONS: 'bg-sky-500/10 text-sky-600',
   REVOKE_TELEGRAM_LINK: 'bg-rose-500/10 text-rose-600',
   SYNC_PARENTS: 'bg-teal-500/10 text-teal-600',
+  UPDATE_PROFILE: 'bg-sky-500/10 text-sky-600',
+  NOTIFICATION_SEND: 'bg-orange-500/10 text-orange-600',
+  VERIFICATION_SIGN: 'bg-violet-500/10 text-violet-600',
 }
 
 function getActionColor(action: string, entityType?: string | null): string {
@@ -473,7 +481,7 @@ export function AuditLogPage() {
     : policyData
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <DesktopAppShell width="wide" className="flex flex-col gap-6">
       <PageHeader
         icon={<ClipboardList className="w-5 h-5" />}
         title="Nhật Ký Hệ Thống"
@@ -540,12 +548,15 @@ export function AuditLogPage() {
 
           <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
             {loading ? (
-              <div className="flex items-center justify-center py-12 text-text-muted text-sm">Đang tải...</div>
-            ) : logs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-text-muted">
-                <ClipboardList className="w-10 h-10 mb-2 opacity-30" />
-                <p className="text-sm">Chưa có nhật ký nào</p>
+              <div className="p-4" role="status" aria-label="Đang tải dữ liệu">
+                <SkeletonTable rows={6} cols={4} />
               </div>
+            ) : logs.length === 0 ? (
+              <EmptyState
+                icon={ClipboardList}
+                title="Chưa có nhật ký nào"
+                description="Các thao tác trên hệ thống sẽ được ghi lại tại đây."
+              />
             ) : (
               <div className="divide-y divide-surface-border">
                 {logs.map((log) => (
@@ -599,6 +610,8 @@ export function AuditLogPage() {
                 <button
                   onClick={() => fetchLogs(meta.page - 1)}
                   disabled={meta.page <= 1}
+                  aria-label="Trang trước"
+                  title="Trang trước"
                   className="p-2 bg-surface-card border border-surface-border rounded-lg disabled:opacity-30"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -606,6 +619,8 @@ export function AuditLogPage() {
                 <button
                   onClick={() => fetchLogs(meta.page + 1)}
                   disabled={meta.page >= meta.totalPages}
+                  aria-label="Trang sau"
+                  title="Trang sau"
                   className="p-2 bg-surface-card border border-surface-border rounded-lg disabled:opacity-30"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -771,7 +786,7 @@ export function AuditLogPage() {
           )}
         </>
       )}
-    </div>
+    </DesktopAppShell>
   )
 }
 

@@ -266,10 +266,18 @@ server/src/                         ─ Backend Hono Application
   5. **Bug 2.3**: `PromotionPanel` "ĐTB" dùng `avg.score` thay `promotion.recommendedBranch`.
   6. **Verify**: `tsc -b` clean, `lint:ds` 0, `MobileViewsEnhancement.test.tsx` 8/8 pass; full vitest suite không có failure (tool timeout >10 phút).
 
+### Module: Nhật Ký Hệ Thống — Audit Toàn Diện & Hardening (2026-08-22, A-NEW-60)
+- **Audit doc**: findings đầy đủ trong `docs/SECURITY_AUDIT_LOG.md` A-NEW-60 (7 finding: policy noise 60%, thiếu index, không retention, ≥5 hành động thiếu audit, finance PII, validate ngày, UX backlog).
+- **Files Modified**: `auditLogs.ts` (F1: bỏ generic `'UPDATE'` khỏi `policyActions` — tab Chính Sách hết nhiễu), `FinanceApplicationService.ts` + `auditRedact.ts` (F5: export `maskPhoneForAudit`; TXN_CREATE/DELETE che `personPhone`), `db/index.ts` migration `20260822-128` + `schema.ts` (F2: `idx_audit_logs_parish_created_at`), `auth.ts`/`notifications.ts`/`verification.ts` (F4: audit `UPDATE_PROFILE` / `NOTIFICATION_SEND` / `VERIFICATION_SIGN` — đều không PII thô), `AuditLogPage.tsx` (nhãn/màu 3 action mới).
+- **Verify**: policyDashboard + financeService 14/14 PASS (test hồi quy F1) · tsc 0 error · oxlint 0 error. **Còn mở**: F3 retention (cần matrix D3 riêng), F6 validate format ngày.
+
 ### Module: Mobile UI Audit & Tối Ưu Màn Hình Thực Dụng (2026-08-22)
 - **Audit doc**: `docs/mobile-ui-audit-2026-08-22.md` — quét 16/16 file `src/components/mobile/*.tsx` sau đợt shell refactor 2026-08-12.
 - **Files Modified**: `src/index.css` (`--mobile-topbar-clearance` + `.mobile-sticky-under-topbar`), `MobileGradeView` (filter sticky không còn bị top bar z-950 nuốt), `MobileDailyGradeEntry` (nút xóa điểm mở rộng hit area qua `after:` pseudo), `MobileHomeView` (link 44px, bỏ pb-12 trùng, dark mode tiles + thẻ học lực), `MobileAttendanceView` (subtab ≥44px), `MobileGradeMatrix` + `MobileGradeComparison` (dark variants pastel + font nội dung chính), `MobileLeaveRequests` (bottom sheet scroll-lock + overlay đóng), `NoticeModal` (scroll-lock).
 - **Verify**: tsc 0 error · oxlint 0 error mới · lint:ds 0/134 · MobileViewsEnhancement 8/8 PASS · build:frontend pass. Follow-ups ghi nhận trong audit doc (desktop modal nhúng mobile, iOS input zoom, badge hex branches).
+- **Redesign Card Lịch Phụng Vụ (cùng ngày)**: `MobileLiturgicalWidget` + `LiturgicalTodayWidget` viết lại theo cùng ngôn ngữ thiết kế — color spine dọc theo màu áo lễ (inset ring để màu Trắng vẫn thấy — fix follow-up #4 của audit), date tile kiểu app lịch tinted theo mùa, phân cấp ngày → tên lễ → mùa/bậc/áo lễ; giữ contract test (`LiturgicalCalendar.test.tsx` 3/3 PASS). Không đổi API/engine.
+- **Verify (liturgical)**: LiturgicalCalendar 3/3 PASS · oxlint sạch · lint:ds 0/134. Lưu ý: `tsc -b` toàn project tạm fail tại `SystemDiagnosticsModal.tsx` (`trapRef`) — file đang sửa dở bởi phiên desktop song song, không liên quan widget phụng vụ.
+- **Default sort Danh Sách Thiếu Nhi theo cấp bậc lớp (cùng ngày)**: `DesktopStudentList` (`sorting` init `[{id:'classId', desc:false}]`) + `MobileStudentsView` (`sortClassDirection` init `'asc'`) — danh sách mở lên đã nhóm Chiến Con → Ấu Nhi → Thiếu Nhi → Nghĩa Sĩ → Hiệp Sĩ, trong lớp theo tên tiếng Việt (`classSort.ts`). Trước đây mặc định theo thứ tự nhập server (`createdAt`) — Excel nhập A-Z nên trông như alphabet. Server/API không đổi.
 
 ### Module: Quản Lý Tài Khoản Tách 2 Tab — Phụ Huynh / GLV & Nhân Sự (2026-08-22)
 - **Files Modified**: `src/components/desktop/UserManagementPage.tsx` (prop `scope?: 'all' | 'staff' | 'phuhuynh'` — filter client-side theo role, header/nút hành động + `allowedRoles` form tạo tài khoản theo scope), `src/pages/UsersPage.tsx` (forward scope), `src/pages/ManagementPage.tsx` (tách tab `users` thành `users-staff` + `users-parents`).
@@ -304,6 +312,70 @@ server/src/                         ─ Backend Hono Application
 - **Top defects CONFIRMED (đã spot-check độc lập)**: lưu điểm danh false-success/swallow-failure (`DesktopAttendanceGrid.tsx:75-90`); Classes sort dead UI (`DesktopClasses.tsx:273` render `classes.map` thay `sortedClasses`); Reports quick-print cap `slice(0,9)` (`DesktopReports.tsx:217`); Students pageSize select state 20 vs options 50+ (`DesktopStudentList.tsx:59`); force-logout/lock account không confirm (`components/desktop/UserManagementPage.tsx:659-675`); Finance client-filter trên 1 trang server-pagination với count sai (`FinancePage.tsx:121-137`); forced-mobile trên viewport ≥768 = app trắng (`RootLayout.tsx:150` × `index.css:1372`).
 - **Plan phases**: P0 functional defects (10 task) → P1 ModalShell nâng cấp + di dời ~20 overlay & DesktopAppShell/header/sidebar contract → P2 consistency sweeps (vi-VN dates, StateFeedback, FormField, pill-group) → P3 responsive 768–1280 & wide-screen → P4 a11y polish → (song song) verification infra (axe-core CI, visual regression, screenshot re-capture — screenshots root stale từ 08-15).
 - **Status**: PLAN ONLY — chưa implement. Gate: nếu P0.6 chọn server-side filtering phải cập nhật `FRONTEND_API_CONTRACT.md` trước.
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 0 (Functional Defects, ✅ DONE)
+- **Files Modified**: `src/components/desktop/{DesktopAttendanceGrid,DesktopClasses,DesktopReports,DesktopStudentList,DesktopGradeMatrix,DesktopGradeCards,DesktopDailyGradeEntry,UserManagementPage}.tsx`, `src/pages/FinancePage.tsx`, `src/stores/financeStore.ts`, `src/hooks/useEffectiveMode.ts`, `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` (PHA 0 ✅ + verification record).
+- **Summary** (10/10 task P0 — chi tiết từng fix xem bảng PHA 0 trong audit doc):
+  1. **Attendance save**: try/catch + chỉ hiện "Đã Lưu!" khi result OK & errorCount=0; nút có state saving disabled.
+  2. **Classes sort**: render `sortedClasses` (trước đây dead UI).
+  3. **Reports quick-print**: searchable picker thay `slice(0,9)`; grid responsive.
+  4. **Students pageSize**: default 50 khớp options.
+  5. **Users IAM**: force-logout & lock/unlock giờ bắt buộc ConfirmDialog (`useConfirmDialog`).
+  6. **Finance ledger**: filter type/ngày chuyển SERVER-SIDE qua `store.ledgerFilters` (server đã hỗ trợ params sẵn — không đổi contract); search text client-side với badge count trung thực "(trên trang hiện tại)"; delete tx có error toast.
+  7. **GradeMatrix**: score input keyed theo giá trị → sync/import cập nhật UI đúng (record dirty giữ focus).
+  8. **GradeCards**: rank so sánh lowercase — 'Xuất Sắc' không còn rơi badge xám.
+  9. **DailyGradeEntry**: confirm xóa điểm/restore override; điểm invalid báo toast; fix phụ parse '7,5' (parseFloat cũ = 7).
+  10. **useEffectiveMode**: forced-mobile @≥768px fallback desktop — diệt màn trắng (đồng bộ CSS guard).
+- **Verify**: `tsc -b` exit 0 · oxlint 0 error (warnings còn lại pre-existing) · Vitest targeted 32/32 · **full suite 222 files / 1617 tests / 0 failed** · `build:frontend` pass. Nợ smoke thủ công: attendance offline→online, grade import refresh, toggle mobile @1280px.
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 1 (Modal Infrastructure, ✅ DONE batch 1)
+- **Files Created**: `src/lib/modalStack.ts` (NEW — global modal stack registry: Escape chỉ đóng top-most).
+- **Files Modified**: `src/components/common/{ModalShell,ConfirmDialog,NoticeModal,SystemDiagnosticsModal,ConflictInboxModal→desktop,GradeFormulaConfigModal→desktop,ConflictResolutionModal,ExcelImportModal,ExcelGradeImportModal,BackupRestoreModal,PurgeDataModal,ForcePasswordChangeModal,PrintReportModal}.tsx`, `src/components/auth/ParentForgotPasswordModal.tsx`, `src/pages/AcademicYearPage.tsx`, `src/components/common/{HeaderBar,InstallPrompt,ToastContainer}.tsx`, `src/index.css`.
+- **Summary**:
+  1. **modalStack.ts**: push/pop/isTopModal — sửa A20 cascade (Esc đóng cả confirm + parent modal). ModalShell + ConfirmDialog tích hợp.
+  2. **ConfirmDialog**: `useId()` thay static title id; prop mới `isBusy` (disable + "Đang xử lý...").
+  3. **Z-index ladder tokens** (`--z-header/install-prompt/modal/mobile-nav/toast/skip-link`): InstallPrompt 50→30 (không còn đè modal), HeaderBar 50→40 dưới modal.
+  4. **AcademicYearPage**: 6 overlay hand-rolled → ModalShell ×5 + ConfirmDialog ×1 (confirm lifecycle có `variant` danger cho finalize/promote + `confirmText` theo hành động + `isBusy={busy}`).
+  5. **NoticeModal** → ModalShell (trap + Escape + scroll-lock từ shell).
+  6. **Focus trap sweep**: `useFocusTrap` thêm cho 11 Tier B modals giữ shell custom.
+- **Verify**: tsc exit 0 · oxlint sạch · targeted 58/58 · full suite 1615/1617 (2 fail = server timing tests flaky khi chạy song song, pass riêng 14/14, không phải regression) · build pass · lint:ds 0/134. **Nợ PHA 1**: exam suite 11 modals + print trio (PhotoCard/Certificate/StudentReportModal gộp Pha 5.5).
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 2 (DesktopAppShell + Navigation Contract, ✅ DONE)
+- **Files Created**: `src/lib/uiBoot.ts` (NEW — localStorage mirror cho viewMode/theme), `src/components/desktop/DesktopAppShell.tsx` (NEW — width tiers full/wide/narrow).
+- **Files Modified**: `index.html` (inline script `.dark` trước paint), `src/stores/{filterStore,themeStore}.ts` (init đồng bộ từ mirror + ghi mirror khi đổi/sau rehydrate), `src/components/common/HeaderBar.tsx` (zone hóa Brand│Filters│Utilities│User; icon buttons `h-10 w-10 rounded-xl`; dedupe px-*; Reset rose tint; search grow), `src/components/common/RootLayout.tsx` (`DESKTOP_TAB_PATHS` SSOT type-safe; orphan routes `/users`,`/classes`,`/academic-years` → highlight 'management'), `src/index.css` (`--app-bar-height` token), 7 pages migrate DesktopAppShell (Catechist/AcademicYear/Finance/AuditLog/UserManagement/ParentDashboard = wide; Settings = narrow).
+- **Summary**: diệt light-flash dark mode + wrong-shell first paint (A3/A24); header hierarchy rõ 3 zone thay 10 cụm phẳng (A6-A9); deep-link management pages highlight đúng nhóm (A12); tab↔route map compile-time exhaustive hết `as any` (A15); magic 68px → token chung (A16); container contract chuẩn hóa hết max-w tự phát (A17).
+- **Verify**: tsc exit 0 · oxlint sạch file mới · **full suite 222 files / 1617 tests ALL PASS** · build pass · lint:ds 0/134. Nợ smoke: reload dark mode không flash, resize 767↔769, deep-link /classes. DS §13 sẽ document sau Pha 3.
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 1 nợ exam suite (✅ DONE)
+- **Files Modified**: `src/components/exam/{AnswerSheetModal,ExamBatchScanModal,ExamImportModal,ExamAnalyticsPanel,ExamPaperModal,ExamExportModal,ExamResultsTable,ExamScanModal,ExamVariantsModal,GuidedGradeModal,ExamSessionView}.tsx` — 11/11 modals thêm `useFocusTrap` trên content container (trigger theo cơ chế mở: isOpen / mount-time / Boolean(snapshot) / showAnswerKeyModal+showCreate), giữ nguyên shell custom + camera/print flow.
+- **Verify**: tsc exit 0 · oxlint 0 error · exam tests 15/15 · full suite **222/1617 ALL PASS** · build pass. Print trio (PhotoCard/Certificate/StudentReportModal) còn chờ gộp Pha 5.5.
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 1 chốt print trio + PHA 3 Batch 1 (✅ DONE, có double-check)
+- **Files Created**: `src/utils/formatDate.ts` (NEW — `formatDateVi`/`formatDateTimeVi` an toàn ISO/null/invalid).
+- **Files Modified**: `src/components/common/{PhotoCard,Certificate,StudentReportModal,ToastContainer}.tsx`, `src/components/desktop/{DesktopNotices,DesktopLeaveRequests,DesktopDashboard,UserManagementPage,DesktopDailyGradeEntry,DesktopGradeComparison,DesktopAttendanceSummary}.tsx`, `src/pages/{FinancePage,CatechistPage,AuditLogPage}.tsx`.
+- **Summary**:
+  1. **Print trio trap** (chốt PHA 1): hook trước early-return (rules-of-hooks), layout A4 không đổi.
+  2. **vi-VN dates ×6 site** thay raw ISO: Dashboard notices, LeaveRequests, FinancePage (table+card), Notices, lastLoginAt (`formatDateTimeVi`).
+  3. **StateFeedback adoption ×6 màn**: Users NoResultState+reset; Catechist SkeletonCardGrid+NoResultState; AuditLog SkeletonTable+EmptyState; DailyGrade/Comparison EmptyState; AttendanceSummary NoResultState.
+  4. **Toast** `role="status" aria-live="polite"`.
+- **Double-check (owner yêu cầu)**: tsc bắt + sửa 1 lỗi cú pháp edit (`)}` thừa UserManagementPage); re-grep xác nhận 0 raw date còn / đủ imports / đủ trapRef; full suite **222 files / 1618 tests ALL PASS**; build + lint:ds 0/134 pass.
+- **Còn mở PHA 3**: FormField adoption, pill-group/btn/card sweeps, aria-label sweep còn lại.
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 4 Batch 1 (✅ DONE, có double-check)
+- **Files Created**: `src/hooks/useMediaQuery.ts` (NEW — jsdom-safe matchMedia hook).
+- **Files Modified**: `src/components/common/HeaderBar.tsx` (chặn force-desktop <768px: Monitor disabled + tooltip), `src/pages/{GradesPage,AcademicYearPage}.tsx` (tab strip flex-wrap; loader→SkeletonCardGrid), `src/components/desktop/{DesktopStudentList,DesktopAttendanceSummary,DesktopCalendarView,DesktopLeaveRequests}.tsx` (fixed-width→responsive), `docs/03_DESIGN_SYSTEM.md` (**§13 Desktop Layout Contract** mới: breakpoints/tier/quy tắc).
+- **Double-check bắt regression**: useMediaQuery làm 8 test HeaderBar fail (jsdom không có `window.matchMedia`) → sửa hook defensive → full suite **222/1618 ALL PASS**. Build + lint:ds pass.
+- **Deferred kỹ thuật**: sticky thead (wrapper overflow-x-auto phá vertical sticky — cần quyết bounded-pane); virtualization (cần dependency mới, phải qua decision riêng).
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 5.1 + PHA 3 hoàn tất phần chính (✅ DONE, có double-check)
+- **Files Modified**: `src/components/desktop/{DesktopAttendanceGrid,DesktopClasses,DesktopCalendarView,DesktopDailyGradeEntry}.tsx`, `src/components/common/NoticeModal.tsx`, `src/pages/AuditLogPage.tsx`.
+- **Summary**:
+  1. **Attendance keyboard**: triad → radiogroup/radio + aria-checked + ←/→ nav; shortcut P/E/A thật trên note input (chỉ khi ô trống — guard tránh lật trạng thái khi gõ).
+  2. **Classes modal silent-fail fix** (audit MED): thiếu trường bắt buộc → alert trong modal; 7 field → FormField.
+  3. **NoticeModal**: 5 field → FormField (aria-invalid/describedby + hint DS).
+  4. **aria-label sweep**: Classes Sửa/Xóa (+tên lớp), AuditLog pagination, Calendar tháng, DailyGrade thêm điểm (+tên HS).
+- **Double-check**: tsc exit 0 · oxlint 0 · full suite **222/1618 ALL PASS** · build + lint:ds pass · re-grep đủ (bài học: lệnh rg bị PowerShell quoting sai kết quả → verify lại bằng Select-String, double-check cần ≥1 phương pháp khác nhau).
+- **Còn mở**: Pha 5 (tooltip primitive, ErrorState unify, StudentReportModal rewrite); Pha 6 (axe-core CI — cần dependency decision; visual regression baselines; viewport matrix).
 
 
 

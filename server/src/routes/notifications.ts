@@ -6,9 +6,10 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { notifyAbsence, notifyBatchReportCards, notifySundayMassReminder, notifyClassReminder } from '../services/smartNotifications.js'
 import { sendWebPushToParish, isVapidConfigured, getVapidPublicKey } from '../services/webPushService.js'
 import { db } from '../db/index.js'
-import { pushSubscriptions, students, classes } from '../db/schema.js'
+import { pushSubscriptions, students, classes, auditLogs } from '../db/schema.js'
 import { and, eq, sql, isNull, inArray } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
+import { getClientIp } from '../utils/ip.js'
 import { successResponse, errorResponse } from '../utils/response.js'
 
 const notificationsRouter = new Hono()
@@ -96,6 +97,22 @@ notificationsRouter.post('/send', roleMiddleware('admin'), zValidator('json', se
   if (!result.configured) {
     return errorResponse(c, 'VAPID_NOT_CONFIGURED', 'VAPID keys not configured', 501)
   }
+
+  // AUDIT-F4 (2026-08-22): broadcast toàn giáo xứ ảnh hưởng mọi phụ huynh/staff —
+  // phải để vết ai gửi cái gì. Chỉ ghi số liệu + tiêu đề (KHÔNG liệt kê người
+  // nhận — A16).
+  await db.insert(auditLogs).values({
+    id: generateId('AUD'),
+    userId: user.userId,
+    action: 'NOTIFICATION_SEND',
+    entityType: 'notification',
+    entityId: 'parish-broadcast',
+    newValue: JSON.stringify({ title, sent: result.sent, failed: result.failed, total: result.total, removed: result.removed }),
+    ip: getClientIp(c),
+    userAgent: c.req.header('user-agent') || '',
+    parishId: user.parishId,
+  })
+
   return successResponse(c, { sent: result.sent, failed: result.failed, total: result.total, removed: result.removed })
 })
 

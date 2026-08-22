@@ -9,6 +9,7 @@ import { eq, and, sql, isNull, inArray } from 'drizzle-orm'
 import { authMiddleware, getSuperAdminId } from '../middleware/auth.js'
 import { loginRateLimiter, adminReauthRateLimiter, parentForgotRateLimiter } from '../middleware/security.js'
 import { encryptPassword } from '../utils/passwordCipher.js'
+import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import { BCRYPT_COST, consumeDummyPassword, isLegacyCostHash } from '../utils/passwordPolicy.js'
 import { generateId } from '../utils/id.js'
 import { verifyAdminReauth } from '../services/userService.js'
@@ -541,18 +542,46 @@ auth.put('/profile', authMiddleware, zValidator('json', updateProfileSchema), as
     return errorResponse(c, 'PHONE_CHANGE_NOT_ALLOWED', 'Số điện thoại của phụ huynh do Ban Giáo Lý quản lý — vui lòng liên hệ quản trị viên để đổi', 403)
   }
 
+  const nextFullName = fullName ?? user.fullName
+  const nextPhone = phone !== undefined ? phone : user.phone
+  const changedFields: string[] = []
+  if (nextFullName !== user.fullName) changedFields.push('fullName')
+  if (nextPhone !== (user.phone || '')) changedFields.push('phone')
+
   await db.update(users)
     .set({
-      fullName: fullName ?? user.fullName,
-      phone: phone !== undefined ? phone : user.phone,
+      fullName: nextFullName,
+      phone: nextPhone,
     })
     .where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId)))
+
+  // AUDIT-F4 (2026-08-22): tự cập nhật profile là thao tác thay đổi identity —
+  // trước đây không để vết (staff tự đổi SĐT mình không ai biết). Không ghi PII
+  // thô theo A16: chỉ liệt kê field đã đổi + SĐT che giữ 4 số cuối.
+  if (changedFields.length > 0) {
+    const ip = getClientIp(c)
+    const userAgent = c.req.header('user-agent') || ''
+    await db.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.id,
+      action: 'UPDATE_PROFILE',
+      entityType: 'user',
+      entityId: user.id,
+      newValue: JSON.stringify({
+        changedFields,
+        ...(changedFields.includes('phone') ? { phoneMasked: maskPhoneForAudit(nextPhone) } : {}),
+      }),
+      ip,
+      userAgent,
+      parishId: jwtUser.parishId,
+    })
+  }
 
   return successResponse(c, {
     id: user.id,
     username: user.username,
-    fullName: fullName ?? user.fullName,
-    phone: phone !== undefined ? phone : user.phone,
+    fullName: nextFullName,
+    phone: nextPhone,
     role: user.role,
     status: user.status,
   })

@@ -3,8 +3,10 @@ import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/a
 import { signReportPayload, verifyReportSignature } from '../utils/hmacSigner.js'
 import { successResponse, errorResponse } from '../utils/response.js'
 import { db } from '../db/index.js'
-import { students, classes } from '../db/schema.js'
+import { students, classes, auditLogs } from '../db/schema.js'
 import { and, eq, isNull } from 'drizzle-orm'
+import { generateId } from '../utils/id.js'
+import { getClientIp } from '../utils/ip.js'
 
 const verificationRouter = new Hono()
 
@@ -36,6 +38,22 @@ verificationRouter.post('/sign', authMiddleware, roleMiddleware('admin', 'chunhi
     const normalizedAcademicYear = academicYear.trim()
     const normalizedCertId = certId.trim()
     const signature = signReportPayload(user.parishId, normalizedStudentId, normalizedAcademicYear, normalizedCertId)
+
+    // AUDIT-F4 (2026-08-22): cấp chữ ký HMAC cho phiếu điểm/chứng nhận là hành
+    // động có giá trị xác thực — phải để vết ai ký cho ai. KHÔNG lưu chữ ký vào
+    // audit (chữ ký public qua QR — chỉ log metadata).
+    await db.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'VERIFICATION_SIGN',
+      entityType: 'verification',
+      entityId: `${normalizedStudentId}:${normalizedCertId}`,
+      newValue: JSON.stringify({ academicYear: normalizedAcademicYear, certId: normalizedCertId }),
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
+
     return successResponse(c, {
       parishId: user.parishId,
       studentId: normalizedStudentId,
