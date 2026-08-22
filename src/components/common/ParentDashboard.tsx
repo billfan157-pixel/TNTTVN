@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { HeartHandshake, Loader2, AlertCircle, Users2, ChevronRight, Megaphone, UserRound, FileText, CalendarPlus, Clock, CheckCircle2, XCircle, Ban } from 'lucide-react'
+import { HeartHandshake, Loader2, AlertCircle, Users2, ChevronRight, Megaphone, FileText, CalendarPlus, Clock, CheckCircle2, XCircle, Ban, CalendarDays, GraduationCap } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useParentPortal } from '../../hooks/useParentPortal'
 import { useNoticeStore } from '../../stores/noticeStore'
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore'
 import { LeaveRequestModal } from './LeaveRequestModal'
+import { ChildAvatar, AttendanceBar, StatCard, DonutRing, PromotionBanner } from './ParentWidgets'
+import { classificationTextClass } from '../../utils/parentDisplay'
 import { getClassificationLabel } from '../../utils/grades'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 import { BRANCHES } from '../../constants/branches'
@@ -51,25 +53,39 @@ export const ParentDashboard: React.FC = () => {
   const sem1Gpa = report?.grades.find(g => g.semester === 1)?.gpa ?? null
   const sem2Gpa = report?.grades.find(g => g.semester === 2)?.gpa ?? null
   const latestGpa = sem2Gpa ?? sem1Gpa
+  const latestClassification = latestGpa != null ? getClassificationLabel(latestGpa) : null
+  const attendanceRate = report?.attendanceSummary.overallAttendanceRate ?? 0
   const recentNotices = [...notices]
     .sort((a, b) => new Date(b.date ?? b.createdAt ?? 0).getTime() - new Date(a.date ?? a.createdAt ?? 0).getTime())
     .slice(0, 3)
 
   return (
-    <DesktopAppShell width="wide" className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-full bg-parish-primary/15 flex items-center justify-center text-parish-primary shrink-0">
-          <HeartHandshake className="w-6 h-6" />
+    <DesktopAppShell width="wide" className="space-y-5">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-parish-primary to-parish-primary-hover dark:from-[#16305e] dark:to-[#101c3f] p-6 md:p-7 shadow-card">
+        <div aria-hidden className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-12 -right-12 w-52 h-52 rounded-full bg-white/10 blur-2xl" />
+          <div className="absolute -bottom-16 -left-8 w-56 h-56 rounded-full bg-white/[0.07] blur-3xl" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-text-main">
-            Chào, {user?.fullName || 'Quý Phụ Huynh'}
-          </h1>
-          <p className="text-sm text-text-muted mt-0.5">
-            Tổng quan học tập của con tại Giáo Xứ Gia Tôn.
-          </p>
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-12 h-12 rounded-2xl bg-white/15 ring-1 ring-white/25 backdrop-blur-sm flex items-center justify-center shrink-0">
+              <HeartHandshake className="w-6 h-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl font-extrabold tracking-tight m-0">
+                Chào, {user?.fullName || 'Quý Phụ Huynh'}
+              </h1>
+              <p className="text-sm text-white/80 mt-0.5 mb-0">
+                Tổng quan học tập của con tại Giáo Xứ Gia Tôn.
+              </p>
+            </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 ring-1 ring-white/20 text-xs font-semibold text-white/90 backdrop-blur-sm">
+            <CalendarDays size={13} />
+            {new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </div>
         </div>
-      </div>
+      </section>
 
       {error && (
         <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950 text-rose-600 text-sm rounded-lg border border-rose-200 dark:border-rose-900">
@@ -80,7 +96,7 @@ export const ParentDashboard: React.FC = () => {
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-text-muted" /></div>
       ) : children.length === 0 ? (
-        <div className="text-center py-16 text-text-muted space-y-2 bg-surface-card border border-surface-border rounded-xl">
+        <div className="text-center py-16 text-text-muted space-y-2 bg-surface-card border border-surface-border rounded-2xl shadow-card">
           <Users2 size={40} className="mx-auto opacity-40" />
           <p className="text-sm font-medium text-text-main">Chưa có thiếu nhi nào được liên kết với số điện thoại này.</p>
           <p className="text-xs">Vui lòng liên hệ Ban Giáo Lý để kiểm tra lại số điện thoại phụ huynh.</p>
@@ -88,25 +104,38 @@ export const ParentDashboard: React.FC = () => {
       ) : (
         <>
           {children.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {children.map(child => (
-                <button
-                  key={child.id}
-                  onClick={() => selectChild(child.id)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-full border text-sm whitespace-nowrap transition-colors ${
-                    selectedId === child.id
-                      ? 'border-parish-primary bg-parish-primary-light dark:bg-parish-primary/10 text-parish-primary font-semibold'
-                      : 'border-surface-border bg-surface-card text-text-muted hover:border-parish-primary/60'
-                  }`}
-                >
-                  <UserRound size={14} />
-                  {child.holyName} {child.fullName}
-                </button>
-              ))}
+            <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Chọn con để xem kết quả">
+              {children.map(child => {
+                const active = selectedId === child.id
+                return (
+                  <button
+                    key={child.id}
+                    onClick={() => selectChild(child.id)}
+                    role="tab"
+                    aria-selected={active}
+                    className={`group flex items-center gap-2.5 pl-1.5 pr-4 py-1.5 rounded-full border whitespace-nowrap transition-all ${
+                      active
+                        ? 'border-parish-primary bg-parish-primary-light dark:bg-parish-primary/15 shadow-xs'
+                        : 'border-surface-border bg-surface-card hover:border-parish-primary/50'
+                    }`}
+                  >
+                    <ChildAvatar
+                      id={child.id}
+                      holyName={child.holyName}
+                      fullName={child.fullName}
+                      size={30}
+                      className={active ? 'ring-2 ring-parish-primary/40' : 'opacity-80 group-hover:opacity-100 transition-opacity'}
+                    />
+                    <span className={`text-sm transition-colors ${active ? 'font-bold text-parish-primary' : 'font-medium text-text-muted group-hover:text-text-main'}`}>
+                      {child.holyName} {child.fullName}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           )}
 
-          <section className="bg-surface-card border border-surface-border rounded-xl p-5 space-y-4">
+          <section className="bg-surface-card border border-surface-border rounded-2xl p-5 md:p-6 space-y-5 shadow-card">
             {reportLoading ? (
               <div className="flex justify-center py-10"><Loader2 size={22} className="animate-spin text-text-muted" /></div>
             ) : reportError ? (
@@ -115,16 +144,19 @@ export const ParentDashboard: React.FC = () => {
               </div>
             ) : report && selectedChild ? (
               <>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold text-text-main">
-                      {selectedChild.holyName} {selectedChild.fullName}
-                    </h2>
-                    <p className="text-xs text-text-muted mt-0.5">
-                      {BRANCHES[selectedChild.branch as keyof typeof BRANCHES]?.name ?? selectedChild.branch}
-                      {' · '}{selectedChild.className}
-                      {report.academicYear ? ` · ${normalizeAcademicYear(report.academicYear)}` : ''}
-                    </p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <ChildAvatar id={selectedChild.id} holyName={selectedChild.holyName} fullName={selectedChild.fullName} size={46} />
+                    <div className="min-w-0">
+                      <h2 className="font-bold text-text-main truncate m-0">
+                        {selectedChild.holyName} {selectedChild.fullName}
+                      </h2>
+                      <p className="text-xs text-text-muted mt-0.5 mb-0 truncate">
+                        {BRANCHES[selectedChild.branch as keyof typeof BRANCHES]?.name ?? selectedChild.branch}
+                        {' · '}{selectedChild.className}
+                        {report.academicYear ? ` · ${normalizeAcademicYear(report.academicYear)}` : ''}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
@@ -142,47 +174,54 @@ export const ParentDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-3 rounded-xl bg-surface-hover border border-surface-border">
-                    <span className="text-text-muted text-xs block">Học Kỳ 1</span>
-                    <span className="text-xl font-bold text-text-main">{fmt(sem1Gpa)}</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-surface-hover border border-surface-border">
-                    <span className="text-text-muted text-xs block">Học Kỳ 2</span>
-                    <span className="text-xl font-bold text-text-main">{fmt(sem2Gpa)}</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-surface-hover border border-surface-border">
-                    <span className="text-text-muted text-xs block">Xếp Loại</span>
-                    <span className="text-lg font-bold text-parish-primary">
-                      {latestGpa != null ? getClassificationLabel(latestGpa) : '—'}
-                    </span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-surface-hover border border-surface-border">
-                    <span className="text-text-muted text-xs block">Chuyên Cần</span>
-                    <span className="text-xl font-bold text-text-main">
-                      {report.attendanceSummary.overallAttendanceRate}%
-                    </span>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <StatCard label="Học Kỳ 1" value={fmt(sem1Gpa)} valueClassName="text-xl mt-1" />
+                  <StatCard label="Học Kỳ 2" value={fmt(sem2Gpa)} valueClassName="text-xl mt-1" />
+                  <StatCard
+                    label="Xếp Loại"
+                    value={latestClassification ?? '—'}
+                    valueClassName={`text-lg mt-1.5 ${latestClassification ? classificationTextClass(latestClassification) : ''}`}
+                  />
+                  <div className="p-3.5 rounded-xl border border-surface-border bg-gradient-to-br from-surface-hover to-transparent flex items-center gap-3">
+                    <div className="relative shrink-0">
+                      <DonutRing percent={attendanceRate} />
+                      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-text-main tabular-nums">
+                        {Math.round(attendanceRate)}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-text-muted">Chuyên Cần</span>
+                      <span className="block leading-tight text-xl font-extrabold text-text-main">
+                        {report.attendanceSummary.overallAttendanceRate}%
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="px-2.5 py-1 rounded-md bg-surface-hover border border-surface-border text-text-muted">
-                    Lễ: {report.attendanceSummary.massPresentCount}/{report.attendanceSummary.massTotalCount} buổi
-                  </span>
-                  <span className="px-2.5 py-1 rounded-md bg-surface-hover border border-surface-border text-text-muted">
-                    Giáo lý: {report.attendanceSummary.catechismPresentCount}/{report.attendanceSummary.catechismTotalCount} buổi
-                  </span>
-                  {report.promotion && (
-                    <span className="px-2.5 py-1 rounded-md bg-parish-primary-light border border-parish-primary/40 text-parish-primary font-semibold">
-                      Kết quả năm: {PROMOTION_LABELS[report.promotion.status] ?? report.promotion.status}
-                    </span>
-                  )}
+                <div className="grid sm:grid-cols-2 gap-x-5 gap-y-3">
+                  <AttendanceBar
+                    kind="mass"
+                    present={report.attendanceSummary.massPresentCount}
+                    total={report.attendanceSummary.massTotalCount}
+                  />
+                  <AttendanceBar
+                    kind="catechism"
+                    present={report.attendanceSummary.catechismPresentCount}
+                    total={report.attendanceSummary.catechismTotalCount}
+                  />
                 </div>
 
-                {/* Leave Requests for Selected Child */}
-                <div className="pt-3 border-t border-surface-border">
+                {report.promotion && (
+                  <PromotionBanner
+                    status={report.promotion.status}
+                    label={PROMOTION_LABELS[report.promotion.status] ?? report.promotion.status}
+                    icon={<GraduationCap size={18} />}
+                  />
+                )}
+
+                <div className="pt-4 border-t border-surface-border">
                   <div className="flex items-center justify-between mb-2.5">
-                    <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                    <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider flex items-center gap-1.5 m-0">
                       <Clock size={14} className="text-parish-primary" /> Lịch Sử Đơn Xin Nghỉ Phép
                     </h3>
                     <button
@@ -281,9 +320,9 @@ export const ParentDashboard: React.FC = () => {
         </>
       )}
 
-      <section className="bg-surface-card border border-surface-border rounded-xl p-5">
+      <section className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-text-main flex items-center gap-2">
+          <h3 className="text-sm font-bold text-text-main flex items-center gap-2 m-0">
             <Megaphone size={16} className="text-parish-primary" /> Thông Báo Mới Nhất
           </h3>
           {notices.length > 0 && (
@@ -296,24 +335,32 @@ export const ParentDashboard: React.FC = () => {
           )}
         </div>
         {recentNotices.length === 0 ? (
-          <p className="text-sm text-text-muted">Chưa có thông báo nào.</p>
+          <p className="text-sm text-text-muted m-0">Chưa có thông báo nào.</p>
         ) : (
           <div className="divide-y divide-surface-border/60">
             {recentNotices.map(n => (
               <button
                 key={n.id}
                 onClick={() => navigate({ to: '/notices' })}
-                className="w-full text-left py-2.5 flex items-start justify-between gap-3 group"
+                className="w-full text-left py-3 flex items-center justify-between gap-3 group"
               >
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-text-main truncate group-hover:text-parish-primary transition-colors">
-                    {n.title}
-                  </div>
-                  <div className="text-xs text-text-muted truncate mt-0.5">
-                    {new Date(n.date ?? n.createdAt ?? 0).toLocaleDateString('vi-VN')} · {n.author}
-                  </div>
-                </div>
-                <ChevronRight size={16} className="text-text-muted shrink-0 mt-0.5" />
+                <span className="flex items-start gap-2.5 min-w-0">
+                  <span
+                    aria-hidden
+                    className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${
+                      n.priority === 'urgent' ? 'bg-rose-500 animate-pulse' : n.priority === 'important' ? 'bg-amber-500' : 'bg-sky-400 opacity-70'
+                    }`}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-text-main truncate group-hover:text-parish-primary transition-colors">
+                      {n.title}
+                    </span>
+                    <span className="block text-xs text-text-muted truncate mt-0.5">
+                      {new Date(n.date ?? n.createdAt ?? 0).toLocaleDateString('vi-VN')} · {n.author}
+                    </span>
+                  </span>
+                </span>
+                <ChevronRight size={16} className="text-text-muted shrink-0 mt-0.5 transition-transform group-hover:translate-x-0.5" />
               </button>
             ))}
           </div>
