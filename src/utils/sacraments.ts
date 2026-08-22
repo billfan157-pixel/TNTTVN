@@ -1,5 +1,6 @@
 import React from 'react'
 import type { BranchType, Student } from '../types'
+import { parseClassHierarchy, detectBranchWeight } from './classSort'
 
 const BRANCH_ORDER: BranchType[] = ['ChienCon', 'AuNhi', 'ThieuNhi', 'NghiaSi', 'HiepSi']
 const BRANCH_AGE_RANGES: Record<BranchType, [number, number]> = {
@@ -122,5 +123,79 @@ export function checkPromotionEligibility(
     recommendedBranch: canPromote ? (nextBranch ?? undefined) : undefined,
     reasons,
   }
+}
+
+// ─── PROMO-FIX (2026-08-22): tính lớp đích khi thăng tiến ───
+// Trước đây panel luôn nhảy sang NGÀNH kế tiếp và lấy lớp ĐẦU TIÊN của ngành đó
+// (`existingClasses[0]`) → học sinh Thiếu Nhi 1A thăng tiến bị đưa vào lớp Nghĩa Sĩ
+// tùy ý thay vì **Thiếu Nhi 2A**. Chuẩn TNTT: tăng khối +1 trong cùng ngành, giữ
+// hậu tố phân ban khi có thể; chỉ chuyển ngành khi đã hết khối kế tiếp trong ngành.
+
+export interface NextClassSuggestion {
+  /** Lớp đích — null nếu không tìm thấy lớp phù hợp nào (admin cần tạo lớp trước) */
+  classId: string | null
+  /** Ngành đích — khác student.branch CHỈ khi chuyển ngành (hết cấp trong ngành) */
+  nextBranch: BranchType | null
+  matchedBy: 'grade-section' | 'grade' | 'branch-entry' | 'none'
+}
+
+interface ClassLike {
+  id: string
+  name: string
+  branchId?: string
+  branch?: string
+}
+
+export function computeNextClassForStudent(
+  student: Pick<Student, 'classId' | 'branch'>,
+  classes: ClassLike[]
+): NextClassSuggestion {
+  const current = classes.find((c) => c.id === student.classId)
+  const cur = parseClassHierarchy(current?.name || '', current?.branchId || student.branch)
+
+  // 1) Cùng ngành, khối lớp +1
+  const sameBranchClasses = classes.filter((c) => {
+    if (c.id === student.classId) return false
+    const p = parseClassHierarchy(c.name, c.branchId || c.branch)
+    return p.branchWeight !== 99 && p.branchWeight === cur.branchWeight
+  })
+  const nextGradeCandidates = sameBranchClasses.filter(
+    (c) => parseClassHierarchy(c.name, c.branchId || c.branch).gradeNumber === cur.gradeNumber + 1
+  )
+  const byName = (a: ClassLike, b: ClassLike) => a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' })
+
+  if (nextGradeCandidates.length > 0) {
+    // Ưu tiên cùng hậu tố phân ban (1A → 2A); fallback khối +1 bất kỳ hậu tố (1A → 2B)
+    const exactSection =
+      cur.sectionSuffix !== ''
+        ? nextGradeCandidates.find(
+            (c) => parseClassHierarchy(c.name, c.branchId || c.branch).sectionSuffix === cur.sectionSuffix
+          )
+        : undefined
+    const chosen = exactSection || [...nextGradeCandidates].sort(byName)[0]
+    return { classId: chosen.id, nextBranch: null, matchedBy: exactSection ? 'grade-section' : 'grade' }
+  }
+
+  // 2) Hết cấp trong ngành → lớp nhập môn của ngành kế tiếp (khối thấp nhất hiện có)
+  const nextBranchType = getNextBranch(student.branch as BranchType)
+  if (nextBranchType) {
+    const entryWeight = detectBranchWeight(nextBranchType)
+    const entryCandidates = classes
+      .filter((c) => {
+        if (c.id === student.classId) return false
+        const p = parseClassHierarchy(c.name, c.branchId || c.branch)
+        return p.branchWeight === entryWeight
+      })
+      .sort((a, b) => {
+        const pa = parseClassHierarchy(a.name, a.branchId || a.branch)
+        const pb = parseClassHierarchy(b.name, b.branchId || b.branch)
+        return pa.gradeNumber - pb.gradeNumber || byName(a, b)
+      })
+    if (entryCandidates.length > 0) {
+      return { classId: entryCandidates[0].id, nextBranch: nextBranchType, matchedBy: 'branch-entry' }
+    }
+  }
+
+  return { classId: null, nextBranch: null, matchedBy: 'none' }
 }
 

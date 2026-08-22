@@ -5,7 +5,8 @@ import { useAttendanceStore } from '../../stores/attendanceStore';
 import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { getAcademicYear, checkPromotionEligibility, getSacramentStatus, getNextBranch, getClassIdForBranch } from '../../utils/sacraments';
+import { getAcademicYear, checkPromotionEligibility, computeNextClassForStudent, getSacramentStatus, getClassIdForBranch } from '../../utils/sacraments';
+import type { BranchType } from '../../types';
 import { getClassificationLabel, calculateYearlyGpa } from '../../utils/grades';
 import { usePromotionStore } from '../../stores/promotionStore';
 import type { ApprovePromotionPayload } from '../../lib/api/promotion';
@@ -69,7 +70,11 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
         const att = getStudentAttendanceRate(s.id);
         const result = checkPromotionEligibility(s, avgScore, att.rate, 2, promotionPolicy);
         const sac = getSacramentStatus(s);
-        return { student: s, avg, att, promotion: result, sacraments: sac };
+        // PROMO-FIX (2026-08-22): lớp đích = cùng ngành khối +1 (giữ hậu tố khi có),
+        // chỉ chuyển ngành khi hết cấp — thay cho logic "ngành kế tiếp + lớp đầu tiên".
+        const nextClass = computeNextClassForStudent(s, classList as any);
+        const targetClass = nextClass.classId ? classList.find(c => c.id === nextClass.classId) : undefined;
+        return { student: s, avg, att, promotion: result, sacraments: sac, nextClass, targetClass };
       })
       .filter(item => item.promotion.canPromote || item.promotion.reasons.length > 0)
       .sort((a, b) => {
@@ -77,24 +82,26 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
         if (!a.promotion.canPromote && b.promotion.canPromote) return 1;
         return (b.avg.score ?? 0) - (a.avg.score ?? 0);
       });
-  }, [students, calculateStudentAvg, getStudentAttendanceRate, promotionPolicy, gradeWeights]);
+  }, [students, calculateStudentAvg, getStudentAttendanceRate, promotionPolicy, gradeWeights, classList]);
 
   const canPromote = promotions.filter(p => p.promotion.canPromote);
   const needsReview = promotions.filter(p => !p.promotion.canPromote);
 
   const handleExecutePromotion = async () => {
     setPromoting(true)
-    // F1 (audit 2026-08-21): mỗi action nhớ nguồn gốc classId — lớp ngành kế tiếp
-    // phải TỒN TẠI trong danh sách lớp (server-scoped) mới được gửi nextClassId;
-    // fallback id cứng ('AU1'…) của getClassIdForBranch không tồn tại trong DB.
+    // PROMO-FIX (2026-08-22): dùng suggestion chuẩn (cùng ngành khối+1 → giữ hậu
+    // tố; chỉ sang ngành kế khi hết cấp). hasRealClass=false → loại khỏi batch,
+    // báo admin tạo lớp — như cơ chế F1 cũ.
     const actions: { action: PromotionAction; hasRealClass: boolean; student: Student }[] = canPromote.map(p => {
-      const nextBranch = p.promotion.recommendedBranch || getNextBranch(p.student.branch) || p.student.branch
-      const existingClasses = classList.filter(c => c.branch === nextBranch)
-      const hasRealClass = existingClasses.length > 0
-      const classId = hasRealClass ? existingClasses[0].id : getClassIdForBranch(nextBranch)
+      const targetBranch: BranchType = (p.nextClass.nextBranch ?? p.student.branch) as BranchType
+      const fallbackId = getClassIdForBranch(targetBranch)
       return {
-        action: { studentId: p.student.id, newBranch: nextBranch, newClassId: classId },
-        hasRealClass,
+        action: {
+          studentId: p.student.id,
+          newBranch: targetBranch,
+          newClassId: p.nextClass.classId ?? fallbackId,
+        },
+        hasRealClass: Boolean(p.nextClass.classId),
         student: p.student,
       }
     })
@@ -281,14 +288,18 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
               <strong> Ngành (Branch)</strong> và <strong>Lớp học (ClassId)</strong> của các em.
             </p>
             <div className="max-h-40 overflow-y-auto space-y-1.5">
-              {canPromote.map(p => (
-                <div key={p.student.id} className="text-xs p-2 rounded-lg bg-surface-hover flex justify-between">
-                  <span className="font-semibold">{p.student.holyName} {p.student.fullName}</span>
-                  <span className="text-parish-primary font-bold">
-                    {BRANCHES[p.student.branch]?.name} → {BRANCHES[p.promotion.recommendedBranch || '']?.name || p.promotion.recommendedBranch}
-                  </span>
-                </div>
-              ))}
+              {canPromote.map(p => {
+                const curName = classList.find(c => c.id === p.student.classId)?.name || BRANCHES[p.student.branch]?.name
+                const tgtName = p.targetClass?.name || '— chưa có lớp đích —'
+                return (
+                  <div key={p.student.id} className="text-xs p-2 rounded-lg bg-surface-hover flex justify-between gap-2">
+                    <span className="font-semibold">{p.student.holyName} {p.student.fullName}</span>
+                    <span className="text-parish-primary font-bold text-right">
+                      {curName} → {tgtName}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
@@ -317,7 +328,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
             <CheckCircle2 size={14} /> Đủ điều kiện thăng tiến
           </h4>
           <div className="flex flex-col gap-2">
-            {canPromote.map(({ student, promotion }) => (
+            {canPromote.map(({ student, nextClass, targetClass }) => (
               <div key={student.id} className="flex items-center gap-3 p-3 rounded-xl bg-parish-success-bg/30 border border-parish-success/20">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-text-main truncate">
@@ -327,13 +338,19 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
                     <span className="badge shrink-0" style={{ background: BRANCHES[student.branch]?.badgeBg, color: BRANCHES[student.branch]?.textColor }}>
                       {BRANCHES[student.branch]?.name}
                     </span>
-                    {promotion.recommendedBranch && (
-                      <>
-                        <ArrowRight size={12} className="text-text-muted" />
-                        <span className="badge shrink-0" style={{ background: BRANCHES[promotion.recommendedBranch]?.badgeBg, color: BRANCHES[promotion.recommendedBranch]?.textColor }}>
-                          {BRANCHES[promotion.recommendedBranch]?.name}
-                        </span>
-                      </>
+                    <ArrowRight size={12} className="text-text-muted shrink-0" />
+                    {targetClass ? (
+                      <span
+                        className="badge shrink-0 truncate max-w-[180px]"
+                        style={{ background: BRANCHES[nextClass.nextBranch ?? student.branch]?.badgeBg, color: BRANCHES[nextClass.nextBranch ?? student.branch]?.textColor }}
+                        title={`Lớp đích: ${targetClass.name}`}
+                      >
+                        {targetClass.name}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-amber-600 font-semibold shrink-0">
+                        Chưa có lớp đích — hãy tạo lớp trước khi xét
+                      </span>
                     )}
                   </div>
                 </div>

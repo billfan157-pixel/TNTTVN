@@ -22,6 +22,7 @@ import { getAcademicYearDateRange } from './academicYearService.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getParishClassificationThresholds } from './parishSettingsService.js'
 import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
 import { promotionApplicationService } from './PromotionApplicationService.js'
+import { findNextClassInYear, branchTypeByWeight } from '../utils/promotionPath.js'
 import {
   deriveAcademicYearStatus,
   deriveAcademicYearState,
@@ -648,11 +649,49 @@ export class AcademicYearLifecycleService {
       const sourceClass = oldClasses.find((c) => c.id === student.classId)
       const targetClassId = sourceClass?.id || student.classId
 
+      // PROMO-FIX (2026-08-22): chỉ học sinh ĐẠT điều kiện (PROMOTED /
+      // CONDITIONALLY_PROMOTED) mới lên khối +1 (ưu tiên cùng hậu tố; hết cấp
+      // ngành thì sang nhập môn ngành kế). RETAINED giữ lớp cùng mã. GRADUATED /
+      // TRANSFERRED không di chuyển lớp. Trước đây MỌI học sinh đều bị map về
+      // lớp CÙNG MÃ năm mới — người đạt cũng bị giữ nguyên khối.
+      const status = snap.promotionStatus
+      const canAdvance = status === 'PROMOTED' || status === 'CONDITIONALLY_PROMOTED'
       let nextClassId: string | null = null
-      if (sourceClass) {
+      let nextBranchOverride: string | undefined
+
+      if (status === 'GRADUATED' || status === 'TRANSFERRED') {
+        // Tốt nghiệp / chuyển trường — không di chuyển lớp, vẫn ghi snapshot.
+        summary.graduated++
+      } else if (sourceClass && canAdvance) {
+        const advanced = findNextClassInYear(sourceClass.name, newClasses)
+        if (advanced) {
+          nextClassId = advanced.id
+          const branchType = branchTypeByWeight(advanced.branchWeight)
+          if (branchType && branchType !== student.branch) nextBranchOverride = branchType
+        } else {
+          // Không có lớp khối +1 / nhập môn trong năm mới → fallback giữ lớp cùng mã
+          const mapped = classCodeMap.get(sourceClass.code)
+          if (mapped) {
+            nextClassId = mapped
+            summary.warnings.push({
+              studentId: snap.studentId,
+              reason: `Đủ điều kiện nhưng chưa có lớp khối kế tiếp trong năm mới cho "${sourceClass.name}" — tạm giữ lớp cùng mã`,
+            })
+          } else {
+            summary.warnings.push({
+              studentId: snap.studentId,
+              reason: `Đủ điều kiện nhưng năm mới chưa có lớp phù hợp cho "${sourceClass.name}" — học sinh ở lại lớp năm cũ`,
+            })
+          }
+        }
+      } else if (sourceClass) {
+        // RETAINED hoặc chưa xác định: giữ nguyên lớp cùng mã sang năm mới
         const mapped = classCodeMap.get(sourceClass.code)
-        if (mapped) nextClassId = mapped
-        else summary.warnings.push({ studentId: snap.studentId, reason: `Lớp năm mới không có cùng mã "${sourceClass.code}" — học sinh ở lại lớp năm cũ` })
+        if (mapped) {
+          nextClassId = mapped
+        } else {
+          summary.warnings.push({ studentId: snap.studentId, reason: `Lớp năm mới không có cùng mã "${sourceClass.code}" — học sinh ở lại lớp năm cũ` })
+        }
       } else {
         summary.warnings.push({ studentId: snap.studentId, reason: `Không tìm thấy lớp nguồn (classId=${student.classId}) — học sinh ở lại lớp cũ` })
       }
@@ -677,17 +716,18 @@ export class AcademicYearLifecycleService {
           if (nextClassId) {
             await tx
               .update(students)
-              .set({ classId: nextClassId, updatedAt: now, updatedBy: userId })
+              .set({
+                classId: nextClassId,
+                ...(nextBranchOverride ? { branch: nextBranchOverride as any } : {}),
+                updatedAt: now,
+                updatedBy: userId,
+              })
               .where(and(eq(students.id, snap.studentId), eq(students.parishId, parishId)))
           }
         })
 
-        if (nextClassId) summary.movedToNextYear++
-        if (snap.promotionStatus === 'GRADUATED' || snap.promotionStatus === 'TRANSFERRED') {
-          summary.graduated++
-        } else if (snap.promotionStatus === 'RETAINED') {
-          summary.retained++
-        }
+        if (nextClassId && !(status === 'GRADUATED' || status === 'TRANSFERRED')) summary.movedToNextYear++
+        if (status === 'RETAINED') summary.retained++
       } catch (err: any) {
         summary.errors.push({ studentId: snap.studentId, reason: err?.message || 'Lỗi không xác định' })
       }

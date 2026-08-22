@@ -266,6 +266,14 @@ server/src/                         ─ Backend Hono Application
   5. **Bug 2.3**: `PromotionPanel` "ĐTB" dùng `avg.score` thay `promotion.recommendedBranch`.
   6. **Verify**: `tsc -b` clean, `lint:ds` 0, `MobileViewsEnhancement.test.tsx` 8/8 pass; full vitest suite không có failure (tool timeout >10 phút).
 
+### Module: Thăng Tiến Lên Lớp — Fix Lớp Đích (2026-08-22, PROMO-FIX)
+- **Bug CONFIRMED**: panel Xét Lên Lớp luôn nhảy sang **ngành kế tiếp** (`recommendedBranch = getNextBranch`) và lấy **lớp đầu tiên** của ngành đó → TN 1A thăng tiến vào lớp Nghĩa Sĩ tùy ý thay vì Thiếu Nhi 2A. Server đúng (cập nhật `students.classId = nextClassId` trong BatchPromotionApplicationService) — lỗi thuần client-side mapping.
+- **Fix**: helper mới `computeNextClassForStudent()` (`src/utils/sacraments.ts`) — 3 tầng: (1) cùng ngành khối +1, ưu tiên cùng hậu tố phân ban (1A→2A; fallback 2B); (2) hết cấp trong ngành → lớp nhập môn khối thấp nhất của ngành kế tiếp (AN3→TN1); (3) không có → null (báo admin tạo lớp). `PromotionPanel` dùng suggestion cho cả payload (`nextClassId`/`newBranch`) lẫn hiển thị (confirm modal + badge hiện tên lớp đích thật).
+- **Files**: `src/utils/sacraments.ts`, `src/components/desktop/PromotionPanel.tsx`, test mới `src/__tests__/utils/nextClass.test.ts` (7 cases).
+- **Mở rộng sang FINALIZE_YEAR (cùng ngày — nghiệp vụ xác nhận)**: `AcademicYearLifecycleService.promoteYear` trước đây map MỌI học sinh về lớp **cùng mã** năm mới (đạt điều kiện cũng bị giữ khối). Giờ: chỉ `PROMOTED`/`CONDITIONALLY_PROMOTED` mới lên khối +1 qua helper server-side `findNextClassInYear()` (`server/src/utils/promotionPath.ts` — parse tên lớp, ưu tiên hậu tố; hết cấp ngành → nhập môn ngành kế, tự đồng bộ `students.branch`); `RETAINED` giữ lớp cùng mã; `GRADUATED`/`TRANSFERRED` không di chuyển lớp. Fallback giữ-lớp-cùng-mã khi chưa có lớp khối kế + warning. Test `server/src/__tests__/promotionPath.test.ts` (8 cases).
+- **Verify**: nextClass 7/7 · sacraments 23/23 · promotionPath 8/8 · reportingErrorMapping (fix typo prefix `ad`→`adm` của phiên song song) · tsc 0 error toàn project.
+- **Lưu ý mở**: luồng FINALIZE_YEAR cuối năm (`AcademicYearLifecycleService`) map theo **cùng mã lớp** năm mới (carry-over giữ khối) — ngữ nghĩa khác với thăng tiến tay trên panel; cần xác nhận nghiệp vụ nếu muốn auto-advance cả ở đó.
+
 ### Module: Polish Phase 2026-08-22 — Cross-cutting Sweep (lane an toàn, tránh đụng desktop-audit song song)
 - **AuditLogPage** (mục 5.1/5.2/5.3 UX-plan): tab Chính Sách chuyển `ErrorState` (có nút Thử lại) + `SkeletonCardGrid` loading + `EmptyState`; gộp import trùng với phiên song song.
 - **F6 audit route**: validate `startDate/endDate` (400 `VALIDATION_ERROR` nếu sai format) + fix bug endDate chỉ-ngày bị loại nhầm cả ngày kết thúc (`→T23:59:59.999Z`).
