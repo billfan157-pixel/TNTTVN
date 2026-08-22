@@ -72,20 +72,32 @@ export const DesktopAttendanceGrid: React.FC = () => {
     setIsSaved(false);
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleSave = async () => {
     const list = Object.entries(attendanceState).map(([studentId, data]) => ({
       studentId, status: data.status, note: data.note
     }));
-    const result = await batchSaveAttendance(list, date, type)
-    setIsSaved(true)
-    setTimeout(() => setIsSaved(false), 3000)
-    if (result) {
+    setIsSaving(true);
+    try {
+      const result = await batchSaveAttendance(list, date, type);
+      if (!result) {
+        // Store trả null khi lỗi/lock (đã set error/lockError ở store)
+        useToastStore.getState().addToast('Không thể lưu điểm danh. Vui lòng thử lại!', 'error');
+        return;
+      }
       const errorCount = result.results?.filter((r: any) => r.status === 'error').length || 0
       if (errorCount > 0) {
-        useToastStore.getState().addToast(`Đã lưu điểm danh với ${errorCount} lỗi`, 'error')
-      } else {
-        useToastStore.getState().addToast('Đã lưu điểm danh thành công!', 'success')
+        useToastStore.getState().addToast(`Đã lưu điểm danh với ${errorCount} lỗi`, 'error');
+        return;
       }
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3000);
+      useToastStore.getState().addToast('Đã lưu điểm danh thành công!', 'success');
+    } catch {
+      useToastStore.getState().addToast('Có lỗi xảy ra khi lưu điểm danh. Vui lòng thử lại!', 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -96,11 +108,27 @@ export const DesktopAttendanceGrid: React.FC = () => {
     else if (val.status === 'AbsentUnexcused') unexcusedCount++;
   });
 
+  // PHA 5.1: điều hướng phím trong triad trạng thái (←/→ chọn & focus option kế)
+  const ATTENDANCE_ORDER: Array<'Present' | 'AbsentExcused' | 'AbsentUnexcused'> = ['Present', 'AbsentExcused', 'AbsentUnexcused']
+  const handleStatusKeyNav = (e: React.KeyboardEvent<HTMLButtonElement>, id: string, status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused') => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+    e.preventDefault()
+    const dir = e.key === 'ArrowRight' ? 1 : -1
+    const nextIdx = (ATTENDANCE_ORDER.indexOf(status) + dir + ATTENDANCE_ORDER.length) % ATTENDANCE_ORDER.length
+    const next = ATTENDANCE_ORDER[nextIdx]
+    handleStatusChange(id, next)
+    const buttons = (e.currentTarget.parentElement as HTMLElement)?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    buttons?.[nextIdx]?.focus()
+  }
+
   const statusBtn = (id: string, label: string, status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused', icon: React.ReactNode, activeClass: string) => {
     const isActive = attendanceState[id]?.status === status
     return (
       <button
+        role="radio"
+        aria-checked={isActive}
         onClick={() => handleStatusChange(id, status)}
+        onKeyDown={(e) => handleStatusKeyNav(e, id, status)}
         className={`px-2.5 py-1 text-xs font-semibold border-none rounded-sm cursor-pointer flex items-center justify-center gap-1.5 transition-colors h-8 min-w-[72px] ${
           isActive ? `${activeClass} text-white` : 'bg-transparent text-text-secondary'
         }`}
@@ -252,10 +280,11 @@ export const DesktopAttendanceGrid: React.FC = () => {
                 {canEditAttendance && (
                   <button
                     onClick={handleSave}
-                    className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white`}
+                    disabled={isSaving}
+                    className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white disabled:opacity-60`}
                   >
-                    {isSaved ? <CheckCircle2 size={16} /> : <Save size={16} />}
-                    {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
+                    {isSaving ? <AlertTriangle size={16} className="animate-pulse" /> : isSaved ? <CheckCircle2 size={16} /> : <Save size={16} />}
+                    {isSaving ? 'Đang lưu...' : isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
                   </button>
                 )}
               </>
@@ -329,7 +358,11 @@ export const DesktopAttendanceGrid: React.FC = () => {
                       <td className="py-3.5 px-4 text-text-secondary font-medium truncate overflow-hidden min-w-0">{cls?.name}</td>
 
                       <td className="py-3.5 px-4 text-center">
-                          <div className="inline-flex bg-surface-hover p-1 rounded-xl gap-1.5 border border-surface-border">
+                          <div
+                            className="inline-flex bg-surface-hover p-1 rounded-xl gap-1.5 border border-surface-border"
+                            role="radiogroup"
+                            aria-label={`Điểm danh ${s.fullName}`}
+                          >
                             {statusBtn(s.id, 'Có mặt', 'Present', <CheckCircle2 size={14} />, 'bg-parish-success')}
                             {statusBtn(s.id, 'Có phép', 'AbsentExcused', <AlertTriangle size={14} />, 'bg-parish-warning')}
                             {statusBtn(s.id, 'Vắng', 'AbsentUnexcused', <XCircle size={14} />, 'bg-parish-danger')}
@@ -344,6 +377,14 @@ export const DesktopAttendanceGrid: React.FC = () => {
                           readOnly={!canEditAttendance}
                           onChange={e => handleNoteChange(s.id, e.target.value)}
                           onKeyDown={(e) => {
+                            // PHA 5.1: shortcut P/E/A theo đúng promise của placeholder —
+                            // chỉ áp dụng khi ô lý do TRỐNG để không lật trạng thái khi đang gõ ghi chú.
+                            if (canEditAttendance && state.note === '' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                              const k = e.key.toLowerCase()
+                              if (k === 'p') { e.preventDefault(); handleStatusChange(s.id, 'Present'); return }
+                              if (k === 'e') { e.preventDefault(); handleStatusChange(s.id, 'AbsentExcused'); return }
+                              if (k === 'a') { e.preventDefault(); handleStatusChange(s.id, 'AbsentUnexcused'); return }
+                            }
                             if (e.key === 'Enter' || e.key === 'ArrowDown') {
                               e.preventDefault()
                               const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[placeholder*="Nhập lý do"]'))

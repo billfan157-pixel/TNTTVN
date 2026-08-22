@@ -11,6 +11,7 @@ import {
   type ExamParseResult,
 } from '../../utils/examParser'
 import type { ExamQuestion, MultipleChoiceOption } from '../../types'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface ExamImportModalProps {
   isOpen: boolean
@@ -24,6 +25,8 @@ interface ExamImportModalProps {
 }
 
 export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport }) => {
+  // PHA 1 nợ (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
   const [activeTab, setActiveTab] = useState<'text' | 'excel'>('text')
   const [rawText, setRawText] = useState('')
   const [previewResult, setPreviewResult] = useState<ExamParseResult | null>(null)
@@ -110,7 +113,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="exam-import-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-surface-card rounded-2xl p-6 w-full max-w-4xl shadow-2xl max-h-[92vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="bg-surface-card rounded-2xl p-6 w-full max-w-4xl shadow-2xl max-h-[92vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-surface-border pb-4 mb-4">

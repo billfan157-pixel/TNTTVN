@@ -33,8 +33,8 @@ export function GradesPage() {
   if (effectiveMode === 'desktop') {
     return (
       <div className="flex flex-col gap-4">
-        {/* View Mode Tabs */}
-        <div className="bg-surface-hover border border-surface-border rounded-2xl p-1.5 inline-flex self-start gap-1">
+        {/* View Mode Tabs — PHA 4: flex-wrap để không tràn ngang @1024px */}
+        <div className="bg-surface-hover border border-surface-border rounded-2xl p-1.5 inline-flex self-start gap-1 flex-wrap">
           {VIEW_TABS.map(tab => (
             <button
               key={tab.id}

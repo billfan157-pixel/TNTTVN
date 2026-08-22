@@ -14,7 +14,7 @@ import {
   ChevronRight,
   Calendar,
 } from 'lucide-react'
-import { useFinanceStore } from '../stores/financeStore'
+import { useFinanceStore, type LedgerFilters } from '../stores/financeStore'
 import { useAuthStore } from '../stores/authStore'
 import { useAcademicYearStore } from '../stores/academicYearStore'
 import { useToastStore } from '../stores/toastStore'
@@ -25,7 +25,9 @@ import { FundManageModal } from '../components/finance/FundManageModal'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { PageHeader } from '../components/common/PageHeader'
 import { EmptyState, SkeletonCardGrid, SkeletonTable } from '../components/common/StateFeedback'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { formatVND } from '../utils/receiptGenerator'
+import { formatDateVi } from '../utils/formatDate'
 import type { FinancialTransaction, TransactionType } from '../types/finance'
 
 export const FinancePage: React.FC = () => {
@@ -42,6 +44,8 @@ export const FinancePage: React.FC = () => {
     deleteTransaction,
     setSelectedFundId,
     setSelectedAcademicYear,
+    ledgerFilters,
+    setLedgerFilters,
     setPage,
     isLoading,
   } = useFinanceStore()
@@ -60,11 +64,13 @@ export const FinancePage: React.FC = () => {
   const [txToDelete, setTxToDelete] = useState<FinancialTransaction | null>(null)
 
   // Filter States
+  // P0.6 (audit desktop 2026-08-22): type + date range lọc SERVER-SIDE qua
+  // store.ledgerFilters (server hỗ trợ sẵn query params) — trước đây client
+  // filter trên 1 trang server-pagination làm count/pagination sai.
+  // Text search giữ client-side (server chưa có param search) → badge count
+  // hiển thị trung thực "kết quả trên trang hiện tại".
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState<'ALL' | TransactionType>('ALL')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
 
   // Chart tooltip
   const [tooltip, setTooltip] = useState<{ x: number; y: number; month: string; income: number; expense: number } | null>(null)
@@ -112,16 +118,23 @@ export const FinancePage: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (!txToDelete) return
-    await deleteTransaction(txToDelete.id)
-    addToast(`Đã xóa giao dịch "${txToDelete.title}"`, 'success')
-    setTxToDelete(null)
+    try {
+      const ok = await deleteTransaction(txToDelete.id)
+      if (ok) {
+        addToast(`Đã xóa giao dịch "${txToDelete.title}"`, 'success')
+      } else {
+        addToast('Không thể xóa giao dịch. Vui lòng thử lại!', 'error')
+      }
+    } catch {
+      addToast('Không thể xóa giao dịch. Vui lòng thử lại!', 'error')
+    } finally {
+      setTxToDelete(null)
+    }
   }
 
-  // Client-side filter (search + type + date range)
+  // Client-side text search trên trang hiện tại (server chưa hỗ trợ param search)
+  const isTextSearchActive = debouncedSearch.trim().length > 0
   const filteredTransactions = transactions.filter((tx) => {
-    if (typeFilter !== 'ALL' && tx.type !== typeFilter) return false
-    if (startDate && tx.transactionDate < startDate) return false
-    if (endDate && tx.transactionDate > endDate) return false
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase()
       const matchTitle = tx.title.toLowerCase().includes(q)
@@ -157,7 +170,7 @@ export const FinancePage: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <DesktopAppShell width="wide" className="flex flex-col gap-6">
       {/* Top Header Bar */}
       <PageHeader
         icon={<Wallet className="w-5 h-5" />}
@@ -423,7 +436,9 @@ export const FinancePage: React.FC = () => {
           <div className="flex items-center gap-2">
             <h3 className="typography-card-title">Sổ Quỹ Giao Dịch</h3>
             <span className="badge badge-neutral">
-              {pagination.total} giao dịch
+              {isTextSearchActive
+                ? `${filteredTransactions.length} / ${pagination.total} khớp (trên trang hiện tại)`
+                : `${pagination.total} giao dịch`}
             </span>
           </div>
 
@@ -445,8 +460,8 @@ export const FinancePage: React.FC = () => {
               <div className="relative">
                 <input
                   type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  value={ledgerFilters.startDate}
+                  onChange={(e) => setLedgerFilters({ startDate: e.target.value })}
                   className="form-input h-9 text-xs w-[130px]"
                   style={{ paddingLeft: '32px' }}
                 />
@@ -456,8 +471,8 @@ export const FinancePage: React.FC = () => {
               <div className="relative">
                 <input
                   type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  value={ledgerFilters.endDate}
+                  onChange={(e) => setLedgerFilters({ endDate: e.target.value })}
                   className="form-input h-9 text-xs w-[130px]"
                   style={{ paddingLeft: '32px' }}
                 />
@@ -467,8 +482,8 @@ export const FinancePage: React.FC = () => {
 
             {/* Type Filter */}
             <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as any)}
+              value={ledgerFilters.type}
+              onChange={(e) => setLedgerFilters({ type: e.target.value as LedgerFilters['type'] })}
               className="form-select h-9 text-xs w-auto"
             >
               <option value="ALL">Tất cả loại</option>
@@ -510,7 +525,7 @@ export const FinancePage: React.FC = () => {
 
                   return (
                     <tr key={tx.id} className="hover:bg-surface-hover/50 transition-colors">
-                      <td className="py-3 px-4 typography-numeric text-text-muted">{tx.transactionDate}</td>
+                      <td className="py-3 px-4 typography-numeric text-text-muted">{formatDateVi(tx.transactionDate)}</td>
                       <td className="py-3 px-4">
                         <span className={`badge ${isInc ? 'badge-success' : isExp ? 'badge-danger' : 'badge-info'}`}>
                           {tx.receiptNumber || 'PT-000'}
@@ -577,7 +592,7 @@ export const FinancePage: React.FC = () => {
                       <span className={`badge ${isInc ? 'badge-success' : isExp ? 'badge-danger' : 'badge-info'}`}>
                         {tx.receiptNumber || 'PT-000'}
                       </span>
-                      <span className="typography-numeric text-text-muted text-xs">{tx.transactionDate}</span>
+                      <span className="typography-numeric text-text-muted text-xs">{formatDateVi(tx.transactionDate)}</span>
                     </div>
                     <div className="font-semibold text-text-main text-sm">{tx.title}</div>
                     <div className="flex items-center gap-2 typography-body-sm text-text-muted">
@@ -646,7 +661,7 @@ export const FinancePage: React.FC = () => {
       <ClassFeeCollectionModal isOpen={isFeeModalOpen} onClose={() => setIsFeeModalOpen(false)} />
       <FundManageModal isOpen={isFundModalOpen} onClose={() => setIsFundModalOpen(false)} />
       <PrintReceiptModal isOpen={Boolean(selectedTxForPrint)} onClose={() => setSelectedTxForPrint(null)} transaction={selectedTxForPrint} />
-    </div>
+    </DesktopAppShell>
   )
 }
 export default FinancePage

@@ -241,13 +241,14 @@ export const DesktopCalendarView: React.FC = () => {
               >
                 <ChevronLeft size={16} />
               </button>
-              <span className="text-sm font-extrabold text-text-main px-3 min-w-[140px] text-center">
+              <span className="text-sm font-extrabold text-text-main px-2 sm:px-3 min-w-0 sm:min-w-[140px] text-center truncate">
                 Tháng {month} / {year}
               </span>
               <button
                 onClick={handleNextMonth}
                 className="p-1.5 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-card transition-colors bg-transparent border-none cursor-pointer"
                 title="Tháng sau"
+                aria-label="Xem tháng sau"
               >
                 <ChevronRight size={16} />
               </button>

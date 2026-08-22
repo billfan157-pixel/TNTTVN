@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { LiturgicalTodayWidget } from './LiturgicalTodayWidget';
+import { formatDateVi } from '../../utils/formatDate';
 
 interface DesktopDashboardProps {
   onOpenAddStudent: () => void;
@@ -323,7 +324,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                         {priorityBadge.label}
                       </span>
                       <span className="text-[11px] font-semibold text-text-muted">
-                        {notice.date}
+                        {formatDateVi(notice.date)}
                       </span>
                     </div>
 

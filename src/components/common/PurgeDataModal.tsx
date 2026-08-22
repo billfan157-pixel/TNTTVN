@@ -3,6 +3,7 @@ import { AlertTriangle, X, Loader2, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { resetClientData } from '../../lib/resetClientData'
 import * as Sentry from '@sentry/react'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface Props {
   isOpen: boolean
@@ -17,6 +18,8 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
   const [confirmKey, setConfirmKey] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   useEffect(() => {
     if (!isOpen) return
@@ -49,7 +52,7 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
 
   return (
     <div role="alertdialog" aria-modal="true" aria-labelledby="purge-data-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">

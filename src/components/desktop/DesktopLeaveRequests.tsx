@@ -9,6 +9,7 @@ import { useClassStore } from '../../stores/classStore'
 import { useAuth } from '../../hooks/useAuth'
 import { EmptyState, NoResultState, SkeletonTable } from '../common/StateFeedback'
 import { ModalShell } from '../common/ModalShell'
+import { formatDateVi } from '../../utils/formatDate'
 import { PageHeader } from '../common/PageHeader'
 import type { LeaveRequest, LeaveRequestStatus } from '../../types'
 
@@ -180,7 +181,7 @@ export function DesktopLeaveRequests() {
               placeholder="Tìm theo tên con / phụ huynh..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="form-input text-xs font-medium pl-8 pr-3 py-1.5 rounded-xl w-48 sm:w-60"
+              className="form-input text-xs font-medium pl-8 pr-3 py-1.5 rounded-xl w-48 sm:w-60 max-w-full"
             />
           </div>
         </div>
@@ -250,7 +251,7 @@ export function DesktopLeaveRequests() {
                     <td className="py-2.5 px-3 font-semibold text-text-muted">{idx + 1}</td>
 
                     <td className="py-2.5 px-3 font-bold text-text-main">
-                      {req.date}
+                      {formatDateVi(req.date)}
                     </td>
 
                     <td className="py-2.5 px-3 overflow-hidden min-w-0">

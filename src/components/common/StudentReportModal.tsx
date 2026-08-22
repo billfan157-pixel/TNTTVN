@@ -10,6 +10,7 @@ import { ReportViewModelFactory } from '../../utils/reportViewModelFactory';
 import { ReportExportService } from '../../services/reportExportService';
 import { BRANCHES } from '../../constants/branches';
 import { X, Printer, Award, Church, BookOpen, HeartHandshake, CheckSquare } from 'lucide-react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface StudentReportModalProps {
   isOpen: boolean;
@@ -43,6 +44,8 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
   };
 
   const printedRef = React.useRef(false);
+  // PHA 1 hoàn tất (audit A19): focus trap — layout A4 print giữ nguyên, chỉ trap
+  const trapRef = useFocusTrap(isOpen && !!student);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -84,9 +87,10 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div 
-        className="modal-content" 
-        onClick={e => e.stopPropagation()} 
+      <div
+        ref={trapRef}
+        className="modal-content"
+        onClick={e => e.stopPropagation()}
         style={{ maxWidth: '750px', background: '#FFF' }}
       >
         {/* Header Control buttons (Hidden when printing) */}

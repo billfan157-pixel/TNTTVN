@@ -1,16 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
-import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Download } from 'lucide-react';
+import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Download, Search } from 'lucide-react';
 import type { Student } from '../../types';
 import { PageHeader } from '../common/PageHeader';
 import { PrintReportModal } from '../common/PrintReportModal';
 import { ExcelImportModal } from '../common/ExcelImportModal';
 import { BackupRestoreModal } from '../common/BackupRestoreModal';
-import { EmptyState } from '../common/StateFeedback';
+import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { useAuth } from '../../hooks/useAuth';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import {
@@ -38,7 +38,20 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   const [printReportType, setPrintReportType] = useState<import('../../utils/pdfGenerator').ReportType | undefined>(undefined);
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [studentQuery, setStudentQuery] = useState('');
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog();
+
+  // Quick-print: tìm kiếm thay vì cap cứng 9 học sinh đầu tiên
+  const QUICK_PRINT_LIMIT = 12;
+  const matchedStudents = useMemo(() => {
+    const q = studentQuery.trim().toLowerCase();
+    const base = q
+      ? students.filter(s =>
+          s.fullName.toLowerCase().includes(q) ||
+          (s.holyName || '').toLowerCase().includes(q))
+      : students;
+    return base.slice(0, QUICK_PRINT_LIMIT);
+  }, [students, studentQuery]);
 
   const openPrintModal = (type?: import('../../utils/pdfGenerator').ReportType) => {
     setPrintReportType(type);
@@ -213,30 +226,56 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
             description="Hãy thêm học sinh vào các lớp để sử dụng tính năng in kết quả học tập."
           />
         ) : (
-          <div className="grid grid-cols-3 gap-4">
-            {students.slice(0, 9).map(s => {
-              const cls = findClassById(s.classId);
-              const avg = calculateStudentAvg(s.id, selectedSemester);
-              return (
-                <div key={s.id} className="border border-surface-border rounded-xl p-4 flex justify-between items-center bg-surface-hover transition-all hover:bg-surface-card hover:shadow-card hover:border-surface-border min-w-0">
-                  <div className="min-w-0 overflow-hidden">
-                    <div className="font-bold text-parish-primary text-sm min-w-0 truncate">
-                      <span className="text-parish-secondary font-bold mr-1.5">{s.holyName}</span>
-                      <span className="text-text-main font-semibold">{s.fullName}</span>
-                    </div>
-                    <div className="text-xs text-text-muted mt-1 truncate">
-                      {cls?.name} • ĐTB: <strong className="text-parish-primary">{avg.score ?? '-'}</strong> ({avg.label})
-                    </div>
-                  </div>
-                  {canPrint && (
-                    <button onClick={() => onPrintReport(s)} className="btn btn-secondary btn-sm shrink-0 ml-3">
-                      <FileText size={14} /> In
-                    </button>
-                  )}
+          <>
+            <div className="relative mb-4 max-w-md">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
+              <input
+                type="search"
+                value={studentQuery}
+                onChange={e => setStudentQuery(e.target.value)}
+                placeholder="Tìm học sinh theo tên hoặc tên thánh..."
+                aria-label="Tìm học sinh để in kết quả"
+                className="form-input w-full pl-9 text-sm"
+              />
+            </div>
+            {matchedStudents.length === 0 ? (
+              <NoResultState
+                description={`Không tìm thấy học sinh nào khớp "${studentQuery.trim()}". Thử từ khóa khác hoặc xóa tìm kiếm.`}
+                onReset={() => setStudentQuery('')}
+                resetLabel="Xóa tìm kiếm"
+              />
+            ) : (
+              <>
+                <p className="text-xs text-text-muted mb-3">
+                  Hiển thị {matchedStudents.length} / {students.length} học sinh{studentQuery.trim() ? ' (kết quả tìm kiếm)' : ' — nhập để tìm nhanh'}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {matchedStudents.map(s => {
+                    const cls = findClassById(s.classId);
+                    const avg = calculateStudentAvg(s.id, selectedSemester);
+                    return (
+                      <div key={s.id} className="border border-surface-border rounded-xl p-4 flex justify-between items-center bg-surface-hover transition-all hover:bg-surface-card hover:shadow-card hover:border-surface-border min-w-0">
+                        <div className="min-w-0 overflow-hidden">
+                          <div className="font-bold text-parish-primary text-sm min-w-0 truncate">
+                            <span className="text-parish-secondary font-bold mr-1.5">{s.holyName}</span>
+                            <span className="text-text-main font-semibold">{s.fullName}</span>
+                          </div>
+                          <div className="text-xs text-text-muted mt-1 truncate">
+                            {cls?.name} • ĐTB: <strong className="text-parish-primary">{avg.score ?? '-'}</strong> ({avg.label})
+                          </div>
+                        </div>
+                        {canPrint && (
+                          <button onClick={() => onPrintReport(s)} className="btn btn-secondary btn-sm shrink-0 ml-3">
+                            <FileText size={14} /> In
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              </>
+            )}
+          </>
         )}
       </div>
     </div>

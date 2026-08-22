@@ -6,6 +6,7 @@ import {
   type GradeWeightsConfig,
 } from '../../utils/grades'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface GradeFormulaConfigModalProps {
   isOpen: boolean
@@ -29,6 +30,8 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
     scoreFinal: 9.5,
   })
   const [savedSuccess, setSavedSuccess] = useState(false)
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   useEffect(() => {
     if (isOpen) {
@@ -66,7 +69,7 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-labelledby="grade-formula-title">
-      <div className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="bg-parish-primary text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">

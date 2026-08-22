@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion } from '../../types'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 const SCORE_TYPES: { id: ExamScoreType; label: string; daily: boolean }[] = [
   { id: 'oral', label: 'Điểm Miệng', daily: true },
@@ -126,6 +127,9 @@ export const ExamSessionView: React.FC = () => {
   const [showGuidedGrade, setShowGuidedGrade] = useState(false)
   const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
   const [showAnswerKeyModal, setShowAnswerKeyModal] = useState(false)
+  // PHA 1 nợ (audit A19): focus trap cho 2 modal nội bộ (answer-key + create session)
+  const answerKeyTrapRef = useFocusTrap(showAnswerKeyModal)
+  const createTrapRef = useFocusTrap(showCreate)
   const [rescoreLoading, setRescoreLoading] = useState(false)
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -681,7 +685,7 @@ export const ExamSessionView: React.FC = () => {
       {/* Answer Key Viewer Modal for Active Session */}
       {showAnswerKeyModal && activeSession && (
         <div role="dialog" aria-modal="true" aria-labelledby="answer-key-title" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAnswerKeyModal(false)}>
-          <div className="bg-surface-card rounded-2xl p-5 w-full max-w-lg shadow-2xl flex flex-col gap-3 max-h-[90vh] border border-surface-border" onClick={e => e.stopPropagation()}>
+          <div ref={answerKeyTrapRef} className="bg-surface-card rounded-2xl p-5 w-full max-w-lg shadow-2xl flex flex-col gap-3 max-h-[90vh] border border-surface-border" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-surface-border pb-3">
               <div>
                 <h4 id="answer-key-title" className="font-extrabold text-parish-primary flex items-center gap-2 m-0">
@@ -765,7 +769,7 @@ export const ExamSessionView: React.FC = () => {
       {/* Create modal */}
       {showCreate && (
         <div role="dialog" aria-modal="true" aria-labelledby="create-session-title" className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-          <div className="bg-surface-card rounded-2xl p-5 w-full max-w-2xl shadow-xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div ref={createTrapRef} className="bg-surface-card rounded-2xl p-5 w-full max-w-2xl shadow-xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h4 id="create-session-title" className="font-extrabold text-parish-primary mb-1">Tạo Phiên Chấm</h4>
             <p className="text-xs text-text-muted mb-3">
               Năm học {normalizeActiveAY(activeAY)} · Học kỳ {selectedSemester} — điểm sẽ ghi đúng cột theo loại điểm khi hoàn tất phiên.

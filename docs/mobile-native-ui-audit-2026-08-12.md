@@ -85,3 +85,19 @@ The supplied mobile screenshot exposed a concrete composition issue that was not
 The refinement adds semantic `offline-status-banner*` classes and makes the connection banner the sole owner of the top safe-area inset on mobile. The mobile top bar now starts directly below that banner, uses a compact 42px brand mark and 46px menu hit area, centers the identity group vertically, and reduces typography/spacing while preserving the existing desktop header unchanged. The sync progress/pending badge is hidden on narrow mobile widths because the primary connection state remains readable without creating a second competing control row.
 
 Verification: `npx tsc -b` passed with no output, `npm run build:frontend` passed, and the existing Vite warning about an ineffective dynamic import remains unrelated to the header change.
+
+## Zoom lock — 2026-08-22
+
+Product requirement (owner request): khóa hoàn toàn khả năng zoom (pinch-zoom và double-tap zoom) trên giao diện mobile để app có trải nghiệm native. Đây là thay đổi D1 (presentation-only, không chạm auth/tenant/API/data).
+
+Implementation:
+
+| Layer | Change |
+| --- | --- |
+| Viewport meta | `index.html:6` thêm `maximum-scale=1.0, user-scalable=no` (hiệu lực trên Android Chrome/WebView). |
+| JS gesture guard | `src/lib/zoomGuard.ts` (`installZoomGuard()`, gọi từ `src/main.tsx`) chặn `gesturestart/gesturechange/gestureend` (pinch Safari/WKWebView) và `touchmove` ≥ 2 ngón (Chromium fallback). Bắt buộc vì iOS Safari ≥ 10 bỏ qua `user-scalable=no`. Cuộn một ngón và thao tác form giữ nguyên. |
+| CSS | `body { touch-action: manipulation }` trong `src/index.css` tắt double-tap zoom mà vẫn cho phép pan/cuộn. |
+
+Verification: `npx tsc -b` exit 0; `oxlint` sạch trên `zoomGuard.ts` + `main.tsx`. Cần smoke test thủ công trên thiết bị thật (pinch + double-tap trên iOS Safari/WKWebView và Android Chrome) trước khi release.
+
+Known trade-off: vi phạm WCAG 1.4.4 (Resize Text) — chấp nhận theo yêu cầu product owner; người dùng cần cỡ chữ lớn nên dùng tính năng phóng đại của hệ điều hành nếu có nhu cầu.

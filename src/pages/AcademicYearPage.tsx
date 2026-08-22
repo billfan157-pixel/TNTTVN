@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Calendar, Lock, Unlock, Plus, CheckCircle2, ClipboardCheck, Flag, GraduationCap, Copy, RefreshCw, XCircle, AlertTriangle, Info, ArrowRight, Archive } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
+import { ModalShell } from '../components/common/ModalShell'
+import { ConfirmDialog } from '../components/common/ConfirmDialog'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
+import { SkeletonCardGrid } from '../components/common/StateFeedback'
 import { useAcademicYearStore } from '../stores/academicYearStore'
 import { useAuth } from '../hooks/useAuth'
 import { semesterLocksApiClient } from '../lib/api/semesterLocks'
@@ -41,6 +45,10 @@ interface ModalState {
   checklist?: CompletenessChecklist
   title?: string
   message?: string
+  /** PHA 1 (audit MED): thao tác irreversible (finalize/promote) → danger */
+  variant?: 'danger' | 'warning' | 'info'
+  /** Nhãn nút xác nhận cụ thể theo hành động (mặc định 'Xác nhận') */
+  confirmText?: string
   onConfirm?: () => void
   resultTitle?: string
   resultLines?: { icon: 'ok' | 'warn' | 'err' | 'info'; text: string }[]
@@ -110,6 +118,8 @@ export function AcademicYearPage() {
       year,
       title: `Bắt đầu Học Kỳ 2 — ${year.id}`,
       message: 'Sau khi bấm xác nhận, mọi thao tác nhập điểm/điểm danh/báo cáo sẽ mặc định ghi vào HK2. HK1 vẫn giữ trạng thái khóa.',
+      variant: 'warning',
+      confirmText: 'Bắt Đầu HK2',
       onConfirm: () => run(
         () => academicYearsApiClient.startSemester2(year.id),
         (res) => {
@@ -135,6 +145,8 @@ export function AcademicYearPage() {
       year,
       title: `Chốt Năm Học — ${year.id}`,
       message: 'Hệ thống sẽ: (1) kiểm tra lại tính đầy đủ dữ liệu, (2) tính TB HK1 + TB HK2 + TB năm + xếp loại cho từng học sinh, (3) lưu snapshot lịch sử, (4) khóa toàn bộ năm học. Không thể sửa điểm sau khi chốt.',
+      variant: 'danger',
+      confirmText: 'Chốt Năm Học',
       onConfirm: () => run(
         () => academicYearsApiClient.finalizeYear(year.id),
         (res: FinalizeSummary) => {
@@ -176,6 +188,8 @@ export function AcademicYearPage() {
       year,
       title: `Xét Lên Lớp — ${year.id} → ${nextYear}`,
       message: 'Hệ thống sẽ tạo lớp/khóa cho năm học mới (nếu chưa có), sinh promotion_records từ snapshot, và chuyển học sinh đạt điều kiện sang lớp năm học mới. Thao tác này KHÔNG thể hoàn tác.',
+      variant: 'danger',
+      confirmText: 'Xét Lên Lớp',
       onConfirm: () => run(
         () => academicYearsApiClient.promoteYear(year.id, nextYear),
         (res: PromoteSummary) => {
@@ -209,6 +223,8 @@ export function AcademicYearPage() {
       year,
       title: `Tạo Năm Học Mới — ${year.id} → ${newYear}`,
       message: 'Hệ thống sẽ tạo năm học mới và COPY danh sách lớp + cấu hình môn/trọng số (assessments). KHÔNG copy điểm, điểm danh hay báo cáo.',
+      variant: 'warning',
+      confirmText: 'Tạo & Copy',
       onConfirm: () => run(
         () => academicYearsApiClient.copyAcademicYear(year.id, newYear),
         (res: CopyYearResult) => {
@@ -261,7 +277,7 @@ export function AcademicYearPage() {
   const activeYear = years.find((y) => y.id === currentYear)
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <DesktopAppShell width="wide" className="flex flex-col gap-6">
       {/* Header */}
       <PageHeader
         icon={<Calendar className="w-5 h-5" />}
@@ -320,13 +336,15 @@ export function AcademicYearPage() {
       </div>
 
       {error && (
-        <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-xl flex items-center gap-2">
+        <div className="alert-error">
           <XCircle className="w-4 h-4 shrink-0" /> {error}
         </div>
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-text-muted text-sm">Đang tải...</div>
+        <div role="status" aria-label="Đang tải dữ liệu">
+          <SkeletonCardGrid count={3} />
+        </div>
       ) : years.length === 0 ? (
         <div className="bg-surface-card rounded-2xl border border-dashed border-surface-border p-10 text-center space-y-3">
           <div className="mx-auto w-12 h-12 bg-parish-primary/10 rounded-2xl flex items-center justify-center">
@@ -487,16 +505,15 @@ export function AcademicYearPage() {
         </div>
       )}
 
-      {/* Checklist modal */}
+      {/* Checklist modal — PHA 1: ModalShell (focus trap + Escape + scroll-lock) */}
       {modal?.type === 'checklist' && modal.checklist && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-text-main">Check Dữ Liệu — {modal.year?.id}</h3>
-              <button onClick={() => setModal(null)} className="text-text-muted hover:text-text-main">
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
+        <ModalShell
+          isOpen
+          onClose={() => setModal(null)}
+          title={`Check Dữ Liệu — ${modal.year?.id}`}
+          maxWidth="512px"
+        >
+          <div className="space-y-4">
             <div className="text-xs text-text-muted flex flex-wrap gap-2">
               <span className="px-2 py-1 bg-surface-hover rounded-lg">{modal.checklist.totals.classes} lớp</span>
               <span className="px-2 py-1 bg-surface-hover rounded-lg">{modal.checklist.totals.students} học sinh</span>
@@ -532,19 +549,23 @@ export function AcademicYearPage() {
               </div>
             )}
             <div className="flex justify-end">
-              <button onClick={() => setModal(null)} className="px-4 py-2 bg-parish-primary text-white text-xs font-bold rounded-xl">
+              <button onClick={() => setModal(null)} className="btn btn-primary btn-sm">
                 Đóng
               </button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
-      {/* Promote modal */}
+      {/* Promote modal — PHA 1: ModalShell */}
       {modal?.type === 'promote' && modal.year && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-text-main">Xét Lên Lớp — {modal.year.id}</h3>
+        <ModalShell
+          isOpen
+          onClose={() => setModal(null)}
+          title={`Xét Lên Lớp — ${modal.year.id}`}
+          maxWidth="448px"
+        >
+          <div className="space-y-4">
             <p className="text-xs text-text-muted">
               Năm học mới (lớp sẽ được tự tạo/copy nếu chưa có). Hệ thống sinh promotion_records từ snapshot và chuyển học sinh sang lớp mới.
             </p>
@@ -553,29 +574,33 @@ export function AcademicYearPage() {
               placeholder="VD: 2026 - 2027"
               value={nextYearId}
               onChange={(e) => setNextYearId(e.target.value)}
-              className="w-full px-3 py-2 bg-surface-hover/30 border border-surface-border rounded-xl text-sm"
+              className="form-input w-full text-sm"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setModal(null)} className="px-4 py-2 border border-surface-border text-text-muted text-xs font-bold rounded-xl">
+              <button onClick={() => setModal(null)} className="btn btn-secondary btn-sm">
                 Hủy
               </button>
               <button
                 onClick={() => handlePromote(modal.year!)}
                 disabled={busy || !nextYearId.trim()}
-                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl disabled:opacity-40"
+                className="btn btn-sm bg-parish-indigo hover:bg-parish-primary text-white disabled:opacity-40"
               >
                 {busy ? 'Đang xử lý...' : 'Xét Lên Lớp'}
               </button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
-      {/* Copy modal */}
+      {/* Copy modal — PHA 1: ModalShell */}
       {modal?.type === 'copy' && modal.year && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-text-main">Tạo Năm Học Mới — {modal.year.id}</h3>
+        <ModalShell
+          isOpen
+          onClose={() => setModal(null)}
+          title={`Tạo Năm Học Mới — ${modal.year.id}`}
+          maxWidth="448px"
+        >
+          <div className="space-y-4">
             <p className="text-xs text-text-muted">
               Copy danh sách lớp + cấu hình môn. Không copy điểm, điểm danh, báo cáo.
             </p>
@@ -584,51 +609,48 @@ export function AcademicYearPage() {
               placeholder="VD: 2026 - 2027"
               value={copyYearId}
               onChange={(e) => setCopyYearId(e.target.value)}
-              className="w-full px-3 py-2 bg-surface-hover/30 border border-surface-border rounded-xl text-sm"
+              className="form-input w-full text-sm"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setModal(null)} className="px-4 py-2 border border-surface-border text-text-muted text-xs font-bold rounded-xl">
+              <button onClick={() => setModal(null)} className="btn btn-secondary btn-sm">
                 Hủy
               </button>
               <button
                 onClick={() => handleCopy(modal.year!)}
                 disabled={busy || !copyYearId.trim()}
-                className="px-4 py-2 bg-parish-primary text-white text-xs font-bold rounded-xl disabled:opacity-40"
+                className="btn btn-primary btn-sm disabled:opacity-40"
               >
                 {busy ? 'Đang xử lý...' : 'Tạo & Copy'}
               </button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
-      {/* Confirm modal */}
+      {/* Confirm modal — PHA 1: ConfirmDialog chuẩn (focus trap + Esc + variant
+          danger cho finalize/promote irreversible, sửa finding "Xác Nhận" generic) */}
       {modal?.type === 'confirm' && modal.year && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-text-main">{modal.title}</h3>
-            <p className="text-xs text-text-muted leading-relaxed">{modal.message}</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setModal(null)} className="px-4 py-2 border border-surface-border text-text-muted text-xs font-bold rounded-xl">
-                Hủy
-              </button>
-              <button
-                onClick={() => { modal.onConfirm?.() }}
-                disabled={busy}
-                className="px-4 py-2 bg-parish-primary text-white text-xs font-bold rounded-xl disabled:opacity-40"
-              >
-                {busy ? 'Đang xử lý...' : 'Xác Nhận'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          isOpen
+          title={modal.title}
+          message={modal.message || ''}
+          confirmText={modal.confirmText || 'Xác nhận'}
+          variant={modal.variant || 'warning'}
+          isBusy={busy}
+          onConfirm={() => { modal.onConfirm?.() }}
+          onCancel={() => setModal(null)}
+        />
       )}
 
-      {/* Result modal */}
+      {/* Result modal — PHA 1: ModalShell */}
       {modal?.type === 'result' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-text-main">{modal.resultTitle}</h3>
+        <ModalShell
+          isOpen
+          onClose={() => setModal(null)}
+          title={modal.resultTitle || 'Kết Quả'}
+          maxWidth="448px"
+        >
+          <div className="space-y-4">
             <div className="space-y-2">
               {(modal.resultLines || []).map((line, idx) => (
                 <div key={idx} className="flex items-start gap-2 text-xs font-semibold text-text-main">
@@ -641,19 +663,23 @@ export function AcademicYearPage() {
               ))}
             </div>
             <div className="flex justify-end">
-              <button onClick={() => setModal(null)} className="px-4 py-2 bg-parish-primary text-white text-xs font-bold rounded-xl">
+              <button onClick={() => setModal(null)} className="btn btn-primary btn-sm">
                 Đóng
               </button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
-      {/* Create bare year modal */}
+      {/* Create bare year modal — PHA 1: ModalShell */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-text-main">Tạo Năm Học Giáo Lý Mới</h3>
+        <ModalShell
+          isOpen={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          title="Tạo Năm Học Giáo Lý Mới"
+          maxWidth="448px"
+        >
+          <div className="space-y-4">
             <p className="text-xs text-text-muted">
               Khuyến nghị dùng nút "Tạo Năm Mới" trên từng năm học để tự copy lớp + cấu hình môn. Nút này chỉ tạo năm trống.
             </p>
@@ -662,24 +688,24 @@ export function AcademicYearPage() {
               placeholder="VD: 2026 - 2027"
               value={newYearName}
               onChange={(e) => setNewYearName(e.target.value)}
-              className="w-full px-3 py-2 bg-surface-hover/30 border border-surface-border rounded-xl text-sm"
+              className="form-input w-full text-sm"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowAddModal(false)} className="px-4 py-2 border border-surface-border text-text-muted text-xs font-bold rounded-xl">
+              <button onClick={() => setShowAddModal(false)} className="btn btn-secondary btn-sm">
                 Hủy
               </button>
               <button
                 onClick={handleCreateBare}
                 disabled={busy || !newYearName.trim()}
-                className="px-4 py-2 bg-parish-primary text-white text-xs font-bold rounded-xl disabled:opacity-40"
+                className="btn btn-primary btn-sm disabled:opacity-40"
               >
                 {busy ? 'Đang xử lý...' : 'Tạo'}
               </button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
-    </div>
+    </DesktopAppShell>
   )
 }
 

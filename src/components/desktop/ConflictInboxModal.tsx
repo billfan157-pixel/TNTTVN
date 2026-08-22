@@ -3,6 +3,7 @@ import { X, AlertTriangle, CheckCircle2, Trash2, History, ChevronRight } from 'l
 import { useSyncStore } from '../../stores/syncStore'
 import { isEncryptedValue, decryptQueueValue } from '../../lib/offlineCipher'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import type { SyncConflict } from '../../lib/db'
 
 interface ConflictInboxModalProps {
@@ -65,6 +66,8 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
   const [conflicts, setConflicts] = useState<SyncConflict[]>([])
   const [loading, setLoading] = useState(true)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   const loadConflicts = async () => {
     setLoading(true)
@@ -114,7 +117,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="conflict-inbox-title">
-      <div className="bg-surface-app w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-surface-border animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+      <div ref={trapRef} className="bg-surface-app w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-surface-border animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
         <div className="p-6 border-b border-surface-border flex items-center justify-between bg-parish-primary text-white">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/20 rounded-xl">

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Award, Search, AlertCircle } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
+import { SkeletonCardGrid, NoResultState } from '../components/common/StateFeedback'
 import { api, ApiError } from '../lib/api'
 
 interface CatechistUser {
@@ -64,7 +66,7 @@ export function CatechistPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <DesktopAppShell width="wide" className="flex flex-col gap-6">
       {/* Header */}
       <PageHeader
         icon={<Award className="w-5 h-5" />}
@@ -106,7 +108,12 @@ export function CatechistPage() {
 
       {/* Cards Grid */}
       {loading ? (
-        <div className="py-12 text-center text-text-muted text-sm">Đang tải danh sách Huynh Trưởng...</div>
+        <SkeletonCardGrid count={6} />
+      ) : filteredUsers.length === 0 ? (
+        <NoResultState
+          title="Không có Huynh Trưởng nào"
+          description="Thử đổi bộ lọc vai trò hoặc từ khóa tìm kiếm."
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredUsers.map((u) => {
@@ -133,7 +140,7 @@ export function CatechistPage() {
           })}
         </div>
       )}
-    </div>
+    </DesktopAppShell>
   )
 }
 

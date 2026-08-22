@@ -5,6 +5,7 @@ import { imageFileToImageData } from '../../lib/imageFile'
 import { normalizeAnswerVariants } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
 import type { ExamSession, ExamVersionCode } from '../../types'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface BatchItem extends BatchScanAnalysis {
   id: string
@@ -24,6 +25,8 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
   const folderInputRef = useRef<HTMLInputElement>(null)
   const { results, saveScores, saving, error } = useExamStore()
   const [items, setItems] = useState<BatchItem[]>([])
+  // PHA 1 nợ (audit A19): focus trap
+  const trapRef = useFocusTrap(true)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [message, setMessage] = useState('')
@@ -116,7 +119,7 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="batch-scan-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
-      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
+      <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div>
             <h4 id="batch-scan-title" className="m-0 font-black text-parish-primary">Chấm hàng loạt từ ảnh</h4>

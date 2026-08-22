@@ -12,6 +12,9 @@ import {
 import { PageHeader } from '../common/PageHeader'
 import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
+import { useToastStore } from '../../stores/toastStore'
+import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { EmptyState } from '../common/StateFeedback'
 
 const SCORE_TYPES: { id: DailyScoreType; label: string; color: string }[] = [
   { id: 'oral', label: 'Điểm Miệng', color: 'bg-[var(--color-parish-info)]' },
@@ -37,6 +40,8 @@ export const DesktopDailyGradeEntry: React.FC = () => {
   const [activeScoreType, setActiveScoreType] = useState<DailyScoreType>('oral')
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null)
+  // P0.9 (audit desktop 2026-08-22): confirm cho xóa điểm & restore override
+  const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   const filteredStudents = useMemo(
     () => selectedClassId === 'all'
@@ -53,10 +58,42 @@ export const DesktopDailyGradeEntry: React.FC = () => {
   const handleAddScore = (studentId: string) => {
     const raw = inputValues[studentId]
     if (!raw || raw.trim() === '') return
-    const val = parseFloat(raw)
-    if (isNaN(val) || val < 0 || val > 10) return
+    const val = parseFloat(raw.replace(',', '.'))
+    // P0.9: báo lỗi rõ ràng thay vì bỏ qua im lặng khi điểm invalid
+    if (isNaN(val) || val < 0 || val > 10) {
+      useToastStore.getState().addToast('Điểm không hợp lệ — chỉ nhận số từ 0 đến 10', 'error')
+      return
+    }
     addEntry(studentId, activeScoreType, val, selectedSemester)
     setInputValues(prev => ({ ...prev, [studentId]: '' }))
+  }
+
+  const handleRemoveEntry = async (entryId: string, studentName: string, value: number) => {
+    const ok = await askConfirm({
+      title: 'Xác Nhận Xóa Điểm',
+      message: `Xóa điểm ${value} của ${studentName}? Hành động này không thể hoàn tác.`,
+      confirmText: 'Xóa Điểm',
+      variant: 'danger',
+    })
+    if (ok) removeEntry(entryId)
+  }
+
+  const handleRestoreAuto = async (studentId: string, studentName: string, avg: number, scoreType: DailyScoreType) => {
+    const label = SCORE_TYPES.find(t => t.id === scoreType)?.label || scoreType
+    const ok = await askConfirm({
+      title: 'Khôi Phục Điểm Tự Động',
+      message: `Ghi ĐTB ${label} (${avg}) vào cột điểm matrix của ${studentName}, thay thế điểm đang override thủ công?`,
+      confirmText: 'Khôi Phục',
+      variant: 'warning',
+    })
+    if (!ok) return
+    useGradeStore.getState().upsertGrade({
+      studentId,
+      semester: selectedSemester,
+      [SCORE_FIELD_MAP[scoreType]]: avg,
+      [`${SCORE_FIELD_MAP[scoreType]}_source`]: 'daily_avg',
+      [`${SCORE_FIELD_MAP[scoreType]}_updated_at`]: new Date().toISOString(),
+    } as any)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent, studentId: string) => {
@@ -217,8 +254,12 @@ export const DesktopDailyGradeEntry: React.FC = () => {
             <tbody className="bg-surface-card">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-text-muted">
-                    Không có thiếu nhi nào trong bộ lọc.
+                  <td colSpan={6} className="p-8">
+                    <EmptyState
+                      icon={Calculator}
+                      title="Không có thiếu nhi nào trong bộ lọc"
+                      description="Chọn lớp khác hoặc thêm học sinh để bắt đầu nhập điểm hằng ngày."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -254,19 +295,9 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                                   <span className="badge badge-warning text-[10px] font-extrabold px-1.5 py-0.5 rounded border border-[var(--color-parish-warning)]/30">
                                     ✏️ Bị Override
                                   </span>
-                                  {canEdit && (
+                                  {canEdit && avg !== null && (
                                     <button
-                                      onClick={() => {
-                                        if (avg !== null) {
-                                          useGradeStore.getState().upsertGrade({
-                                            studentId: student.id,
-                                            semester: selectedSemester,
-                                            [SCORE_FIELD_MAP[activeScoreType]]: avg,
-                                            [`${SCORE_FIELD_MAP[activeScoreType]}_source`]: 'daily_avg',
-                                            [`${SCORE_FIELD_MAP[activeScoreType]}_updated_at`]: new Date().toISOString(),
-                                          } as any)
-                                        }
-                                      }}
+                                      onClick={() => void handleRestoreAuto(student.id, `${student.holyName} ${student.fullName}`.trim(), avg, activeScoreType)}
                                       className="badge badge-info text-[10px] font-bold hover:underline px-1.5 py-0.5 rounded border border-[var(--color-parish-info)]/30"
                                       title="Khôi phục điểm tự động từ các bài kiểm tra hằng ngày"
                                     >
@@ -297,7 +328,9 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                                   {e.value}
                                   {canEdit && (
                                     <button
-                                      onClick={() => removeEntry(e.id)}
+                                      onClick={() => void handleRemoveEntry(e.id, `${student.holyName} ${student.fullName}`.trim(), e.value)}
+                                      aria-label={`Xóa điểm ${e.value} của ${student.fullName}`}
+                                      title="Xóa điểm này"
                                       className="hover:opacity-60"
                                     >
                                       <Trash2 size={10} />
@@ -349,6 +382,8 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                               <button
                                 onClick={() => handleAddScore(student.id)}
                                 disabled={!inputValues[student.id]?.trim()}
+                                aria-label={`Thêm điểm ${activeLabel} cho ${student.fullName}`}
+                                title="Thêm điểm"
                                 className="h-8 w-8 flex items-center justify-center bg-parish-primary hover:bg-parish-primary-hover text-white rounded-lg disabled:opacity-40 transition-colors"
                               >
                                 <Plus size={16} />
@@ -375,6 +410,8 @@ export const DesktopDailyGradeEntry: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {confirmDialog}
 
     </div>
   )

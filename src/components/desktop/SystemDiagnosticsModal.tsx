@@ -4,6 +4,7 @@ import { getDB, type SyncQueueItem, type SyncConflict } from '../../lib/db'
 import { useSyncStore } from '../../stores/syncStore'
 import { runSyncFlow } from '../../hooks/useSyncEngine'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { ConflictInboxModal } from './ConflictInboxModal'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
@@ -29,6 +30,8 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   
   const store = useSyncStore()
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
+  // PHA 1 (audit A19): focus trap — trước đây Tab thoát ra nền phía sau overlay
+  const trapRef = useFocusTrap(isOpen)
   const syncNow = () => runSyncFlow()
   const [latencyLoading, setLatencyLoading] = useState(false)
   const [dbStatus, setDbStatus] = useState<'healthy' | 'error' | 'checking'>('checking')
@@ -103,7 +106,7 @@ if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="Bảng Chẩn Đoán Hệ Thống">
-      <div className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
         <div className="bg-parish-primary text-white p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-white/10 rounded-xl">

@@ -16,6 +16,7 @@ import {
   Phone,
 } from 'lucide-react'
 import { api } from '../../lib/api'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface ParentForgotPasswordModalProps {
   isOpen: boolean
@@ -29,6 +30,8 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
   onSuccess,
 }) => {
   const [activeTab, setActiveTab] = useState<'verify' | 'zalo'>('verify')
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   // Tab 1: Form state
   const [phone, setPhone] = useState('')
@@ -132,7 +135,7 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
         if (e.key === 'Escape') onClose()
       }}
     >
-      <div className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-2.5">

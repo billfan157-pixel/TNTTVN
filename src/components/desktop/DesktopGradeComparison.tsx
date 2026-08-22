@@ -4,7 +4,8 @@ import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 
-import { Columns3, TrendingUp, TrendingDown, Minus, type LucideProps } from 'lucide-react'
+import { Columns3, TrendingUp, TrendingDown, Minus, BarChart3, type LucideProps } from 'lucide-react'
+import { EmptyState } from '../common/StateFeedback'
 import { PageHeader } from '../common/PageHeader'
 
 const TrendIcon = ({ trend }: { trend: string } & LucideProps) => {
@@ -117,8 +118,12 @@ export const DesktopGradeComparison: React.FC = () => {
             <tbody className="bg-surface-card">
               {comparisonData.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-text-muted">
-                    Chưa có dữ liệu điểm để so sánh.
+                  <td colSpan={7} className="p-8">
+                    <EmptyState
+                      icon={BarChart3}
+                      title="Chưa có dữ liệu điểm để so sánh"
+                      description="Nhập điểm cho cả hai học kỳ để xem so sánh tiến độ của từng thiếu nhi."
+                    />
                   </td>
                 </tr>
               ) : (

@@ -12,6 +12,7 @@ import { api, isAuthenticated } from '../../lib/api'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/academicYear'
 import { calculateGradeAverage } from '../../utils/grades'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import * as Sentry from '@sentry/react'
 
 interface Props {
@@ -83,6 +84,8 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
   const syncStatus = useSyncStore((s) => s.status)
 
   const { askConfirm, dialog } = useConfirmDialog()
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   useEffect(() => {
     if (importPhase === 'syncing') {
@@ -407,7 +410,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="excel-grade-import-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">

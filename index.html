@@ -2,8 +2,16 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      /* PHA 2 (audit A24): áp dụng theme trước CSS paint để diệt light-flash
+         trên dark mode. Mirror được ghi bởi src/lib/uiBoot.ts. */
+      try {
+        var __boot = JSON.parse(localStorage.getItem('parish_ui_boot') || '{}');
+        if (__boot.theme === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#1E3A8A" />
     <meta name="description" content="Hệ thống quản lý điểm số & theo dõi chuyên cần Thiếu Nhi Thánh Thể" />
     <meta name="mobile-web-app-capable" content="yes" />

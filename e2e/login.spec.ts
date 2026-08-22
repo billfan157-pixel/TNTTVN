@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin } from './helpers'
 
 test.describe('E2E Authentication Flow', () => {
   test('displays portal chooser on /login with both portals', async ({ page }) => {
@@ -24,15 +25,9 @@ test.describe('E2E Authentication Flow', () => {
     await expect(page.locator('button[type="submit"]')).toBeVisible()
   })
 
-  test('redirects to dashboard after setting auth token', async ({ page }) => {
-    await page.goto('/login')
-    await page.evaluate(() => {
-      localStorage.setItem('parish_access_token', 'test-token')
-      localStorage.setItem('parish_refresh_token', 'test-refresh')
-      localStorage.setItem('parish_current_user', JSON.stringify({
-        id: '1', username: 'admin', fullName: 'Admin Test', role: 'admin', parishId: 'test-parish'
-      }))
-    })
+  test('redirects to dashboard after real seeded-admin login', async ({ page }) => {
+    // TQ-F2: đăng nhập thật thay cho fake token — backend live sẽ 401 token giả
+    await loginAsAdmin(page)
     await page.goto('/dashboard')
     await expect(page).toHaveURL(/\/dashboard/)
   })

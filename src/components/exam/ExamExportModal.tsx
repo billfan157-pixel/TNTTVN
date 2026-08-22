@@ -5,6 +5,7 @@ import {
   Layers3, BookOpen, CheckSquare, Square, Award, Code, Globe
 } from 'lucide-react'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import {
   exportExamToWord,
   exportExamToHtml,
@@ -56,6 +57,8 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
   maxScore = 10,
 }) => {
   const [activeFormat, setActiveFormat] = useState<ExportFormat>('word')
+  // PHA 1 nợ (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
   const [selectedVersion, setSelectedVersion] = useState<ExamVersionCode>('A')
   const [durationMinutes, setDurationMinutes] = useState(initialDuration)
   const [includeAnswerKey, setIncludeAnswerKey] = useState(true)
@@ -186,7 +189,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="exam-export-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-surface-card rounded-2xl p-6 w-full max-w-5xl shadow-2xl max-h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="bg-surface-card rounded-2xl p-6 w-full max-w-5xl shadow-2xl max-h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-surface-border pb-4 mb-4">

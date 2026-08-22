@@ -3,6 +3,7 @@ import { AlertTriangle, Layers3, Loader2, Plus, Save, Trash2, X } from 'lucide-r
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
 import type { ExamSession, ExamVersionCode, MultipleChoiceOption } from '../../types'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface ExamVariantsModalProps {
   session: ExamSession
@@ -18,6 +19,8 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
     [session.answerVariants, session.answerKey, questionCount],
   )
   const [variants, setVariants] = useState(initial)
+  // PHA 1 nợ (audit A19): focus trap
+  const trapRef = useFocusTrap(true)
   const [activeVersion, setActiveVersion] = useState<ExamVersionCode>('A')
   const [message, setMessage] = useState('')
   const { updateAnswerVariants, saving } = useExamStore()
@@ -71,7 +74,7 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="variants-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
-      <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
+      <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div>
             <h4 id="variants-title" className="m-0 flex items-center gap-2 font-black text-parish-primary"><Layers3 size={18} /> Đáp án theo mã đề</h4>

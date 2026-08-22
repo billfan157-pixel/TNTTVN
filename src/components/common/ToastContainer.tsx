@@ -33,7 +33,12 @@ export function ToastContainer() {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+    <div
+      className="fixed bottom-4 right-4 z-[var(--z-toast)] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+      role="status"
+      aria-live="polite"
+      aria-label="Thông báo từ hệ thống"
+    >
       {toasts.map((toast) => {
         const config = typeConfig[toast.type]
         const Icon = config.icon

@@ -3,8 +3,10 @@ import { ParishNotice, BranchType } from '../../types';
 import { useNoticeStore } from '../../stores/noticeStore';
 
 import { BRANCHES } from '../../constants/branches';
-import { X, Save, Bell } from 'lucide-react';
+import { Save, Bell } from 'lucide-react';
 import { useToastStore } from '../../stores/toastStore';
+import { ModalShell } from './ModalShell';
+import { FormField } from './FormField';
 
 interface NoticeModalProps {
   isOpen: boolean;
@@ -48,22 +50,8 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
     }
   }, [noticeToEdit, isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // 2026-08-22 mobile audit: khóa cuộn nền khi modal mở (đồng bộ hành vi ModalShell)
-  useEffect(() => {
-    if (!isOpen) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previous; };
-  }, [isOpen]);
+  // PHA 1 (2026-08-22 audit): Escape + scroll-lock + focus trap do ModalShell
+  // đảm nhiệm — bỏ effect window keydown tự viết (không có stack arbitration).
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,114 +115,108 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="notice-modal-title" onClick={onClose}>
-      <div className="modal-content max-w-[600px]" onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-5 border-b border-surface-border pb-3">
-          <div className="flex items-center gap-2">
-            <Bell size={20} color="#1E3A8A" />
-            <h3 id="notice-modal-title" className="text-lg font-bold m-0 text-parish-primary">
-              {noticeToEdit ? 'Chỉnh Sửa Thông Báo' : 'Tạo Thông Báo Mới'}
-            </h3>
-          </div>
-          <button onClick={onClose} aria-label="Đóng" className="bg-transparent border-0 cursor-pointer text-text-muted">
-            <X size={20} />
-          </button>
-        </div>
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title={noticeToEdit ? 'Chỉnh Sửa Thông Báo' : 'Tạo Thông Báo Mới'}
+      icon={<Bell size={20} />}
+      maxWidth="600px"
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <FormField label="Tiêu Đề" htmlFor="notice-title" required error={errors.title || null}>
+          <input
+            id="notice-title"
+            className={`form-input ${errors.title ? 'border-red-500' : ''}`}
+            type="text"
+            placeholder="VD: Thông báo về lịch học Chúa Nhật tới"
+            value={formData.title}
+            onChange={e => {
+              setFormData({ ...formData, title: e.target.value });
+              if (errors.title) setErrors(prev => ({ ...prev, title: '' }));
+            }}
+            maxLength={200}
+          />
+        </FormField>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="form-group">
-            <label className="form-label">Tiêu Đề *</label>
+        <FormField label="Nội Dung" htmlFor="notice-content" required error={errors.content || null}>
+          <textarea
+            id="notice-content"
+            className={`form-textarea ${errors.content ? 'border-red-500' : ''}`}
+            rows={5}
+            placeholder="Nhập nội dung thông báo chi tiết..."
+            value={formData.content}
+            onChange={e => {
+              setFormData({ ...formData, content: e.target.value });
+              if (errors.content) setErrors(prev => ({ ...prev, content: '' }));
+            }}
+            maxLength={5000}
+          />
+        </FormField>
+        <span className="text-xs text-text-muted text-right block -mt-2">{formData.content.length}/5000 ký tự</span>
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Ngày Thông Báo" htmlFor="notice-date" required>
             <input
-              className={`form-input ${errors.title ? 'border-red-500' : ''}`}
-              type="text"
-              placeholder="VD: Thông báo về lịch học Chúa Nhật tới"
-              value={formData.title}
-              onChange={e => {
-                setFormData({ ...formData, title: e.target.value });
-                if (errors.title) setErrors(prev => ({ ...prev, title: '' }));
-              }}
-              maxLength={200}
+              id="notice-date"
+              className="form-input"
+              type="date"
+              value={formData.date}
+              onChange={e => setFormData({ ...formData, date: e.target.value })}
+              required
             />
-            {errors.title && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.title}</span>}
-          </div>
+          </FormField>
 
-          <div className="form-group">
-            <label className="form-label">Nội Dung *</label>
-            <textarea
-              className={`form-textarea ${errors.content ? 'border-red-500' : ''}`}
-              rows={5}
-              placeholder="Nhập nội dung thông báo chi tiết..."
-              value={formData.content}
-              onChange={e => {
-                setFormData({ ...formData, content: e.target.value });
-                if (errors.content) setErrors(prev => ({ ...prev, content: '' }));
-              }}
-              maxLength={5000}
-            />
-            {errors.content && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.content}</span>}
-            <span className="text-xs text-text-muted mt-1 block text-right">{formData.content.length}/5000 ký tự</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="form-group">
-              <label className="form-label">Ngày Thông Báo *</label>
-              <input
-                className="form-input"
-                type="date"
-                value={formData.date}
-                onChange={e => setFormData({ ...formData, date: e.target.value })}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Độ Ưu Tiên *</label>
-              <select
-                className="form-select"
-                value={formData.priority}
-                onChange={e => setFormData({ ...formData, priority: e.target.value as 'normal' | 'important' | 'urgent' })}
-              >
-                {priorityOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Đối Tượng Nhận *</label>
+          <FormField label="Độ Ưu Tiên" htmlFor="notice-priority" required>
             <select
+              id="notice-priority"
               className="form-select"
-              value={formData.targetBranch}
-              onChange={e => setFormData({ ...formData, targetBranch: e.target.value as BranchType | 'All' })}
+              value={formData.priority}
+              onChange={e => setFormData({ ...formData, priority: e.target.value as 'normal' | 'important' | 'urgent' })}
             >
-              {branchOptions.map(opt => (
+              {priorityOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-            <span className="text-xs text-text-muted mt-1 block">Chọn 'Tất cả các ngành' để gửi đến toàn bộ học sinh</span>
-          </div>
+          </FormField>
+        </div>
 
-          <div className="flex justify-end gap-3 mt-2 pt-3 border-t border-surface-border">
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
-              Hủy
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <span className="flex items-center gap-2">
-                  <span className="animate-spin">⏳</span>
-                  Đang lưu...
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <Save size={16} />
-                  {noticeToEdit ? 'Lưu Thay Đổi' : 'Tạo Thông Báo'}
-                </span>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <FormField
+          label="Đối Tượng Nhận"
+          htmlFor="notice-target"
+          required
+          hint="Chọn 'Tất cả các ngành' để gửi đến toàn bộ học sinh"
+        >
+          <select
+            id="notice-target"
+            className="form-select"
+            value={formData.targetBranch}
+            onChange={e => setFormData({ ...formData, targetBranch: e.target.value as BranchType | 'All' })}
+          >
+            {branchOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </FormField>
+
+        <div className="flex justify-end gap-3 mt-2 pt-3 border-t border-surface-border">
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
+            Hủy
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <span className="animate-spin">⏳</span>
+                Đang lưu...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Save size={16} />
+                {noticeToEdit ? 'Lưu Thay Đổi' : 'Tạo Thông Báo'}
+              </span>
+            )}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
   );
 };

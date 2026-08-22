@@ -34,6 +34,7 @@ import {
 } from '../../services/attendanceAnalyticsService'
 import { AttendanceHistoryModal } from './AttendanceHistoryModal'
 import { PageHeader } from '../common/PageHeader'
+import { NoResultState } from '../common/StateFeedback'
 import { BRANCHES } from '../../constants/branches'
 
 export const DesktopAttendanceSummary: React.FC = () => {
@@ -181,7 +182,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
             <select
               value={selectedClassId}
               onChange={(e) => setSelectedClassId(e.target.value)}
-              className="form-select text-sm font-bold h-10 min-w-[170px]"
+              className="form-select text-sm font-bold h-10 min-w-0 w-auto sm:min-w-[170px] max-w-full"
             >
               <option value="all">Tất cả các lớp</option>
               {classList.map((c) => (
@@ -693,8 +694,11 @@ export const DesktopAttendanceSummary: React.FC = () => {
             <tbody className="divide-y divide-surface-border bg-surface-card">
               {sortedSummaries.length === 0 ? (
                 <tr>
-                  <td colSpan={19} className="p-8 text-center text-text-muted">
-                    Không tìm thấy học sinh nào phù hợp tiêu chí
+                  <td colSpan={19} className="p-8">
+                    <NoResultState
+                      title="Không tìm thấy học sinh nào phù hợp tiêu chí"
+                      description="Thử đổi lớp, học kỳ hoặc xóa bộ lọc để xem toàn bộ."
+                    />
                   </td>
                 </tr>
               ) : (

@@ -6,6 +6,7 @@ import { useAttendanceStore } from '../../stores/attendanceStore'
 import { db } from '../../lib/db'
 import { httpFetch } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import * as Sentry from '@sentry/react'
 
 interface Props {
@@ -24,6 +25,8 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const setGrades = useGradeStore((g) => g.setGrades)
   const setAttendance = useAttendanceStore((a) => a.setAttendance)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   useEffect(() => {
     if (!isOpen) return
@@ -149,7 +152,7 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="backup-restore-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">

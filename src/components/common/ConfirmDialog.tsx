@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { pushModal, popModal, isTopModal } from '../../lib/modalStack'
 
 interface ConfirmDialogProps {
   isOpen: boolean
@@ -11,6 +12,8 @@ interface ConfirmDialogProps {
   variant?: 'danger' | 'warning' | 'info'
   /** false = alert 1 nút (không hiện nút Hủy) */
   showCancel?: boolean
+  /** Đang chạy thao tác — khóa nút xác nhận, hiển thị "Đang xử lý..." */
+  isBusy?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -23,21 +26,32 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   cancelText = 'Hủy',
   variant = 'warning',
   showCancel = true,
+  isBusy = false,
   onConfirm,
   onCancel,
 }) => {
   const confirmRef = useRef<HTMLButtonElement>(null)
   const modalRef = useFocusTrap(isOpen)
+  // PHA 1 (audit A20/A21): useId thay static id (2 ConfirmDialog song song không
+  // còn trùng aria id) + stack arbitration (Esc chỉ đóng dialog top-most).
+  const titleId = React.useId()
+  const instanceId = React.useId()
+
+  useEffect(() => {
+    if (!isOpen) return
+    pushModal(instanceId)
+    return () => popModal(instanceId)
+  }, [isOpen, instanceId])
 
   useEffect(() => {
     if (!isOpen) return
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Escape' && isTopModal(instanceId)) onCancel()
     }
     document.addEventListener('keydown', handleKey)
     confirmRef.current?.focus()
     return () => document.removeEventListener('keydown', handleKey)
-  }, [isOpen, onCancel])
+  }, [isOpen, onCancel, instanceId])
 
   if (!isOpen) return null
 
@@ -62,7 +76,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     },
   }
   const config = variantConfig[variant]
-  const titleId = 'confirm-dialog-title'
 
   return (
     <div
@@ -106,12 +119,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <button
             ref={confirmRef}
             onClick={onConfirm}
-            className="btn text-white"
+            disabled={isBusy}
+            className="btn text-white disabled:opacity-50"
             style={{ background: config.btnBg }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = config.btnHoverBg)}
+            onMouseEnter={(e) => { if (!isBusy) e.currentTarget.style.background = config.btnHoverBg }}
             onMouseLeave={(e) => (e.currentTarget.style.background = config.btnBg)}
           >
-            {confirmText}
+            {isBusy ? 'Đang xử lý...' : confirmText}
           </button>
         </div>
       </div>

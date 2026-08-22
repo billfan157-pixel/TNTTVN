@@ -35,7 +35,31 @@ export const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   </ErrorBoundary>
 )
 
-const routeToTab = {
+// PHA 2 (audit A15): SSOT tab→path cho desktop — sidebar setActiveTab và
+// routeToTab cùng dẫn xuất từ đây, không còn `as any` lệch route.
+const DESKTOP_TAB_PATHS = {
+  dashboard: '/dashboard',
+  students: '/students',
+  grades: '/grades',
+  attendance: '/attendance',
+  reports: '/reports',
+  calendar: '/calendar',
+  notices: '/notices',
+  users: '/users',
+  classes: '/classes',
+  'academic-years': '/academic-years',
+  catechists: '/catechists',
+  'audit-logs': '/audit-logs',
+  settings: '/settings',
+  management: '/management',
+  parent: '/parent',
+  finances: '/finances',
+} as const satisfies Record<DesktopTab, `/${string}`>
+
+// PHA 2 (audit A12): /users, /classes, /academic-years là deep-link của các tab
+// trong /management (không có item riêng trên sidebar) → highlight "Quản Lý Hệ Thống"
+// thay vì không highlight gì.
+const routeToTab: Record<string, DesktopTab> = {
   '/dashboard': 'dashboard',
   '/students': 'students',
   '/grades': 'grades',
@@ -43,17 +67,17 @@ const routeToTab = {
   '/reports': 'reports',
   '/calendar': 'calendar',
   '/notices': 'notices',
-  '/users': 'users',
-  '/classes': 'classes',
+  '/users': 'management',
+  '/classes': 'management',
   '/audit-logs': 'audit-logs',
-  '/academic-years': 'academic-years',
+  '/academic-years': 'management',
   '/catechists': 'catechists',
   '/settings': 'settings',
   '/management': 'management',
   '/parent': 'parent',
   '/leave-requests': 'attendance',
   '/finances': 'finances',
-} as const satisfies Record<string, string>
+}
 
 const mobileRouteToTab = {
   '/dashboard': 'home',
@@ -76,7 +100,7 @@ export function RootLayout() {
   useSundayReminder()
   useStoreErrorWatcher()
 
-  const activeTab: DesktopTab = ((routeToTab as Record<string, string>)[pathname] as DesktopTab) || 'dashboard'
+  const activeTab: DesktopTab = routeToTab[pathname] || 'dashboard'
   const activeMobileTab: MobileTab = ((mobileRouteToTab as Record<string, string>)[pathname] as MobileTab) || 'home'
 
   const selectedBranchId = useFilterStore(s => s.selectedBranchId)
@@ -151,8 +175,8 @@ export function RootLayout() {
     return (
       <>
         <a href="#main-content" className="skip-link">Bỏ qua đến nội dung chính</a>
-        <MobileAppShell 
-          activeTab={activeMobileTab} 
+        <MobileAppShell
+          activeTab={activeMobileTab}
           setActiveTab={(tab) => navigate({ to: tab === 'home' ? '/dashboard' : (`/${tab}` as any) })}
         >
           <HeaderBar />
@@ -203,7 +227,7 @@ export function RootLayout() {
       <a href="#main-content" className="skip-link">Bỏ qua đến nội dung chính</a>
       <DesktopSidebar
         activeTab={activeTab}
-        setActiveTab={(tab) => navigate({ to: `/${tab}` as any })}
+        setActiveTab={(tab) => navigate({ to: DESKTOP_TAB_PATHS[tab] })}
         selectedBranchId={selectedBranchId}
         setSelectedBranchId={setSelectedBranchId}
         selectedClassId={selectedClassId}

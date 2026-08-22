@@ -5,6 +5,7 @@ import { findHeaderRow, detectColumnsWithConfidence, parseToImportRows, normaliz
 import { useClassStore } from '../../stores/classStore'
 import { api } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface Props {
   isOpen: boolean
@@ -51,6 +52,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const academicYears = useClassStore((s) => s.academicYears)
   const activeAcademicYears = academicYears.filter(a => !a.isLocked)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
 
   const allFields = Object.keys(FIELD_LABELS)
 
@@ -317,7 +320,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="excel-import-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" onClick={handleClose}>
-      <div className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 rounded-lg">

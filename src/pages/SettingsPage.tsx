@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Moon, Sun, Monitor, Smartphone, LogOut, Database, Activity, ChevronRight, Key, Loader2, CheckCircle2, AlertCircle, Eye, EyeOff, UserCog, Calendar, BookOpen, AlertTriangle, Trash2, Settings } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { useTheme } from '../hooks/useTheme'
 import { useFilterStore } from '../stores/filterStore'
 import { useAuth } from '../hooks/useAuth'
@@ -95,7 +96,7 @@ const SettingsPage: React.FC = () => {
   ]
 
   return (
-    <div className="max-w-3xl mx-auto flex flex-col gap-6">
+    <DesktopAppShell width="narrow" className="flex flex-col gap-6">
       <PageHeader
         icon={<Settings className="w-5 h-5" />}
         title="Cài Đặt Hệ Thống"
@@ -341,7 +342,7 @@ const SettingsPage: React.FC = () => {
         onClose={() => setShowPurge(false)}
         onPurged={() => { navigate({ to: '/login' }); window.location.reload() }}
       />
-    </div>
+    </DesktopAppShell>
   )
 }
 

@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Sparkles,
   Church,
-  Plus,
   Clock,
   MapPin,
   Download,
@@ -27,7 +26,7 @@ import type { LiturgicalDay, ParishEvent } from '../../types/liturgical'
 export const MobileCalendarView: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [selectedDay, setSelectedDay] = useState<LiturgicalDay>(getLiturgicalDay(new Date()))
-  const [parishEvents, setParishEvents] = useState<ParishEvent[]>([])
+  const [parishEvents] = useState<ParishEvent[]>([])
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth() + 1
@@ -98,6 +97,14 @@ export const MobileCalendarView: React.FC = () => {
           </button>
 
           <div className="flex items-center gap-1 bg-surface-app rounded-xl border border-surface-border p-1">
+            {/* Polish 2026-08-22: wire nút "Hôm nay" (trước đây handleToday dead-code) */}
+            <button
+              onClick={handleToday}
+              className="px-2 min-h-[44px] rounded-lg text-xs font-bold text-text-secondary hover:text-parish-primary bg-transparent border-none cursor-pointer"
+              title="Về tháng hiện tại"
+            >
+              Hôm nay
+            </button>
             <button
               onClick={handlePrevMonth}
               className="p-1 min-h-[44px] min-w-[44px] rounded-lg text-text-muted hover:text-text-main bg-transparent border-none cursor-pointer"
@@ -255,6 +262,32 @@ export const MobileCalendarView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Parish events for the selected day — chỉ render khi có dữ liệu (events API chưa wire) */}
+      {selectedDayParishEvents.length > 0 && (
+        <div className="bg-surface-card rounded-2xl border border-surface-border shadow-xs p-4 flex flex-col gap-2">
+          <h5 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
+            <CalendarIcon size={13} className="text-parish-primary" /> Sự Kiện Xứ Đoàn
+          </h5>
+          <div className="flex flex-col gap-1.5">
+            {selectedDayParishEvents.map((ev) => (
+              <div key={ev.id} className="p-2 rounded-xl bg-surface-app border border-surface-border text-xs">
+                <span className="font-bold text-text-main">{ev.title}</span>
+                {ev.time && (
+                  <span className="text-text-muted ml-1.5 inline-flex items-center gap-0.5">
+                    <Clock size={10} /> {ev.time}
+                  </span>
+                )}
+                {ev.location && (
+                  <div className="text-text-muted mt-0.5 inline-flex items-center gap-0.5">
+                    <MapPin size={10} /> {ev.location}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Upcoming Solemnities Quick List */}
       <div className="bg-surface-card rounded-2xl border border-surface-border shadow-xs p-4 flex flex-col gap-2">

@@ -8,6 +8,7 @@ import { getSacramentStatus, getAge } from '../../utils/sacraments';
 import { generatePhotoCardHTML } from '../../utils/pdfGenerator';
 import { ReportExportService } from '../../services/reportExportService';
 import { Printer, X } from 'lucide-react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface PhotoCardProps {
   isOpen: boolean;
@@ -19,6 +20,8 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
   const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
   const parishName = useSettingsStore((s) => s.settings.parishName) || 'Giáo Xứ Gia Tôn'
   const findClassById = useClassStore((s) => s.findClassById)
+  // PHA 1 hoàn tất (audit A19): focus trap — print modal vẫn tương tác (In/Đóng)
+  const trapRef = useFocusTrap(isOpen && !!student)
   if (!isOpen || !student) return null;
 
   const classInfo = findClassById(student.classId);
@@ -36,7 +39,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content max-w-[400px]" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="modal-content max-w-[400px]" onClick={e => e.stopPropagation()}>
         <div className="no-print flex justify-between items-center mb-4 border-b border-surface-border pb-3">
           <span className="text-sm font-bold text-parish-primary">Thẻ Thiếu Nhi</span>
           <div className="flex gap-2">

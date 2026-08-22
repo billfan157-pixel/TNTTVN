@@ -259,6 +259,11 @@ export const DesktopGradeMatrix: React.FC = () => {
               type="text"
               data-matrix-cell="true"
               disabled={!canEditGrades || (!isOverrideModeEnabled && field !== 'scoreDaoDuc' && field !== 'scoreOral')}
+              // P0.7 (audit desktop 2026-08-22): key theo giá trị → khi server-sync/import
+              // merge điểm mới vào matrixData (record KHÔNG dirty), input remount và hiển thị
+              // đúng giá trị mới thay vì giữ defaultValue stale đến khi remount trang.
+              // Trong lúc đang gõ record là dirty nên không bị merge → key ổn định, focus giữ nguyên.
+              key={`${student.id}:${field}:${val === null || val === undefined ? '' : String(val)}`}
               defaultValue={val === null || val === undefined ? '' : String(val)}
               onBlur={e => handleScoreBlur(e, student.id, field)}
               onKeyDown={e => handleScoreKeyDown(e, student.id, field)}
@@ -389,8 +394,8 @@ export const DesktopGradeMatrix: React.FC = () => {
         }
       />
 
-      {/* Sync Status Banner */}
-      <div className="flex items-center justify-between px-5 py-2.5 bg-[var(--color-text-main)] rounded-2xl border border-[var(--color-surface-border)] shadow-lg animate-in fade-in duration-500">
+      {/* Sync Status Banner — PHA 5.6: card chuẩn DS thay strip near-black */}
+      <div className="flex items-center justify-between px-5 py-2.5 bg-surface-card rounded-2xl border border-surface-border shadow-card animate-in fade-in duration-500">
         <div className="flex items-center gap-3">
           {isDirty ? (
             <div className="flex items-center gap-2 text-[var(--color-parish-warning)] text-[11px] font-black uppercase tracking-wider">

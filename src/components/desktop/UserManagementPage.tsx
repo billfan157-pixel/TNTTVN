@@ -6,6 +6,10 @@ import { validatePassword } from '../../utils/passwordValidation'
 import { buildAutoUsername, parentUsername, isValidVnPhone } from '../../utils/username'
 import { ModalShell } from '../common/ModalShell'
 import { PageHeader } from '../common/PageHeader'
+import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { DesktopAppShell } from './DesktopAppShell'
+import { formatDateTimeVi } from '../../utils/formatDate'
+import { NoResultState } from '../common/StateFeedback'
 import * as Sentry from '@sentry/react'
 
 export interface UserAccount {
@@ -38,6 +42,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   const [newUsername, setNewUsername] = useState('')
   const [newHolyName, setNewHolyName] = useState('')
@@ -382,6 +387,31 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
     }
   }
 
+  // Xác nhận trước các thao tác account-impact (2026-08-22 audit P0.5):
+  // force-logout & lock/unlock trước đây chạy trực tiếp onClick → API.
+  const confirmForceLogout = async (user: UserAccount) => {
+    const ok = await askConfirm({
+      title: 'Xác Nhận Force Logout',
+      message: `Đăng xuất tài khoản "${user.fullName} (@${user.username})" khỏi mọi thiết bị? Các phiên đang hoạt động sẽ bị ngắt ngay lập tức.`,
+      confirmText: 'Đăng Xuất',
+      variant: 'warning',
+    })
+    if (ok) await handleForceLogout(user.id)
+  }
+
+  const confirmToggleUserStatus = async (user: UserAccount) => {
+    const locking = user.status === 'ACTIVE'
+    const ok = await askConfirm({
+      title: locking ? 'Xác Nhận Khóa Tài Khoản' : 'Xác Nhận Mở Khóa',
+      message: locking
+        ? `Khóa tài khoản "${user.fullName} (@${user.username})"? Người dùng sẽ không thể đăng nhập cho đến khi được mở khóa.`
+        : `Mở khóa tài khoản "${user.fullName} (@${user.username})"? Người dùng sẽ đăng nhập được trở lại bình thường.`,
+      confirmText: locking ? 'Khóa' : 'Mở Khóa',
+      variant: locking ? 'danger' : 'info',
+    })
+    if (ok) await toggleUserStatus(user.id)
+  }
+
   const handleCopyTempPassword = async () => {
     if (!createdAccount || !createdAccount.tempPassword) return
     try {
@@ -544,7 +574,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
         : 'Tạo, cấp quyền, khóa & đặt mật khẩu người dùng'
 
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <DesktopAppShell width="wide" className="flex flex-col gap-6">
       <PageHeader
         icon={<ShieldCheck className="w-6 h-6 text-parish-primary" />}
         title={headerTitle}
@@ -578,7 +608,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
       </div>
 
       {error && (
-        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-600">{error}</div>
+        <div className="alert-error">{error}</div>
       )}
 
       <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-x-auto">
@@ -595,7 +625,18 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-border bg-surface-card">
-            {filteredUsers.map((u) => (
+            {filteredUsers.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="p-8">
+                  <NoResultState
+                    title="Không có tài khoản nào"
+                    description={search ? `Không tìm thấy tài khoản khớp "${search}". Thử từ khóa khác.` : 'Chưa có tài khoản nào trong phạm vi này.'}
+                    onReset={search ? () => setSearch('') : undefined}
+                    resetLabel="Xóa tìm kiếm"
+                  />
+                </td>
+              </tr>
+            ) : filteredUsers.map((u) => (
               <tr key={u.id} className="bg-surface-card hover:bg-surface-app transition-colors">
                 <td className="p-4">
                   <div className="font-semibold text-base text-text-main">
@@ -640,7 +681,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
                     </div>
                   )}
                 </td>
-                <td className="p-4 text-sm text-text-muted">{u.lastLoginAt || 'Chưa đăng nhập'}</td>
+                <td className="p-4 text-sm text-text-muted">{u.lastLoginAt ? formatDateTimeVi(u.lastLoginAt) : 'Chưa đăng nhập'}</td>
                 <td className="p-4 text-right">
                   <div className="flex items-center justify-end gap-2">
                     {/* ADR-026 hardening: chỉ GLV (chủ nhiệm/phụ tá) có phân công lớp —
@@ -656,7 +697,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
                       <Key className="w-4 h-4" />
                     </button>
                     {!isSuperAdmin(u) && (
-                      <button onClick={() => handleForceLogout(u.id)} title="Force Logout"
+                      <button onClick={() => confirmForceLogout(u)} title="Force Logout"
                         className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-text-muted hover:text-rose-600 hover:bg-rose-500/10 transition-colors">
                         <LogOut className="w-4 h-4" />
                       </button>
@@ -668,7 +709,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
                       </button>
                     )}
                     {!isSuperAdmin(u) && (
-                      <button onClick={() => toggleUserStatus(u.id)} title={u.status === 'ACTIVE' ? 'Khóa' : 'Mở Khóa'}
+                      <button onClick={() => confirmToggleUserStatus(u)} title={u.status === 'ACTIVE' ? 'Khóa' : 'Mở Khóa'}
                         className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-text-muted hover:text-parish-primary hover:bg-parish-primary-light transition-colors">
                         {u.status === 'ACTIVE' ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4 text-emerald-600" />}
                       </button>
@@ -680,6 +721,8 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
           </tbody>
         </table>
       </div>
+
+      {confirmDialog}
 
       {/* Create User Modal */}
       {isCreateModalOpen && (
@@ -1076,6 +1119,6 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
             )}
         </ModalShell>
       )}
-    </div>
+    </DesktopAppShell>
   )
 }

@@ -3,9 +3,12 @@ import { useState, useEffect } from 'react'
 import { Lock, Eye, EyeOff, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { validatePassword, SPECIAL_CHAR_REGEX } from '../../utils/passwordValidation'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 export function ForcePasswordChangeModal() {
   const { requiresPasswordChange, changePassword, isLoading, error, clearError, user } = useAuthStore()
+  // PHA 1 (audit A19): focus trap — gate modal bắt buộc đổi mật khẩu
+  const trapRef = useFocusTrap(requiresPasswordChange)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -62,7 +65,7 @@ export function ForcePasswordChangeModal() {
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="force-password-title" className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         {/* Header */}
         <div className="bg-amber-500 p-6 text-white">
           <div className="flex items-center gap-3">

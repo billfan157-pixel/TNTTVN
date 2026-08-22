@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, UserCheck, Server, Eye } from 'lucide-react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export interface ConflictData {
   studentName: string;
@@ -25,6 +26,8 @@ export const ConflictResolutionModal: React.FC<Props> = ({
   onClose,
 }) => {
   const [showDiff, setShowDiff] = useState(false);
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen && !!conflict);
 
   useEffect(() => {
     if (!isOpen || !conflict) return
@@ -39,7 +42,7 @@ export const ConflictResolutionModal: React.FC<Props> = ({
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="conflict-resolution-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-2xl max-w-md w-full overflow-hidden">
+      <div ref={trapRef} className="bg-surface-card rounded-2xl border border-surface-border shadow-2xl max-w-md w-full overflow-hidden">
         <div className="bg-parish-warning-bg/40 border-b border-parish-warning/30 p-4 flex items-center gap-3">
           <div className="p-2 bg-parish-warning/20 rounded-xl text-parish-warning">
             <AlertTriangle size={22} />

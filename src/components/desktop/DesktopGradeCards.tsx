@@ -24,12 +24,15 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
     ? students
     : students.filter(s => s.classId === selectedClassId)
 
+  // P0.8 (audit desktop 2026-08-22): so sánh label KHÔNG phân biệt hoa/thường —
+  // gradePolicy.ts:195 trả 'Xuất Sắc' (S hoa) nhưng key cũ là 'Xuất sắc' khiến
+  // học sinh xuất sắc rơi vào fallback xám thay vì badge vàng.
   const rankColors: Record<string, string> = {
-    'Xuất sắc': 'badge-warning',
-    'Giỏi': 'badge-info',
-    'Khá': 'badge-success',
-    'Trung Bình': 'badge-neutral',
-    'Yếu': 'badge-danger',
+    'xuất sắc': 'badge-warning',
+    'giỏi': 'badge-info',
+    'khá': 'badge-success',
+    'trung bình': 'badge-neutral',
+    'yếu': 'badge-danger',
   }
 
   return (
@@ -50,7 +53,7 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
             const grade = getStudentGrade(student.id, selectedSemester)
             const avg = calculateStudentAvg(student.id, selectedSemester)
             const cls = findClassById(student.classId)
-            const rankClass = rankColors[avg.label] || 'bg-surface-hover text-text-secondary'
+            const rankClass = rankColors[avg.label?.trim().toLowerCase()] || 'bg-surface-hover text-text-secondary'
 
             return (
               <div key={student.id} className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden hover:shadow-md transition-shadow">

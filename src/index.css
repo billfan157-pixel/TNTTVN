@@ -167,7 +167,7 @@ body {
   color: white;
   padding: 8px 16px;
   border-radius: var(--radius-md);
-  z-index: 9999;
+  z-index: var(--z-skip-link);
   font-weight: 600;
 }
 .skip-link:focus {
@@ -354,7 +354,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  z-index: var(--z-modal);
   padding: 16px;
   animation: fadeIn 0.2s ease-out;
 }
@@ -664,6 +664,21 @@ body {
   font-size: 12px;
   color: var(--color-parish-danger);
   margin-top: 2px;
+}
+
+/* PHA 5.6 (audit 2026-08-22): alert lỗi nội tuyến chuẩn — thay các banner
+   rose-*/red-* rải rác không có dark variant. Dùng danger tokens → tự dark. */
+.alert-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in srgb, var(--color-parish-danger) 30%, transparent);
+  background: var(--color-parish-danger-bg);
+  color: var(--color-parish-danger-hover);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .form-help-text {
@@ -1125,12 +1140,26 @@ table td {
    ═══════════════════════════════════════════════════ */
 
 :root {
-  --mobile-nav-height: 68px;
+  /* PHA 2 (audit A16): token chung cho chiều cao top bar — mobile nav và
+     sidebar min-height cùng tham chiếu, hết magic number 68px rải rác. */
+  --app-bar-height: 68px;
+  --mobile-nav-height: var(--app-bar-height);
   --mobile-nav-total-height: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px));
   --mobile-content-gutter: 16px;
   --mobile-top-safe-area: env(safe-area-inset-top, 0px);
   --mobile-action-gap: 12px;
   --mobile-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* ─── Z-index ladder (PHA 1 — audit A22) ─────────────────────────
+     header < install-prompt < modal < mobile-nav < toast/skip-link.
+     Trước đây header/install-prompt/modal cùng z-50 → thứ tự vẽ phụ thuộc
+     DOM order; InstallPrompt (render sau) đè lên modal mở. */
+  --z-header: 40;
+  --z-install-prompt: 30;
+  --z-modal: 50;
+  --z-mobile-nav: 1000;
+  --z-toast: 9999;
+  --z-skip-link: 9999;
 }
 
 .mobile-app-shell {
@@ -1172,7 +1201,7 @@ table td {
   position: fixed;
   inset-inline: 0;
   bottom: 0;
-  z-index: 1000;
+  z-index: var(--z-mobile-nav);
   min-height: var(--mobile-nav-total-height);
   padding: 6px 8px env(safe-area-inset-bottom, 0px);
   background: color-mix(in srgb, var(--color-surface-card) 90%, transparent);
@@ -1954,7 +1983,7 @@ table td {
 
 .sidebar-container {
   width: 260px;
-  min-height: calc(100vh - 68px);
+  min-height: calc(100vh - var(--app-bar-height));
   padding: 24px 16px;
   display: flex;
   flex-direction: column;

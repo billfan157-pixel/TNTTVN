@@ -55,8 +55,13 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const classes = useClassStore((s) => s.classes);
   const hasClasses = classes.length > 0;
 
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const [pageSize, setPageSize] = useState(20);
+  // 2026-08-22: mặc định xếp theo cấp bậc lớp (Chiến Con → Ấu Nhi → Thiếu Nhi →
+  // Nghĩa Sĩ → Hiệp Sĩ; trong lớp theo tên) thay vì thứ tự nhập từ server
+  // (Excel nhập A-Z nên trông như alphabet) — nút "Sắp Xếp Cấp Bậc Lớp" bật sẵn.
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'classId', desc: false }]);
+  // Phải khớp một option của select "Xem" (50/100/200/all) — trước đây default 20
+  // không tồn tại trong options khiến select hiển thị giá trị trống/misleading.
+  const [pageSize, setPageSize] = useState(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
@@ -272,7 +277,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         actions={
           <>
             {/* Quick Search */}
-            <div className="relative w-56">
+            <div className="relative w-full max-w-[224px]">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder" />
               <input
                 type="text"

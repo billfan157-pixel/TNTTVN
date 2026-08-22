@@ -8,7 +8,9 @@ export default defineConfig({
   workers: 1,
   timeout: 30000,
   use: {
-    baseURL: 'http://localhost:5173',
+    // TQ-F2: Vite dev/preview bind port 3000 (vite.config.ts server.port) —
+    // config cũ trỏ 5173 khiến webServer wait không bao giờ thấy port mở.
+    baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
   },
   projects: [
@@ -18,9 +20,11 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    port: 5173,
+    // TQ-F2: wrapper tự đợi CẢ Vite (3000) và backend health (3001/health) —
+    // config cũ gate ở 5173 (port không tồn tại) nên E2E không bao giờ chạy được.
+    command: 'node scripts/e2e-dev.mjs',
+    url: 'http://localhost:3001/health',
     reuseExistingServer: !process.env.CI,
-    timeout: 15000,
+    timeout: 150_000,
   },
 })

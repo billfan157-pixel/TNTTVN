@@ -51,5 +51,50 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      # TQ-F1 (audit 2026-08-21): coverage gate — thresholds 40/30/30/40 trong
+      # vitest.config.ts giờ được THỰC THI trên CI (trước đây chỉ là dead-config).
+      # --testTimeout=15000: bcrypt cost 12 + instrumentation có thể vượt 5s mặc định.
+      - name: Enforce Coverage Thresholds
+        run: npm run test:coverage
+
+      - name: Upload Coverage Summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Build Web Application & Backend
         run: npm run build
+
+  e2e-tests:
+    name: Playwright E2E (chromium)
+    runs-on: ubuntu-latest
+
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      # E2E khởi động dev server trên DB trống → seedIfEmpty bắt buộc mật khẩu seed
+      # (fail-closed, seedAdminPassword.ts). Credential dùng một lần cho CI, không
+      # truy cập môi trường thật.
+      SEED_ADMIN_PASSWORD: 'E2e-Seed-Password-1!'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --allow-remote=all
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Playwright E2E Tests
+        run: npx playwright test

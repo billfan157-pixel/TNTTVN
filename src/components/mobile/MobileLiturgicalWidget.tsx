@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { Calendar as CalendarIcon, Sparkles, ChevronRight, Church } from 'lucide-react'
+import { ChevronRight, Sparkles } from 'lucide-react'
 import { getLiturgicalDay } from '../../utils/liturgicalEngine'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 
@@ -7,70 +7,73 @@ interface MobileLiturgicalWidgetProps {
   onOpenCalendar?: () => void
 }
 
+/**
+ * Card Lịch Phụng Vụ hôm nay — Trang Tổng Quan mobile.
+ * Redesign 2026-08-22: date tile kiểu app lịch + color spine theo màu áo lễ
+ * (nhận diện tức thì, trắng vẫn thấy nhờ inset ring), phân cấp rõ
+ * ngày → tên lễ → mùa/bậc; toàn bộ màu nền/chữ qua token class có dark variant.
+ */
 export const MobileLiturgicalWidget: React.FC<MobileLiturgicalWidgetProps> = ({ onOpenCalendar }) => {
-  const today = useMemo(() => getLiturgicalDay(new Date()), [])
+  const now = useMemo(() => new Date(), [])
+  const today = useMemo(() => getLiturgicalDay(now), [now])
   const colorMeta = LITURGICAL_COLORS[today.color] || LITURGICAL_COLORS.GREEN
 
-  const todayFormatted = useMemo(() => {
-    const d = new Date()
-    return d.toLocaleDateString('vi-VN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'numeric',
-    })
-  }, [])
+  const dayNumber = now.getDate()
+  const monthShort = now.toLocaleDateString('vi-VN', { month: 'short' }).replace('Tháng', 'T')
+  const weekdayLong = now.toLocaleDateString('vi-VN', { weekday: 'long' })
 
   return (
     <div
       onClick={onOpenCalendar}
-      className="bg-surface-card rounded-2xl border border-surface-border p-3.5 shadow-card relative overflow-hidden flex flex-col gap-2 cursor-pointer active:scale-[0.99] transition-all"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpenCalendar?.() }}
+      className="bg-surface-card rounded-2xl border border-surface-border shadow-card relative overflow-hidden flex items-stretch cursor-pointer active:scale-[0.99] transition-all"
     >
-      {/* Background Glow */}
+      {/* Color spine — màu áo lễ của ngày */}
       <div
-        className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none opacity-20"
-        style={{ backgroundColor: colorMeta.hex }}
+        aria-hidden="true"
+        className="w-1.5 shrink-0"
+        style={{ backgroundColor: colorMeta.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)' }}
       />
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <div className="w-6 h-6 rounded-lg bg-parish-primary/10 text-parish-primary flex items-center justify-center font-bold">
-            <CalendarIcon size={13} />
+      <div className="flex-1 min-w-0 p-3 flex flex-col gap-2">
+        <div className="flex items-center gap-2.5">
+          {/* Date tile kiểu icon app lịch */}
+          <div className={`shrink-0 w-11 rounded-xl border text-center py-1 ${colorMeta.bgClass} ${colorMeta.borderClass}`}>
+            <div className={`text-lg font-black leading-none ${colorMeta.textClass}`}>{dayNumber}</div>
+            <div className={`text-[9px] font-extrabold uppercase leading-none mt-0.5 ${colorMeta.textClass}`}>{monthShort}</div>
           </div>
-          <span className="text-xs font-bold text-text-muted capitalize">{todayFormatted}</span>
-          <span className="text-[10px] font-extrabold text-text-secondary">
-            • {today.seasonName}
-          </span>
+
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-bold text-text-muted capitalize leading-none">{weekdayLong}</div>
+            <h4 className="text-sm font-extrabold text-text-main m-0 leading-snug mt-1 line-clamp-2">
+              {today.title}
+            </h4>
+          </div>
+
+          <ChevronRight size={16} className="text-text-muted shrink-0 self-center" />
         </div>
 
-        <div className="flex items-center gap-1">
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border flex items-center gap-1 ${colorMeta.bgClass} ${colorMeta.textClass} ${colorMeta.borderClass}`}
-          >
-            <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{ backgroundColor: colorMeta.hex }}
-            />
+        {/* Meta row: bậc lễ + mùa (+ lễ buộc) */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border flex items-center gap-1 ${colorMeta.bgClass} ${colorMeta.textClass} ${colorMeta.borderClass}`}>
+            <span className="w-1.5 h-1.5 rounded-full ring-1 ring-black/10" style={{ backgroundColor: colorMeta.hex }} />
             <span>{today.rankName}</span>
           </span>
-          <ChevronRight size={14} className="text-text-muted" />
+          <span className="text-[10px] font-bold text-text-secondary">{today.seasonName}</span>
+          {today.isHolyDayOfObligation && (
+            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide badge-danger">Lễ buộc</span>
+          )}
         </div>
-      </div>
 
-      <div className="mt-0.5">
-        <h4 className="text-sm font-extrabold text-text-main m-0 leading-tight">
-          {today.title}
-        </h4>
-        {today.subTitle && (
-          <p className="text-[11px] text-text-muted mt-0.5 m-0 font-medium">{today.subTitle}</p>
+        {today.readings?.gospelVerse && (
+          <div className="bg-surface-app px-2.5 py-1.5 rounded-lg border border-surface-border flex items-start gap-1.5 text-xs italic text-text-secondary font-medium">
+            <Sparkles size={12} className="text-parish-warning shrink-0 mt-0.5" />
+            <span className="line-clamp-2 leading-relaxed min-w-0">"{today.readings.gospelVerse}"</span>
+          </div>
         )}
       </div>
-
-      {today.readings?.gospelVerse && (
-        <div className="bg-surface-app p-2 rounded-xl border border-surface-border flex items-start gap-1.5 text-xs italic text-text-secondary font-medium">
-          <Sparkles size={13} className="text-amber-500 shrink-0 mt-0.5" />
-          <span className="line-clamp-2 leading-relaxed">"{today.readings.gospelVerse}"</span>
-        </div>
-      )}
     </div>
   )
 }

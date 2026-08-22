@@ -9,6 +9,7 @@ import { useToastStore } from '../../stores/toastStore'
 import { EmptyState, SkeletonTable } from '../common/StateFeedback'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalShell } from '../common/ModalShell'
+import { FormField } from '../common/FormField'
 import { PageHeader } from '../common/PageHeader'
 import { sortClassesByHierarchy } from '../../utils/classSort'
 
@@ -41,6 +42,7 @@ export function DesktopClasses() {
   const [form, setForm] = useState({ code: '', name: '', branchId: '', academicYearId: '', room: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
   const [teachers, setTeachers] = useState<TeacherOption[]>([])
   const [homeroomTeacherId, setHomeroomTeacherId] = useState('')
   const [assistantTeacherId, setAssistantTeacherId] = useState('')
@@ -66,6 +68,7 @@ export function DesktopClasses() {
 
   const openEdit = (c: typeof classes[0]) => {
     setEditingId(c.id)
+    setFormError('')
     setForm({ code: c.code, name: c.name, branchId: c.branchId, academicYearId: c.academicYearId, room: c.room || '' })
     setHomeroomTeacherId(c.homeroomTeacher?.id || '')
     setAssistantTeacherId(c.assistants?.[0]?.id || '')
@@ -92,7 +95,12 @@ export function DesktopClasses() {
   }
 
   const handleSave = async () => {
-    if (!form.code || !form.name || !form.branchId || !form.academicYearId) return
+    // PHA 3 (audit MED): báo lỗi thay vì return im lặng khi thiếu trường bắt buộc
+    if (!form.code || !form.name || !form.branchId || !form.academicYearId) {
+      setFormError('Vui lòng điền đầy đủ Mã Lớp, Tên Lớp, Phân Ngành và Niên Học.')
+      return
+    }
+    setFormError('')
     setSaving(true)
     try {
       let savedId = ''
@@ -270,7 +278,7 @@ export function DesktopClasses() {
                   </td>
                 </tr>
               ) : (
-                classes.map((c, idx) => (
+                sortedClasses.map((c, idx) => (
                   <tr key={c.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors cursor-pointer" onClick={() => viewClassStudents(c.id)}>
                     <td className="py-2.5 px-3 font-semibold text-text-muted">{idx + 1}</td>
                     <td className="py-2.5 px-3">
@@ -310,10 +318,10 @@ export function DesktopClasses() {
                     {canEdit && (
                       <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
-                          <button className="btn btn-ghost btn-sm p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center" onClick={() => openEdit(c)} title="Sửa">
+                          <button className="btn btn-ghost btn-sm p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center" onClick={() => openEdit(c)} title="Sửa" aria-label={`Sửa lớp ${c.name}`}>
                             <Pencil size={14} />
                           </button>
-                          <button className="btn btn-ghost btn-sm p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-parish-danger hover:bg-parish-danger-bg" onClick={() => setConfirmDelete(c.id)} title="Xóa">
+                          <button className="btn btn-ghost btn-sm p-2 min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-parish-danger hover:bg-parish-danger-bg" onClick={() => setConfirmDelete(c.id)} title="Xóa" aria-label={`Xóa lớp ${c.name}`}>
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -336,60 +344,44 @@ export function DesktopClasses() {
           maxWidth="512px"
         >
             <div className="flex flex-col gap-4">
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <Hash size={12} className="inline mr-1" />Mã Lớp
-                </label>
-                <input className="form-input w-full" placeholder="VD: CC-01" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <School size={12} className="inline mr-1" />Tên Lớp
-                </label>
-                <input className="form-input w-full" placeholder="VD: Chiên Con 1" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <Layers size={12} className="inline mr-1" />Phân Ngành
-                </label>
-                <select className="form-input w-full" value={form.branchId} onChange={e => setForm({ ...form, branchId: e.target.value })}>
+              <FormField label="Mã Lớp" htmlFor="class-code" required>
+                <input id="class-code" className="form-input w-full" placeholder="VD: CC-01" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} />
+              </FormField>
+              <FormField label="Tên Lớp" htmlFor="class-name" required>
+                <input id="class-name" className="form-input w-full" placeholder="VD: Chiên Con 1" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              </FormField>
+              <FormField label="Phân Ngành" htmlFor="class-branch" required>
+                <select id="class-branch" className="form-input w-full" value={form.branchId} onChange={e => setForm({ ...form, branchId: e.target.value })}>
                   <option value="">-- Chọn Phân Ngành --</option>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <Calendar size={12} className="inline mr-1" />Niên Học
-                </label>
-                <select className="form-input w-full" value={form.academicYearId} onChange={e => setForm({ ...form, academicYearId: e.target.value })}>
+              </FormField>
+              <FormField label="Niên Học" htmlFor="class-year" required>
+                <select id="class-year" className="form-input w-full" value={form.academicYearId} onChange={e => setForm({ ...form, academicYearId: e.target.value })}>
                   <option value="">-- Chọn Niên Học --</option>
                   {academicYears.map(a => <option key={a.id} value={a.id}>{getAcademicYearLabel(a.id)}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <DoorOpen size={12} className="inline mr-1" />Phòng Học
-                </label>
-                <input className="form-input w-full" placeholder="VD: Phòng 101" value={form.room} onChange={e => setForm({ ...form, room: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <User size={12} className="inline mr-1" />Chủ Nhiệm
-                </label>
-                <select className="form-input w-full" value={homeroomTeacherId} onChange={e => setHomeroomTeacherId(e.target.value)}>
+              </FormField>
+              <FormField label="Phòng Học" htmlFor="class-room">
+                <input id="class-room" className="form-input w-full" placeholder="VD: Phòng 101" value={form.room} onChange={e => setForm({ ...form, room: e.target.value })} />
+              </FormField>
+              <FormField label="Chủ Nhiệm" htmlFor="class-homeroom">
+                <select id="class-homeroom" className="form-input w-full" value={homeroomTeacherId} onChange={e => setHomeroomTeacherId(e.target.value)}>
                   <option value="">-- Chưa phân công --</option>
                   {teachers.map(t => <option key={t.id} value={t.id}>{t.fullName} (@{t.username})</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5 block">
-                  <Users size={12} className="inline mr-1" />Trợ Tá
-                </label>
-                <select className="form-input w-full" value={assistantTeacherId} onChange={e => setAssistantTeacherId(e.target.value)}>
+              </FormField>
+              <FormField label="Trợ Tá" htmlFor="class-assistant">
+                <select id="class-assistant" className="form-input w-full" value={assistantTeacherId} onChange={e => setAssistantTeacherId(e.target.value)}>
                   <option value="">-- Chưa phân công --</option>
                   {teachers.filter(t => t.id !== homeroomTeacherId).map(t => <option key={t.id} value={t.id}>{t.fullName} (@{t.username})</option>)}
                 </select>
-              </div>
+              </FormField>
+              {formError && (
+                <div role="alert" className="text-xs font-bold text-parish-danger bg-parish-danger-bg border border-parish-danger/30 rounded-xl px-3 py-2">
+                  {formError}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-3 mt-6">
               <button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)}>Hủy</button>

@@ -15,6 +15,7 @@ import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { MobileTopBar } from '../mobile/MobileTopBar'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 
 export const HeaderBar: React.FC = () => {
   const students = useStudentStore((s) => s.students)
@@ -28,6 +29,9 @@ export const HeaderBar: React.FC = () => {
   const searchQuery = useFilterStore((s) => s.searchQuery)
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery)
   const effectiveMode = useEffectiveMode()
+  // PHA 4 (audit A5): chặn force-desktop trên màn < 768px — sidebar 260px +
+  // padding chỉ chừa ~65px nội dung ở 375px, không dùng được.
+  const isNarrowViewport = useMediaQuery('(max-width: 767.9px)')
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
@@ -57,7 +61,7 @@ export const HeaderBar: React.FC = () => {
         <MobileTopBar />
       ) : (
         <header
-          className="sticky top-0 z-50 transition-all duration-300 border-b border-white/15"
+          className="sticky top-0 z-[var(--z-header)] transition-all duration-300 border-b border-white/15"
           style={{
             background: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #1D4ED8 100%)',
             boxShadow: '0 8px 24px -4px rgba(15, 23, 42, 0.3), 0 4px 6px -2px rgba(15, 23, 42, 0.1)',
@@ -126,7 +130,7 @@ export const HeaderBar: React.FC = () => {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Tìm tên, mã..."
-                    className="bg-transparent text-white placeholder-white/50 text-xs font-medium outline-none w-28 sm:w-36"
+                    className="bg-transparent text-white placeholder-white/50 text-xs font-medium outline-none w-28 sm:w-36 lg:w-44"
                   />
                 </div>
               </div>
@@ -134,7 +138,7 @@ export const HeaderBar: React.FC = () => {
               {/* Semester Selector */}
               <div className="flex items-center gap-1 h-11 px-1 rounded-2xl bg-black/30 border border-white/20 shadow-inner backdrop-blur-md">
                 {semesterRestricted ? (
-                  <span className="flex items-center px-3 h-9 px-3 text-sm font-bold rounded-xl text-white bg-white/15">
+                  <span className="flex items-center px-3 h-9 text-sm font-bold rounded-lg text-white bg-white/15">
                     Học Kỳ {openSemester === 2 ? 'II' : 'I'}
                   </span>
                 ) : (
@@ -142,7 +146,7 @@ export const HeaderBar: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setSelectedSemester(1)}
-                      className="flex items-center px-2.5 h-9 px-3 text-sm font-bold rounded-xl transition-all"
+                      className="flex items-center px-3 h-9 text-sm font-bold rounded-lg transition-all"
                       style={{
                         background: selectedSemester === 1 ? 'white' : 'transparent',
                         color: selectedSemester === 1 ? '#1E3A8A' : 'white',
@@ -153,7 +157,7 @@ export const HeaderBar: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setSelectedSemester(2)}
-                      className="flex items-center px-2.5 h-9 px-3 text-sm font-bold rounded-xl transition-all"
+                      className="flex items-center px-3 h-9 text-sm font-bold rounded-lg transition-all"
                       style={{
                         background: selectedSemester === 2 ? 'white' : 'transparent',
                         color: selectedSemester === 2 ? '#1E3A8A' : 'white',
@@ -165,18 +169,76 @@ export const HeaderBar: React.FC = () => {
                 )}
               </div>
 
-              {/* System Diagnostics */}
-              <button
-                type="button"
-                onClick={() => setShowDiagnostics(true)}
-                title="Bảng Chẩn Đoán System Telemetry"
-                aria-label="Bảng Chẩn Đoán Hệ Thống"
-                className="w-11 h-11 flex items-center justify-center rounded-2xl bg-black/30 border border-white/20 text-amber-300 hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
-              >
-                <Activity size={16} />
-              </button>
+              {/* ── Zone 2: App utilities (PHA 2 — tách khỏi data filters) ── */}
+              <div className="hidden xl:block h-8 w-px bg-white/15 shrink-0" aria-hidden="true" />
 
-              {/* User Profile Badge & Logout */}
+              <div className="flex items-center gap-1.5">
+                {/* View Mode Switcher */}
+                <div className="flex items-center h-11 px-1 rounded-2xl gap-0.5 bg-black/30 border border-white/20 shadow-inner backdrop-blur-md">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('desktop')}
+                    disabled={isNarrowViewport}
+                    title={isNarrowViewport ? 'Màn hình quá nhỏ — chế độ Desktop cần tối thiểu 768px' : 'Chuyển sang Giao diện Desktop'}
+                    aria-label="Chuyển sang Giao diện Desktop"
+                    className="flex items-center justify-center w-9 h-9 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{
+                      background: viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? '#FDE047' : 'transparent',
+                      color: viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? '#1E293B' : 'white',
+                    }}
+                  >
+                    <Monitor size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('mobile')}
+                    title="Chuyển sang Giao diện Mobile"
+                    aria-label="Chuyển sang Giao diện Mobile"
+                    className="flex items-center justify-center w-9 h-9 rounded-lg text-xs font-bold transition-all"
+                    style={{
+                      background: viewMode === 'mobile' ? '#FDE047' : 'transparent',
+                      color: viewMode === 'mobile' ? '#1E293B' : 'white',
+                    }}
+                  >
+                    <Smartphone size={14} />
+                  </button>
+                </div>
+
+                {/* Theme Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  title="Đổi giao diện sáng/tối"
+                  aria-label="Đổi giao diện sáng/tối"
+                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-black/30 border border-white/20 text-white hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
+                >
+                  {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                </button>
+
+                {/* System Diagnostics */}
+                <button
+                  type="button"
+                  onClick={() => setShowDiagnostics(true)}
+                  title="Bảng Chẩn Đoán System Telemetry"
+                  aria-label="Bảng Chẩn Đoán Hệ Thống"
+                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-black/30 border border-white/20 text-amber-300 hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
+                >
+                  <Activity size={16} />
+                </button>
+
+                {/* Reset — destructive hint qua rose tint */}
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  title="Khôi phục dữ liệu gốc"
+                  aria-label="Khôi phục dữ liệu gốc"
+                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-black/30 border border-white/20 text-white hover:text-rose-300 hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
+                >
+                  <RefreshCw size={15} />
+                </button>
+              </div>
+
+              {/* ── Zone 3: User identity (cùng phải) ── */}
               {currentUser ? (
                 <div className="flex items-center gap-2.5 bg-black/30 px-3 py-1 rounded-2xl border border-white/20 text-xs text-white shadow-inner backdrop-blur-md">
                   <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-300/40 flex items-center justify-center text-amber-300 font-bold shrink-0">
@@ -191,7 +253,7 @@ export const HeaderBar: React.FC = () => {
                     onClick={handleLogout}
                     title="Đăng xuất"
                     aria-label="Đăng xuất"
-                    className="p-1.5 text-white/70 hover:text-white hover:bg-white/20 rounded-xl transition-colors ml-1"
+                    className="p-1.5 text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-colors ml-1"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                   </button>
@@ -200,63 +262,11 @@ export const HeaderBar: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => navigate({ to: '/login' })}
-                  className="px-3.5 py-1.5 bg-amber-300 hover:bg-amber-400 text-slate-900 font-bold text-xs rounded-2xl transition-colors shadow-md"
+                  className="px-3.5 py-1.5 bg-amber-300 hover:bg-amber-400 text-slate-900 font-bold text-xs rounded-xl transition-colors shadow-md shrink-0"
                 >
                   Đăng Nhập
                 </button>
               )}
-
-              {/* Utilities: View Mode, Theme, Reset */}
-              <div className="flex items-center gap-1.5 ml-1">
-                <div className="flex items-center h-11 px-1 rounded-2xl gap-0.5 bg-black/30 border border-white/20 shadow-inner backdrop-blur-md">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('desktop')}
-                    title="Chuyển sang Giao diện Desktop"
-                    aria-label="Chuyển sang Giao diện Desktop"
-                    className="flex items-center justify-center w-9 h-9 rounded-xl text-xs font-bold transition-all"
-                    style={{
-                      background: viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? '#FDE047' : 'transparent',
-                      color: viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? '#1E293B' : 'white',
-                    }}
-                  >
-                    <Monitor size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('mobile')}
-                    title="Chuyển sang Giao diện Mobile"
-                    aria-label="Chuyển sang Giao diện Mobile"
-                    className="flex items-center justify-center w-9 h-9 rounded-xl text-xs font-bold transition-all"
-                    style={{
-                      background: viewMode === 'mobile' ? '#FDE047' : 'transparent',
-                      color: viewMode === 'mobile' ? '#1E293B' : 'white',
-                    }}
-                  >
-                    <Smartphone size={14} />
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  title="Đổi giao diện sáng/tối"
-                  aria-label="Đổi giao diện sáng/tối"
-                  className="w-11 h-11 flex items-center justify-center rounded-2xl bg-black/30 border border-white/20 text-white hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
-                >
-                  {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  title="Khôi phục dữ liệu gốc"
-                  aria-label="Khôi phục dữ liệu gốc"
-                  className="w-11 h-11 flex items-center justify-center rounded-2xl bg-black/30 border border-white/20 text-white hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
-                >
-                  <RefreshCw size={15} />
-                </button>
-              </div>
             </div>
           </div>
         </header>

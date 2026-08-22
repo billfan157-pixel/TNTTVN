@@ -4,6 +4,7 @@ import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, QR_X, QR_Y, QR_SIZE } from '../../lib/answerSheetTemplate'
 import { printBatchAnswerSheets, exportAnswerSheetPdf, sanitizeSvgInner } from '../../utils/examSheets'
 import { X, Printer, Layers, Settings2, CheckSquare, Square, Loader2, FileDown } from 'lucide-react'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import type { ExamVersionCode } from '../../types'
 
 interface AnswerSheetProps {
@@ -283,6 +284,8 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
   onClose,
 }) => {
   const [idx, setIdx] = useState(0)
+  // PHA 1 nợ (audit A19): focus trap — exam suite giữ shell custom (camera/print)
+  const trapRef = useFocusTrap(true)
   const [examType, setExamType] = useState<'written' | 'multiple_choice'>(initialExamType)
   const [questionCount, setQuestionCount] = useState<number>(initialQuestionCount)
   const [examVersion, setExamVersion] = useState<ExamVersionCode>(availableVersions[0] ?? 'A')
@@ -396,7 +399,7 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="answer-sheet-title" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-surface-card rounded-2xl p-5 w-full max-w-3xl shadow-2xl flex flex-col gap-4 max-h-[94vh] border border-surface-border" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="bg-surface-card rounded-2xl p-5 w-full max-w-3xl shadow-2xl flex flex-col gap-4 max-h-[94vh] border border-surface-border" onClick={e => e.stopPropagation()}>
         {/* Header Modal */}
         <div className="flex items-center justify-between border-b border-surface-border pb-3">
           <div>

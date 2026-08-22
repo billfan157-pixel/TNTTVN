@@ -320,6 +320,31 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
   - `DesktopGradeMatrix`, `DesktopGradeCards`, `DesktopGradeComparison`, `DesktopDailyGradeEntry`, `DesktopCalendarView`
 - `PageHeader` hỗ trợ `card?: boolean` (mặc định `true` cho styled card container) và `className?: string` cho layout tùy biến linh hoạt.
 
+## §13. Desktop Layout Contract (2026-08-22)
+
+> Nguồn: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` PHA 2/4. Áp dụng cho desktop mode (viewport ≥ 768px).
+
+### Breakpoints
+| Mốc | Ý nghĩa |
+|---|---|
+| `md` (768px) | Ranh giới shell mobile↔desktop (`useEffectiveMode` + CSS guard `.mobile-app-shell`). Force-desktop bị chặn dưới mốc này. |
+| `lg` (1024px) | Content density — header user name hiện, calendar side-rail xuất hiện |
+| `xl` (1280px) | Side content — **cấm `hidden xl:` giấu thông tin duy nhất**, phải degrade |
+
+### Container tiers (`DesktopAppShell`)
+| Tier | Class | Dành cho |
+|---|---|---|
+| `full` | `w-full` | Data workspace: Dashboard, Students, Grades, Attendance, Calendar |
+| `wide` | `w-full max-w-7xl mx-auto` | Admin/directory: Finance, Users, AuditLog, AcademicYear, Catechist, ParentDashboard |
+| `narrow` | `w-full max-w-3xl mx-auto` | Form/settings: SettingsPage |
+
+### Quy tắc
+1. Cấm container max-width tự phát ngoài 3 tier trên.
+2. Control trong toolbar: ưu tiên `min-w-0`/`max-w-full` thay width cứng khi nằm trong `justify-between`.
+3. Icon-button desktop chuẩn: `h-10 w-10 rounded-xl`; segment trong pill: `h-9 rounded-lg`.
+4. Header chia zone: Brand │ Data filters │ Utilities │ User identity (cùng phải).
+5. Z-index dùng token `--z-*` (xem `index.css :root`), không hard-code z mới.
+
 
 
 

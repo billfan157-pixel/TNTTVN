@@ -18,6 +18,7 @@
     "build:frontend": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage --testTimeout=15000",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "build:analyze": "ANALYZE=true vite build",

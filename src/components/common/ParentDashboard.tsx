@@ -9,6 +9,7 @@ import { LeaveRequestModal } from './LeaveRequestModal'
 import { getClassificationLabel } from '../../utils/grades'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 import { BRANCHES } from '../../constants/branches'
+import { DesktopAppShell } from '../desktop/DesktopAppShell'
 
 const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v))
 
@@ -55,7 +56,7 @@ export const ParentDashboard: React.FC = () => {
     .slice(0, 3)
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <DesktopAppShell width="wide" className="space-y-6">
       <div className="flex items-center gap-3">
         <div className="w-11 h-11 rounded-full bg-parish-primary/15 flex items-center justify-center text-parish-primary shrink-0">
           <HeartHandshake className="w-6 h-6" />
@@ -318,7 +319,7 @@ export const ParentDashboard: React.FC = () => {
           </div>
         )}
       </section>
-    </div>
+    </DesktopAppShell>
   )
 }
 

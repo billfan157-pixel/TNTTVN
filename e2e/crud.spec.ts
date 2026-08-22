@@ -1,15 +1,11 @@
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin } from './helpers'
 
 test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login')
-    await page.evaluate(() => {
-      localStorage.setItem('parish_access_token', 'test-token')
-      localStorage.setItem('parish_refresh_token', 'test-refresh')
-      localStorage.setItem('parish_current_user', JSON.stringify({
-        id: '1', username: 'admin', fullName: 'Admin Test', role: 'admin', parishId: 'test-parish'
-      }))
-    })
+    // TQ-F2: đăng nhập THẬT qua /api/auth/login (bill / SEED_ADMIN_PASSWORD) —
+    // fake-token cũ bị backend 401 → redirect login trước khi assert.
+    await loginAsAdmin(page)
   })
 
   test('navigates to students page and sees student list', async ({ page }) => {

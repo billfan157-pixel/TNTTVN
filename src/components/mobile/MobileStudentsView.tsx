@@ -67,7 +67,10 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
     setPage(1)
   }, [selectedClassId, selectedBranchId, searchQuery])
 
-  const [sortClassDirection, setSortClassDirection] = React.useState<'asc' | 'desc' | null>(null)
+  // 2026-08-22: mặc định 'asc' — danh sách mở lên đã nhóm theo cấp bậc lớp
+  // (Chiến Con → Ấu → Thiếu → Nghĩa → Hiệp; trong lớp theo tên), không còn
+  // thứ tự nhập thô từ server. Bấm lại nút để tắt/toggle như cũ.
+  const [sortClassDirection, setSortClassDirection] = React.useState<'asc' | 'desc' | null>('asc')
 
   const filteredStudents = React.useMemo(() => {
     return students.filter(s => {

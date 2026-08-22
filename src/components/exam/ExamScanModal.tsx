@@ -38,6 +38,7 @@ import { purgeExpiredScanReviewSnapshots, saveScanReviewSnapshot } from '../../l
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
 import type { ExamAnswerVariants, ExamVersionCode } from '../../types'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface ExamScanModalProps {
   sessionId: string
@@ -78,6 +79,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   onClose,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
+  // PHA 1 nợ (audit A19): focus trap
+  const trapRef = useFocusTrap(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -735,7 +738,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="exam-scan-title" className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
-      <div className="bg-surface-card rounded-2xl p-4 w-full max-w-xl shadow-2xl flex flex-col gap-3 max-h-[94vh] border border-surface-border overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="bg-surface-card rounded-2xl p-4 w-full max-w-xl shadow-2xl flex flex-col gap-3 max-h-[94vh] border border-surface-border overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between pb-1 border-b border-surface-border">
           <h4 id="exam-scan-title" className="font-extrabold text-parish-primary flex items-center gap-2 text-base">

@@ -3,6 +3,7 @@ import { NoticeModal } from '../../components/common/NoticeModal';
 import { PageHeader } from '../common/PageHeader';
 import { EmptyState } from '../../components/common/StateFeedback';
 import { Bell, AlertCircle, Calendar, User, Plus } from 'lucide-react';
+import { formatDateVi } from '../../utils/formatDate';
 import { useState } from 'react';
 
 const priorityClass: Record<string, string> = {
@@ -106,7 +107,7 @@ export function DesktopNotices() {
                           <User size={12} /> {notice.author}
                         </div>
                         <div className="flex items-center gap-1.5 text-sm text-text-muted mt-1 font-medium">
-                          <Calendar size={12} /> {notice.date}
+                          <Calendar size={12} /> {formatDateVi(notice.date)}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-center">

@@ -15,6 +15,17 @@ interface PaginationState {
   total: number
 }
 
+/**
+ * Filter server-side cho sổ giao dịch (P0.6 audit desktop 2026-08-22).
+ * Server hỗ trợ sẵn query params type/startDate/endDate (server/routes/finances.ts)
+ * — lọc ở store để setPage/setSelectedFundId/refresh giữ nguyên filter.
+ */
+export interface LedgerFilters {
+  type: 'ALL' | 'INCOME' | 'EXPENSE' | 'TRANSFER'
+  startDate: string
+  endDate: string
+}
+
 interface FinanceState {
   summary: FinanceSummary | null
   funds: Fund[]
@@ -22,6 +33,7 @@ interface FinanceState {
   classFeeRecords: StudentFeeRecord[]
   selectedFundId: string
   selectedAcademicYear: string
+  ledgerFilters: LedgerFilters
   isLoading: boolean
   error: string | null
   pagination: PaginationState
@@ -37,6 +49,8 @@ interface FinanceState {
   updateStudentFee: (classId: string, data: any) => Promise<StudentFeeRecord | null>
   setSelectedFundId: (id: string) => void
   setSelectedAcademicYear: (ay: string) => void
+  setLedgerFilters: (partial: Partial<LedgerFilters>) => void
+  resetLedgerFilters: () => void
   setPage: (page: number) => void
 }
 
@@ -47,6 +61,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   classFeeRecords: [],
   selectedFundId: 'ALL',
   selectedAcademicYear: '2025-2026',
+  ledgerFilters: { type: 'ALL', startDate: '', endDate: '' },
   isLoading: false,
   error: null,
   pagination: { page: 1, pageSize: 50, total: 0 },
@@ -96,6 +111,16 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
       }
       if (get().selectedFundId !== 'ALL') {
         queryParams.fundId = get().selectedFundId
+      }
+      const { type, startDate, endDate } = get().ledgerFilters
+      if (type !== 'ALL') {
+        queryParams.type = type
+      }
+      if (startDate) {
+        queryParams.startDate = startDate
+      }
+      if (endDate) {
+        queryParams.endDate = endDate
       }
 
       const result = await api.finances.getTransactions(queryParams)
@@ -176,6 +201,16 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     set({ selectedAcademicYear: ay, pagination: { ...get().pagination, page: 1 } })
     get().fetchSummary(ay)
     get().fetchTransactions({ academicYear: ay })
+  },
+
+  setLedgerFilters: (partial) => {
+    set({ ledgerFilters: { ...get().ledgerFilters, ...partial }, pagination: { ...get().pagination, page: 1 } })
+    get().fetchTransactions()
+  },
+
+  resetLedgerFilters: () => {
+    set({ ledgerFilters: { type: 'ALL', startDate: '', endDate: '' }, pagination: { ...get().pagination, page: 1 } })
+    get().fetchTransactions()
   },
 
   setPage: (page) => {

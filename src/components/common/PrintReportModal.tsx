@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { Printer, FileText, Award, X, Download, Eye, Layers, User, Loader2, FileDown } from 'lucide-react'
 import {
   generateClassGradebookHTML,
@@ -40,6 +41,8 @@ export const PrintReportModal: React.FC<Props> = ({
   initialStudentId,
 }) => {
   const [reportType, setReportType] = useState<ReportType>(initialReportType || 'CLASS_GRADEBOOK')
+  // PHA 1 (audit A19): focus trap
+  const trapRef = useFocusTrap(isOpen)
   const [selectedClassId, setSelectedClassId] = useState(initialClassId || 'AU1')
   const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId || '')
   const [meetingTime, setMeetingTime] = useState('')
@@ -240,8 +243,8 @@ export const PrintReportModal: React.FC<Props> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="In báo cáo">
+      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { pushModal, popModal, isTopModal } from '../../lib/modalStack'
 
 interface ModalShellProps {
   isOpen: boolean
@@ -36,11 +37,19 @@ export const ModalShell: React.FC<ModalShellProps> = ({
 }) => {
   const modalRef = useFocusTrap(isOpen)
   const titleId = React.useId()
+  // PHA 1 (audit A20): instance id cho stack arbitration — Escape chỉ đóng top-most
+  const instanceId = React.useId()
+
+  useEffect(() => {
+    if (!isOpen) return
+    pushModal(instanceId)
+    return () => popModal(instanceId)
+  }, [isOpen, instanceId])
 
   useEffect(() => {
     if (!isOpen) return
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && isTopModal(instanceId)) onClose()
     }
     document.addEventListener('keydown', handleKey)
     const prevOverflow = document.body.style.overflow
@@ -49,7 +58,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
       document.removeEventListener('keydown', handleKey)
       document.body.style.overflow = prevOverflow
     }
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, instanceId])
 
   if (!isOpen) return null
 

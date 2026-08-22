@@ -10,6 +10,7 @@ import { generateId } from '../../lib/id';
 import { generateSacramentCertificateHTML } from '../../utils/pdfGenerator';
 import { ReportExportService } from '../../services/reportExportService';
 import { Printer, X, Award } from 'lucide-react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 interface CertificateProps {
   isOpen: boolean;
@@ -28,6 +29,8 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
   const certId = React.useMemo(() => generateId('CERT'), [])
   const qrPayload = React.useMemo(() => (student ? buildCertificateQrPayload(certId, student.id, type) : ''), [certId, student, type])
   const qrSvg = React.useMemo(() => (qrPayload ? generateCertificateQrSvg(qrPayload, 4) : ''), [qrPayload])
+  // PHA 1 hoàn tất (audit A19): focus trap — hooks trước early-return
+  const trapRef = useFocusTrap(isOpen && !!student)
 
   if (!isOpen || !student) return null;
 
@@ -48,7 +51,7 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content max-w-[600px]" onClick={e => e.stopPropagation()}>
+      <div ref={trapRef} className="modal-content max-w-[600px]" onClick={e => e.stopPropagation()}>
         <div className="no-print flex justify-between items-center mb-4 border-b border-surface-border pb-3">
           <span className="text-sm font-bold text-parish-primary">
             {isPromotion ? 'Chứng Nhận Thăng Tiến' : 'Chứng Nhận Hoàn Tất'}
