@@ -212,7 +212,17 @@ usersRouter.put('/:id/assignments', roleMiddleware('admin'), zValidator('json', 
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  const ok = await updateUserAssignments(id, assignedClasses, user.userId, user.parishId, ip, userAgent)
+  // ADR-026 hardening (2026-08-22): chặn gán lớp cho admin/phuhuynh (chỉ GLV
+  // chunhiem/phuta có catechistAssignments). Danh sách rỗng vẫn cho phép (dọn bẩn).
+  let ok: boolean | null
+  try {
+    ok = await updateUserAssignments(id, assignedClasses, user.userId, user.parishId, ip, userAgent)
+  } catch (err: any) {
+    if (err?.code === 'ASSIGNMENTS_NOT_ALLOWED') {
+      return errorResponse(c, 'ASSIGNMENTS_NOT_ALLOWED', err.message || 'Chỉ tài khoản GLV mới được phân công lớp', 400)
+    }
+    throw err
+  }
   if (!ok) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
   return successResponse(c, { id, assignedClasses })
 })

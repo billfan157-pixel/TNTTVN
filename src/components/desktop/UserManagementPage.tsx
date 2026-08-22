@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search, Loader2, Edit2, Eye, EyeOff, AlertCircle, Copy, Users, Smartphone } from 'lucide-react'
 import { useClassStore } from '../../stores/classStore'
 import { api } from '../../lib/api'
@@ -21,7 +21,12 @@ export interface UserAccount {
   hasPasswordCopy?: boolean
 }
 
-export const UserManagementPage: React.FC = () => {
+// Tách trang quản lý tài khoản (2026-08-22): 'staff' = GLV & nhân sự
+// (admin/chunhiem/phuta), 'phuhuynh' = chỉ tài khoản phụ huynh, 'all' = hành vi cũ
+// (route /users xem toàn bộ). Entry point chính là 2 tab trong /management.
+export type UserManagementScope = 'all' | 'staff' | 'phuhuynh'
+
+export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ scope = 'all' }) => {
   const [users, setUsers] = useState<UserAccount[]>([])
   // REACT-185 (2026-08-14): pattern ổn định — selector trả hàm, gọi () ngoài
   // (tránh snapshot mảng mới mỗi render → loop, xem HeaderBar.tsx:34).
@@ -242,7 +247,15 @@ export const UserManagementPage: React.FC = () => {
     }
   }
 
-  const filteredUsers = users.filter(
+  const scopedUsers = useMemo(
+    () =>
+      scope === 'all'
+        ? users
+        : users.filter((u) => (scope === 'phuhuynh' ? u.role === 'phuhuynh' : u.role !== 'phuhuynh')),
+    [users, scope],
+  )
+
+  const filteredUsers = scopedUsers.filter(
     (u) =>
       u.fullName.toLowerCase().includes(search.toLowerCase()) ||
       u.username.toLowerCase().includes(search.toLowerCase()) ||
@@ -427,6 +440,7 @@ export const UserManagementPage: React.FC = () => {
     onUsernameCustomChange?: (v: boolean) => void
     hideUsername?: boolean
     hidePassword?: boolean
+    allowedRoles?: string[]
   }) => (
     <div className="space-y-3">
       {!props.hideUsername && (
@@ -480,10 +494,18 @@ export const UserManagementPage: React.FC = () => {
         <select value={props.role}
           onChange={(e) => props.onRoleChange(e.target.value)}
           className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary">
-          <option value="chunhiem">GLV Chủ Nhiệm</option>
-          <option value="phuta">GLV Phụ Tá</option>
-          <option value="admin">Admin / Thư Ký Xứ Đoàn</option>
-          <option value="phuhuynh">Phụ Huynh</option>
+          {(!props.allowedRoles || props.allowedRoles.includes('chunhiem')) && (
+            <option value="chunhiem">GLV Chủ Nhiệm</option>
+          )}
+          {(!props.allowedRoles || props.allowedRoles.includes('phuta')) && (
+            <option value="phuta">GLV Phụ Tá</option>
+          )}
+          {(!props.allowedRoles || props.allowedRoles.includes('admin')) && (
+            <option value="admin">Admin / Thư Ký Xứ Đoàn</option>
+          )}
+          {(!props.allowedRoles || props.allowedRoles.includes('phuhuynh')) && (
+            <option value="phuhuynh">Phụ Huynh</option>
+          )}
         </select>
       </div>
       {/* ADR-026 fix: chỉ chunhiem/phuta mới có phân công lớp — admin/phuhuynh
@@ -497,23 +519,49 @@ export const UserManagementPage: React.FC = () => {
     </div>
   )
 
+  function openCreateModal() {
+    // Scope 'phuhuynh': khóa vai trò Phụ Huynh (SĐT = username). 'staff'/'all':
+    // giữ mặc định GLV Phụ Tá như trước.
+    setNewRole(scope === 'phuhuynh' ? 'phuhuynh' : 'phuta')
+    setIsUsernameCustom(false)
+    setCreateError('')
+    setIsCreateModalOpen(true)
+  }
+
+  const createAllowedRoles =
+    scope === 'staff' ? ['chunhiem', 'phuta', 'admin'] : scope === 'phuhuynh' ? ['phuhuynh'] : undefined
+  const headerTitle =
+    scope === 'staff'
+      ? 'Tài Khoản Giáo Lý Viên & Nhân Sự'
+      : scope === 'phuhuynh'
+        ? 'Tài Khoản Phụ Huynh'
+        : 'Quản Lý Tài Khoản & Phân Quyền (IAM)'
+  const headerDescription =
+    scope === 'staff'
+      ? 'Tạo, phân công, khóa & đặt mật khẩu tài khoản GLV / Admin'
+      : scope === 'phuhuynh'
+        ? 'Cấp hàng loạt & quản lý tài khoản đăng nhập của phụ huynh (đăng nhập bằng SĐT)'
+        : 'Tạo, cấp quyền, khóa & đặt mật khẩu người dùng'
+
   return (
     <div className="flex flex-col gap-6 max-w-7xl mx-auto">
       <PageHeader
         icon={<ShieldCheck className="w-6 h-6 text-parish-primary" />}
-        title="Quản Lý Tài Khoản & Phân Quyền (IAM)"
-        description="Tạo, cấp quyền, khóa & đặt mật khẩu người dùng"
+        title={headerTitle}
+        description={headerDescription}
         actions={
           <>
-            <button onClick={openProvisionModal}
-              className="btn btn-secondary">
-              <Users className="w-4 h-4" />
-              <span>Cấp Tài Khoản Phụ Huynh</span>
-            </button>
-            <button onClick={() => { setCreateError(''); setIsCreateModalOpen(true) }}
+            {scope !== 'staff' && (
+              <button onClick={openProvisionModal}
+                className="btn btn-secondary">
+                <Users className="w-4 h-4" />
+                <span>Cấp Tài Khoản Phụ Huynh</span>
+              </button>
+            )}
+            <button onClick={openCreateModal}
               className="btn btn-primary">
               <UserPlus className="w-4 h-4" />
-              <span>Tạo Tài Khoản GLV Mới</span>
+              <span>{scope === 'phuhuynh' ? 'Tạo Tài Khoản Phụ Huynh' : 'Tạo Tài Khoản GLV Mới'}</span>
             </button>
           </>
         }
@@ -595,10 +643,14 @@ export const UserManagementPage: React.FC = () => {
                 <td className="p-4 text-sm text-text-muted">{u.lastLoginAt || 'Chưa đăng nhập'}</td>
                 <td className="p-4 text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => openEditModal(u)} title="Sửa Phân Công Lớp"
-                      className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-text-muted hover:text-parish-primary hover:bg-parish-primary-light transition-colors">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                    {/* ADR-026 hardening: chỉ GLV (chủ nhiệm/phụ tá) có phân công lớp —
+                        ẩn nút sửa phân công cho hàng admin/phuhuynh (server cũng chặn 400). */}
+                    {(u.role === 'chunhiem' || u.role === 'phuta') && (
+                      <button onClick={() => openEditModal(u)} title="Sửa Phân Công Lớp"
+                        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-text-muted hover:text-parish-primary hover:bg-parish-primary-light transition-colors">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    )}
                     <button onClick={() => openChangePassword(u)} title="Đặt Mật Khẩu"
                       className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-text-muted hover:text-amber-600 hover:bg-amber-500/10 transition-colors">
                       <Key className="w-4 h-4" />
@@ -634,7 +686,7 @@ export const UserManagementPage: React.FC = () => {
         <ModalShell
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
-          title={<><UserPlus className="w-5 h-5 text-parish-primary inline mr-2" />Tạo Tài Khoản GLV Mới</>}
+          title={<><UserPlus className="w-5 h-5 text-parish-primary inline mr-2" />{scope === 'phuhuynh' ? 'Tạo Tài Khoản Phụ Huynh' : 'Tạo Tài Khoản GLV Mới'}</>}
           maxWidth="512px"
         >
           <form onSubmit={handleCreateUser} className="space-y-4">
@@ -643,6 +695,7 @@ export const UserManagementPage: React.FC = () => {
                 onUsernameChange: setNewUsername, onFullNameChange: setNewFullName,
                 onPhoneChange: setNewPhone, onHolyNameChange: setNewHolyName, onRoleChange: setNewRole,
                 usernameCustom: isUsernameCustom, onUsernameCustomChange: setIsUsernameCustom,
+                allowedRoles: createAllowedRoles,
               })}
               {createError && (
                 <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600">

@@ -3,10 +3,21 @@ import { Student, BranchType } from '../../types';
 import { useStudentStore } from '../../stores/studentStore';
 import { useClassStore, getFilteredClassList } from '../../stores/classStore';
 import { BRANCHES } from '../../constants/branches';
-import { X, Save, UserPlus } from 'lucide-react';
+import { X, Save, UserPlus, KeyRound, Copy, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { SacramentSection } from './SacramentSection';
 import { useToastStore } from '../../stores/toastStore';
+import { api } from '../../lib/api';
+import { useAuth } from '../../hooks/useAuth';
+
+// ADR-026 tiện ích (2026-08-22): admin tạo nhanh tài khoản phụ huynh ngay trong
+// modal học sinh khi đã nhập đủ Tên PH + SĐT (10 số) — dùng chung POST /users
+// (username = SĐT chuẩn hóa, temp password trả 1 lần, FORCE_PASSWORD_CHANGE).
+type ParentAccountState =
+  | { status: 'idle' }
+  | { status: 'creating' }
+  | { status: 'done'; username: string; tempPassword: string; copied: boolean }
+  | { status: 'error'; alreadyExists: boolean; message: string }
 
 interface StudentModalProps {
   isOpen: boolean;
@@ -38,6 +49,52 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.role === 'admin';
+  const [parentAccount, setParentAccount] = useState<ParentAccountState>({ status: 'idle' });
+
+  const parentPhoneValid = /^[0-9]{10}$/.test(formData.parentPhone.trim());
+  const parentAccountReady = isAdmin && parentPhoneValid && formData.parentName.trim().length >= 2;
+
+  const handleCreateParentAccount = async () => {
+    if (!parentAccountReady || parentAccount.status === 'creating') return;
+    setParentAccount({ status: 'creating' });
+    try {
+      const res = await api.createUser({
+        fullName: formData.parentName.trim(),
+        phone: formData.parentPhone.trim(),
+        role: 'phuhuynh',
+      });
+      setParentAccount({ status: 'done', username: res.username, tempPassword: res.tempPassword, copied: false });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Không thể tạo tài khoản phụ huynh';
+      const alreadyExists = /tồn tại|exists/i.test(msg);
+      setParentAccount({
+        status: 'error',
+        alreadyExists,
+        message: alreadyExists
+          ? 'Số điện thoại này ĐÃ có tài khoản phụ huynh. Xem lại mật khẩu tạm ở tab Tài Khoản Phụ Huynh.'
+          : msg,
+      });
+    }
+  };
+
+  const handleCopyParentCredential = async () => {
+    if (parentAccount.status !== 'done') return;
+    try {
+      await navigator.clipboard.writeText(
+        `${formData.parentName.trim()} — Đăng nhập: ${parentAccount.username} — Mật khẩu tạm: ${parentAccount.tempPassword}`,
+      );
+      setParentAccount({ ...parentAccount, copied: true });
+      setTimeout(() => setParentAccount((prev) => (prev.status === 'done' ? { ...prev, copied: false } : prev)), 1500);
+    } catch {
+      // Clipboard bị chặn — admin tự sao chép tay
+    }
+  };
+
+  useEffect(() => {
+    setParentAccount({ status: 'idle' });
+  }, [isOpen]);
 
   useEffect(() => {
     setErrors({});
@@ -322,7 +379,11 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 type="text"
                 placeholder="VD: Nguyễn Văn Bình"
                 value={formData.parentName}
-                onChange={e => setFormData({ ...formData, parentName: e.target.value })}
+                onChange={e => {
+                  setFormData({ ...formData, parentName: e.target.value });
+                  // Sửa Tên PH/SĐT sau khi đã tạo tài khoản → kết quả cũ không còn chính xác
+                  setParentAccount(prev => (prev.status === 'idle' ? prev : { status: 'idle' }));
+                }}
               />
             </div>
             <div className="form-group">
@@ -334,12 +395,65 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 value={formData.parentPhone}
                 onChange={e => {
                   setFormData({ ...formData, parentPhone: e.target.value });
+                  setParentAccount(prev => (prev.status === 'idle' ? prev : { status: 'idle' }));
                   if (errors.parentPhone) setErrors(prev => ({ ...prev, parentPhone: '' }));
                 }}
               />
               {errors.parentPhone && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.parentPhone}</span>}
             </div>
           </div>
+
+          {/* ADR-026 (2026-08-22): tạo nhanh tài khoản phụ huynh từ SĐT vừa nhập — chỉ admin */}
+          {isAdmin && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={!parentAccountReady || parentAccount.status === 'creating'}
+                  onClick={handleCreateParentAccount}
+                  title={!parentPhoneValid ? 'Nhập SĐT phụ huynh đúng 10 số để bật nút' : !formData.parentName.trim() ? 'Nhập Tên Phụ Huynh trước' : 'Tạo tài khoản đăng nhập cho phụ huynh (username = SĐT)'}
+                >
+                  {parentAccount.status === 'creating' ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                  <span>Tạo Tài Khoản Phụ Huynh</span>
+                </button>
+                {!parentAccountReady && (
+                  <span className="text-[11px] text-text-muted">Cần SĐT đúng 10 số + Tên phụ huynh để tạo tài khoản đăng nhập</span>
+                )}
+              </div>
+              {parentAccount.status === 'done' && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 rounded-xl text-xs flex flex-col gap-1">
+                  <p className="m-0 font-bold text-emerald-700 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} /> Đã tạo tài khoản phụ huynh
+                  </p>
+                  <div className="flex items-center gap-2 font-mono text-text-main flex-wrap">
+                    <span>Đăng nhập: <strong>{parentAccount.username}</strong></span>
+                    <span className="text-text-muted">·</span>
+                    <span>Mật khẩu tạm: <strong>{parentAccount.tempPassword}</strong></span>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={handleCopyParentCredential}>
+                      <Copy size={12} />
+                      <span>{parentAccount.copied ? 'Đã chép' : 'Chép'}</span>
+                    </button>
+                  </div>
+                  <p className="m-0 text-emerald-700 leading-relaxed">
+                    Chỉ hiển thị 1 lần — giao cho phụ huynh qua kênh riêng (Zalo/gặp trực tiếp). Lần đăng nhập đầu sẽ bắt buộc đổi mật khẩu.
+                  </p>
+                </div>
+              )}
+              {parentAccount.status === 'error' && (
+                <div
+                  className={`p-3 rounded-xl text-xs border flex items-start gap-2 ${
+                    parentAccount.alreadyExists
+                      ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-900 text-amber-700'
+                      : 'bg-rose-50 dark:bg-rose-950 border-rose-200 dark:border-rose-900 text-rose-600'
+                  }`}
+                >
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{parentAccount.message}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Hành Trình Bí Tích */}
           {studentToEdit && (

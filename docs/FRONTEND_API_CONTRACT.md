@@ -305,11 +305,11 @@ Client: `src/lib/api.ts` (`getMyChildren`, `getStudentReportCard`) · Page: `src
 
 ## 9A. USER ACCOUNT PROVISIONING API (`/api/users/parent-*`) — ADR-026
 
-Client: `src/lib/api.ts` (`getParentProvisionPreview`, `provisionParentAccounts`) · UI: `src/components/desktop/UserManagementPage.tsx` (nút "Cấp Tài Khoản Phụ Huynh") · Server: `server/src/routes/users.ts` + `server/src/services/userService.ts` (`getParentProvisionPreview`, `provisionParentAccounts`)
+Client: `src/lib/api.ts` (`getParentProvisionPreview`, `provisionParentAccounts`) · UI: `src/components/desktop/UserManagementPage.tsx` (tab "Tài Khoản Phụ Huynh" trong `/management` — `scope='phuhuynh'`, nút "Cấp Tài Khoản Phụ Huynh"; 2026-08-22) · Server: `server/src/routes/users.ts` + `server/src/services/userService.ts` (`getParentProvisionPreview`, `provisionParentAccounts`)
 
 | Method & Path | Purpose | Auth | Success `data` | Errors |
 | :--- | :--- | :--- | :--- | :--- |
-| `GET /api/users/parent-provision-preview` | Danh sách SĐT phụ huynh **chưa có tài khoản** (scan `students.parentPhone` cùng giáo xứ, chưa xóa; normalize + dedupe; anh chị em cùng SĐT → 1 mục `childrenCount`; skip SĐT placeholder/không hợp lệ/đã có user/trùng username toàn cục) | admin | `{ total, candidates: [{ phone, parentName, childrenCount }], validPhoneCount, existingCount }` — `total === 0` + `validPhoneCount === 0` = **chưa có SĐT hợp lệ** (cần cập nhật SĐT học sinh); `total === 0` + `validPhoneCount > 0` = mọi SĐT hợp lệ đã có tài khoản | 401, 403 |
+| `GET /api/users/parent-provision-preview` | Danh sách SĐT phụ huynh **chưa có tài khoản** (scan `students.parentPhone` cùng giáo xứ, chưa xóa; normalize + dedupe; anh chị em cùng SĐT → 1 mục `childrenCount`; skip SĐT placeholder/không hợp lệ/đã có user/trùng username trong cùng giáo xứ — ADR-046) | admin | `{ total, candidates: [{ phone, parentName, childrenCount }], validPhoneCount, existingCount }` — `total === 0` + `validPhoneCount === 0` = **chưa có SĐT hợp lệ** (cần cập nhật SĐT học sinh); `total === 0` + `validPhoneCount > 0` = mọi SĐT hợp lệ đã có tài khoản | 401, 403 |
 | `POST /api/users/provision-parents` | Tạo hàng loạt tài khoản `phuhuynh` (username = SĐT chuẩn hóa, temp pass `Parish@\d{6}` 1 lần, `FORCE_PASSWORD_CHANGE`, bcrypt 12, `passwordEncrypted` theo ADR-021; **không** gán lớp). Re-auth bắt buộc `{ adminPassword }` (A06: `verifyAdminReauth` + rate limit 10/60s/IP + audit failed). Partial-success itemized (ADR-008); idempotent — chạy lại trả `total: 0` | admin (+ re-auth) | `{ total, successCount, skippedCount, errorCount, results: [{ phone, fullName, status: created\|skipped\|error, reason?, username?, tempPassword? }] }` | 400 thiếu adminPassword, 401 `INVALID_ADMIN_PASSWORD`, 401/403 auth |
 
 - Audit: 1 hàng `PARENT_ACCOUNTS_PROVISIONED` / lần chạy — `{ total, successCount, skippedCount, errorCount, createdIds }`, **không chứa SĐT/mật khẩu** (A16); fail re-auth → `PARENT_ACCOUNTS_PROVISION_FAILED`.
@@ -317,7 +317,7 @@ Client: `src/lib/api.ts` (`getParentProvisionPreview`, `provisionParentAccounts`
 
 ## 9B. TẠO TÀI KHOẢN GLV/ADMIN (`POST /api/users`) — ADR-027
 
-Client: `src/lib/api.ts` (`createUser`) · UI: `src/components/desktop/UserManagementPage.tsx` (modal tạo tài khoản, preview username realtime) · Server: `server/src/routes/users.ts` + `server/src/services/userService.ts` (`resolveUsername`) · Quy ước username: `docs/BUSINESS_RULES.md` §10.9 + ADR-027
+Client: `src/lib/api.ts` (`createUser`) · UI: `src/components/desktop/UserManagementPage.tsx` (modal tạo tài khoản, preview username realtime) + `src/components/common/StudentModal.tsx` (nút "Tạo Tài Khoản Phụ Huynh" nhanh khi đã nhập Tên PH + SĐT 10 số — admin-only, 2026-08-22) · Server: `server/src/routes/users.ts` + `server/src/services/userService.ts` (`resolveUsername`) · Quy ước username: `docs/BUSINESS_RULES.md` §10.9 + ADR-027
 
 | Endpoint | Mô tả | Quyền | Response | Lỗi |
 | :--- | :--- | :--- | :--- | :--- |

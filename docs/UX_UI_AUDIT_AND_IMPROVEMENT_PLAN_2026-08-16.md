@@ -126,7 +126,7 @@ Finance dùng chuẩn (TransactionModal:132, ClassFeeCollectionModal:220, Financ
 
 **Verify:** `npm run lint:ds` = 0 (6 rules) · `tsc -b` clean · vitest pass. **Docs:** DS §11 (xem dưới), linter rules mới phản ánh trong mục V.0.2.
 
-### PHA 1 — Component chuẩn dùng chung (D3 — ADR-047) — ✅ HOÀN THÀNH 2026-08-16
+### PHA 1 — Component chuẩn dùng chung (D3 — ADR-055) — ✅ HOÀN THÀNH 2026-08-16
 **Mục tiêu:** Hết "mỗi trang tự dựng một kiểu". Tạo 3 component chung trong `src/components/common/`:
 
 | Component | Nội dung | Thay thế cho |
@@ -137,9 +137,9 @@ Finance dùng chuẩn (TransactionModal:132, ClassFeeCollectionModal:220, Financ
 
 **Kèm theo:** mở rộng `index.css` tokens — bổ sung badge domain colors (violet/teal/orange/indigo/purple theo bảng `docs/UX_UI_EVALUATION_APP_WIDE.md` §IV đã đề xuất) để AuditLogPage/AcademicYearPage dùng `.badge-*` thay vì ~70 pill raw.
 
-**Đã thực hiện:** tạo `PageHeader.tsx`/`ModalShell.tsx`/`FormField.tsx` (xem chi tiết ADR-047); `index.css` thêm `--color-parish-{violet,teal,orange,indigo,purple}(-bg)` + `.badge-*` + dark overrides; test `CommonComponents.test.tsx` **13/13 PASS** (PageHeader 3, ModalShell 6, FormField 4 — phủ aria, Escape, overlay policy, required marker, error/hint wiring).
+**Đã thực hiện:** tạo `PageHeader.tsx`/`ModalShell.tsx`/`FormField.tsx` (xem chi tiết ADR-055); `index.css` thêm `--color-parish-{violet,teal,orange,indigo,purple}(-bg)` + `.badge-*` + dark overrides; test `CommonComponents.test.tsx` **13/13 PASS** (PageHeader 3, ModalShell 6, FormField 4 — phủ aria, Escape, overlay policy, required marker, error/hint wiring).
 
-**Verify:** `tsc -b` clean · `lint:ds` **0 violations / 128 components** · oxlint 0 error. **Docs:** ADR-047 (mới) + DS §12 (batch Pha 1) + AI_CONTEXT_MAP. **Bước kế tiếp:** migrate các trang/modals hiện hữu khi chạm tới ở Pha 3-6.
+**Verify:** `tsc -b` clean · `lint:ds` **0 violations / 128 components** · oxlint 0 error. **Docs:** ADR-055 (mới) + DS §12 (batch Pha 1) + AI_CONTEXT_MAP. **Bước kế tiếp:** migrate các trang/modals hiện hữu khi chạm tới ở Pha 3-6.
 
 ### PHA 2 — Fix bug chức năng (D2) — ✅ HOÀN THÀNH 2026-08-16
 | # | Bug | File | Fix đã thực hiện |

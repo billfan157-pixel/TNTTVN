@@ -644,7 +644,7 @@ Hệ thống cung cấp tính năng xuất đề thi và bảng đáp án đa đ
 
 ---
 
-## 23. QUY TẮC TOÀN VẸN DỮ LIỆU & KIỂM SOÁT ĐỒNG BỘ NÂNG CAO (ADR-041)
+## 23. QUY TẮC TOÀN VẸN DỮ LIỆU & KIỂM SOÁT ĐỒNG BỘ NÂNG CAO (ADR-053)
 
 ### 23.1 Tính Nguyên Tử Trong Duyệt Đơn Nghỉ Phép (Atomic Leave Approval)
 - Khi Ban Giáo Lý hoặc Admin duyệt (`APPROVED`) đơn xin nghỉ phép của phụ huynh:

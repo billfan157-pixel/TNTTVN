@@ -266,8 +266,14 @@ server/src/                         ─ Backend Hono Application
   5. **Bug 2.3**: `PromotionPanel` "ĐTB" dùng `avg.score` thay `promotion.recommendedBranch`.
   6. **Verify**: `tsc -b` clean, `lint:ds` 0, `MobileViewsEnhancement.test.tsx` 8/8 pass; full vitest suite không có failure (tool timeout >10 phút).
 
-### Module: UX/UI Audit 2026-08-16 — Pha 1 (Component Standards, ADR-047)
-- **Files Modified**: `src/components/common/{PageHeader,ModalShell,FormField}.tsx` (NEW), `src/index.css` (@theme domain badge tokens + `.badge-{violet,teal,orange,indigo,purple}` + dark overrides), `src/__tests__/components/CommonComponents.test.tsx` (NEW), `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` (ADR-047), `docs/03_DESIGN_SYSTEM.md` (§12 batch Pha 1), `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md` (PHA 1 ✅).
+### Module: Quản Lý Tài Khoản Tách 2 Tab — Phụ Huynh / GLV & Nhân Sự (2026-08-22)
+- **Files Modified**: `src/components/desktop/UserManagementPage.tsx` (prop `scope?: 'all' | 'staff' | 'phuhuynh'` — filter client-side theo role, header/nút hành động + `allowedRoles` form tạo tài khoản theo scope), `src/pages/UsersPage.tsx` (forward scope), `src/pages/ManagementPage.tsx` (tách tab `users` thành `users-staff` + `users-parents`).
+- **Summary**: `/management` có 2 tab riêng — **"Tài Khoản GLV & Nhân Sự"** (role admin/chunhiem/phuta; KHÔNG có nút cấp phát phụ huynh) và **"Tài Khoản Phụ Huynh"** (chỉ role phuhuynh; nút "Cấp Tài Khoản Phụ Huynh" + tạo PH lẻ với vai trò khóa `phuhuynh`, SĐT = username). Route `/users` giữ nguyên (`scope='all'`) cho deep-link cũ. Không đổi API/schema/server.
+- **Quick-create trong StudentModal (cùng ngày)**: `src/components/common/StudentModal.tsx` thêm nút **"Tạo Tài Khoản Phụ Huynh"** (chỉ hiện cho admin, bật khi Tên PH ≥ 2 ký tự + SĐT đúng 10 số) gọi thẳng `POST /users` role phuhuynh → panel xanh hiển thị username + mật khẩu tạm 1 lần + nút chép; SĐT trùng tài khoản → panel vàng hướng dẫn xem lại pass ở tab Tài Khoản Phụ Huynh. Sửa Tên PH/SĐT sau khi tạo → reset panel. Không đổi API.
+- **Verify**: `tsc -b` clean · oxlint 0 error (1 warning exhaustive-deps pre-existing tại effect cũ) · `build:frontend` pass · `lint:ds` 0 violations / 134 components.
+
+### Module: UX/UI Audit 2026-08-16 — Pha 1 (Component Standards, ADR-055)
+- **Files Modified**: `src/components/common/{PageHeader,ModalShell,FormField}.tsx` (NEW), `src/index.css` (@theme domain badge tokens + `.badge-{violet,teal,orange,indigo,purple}` + dark overrides), `src/__tests__/components/CommonComponents.test.tsx` (NEW), `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` (ADR-055), `docs/03_DESIGN_SYSTEM.md` (§12 batch Pha 1), `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md` (PHA 1 ✅).
 - **Summary**:
   1. **PageHeader** (DS §5): icon tile `bg-parish-primary-light text-parish-primary` + `h1 text-lg font-extrabold text-text-main` + desc `text-xs text-text-muted` + `actions`.
   2. **ModalShell**: wrap `.modal-overlay`/`.modal-content` + `role="dialog"` `aria-modal` `aria-labelledby` (useId) + focus trap + Escape + scroll-lock + `closeOnOverlay` policy + close `btn-icon btn-ghost` aria-label "Đóng". (ConfirmDialog giữ `role="alertdialog"`.)

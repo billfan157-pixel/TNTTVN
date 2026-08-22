@@ -423,6 +423,14 @@ export async function updateUserAssignments(
     const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
     if (!existing) return null
 
+    // ADR-026 invariant (hardening 2026-08-22): chỉ GLV (chunhiem/phuta) được có
+    // catechistAssignments. Trước đây chỉ vá ở createUser — update path vẫn cho
+    // gán lớp vào tài khoản admin/phuhuynh (row roleInClass sai, checkUserClassAccess
+    // đọc bảng này cho mọi role). Gửi danh sách RỖNG vẫn cho phép (dọn row bẩn lịch sử).
+    if ((existing.role === 'admin' || existing.role === 'phuhuynh') && assignedClasses.length > 0) {
+      throw Object.assign(new Error('Chỉ tài khoản GLV (chủ nhiệm/phụ tá) mới được phân công lớp'), { code: 'ASSIGNMENTS_NOT_ALLOWED' })
+    }
+
     const prevAssignments = await tx.select().from(catechistAssignments).where(and(eq(catechistAssignments.userId, id), eq(catechistAssignments.parishId, parishId)))
     const prevMap = new Map(prevAssignments.map((a) => [a.classId, a]))
 

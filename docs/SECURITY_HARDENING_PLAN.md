@@ -24,7 +24,7 @@
 
 ## 2. Quy tắc bất biến (canonical rule)
 
-> Mọi truy vấn Drizzle (select/update/delete) trên bảng có cột `parish_id` PHẢI kèm `eq(<table>.parishId, parishId)` từ parameter của service. Ngoại lệ chỉ chấp nhận khi: (a) dữ liệu là read-after-write trong cùng transaction *và* row vừa được ghi với `parishId` của request **→ vẫn thêm để đồng nhất**; (b) khóa uniqueness toàn DB (`users.username`, `students.code`, `refresh_tokens.token_hash`) — schema vẫn quy định global unique (xem §5.2).
+> Mọi truy vấn Drizzle (select/update/delete) trên bảng có cột `parish_id` PHẢI kèm `eq(<table>.parishId, parishId)` từ parameter của service. Ngoại lệ chỉ chấp nhận khi: (a) dữ liệu là read-after-write trong cùng transaction *và* row vừa được ghi với `parishId` của request **→ vẫn thêm để đồng nhất**; (b) khóa uniqueness toàn DB còn lại (`refresh_tokens.token_hash`) — lưu ý `users.username` đã composite `(parish_id, username)` (ADR-046, migration `20260816-121`) và `students.code` đã composite `(parish_id, code)` (migration `20260813-116`) → KHÔNG còn là khóa toàn cục.
 
 Không có ngoại lệ ngầm. Mọi PR thêm query mới phải tuân thủ; `tenantIsolation.test.ts` sẽ bảo vệ boundary chính.
 

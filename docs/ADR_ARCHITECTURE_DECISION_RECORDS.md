@@ -413,16 +413,16 @@ Parish yêu cầu: giáo viên chủ nhiệm (`chunhiem`) và trợ tá (`phuta`
 Cổng phụ huynh (ADR-022) khớp liên kết PH ↔ con qua SĐT lúc truy vấn: `users.phone` ↔ `students.parentPhone` (chuẩn hóa `phone.ts`, SSOT `CanAccessStudentSpecification`). Tài khoản `phuhuynh` do admin tạo tay từng người (`POST /api/users`), nhưng giáo xứ đã có sẵn toàn bộ `parentPhone` trong danh sách học sinh (nhập tay `StudentModal` hoặc import Excel). Chi phí thủ công tăng theo số phụ huynh (hàng trăm), và ADR-022 ghi nhận giới hạn: "parents are not notified when their phone does not match any student; a future reconciliation report could list unmatched parentPhones". Phương án thay thế (tự tạo account khi import học sinh; phụ huynh tự đăng ký) bị loại: import chạy bởi người không phải admin + trộn 2 concern; self-registration cho phép bất kỳ ai biết SĐT của con xem điểm — lỗ hổng privacy dữ liệu trẻ em nếu không có xác minh OTP (chưa có hạ tầng SMS).
 
 ### Decision (Decision Matrix SECURITY profile — A: endpoint admin 7.65 vs B: side-effect import 5.45 vs C: self-registration 5.55)
-1. **`GET /api/users/parent-provision-preview`** (admin-only): scan học sinh cùng giáo xứ (chưa soft-delete) → normalize + dedupe SĐT → chỉ trả SĐT **chưa** gắn tài khoản. SKIP (không nằm trong preview): SĐT rỗng/placeholder `'Chưa cập nhật'`/không hợp lệ (VN 10 số sau chuẩn hóa); SĐT đã có user trong giáo xứ (bất kỳ role — kể cả GLV trùng SĐT); SĐT trùng **username UNIQUE toàn cục** của bất kỳ tài khoản nào (kể cả giáo xứ khác — `users.username` global unique, `schema.ts:5`). Anh chị em cùng SĐT → 1 candidate với `childrenCount`.
+1. **`GET /api/users/parent-provision-preview`** (admin-only): scan học sinh cùng giáo xứ (chưa soft-delete) → normalize + dedupe SĐT → chỉ trả SĐT **chưa** gắn tài khoản. SKIP (không nằm trong preview): SĐT rỗng/placeholder `'Chưa cập nhật'`/không hợp lệ (VN 10 số sau chuẩn hóa); SĐT đã có user trong giáo xứ (bất kỳ role — kể cả GLV trùng SĐT); SĐT trùng **username** của tài khoản nào *(tại thời điểm quyết định 2026-08-12: UNIQUE toàn cục; **cập nhật theo ADR-046 (2026-08-16)** — username unique `(parish_id, username)` → chỉ loại trùng trong cùng giáo xứ, cùng SĐT ở giáo xứ khác vẫn cấp được bình thường)*. Anh chị em cùng SĐT → 1 candidate với `childrenCount`.
 2. **`POST /api/users/provision-parents`** (admin-only + **re-authentication**): body bắt buộc `{ adminPassword }` — `verifyAdminReauth` (SSOT chuẩn A05/A06) + `adminReauthRateLimiter` 10/60s/IP; sai → 401 `INVALID_ADMIN_PASSWORD` + audit `PARENT_ACCOUNTS_PROVISION_FAILED`. Endpoint trả nhiều mật khẩu tạm nên thuộc family nhạy cảm; đồng thời lấp pattern còn mở của A08 (`POST /users` đơn lẻ vẫn chưa có re-auth — theo dõi riêng).
-3. **Tài khoản tạo theo đúng chuẩn có sẵn**: `role='phuhuynh'`, `username` = SĐT chuẩn hóa, `fullName` = `parentName`, `phone` = SĐT chuẩn hóa (đảm bảo khớp `parentService`), temp password `Parish@\d{6}` (đạt policy §10.1), bcrypt cost 12, `passwordEncrypted` theo ADR-021 (NULL nếu thiếu `PASSWORD_CIPHER_KEY` — production hiện tại), `status='FORCE_PASSWORD_CHANGE'` + `mustChangePassword=1` (§10.2), `tokenVersion=1`. **Không** gán `catechistAssignments` (fix: `createUser` chỉ tạo assignment cho `chunhiem`/`phuta` — trước đây `phuhuynh`/`admin` gán lớp sinh row `roleInClass='phuta'` sai, `checkUserClassAccess` đọc bảng này cho mọi role).
+3. **Tài khoản tạo theo đúng chuẩn có sẵn**: `role='phuhuynh'`, `username` = SĐT chuẩn hóa, `fullName` = `parentName`, `phone` = SĐT chuẩn hóa (đảm bảo khớp `parentService`), temp password `Parish@\d{6}` (đạt policy §10.1), bcrypt cost 12, `passwordEncrypted` theo ADR-021 (NULL nếu thiếu `PASSWORD_CIPHER_KEY` — production hiện tại), `status='FORCE_PASSWORD_CHANGE'` + `mustChangePassword=1` (§10.2), `tokenVersion=1`. **Không** gán `catechistAssignments` (fix: `createUser` chỉ tạo assignment cho `chunhiem`/`phuta` — trước đây `phuhuynh`/`admin` gán lớp sinh row `roleInClass='phuta'` sai, `checkUserClassAccess` đọc bảng này cho mọi role). *(Hardening 2026-08-22 — A-NEW-59: update path cũng bị chặn — `updateUserAssignments`/`PUT /users/:id/assignments` trả 400 `ASSIGNMENTS_NOT_ALLOWED` khi gán lớp cho admin/phuhuynh; danh sách rỗng vẫn cho phép để dọn row bẩn; UI ẩn nút sửa phân công cho 2 role này.)*
 4. **Partial-success itemized (ADR-008) + idempotent (ADR-015)**: response `{ total, successCount, skippedCount, errorCount, results: [{ phone, fullName, status: created|skipped|error, reason?, username?, tempPassword? }] }`; mỗi item 1 transaction riêng; chạy lại → toàn bộ skip (total 0, không duplicate). Race UNIQUE → skip `username_exists`. Không retry tự động client (A12 — POST không Idempotency-Key).
 5. **Audit gộp không PII (A16)**: 1 hàng `PARENT_ACCOUNTS_PROVISIONED` / lần chạy — `{ total, successCount, skippedCount, errorCount, createdIds }`; KHÔNG chứa SĐT/plaintext mật khẩu; `entityId='bulk-parent-provision'`.
-6. **UI**: `UserManagementPage` nút "Cấp Tài Khoản Phụ Huynh" → modal preview (danh sách SĐT + số con) → nhập mật khẩu admin (re-auth) → bảng kết quả itemized + copy mật khẩu tạm từng dòng. Form tạo tài khoản thủ công ẩn "Phân Công Lớp" cho role `admin`/`phuhuynh`.
+6. **UI**: `UserManagementPage` nút "Cấp Tài Khoản Phụ Huynh" → modal preview (danh sách SĐT + số con) → nhập mật khẩu admin (re-auth) → bảng kết quả itemized + copy mật khẩu tạm từng dòng. Form tạo tài khoản thủ công ẩn "Phân Công Lớp" cho role `admin`/`phuhuynh`. *(Cập nhật UI 2026-08-22: quản lý tài khoản tách 2 tab riêng trong `/management` — "Tài Khoản Phụ Huynh" & "Tài Khoản GLV & Nhân Sự" — cùng `UserManagementPage` prop `scope`; route `/users` giữ xem toàn bộ vai trò.)*
 
 ### Consequences
 - **Positive**: 1 cú bấm cấp toàn bộ tài khoản phụ huynh còn thiếu (idempotent, an toàn chạy lại); username = SĐT đúng tiêu đề ADR-022 ("parents log in with the phone stored on their child's record"); không thêm bảng/schema; audit truy vết + re-auth đầy đủ; fix bug ô nhiễm `catechistAssignments` cho role không phải GLV.
-- **Negative**: SĐT lệch định dạng trong `parentPhone` vẫn khớp qua `phoneMatchVariants` (không làm tệ hơn ADR-022); account `phuhuynh` trùng SĐT GLV bị skip (admin xử lý tay — người vừa là GLV vừa là phụ huynh chỉ có 1 tài khoản); bcrypt cost 12 tuần tự ~0.3s/account → giáo xứ lớn (>150 tài khoản) cần chờ lâu hơn (1 lần duy nhất, chạy lại vô hại); username global-unique: 2 giáo xứ trùng SĐT → giáo xứ sau bị skip + báo cáo.
+- **Negative**: SĐT lệch định dạng trong `parentPhone` vẫn khớp qua `phoneMatchVariants` (không làm tệ hơn ADR-022); account `phuhuynh` trùng SĐT GLV bị skip (admin xử lý tay — người vừa là GLV vừa là phụ huynh chỉ có 1 tài khoản); bcrypt cost 12 tuần tự ~0.3s/account → giáo xứ lớn (>150 tài khoản) cần chờ lâu hơn (1 lần duy nhất, chạy lại vô hại); ~~username global-unique: 2 giáo xứ trùng SĐT → giáo xứ sau bị skip + báo cáo~~ **không còn đúng từ ADR-046 (2026-08-16)**: username unique `(parish_id, username)` → 2 giáo xứ trùng SĐT cấp tài khoản độc lập bình thường.
 - **Tests**: `parent-provision.test.ts` (9 tests: 401/403 preview, dedupe anh chị em, chuẩn hóa +84, skip placeholder/invalid/existing/username-collision/deleted/tenant-foreign, re-auth 400/401 + audit failed, tạo đúng fields + bcrypt khớp temp password, audit không PII, idempotent re-run, không catechistAssignments, fix createUser phuhuynh). `tsc -b` + oxlint + vitest pass.
 
 ## ADR-027: Tên Thánh & Username Tự Sinh cho Tài Khoản GLV (`users.holy_name` + cú pháp `chucvu_tenThanh_hoTen`)
@@ -603,7 +603,7 @@ Hard gates D2 (GENERAL: Security/Privacy/Data Integrity/Testability): Security 9
 
 ### Decision
 1. **`PUT /api/auth/profile`**: role `phuhuynh` gửi `phone` khác SĐT hiện tại → **403 `PHONE_CHANGE_NOT_ALLOWED`**; `phone` validate `^0\d{9}$` cho mọi role. Client `SettingsPage` disable ô SĐT + hướng dẫn liên hệ BGL.
-2. **`PUT /api/users/:id/phone`** (admin): re-auth chuẩn A05/A06 (`adminReauthRateLimiter` + audit `UPDATE_USER_PHONE`/`UPDATE_USER_PHONE_FAILED`), format VN, cấm Admin trưởng. Với `phuhuynh` có username = SĐT cũ (đúng quy ước ADR-026/027) → **username đồng bộ theo SĐT mới** (login = số mới); trùng username toàn cục → 409 `USERNAME_EXISTS`; username custom không đổi. Audit KHÔNG ghi SĐT thô (A16).
+2. **`PUT /api/users/:id/phone`** (admin): re-auth chuẩn A05/A06 (`adminReauthRateLimiter` + audit `UPDATE_USER_PHONE`/`UPDATE_USER_PHONE_FAILED`), format VN, cấm Admin trưởng. Với `phuhuynh` có username = SĐT cũ (đúng quy ước ADR-026/027) → **username đồng bộ theo SĐT mới** (login = số mới); trùng username trong cùng giáo xứ (`(parish_id, username)` — phạm vi cập nhật theo ADR-046, trước đây là toàn cục) → 409 `USERNAME_EXISTS`; username custom không đổi. Audit KHÔNG ghi SĐT thô (A16).
 3. **Telegram UI**: `src/hooks/useTelegramLink.ts` + `src/components/common/TelegramLinkCard.tsx` mount trong `ParentPage` ("Thông Báo Telegram"): trạng thái liên kết, tạo mã (10 phút, copy), bước hướng dẫn `/link`, bật/tắt thông báo, hủy liên kết (confirm dialog), làm mới. Bot `/start` cập nhật hướng dẫn trỏ đúng vị trí UI; env optional `TELEGRAM_BOT_USERNAME` hiển thị tên bot.
 4. **P3**: nút "Sao Chép Tất Cả Credential" trong kết quả provision (danh sách `Tên — Đăng nhập — Mật khẩu`).
 5. **P4/P5** (ghi nhận, không code): self-service quên mật khẩu cần hạ tầng OTP — PH liên hệ admin reset (đã có A06, hint trên LoginPage); chất lượng `parentPhone` phụ thuộc dữ liệu (đã giảm thiểu bằng `phoneMatchVariants` + preview provision).
@@ -616,7 +616,9 @@ Hard gates D2 (GENERAL: Security/Privacy/Data Integrity/Testability): Security 9
 
 ---
 
-## ADR-041: System Polish & Data Integrity Hardening — Phase A Quick Wins (2026-08-15)
+## ADR-053: System Polish & Data Integrity Hardening — Phase A Quick Wins (2026-08-15)
+
+> ⚠️ **Renumber 2026-08-22**: đánh số lại từ ~~ADR-041~~ — audit doc-integrity phát hiện trùng số với ADR-041 Cloud Storage: Turso/R2. Nội dung giữ nguyên.
 
 ### Context
 Sau đợt audit toàn diện hệ thống theo Decision Matrix v4.1.2 (Prompt Polish 10 Domains), 9 điểm nghẽn và rủi ro tính toàn vẹn dữ liệu được xác định cần xử lý khẩn cấp (Quick Wins, Rủi ro thấp - Tác động cao):
@@ -757,7 +759,9 @@ Triển khai đồng thời cơ chế **Hybrid (2 tầng)**:
 
 ---
 
-## ADR-046: Centralized Grade Policy Engine (Sprint 1 — 2026-08-16)
+## ADR-054: Centralized Grade Policy Engine (Sprint 1 — 2026-08-16)
+
+> ⚠️ **Renumber 2026-08-22**: đánh số lại từ ~~ADR-046~~ — audit doc-integrity phát hiện trùng số với ADR-046 Username Unique Theo Parish (composite `(parish_id, username)`). Nội dung giữ nguyên; Sprint 2 là ADR-047 Grade Policy Versioning & Delta Audit.
 
 ### Context
 Sprint 1 xác định rằng logic tính GPA và phân loại học lực đang bị lặp lại ở nhiều tầng: client utility, report factory, và một số server-side compute. Sự phân tán này làm tăng nguy cơ lệch trọng số / threshold / rounding giữa màn hình, báo cáo, và rule nghiệp vụ.
@@ -1074,7 +1078,9 @@ Yêu cầu giữ: guard router/sync phải đọc đồng bộ; offline reload v
 - **Negative**: login phải gửi `parishId` khi user không thuộc `gia-ton` (client hiện tại không cần — default); 2 parish cùng username qua client cũ (không gửi parishId) chỉ login được tài khoản `gia-ton` — cần parish picker ở go-live multi-parish (backlog).
 - **Files**: `server/src/db/index.ts` (migration `20260816-121` + base create), `server/src/db/schema.ts`, `server/src/routes/auth.ts`, `server/src/services/userService.ts`, `server/src/__tests__/username-tenant-scope.test.ts` (NEW) + 7 test files cập nhật login body.
 
-## ADR-047: Component Standards — PageHeader/ModalShell/FormField + Domain Badge Colors (2026-08-16)
+## ADR-055: Component Standards — PageHeader/ModalShell/FormField + Domain Badge Colors (2026-08-16)
+
+> ⚠️ **Renumber 2026-08-22**: đánh số lại từ ~~ADR-047~~ — audit doc-integrity phát hiện trùng số với ADR-047 Grade Policy Versioning & Delta Audit. Nội dung giữ nguyên.
 
 **Status: APPROVED. Severity: D3 (chuẩn hóa toàn app — mọi trang/modal/form về sau phải dùng). Profile: GENERAL.**
 

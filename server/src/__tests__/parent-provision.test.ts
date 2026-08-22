@@ -240,4 +240,34 @@ describe('ADR-026: Parent Account Provisioning (cấp tài khoản phụ huynh h
       .where(and(eq(catechistAssignments.userId, res!.id), eq(catechistAssignments.parishId, parishId)))
     expect(rows).toHaveLength(0)
   })
+
+  // Hardening 2026-08-22: update path (PUT /users/:id/assignments) cũng phải chặn
+  // gán lớp cho admin/phuhuynh — trước đây chỉ vá ở createUser.
+  it('PUT /users/:id/assignments chặn gán lớp cho tài khoản phuhuynh (400 ASSIGNMENTS_NOT_ALLOWED)', async () => {
+    const [ph] = await db.select().from(users).where(and(eq(users.parishId, parishId), eq(users.username, PHONE_CANDIDATE_1))).limit(1)
+    expect(ph).toBeDefined()
+    const res = await usersApp.request(`/${ph!.id}/assignments`, {
+      method: 'PUT', headers: adminHeaders(), body: JSON.stringify({ assignedClasses: [classId] }),
+    })
+    expect(res.status).toBe(400)
+    const err = (await res.json()) as any
+    expect(err.error.code).toBe('ASSIGNMENTS_NOT_ALLOWED')
+    const rows = await db.select().from(catechistAssignments).where(eq(catechistAssignments.userId, ph!.id))
+    expect(rows).toHaveLength(0)
+  })
+
+  it('PUT /users/:id/assignments cho phép danh sách RỖNG cho phuhuynh (dọn row bẩn) và vẫn chặn GLV hợp lệ không bị ảnh hưởng', async () => {
+    const [ph] = await db.select().from(users).where(and(eq(users.parishId, parishId), eq(users.username, PHONE_CANDIDATE_1))).limit(1)
+    const res = await usersApp.request(`/${ph!.id}/assignments`, {
+      method: 'PUT', headers: adminHeaders(), body: JSON.stringify({ assignedClasses: [] }),
+    })
+    expect(res.status).toBe(200)
+
+    const [glv] = await db.select().from(users).where(and(eq(users.parishId, parishId), eq(users.id, EXISTING_GLV_ID))).limit(1)
+    expect(glv!.role).toBe('chunhiem')
+    const resGlv = await usersApp.request(`/${EXISTING_GLV_ID}/assignments`, {
+      method: 'PUT', headers: adminHeaders(), body: JSON.stringify({ assignedClasses: [] }),
+    })
+    expect(resGlv.status).toBe(200)
+  })
 })

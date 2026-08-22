@@ -1,22 +1,25 @@
 import React from 'react'
 import { useState } from 'react'
-import { Calendar, BookOpen, ShieldCheck } from 'lucide-react'
+import { Calendar, BookOpen, ShieldCheck, UserCheck, Users } from 'lucide-react'
 import AcademicYearPage from './AcademicYearPage'
 import ClassesPage from './ClassesPage'
 import UsersPage from './UsersPage'
 import { PageHeader } from '../components/common/PageHeader'
 
-type ManagementTab = 'academic-years' | 'classes' | 'users'
+type ManagementTab = 'academic-years' | 'classes' | 'users-staff' | 'users-parents'
 
 const TABS: { id: ManagementTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'academic-years', label: 'Quản Lý Năm Học', icon: Calendar },
   { id: 'classes', label: 'Quản Lý Lớp Học', icon: BookOpen },
-  { id: 'users', label: 'Quản Lý Tài Khoản', icon: ShieldCheck },
+  { id: 'users-staff', label: 'Tài Khoản GLV & Nhân Sự', icon: UserCheck },
+  { id: 'users-parents', label: 'Tài Khoản Phụ Huynh', icon: Users },
 ]
 
 /**
- * Trang Quản Lý gộp 3 chức năng (Năm Học, Lớp Học, Tài Khoản) — chỉ dành cho admin.
- * Route cha `/management` đã chặn role admin; các tab bên trong không cần check lại.
+ * Trang Quản Lý gộp các chức năng (Năm Học, Lớp Học, Tài Khoản GLV/Nhân Sự,
+ * Tài Khoản Phụ Huynh) — chỉ dành cho admin. Route cha `/management` đã chặn
+ * role admin; các tab bên trong không cần check lại. Tài khoản GLV và Phụ Huynh
+ * tách 2 tab riêng (2026-08-22) — cùng dùng UserManagementPage với scope khác nhau.
  */
 export function ManagementPage() {
   const [activeTab, setActiveTab] = useState<ManagementTab>('academic-years')
@@ -56,7 +59,8 @@ export function ManagementPage() {
       <div>
         {activeTab === 'academic-years' && <AcademicYearPage />}
         {activeTab === 'classes' && <ClassesPage />}
-        {activeTab === 'users' && <UsersPage />}
+        {activeTab === 'users-staff' && <UsersPage scope="staff" />}
+        {activeTab === 'users-parents' && <UsersPage scope="phuhuynh" />}
       </div>
     </div>
   )
