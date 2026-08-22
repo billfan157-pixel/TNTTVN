@@ -104,7 +104,7 @@ export const MobileAttendanceView: React.FC = () => {
       <div className="flex bg-surface-card p-1 rounded-xl border border-surface-border gap-1 mb-2">
         <button
           onClick={() => setActiveSubTab('attendance')}
-          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-2 min-h-[44px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
             activeSubTab === 'attendance'
               ? 'bg-parish-primary text-white shadow-sm'
               : 'text-text-secondary hover:bg-surface-hover'
@@ -115,7 +115,7 @@ export const MobileAttendanceView: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveSubTab('summary')}
-          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-2 min-h-[44px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
             activeSubTab === 'summary'
               ? 'bg-parish-primary text-white shadow-sm'
               : 'text-text-secondary hover:bg-surface-hover'
@@ -126,7 +126,7 @@ export const MobileAttendanceView: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveSubTab('leave-requests')}
-          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 relative ${
+          className={`flex-1 py-2 min-h-[44px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 relative ${
             activeSubTab === 'leave-requests'
               ? 'bg-parish-primary text-white shadow-sm'
               : 'text-text-secondary hover:bg-surface-hover'

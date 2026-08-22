@@ -132,7 +132,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                     {studentEntries.map(entry => (
                       <span key={entry.id} className="inline-flex items-center gap-1.5 rounded-lg bg-surface-card border border-surface-border px-2.5 py-1.5 text-xs font-bold">
                         <Clock3 size={12} className="text-text-muted" /> {entry.value}
-                        {canEdit && <button type="button" onClick={() => removeEntry(entry.id)} className="p-1 text-rose-600" aria-label={`Xóa điểm ${entry.value}`}><Trash2 size={12} /></button>}
+                        {canEdit && <button type="button" onClick={() => removeEntry(entry.id)} className="relative p-1 text-rose-600 after:absolute after:-inset-2.5 after:content-[''] active:text-rose-700" aria-label={`Xóa điểm ${entry.value}`}><Trash2 size={12} /></button>}
                       </span>
                     ))}
                   </div>

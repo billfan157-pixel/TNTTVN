@@ -57,6 +57,14 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // 2026-08-22 mobile audit: khóa cuộn nền khi modal mở (đồng bộ hành vi ModalShell)
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [isOpen]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};

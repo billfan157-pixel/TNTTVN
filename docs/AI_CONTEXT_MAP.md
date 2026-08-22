@@ -266,6 +266,11 @@ server/src/                         ─ Backend Hono Application
   5. **Bug 2.3**: `PromotionPanel` "ĐTB" dùng `avg.score` thay `promotion.recommendedBranch`.
   6. **Verify**: `tsc -b` clean, `lint:ds` 0, `MobileViewsEnhancement.test.tsx` 8/8 pass; full vitest suite không có failure (tool timeout >10 phút).
 
+### Module: Mobile UI Audit & Tối Ưu Màn Hình Thực Dụng (2026-08-22)
+- **Audit doc**: `docs/mobile-ui-audit-2026-08-22.md` — quét 16/16 file `src/components/mobile/*.tsx` sau đợt shell refactor 2026-08-12.
+- **Files Modified**: `src/index.css` (`--mobile-topbar-clearance` + `.mobile-sticky-under-topbar`), `MobileGradeView` (filter sticky không còn bị top bar z-950 nuốt), `MobileDailyGradeEntry` (nút xóa điểm mở rộng hit area qua `after:` pseudo), `MobileHomeView` (link 44px, bỏ pb-12 trùng, dark mode tiles + thẻ học lực), `MobileAttendanceView` (subtab ≥44px), `MobileGradeMatrix` + `MobileGradeComparison` (dark variants pastel + font nội dung chính), `MobileLeaveRequests` (bottom sheet scroll-lock + overlay đóng), `NoticeModal` (scroll-lock).
+- **Verify**: tsc 0 error · oxlint 0 error mới · lint:ds 0/134 · MobileViewsEnhancement 8/8 PASS · build:frontend pass. Follow-ups ghi nhận trong audit doc (desktop modal nhúng mobile, iOS input zoom, badge hex branches).
+
 ### Module: Quản Lý Tài Khoản Tách 2 Tab — Phụ Huynh / GLV & Nhân Sự (2026-08-22)
 - **Files Modified**: `src/components/desktop/UserManagementPage.tsx` (prop `scope?: 'all' | 'staff' | 'phuhuynh'` — filter client-side theo role, header/nút hành động + `allowedRoles` form tạo tài khoản theo scope), `src/pages/UsersPage.tsx` (forward scope), `src/pages/ManagementPage.tsx` (tách tab `users` thành `users-staff` + `users-parents`).
 - **Summary**: `/management` có 2 tab riêng — **"Tài Khoản GLV & Nhân Sự"** (role admin/chunhiem/phuta; KHÔNG có nút cấp phát phụ huynh) và **"Tài Khoản Phụ Huynh"** (chỉ role phuhuynh; nút "Cấp Tài Khoản Phụ Huynh" + tạo PH lẻ với vai trò khóa `phuhuynh`, SĐT = username). Route `/users` giữ nguyên (`scope='all'`) cho deep-link cũ. Không đổi API/schema/server.
@@ -292,6 +297,13 @@ server/src/                         ─ Backend Hono Application
   6. **Skip hợp lệ**: NoticeModal/StudentModal (đã chuẩn role/Escape), Certificate/PhotoCard/StudentReportModal (print — exempt linter), InstallPrompt (button nổi không overlay).
   7. **Verify**: tsc clean · lint:ds 0/128 · 78/78 tests · oxlint 0 error (220 warnings pre-existing).
   8. **Backlog**: axe-core scan tự động hóa verify (đề xuất CI sau PHA 6).
+
+### Module: Desktop Mode UI Audit & Improvement Plan (2026-08-22)
+- **Files Created**: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` (NEW — audit toàn diện desktop mode + plan 7 phase P0–P5 + verification infra).
+- **Summary**: Audit D2 evidence-first (3 track song song: shell/nav, screen-by-screen 20+ màn, đối chiếu prior audits). **12 HIGH / ~25 MED / ~30 LOW**; quy về 5 root causes: (1) responsive kép JS-768 vs Tailwind không phối hợp, (2) thiếu `DesktopAppShell` contract, (3) modal logic copy-paste ~20 nơi — focus trap chỉ có ở ModalShell/ConfirmDialog/StudentModal (Pha 3 cũ thêm role/Escape nhưng KHÔNG trap → claim DONE overstated), (4) async-persisted viewMode/theme gây first-paint sai + dark flash, (5) DS thiếu section desktop layout.
+- **Top defects CONFIRMED (đã spot-check độc lập)**: lưu điểm danh false-success/swallow-failure (`DesktopAttendanceGrid.tsx:75-90`); Classes sort dead UI (`DesktopClasses.tsx:273` render `classes.map` thay `sortedClasses`); Reports quick-print cap `slice(0,9)` (`DesktopReports.tsx:217`); Students pageSize select state 20 vs options 50+ (`DesktopStudentList.tsx:59`); force-logout/lock account không confirm (`components/desktop/UserManagementPage.tsx:659-675`); Finance client-filter trên 1 trang server-pagination với count sai (`FinancePage.tsx:121-137`); forced-mobile trên viewport ≥768 = app trắng (`RootLayout.tsx:150` × `index.css:1372`).
+- **Plan phases**: P0 functional defects (10 task) → P1 ModalShell nâng cấp + di dời ~20 overlay & DesktopAppShell/header/sidebar contract → P2 consistency sweeps (vi-VN dates, StateFeedback, FormField, pill-group) → P3 responsive 768–1280 & wide-screen → P4 a11y polish → (song song) verification infra (axe-core CI, visual regression, screenshot re-capture — screenshots root stale từ 08-15).
+- **Status**: PLAN ONLY — chưa implement. Gate: nếu P0.6 chọn server-side filtering phải cập nhật `FRONTEND_API_CONTRACT.md` trước.
 
 
 

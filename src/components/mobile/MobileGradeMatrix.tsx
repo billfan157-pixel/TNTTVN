@@ -201,12 +201,12 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold">
-          {canEdit && <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 border ${isOverrideModeEnabled ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-text-secondary bg-surface-hover border-surface-border'}`}><Calculator size={12} /> {isOverrideModeEnabled ? 'Đang cho phép ghi đè thủ công' : 'Chạm Bật chỉnh sửa để nhập điểm'}</span>}
-          {pendingCount > 0 ? <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sky-700 bg-sky-50 border border-sky-200">☁ {pendingCount} thay đổi chờ đồng bộ</span> : <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-emerald-700 bg-emerald-50 border border-emerald-200"><Check size={12} /> Đã lưu cục bộ</span>}
+          {canEdit && <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 border ${isOverrideModeEnabled ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-900' : 'text-text-secondary bg-surface-hover border-surface-border'}`}><Calculator size={12} /> {isOverrideModeEnabled ? 'Đang cho phép ghi đè thủ công' : 'Chạm Bật chỉnh sửa để nhập điểm'}</span>}
+          {pendingCount > 0 ? <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-900">☁ {pendingCount} thay đổi chờ đồng bộ</span> : <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900"><Check size={12} /> Đã lưu cục bộ</span>}
         </div>
 
         {!canEdit && <div className="mt-3 rounded-xl bg-surface-hover border border-surface-border px-3 py-2 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
-        {semesterRestricted && <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-800">Học kỳ đang khóa theo quyền tài khoản; chỉ được thao tác ở HK {effectiveSemester === 1 ? 'I' : 'II'}.</div>}
+        {semesterRestricted && <div className="mt-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-300">Học kỳ đang khóa theo quyền tài khoản; chỉ được thao tác ở HK {effectiveSemester === 1 ? 'I' : 'II'}.</div>}
       </div>
 
       {filteredStudents.length === 0 ? (

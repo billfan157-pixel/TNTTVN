@@ -43,6 +43,15 @@ export const MobileLeaveRequests: React.FC = () => {
   const [reviewNote, setReviewNote] = useState('')
   const [submittingReview, setSubmittingReview] = useState(false)
 
+  // 2026-08-22 mobile audit: bottom sheet xét duyệt phải khóa cuộn nền — trước đây
+  // danh sách đơn vẫn cuộn theo sau sheet trên iOS, mất ngữ cảnh form duyệt.
+  useEffect(() => {
+    if (!reviewingRequest) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [reviewingRequest])
+
   useEffect(() => {
     fetchRequests()
   }, [fetchRequests])
@@ -360,7 +369,11 @@ export const MobileLeaveRequests: React.FC = () => {
 
       {/* Review Bottom Sheet */}
       {reviewingRequest && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setReviewingRequest(null)}
+          role="presentation"
+        >
           <div
             className="bg-surface-card border border-surface-border rounded-t-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 pb-[env(safe-area-inset-bottom)]"
             onClick={(e) => e.stopPropagation()}

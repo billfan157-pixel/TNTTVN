@@ -129,6 +129,8 @@ body {
   overflow-x: auto;
   overflow-wrap: break-word;
   word-break: normal;
+  /* Khóa double-tap zoom trên mobile (pinch đã bị chặn ở viewport meta + zoomGuard) */
+  touch-action: manipulation;
 }
 
 /* ─── Scrollbar ─── */
@@ -1391,6 +1393,19 @@ table td {
   background: linear-gradient(145deg, #17347f 0%, #2454bf 100%);
   color: white;
   box-shadow: 0 5px 18px rgba(15, 23, 42, 0.16);
+}
+
+/* 2026-08-22 mobile UI audit: sticky filter bars phải NẰM DƯỚI .mobile-top-bar
+   (z-950, sticky top-0) — trước đây filter dùng top-0 z-20 nên trượt vào sau
+   top bar và bị che khi cuộn (MobileGradeView). */
+:root {
+  --mobile-topbar-clearance: calc(62px + var(--mobile-top-safe-area));
+}
+
+.mobile-sticky-under-topbar {
+  position: sticky;
+  top: var(--mobile-topbar-clearance);
+  z-index: 30;
 }
 
 .mobile-top-bar__content {

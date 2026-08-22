@@ -55,8 +55,8 @@ export const MobileGradeComparison: React.FC = () => {
 
       <section className="grid grid-cols-2 gap-2">
         {[
-          ['Tiến bộ', stats.up, 'text-emerald-600 bg-emerald-50 border-emerald-200'],
-          ['Giảm', stats.down, 'text-rose-600 bg-rose-50 border-rose-200'],
+          ['Tiến bộ', stats.up, 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-900'],
+          ['Giảm', stats.down, 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-900'],
           ['Giữ nguyên', stats.same, 'text-text-secondary bg-surface-hover border-surface-border'],
           ['Thiếu dữ liệu', stats.none, 'text-text-muted bg-surface-hover border-surface-border'],
         ].map(([label, value, style]) => (
@@ -76,7 +76,7 @@ export const MobileGradeComparison: React.FC = () => {
               <div className="font-extrabold text-text-main truncate"><span className="text-parish-secondary mr-1">{item.student.holyName}</span>{item.student.fullName}</div>
               <div className="text-xs text-text-muted mt-1 truncate">{item.student.code} • {classNameById.get(item.student.classId) || '—'}</div>
             </div>
-            <div className={`shrink-0 flex items-center gap-1 text-sm font-black ${item.trend === 'up' ? 'text-emerald-600' : item.trend === 'down' ? 'text-rose-600' : 'text-text-muted'}`}>
+            <div className={`shrink-0 flex items-center gap-1 text-sm font-black ${item.trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' : item.trend === 'down' ? 'text-rose-600 dark:text-rose-400' : 'text-text-muted'}`}>
               {item.trend === 'up' && <ArrowUp size={16} />}
               {item.trend === 'down' && <ArrowDown size={16} />}
               {item.trend === 'same' && <Minus size={16} />}
@@ -90,12 +90,12 @@ export const MobileGradeComparison: React.FC = () => {
                   <span className="text-xs font-bold text-text-muted">{String(label)}</span>
                   <span className="text-lg font-black text-parish-primary">{(average as any).score ?? '—'}</span>
                 </div>
-                <div className="text-[10px] text-text-muted font-semibold mt-1">{(average as any).label || 'Chưa xếp loại'}</div>
+                <div className="text-[11px] text-text-muted font-semibold mt-1">{(average as any).label || 'Chưa xếp loại'}</div>
                 <div className="grid grid-cols-5 gap-1 mt-3 text-center">
                   {SCORE_FIELDS.map(field => (
                     <div key={field.key} className="min-w-0">
-                      <div className="text-[9px] text-text-muted">{field.label}</div>
-                      <div className="text-[11px] font-bold text-text-main mt-0.5">{(grade as GradeRecord | undefined)?.[field.key] ?? '—'}</div>
+                      <div className="text-[10px] text-text-muted">{field.label}</div>
+                      <div className="text-xs font-bold text-text-main mt-0.5">{(grade as GradeRecord | undefined)?.[field.key] ?? '—'}</div>
                     </div>
                   ))}
                 </div>

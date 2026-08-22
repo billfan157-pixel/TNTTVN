@@ -58,7 +58,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
   }, [students, attendance, grades, selectedSemester]);
 
   return (
-    <div className="mobile-screen mobile-screen--stack pb-12 transition-all duration-300">
+    <div className="mobile-screen mobile-screen--stack transition-all duration-300">
       {/* Welcome Hero Card */}
       <div className="bg-gradient-to-br from-parish-primary to-parish-primary-hover text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
         <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
@@ -91,7 +91,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
             onClick={() => onNavigateTab('attendance')}
             className="bg-surface-card border border-surface-border rounded-2xl p-3.5 flex flex-col items-center gap-2 shadow-card hover:border-parish-primary/50 hover:shadow-md transition-all active:scale-95"
           >
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/60 shadow-inner">
               <CheckSquare size={20} />
             </div>
             <span className="text-xs font-extrabold text-text-main">Điểm Danh</span>
@@ -111,7 +111,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
             onClick={onOpenAddStudent}
             className="bg-surface-card border border-surface-border rounded-2xl p-3.5 flex flex-col items-center gap-2 shadow-card hover:border-parish-primary/50 hover:shadow-md transition-all active:scale-95"
           >
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100 shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900/60 shadow-inner">
               <UserPlus size={20} />
             </div>
             <span className="text-xs font-extrabold text-text-main">Thêm Em</span>
@@ -155,25 +155,25 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
             <Award size={16} className="text-amber-500" />
             <span className="text-xs font-black text-text-main uppercase">Học Lực HK {selectedSemester}</span>
           </div>
-          <button 
+          <button
             onClick={() => onNavigateTab('grades')}
-            className="text-[11px] font-bold text-parish-primary flex items-center gap-0.5"
+            className="-m-2 flex min-h-[44px] items-center gap-0.5 p-2 text-[11px] font-bold text-parish-primary"
           >
             Chi tiết <ChevronRight size={14} />
           </button>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="bg-amber-50 border border-amber-200/60 rounded-xl py-2 px-1">
-            <div className="text-[10px] font-black text-amber-800 uppercase">Xuất Sắc</div>
-            <div className="text-base font-black text-amber-600 mt-0.5">{stats.xuatSac}</div>
+          <div className="bg-amber-50 dark:bg-amber-950/60 border border-amber-200/60 dark:border-amber-900/60 rounded-xl py-2 px-1">
+            <div className="text-[11px] font-black text-amber-800 dark:text-amber-300 uppercase">Xuất Sắc</div>
+            <div className="text-base font-black text-amber-600 dark:text-amber-400 mt-0.5">{stats.xuatSac}</div>
           </div>
-          <div className="bg-sky-50 border border-sky-200/60 rounded-xl py-2 px-1">
-            <div className="text-[10px] font-black text-sky-800 uppercase">Giỏi</div>
-            <div className="text-base font-black text-sky-600 mt-0.5">{stats.gioi}</div>
+          <div className="bg-sky-50 dark:bg-sky-950/60 border border-sky-200/60 dark:border-sky-900/60 rounded-xl py-2 px-1">
+            <div className="text-[11px] font-black text-sky-800 dark:text-sky-300 uppercase">Giỏi</div>
+            <div className="text-base font-black text-sky-600 dark:text-sky-400 mt-0.5">{stats.gioi}</div>
           </div>
-          <div className="bg-emerald-50 border border-emerald-200/60 rounded-xl py-2 px-1">
-            <div className="text-[10px] font-black text-emerald-800 uppercase">Khá</div>
-            <div className="text-base font-black text-emerald-600 mt-0.5">{stats.kha}</div>
+          <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/60 dark:border-emerald-900/60 rounded-xl py-2 px-1">
+            <div className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 uppercase">Khá</div>
+            <div className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{stats.kha}</div>
           </div>
         </div>
       </div>
@@ -187,7 +187,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
           </div>
           <button
             onClick={() => onNavigateTab('notices')}
-            className="text-[11px] font-bold text-parish-primary flex items-center gap-0.5"
+            className="-m-2 flex min-h-[44px] items-center gap-0.5 p-2 text-[11px] font-bold text-parish-primary"
           >
             Tất cả <ChevronRight size={14} />
           </button>

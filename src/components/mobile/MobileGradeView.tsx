@@ -50,7 +50,7 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
 
   return (
     <div className="mobile-screen mobile-screen--stack" style={{ gap: '12px' }}>
-      <section className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-3 sticky top-0 z-20">
+      <section className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-3 mobile-sticky-under-topbar">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="min-w-0">
             <div className="text-sm font-extrabold text-parish-primary truncate">Bảng Điểm Giáo Lý</div>
