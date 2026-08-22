@@ -6,10 +6,8 @@ import {
   User,
   Clock,
   Eye,
-  AlertCircle,
   TrendingUp,
   RefreshCw,
-  Calendar,
   Users,
   GitBranch,
   GraduationCap,
@@ -19,7 +17,8 @@ import {
 import { api, ApiError } from '../lib/api'
 import { PageHeader } from '../components/common/PageHeader'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
-import { EmptyState, SkeletonTable } from '../components/common/StateFeedback'
+// Polish 5.1/5.2/5.3 (2026-08-22): trạng thái loading/error/empty chuẩn DS thay banner tự dựng
+import { EmptyState, ErrorState, SkeletonCardGrid, SkeletonTable } from '../components/common/StateFeedback'
 
 interface AuditLog {
   id: string
@@ -508,10 +507,11 @@ export function AuditLogPage() {
       />
 
       {error && mode === 'all' && (
-        <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <ErrorState
+          title="Không thể tải nhật ký"
+          message={error}
+          onRetry={() => fetchLogs(meta.page > 1 ? meta.page : 1)}
+        />
       )}
 
       {mode === 'all' && (
@@ -688,22 +688,19 @@ export function AuditLogPage() {
           </div>
 
           {policyError && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{policyError}</span>
-            </div>
+            <ErrorState
+              title="Không thể tải lịch sử chính sách"
+              message={policyError}
+              onRetry={() => fetchPolicyHistory(1)}
+            />
           )}
-          {policyLoading && (
-            <div className="p-8 text-center">
-              <RefreshCw className="w-6 h-6 text-parish-primary mx-auto animate-spin mb-2" />
-              <p className="text-text-muted">Đang tải lịch sử chính sách...</p>
-            </div>
-          )}
+          {policyLoading && <SkeletonCardGrid count={4} />}
           {!policyLoading && filteredPolicyData.length === 0 && (
-            <div className="p-8 text-center">
-              <Calendar className="w-8 h-8 text-text-muted mx-auto mb-3 opacity-50" />
-              <p className="text-text-muted">Không có thay đổi chính sách</p>
-            </div>
+            <EmptyState
+              icon={TrendingUp}
+              title="Không có thay đổi chính sách"
+              description="Các lần cập nhật trọng số điểm, ghi đè điểm, xét lên lớp và khóa sổ sẽ hiển thị tại đây."
+            />
           )}
 
           {!policyLoading && filteredPolicyData.length > 0 && (

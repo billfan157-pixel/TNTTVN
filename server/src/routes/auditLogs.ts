@@ -4,7 +4,7 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import { auditLogs, users, grades, students } from '../db/schema.js'
 import { eq, desc, and, sql, gte, lte, inArray, or } from 'drizzle-orm'
-import { paginatedResponse } from '../utils/response.js'
+import { paginatedResponse, errorResponse } from '../utils/response.js'
 
 const auditLogsRouter = new Hono()
 auditLogsRouter.use('*', authMiddleware)
@@ -24,13 +24,27 @@ auditLogsRouter.get('/', async (c) => {
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
 
+  // AUDIT-F6 fix (2026-08-22): validate format + chuẩn hóa endDate chỉ-ngày.
+  // Trước đây: (1) định dạng sai → lọc âm thầm SAI kết quả (string-compare);
+  // (2) endDate 'YYYY-MM-DD' so với createdAt ISO đầy đủ ('...T11:33...') bị
+  // loại nhầm toàn bộ bản ghi TRONG ngày kết thúc.
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+  const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z)?$/
+  if (startDate && !ISO_DATE_RE.test(startDate) && !ISO_DATETIME_RE.test(startDate)) {
+    return errorResponse(c, 'VALIDATION_ERROR', 'startDate không hợp lệ — dùng định dạng YYYY-MM-DD', 400)
+  }
+  if (endDate && !ISO_DATE_RE.test(endDate) && !ISO_DATETIME_RE.test(endDate)) {
+    return errorResponse(c, 'VALIDATION_ERROR', 'endDate không hợp lệ — dùng định dạng YYYY-MM-DD', 400)
+  }
+  const effectiveEndDate = endDate && ISO_DATE_RE.test(endDate) ? `${endDate}T23:59:59.999Z` : endDate
+
   // Build conditions
   const conditions = [eq(auditLogs.parishId, user.parishId)]
   if (userId) conditions.push(eq(auditLogs.userId, userId))
   if (action) conditions.push(eq(auditLogs.action, action))
   if (entityType) conditions.push(eq(auditLogs.entityType, entityType))
   if (startDate) conditions.push(gte(auditLogs.createdAt, startDate))
-  if (endDate) conditions.push(lte(auditLogs.createdAt, endDate))
+  if (effectiveEndDate) conditions.push(lte(auditLogs.createdAt, effectiveEndDate))
 
   const where = and(...conditions)
 

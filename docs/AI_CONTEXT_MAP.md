@@ -266,6 +266,14 @@ server/src/                         ─ Backend Hono Application
   5. **Bug 2.3**: `PromotionPanel` "ĐTB" dùng `avg.score` thay `promotion.recommendedBranch`.
   6. **Verify**: `tsc -b` clean, `lint:ds` 0, `MobileViewsEnhancement.test.tsx` 8/8 pass; full vitest suite không có failure (tool timeout >10 phút).
 
+### Module: Polish Phase 2026-08-22 — Cross-cutting Sweep (lane an toàn, tránh đụng desktop-audit song song)
+- **AuditLogPage** (mục 5.1/5.2/5.3 UX-plan): tab Chính Sách chuyển `ErrorState` (có nút Thử lại) + `SkeletonCardGrid` loading + `EmptyState`; gộp import trùng với phiên song song.
+- **F6 audit route**: validate `startDate/endDate` (400 `VALIDATION_ERROR` nếu sai format) + fix bug endDate chỉ-ngày bị loại nhầm cả ngày kết thúc (`→T23:59:59.999Z`).
+- **MobileCalendarView**: dọn sạch warning lint; wire nút "Hôm nay" (trước đây dead-code); render block "Sự Kiện Xứ Đoàn" theo ngày chọn (conditional — events API chưa wire).
+- **VerificationPage**: audit kết luận KHÔNG cần sửa — spinner có ngữ cảnh phù hợp trang public QR, states đã chuẩn DS token.
+- **zoomGuard**: xác nhận phiên song song đã xử lý iOS/Android pinch-zoom (`src/lib/zoomGuard.ts` wired trong main.tsx).
+- **Verify tổng**: tsc 0 error · oxlint sạch các file chạm · lint:ds 0/134 · 6 suite **32/32 PASS** (AuditLogPage/policyDashboard/finance/Liturgical/MobileViews/classSort) · build:frontend pass.
+
 ### Module: Nhật Ký Hệ Thống — Audit Toàn Diện & Hardening (2026-08-22, A-NEW-60)
 - **Audit doc**: findings đầy đủ trong `docs/SECURITY_AUDIT_LOG.md` A-NEW-60 (7 finding: policy noise 60%, thiếu index, không retention, ≥5 hành động thiếu audit, finance PII, validate ngày, UX backlog).
 - **Files Modified**: `auditLogs.ts` (F1: bỏ generic `'UPDATE'` khỏi `policyActions` — tab Chính Sách hết nhiễu), `FinanceApplicationService.ts` + `auditRedact.ts` (F5: export `maskPhoneForAudit`; TXN_CREATE/DELETE che `personPhone`), `db/index.ts` migration `20260822-128` + `schema.ts` (F2: `idx_audit_logs_parish_created_at`), `auth.ts`/`notifications.ts`/`verification.ts` (F4: audit `UPDATE_PROFILE` / `NOTIFICATION_SEND` / `VERIFICATION_SIGN` — đều không PII thô), `AuditLogPage.tsx` (nhãn/màu 3 action mới).
@@ -375,7 +383,12 @@ server/src/                         ─ Backend Hono Application
   3. **NoticeModal**: 5 field → FormField (aria-invalid/describedby + hint DS).
   4. **aria-label sweep**: Classes Sửa/Xóa (+tên lớp), AuditLog pagination, Calendar tháng, DailyGrade thêm điểm (+tên HS).
 - **Double-check**: tsc exit 0 · oxlint 0 · full suite **222/1618 ALL PASS** · build + lint:ds pass · re-grep đủ (bài học: lệnh rg bị PowerShell quoting sai kết quả → verify lại bằng Select-String, double-check cần ≥1 phương pháp khác nhau).
-- **Còn mở**: Pha 5 (tooltip primitive, ErrorState unify, StudentReportModal rewrite); Pha 6 (axe-core CI — cần dependency decision; visual regression baselines; viewport matrix).
+- **Còn mở**: Pha 5 (tooltip primitive, StudentReportModal rewrite); Pha 6 (axe-core CI — cần dependency decision; visual regression baselines; viewport matrix).
+
+### Module: Desktop UI Plan 2026-08-22 — PHA 5.6 ErrorState/alert unify (✅ DONE)
+- **Files Modified**: `src/index.css` (`.alert-error` utility — danger tokens, tự dark), `src/components/desktop/UserManagementPage.tsx`, `src/pages/AcademicYearPage.tsx` (banner → `.alert-error`), `src/components/desktop/DesktopGradeMatrix.tsx` (sync banner near-black → card chuẩn DS).
+- **⚠️ Concurrent session warning**: working tree có MỘT session khác đang sửa `src/lib/api.ts` + `AuditLogPage.test.tsx` song song — tsc batch này bắt lỗi type của HỌ (không phải của audit), session đó tự sửa giữa 2 lần chạy. Khuyến nghị: không chạy 2 agent đụng chéo cùng working tree.
+- **Verify**: full suite **222/1618 ALL PASS** · build pass · lint:ds 0/134 · re-grep alert-error ×3 đúng chỗ.
 
 
 
