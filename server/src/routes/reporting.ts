@@ -25,9 +25,19 @@ reportingRouter.get('/report-card/:studentId', roleMiddleware('admin', 'chunhiem
 
     return successResponse(c, reportCard)
   } catch (err: any) {
-    const status = err.status || err.statusCode || 400
-    const code = status === 403 ? 'FORBIDDEN' : 'REPORT_GENERATION_ERROR'
-    return errorResponse(c, code, err.message || 'Lỗi khi tạo phiếu điểm', status)
+    const status = Number(err?.status || err?.statusCode || 0)
+    // Lỗi nghiệp vụ phân loại tường minh (403 spec sở hữu...) → giữ nguyên trạng.
+    if (status > 0) {
+      const code = status === 403 ? 'FORBIDDEN' : 'REPORT_GENERATION_ERROR'
+      return errorResponse(c, code, err.message || 'Lỗi khi tạo phiếu điểm', status)
+    }
+    // OBS-FIX (2026-08-22): trước đây mọi exception không có .status bị nuốt IM LẶNG
+    // và tự gán 400 REPORT_GENERATION_ERROR → lỗi thật (DB/schema/data prod) không bao giờ
+    // xuất hiện trong server logs, không thể chẩn đoán sự cố production (case phụ huynh
+    // GET /report-card/ST-60725fbf?academicYear=2026-2027 → 400 không rõ nguyên nhân).
+    // Giờ: log đầy đủ server-side + trả 500 với message chung (không lộ err.message nội bộ).
+    console.error(`[GET ${c.req.path}] Report card generation failed:`, err)
+    return errorResponse(c, 'REPORT_GENERATION_ERROR', 'Lỗi khi tạo phiếu điểm. Vui lòng thử lại sau.', 500)
   }
 })
 
@@ -48,9 +58,13 @@ reportingRouter.get('/class-summary/:classId', roleMiddleware('admin', 'chunhiem
 
     return successResponse(c, classSummary)
   } catch (err: any) {
-    const status = err.status || err.statusCode || 400
-    const code = status === 403 ? 'FORBIDDEN' : 'REPORT_GENERATION_ERROR'
-    return errorResponse(c, code, err.message || 'Lỗi khi tạo báo cáo tổng hợp lớp', status)
+    const status = Number(err?.status || err?.statusCode || 0)
+    if (status > 0) {
+      const code = status === 403 ? 'FORBIDDEN' : 'REPORT_GENERATION_ERROR'
+      return errorResponse(c, code, err.message || 'Lỗi khi tạo báo cáo tổng hợp lớp', status)
+    }
+    console.error(`[GET ${c.req.path}] Class summary generation failed:`, err)
+    return errorResponse(c, 'REPORT_GENERATION_ERROR', 'Lỗi khi tạo báo cáo tổng hợp lớp. Vui lòng thử lại sau.', 500)
   }
 })
 
