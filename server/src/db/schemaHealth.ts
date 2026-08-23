@@ -73,6 +73,11 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   users: ['password_encrypted', 'holy_name'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  // A-NEW-62 (2026-08-23): production từng thiếu promotion_records.is_latest
+  // (di sản migration D-04/ADR-031) → mọi SELECT phiếu điểm/khuyến thăng 500 âm thầm.
+  // Gate chặt cột cho bảng trong pipeline báo cáo + grade_overrides.phuhuynh-spec.
+  promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
+  grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
 }
 
 const REQUIRED_TENANT_COMPOSITE_PRIMARY_KEYS = [
@@ -100,7 +105,7 @@ function normalizeIdentifier(value: unknown): string {
 function normalizeSql(value: unknown): string {
   return String(value ?? '')
     .toLowerCase()
-    .replace(/["'`\[\]\s]/g, '')
+    .replace(/["'`[\]\s]/g, '')
 }
 
 function quoteSqlLiteral(value: string): string {

@@ -50,10 +50,12 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   users: ['password_encrypted', 'holy_name'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
+  grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
 }
 
 function createHealthyClient(
-  options: { omitMigration?: string; omitIndex?: string; omitTrigger?: string } = {},
+  options: { omitMigration?: string; omitIndex?: string; omitTrigger?: string; omitColumn?: string } = {},
 ): SchemaHealthClient {
   return {
     async execute(statement: string) {
@@ -92,6 +94,7 @@ function createHealthyClient(
           rows.push({ name: 'parish_id', pk: 1 }, { name: 'id', pk: 2 })
         }
         for (const column of REQUIRED_COLUMNS[tableName] || []) {
+          if (options.omitColumn === `${tableName}.${column}`) continue
           if (!rows.some((row) => row.name === column)) rows.push({ name: column, pk: 0 })
         }
         return { rows }
@@ -122,5 +125,19 @@ describe('database startup readiness gate', () => {
     await expect(
       assertDatabaseReady(createHealthyClient({ omitTrigger: 'check_grade_scores_update' })),
     ).rejects.toThrow(/missing required integrity trigger check_grade_scores_update/)
+  })
+
+  // A-NEW-62: prod từng thiếu promotion_records.is_latest → report-card 500 âm thầm.
+  // Gate phải chặn STARTUP (fail fast) thay vì để runtime nổ giữa request phụ huynh.
+  it('fails closed when promotion_records.is_latest column drifts away', async () => {
+    await expect(
+      assertDatabaseReady(createHealthyClient({ omitColumn: 'promotion_records.is_latest' })),
+    ).rejects.toThrow(/missing required column promotion_records\.is_latest/)
+  })
+
+  it('fails closed when grade_overrides tenant columns drift away', async () => {
+    await expect(
+      assertDatabaseReady(createHealthyClient({ omitColumn: 'grade_overrides.parish_id' })),
+    ).rejects.toThrow(/missing required column grade_overrides\.parish_id/)
   })
 })
