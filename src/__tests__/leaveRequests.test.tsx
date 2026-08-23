@@ -118,7 +118,7 @@ describe('Leave Requests Frontend Components & Store Tests', () => {
         />
       )
 
-      expect(screen.getByText('Điểm Danh Chuyên Cần')).toBeDefined()
+      expect(screen.getByText('Điểm Danh')).toBeDefined()
       expect(screen.getByText('3')).toBeDefined()
     })
   })
