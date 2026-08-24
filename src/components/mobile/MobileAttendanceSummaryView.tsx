@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   BarChart2,
   Search,
@@ -104,7 +104,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
     const classObj = findClassById(selectedClassId)
     const className = classObj ? classObj.name : 'Toan_Doan'
     const rangeLabel = timeFilterType === 'sem1' ? 'HK1' : timeFilterType === 'sem2' ? 'HK2' : 'Ca_Nam'
-    exportAttendanceSummaryReport(filteredSummaries, className, rangeLabel, 'xlsx')
+    void exportAttendanceSummaryReport(filteredSummaries, className, rangeLabel, 'xlsx').catch(console.error)
   }
 
   const openStudentHistory = (sum: StudentAttendanceSummary) => {

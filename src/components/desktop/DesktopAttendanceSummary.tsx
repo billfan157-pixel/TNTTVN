@@ -142,7 +142,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
     const classObj = findClassById(selectedClassId)
     const className = classObj ? classObj.name : 'Toan_Doan'
     const rangeLabel = timeFilterType === 'sem1' ? 'HK1' : timeFilterType === 'sem2' ? 'HK2' : 'Ca_Nam'
-    exportAttendanceSummaryReport(sortedSummaries, className, rangeLabel, 'xlsx')
+    void exportAttendanceSummaryReport(sortedSummaries, className, rangeLabel, 'xlsx').catch(console.error)
   }
 
   const openStudentHistory = (sum: StudentAttendanceSummary) => {

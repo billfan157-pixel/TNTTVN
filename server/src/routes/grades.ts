@@ -119,7 +119,9 @@ gradesRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json', g
   }
 })
 
-gradesRouter.post('/batch', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({ grades: z.array(gradeSchema) })), async (c) => {
+// Cap tường minh chống DoS (trước đây chỉ bị chặn gián tiếp bởi bodyLimit 10MB).
+// Sync engine gửi toàn bộ pending edits trong 1 call — 2000 đủ dư địa cho nhiều lớp.
+gradesRouter.post('/batch', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({ grades: z.array(gradeSchema).max(2000) })), async (c) => {
   const user = c.get('user') as JwtPayload
   const { grades: gradeList } = c.req.valid('json')
   const ip = getClientIp(c)

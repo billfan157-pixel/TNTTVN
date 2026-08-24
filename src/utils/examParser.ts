@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import { loadXlsx } from '../lib/xlsxLoader'
 import type { ExamQuestion, MultipleChoiceOption } from '../types'
 
 export interface ExamParseResult {
@@ -273,7 +273,9 @@ export function parseExamFromText(rawText: string): ExamParseResult {
  * - Col 6: Phương án D
  * - Col 7: Đáp án đúng (A/B/C/D)
  */
-export function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array): ExamParseResult {
+export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array): Promise<ExamParseResult> {
+  // PERF-XLSX-1: lazy-load xlsx — chunk chỉ tải khi user import file Excel.
+  const XLSX = await loadXlsx()
   const errors: string[] = []
   const warnings: string[] = []
 
@@ -461,7 +463,8 @@ D. Dâng cúng tiền của vào đền thờ
 /**
  * Generates sample Excel workbook for downloading.
  */
-export function generateSampleExcelWorkbook(): Uint8Array {
+export async function generateSampleExcelWorkbook(): Promise<Uint8Array> {
+  const XLSX = await loadXlsx()
   const data = [
     ['Câu Số', 'Nội Dung Câu Hỏi', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng (A/B/C/D)'],
     [1, 'Bí tích nào là cội nguồn và chóp đỉnh của đời sống Kitô hữu?', 'Bí tích Rửa Tội', 'Bí tích Thánh Thể', 'Bí tích Thêm Sức', 'Bí tích Hòa Giải', 'B'],

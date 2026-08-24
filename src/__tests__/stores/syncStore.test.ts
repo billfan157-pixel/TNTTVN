@@ -187,6 +187,25 @@ describe('syncStore', () => {
     expect(mockTable.update).toHaveBeenCalledTimes(1)
   })
 
+  it('SYNC-CONFLICT-2: compactQueue merge UPDATE theo FIELD — edit 2 field ở 2 phiên đều giữ nguyên', async () => {
+    mockTable.toArray.mockResolvedValue([
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z' },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ parentPhone: '0901234567' }), createdAt: '2025-01-02T00:00:00Z' },
+    ])
+    mockTable.count.mockResolvedValue(1)
+    await useSyncStore.getState().compactQueue()
+    expect(mockTable.delete).toHaveBeenCalledTimes(1)
+    expect(mockTable.delete).toHaveBeenCalledWith('OP-1')
+
+    // Payload của op cuối phải chứa CẢ hai field (merge), không chỉ parentPhone.
+    const updateCall = (mockTable.update as any).mock.calls.find((c: any[]) => c[0] === 'OP-2')
+    expect(updateCall).toBeTruthy()
+    const { decryptQueueValue } = await import('../../lib/offlineCipher')
+    const decrypted = await decryptQueueValue(updateCall[1].payload)
+    expect(decrypted).not.toBeNull()
+    expect(JSON.parse(decrypted!)).toEqual({ fullName: 'A', parentPhone: '0901234567' })
+  })
+
   it('clearCompleted removes completed operations', async () => {
     mockTable.where.mockReturnValue({
       equals: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),

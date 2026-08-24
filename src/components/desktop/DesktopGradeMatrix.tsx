@@ -24,7 +24,6 @@ import { useSyncStore } from '../../stores/syncStore';
 import { GradeFormulaConfigModal } from './GradeFormulaConfigModal';
 import { exportGradebookToExcel } from '../../utils/excelExporter';
 import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
-import { ConflictResolutionModal, type ConflictData } from '../common/ConflictResolutionModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
 import type { Table as RTable } from '@tanstack/react-table';
@@ -57,7 +56,6 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [conflictData, setConflictData] = useState<ConflictData | null>(null);
   const syncPendingCount = useSyncStore(s => s.pendingCount);
   const formulaWeights = useSettingsStore(s => s.settings.gradeWeights);
   const rawClasses = useClassStore(s => s.classes);
@@ -468,20 +466,11 @@ export const DesktopGradeMatrix: React.FC = () => {
       </div>
 
       <GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} />
-      <ExcelGradeImportModal 
-        isOpen={showImportModal} 
-        onClose={() => setShowImportModal(false)} 
+      <ExcelGradeImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
         semester={selectedSemester as 1 | 2}
       />
-      {conflictData && (
-        <ConflictResolutionModal 
-          isOpen={!!conflictData} 
-          onClose={() => setConflictData(null)} 
-          conflict={conflictData}
-          onUseLocal={() => setConflictData(null)}
-          onUseServer={() => setConflictData(null)}
-        />
-      )}
     </div>
   );
 };

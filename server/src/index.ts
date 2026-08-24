@@ -18,11 +18,12 @@ import { client } from './db/index.js'
 import { assertDatabaseReady } from './db/schemaHealth.js'
 import { seedIfEmpty } from './seed.js'
 import { isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
-import { initTelegramBot, sendTelegramInfo } from './services/telegram.js'
+import { initTelegramBot, sendTelegramInfo, sendTelegramAlert } from './services/telegram.js'
 import { registerOutboxSubscribers, startOutboxWorker, stopOutboxWorker } from './services/outboxService.js'
 import { initNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
+import cspReportRouter from './routes/cspReport.js'
 
 const app = new Hono()
 
@@ -30,7 +31,20 @@ app.onError((err, c) => {
   if (err.message && (err.message.includes('không hợp lệ') || err.message.includes('không đúng định dạng') || err.message.includes('required'))) {
     return c.json({ success: false, error: { code: 'BAD_REQUEST', message: err.message } }, 400)
   }
-  console.error(`[${c.req.method} ${c.req.path}] Unhandled error:`, err)
+  // OBS-1 (2026-08-24): gắn requestId (từ loggerMiddleware) vào log lỗi để đối
+  // chiếu 1-1 với structured request log — trước đây log onError tách rời,
+  // không truy vết được về đúng request.
+  const requestId = c.res.headers.get('x-request-id') || undefined
+  console.error(JSON.stringify({
+    level: 'ERROR',
+    type: 'UNHANDLED_ERROR',
+    timestamp: new Date().toISOString(),
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+    error: err?.message || String(err),
+    stack: err?.stack,
+  }))
   const detail = process.env.NODE_ENV === 'development' ? err.message : undefined
   return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal Server Error', details: detail } }, 500)
 })
@@ -73,6 +87,10 @@ import { metricsMiddleware } from './middleware/metrics.js'
 app.use('/*', loggerMiddleware)
 app.use('/*', metricsMiddleware)
 app.route('/', healthRouter)
+
+// OBS-1 (2026-08-24): thu CSP violation reports (public, không auth — browser
+// gửi tự động; đã bọc rateLimiter + bodyLimit toàn cục phía trên).
+app.route('/api/csp-report', cspReportRouter)
 
 app.route('/api/auth', authRouter)
 // ADR-016 (routing audit): importRouter phải mount TRƯỚC studentsRouter vì cả hai cùng
@@ -152,6 +170,40 @@ const gracefulShutdown = async (signal: string) => {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+
+// OBS-1 (2026-08-24): process-level error visibility. Trước đây unhandledRejection
+// / uncaughtException chỉ phụ thuộc default behavior của Node — log rải rác,
+// không alert, sự cố prod phải SSH vào container mới thấy (A-NEW-61/62).
+// - unhandledRejection: log + Telegram alert, process SỐNG TIẾP (không giết
+//   request đang chạy vì lỗi async không chạm state).
+// - uncaughtException: log + checkpoint DB + alert + exit(1) fail-closed —
+//   state sau exception đồng bộ không đáng tin, Railway sẽ restart container.
+if (process.env.NODE_ENV !== 'test') {
+  process.on('unhandledRejection', (reason) => {
+    const message = reason instanceof Error ? reason.message : String(reason)
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      type: 'UNHANDLED_REJECTION',
+      timestamp: new Date().toISOString(),
+      error: message,
+      stack: reason instanceof Error ? reason.stack : undefined,
+    }))
+    void sendTelegramAlert(`Unhandled rejection: ${message.slice(0, 500)}`)
+  })
+
+  process.on('uncaughtException', (err) => {
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      type: 'UNCAUGHT_EXCEPTION',
+      timestamp: new Date().toISOString(),
+      error: err?.message || String(err),
+      stack: err?.stack,
+    }))
+    void sendTelegramAlert(`Uncaught exception — container sẽ thoát: ${String(err?.message || err).slice(0, 500)}`)
+    // Cho Telegram/log flush trước khi thoát; WAL checkpoint trong gracefulShutdown.
+    setTimeout(() => { try { gracefulShutdown('uncaughtException') } catch { process.exit(1) } }, 1000)
+  })
+}
 
 initTelegramBot()
 registerOutboxSubscribers()

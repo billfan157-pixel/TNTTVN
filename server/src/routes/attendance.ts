@@ -100,6 +100,9 @@ attendanceRouter.post(
   zValidator(
     'json',
     z.object({
+      // Cap tường minh chống DoS — một lớp ~50–100 học sinh; 500 đủ dư địa cho
+      // batch toàn khối, chặn payload hàng trăm nghìn row chỉ bị chặn gián tiếp
+      // bởi bodyLimit trước đây.
       records: z.array(
         z.object({
           studentId: z.string(),
@@ -107,7 +110,7 @@ attendanceRouter.post(
           note: z.string().optional(),
           version: z.coerce.number().int().min(0).optional(),
         }),
-      ),
+      ).max(500),
       date: z.string(),
       type: z.enum(['SundayMass', 'CatechismClass']),
     }),

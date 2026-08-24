@@ -197,9 +197,23 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
 
     if (err instanceof ApiError) {
       if (err.status === 409) {
-        Sentry.captureMessage(`[Sync] Conflict on ${entityType}/${targetId}`, 'warning')
+        // SYNC-CONFLICT-1 (2026-08-24): phân biệt 2 loại 409 — trước đây TẤT CẢ đều
+        // ok:true+isConflict → engine removeOp (server-wins thầm lặng):
+        // 1) VERSION_CONFLICT grade/attendance: server trả kèm record hiện hành
+        //    (details.currentGrade) → giữ isConflict:true, engine F9-merge field-level.
+        // 2) Business/state conflict còn lại (CLASS_CODE_EXISTS, STATE_TRANSITION_INVALID,
+        //    USERNAME_EXISTS…): KHÔNG có bản ghi server → nuốt op = mất chỉnh sửa offline
+        //    VĨNH VIỄN mà UI local vẫn hiển thị optimistic. Trả permanent-fail để op
+        //    giữ nguyên payload, hiện rõ trong SystemDiagnostics (Retry sau khi xử lý
+        //    nguyên nhân / Remove nếu bỏ qua) — quyết định của user là tường minh.
         const conflictData = (err as any).details
-        return { ok: true, isConflict: true, data: conflictData, error: 'Conflict resolved: server version accepted' }
+        const isVersionConflict = (entityType === 'grade' || entityType === 'attendance') && !!conflictData
+        if (isVersionConflict) {
+          Sentry.captureMessage(`[Sync] Version conflict on ${entityType}/${targetId} — F9 merge`, 'warning')
+          return { ok: true, isConflict: true, data: conflictData, error: 'Version conflict — merge theo field' }
+        }
+        Sentry.captureMessage(`[Sync] State/business conflict on ${entityType}/${targetId}: ${err.message}`, 'warning')
+        return { ok: false, recoverable: false, error: `Xung đột dữ liệu máy chủ: ${err.message}` }
       }
       if (err.status === 401) {
         return { ok: false, recoverable: false, isAuthError: true, error: `Auth expired: ${err.message}` }

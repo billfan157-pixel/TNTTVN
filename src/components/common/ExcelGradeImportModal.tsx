@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Upload, CheckCircle2, AlertCircle, X, Loader2, FileSpreadsheet, RefreshCw, RotateCcw } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { parseGradeFile, buildGradeRecords, countPreservedRows, type ParsedGradeRow } from '../../utils/excelImporter'
+import { loadXlsx } from '../../lib/xlsxLoader'
 import { parseGradeText, type ParsedGradeRow as ParsedTextRow } from '../../utils/excelGradeParser'
 import { GradeTemplateBuilder } from '../../utils/excelTemplateBuilder'
 import { useStudentStore } from '../../stores/studentStore'
@@ -126,10 +126,12 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
     reader.onload = (event) => {
       const result = event.target?.result
       if (!result || !(result instanceof ArrayBuffer)) return
-      try {
-        // ADR-018 (import/export audit): Bắt lỗi file hỏng (corrupt .xlsx/.xls/.csv)
-        // — trước đây parseGradeFile ném im lặng, không có feedback cho người dùng.
-        const { rows, diagnostics } = parseGradeFile(result, students)
+      // PERF-XLSX-1: parseGradeFile async (lazy-load xlsx) — giữ nguyên error UX ADR-018.
+      void (async () => {
+        try {
+          // ADR-018 (import/export audit): Bắt lỗi file hỏng (corrupt .xlsx/.xls/.csv)
+          // — trước đây parseGradeFile ném im lặng, không có feedback cho người dùng.
+          const { rows, diagnostics } = await parseGradeFile(result, students)
         setParsedRows(rows)
         setInferredColumns(false)
         if (diagnostics) {
@@ -154,6 +156,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
           showCancel: false,
         })
       }
+      })()
     }
     reader.onerror = () => {
       setParsedRows([])
@@ -427,8 +430,11 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                const wb = GradeTemplateBuilder.createWorksheet('Lớp', students)
-                XLSX.writeFile(wb, `Mau_Nhap_Diem_${academicYear}.xlsx`)
+                void (async () => {
+                  const XLSX = await loadXlsx()
+                  const wb = await GradeTemplateBuilder.createWorksheet('Lớp', students)
+                  XLSX.writeFile(wb, `Mau_Nhap_Diem_${academicYear}.xlsx`)
+                })()
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors"
             >

@@ -1983,17 +1983,34 @@ table td {
 
 .sidebar-container {
   width: 260px;
-  min-height: calc(100vh - var(--app-bar-height));
+  /* A-NEW-63: height cố định (không min-height) — nav cuộn riêng, Cài Đặt ghim đáy
+     luôn nhìn thấy kể cả khi sidebar dài (phân nhóm A-NAV-01). */
+  height: calc(100vh - var(--app-bar-height));
+  position: sticky;
+  top: var(--app-bar-height);
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  background: var(--color-surface-card);
-  border-right: 1px solid var(--color-surface-border);
+  overflow: hidden;
 }
 
 .sidebar-nav {
   flex: 1;
+  /* A-NEW-63: danh sách dài tự cuộn — filter + Cài Đặt luôn ghim dưới */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+/* A-NAV-01 (2026-08-23): hero gradient cho Dashboard Phụ Huynh — hex chỉ sống ở
+   layer token (CSS), TSX dùng class để tuân DS §1.1/§9 (cấm arbitrary hex). */
+.parent-hero {
+  background-image: linear-gradient(to bottom right, var(--color-parish-primary), var(--color-parish-primary-hover));
+}
+.dark .parent-hero {
+  background-image: linear-gradient(to bottom right, #16305e, #101c3f);
 }
 
 .sidebar-section-label {

@@ -188,6 +188,15 @@ export async function bootstrapAccessToken(): Promise<boolean> {
 const MAX_RETRIES = 3
 const RETRY_BASE_MS = 1000
 
+// SEC-NET-1 (2026-08-24): mọi fetch qua request() đều có timeout tường minh
+// (AbortSignal.timeout). Trước đây fetch có thể treo vô hạn khi proxy chết /
+// mạng di động yếu rớt gói mà không đóng TCP — UI chờ mãi không có error.
+// Timeout bị abort → rơi vào nhánh network-error hiện có → retry idempotent
+// theo A12 hoạt động đúng. PDF export (puppeteer render phía server) được
+// cấp cửa sổ dài hơn.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+const BLOB_REQUEST_TIMEOUT_MS = 120_000
+
 /**
  * A12 (2026-08-10): retry tự động chỉ an toàn với method idempotent.
  * - GET / HEAD / PUT / DELETE → retry (PUT/DELETE idempotent theo HTTP spec;
@@ -251,6 +260,7 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
       // A01 Phase 1: bắt buộc để gửi/nhận HttpOnly cookie refresh (cùng site
       // & cross-origin khi API server riêng).
       credentials: 'include',
+      signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS),
     })
   } catch {
     // Network error — A12: chỉ retry method idempotent (hoặc có Idempotency-Key)
@@ -268,7 +278,7 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
     const refreshRes = await refreshAccessToken()
     if (refreshRes === 'success') {
       headers['Authorization'] = `Bearer ${accessToken}`
-      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, credentials: 'include' })
+      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, credentials: 'include', signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS) })
     } else if (refreshRes === 'auth_failed') {
       redirectToLogin()
       throw new ApiError(401, 'Session expired — redirecting to login', path)
@@ -753,17 +763,21 @@ export const api = {
 
     getTransactions: async (params?: Record<string, string>) => {
       const query = params ? '?' + new URLSearchParams(params).toString() : ''
-      const res = await fetch(`${API_BASE}/finances/transactions${query}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-        credentials: 'include',
-      })
-      if (!res.ok) throw new ApiError(res.status, 'Failed to fetch transactions', '/finances/transactions')
-      const json = await res.json()
-      return { data: (json.data || []) as FinancialTransaction[], total: (json.total ?? 0) as number }
+      // SEC-NET-1 (2026-08-24): chuyển từ fetch thô sang pipeline request() chung —
+      // trước đây endpoint này KHÔNG có retry, refresh-on-401 lẫn timeout:
+      // 401 sau 15m không tự refresh → lỗi "Failed to fetch transactions" giả.
+      // keepEnvelope=true vì listResponse trả { success, data, total }.
+      const json = await request<{ success: boolean; data: FinancialTransaction[]; total: number }>(
+        'GET',
+        `/finances/transactions${query}`,
+        undefined,
+        0,
+        undefined,
+        false,
+        'json',
+        true,
+      )
+      return { data: json.data || [], total: json.total ?? 0 }
     },
 
     createTransaction: (data: CreateTransactionInput) =>

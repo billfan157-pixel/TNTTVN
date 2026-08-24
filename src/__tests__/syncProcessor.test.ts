@@ -190,6 +190,31 @@ describe('syncProcessor', () => {
       expect(result.isConflict).toBe(true)
     })
 
+    it('SYNC-CONFLICT-1: exam 409 state conflict (không có bản ghi server) → ok=false permanent-fail', async () => {
+      // Trước đây exam complete/reopen 409 bị nuốt op (server-wins thầm lặng) —
+      // giờ phải giữ op ở trạng thái failed với error rõ ràng.
+      const stateErr = new ApiError(409, 'Phiên đã hoàn tất — mở lại trước khi sửa answer key', '/exams')
+      vi.mocked(api.completeExam).mockRejectedValue(stateErr)
+      const result = await processOperation({
+        entity: 'exam', operation: 'update', entityId: 'EX-1',
+        payload: JSON.stringify({ action: 'complete', sessionId: 'EX-1' }), retryCount: 0,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.recoverable).toBe(false)
+      expect(result.error).toContain('Xung đột dữ liệu máy chủ')
+    })
+
+    it('SYNC-CONFLICT-1: grade 409 KHÔNG kèm bản ghi server → permanent-fail (không merge mù)', async () => {
+      const noRecordErr = new ApiError(409, 'Version conflict', '/grades')
+      vi.mocked(api.upsertGrade).mockRejectedValue(noRecordErr)
+      const result = await processOperation({
+        entity: 'grade', operation: 'update', entityId: 'GR-2',
+        payload: JSON.stringify({ studentId: 'ST-002' }), retryCount: 0,
+      })
+      expect(result.ok).toBe(false)
+      expect((result as any).isConflict).toBeUndefined()
+    })
+
     it('handles 429 rate limit as recoverable', async () => {
       vi.mocked(api.upsertGrade).mockRejectedValue(new ApiError(429, 'Too many requests', '/grades'))
       const result = await processOperation({

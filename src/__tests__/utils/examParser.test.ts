@@ -99,9 +99,9 @@ describe('examParser utility', () => {
     expect(result.answerKey[10]).toBe('C')
   })
 
-  it('5. Parses Excel workbook correctly', () => {
-    const buffer = generateSampleExcelWorkbook()
-    const result = parseExamFromExcel(buffer)
+  it('5. Parses Excel workbook correctly', async () => {
+    const buffer = await generateSampleExcelWorkbook()
+    const result = await parseExamFromExcel(buffer)
     expect(result.ok).toBe(true)
     expect(result.questionCount).toBe(5)
     expect(result.answerKey[1]).toBe('B')
@@ -120,7 +120,7 @@ describe('examParser utility', () => {
 
   // QB-F1 (audit 2026-08-21): ô đáp án trống/không hợp lệ KHÔNG được trích chữ
   // [A-D] từ nội dung phương án A ("Bác Hồ" từng → B, "Du lịch biển" → D im lặng).
-  it('7. QB-F1: Excel đáp án TRỐNG → mặc định A + warning, không trích chữ từ phương án', () => {
+  it('7. QB-F1: Excel đáp án TRỐNG → mặc định A + warning, không trích chữ từ phương án', async () => {
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.aoa_to_sheet([
       ['Câu Số', 'Nội Dung', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng'],
@@ -128,7 +128,7 @@ describe('examParser utility', () => {
       [2, 'Câu hỏi 2', 'Du lịch biển', 'Đáp án B', 'Đáp án C', 'Đáp án D', null],
     ])
     XLSX.utils.book_append_sheet(wb, ws, 'S')
-    const result = parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
+    const result = await parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
 
     expect(result.questions[0].correctOption).toBe('A')
     expect(result.answerKey[1]).toBe('A')
@@ -136,7 +136,7 @@ describe('examParser utility', () => {
     expect(result.warnings.filter(w => w.includes('Mặc định gán là A'))).toHaveLength(2)
   })
 
-  it('8. QB-F1: Excel đáp án dạng dài hợp lệ "Đáp án: C" → C; rác hoàn toàn → A + warning', () => {
+  it('8. QB-F1: Excel đáp án dạng dài hợp lệ "Đáp án: C" → C; rác hoàn toàn → A + warning', async () => {
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.aoa_to_sheet([
       ['Câu Số', 'Nội Dung', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng'],
@@ -144,7 +144,7 @@ describe('examParser utility', () => {
       [2, 'Câu 2', 'PA A', 'PA B', 'PA C', 'PA D', 'xyz'],
     ])
     XLSX.utils.book_append_sheet(wb, ws, 'S')
-    const result = parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
+    const result = await parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
 
     expect(result.answerKey[1]).toBe('C')
     expect(result.questions[1].correctOption).toBe('A')

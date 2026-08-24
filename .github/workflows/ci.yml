@@ -72,6 +72,10 @@ jobs:
   e2e-tests:
     name: Playwright E2E (chromium)
     runs-on: ubuntu-latest
+    # QUALITY-GATE-1 (2026-08-24): E2E chỉ chạy khi unit/typecheck/build đã xanh —
+    # trước đây chạy song song nên unit test đỏ vẫn tốn tài nguyên chạy E2E.
+    needs: build-and-test
+
 
     env:
       PUPPETEER_SKIP_DOWNLOAD: 'true'

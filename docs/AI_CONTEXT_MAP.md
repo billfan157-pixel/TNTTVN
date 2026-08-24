@@ -51,7 +51,8 @@ src/                                ─ Client React Application
 ├── index.css                       ─ Tailwind v4 + design tokens
 ├── types/index.ts                  ─ TypeScript types & interfaces
 ├── lib/                            ─ Pure utilities, fetch API client, Dexie DB, sync engine
-├── lib/                              ─ Core logic (omr.ts, qr.ts, homography.ts, answerSheetTemplate.ts, barcode.ts (Code128 gen+decode))
+├── lib/                              ─ Sync engine tách 3 tầng (REFACTOR-SYNC-1): syncApply.ts (F9 merge + áp kết quả server + batch isolation), syncQueueMaintenance.ts (prune/promote/remap temp-ID); useSyncEngine.ts chỉ còn orchestrator
+├── lib/                              ─ Core logic (omr.ts, qr.ts, homography.ts, answerSheetTemplate.ts, barcode.ts (Code128 gen+decode), xlsxLoader.ts — lazy-load SheetJS)
 ├── stores/                         ─ 18 Zustand state stores (thêm leaveRequestStore.ts)
 ├── hooks/                          ─ 10 custom React hooks (useAuth, useParentPortal, useSemesterAccess, useEffectiveMode, useSyncEngine, ...)
 ├── pages/                          ─ 16 route pages (Dashboard, Students, Grades, Attendance, Parent, LeaveRequests, ...)

@@ -344,57 +344,57 @@ describe('parseGradeFile end-to-end (smart upgrade)', () => {
     return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as unknown as ArrayBuffer
   }
 
-  it('numeric out-of-range score becomes invalid row (no 400 on server)', () => {
+  it('numeric out-of-range score becomes invalid row (no 400 on server)', async () => {
     const buf = makeWorkbookBuffer(
       [['TN-1001', 'Nguyễn Văn A', 11, '']],
       ['Mã TN', 'Họ Tên', 'Miệng', 'Ghi Chú'],
     )
-    const { rows } = parseGradeFile(buf, [mockStudent])
+    const { rows } = await parseGradeFile(buf, [mockStudent])
     expect(rows).toHaveLength(1)
     expect(rows[0].scoreOral).toBeNull()
     expect(rows[0].isValid).toBe(false)
   })
 
-  it('caps comments at 500 chars', () => {
+  it('caps comments at 500 chars', async () => {
     const longComment = 'x'.repeat(600)
     const buf = makeWorkbookBuffer(
       [['TN-1001', 'Nguyễn Văn A', 8, longComment]],
       ['Mã TN', 'Họ Tên', 'Miệng', 'Ghi Chú'],
     )
-    const { rows } = parseGradeFile(buf, [mockStudent])
+    const { rows } = await parseGradeFile(buf, [mockStudent])
     expect(rows[0].comments.length).toBe(500)
     expect(rows[0].scoreOral).toBe(8)
     expect(rows[0].isValid).toBe(true)
   })
 
-  it('returns diagnostics with detected columns', () => {
+  it('returns diagnostics with detected columns', async () => {
     const buf = makeWorkbookBuffer(
       [['TN-1001', 'Nguyễn Văn A', 8, 7, 6, 'Tốt']],
       ['Mã TN', 'Họ Tên', 'Miệng', '15P', 'CK', 'Ghi Chú'],
     )
-    const { rows: _rows, diagnostics } = parseGradeFile(buf, [mockStudent])
+    const { rows: _rows, diagnostics } = await parseGradeFile(buf, [mockStudent])
     expect(diagnostics).not.toBeNull()
     expect(diagnostics!.detections.length).toBeGreaterThanOrEqual(3)
     expect(diagnostics!.detections.some(d => d.field === 'scoreOral')).toBe(true)
   })
 
-  it('ignores ĐTB column and does NOT map it to a score', () => {
+  it('ignores ĐTB column and does NOT map it to a score', async () => {
     const buf = makeWorkbookBuffer(
       [['Nguyễn Văn A', 8, 7, 6, 5, 8, 6.8, 'Tốt']],
       ['Họ Tên', 'Miệng', '15P', '1 Tiết', 'GK', 'CK', 'ĐTB', 'Ghi Chú'],
     )
-    const { diagnostics } = parseGradeFile(buf, [mockStudent])
+    const { diagnostics } = await parseGradeFile(buf, [mockStudent])
     expect(diagnostics!.ignoredColumns.some(ic => ic.headerName === 'ĐTB')).toBe(true)
     // ĐTB should not be assigned to any score field
     expect(Object.values(diagnostics!.colMap)).not.toContain(6)
   })
 
-  it('handles "V" in score cell with warning', () => {
+  it('handles "V" in score cell with warning', async () => {
     const buf = makeWorkbookBuffer(
       [['Nguyễn Văn A', 'V', 7, '']],
       ['Họ Tên', 'Miệng', '15P', 'Ghi Chú'],
     )
-    const { rows } = parseGradeFile(buf, [mockStudent])
+    const { rows } = await parseGradeFile(buf, [mockStudent])
     expect(rows[0].scoreOral).toBeNull()
     expect(rows[0].warnings.length).toBeGreaterThan(0)
     expect(rows[0].warnings[0]).toContain('Vắng')

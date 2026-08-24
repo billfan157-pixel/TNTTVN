@@ -25,7 +25,9 @@ const { xlsxMock } = vi.hoisted(() => ({
     },
   },
 }))
-vi.mock('xlsx', () => xlsxMock)
+// PERF-XLSX-1: xlsxLoader lazy import('xlsx') rồi đọc `.default ?? namespace`
+// — mock phải expose cả default để loader resolve đúng.
+vi.mock('xlsx', () => ({ ...xlsxMock, default: xlsxMock }))
 
 const activeAY = getCurrentAcademicYear()
 const CLASS_ID = 'CL-TN1'
@@ -159,8 +161,8 @@ describe('reportExporter (Báo Cáo Nâng Cao & Xuất File)', () => {
     expect(text).toContain('"Ấu Nhi, Nhỏ",1')
   })
 
-  it('exportXlsx tạo workbook qua thư viện xlsx', () => {
-    exportXlsx('test-report', 'Thống kê', [
+  it('exportXlsx tạo workbook qua thư viện xlsx', async () => {
+    await exportXlsx('test-report', 'Thống kê', [
       { 'Phân Ngành': 'Thiếu Nhi', 'Số Thiếu Nhi': 3 },
     ])
     expect(xlsxMock.writeFile).toHaveBeenCalledTimes(1)

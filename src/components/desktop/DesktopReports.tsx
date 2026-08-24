@@ -64,12 +64,12 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
         const rows = buildBranchSummaryRows(selectedSemester);
         const filename = exportFilename('BaoCao_ThongKe_PhanNganh_HK' + selectedSemester);
         if (format === 'csv') exportCsv(filename, rows);
-        else exportXlsx(filename, 'Thống kê phân ngành', rows);
+        else void exportXlsx(filename, 'Thống kê phân ngành', rows).catch(console.error);
       } else {
         const rows = buildStudentDetailRows();
         const filename = exportFilename('BaoCao_ChiTiet_HocSinh');
         if (format === 'csv') exportCsv(filename, rows);
-        else exportXlsx(filename, 'Chi tiết học sinh', rows);
+        else void exportXlsx(filename, 'Chi tiết học sinh', rows).catch(console.error);
       }
     } catch (err) {
       void askConfirm({

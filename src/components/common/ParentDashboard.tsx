@@ -61,7 +61,7 @@ export const ParentDashboard: React.FC = () => {
 
   return (
     <DesktopAppShell width="wide" className="space-y-5">
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-parish-primary to-parish-primary-hover dark:from-[#16305e] dark:to-[#101c3f] p-6 md:p-7 shadow-card">
+      <section className="parent-hero relative overflow-hidden rounded-2xl p-6 md:p-7 shadow-card">
         <div aria-hidden className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-12 -right-12 w-52 h-52 rounded-full bg-white/10 blur-2xl" />
           <div className="absolute -bottom-16 -left-8 w-56 h-56 rounded-full bg-white/[0.07] blur-3xl" />

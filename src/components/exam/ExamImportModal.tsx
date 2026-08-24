@@ -79,7 +79,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
     setIsProcessing(true)
     try {
       const buffer = await file.arrayBuffer()
-      const res = parseExamFromExcel(buffer)
+      const res = await parseExamFromExcel(buffer)
       setPreviewResult(res)
       setDetectedSubject(file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '))
     } finally {
@@ -88,16 +88,19 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   }
 
   const handleDownloadExcelSample = () => {
-    const bytes = generateSampleExcelWorkbook()
-    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'Mau_De_Thi_Trac_Nghiem_TNTT.xlsx'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    void (async () => {
+      // PERF-XLSX-1: lazy-load xlsx khi user tải mẫu.
+      const bytes = await generateSampleExcelWorkbook()
+      const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'Mau_De_Thi_Trac_Nghiem_TNTT.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })().catch(console.error)
   }
 
   const handleApply = () => {

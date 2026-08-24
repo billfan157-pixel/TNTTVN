@@ -1,9 +1,9 @@
-import * as XLSX from 'xlsx'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../lib/examPrintSafety'
+import { loadXlsx } from '../lib/xlsxLoader'
 
 export interface ExamExportOptions {
   subject: string
@@ -185,7 +185,9 @@ export function exportExamToWord(options: ExamExportOptions): void {
 /**
  * Sinh Workbook Excel (.xlsx) chứa câu hỏi, bảng đáp án ma trận các mã đề, và metadata.
  */
-export function generateExamExcelWorkbook(options: ExamExportOptions): Uint8Array {
+export async function generateExamExcelWorkbook(options: ExamExportOptions): Promise<Uint8Array> {
+  // PERF-XLSX-1: lazy-load xlsx — chunk chỉ tải khi user export Excel.
+  const XLSX = await loadXlsx()
   const { parishName, dioceseName } = resolveParishHeaders(options)
   const questions = resolveExportQuestions(options)
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
@@ -268,10 +270,10 @@ export function generateExamExcelWorkbook(options: ExamExportOptions): Uint8Arra
   return new Uint8Array(out)
 }
 
-/** Xuất đề thi ra file Excel (.xlsx). */
-export function exportExamToExcel(options: ExamExportOptions): void {
+/** Xuất đề thi ra file Excel (.xlsx). Async do lazy-load xlsx (PERF-XLSX-1). */
+export async function exportExamToExcel(options: ExamExportOptions): Promise<void> {
   try {
-    const bytes = generateExamExcelWorkbook(options)
+    const bytes = await generateExamExcelWorkbook(options)
     const blob = new Blob([bytes as unknown as BlobPart], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })

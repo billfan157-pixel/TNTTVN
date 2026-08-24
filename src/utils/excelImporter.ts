@@ -1,7 +1,7 @@
 import React from 'react'
-import * as XLSX from 'xlsx'
 import type { Student, GradeRecord } from '../types'
 import { matchStudentWithConfidence, normalizeHolyName, explainMatchFailure } from './excelGradeParser'
+import { loadXlsx } from '../lib/xlsxLoader'
 
 export interface ParsedGradeRow {
   rowNum: number
@@ -238,10 +238,11 @@ export interface ParseGradeFileResult {
   diagnostics: GradeColumnsResult | null
 }
 
-export function parseGradeFile(
+export async function parseGradeFile(
   arrayBuffer: ArrayBuffer,
   students: Student[]
-): ParseGradeFileResult {
+): Promise<ParseGradeFileResult> {
+  const XLSX = await loadXlsx()
   const data = new Uint8Array(arrayBuffer)
   const workbook = XLSX.read(data, { type: 'array' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]

@@ -1,6 +1,5 @@
 import React from 'react'
 import { createRootRoute, createRoute, createRouter, Outlet, redirect } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { useAuthStore } from './stores/authStore'
 import { RootLayout, PageSuspense } from './components/common/RootLayout'
 import { useClassStore } from './stores/classStore'

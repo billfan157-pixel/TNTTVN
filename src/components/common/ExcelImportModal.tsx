@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2, ArrowRight, Download, FileDown, History, RotateCcw, Layers, Info, Settings2, AlertTriangle } from 'lucide-react'
-import * as XLSX from 'xlsx'
+import { loadXlsx } from '../../lib/xlsxLoader'
 import { findHeaderRow, detectColumnsWithConfidence, parseToImportRows, normalizeDate, type ImportRow, type ColumnDetectionResult } from '../../utils/excelParser'
 import { useClassStore } from '../../stores/classStore'
 import { api } from '../../lib/api'
@@ -98,12 +98,16 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       const reader = new FileReader()
       reader.onload = (e) => {
         if (isExcel) {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer)
-          const workbook = XLSX.read(data, { type: 'array' })
-          const sheet = workbook.Sheets[workbook.SheetNames[0]]
-          const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 })
-          const text = rows.map(r => r.map((c: any) => c ?? '').join('\t')).join('\n')
-          resolve(text)
+          // PERF-XLSX-1: lazy-load xlsx khi user thực sự mở file Excel.
+          void (async () => {
+            const XLSX = await loadXlsx()
+            const data = new Uint8Array(e.target?.result as ArrayBuffer)
+            const workbook = XLSX.read(data, { type: 'array' })
+            const sheet = workbook.Sheets[workbook.SheetNames[0]]
+            const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 })
+            const text = rows.map(r => r.map((c: any) => c ?? '').join('\t')).join('\n')
+            resolve(text)
+          })().catch(reject)
         } else {
           resolve(e.target?.result as string)
         }

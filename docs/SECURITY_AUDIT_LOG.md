@@ -114,6 +114,13 @@
 | A-NEW-60 (audit-log system hardening) | 🟠 P2→✅ | **Audit toàn diện hệ thống nhật ký (D3/SECURITY)** tìm ra 7 finding: **F1** 🔴 tab Chính Sách nhiễm ~60% nhiễu — generic `'UPDATE'` trong `policyActions` kéo TẤT CẢ row update thường vào kết quả (DB thật: 24/40 rows là `UPDATE\|grade` badge "Unknown"); test không bắt được vì fixture thiếu row thường. **F2** 🟡 thiếu index `(parish_id, created_at)` cho GET /audit-logs orderBy DESC — bảng tăng trưởng vô hạn sẽ quét toàn bộ. **F3** 🟡 không retention/prune/archive (ghi nhận, cần matrix riêng). **F4** 🟡 ≥5 hành động nhạy cảm KHÔNG có audit: tự cập nhật profile (staff tự đổi SĐT mình — `auth.ts:544`), broadcast web-push toàn xứ (`notifications/send` + `/smart/*`), cấp chữ ký HMAC phiếu điểm (`verification/sign`), xóa import mapping, telegram link-token. **F5** 🟡 finance TXN lưu `personName/personPhone` plaintext vi phạm A16 (`FinanceApplicationService.ts`). **F6** ⚪ startDate/endDate không validate format. **F7** ⚪ UX backlog đã track sẵn (5.1/5.2) | ✅ **FIXED 4/7 (2026-08-22)** — **F1**: bỏ `'UPDATE'` khỏi `policyActions` (entityType `'settings'` đã phủ đủ) + test hồi quy seed `UPDATE\|grade` assert bị loại. **F5**: `TXN_CREATE` + `TXN_DELETE` che `personPhone` qua helper chuẩn `maskPhoneForAudit` (export mới từ `auditRedact.ts`); personName giữ nguyên để truy vết (nhất quán fullName học sinh). **F2**: migration `20260822-128` tạo `idx_audit_logs_parish_created_at(parish_id, created_at)` + mirror schema.ts. **F4**: thêm audit `UPDATE_PROFILE` (chỉ changedFields + phoneMasked — không PII thô), `NOTIFICATION_SEND` (số liệu broadcast, không liệt kê người nhận), `VERIFICATION_SIGN` (metadata ký, không lưu chữ ký) + nhãn/màu hiển thị AuditLogPage. **Verify**: policyDashboard + financeService **14/14 PASS** (test hồi quy F1 mới) · `tsc -b` 0 error · oxlint 0 error. **Còn mở**: F3 (retention — cần matrix D3 riêng), F6 (validate format ngày), F7 (UX backlog) | `server/src/routes/auditLogs.ts`, `server/src/routes/auth.ts`, `server/src/routes/notifications.ts`, `server/src/routes/verification.ts`, `server/src/services/FinanceApplicationService.ts`, `server/src/utils/auditRedact.ts`, `server/src/db/index.ts` (migration `20260822-128`), `server/src/db/schema.ts`, `src/pages/AuditLogPage.tsx`, `server/src/__tests__/policyDashboard.test.ts`, `docs/AI_CONTEXT_MAP.md` |
 | A-NEW-61 (ops/observability) | 🟡 P2→✅ | **Route báo cáo nuốt exception im lặng + tự gán 400** — `reporting.ts:28` (cả report-card lẫn class-summary): `err.status || err.statusCode || 400` — mọi lỗi không phân loại (DB crash, schema drift, bug runtime) bị **nuốt không log** và trả 400 `REPORT_GENERATION_ERROR` kèm `err.message` thô → (1) sự cố production không thể chẩn đoán qua logs (case thật 2026-08-22: phụ huynh `GET /api/reports/report-card/ST-60725fbf?academicYear=2026-2027` → 400, nguyên nhân gốc không xác định được vì không có log); (2) rò message nội bộ ra client; (3) sai ngữ nghĩa HTTP (lỗi server trả 400) | ✅ **CLOSED (2026-08-22)** — **FIXED**: lỗi có `.status`/`.statusCode` tường minh (403 spec sở hữu…) giữ nguyên; còn lại → `console.error` đầy đủ (method+path+stack) và trả **500** với message chung (không lộ err.message). Verify: test mới `reportingErrorMapping.test.ts` 3/3 (500+log+không leak / 403 vẫn giữ / class-summary cùng semantic); repro prod-scenario `repro-report-card-400.test.ts` PASS (năm học mới chưa có row academic_years → 200 grades rỗng, KHÔNG phải lỗi); reportingAuthorization + reportingRoutes PASS; tsc + oxlint sạch. **Root cause production đang điều tra tiếp** (cần response body/logs Railway sau deploy) | `server/src/routes/reporting.ts`, `server/src/__tests__/routes/reportingErrorMapping.test.ts` (NEW), `server/src/__tests__/routes/repro-report-card-400.test.ts` (NEW), `docs/FRONTEND_API_CONTRACT.md` §9 |
 | A-NEW-62 (ops/incident) | 🔴 P1→✅ | **Production DB thiếu cột `promotion_records.is_latest`** → mọi GET phiếu điểm phụ huynh 500 (trước OBS-FIX là 400). Root cause: di sản D-04/ADR-031 — trên DB Railway volume, bảng `promotion_records` tồn tại KHÔNG có cột `is_latest` (20/21 cột) trong khi `schema_migrations` ghi đủ markers → startup gate chỉ validate markers/indexes/PK nên lọt qua; pipeline report-card SELECT toàn cột theo schema.ts (`is_latest` incl.) → LibsqlError `no such column: is_latest` mỗi lần đọc. Cùng lý do, các flow promotion/finalize năm học trên prod cũng sẽ nổ khi dùng. Chẩn đoán: OBS-FIX (A-NEW-61) log stack → Railway CLI SSH vào container chạy PRAGMA table_info xác nhận → ALTER TABLE thêm cột (backup `parish.db.pre-islatest-fix` trước, bảng rỗng 0 rows — chưa finalize năm nào) → endpoint trả 200 ngay, KHÔNG cần redeploy | ✅ **CLOSED (2026-08-23)** — **HOTFIX prod**: `ALTER TABLE promotion_records ADD COLUMN is_latest INTEGER NOT NULL DEFAULT 1` (additive, idempotent-guard, backup trước). **Phòng tái phát**: mở rộng startup gate `REQUIRED_COLUMNS` += `promotion_records ['is_latest','is_overridden','final_decision','status']` + `grade_overrides ['parish_id','deleted_at','score_field','manual_value']` → schema drift lớp này giờ fail-closed lúc khởi động với message rõ thay vì 500 runtime. Verify: `schemaHealth.test.ts` 5/5 PASS (2 test hồi quy mới: thiếu is_latest / thiếu grade_overrides.parish_id đều chặn startup); tsc + oxlint sạch; probe thật post-fix: report-card **200** + my-children 200 bằng JWT phụ huynh thật. Vệ sinh: thu hồi SSH diag key + xoá artifact chứa secret | `server/src/db/schemaHealth.ts`, `server/src/__tests__/schemaHealth.test.ts` (+2 test), prod volume `/app/data/parish.db` (+backup `.pre-islatest-fix`) |
+| SEC-BATCH-CAP-1 | 🟠 P2 | Mảng batch (import rows ×2, grades batch, attendance records) không có cap tường minh — DoS surface chỉ bị chặn gián tiếp bởi bodyLimit 10MB (~hàng chục nghìn row nhỏ vẫn qua) | ✅ CLOSED (2026-08-24): `.max(2000)` import validate/import rows + grades batch, `.max(500)` attendance records; test hồi quy `security/batch-caps.test.ts` 4/4 | `routes/import.ts`, `routes/grades.ts`, `routes/attendance.ts`, `__tests__/security/batch-caps.test.ts` |
+| SEC-HMAC-1 | 🟠 P2 | `hmacSigner.ts:8` fallback hardcode `'brave-davinci-default-hmac-secret-2026'` + chữ ký QR couple vào JWT_SECRET khi thiếu `REPORT_HMAC_SECRET` — prod chưa set biến → QR phiếu điểm ký bằng literal public, ai đọc repo cũng giả mạo được | ✅ CLOSED (2026-08-24): production **BẮT BUỘC** `REPORT_HMAC_SECRET` (fail-closed module-level như JWT_SECRET); bỏ literal khỏi đường KÝ; verify giữ chuỗi fallback legacy (JWT_SECRET-derived) để QR cũ còn xác thực; `.env.example` + DEPLOYMENT_GUIDE đồng bộ; test `security/hmacSigner.test.ts` 5/5 (roundtrip/legacy-compat/tamper/prod-fail-closed/dev-fallback). **Ops bắt buộc: set REPORT_HMAC_SECRET trên Railway trước deploy tiếp theo** | `utils/hmacSigner.ts`, `.env.example`, `docs/DEPLOYMENT_GUIDE.md`, `__tests__/security/hmacSigner.test.ts` |
+| OBS-1 | 🟡 P2 (ops) | Observability backend yếu sau 2 sự cố prod liên tiếp (A-NEW-61/62): CSP `report-uri /api/csp-report` trỏ endpoint 404 không tồn tại; onError log tách rời không có requestId; unhandledRejection/uncaughtException chỉ phụ thuộc default Node — sự cố phải SSH container mới thấy | ✅ CLOSED (2026-08-24): route `POST /api/csp-report` public (rate-limited + body-limit bọc sẵn) log structured WARN, luôn 204; onError gắn `requestId` từ response header vào JSON log; process-level handlers — unhandledRejection: log + Telegram alert (sống tiếp), uncaughtException: log + alert + graceful exit(1) fail-closed; test `routes/cspReport.test.ts` 3/3 | `routes/cspReport.ts` (NEW), `index.ts`, `__tests__/routes/cspReport.test.ts` |
+| SYNC-CONFLICT-1/2 | 🟠 P2 (data-integrity) | Offline sync nuốt op khi 409: student/class/exam conflict = server-wins thầm lặng (`syncProcessor.ts` ok:true+isConflict cho MỌI 409) → removeOp làm mất chỉnh sửa offline vĩnh viễn trong khi UI local vẫn hiển thị optimistic; compactQueue UPDATE-only giữ payload op cuối → edit field ở 2 phiên khác nhau bị mất field đầu; `ConflictResolutionModal` dead UI (wire nhưng không producer, nút Use Local/Server no-op) | ✅ CLOSED (2026-08-24): (1) phân loại 409 — VERSION_CONFLICT grade/attendance (có bản ghi server) giữ F9 merge cả single-op Phase 3; business/state conflict (CLASS_CODE_EXISTS, STATE_TRANSITION_INVALID…) → permanent-fail GIỮ payload, user xử lý tường minh qua SystemDiagnostics Retry/Remove; (2) compactQueue merge UPDATE theo FIELD qua tất cả ops thay vì keep-last; (3) xóa dead ConflictResolutionModal + wiring. Test: syncProcessor +4, syncStore merge-field 1, sync-engine cập nhật ngữ nghĩa mới — suite sync/stores 161+ PASS | `src/lib/syncProcessor.ts`, `src/hooks/useSyncEngine.ts`, `src/stores/syncStore.ts`, `DesktopGradeMatrix.tsx` (-dead wiring), xóa `ConflictResolutionModal.tsx` |
+| QUALITY-GATE-1 | 🟡 P2 (verification) | Coverage gate 40/30/30/40 quá thấp so với thực tế ~65% (regression lớn không bị chặn); authStore (lifecycle token client — vùng Security #1) chỉ 1.63% coverage; E2E job chạy song song dù unit test đỏ | ✅ CLOSED (2026-08-24): gate nâng 55/45/45/55 (full suite + coverage PASS); authStore unit test mới 12 case (login/logout/marker-no-PII/loadFromStorage bootstrap/changePassword) → **73.4% stmts**; CI `e2e-tests` thêm `needs: build-and-test`; **pre-commit hook `.githooks/pre-commit`** (oxlint staged files, kích hoạt qua `prepare: git config core.hooksPath .githooks` — zero-dependency); sửa 1 test stale `academicYearLifecycle.test.ts` 8c khớp nghiệp vụ PROMO-FIX (commit 1f2dceb — CONFIRMED chủ đích qua in-code comment) | `vitest.config.ts`, `.github/workflows/ci.yml`, `.githooks/pre-commit` (NEW), `package.json` (prepare script), `src/__tests__/stores/authStore.test.ts` (NEW), `server/src/__tests__/services/academicYearLifecycle.test.ts` |
+| PERF-XLSX-1 | ⚪ P4 (perf) | xlsx (~400KB) static-import ở 8 module → nằm sẵn chunk Students/Grades/Reports dù user không mở import/export | ✅ CLOSED (2026-08-24): `lib/xlsxLoader.ts` lazy-load + cache promise; **chuyển đủ 8/8 module** (reportExporter, attendanceAnalyticsService, excelImporter, excelTemplateBuilder, ExcelImportModal, ExcelGradeImportModal, examParser, examExporter); production code 0 static xlsx import (còn `import type` trong excelTemplateBuilder — type-only, không vào bundle). Callers async hoá giữ nguyên error UX ADR-018 | `src/lib/xlsxLoader.ts` (NEW), `services/reportExporter.ts`, `services/attendanceAnalyticsService.ts`, `utils/excelImporter.ts`, `utils/excelTemplateBuilder.ts`, `utils/examParser.ts`, `utils/examExporter.ts`, `ExcelImportModal.tsx`, `ExcelGradeImportModal.tsx`, `ExamImportModal.tsx`, `ExamExportModal.tsx`, `ExamPaperModal.tsx`, `xlsxLoader` callers |
+| REFACTOR-SYNC-1 | 🟡 P3 (maintainability, behavior-preserving) | `useSyncEngine.ts` god-file 1029 dòng đảm nhiệm ≥6 vai trò (hook lifecycle + orchestrator + F9 merge + apply server result + remap temp-ID + batch isolation + pull) — vùng code phức tạp nhất app, khó review/test | ✅ CLOSED (2026-08-24): tách 2 module tầng lib — `syncQueueMaintenance.ts` (223 dòng: prune/promote/parseQueuePayload/remap×4) + `syncApply.ts` (376 dòng: mergeRecordWithLocalEdits/resolveConflictWithMerge/applyServerResultAsync/extractZodBadIndexes/flush batch×2); engine chỉ còn 476 dòng orchestrator. Public API giữ nguyên qua re-export — 0 caller/test đổi import. Verify: sync suites 9 files **69/69 PASS** (F9 flow qua Phase 2a là oracle hành vi), full suite **230/230 files, 1667 tests PASS**, tsc PASS, oxlint 0 | `src/hooks/useSyncEngine.ts`, `src/lib/syncApply.ts` (NEW), `src/lib/syncQueueMaintenance.ts` (NEW), `docs/AI_CONTEXT_MAP.md` §lib |
 
 
 ## Quy ước ghi audit mới
@@ -3115,3 +3122,94 @@ User report (2026-08-22): tài khoản phụ huynh mới tạo gọi `GET https:
 ### 6. Trạng thái & Log
 - ✅ FIXED code-side (2026-08-22): `reporting.ts`, 2 test files mới, FRONTEND_API_CONTRACT §9 đồng bộ.
 - 🟡 **OPEN**: root cause 400 trên production — cần một trong: response body của request lỗi (DevTools Network), logs Railway sau khi deploy fix này, hoặc tài khoản test PH để probe trực tiếp. Sau deploy fix, request lỗi tương tự sẽ trả **500 + log stack đầy đủ** → xác định nguyên nhân gốc trong 1 lần chạy.
+
+---
+
+## Audit SEC-BATCH-CAP-1 / SEC-HMAC-1 / OBS-1 — Batch hardening + QR secret + Observability — 🟠 P2 → ✅ FIXED (2026-08-24)
+
+### 1. Phát hiện
+Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mảng batch không cap tường minh; (b) HMAC QR ký bằng literal public khi prod thiếu REPORT_HMAC_SECRET (CONFIRMED: `.env.production` sinh 2026-08-15 không có biến này); (c) CSP report-uri dead endpoint + onError không requestId + không có process-level error handlers.
+
+### 2. Evidence (đã verify)
+| # | Finding | Vị trí |
+|---|---|---|
+| 1 | `rows` import validate/import, `grades` batch, `records` attendance — không `.max()` | `import.ts:32,53`, `grades.ts:122`, `attendance.ts:103` |
+| 2 | `getHmacSecret()` fallback chain kết thúc bằng literal public trong source | `hmacSigner.ts:8`; `.env.production` (untracked) thiếu REPORT_HMAC_SECRET |
+| 3 | CSP header khai báo report-uri nhưng không route nào xử lý | `security.ts:28`, grep toàn src |
+| 4 | onError log không requestId; unhandledRejection/uncaughtException không đăng ký handler | `index.ts:29-36` |
+
+### 3. Giải pháp (Decision Matrix — D2, profile SECURITY)
+- **Batch caps**: D1 defense-in-depth, cap theo convention sẵn có (exam results đã `.max(1000)`, grade-undo studentIds `.max(500)`). Sync engine gửi full pending trong 1 call → grades cap 2000 đủ dư địa nhiều lớp.
+- **HMAC**: chọn fail-closed module-level (chuẩn `auth.ts` với JWT_SECRET) thay vì warn-only — Integrity > Availability là house rule (ADR-051). Verify giữ legacy chain (REPORT_HMAC_SECRET → JWT_SECRET) để QR cũ còn xác thực. Bị bác: chỉ log warning — để lại cửa giả mạo QR vô thời hạn.
+- **Observability**: Telegram alert tái dùng kênh sẵn có (`sendTelegramAlert`) — không thêm dependency mới; uncaughtException exit(1) fail-closed (state sau exception đồng bộ không đáng tin).
+
+### 4. Acceptance Criteria (kiểm chứng)
+- [x] Batch vượt cap → 400 zod (test `batch-caps.test.ts` 4/4)
+- [x] Prod thiếu REPORT_HMAC_SECRET → import module throw (dynamic-import test)
+- [x] QR ký TRƯỚC khi set secret riêng vẫn verify TRUE (legacy-compat test)
+- [x] Chữ ký giả/tamper/sai tham số → FALSE (timingSafeEqual từng candidate)
+- [x] POST /api/csp-report mọi payload (chuẩn/rác/rỗng) → luôn 204 (test 3/3)
+- [x] tsc server + client PASS; oxlint exit 0
+
+### 5. Trạng thái & Log
+✅ CLOSED (2026-08-24). **Ops action bắt buộc**: set `REPORT_HMAC_SECRET` (≥32 byte random riêng) trên Railway + docker-compose `.env` TRƯỚC lần deploy kế — nếu không, startup fail-closed (đúng thiết kế). Xem `docs/DEPLOYMENT_GUIDE.md` bảng env.
+
+---
+
+## Audit SYNC-CONFLICT-1/2 — Offline sync nuốt op khi conflict (data loss) — 🟠 P2 → ✅ FIXED (2026-08-24)
+
+### 1. Phát hiện
+`syncProcessor.ts` trả `ok:true + isConflict:true` cho MỌI 409 → engine `removeOp` + ghi inbox read-only. Với student/class/exam (409 = business/state conflict, KHÔNG có bản ghi server trả về): chỉnh sửa offline bị xóa khỏi queue vĩnh viễn, local store vẫn hiển thị optimistic giá trị chưa từng được server chấp nhận. Kèm: compactQueue UPDATE-only giữ nguyên payload op cuối (mất edit field ở phiên trước), ConflictResolutionModal dead UI (nút Use Local/Server no-op).
+
+### 2. Evidence (đã verify)
+- Server 409 semantics: grade/attendance = VERSION_CONFLICT kèm `details.currentGrade`; class = CLASS_CODE_EXISTS; exam = STATE_TRANSITION_INVALID (grep routes).
+- Engine Phase 1.5/Phase 3 conflict block: removeOp + applyServerResultAsync(undefined) + addConflict với serverValue=undefined.
+- compactQueue: `toRemove.push(...ops.filter(o => o.id !== lastOp.id))`.
+
+### 3. Giải pháp (Decision Matrix — D2/D3 data-integrity, profile OFFLINE/SYNC)
+- Phân loại 409 tại processor: có bản ghi server (grade/attendance) → merge path; không có → `{ok:false, recoverable:false}` permanent-fail GIỮ payload, user xử lý tường minh qua SystemDiagnostics (Retry sau khi xử lý nguyên nhân / Remove nếu bỏ qua).
+- Phase 3 single-op version-conflict đi qua `resolveConflictWithMerge` (tái dùng F9 field-level merge).
+- compactQueue merge field-level qua TẤT CẢ UPDATE ops vào op cuối.
+- Xóa ConflictResolutionModal + wiring (`DesktopGradeMatrix.tsx`) — không producer, gây ảo giác lựa chọn.
+- Hạn chế chấp nhận (backlog): shallow merge không biểu diễn field-deletion giữa các lần nhập (cần tombstone semantics).
+
+### 4. Acceptance Criteria (kiểm chứng)
+- [x] Exam complete 409 state → ok=false permanent-fail, error rõ ràng (test mới)
+- [x] Grade 409 KHÔNG kèm record server → permanent-fail, không merge mù (test mới)
+- [x] Student CREATE 409 → ok=false, op không bị nuốt (sync-engine test cập nhật ngữ nghĩa mới)
+- [x] compactQueue 2 UPDATE khác field → merged payload chứa CẢ HAI field (test mới, giải mã ciphertext verify)
+- [x] Suite sync/stores + networkFlakiness + flow/retry/isolation PASS; tsc -b PASS
+- [x] Không còn reference ConflictResolutionModal
+
+### 5. Trạng thái & Log
+✅ CLOSED (2026-08-24).
+
+---
+
+## Audit QUALITY-GATE-1 / PERF-XLSX-1 — Verification gate + lazy xlsx — 🟡 P2 / ⚪ P4 → ✅ FIXED (2026-08-24)
+
+### 1. Phát hiện & Evidence
+- Coverage thực tế ~65% nhưng gate chỉ 40/30/30/40 (`vitest.config.ts`) — dư địa regression quá rộng mà gate không bắt.
+- `authStore.ts` 1.63% stmts — lifecycle token/session client gần như không có unit test dù là vùng Security ưu tiên #1.
+- CI `e2e-tests` không có `needs:` — chạy tốn tài nguyên dù unit đỏ.
+- Test stale: `academicYearLifecycle.test.ts` 8c expect warning cũ `/không có cùng mã/` cho TẤT CẢ warnings — nghiệp vụ đã đổi bởi PROMO-FIX (commit 1f2dceb, in-code comment CONFIRMED chủ đích): HS đủ điều kiện lên khối +1, warning "Đủ điều kiện nhưng…" cho nhánh advance.
+- xlsx (~400KB) static-import 8 module → nằm sẵn chunk Students/Grades/Reports.
+
+### 2. Giải pháp
+- Gate nâng 55/45/45/55; authStore unit test 12 case (marker localStorage chỉ chứa {id,role,parishId} — assert KHÔNG có PII; bootstrap offline→clearAuth; changePassword FORCE_PASSWORD_CHANGE…); CI `needs: build-and-test`; test 8c cập nhật assert cả 2 nhánh warning đúng 1 lần mỗi nhánh + cả hai đều "ở lại lớp năm cũ".
+- `xlsxLoader.ts` dynamic import + cache promise + retry-on-error; chuyển 5 module chính (reportExporter, attendanceAnalyticsService, excelImporter, ExcelImportModal, ExcelGradeImportModal); Exam chunk giữ static (đã route-lazy — follow-up nếu cần).
+
+### 3. Acceptance Criteria (kiểm chứng)
+- [x] Full suite + coverage gate mới: **230 files / 1667 tests PASS**, coverage ≥ threshold mới
+- [x] authStore **73.4%** stmts (từ 1.63%)
+- [x] excelImporter/examParser/examExporter/excelGradeParser/reportExporter tests PASS sau async hoá
+- [x] oxlint exit 0; tsc client + server PASS
+
+### 4. Trạng thái & Log
+✅ CLOSED (2026-08-24). Follow-up backlog: tombstone cho queue compaction; Sentry node SDK; husky pre-commit → **ĐÃ LÀM** (`.githooks/pre-commit` zero-dep); split useSyncEngine → **ĐÃ LÀM** (REFACTOR-SYNC-1); REPORT_HMAC_SECRET rotation ops.
+
+### Bổ sung 2026-08-24 (phiên 2): hoàn tất PERF-XLSX-1 + pre-commit
+- **PERF-XLSX-1 mở rộng**: chuyển nốt 3 module exam (`examParser.parseExamFromExcel`/`generateSampleExcelWorkbook`, `examExporter.generateExamExcelWorkbook`/`exportExamToExcel`, `excelTemplateBuilder` cả 2 overload) sang `loadXlsx()` — production code giờ **0 static xlsx import**. Callers UI async hoá: ExamImportModal (await trong handler sẵn), ExamExportModal/ExamPaperModal (`.catch(console.error)`), ExcelGradeImportModal (await trong IIFE sẵn). Tests cập nhật: examParser 3 case async, examExporter 2 case async/`resolves`.
+- **Pre-commit hook**: `.githooks/pre-commit` — oxlint trên file staged JS/TS, exit non-zero khi có ERROR; kích hoạt tự động qua `"prepare": "git config core.hooksPath .githooks"` (chạy khi `npm install`). Đã verify cơ chế với file staged thật.
+- **Repo hygiene**: xóa file rác zero-byte `400` ở root.
+- **Verify**: full suite **230 files / 1667 tests PASS**; tsc client+server PASS; oxlint exit 0.

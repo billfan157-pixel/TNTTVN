@@ -1,8 +1,11 @@
-import * as XLSX from 'xlsx'
+import type * as XLSXTypes from 'xlsx'
 import type { Student } from '../types'
+import { loadXlsx } from '../lib/xlsxLoader'
 
 export class GradeTemplateBuilder {
-  public static createWorksheet(className: string, roster: Student[]): XLSX.WorkBook {
+  public static async createWorksheet(className: string, roster: Student[]): Promise<XLSXTypes.WorkBook> {
+    // PERF-XLSX-1: lazy-load xlsx — chunk chỉ tải khi user tải mẫu.
+    const XLSX = await loadXlsx()
     const headers = [
       'STT',
       'Mã Thiếu Nhi',
@@ -41,7 +44,8 @@ export class GradeTemplateBuilder {
 }
 
 export class StudentTemplateBuilder {
-  public static createWorksheet(): XLSX.WorkBook {
+  public static async createWorksheet(): Promise<XLSXTypes.WorkBook> {
+    const XLSX = await loadXlsx()
     const headers = [
       'Mã TN',
       'Tên Thánh',

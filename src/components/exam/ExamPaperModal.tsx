@@ -319,7 +319,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }
 
   const handleDownloadExcel = () => {
-    exportExamToExcel({
+    void exportExamToExcel({
       subject,
       classLabel,
       academicYear,
@@ -329,7 +329,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       answerKey,
       includeAnswerKey: true,
       includeExplanations: true,
-    })
+    }).catch(console.error)
   }
 
   return (

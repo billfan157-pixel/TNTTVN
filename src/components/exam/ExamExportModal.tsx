@@ -146,7 +146,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
         exportExamToHtml(exportOptions)
         break
       case 'excel':
-        exportExamToExcel(exportOptions)
+        void exportExamToExcel(exportOptions).catch(console.error)
         break
       case 'text':
         downloadExamText(exportOptions)

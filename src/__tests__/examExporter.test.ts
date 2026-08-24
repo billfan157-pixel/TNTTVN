@@ -174,8 +174,8 @@ describe('examExporter', () => {
   })
 
   describe('generateExamExcelWorkbook', () => {
-    it('creates workbook with questions, answer keys matrix, and metadata sheets', () => {
-      const bytes = generateExamExcelWorkbook({
+    it('creates workbook with questions, answer keys matrix, and metadata sheets', async () => {
+      const bytes = await generateExamExcelWorkbook({
         subject: 'Kiểm Tra Học Kỳ 1',
         classLabel: 'Khai Tâm 3',
         academicYear: '2025-2026',
@@ -280,7 +280,7 @@ describe('examExporter', () => {
   })
 
   describe('Client-side download wrappers', () => {
-    it('executes download functions without throwing', () => {
+    it('executes download functions without throwing', async () => {
       const createObjectURLMock = vi.fn().mockReturnValue('blob:mock-url')
       const revokeObjectURLMock = vi.fn()
       globalThis.URL.createObjectURL = createObjectURLMock
@@ -313,14 +313,13 @@ describe('examExporter', () => {
         })
       }).not.toThrow()
 
-      expect(() => {
-        exportExamToExcel({
-          subject: 'Test Excel',
-          classLabel: 'Lớp 1',
-          academicYear: '2025-2026',
-          questions: sampleQuestions,
-        })
-      }).not.toThrow()
+      // PERF-XLSX-1: exportExamToExcel giờ async (lazy-load xlsx) — assert resolve không throw.
+      await expect(exportExamToExcel({
+        subject: 'Test Excel',
+        classLabel: 'Lớp 1',
+        academicYear: '2025-2026',
+        questions: sampleQuestions,
+      })).resolves.toBeUndefined()
 
       expect(() => {
         exportExamToJson({

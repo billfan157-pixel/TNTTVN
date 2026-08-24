@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { useSyncStore, migrateLegacyQueueUserIds, isOwnOp } from '../stores/syncStore'
-import { api, isAuthenticated, ApiError } from '../lib/api'
+import { useSyncStore, migrateLegacyQueueUserIds } from '../stores/syncStore'
+import { api, isAuthenticated } from '../lib/api'
 import { getDB } from '../lib/db'
 import { resetClientData, getLocalPurgeVersion, PURGE_VERSION_KEY } from '../lib/resetClientData'
 import { useAuthStore } from '../stores/authStore'
@@ -11,48 +11,33 @@ import { useAttendanceStore } from '../stores/attendanceStore'
 import { useNoticeStore } from '../stores/noticeStore'
 import { useClassStore } from '../stores/classStore'
 import { useExamStore } from '../stores/examStore'
-import { decryptQueueValue, encryptQueueValue } from '../lib/offlineCipher'
+import { decryptQueueValue } from '../lib/offlineCipher'
 import { acquireSyncLease, releaseSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
 import * as Sentry from '@sentry/react'
-
-const SYNC_INTERVAL_MS = 30000
-const FAILED_OP_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
-
-export async function pruneStaleQueueItems(now = Date.now()): Promise<number> {
-  const db = getDB()
-  const terminal = await db.syncQueue
-    .where('status')
-    .anyOf(['failed', 'completed'])
-    .toArray()
-  const cutoff = now - FAILED_OP_RETENTION_MS
-  const stale = terminal.filter((item) => {
-    if (!isOwnOp(item)) return false
-    if (item.status === 'completed') return true
-    const updatedAt = Date.parse(item.updatedAt || item.createdAt)
-    return Number.isFinite(updatedAt) && updatedAt < cutoff
-  })
-  for (const item of stale) {
-    await db.syncQueue.delete(item.id)
-  }
-  return stale.length
-}
+import {
+  pruneStaleQueueItems,
+  promoteTransientFailedOps,
+  parseQueuePayload,
+} from '../lib/syncQueueMaintenance'
+import {
+  applyServerResultAsync,
+  resolveConflictWithMerge,
+  flushGradeBatchWithIsolation,
+  flushAttendanceBatchWithIsolation,
+} from '../lib/syncApply'
 
 /**
- * A-NEW-32 (2026-08-11): parse payload từ syncQueue. Queue lưu ciphertext
- * AES-GCM (AAD 'syncQueue'); legacy plaintext (queue cũ / test mocks) trả nguyên
- * — dual-format. Ciphertext hỏng → {} (caller tự fallback như payload hỏng cũ).
+ * REFACTOR-SYNC-1 (2026-08-24): god-file 1029 dòng tách thành 3 module theo vai trò:
+ * - `lib/syncQueueMaintenance.ts` — bảo trì queue thuần (prune/promote/remap temp-ID)
+ * - `lib/syncApply.ts` — tầng APPLY (F9 merge, áp kết quả server, batch isolation)
+ * - file này — orchestrator: hook lifecycle + runSyncFlow + pull (fetchAllData)
+ * Public API giữ nguyên qua re-export — không caller/test nào phải đổi import.
  */
-async function parseQueuePayload(raw: unknown): Promise<Record<string, unknown>> {
-  if (typeof raw !== 'string') return {}
-  const plain = await decryptQueueValue(raw)
-  if (plain === null) return {}
-  try {
-    return JSON.parse(plain) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-}
+export { pruneStaleQueueItems, promoteTransientFailedOps } from '../lib/syncQueueMaintenance'
+export { extractZodBadIndexes, flushGradeBatchWithIsolation, flushAttendanceBatchWithIsolation } from '../lib/syncApply'
+
+const SYNC_INTERVAL_MS = 30000
 
 /**
  * FE-F1 (audit 2026-08-21): hoàn tác optimistic "Hoàn tất phiên" offline.
@@ -202,7 +187,9 @@ export async function runSyncFlow() {
       return
     }
 
-    const syncState = { mergedConflictCount: 0, serverWinsConflictCount: 0 }
+    // SYNC-CONFLICT-1: chỉ còn merged conflicts (F9) — business/state conflict
+    // giờ là permanent-fail hiển thị qua failedCount, không còn "server wins".
+    const syncState = { mergedConflictCount: 0 }
 
     // ─── Phase 1.5: Parent entity CREATEs FIRST ───
     // ADR-016: If a user creates a student/class offline (temp ID) then immediately
@@ -226,17 +213,10 @@ export async function runSyncFlow() {
           // BEFORE Phase 2 reads the queue. Previously this was fire-and-forget,
           // causing grade batches to send stale temp IDs → 404 → data loss.
           await applyServerResultAsync(op, result.data)
-          if (result.isConflict) {
-            syncState.serverWinsConflictCount++
-            await store.addConflict({
-              entity: op.entity,
-              entityId: op.entityId,
-              operation: op.operation,
-              localValue: op.payload,
-              serverValue: await encryptQueueValue(JSON.stringify(result.data)),
-            })
-          }
         }
+        // SYNC-CONFLICT-1: CREATE student/class/exam không còn nhánh isConflict —
+        // business 409 (vd CLASS_CODE_EXISTS) giờ là permanent-fail (xử lý ở
+        // nhánh else bên dưới), op giữ payload để user xử lý tường minh.
       } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
         localStorage.removeItem('parish_access_token')
         store.setStatus('idle')
@@ -290,42 +270,33 @@ export async function runSyncFlow() {
       !createOpKeys.has(`${o.entity}:${o.entityId}:${o.operation}`)
     )
 
-    // ─── Process grade batch (no per-item delay) ───
+    // ─── Phase 2a: Batch flush grades ───
     if (gradeUpdateOps.length > 0) {
+      const validOps: SyncQueueItem[] = []
       const payloads: Record<string, unknown>[] = []
-      const validOps: typeof gradeUpdateOps = []
       for (const op of gradeUpdateOps) {
         try {
-          const parsed = await parseQueuePayload(op.payload)
-          if (parsed && typeof parsed.studentId === 'string' && parsed.studentId.trim() !== '') {
-            payloads.push(parsed)
+          const payload = await parseQueuePayload(op.payload)
+          if (payload && Object.keys(payload).length > 0) {
+            payloads.push(payload)
             validOps.push(op)
-          } else {
-            await store.removeOp(op.id)
           }
-        } catch {
-          await store.removeOp(op.id)
-        }
+        } catch {}
       }
-      if (payloads.length > 0) {
-        // ADR-016 (sync-fix): 400 validation → cách ly record lỗi, không retry cả batch.
+      if (validOps.length > 0 && payloads.length > 0) {
         await flushGradeBatchWithIsolation(payloads, validOps, store, syncState)
       }
     }
 
-    // ─── Process attendance batches (grouped by date|type, no per-item delay) ───
-    if (gradeUpdateOps.length > 0 && attendanceUpdateOps.length > 0) {
-      await new Promise(r => setTimeout(r, 500))
-    }
+    // ─── Phase 2b: Batch attendance grouped by date|type ───
     if (attendanceUpdateOps.length > 0) {
-      const groups = new Map<string, typeof attendanceUpdateOps>()
+      const groups = new Map<string, SyncQueueItem[]>()
       for (const op of attendanceUpdateOps) {
-        try {
-          const p = await parseQueuePayload(op.payload)
-          const key = `${p.date}|${p.type}`
-          if (!groups.has(key)) groups.set(key, [])
-          groups.get(key)!.push(op)
-        } catch {}
+        let p: any = {}
+        try { p = await parseQueuePayload(op.payload) } catch {}
+        const key = `${p.date}|${p.type}`
+        if (!groups.has(key)) groups.set(key, [])
+        groups.get(key)!.push(op)
       }
       for (const [, batch] of groups) {
         let firstPayload: any = {}
@@ -351,21 +322,18 @@ export async function runSyncFlow() {
       await new Promise(r => setTimeout(r, 200))
 
       if (result.ok) {
-        await store.removeOp(op.id)
-        if (result.data) {
-          // ADR-016 (S24): AWAIT remap (audit finding #9) — trước đây fire-and-forget
-          // nên student/class CREATE được remap trong cùng cycle này, các op sau
-          // trong Phase 3 vẫn đọc queue cũ với temp ID.
-          await applyServerResultAsync(op, result.data)
-          if (result.isConflict) {
-            syncState.serverWinsConflictCount++
-            await store.addConflict({
-              entity: op.entity,
-              entityId: op.entityId,
-              operation: op.operation,
-              localValue: op.payload,
-              serverValue: await encryptQueueValue(JSON.stringify(result.data)),
-            })
+        if (result.isConflict && result.data) {
+          // SYNC-CONFLICT-1: 409 VERSION_CONFLICT (grade/attendance) có bản ghi server
+          // → F9 merge field-level + re-queue thay vì server-wins thầm lặng.
+          syncState.mergedConflictCount++
+          await resolveConflictWithMerge(op, result.data)
+        } else {
+          await store.removeOp(op.id)
+          if (result.data) {
+            // ADR-016 (S24): AWAIT remap (audit finding #9) — trước đây fire-and-forget
+            // nên student/class CREATE được remap trong cùng cycle này, các op sau
+            // trong Phase 3 vẫn đọc queue cũ với temp ID.
+            await applyServerResultAsync(op, result.data)
           }
         }
       } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
@@ -407,7 +375,7 @@ export async function runSyncFlow() {
     const finalCount = await s.refreshCount()
     const db = getDB()
     const failedCount = await db.syncQueue.where('status').equals('failed').count()
-    const totalConflicts = syncState.mergedConflictCount + syncState.serverWinsConflictCount
+    const totalConflicts = syncState.mergedConflictCount
     if (finalCount === 0) {
       const pullResult = await fetchAllData(true)
       if (pullResult.ok && pullResult.queryTime) {
@@ -416,13 +384,7 @@ export async function runSyncFlow() {
       s.setStatus(navigator.onLine ? 'idle' : 'offline')
 
       if (totalConflicts > 0) {
-        if (syncState.mergedConflictCount > 0 && syncState.serverWinsConflictCount > 0) {
-          s.setLastError(`${syncState.mergedConflictCount} bản ghi điểm/điểm danh xung đột đã được hợp nhất, và ${syncState.serverWinsConflictCount} bản ghi khác được đồng bộ theo máy chủ.`)
-        } else if (syncState.mergedConflictCount > 0) {
-          s.setLastError(`${syncState.mergedConflictCount} bản ghi xung đột phiên bản đã được hợp nhất — chỉnh sửa của bạn được giữ lại.`)
-        } else {
-          s.setLastError(`${syncState.serverWinsConflictCount} bản ghi bị xung đột đã được đồng bộ theo dữ liệu mới nhất từ máy chủ.`)
-        }
+        s.setLastError(`${syncState.mergedConflictCount} bản ghi xung đột phiên bản đã được hợp nhất — chỉnh sửa của bạn được giữ lại.`)
       } else if (failedCount > 0) {
         s.setLastError(`Có ${failedCount} thao tác đồng bộ thất bại. Kiểm tra trong System Diagnostics.`)
       } else {
@@ -445,535 +407,6 @@ export async function runSyncFlow() {
     }
   } finally {
     releaseSyncLease()
-  }
-}
-
-/**
- * F9 (audit): Field-level merge trên version conflict (grade/attendance). Trước đây
- * server-wins: removeOp + applyServerResultAsync(record server) → chỉnh sửa offline
- * của user biến mất vĩnh viễn. Chiến lược mới:
- *   1. Base = record server MỚI NHẤT (id + version thật, các field không đổi giữ server)
- *   2. Áp lại field mà user ĐÃ đổi (có trong payload local; null = user đã xóa điểm)
- *   3. Ghi merged xuống local store (UI phản ánh ngay), rồi re-queue UPDATE với
- *      version server → cycle kế tiếp server chấp nhận, chỉnh sửa local thắng đúng field đó.
- * An toàn lặp: server version là version hiện hành nên op kế tiếp không conflict nữa.
- */
-const GRADE_SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'] as const
-const ATTENDANCE_FIELDS = ['status', 'note'] as const
-
-function mergeRecordWithLocalEdits(
-  localPayload: Record<string, unknown>,
-  serverRecord: Record<string, unknown>,
-  fields: readonly string[]
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...serverRecord }
-  for (const f of fields) {
-    if (localPayload[f] !== undefined) merged[f] = localPayload[f]
-  }
-  return merged
-}
-
-/** F9: Xử lý conflict batch grade/attendance — merge rồi re-queue thay vì server-wins. */
-async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: any): Promise<void> {
-  const store = useSyncStore.getState()
-  const entity = (op.entity || '').toLowerCase()
-  let localPayload: Record<string, unknown> = {}
-  try {
-    localPayload = await parseQueuePayload(op.payload)
-  } catch {
-    // payload hỏng — rơi về server record
-  }
-
-  const fields = entity === 'grade' ? GRADE_SCORE_FIELDS : entity === 'attendance' ? ATTENDANCE_FIELDS : []
-  const merged = mergeRecordWithLocalEdits(localPayload, serverRecord, fields)
-
-  await store.removeOp(op.id)
-  await applyServerResultAsync(op, merged)
-  await store.addOp({
-    entity: entity as SyncQueueItem['entity'],
-    entityId: String(merged.id || op.entityId),
-    operation: 'UPDATE',
-    payload: JSON.stringify(merged),
-  })
-}
-
-/**
- * ADR-016 (S4): Async version of applyServerResult that AWAITS the ID remap
- * before returning. Used in Phase 1.5 so that Phase 2's batch reads the
- * remapped payloads instead of stale temp IDs.
- */
-async function applyServerResultAsync(op: SyncQueueItem, serverData: any) {
-  const entity = (op.entity || '').toLowerCase()
-
-  try {
-    if (entity === 'student' && serverData?.id && serverData.id !== op.entityId) {
-      const studentStore = useStudentStore.getState()
-      const localStudent = studentStore.students.find(s => s.id === op.entityId)
-      if (localStudent) {
-        const oldId = op.entityId!
-        const newId = serverData.id
-        studentStore.replaceStudentId(oldId, serverData)
-        // ADR-016 (S4): AWAIT remap so Phase 2 sees the real studentId.
-        await remapStudentIdInPendingOps(oldId, newId)
-      }
-    }
-
-    if (entity === 'class' && serverData?.id && serverData.id !== op.entityId) {
-      const classStore = useClassStore.getState()
-      if (classStore.classes.some(c => c.id === op.entityId)) {
-        const oldClassId = op.entityId!
-        const newClassId = serverData.id
-        classStore.replaceClassId(oldClassId, serverData)
-        // ADR-016 (S4): AWAIT remap so Phase 2 sees the real classId.
-        await remapClassIdInPendingOps(oldClassId, newClassId)
-      }
-    }
-
-    if ((entity === 'exam' || entity === 'exams') && serverData?.id && serverData.id !== op.entityId) {
-      const examStore = useExamStore.getState()
-      const oldId = op.entityId!
-      const newId = serverData.id
-      examStore.replaceSessionId?.(oldId, serverData)
-      await remapExamSessionIdInPendingOps(oldId, newId)
-    }
-
-    // Scan Engine v2: sau khi hàng đợi offline được server chấm lại, kéo bản
-    // authoritative về ngay để UI không giữ điểm client nếu thuật toán/version lệch.
-    if ((entity === 'exam' || entity === 'exams') && Array.isArray(serverData?.adjustments)) {
-      const examStore = useExamStore.getState()
-      if (examStore.selectedSessionId) await examStore.refreshResults()
-    }
-
-    if (entity === 'grade' && serverData?.id) {
-      const gradeStore = useGradeStore.getState()
-      gradeStore.upsertGrade(serverData, true)
-    }
-
-    if (entity === 'notice' || entity === 'notices') {
-      if (serverData?.id) {
-        const noticeStore = useNoticeStore.getState()
-        const oldId = op.entityId!
-        const newId = serverData.id
-        noticeStore.replaceNoticeId(oldId, serverData)
-        if (newId !== oldId) {
-          await remapNoticeIdInPendingOps(oldId, newId)
-        }
-      }
-    }
-
-    if (entity === 'attendance' && serverData?.id) {
-      const attStore = useAttendanceStore.getState()
-      attStore.saveAttendance(
-        serverData.studentId,
-        serverData.date,
-        serverData.type,
-        serverData.status,
-        serverData.note,
-        true,
-        serverData,
-      )
-    }
-  } catch (err) {
-    Sentry.captureException(err)
-  }
-}
-
-/** Sau khi notice create trả về server ID, remap trong tất cả pending ops đang dùng temp ID */
-async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
-  const db = getDB()
-  const pending = await db.syncQueue
-    .where('status')
-    .anyOf(['pending', 'retrying'])
-    .toArray()
-  for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip unparseable
-    }
-  }
-}
-
-/**
- * ADR-016 (sync-fix): Trích index + message của các record lỗi từ zod issues
- * (response 400 của @hono/zod-validator: path dạng ["grades", 21, "academicYear"]).
- * Trả null nếu không parse được → caller fallback cách ly từng record.
- */
-export function extractZodBadIndexes(
-  err: unknown,
-  root: string,
-  opCount: number
-): { badIndexes: Set<number>; messages: Map<number, string> } | null {
-  const issues: any[] = (err as any)?.issues
-  if (!Array.isArray(issues) || issues.length === 0) return null
-  const badIndexes = new Set<number>()
-  const messages = new Map<number, string>()
-  for (const issue of issues) {
-    const path = Array.isArray(issue?.path) ? issue.path : []
-    if (path[0] !== root) continue
-    const idx = typeof path[1] === 'number' ? path[1] : -1
-    if (idx < 0 || idx >= opCount) continue
-    badIndexes.add(idx)
-    const field = path[2] !== undefined ? String(path[2]) : 'payload'
-    const msg = typeof issue?.message === 'string' && issue.message ? issue.message : 'dữ liệu không hợp lệ'
-    if (!messages.has(idx)) messages.set(idx, `Client error 400: ${field} — ${msg}`)
-  }
-  return { badIndexes, messages }
-}
-
-interface BatchGradeResult {
-  studentId: string
-  status: 'saved' | 'conflict' | 'error'
-  error?: string
-  currentGrade?: any
-  record?: any
-}
-
-/**
- * ADR-016 (sync-fix): Áp kết quả batch upsert lên từng op — dùng chung cho
- * nhánh thành công và nhánh cách ly (sau khi loại bỏ record zod-invalid).
- */
-async function applyUpsertBatchResults(
-  results: BatchGradeResult[],
-  ops: SyncQueueItem[],
-  store: ReturnType<typeof useSyncStore.getState>,
-  state: { mergedConflictCount: number; serverWinsConflictCount: number }
-): Promise<void> {
-  for (let i = 0; i < results.length; i++) {
-    const item = results[i]
-    const op = ops[i]
-    if (!op) continue
-    if (item.status === 'saved') {
-      await store.removeOp(op.id)
-      // ADR-016 (offline-sync audit #2): rehydrate bản ghi tạm thành row server
-      // (id + version thật) TRƯỚC khi xóa op — tránh 409 ở lần sửa kế tiếp.
-      if (item.record) await applyServerResultAsync(op, item.record)
-    } else if (item.status === 'conflict') {
-      state.mergedConflictCount++
-      // F9: merge field-level + re-queue thay vì server-wins.
-      if (item.currentGrade && typeof item.currentGrade === 'object') {
-        await resolveConflictWithMerge(op, item.currentGrade)
-      } else {
-        await store.removeOp(op.id)
-        if (item.currentGrade) await applyServerResultAsync(op, item.currentGrade)
-      }
-    } else {
-      const rc = (op.retryCount || 0) + 1
-      await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: item.error })
-    }
-  }
-}
-
-/**
- * ADR-016 (sync-fix): Gửi batch điểm với cách ly record zod-invalid.
- * Trước đây 1 record hỏng → HTTP 400 cho CẢ batch → toàn bộ op retry cùng lúc,
- * retry vô hạn, 1 ô điểm sai chặn cả lớp đồng bộ. Giờ:
- *  - 400 có issues → đánh failed CHỈ record hỏng (message "Client error 400" để
- *    promoteTransientFailedOps không hoàn-sinh lỗi vĩnh viễn), gửi lại phần còn lại.
- *  - 400 không parse được → fallback từng record (mỗi op 1 request /grades).
- *  - 5xx / network → retry nguyên batch như cũ.
- */
-export async function flushGradeBatchWithIsolation(
-  payloads: Record<string, unknown>[],
-  validOps: SyncQueueItem[],
-  store: ReturnType<typeof useSyncStore.getState>,
-  state: { mergedConflictCount: number; serverWinsConflictCount: number }
-): Promise<void> {
-  let pending = payloads.slice()
-  let pendingOps = validOps.slice()
-
-  while (pending.length > 0) {
-    try {
-      const batchRes = await api.batchUpsertGrades(pending)
-      await applyUpsertBatchResults(batchRes.results || [], pendingOps, store, state)
-      return
-    } catch (err) {
-      const bad = extractZodBadIndexes(err, 'grades', pendingOps.length)
-      if (bad && bad.badIndexes.size > 0) {
-        for (const i of bad.badIndexes) {
-          const op = pendingOps[i]
-          if (!op) continue
-          await store.updateOp(op.id, {
-            status: 'failed',
-            lastError: bad.messages.get(i) || 'Client error 400: dữ liệu điểm không hợp lệ',
-          })
-        }
-        store.setLastError(`Đã cách ly ${bad.badIndexes.size} bản ghi điểm không hợp lệ khỏi đồng bộ — kiểm tra trong System Diagnostics.`)
-        pending = pending.filter((_, i) => !bad.badIndexes.has(i))
-        pendingOps = pendingOps.filter((_, i) => !bad.badIndexes.has(i))
-        continue
-      }
-      if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
-        // 4xx nhưng không lấy được issues → thử từng record một
-        for (let i = 0; i < pendingOps.length; i++) {
-          const op = pendingOps[i]
-          try {
-            const r = await api.upsertGrade(pending[i])
-            await applyUpsertBatchResults([{ studentId: op.entityId, status: 'saved', record: r }], [op], store, state)
-          } catch (e2) {
-            const rc = (op.retryCount || 0) + 1
-            const msg = e2 instanceof ApiError ? `Client error ${e2.status}: ${e2.message}` : String(e2)
-            await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: msg })
-          }
-        }
-        return
-      }
-      // network / 5xx → giữ hành vi retry cũ
-      for (const op of pendingOps) {
-        const rc = (op.retryCount || 0) + 1
-        await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: 'Batch grade call failed' })
-      }
-      return
-    }
-  }
-}
-
-/**
- * ADR-016 (sync-fix): Gửi batch điểm danh (theo date|type) với cách ly record
- * zod-invalid — tương tự flushGradeBatchWithIsolation (root issues = 'records').
- */
-export async function flushAttendanceBatchWithIsolation(
-  batch: SyncQueueItem[],
-  firstPayload: any,
-  store: ReturnType<typeof useSyncStore.getState>,
-  state: { mergedConflictCount: number; serverWinsConflictCount: number }
-): Promise<void> {
-  let pending = batch.slice()
-  let first = firstPayload
-  while (pending.length > 0) {
-    const records = pending.map(async op => {
-      try {
-        const p = await parseQueuePayload(op.payload)
-        // ADR-016 (S21): Giữ version từng record để server phát hiện xung đột.
-        return {
-          studentId: String(p.studentId || ''),
-          status: String(p.status || ''),
-          note: p.note != null ? String(p.note) : undefined,
-          version: typeof p.version === 'number' ? p.version : undefined,
-        }
-      } catch { return { studentId: '', status: 'Present' } }
-    })
-    try {
-      const resolvedRecords = await Promise.all(records)
-      const batchRes = await api.batchUpsertAttendance(first.date, first.type, resolvedRecords)
-      const results = batchRes.results || []
-      for (let i = 0; i < results.length; i++) {
-        const item = results[i]
-        const op = pending[i]
-        if (!op) continue
-        // 'skipped' = idempotent no-op (version không đổi) — vẫn coi là thành công.
-        if (item.status === 'saved' || item.status === 'skipped') {
-          await store.removeOp(op.id)
-          // ADR-016 (S24): AWAIT remap trước khi op sau trong Phase 3 đọc queue.
-          if (item.record) await applyServerResultAsync(op, item.record)
-        } else if (item.status === 'conflict' && item.record) {
-          state.mergedConflictCount++
-          await resolveConflictWithMerge(op, item.record)
-        } else {
-          const rc = (op.retryCount || 0) + 1
-          await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: item.reason || item.status })
-        }
-      }
-      return
-    } catch (err) {
-      const bad = extractZodBadIndexes(err, 'records', pending.length)
-      if (bad && bad.badIndexes.size > 0) {
-        for (const i of bad.badIndexes) {
-          const op = pending[i]
-          if (!op) continue
-          await store.updateOp(op.id, {
-            status: 'failed',
-            lastError: bad.messages.get(i) || 'Client error 400: dữ liệu điểm danh không hợp lệ',
-          })
-        }
-        store.setLastError(`Đã cách ly ${bad.badIndexes.size} bản ghi điểm danh không hợp lệ khỏi đồng bộ — kiểm tra trong System Diagnostics.`)
-        pending = pending.filter((_, i) => !bad.badIndexes.has(i))
-        continue
-      }
-      if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
-        for (let i = 0; i < pending.length; i++) {
-          const op = pending[i]
-          try {
-            let p: any = {}
-            try { p = await parseQueuePayload(op.payload) } catch {}
-            const r = await api.upsertAttendance(p)
-            await store.removeOp(op.id)
-            if (r?.id) await applyServerResultAsync(op, r)
-          } catch (e2) {
-            const rc = (op.retryCount || 0) + 1
-            const msg = e2 instanceof ApiError ? `Client error ${e2.status}: ${e2.message}` : String(e2)
-            await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: msg })
-          }
-        }
-        return
-      }
-      for (const op of pending) {
-        const rc = (op.retryCount || 0) + 1
-        await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: 'Batch attendance call failed' })
-      }
-      return
-    }
-  }
-}
-
-/**
- * ADR-016 (S24): Auto-recover ops đang 'failed' do lỗi TẠM THỜI (network/5xx/
- * rate-limit). Op fail do lỗi vĩnh viễn (4xx validation, unknown entityType)
- * KHÔNG được promote — chúng cần sửa dữ liệu thủ công (System Diagnostics).
- * retryCount reset 0: mỗi vòng promote = một round attempt mới (có backoff),
- * và tránh kích hoạt nhầm failsafe stall (ops.every(rc >= 5)).
- */
-export async function promoteTransientFailedOps(): Promise<void> {
-  const db = getDB()
-  const failed = await db.syncQueue.where('status').equals('failed').toArray()
-  for (const item of failed) {
-    // A-NEW-32: lastError được mã hóa khi ghi — giải mã trước khi regex (mã
-    // ciphertext base64 không bao giờ khớp pattern nên op lỗi vĩnh viễn sẽ bị
-    // promote nhầm nếu bỏ qua bước này).
-    const err = (await decryptQueueValue(item.lastError || '')) || ''
-    if (/client error 4\d\d|unknown entitytype/i.test(err)) continue
-    await db.syncQueue.update(item.id, {
-      status: 'pending',
-      retryCount: 0,
-      lastError: null,
-      updatedAt: new Date().toISOString(),
-    })
-  }
-}
-
-/** Sau khi class create trả về server ID, remap classId trong tất cả pending ops đang dùng temp ID */
-async function remapClassIdInPendingOps(oldId: string, newId: string) {
-  const db = getDB()
-  const raw = await db.syncQueue
-    .where('status')
-    .anyOf(['pending', 'retrying'])
-    .toArray()
-  const pending = raw.filter(isOwnOp)
-  for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      // ADR-016 (S23): Cập nhật CẢ entityId của chính op (class UPDATE dùng
-      // temp ID làm entityId → server trả 404 vĩnh viễn nếu không remap).
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (payload.classId === oldId) {
-        payload.classId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip items with unparseable payload
-    }
-  }
-}
-
-/** Sau khi student create trả về server ID, remap trong tất cả pending ops đang dùng temp ID */
-async function remapStudentIdInPendingOps(oldId: string, newId: string) {
-  const db = getDB()
-  const raw = await db.syncQueue
-    .where('status')
-    .anyOf(['pending', 'retrying'])
-    .toArray()
-  const pending = raw.filter(isOwnOp)
-  for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      // ADR-016 (S23): Op UPDATE của chính student đó (entityId = temp ID)
-      // phải được remap entityId, không chỉ studentId trong payload của các op khác.
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (payload.studentId === oldId) {
-        payload.studentId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      // Student UPDATE payload chứa cả field `id` của chính nó.
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (Array.isArray(payload.scores)) {
-        let modified = false
-        for (const s of payload.scores) {
-          if (s && s.studentId === oldId) {
-            s.studentId = newId
-            modified = true
-          }
-        }
-        if (modified) {
-          updates.payload = await encryptQueueValue(JSON.stringify(payload))
-        }
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip items with unparseable payload
-    }
-  }
-}
-
-/** Sau khi exam session create trả về server ID, remap sessionId trong tất cả pending ops đang dùng temp ID */
-async function remapExamSessionIdInPendingOps(oldId: string, newId: string) {
-  const db = getDB()
-  const raw = await db.syncQueue
-    .where('status')
-    .anyOf(['pending', 'retrying'])
-    .toArray()
-  const pending = raw.filter(isOwnOp)
-  for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (payload.sessionId === oldId) {
-        payload.sessionId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (payload.examSessionId === oldId) {
-        payload.examSessionId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip items with unparseable payload
-    }
   }
 }
 

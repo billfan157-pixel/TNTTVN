@@ -29,7 +29,9 @@ const importRowSchema = z.object({
 })
 
 importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({
-  rows: z.array(importRowSchema),
+  // Cap tường minh chống DoS bộ nhớ (trước đây chỉ bị chặn gián tiếp bởi bodyLimit 10MB).
+  // 2000 dòng ≈ quy mô giáo xứ lớn nhất + dư địa; khớp convention cap batch của repo.
+  rows: z.array(importRowSchema).max(2000),
 })), async (c) => {
   const user = c.get('user') as JwtPayload
   const { rows } = c.req.valid('json')
@@ -50,7 +52,8 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
 })
 
 importRouter.post('/import', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({
-  rows: z.array(importRowSchema),
+  // Cap tường minh chống DoS — xem chú thích POST /validate.
+  rows: z.array(importRowSchema).max(2000),
   classMappings: z.record(z.string(), z.string().nullable()),
   newClasses: z.array(z.object({
     name: z.string().min(1),

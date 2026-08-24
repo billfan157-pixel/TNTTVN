@@ -364,7 +364,7 @@ describe('Sync Engine — Retry Policy', () => {
     expect((result as any).recoverable).toBe(false)
   })
 
-  it('skips on 409 (LWW conflict) — returns ok=true', async () => {
+  it('SYNC-CONFLICT-1: student CREATE 409 (business conflict) → ok=false, recoverable=false — op KHÔNG bị nuốt', async () => {
     vi.mocked(api.createStudent).mockRejectedValue(new ApiError(409, 'Conflict', '/students'))
 
     const opId = await useSyncStore.getState().addOp({
@@ -374,7 +374,12 @@ describe('Sync Engine — Retry Policy', () => {
 
     const op = (await getDB().syncQueue.get(opId))!
     const result = await processOperation(op)
-    expect(result.ok).toBe(true)
+    // Trước đây: ok=true + isConflict → engine removeOp → mất chỉnh sửa offline
+    // vĩnh viễn (server-wins thầm lặng). Giờ: permanent-fail giữ payload, user
+    // xử lý tường minh qua SystemDiagnostics (Retry/Remove).
+    expect(result.ok).toBe(false)
+    expect((result as any).recoverable).toBe(false)
+    expect((result as any).isConflict).toBeUndefined()
   })
 
   it('returns recoverable=false for 401 auth error', async () => {

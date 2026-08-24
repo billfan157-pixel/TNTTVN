@@ -1,0 +1,11 @@
+#!/bin/sh
+# QUALITY-GATE-1 (2026-08-24): pre-commit gate — lint các file staged trước khi commit.
+# Chỉ chạy trên file JS/TS staged; oxlint exit non-zero khi có ERROR (warning không chặn,
+# khớp hành vi CI). Được kích hoạt qua package.json "prepare" → git config core.hooksPath.
+staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$')
+if [ -n "$staged" ]; then
+  echo "[pre-commit] oxlint trên file staged..."
+  npx oxlint $staged
+  exit $?
+fi
+exit 0

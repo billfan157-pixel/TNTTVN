@@ -324,8 +324,28 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         continue
       }
 
-      // Only UPDATE(s) — keep last
+      // Only UPDATE(s) — SYNC-CONFLICT-2 (2026-08-24): merge THEO FIELD qua tất cả
+      // các UPDATE thay vì chỉ giữ payload của op cuối. Trước đây 2 field sửa ở
+      // 2 phiên offline khác nhau (vd đổi fullName buổi sáng, đổi phone buổi chiều)
+      // → payload cuối ghi đè NGUYÊN record → edit đầu tiên mất khỏi queue.
+      // Hạn chế đã biết (chấp nhận): không biểu diễn được việc XÓA field giữa
+      // các lần nhập (shallow merge) — cần tombstone semantics, ngoài scope.
+      const merged = await ops.reduce(async (accP, o) => {
+        const acc = await accP
+        try {
+          const raw = await decryptQueueValue(o.payload)
+          if (raw === null) return acc
+          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+          return { ...acc, ...parsed }
+        } catch {
+          return acc
+        }
+      }, Promise.resolve({} as Record<string, unknown>))
       toRemove.push(...ops.filter((o) => o.id !== lastOp.id).map((o) => o.id))
+      toUpdate.push({
+        id: lastOp.id,
+        op: { ...lastOp, operation: 'UPDATE', payload: JSON.stringify(merged) },
+      })
     }
 
     // Pre-encrypt payloads trước khi mở Dexie transaction (tránh PrematureCommitError do WebCrypto async)

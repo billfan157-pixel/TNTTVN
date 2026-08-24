@@ -281,8 +281,14 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     expect(res.errors).toHaveLength(0)
     expect(res.movedToNextYear).toBe(0)
     expect(res.warnings).toHaveLength(2)
+    // PROMO-FIX (2026-08-22): HS ĐỦ ĐIỀU KIỆN đi qua nhánh "lên khối +1" — khi
+    // năm mới không có lớp khối kế lẫn lớp cùng mã → warning "Đủ điều kiện nhưng…".
+    // HS GIỮ LỚP đi qua nhánh map theo mã → warning "không có cùng mã". Cả hai
+    // đều phải "ở lại lớp năm cũ".
+    expect(res.warnings.some((w) => w.reason.includes('Đủ điều kiện nhưng'))).toBe(true)
+    expect(res.warnings.some((w) => w.reason.includes('không có cùng mã'))).toBe(true)
     for (const w of res.warnings) {
-      expect(w.reason).toMatch(/không có cùng mã/)
+      expect(w.reason).toMatch(/ở lại lớp năm cũ/)
     }
 
     // HS vẫn ở lại lớp cũ (năm học cũ) — hành vi giữ nguyên, chỉ không còn im lặng

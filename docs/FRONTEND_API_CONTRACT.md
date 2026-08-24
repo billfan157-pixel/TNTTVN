@@ -557,4 +557,23 @@ Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`)
 
 Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/không hợp lệ → mặc định `A` + warning hiển thị trong preview import (không còn suy đoán từ nội dung phương án).
 
+## 17. CSP VIOLATION REPORT (`POST /api/csp-report`) — OBS-1 (2026-08-24)
+
+| Hạng mục | Giá trị |
+| :--- | :--- |
+| Mục đích | Thu báo cáo vi phạm Content-Security-Policy từ browser (header `report-uri /api/csp-report` trong securityHeaders — trước đây trỏ vào 404) |
+| Auth | **Public by design** (browser gửi tự động, không credential); đã bọc rateLimiter toàn cục + bodyLimit 10MB |
+| Body | Chuẩn `{ "csp-report": { ... } }`; payload lạ/JSON hỏng vẫn chấp nhận |
+| Response | **204 No Content** luôn — không bao giờ fail; log structured JSON `CSP_VIOLATION` (chỉ field kỹ thuật, không PII) |
+
+### Batch caps tường minh (SEC-BATCH-CAP-1, 2026-08-24)
+
+| Endpoint | Cap mới | Lỗi vượt cap |
+| :--- | :--- | :--- |
+| `POST /api/students/validate` + `/import` | `rows ≤ 2000` | 400 zod validation |
+| `POST /api/grades/batch` | `grades ≤ 2000` | 400 zod validation |
+| `POST /api/attendance/batch` | `records ≤ 500` | 400 zod validation |
+
+> Lưu ý sync client: sync engine gửi toàn bộ pending grades trong 1 call — cap 2000 đủ dư địa nhiều lớp; nếu tương lai vượt cần chunk phía client.
+
 

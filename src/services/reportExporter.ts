@@ -1,5 +1,4 @@
 import React from 'react'
-import * as XLSX from 'xlsx'
 import { useStudentStore } from '../stores/studentStore'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
@@ -7,6 +6,7 @@ import { useAcademicYearStore } from '../stores/academicYearStore'
 import { BRANCHES } from '../constants/branches'
 import { ReportViewModelFactory } from '../utils/reportViewModelFactory'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../utils/academicYear'
+import { loadXlsx } from '../lib/xlsxLoader'
 
 export type ExportRow = Record<string, string | number>
 
@@ -106,8 +106,9 @@ export function exportCsv(filename: string, rows: ExportRow[]): void {
   triggerDownload(new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }), filename.endsWith('.csv') ? filename : `${filename}.csv`)
 }
 
-/** Xuất Excel (.xlsx) qua thư viện xlsx đã có sẵn (dùng chung cho import/export). */
-export function exportXlsx(filename: string, sheetName: string, rows: ExportRow[]): void {
+/** Xuất Excel (.xlsx) qua lazy-loaded xlsx (PERF-XLSX-1) — chunk chỉ tải khi export. */
+export async function exportXlsx(filename: string, sheetName: string, rows: ExportRow[]): Promise<void> {
+  const XLSX = await loadXlsx()
   const ws = XLSX.utils.json_to_sheet(rows)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))

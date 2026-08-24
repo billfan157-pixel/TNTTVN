@@ -1,7 +1,7 @@
-import * as XLSX from 'xlsx'
 import type { AttendanceRecord, AttendanceType, Student } from '../types'
 import { BRANCHES } from '../constants/branches'
 import { calculateAttendanceRate } from '../utils/grades'
+import { loadXlsx } from '../lib/xlsxLoader'
 
 export interface SessionCountStat {
   present: number
@@ -354,12 +354,12 @@ export function calculateClassAttendanceAnalytics(
 /**
  * Xuất dữ liệu Bảng tổng hợp chuyên cần ra file Excel (.xlsx) / CSV
  */
-export function exportAttendanceSummaryReport(
+export async function exportAttendanceSummaryReport(
   summaries: readonly StudentAttendanceSummary[],
   className: string = 'Toan_Doan',
   rangeLabel: string = 'Ca_Nam',
   format: 'xlsx' | 'csv' = 'xlsx'
-): void {
+): Promise<void> {
   const rows = summaries.map((s, index) => {
     const branchName = BRANCHES[s.student.branch]?.name ?? s.student.branch
     return {
@@ -410,6 +410,8 @@ export function exportAttendanceSummaryReport(
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
     triggerDownload(blob, `${filename}.csv`)
   } else {
+    // PERF-XLSX-1: lazy-load xlsx chỉ khi user thực sự xuất Excel.
+    const XLSX = await loadXlsx()
     const worksheet = XLSX.utils.json_to_sheet(rows)
     // Tự căn chỉnh chiều rộng cột
     const colWidths = [

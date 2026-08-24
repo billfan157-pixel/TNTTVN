@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Moon, Sun, Monitor, Smartphone, LogOut, Database, Activity, ChevronRight, Key, Loader2, CheckCircle2, AlertCircle, Eye, EyeOff, UserCog, Calendar, BookOpen, AlertTriangle, Trash2, Settings } from 'lucide-react'
+import {
+  Moon, Sun, Monitor, Smartphone, LogOut, Database, Activity, ChevronRight, Key,
+  Loader2, CheckCircle2, AlertCircle, Eye, EyeOff, UserCog, Calendar, BookOpen,
+  AlertTriangle, Trash2, Settings, ShieldCheck, Palette, Info, Users
+} from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { useTheme } from '../hooks/useTheme'
@@ -12,6 +16,13 @@ import { validatePassword } from '../utils/passwordValidation'
 import { SystemDiagnosticsModal } from '../components/desktop/SystemDiagnosticsModal'
 import { BackupRestoreModal } from '../components/common/BackupRestoreModal'
 import { PurgeDataModal } from '../components/common/PurgeDataModal'
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Quản trị viên',
+  chunhiem: 'Chủ nhiệm',
+  phuta: 'Phụ tá',
+  phuhuynh: 'Phụ huynh',
+}
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate()
@@ -95,157 +106,244 @@ const SettingsPage: React.FC = () => {
     { value: 'mobile' as const, label: 'Điện Thoại', icon: Smartphone },
   ]
 
+  const SectionTitle: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, text }) => (
+    <div className="flex items-center gap-2">
+      <span className="w-7 h-7 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
+        {icon}
+      </span>
+      <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">{text}</h2>
+    </div>
+  )
+
+  const inputCls = 'w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary transition-shadow'
+
   return (
-    <DesktopAppShell width="narrow" className="flex flex-col gap-6">
+    <DesktopAppShell width="narrow" className="flex flex-col gap-5">
       <PageHeader
         icon={<Settings className="w-5 h-5" />}
         title="Cài Đặt Hệ Thống"
         description="Tùy chỉnh giao diện hiển thị, thông tin cá nhân và quản trị hệ thống"
       />
 
-      <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-3">
-        <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Tài Khoản</h2>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-parish-primary/20 flex items-center justify-center text-parish-primary font-bold text-lg">
-            {user?.fullName?.charAt(0) || 'U'}
-          </div>
-          <div>
-            <div className="font-semibold text-text-main">{user?.fullName}</div>
-            <div className="text-sm text-text-muted">@{user?.username} · {role === 'admin' ? 'Quản trị viên' : role === 'chunhiem' ? 'Chủ nhiệm' : role === 'phuta' ? 'Phụ tá' : 'Phụ huynh'}</div>
-          </div>
-        </div>
-        <form onSubmit={handleSaveProfile} className="space-y-3 pt-2 border-t border-surface-border">
-          <div>
-            <label className="block text-xs font-semibold text-text-muted mb-1">Họ Và Tên</label>
-            <input type="text" value={pfFullName} onChange={e => setPfFullName(e.target.value)} required maxLength={100}
-              className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-text-muted mb-1">Số Điện Thoại</label>
-            {role === 'phuhuynh' ? (
-              <>
-                <input type="text" value={pfPhone} disabled
-                  className="w-full px-3 py-2 bg-surface-hover border border-surface-border rounded-lg text-sm text-text-muted focus:outline-hidden cursor-not-allowed" />
-                <p className="text-[11px] text-text-muted mt-1">
-                  Số điện thoại là tên đăng nhập và khóa liên kết con — do Ban Giáo Lý quản lý. Vui lòng liên hệ quản trị viên nếu cần đổi.
-                </p>
-              </>
-            ) : (
-              <input type="text" placeholder="0901234567" value={pfPhone} onChange={e => setPfPhone(e.target.value)} maxLength={20}
-                className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
-            )}
-          </div>
-          {pfSuccess && (
-            <div className="flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 size={14} />Đã lưu thông tin cá nhân!</div>
-          )}
-          {pfError && <div className="flex items-center gap-2 text-xs text-rose-600"><AlertCircle size={14} />{pfError}</div>}
-          <button type="submit" disabled={pfLoading}
-            className="btn btn-primary disabled:opacity-50">
-            {pfLoading && <Loader2 size={14} className="animate-spin" />}
-            <UserCog size={14} />
-            <span>Lưu Thông Tin</span>
-          </button>
-        </form>
-      </section>
-
-      <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-        <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Đổi Mật Khẩu</h2>
-        {cpSuccess ? (
-          <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 rounded-lg border border-emerald-200 text-sm">
-            <CheckCircle2 size={16} />
-            <span>Đổi mật khẩu thành công!</span>
-          </div>
-        ) : (
-          <form onSubmit={handleChangePassword} className="space-y-3">
-            {!isSuperAdmin && (
-              <div>
-                <label className="block text-xs font-semibold text-text-muted mb-1">Mật Khẩu Hiện Tại</label>
-                <div className="relative">
-                  <input type={cpShow ? 'text' : 'password'} value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} required
-                    className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary pr-8" />
-                  <button type="button" onClick={() => setCpShow(!cpShow)} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted">
-                    {cpShow ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+      <div className="grid lg:grid-cols-5 gap-5 items-start">
+        {/* ─── CỘT TRÁI: tài khoản & bảo mật ─── */}
+        <div className="lg:col-span-3 space-y-5 min-w-0">
+          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
+            <SectionTitle icon={<UserCog className="w-3.5 h-3.5" />} text="Hồ Sơ Cá Nhân" />
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-parish-primary to-parish-primary-hover flex items-center justify-center text-white font-extrabold text-lg shrink-0 shadow-xs">
+                {user?.fullName?.charAt(0) || 'U'}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-text-main truncate">{user?.fullName}</span>
+                  <span className={`badge ${role === 'admin' ? 'badge-danger' : role === 'phuhuynh' ? 'badge-neutral' : 'badge-primary'}`}>
+                    {ROLE_LABELS[role ?? ''] ?? role}
+                  </span>
                 </div>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-text-muted mb-1">Mật Khẩu Mới</label>
-                <input type="password" value={cpNew} onChange={e => setCpNew(e.target.value)} required minLength={8}
-                  className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-text-muted mb-1">Xác Nhận</label>
-                <input type="password" value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} required minLength={8}
-                  className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
+                <div className="text-xs text-text-muted truncate mt-0.5">@{user?.username}{(user as any).phone ? ` · ${(user as any).phone}` : ''}</div>
               </div>
             </div>
-            {cpError && <div className="flex items-center gap-2 text-xs text-rose-600"><AlertCircle size={14} />{cpError}</div>}
-            <button type="submit" disabled={cpLoading}
-              className="btn btn-primary disabled:opacity-50">
-              {cpLoading && <Loader2 size={14} className="animate-spin" />}
-              <Key size={14} />
-              <span>Cập Nhật Mật Khẩu</span>
-            </button>
-          </form>
-        )}
-      </section>
+            <form onSubmit={handleSaveProfile} className="space-y-3 pt-3 border-t border-surface-border">
+              <div>
+                <label className="block text-xs font-semibold text-text-muted mb-1">Họ Và Tên</label>
+                <input type="text" value={pfFullName} onChange={e => setPfFullName(e.target.value)} required maxLength={100} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-muted mb-1">Số Điện Thoại</label>
+                {role === 'phuhuynh' ? (
+                  <>
+                    <input type="text" value={pfPhone} disabled
+                      className="w-full px-3 py-2 bg-surface-hover border border-surface-border rounded-lg text-sm text-text-muted focus:outline-hidden cursor-not-allowed" />
+                    <p className="text-[11px] text-text-muted mt-1">
+                      Số điện thoại là tên đăng nhập và khóa liên kết con — do Ban Giáo Lý quản lý. Vui lòng liên hệ quản trị viên nếu cần đổi.
+                    </p>
+                  </>
+                ) : (
+                  <input type="text" placeholder="0901234567" value={pfPhone} onChange={e => setPfPhone(e.target.value)} maxLength={20} className={inputCls} />
+                )}
+              </div>
+              {pfSuccess && (
+                <div className="flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 size={14} />Đã lưu thông tin cá nhân!</div>
+              )}
+              {pfError && <div className="flex items-center gap-2 text-xs text-rose-600"><AlertCircle size={14} />{pfError}</div>}
+              <button type="submit" disabled={pfLoading} className="btn btn-primary disabled:opacity-50">
+                {pfLoading && <Loader2 size={14} className="animate-spin" />}
+                <UserCog size={14} />
+                <span>Lưu Thông Tin</span>
+              </button>
+            </form>
+          </section>
+
+          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
+            <SectionTitle icon={<Key className="w-3.5 h-3.5" />} text="Đổi Mật Khẩu" />
+            {cpSuccess ? (
+              <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 rounded-lg border border-emerald-200 text-sm">
+                <CheckCircle2 size={16} />
+                <span>Đổi mật khẩu thành công! Lần đăng nhập sau vui lòng dùng mật khẩu mới.</span>
+              </div>
+            ) : (
+              <form onSubmit={handleChangePassword} className="space-y-3">
+                {!isSuperAdmin && (
+                  <div>
+                    <label className="block text-xs font-semibold text-text-muted mb-1">Mật Khẩu Hiện Tại</label>
+                    <div className="relative">
+                      <input type={cpShow ? 'text' : 'password'} value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} required
+                        className={`${inputCls} pr-9`} />
+                      <button type="button" onClick={() => setCpShow(!cpShow)} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main transition-colors" tabIndex={-1}>
+                        {cpShow ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-text-muted mb-1">Mật Khẩu Mới</label>
+                    <input type="password" value={cpNew} onChange={e => setCpNew(e.target.value)} required minLength={8} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-text-muted mb-1">Xác Nhận</label>
+                    <input type="password" value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} required minLength={8} className={inputCls} />
+                  </div>
+                </div>
+                {cpError && <div className="flex items-center gap-2 text-xs text-rose-600"><AlertCircle size={14} />{cpError}</div>}
+                <button type="submit" disabled={cpLoading} className="btn btn-primary disabled:opacity-50">
+                  {cpLoading && <Loader2 size={14} className="animate-spin" />}
+                  <Key size={14} />
+                  <span>Cập Nhật Mật Khẩu</span>
+                </button>
+              </form>
+            )}
+          </section>
+        </div>
+
+        {/* ─── CỘT PHẢI: giao diện & tiện ích ─── */}
+        <div className="lg:col-span-2 space-y-5 min-w-0">
+          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
+            <SectionTitle icon={<Palette className="w-3.5 h-3.5" />} text="Giao Diện" />
+            <div>
+              <label className="block text-xs font-semibold text-text-muted mb-2">Chế Độ Hiển Thị</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => { if (theme !== 'light') toggleTheme() }}
+                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                    theme === 'light'
+                      ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
+                      : 'border-surface-border text-text-muted hover:bg-surface-hover'
+                  }`}
+                >
+                  <Sun size={16} /> Sáng
+                </button>
+                <button
+                  onClick={() => { if (theme !== 'dark') toggleTheme() }}
+                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                    theme === 'dark'
+                      ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
+                      : 'border-surface-border text-text-muted hover:bg-surface-hover'
+                  }`}
+                >
+                  <Moon size={16} /> Tối
+                </button>
+              </div>
+            </div>
+            <div className="pt-3 border-t border-surface-border">
+              <label className="block text-xs font-semibold text-text-muted mb-2">Bố Cục Ưu Tiên</label>
+              <div className="grid grid-cols-3 gap-2">
+                {viewModes.map(vm => {
+                  const Icon = vm.icon
+                  const isActive = viewMode === vm.value
+                  return (
+                    <button
+                      key={vm.value}
+                      onClick={() => setViewMode(vm.value)}
+                      title={vm.label}
+                      className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-[11px] font-semibold transition-all ${
+                        isActive
+                          ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
+                          : 'border-surface-border text-text-muted hover:bg-surface-hover'
+                      }`}
+                    >
+                      <Icon size={16} />
+                      {vm.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </section>
+
+          {role === 'admin' && (
+            <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-1">
+              <div className="mb-2"><SectionTitle icon={<ShieldCheck className="w-3.5 h-3.5" />} text="Quản Trị Nhanh" /></div>
+              {[
+                { to: '/users' as const, icon: Users, title: 'Tài Khoản', desc: 'GLV, phân công, mật khẩu' },
+                { to: '/academic-years' as const, icon: Calendar, title: 'Năm Học', desc: 'Khóa sổ, chốt năm, lên lớp' },
+                { to: '/classes' as const, icon: BookOpen, title: 'Lớp Học', desc: 'Tạo lớp theo phân ngành' },
+              ].map(link => {
+                const Icon = link.icon
+                return (
+                  <button key={link.to} onClick={() => navigate({ to: link.to })}
+                    className="w-full flex items-center gap-3 px-2 py-2.5 -mx-2 rounded-xl hover:bg-surface-hover transition-colors group text-left">
+                    <span className="w-8 h-8 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
+                      <Icon size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold text-text-main group-hover:text-parish-primary transition-colors">{link.title}</span>
+                      <span className="block text-[11px] text-text-muted truncate">{link.desc}</span>
+                    </span>
+                    <ChevronRight size={15} className="text-text-muted shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                )
+              })}
+            </section>
+          )}
+
+          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
+            <div className="px-5 pt-5 pb-2"><SectionTitle icon={<Database className="w-3.5 h-3.5" />} text="Dữ Liệu & Hệ Thống" /></div>
+            <div className="divide-y divide-surface-border/70 pb-1">
+              <button onClick={() => setShowBackup(true)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-surface-hover transition-colors group">
+                <span className="flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-lg bg-surface-hover text-text-muted flex items-center justify-center"><Database size={15} /></span>
+                  <span className="text-sm font-medium text-text-main">Sao Lưu & Phục Hồi</span>
+                </span>
+                <ChevronRight size={16} className="text-text-muted group-hover:text-parish-primary transition-colors" />
+              </button>
+              {role === 'admin' && (
+                <button onClick={() => setShowDiagnostics(true)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-surface-hover transition-colors group">
+                  <span className="flex items-center gap-3">
+                    <span className="w-8 h-8 rounded-lg bg-surface-hover text-text-muted flex items-center justify-center"><Activity size={15} /></span>
+                    <span className="text-sm font-medium text-text-main">Chẩn Đoán Hệ Thống</span>
+                  </span>
+                  <ChevronRight size={16} className="text-text-muted group-hover:text-parish-primary transition-colors" />
+                </button>
+              )}
+              <div className="flex items-center justify-between px-5 py-3">
+                <span className="flex items-center gap-3 text-xs text-text-muted">
+                  <Info size={13} /> Phiên bản 1.0.0 · Web
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <button
+            onClick={() => { authStore.logout(); navigate({ to: '/login' }) }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-rose-200 text-rose-600 font-semibold hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950 transition-colors"
+          >
+            <LogOut size={18} />
+            Đăng Xuất
+          </button>
+        </div>
+      </div>
 
       {role === 'admin' && (
-        <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Quản Lý Tài Khoản</h2>
-            <button onClick={() => navigate({ to: '/users' })}
-              className="flex items-center gap-1 text-xs font-medium text-parish-primary hover:underline">
-              <UserCog size={14} /> Quản lý chi tiết
-            </button>
-          </div>
-          <p className="text-xs text-text-muted">
-            Tạo tài khoản giáo lý viên, đặt/reset mật khẩu, phân công lớp, khóa/mở khóa và xem mật khẩu hiện tại.
-          </p>
-        </section>
-      )}
-
-      {role === 'admin' && (
-        <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Năm Học Giáo Lý</h2>
-            <button onClick={() => navigate({ to: '/academic-years' })}
-              className="flex items-center gap-1 text-xs font-medium text-parish-primary hover:underline">
-              <Calendar size={14} /> Quản lý chi tiết
-            </button>
-          </div>
-          <p className="text-xs text-text-muted">
-            Khóa sổ điểm học kỳ, kiểm tra dữ liệu, chốt năm học, xét lên lớp và tạo năm học mới.
-          </p>
-        </section>
-      )}
-
-      {role === 'admin' && (
-        <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Lớp Học Giáo Lý</h2>
-            <button onClick={() => navigate({ to: '/classes' })}
-              className="flex items-center gap-1 text-xs font-medium text-parish-primary hover:underline">
-              <BookOpen size={14} /> Quản lý chi tiết
-            </button>
-          </div>
-          <p className="text-xs text-text-muted">
-            Tạo lớp học theo phân ngành và niên học trước khi nhập danh sách thiếu nhi.
-          </p>
-        </section>
-      )}
-
-      {role === 'admin' && (
-        <section className="bg-surface-card border border-rose-200 dark:border-rose-900 rounded-xl p-5 space-y-3">
+        <section className="bg-surface-card border border-rose-200 dark:border-rose-900 rounded-2xl p-5 space-y-3">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">
               <AlertTriangle size={18} />
             </div>
             <div>
-              <h2 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Vùng Nguy Hiểm</h2>
-              <p className="text-xs text-text-muted">Xóa toàn bộ dữ liệu giáo xứ để bắt đầu năm học mới từ đầu</p>
+              <h2 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider m-0">Vùng Nguy Hiểm</h2>
+              <p className="text-xs text-text-muted m-0 mt-0.5">Xóa toàn bộ dữ liệu giáo xứ để bắt đầu năm học mới từ đầu</p>
             </div>
           </div>
           <button
@@ -257,83 +355,6 @@ const SettingsPage: React.FC = () => {
           </button>
         </section>
       )}
-
-      <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-        <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Giao Diện</h2>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {theme === 'dark' ? <Moon size={20} className="text-text-main" /> : <Sun size={20} className="text-text-main" />}
-            <span className="font-medium text-text-main">Chế Độ Tối</span>
-          </div>
-          <button
-            onClick={toggleTheme}
-            className={`relative w-11 h-6 rounded-full transition-colors ${theme === 'dark' ? 'bg-parish-primary' : 'bg-gray-300'}`}
-          >
-            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-xs transition-transform ${theme === 'dark' ? 'translate-x-5.5' : 'translate-x-0.5'}`} />
-          </button>
-        </div>
-        <div>
-          <label className="block font-medium text-text-main mb-2">Bố Cục</label>
-          <div className="flex gap-2">
-            {viewModes.map(vm => {
-              const Icon = vm.icon
-              const isActive = viewMode === vm.value
-              return (
-                <button
-                  key={vm.value}
-                  onClick={() => setViewMode(vm.value)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    isActive
-                      ? 'bg-parish-primary/10 border-parish-primary text-parish-primary'
-                      : 'border-surface-border text-text-muted hover:bg-surface-hover'
-                  }`}
-                >
-                  <Icon size={16} />
-                  {vm.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
-        <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider px-5 pt-5 pb-1">Tiện Ích</h2>
-        <div className="divide-y divide-surface-border">
-          <button onClick={() => setShowBackup(true)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-surface-hover transition-colors text-text-main font-medium">
-            <div className="flex items-center gap-3">
-              <Database size={18} className="text-text-muted" />
-              <span>Sao Lưu & Phục Hồi</span>
-            </div>
-            <ChevronRight size={16} className="text-text-muted" />
-          </button>
-          {role === 'admin' && (
-            <button onClick={() => setShowDiagnostics(true)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-surface-hover transition-colors text-text-main font-medium">
-              <div className="flex items-center gap-3">
-                <Activity size={18} className="text-text-muted" />
-                <span>Chẩn Đoán Hệ Thống</span>
-              </div>
-              <ChevronRight size={16} className="text-text-muted" />
-            </button>
-          )}
-        </div>
-      </section>
-
-      <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-2">
-        <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider">Ứng Dụng</h2>
-        <div className="text-sm text-text-muted space-y-1">
-          <div className="flex justify-between"><span>Phiên bản</span><span className="text-text-main">1.0.0</span></div>
-          <div className="flex justify-between"><span>Nền tảng</span><span className="text-text-main">Web</span></div>
-        </div>
-      </section>
-
-      <button
-        onClick={() => { authStore.logout(); navigate({ to: '/login' }) }}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-rose-200 text-rose-600 font-semibold hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950 transition-colors"
-      >
-        <LogOut size={18} />
-        Đăng Xuất
-      </button>
 
       <BackupRestoreModal isOpen={showBackup} onClose={() => setShowBackup(false)} />
       <SystemDiagnosticsModal isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
