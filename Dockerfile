@@ -3,6 +3,13 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# DEP-CHROME-1 (2026-08-24): skip download Chrome của Puppeteer postinstall —
+# bước tải này flaky trong build cache Railway ("unzip: can't create directory
+# 'chrome-linux64/resources/': File exists" → 3 deploy FAILED liên tiếp 24/8).
+# Runtime Chrome cung cấp ở runner stage qua apk chromium (xem bên dưới).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 # Copy dependency configs
 COPY package*.json ./
 COPY server/package*.json ./server/
@@ -36,6 +43,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV DB_PATH=/app/data/parish.db
 
+# DEP-CHROME-1: cùng skip-download ở runner; Chrome runtime = chromium apk
+# (đường dẫn tường minh, appuser đọc được — khác trước đây chrome rơi vào
+# /root/.cache do npm ci chạy bằng root, appuser không truy cập được).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 # Copy server dependency configs & install production dependencies only
 # A-NEW-16: pin npm@11.15.0 (cùng version với build stage — reproducible).
 COPY server/package*.json ./server/
@@ -45,7 +59,7 @@ RUN npm install -g npm@11.15.0 \
 
 # Create node user for non-root execution
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
-    && apk add --no-cache su-exec
+    && apk add --no-cache su-exec chromium
 
 # Copy built dist outputs
 COPY --from=builder /app/dist ./dist

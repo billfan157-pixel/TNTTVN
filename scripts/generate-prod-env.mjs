@@ -15,6 +15,7 @@ console.log('🔑 Đang sinh các mã bảo mật ngẫu nhiên chuẩn quân s�
 const jwtSecret = generateHex(32)
 const jwtRefreshSecret = generateHex(32)
 const cipherKey = generateHex(32)
+const reportHmacSecret = generateHex(32)
 const opsToken = generateHex(32)
 const seedAdminPassword = `Parish@${crypto.randomInt(100000, 999999)}`
 
@@ -36,6 +37,10 @@ JWT_REFRESH_SECRET=${jwtRefreshSecret}
 
 # Khóa giải mã AES-256-GCM cho mật khẩu tạm do Admin đặt (64 hex characters)
 PASSWORD_CIPHER_KEY=${cipherKey}
+
+# SEC-HMAC-1 (2026-08-24): BẮT BUỘC — secret riêng ký HMAC QR phiếu điểm (64 hex).
+# Production thiếu biến này → server fail-closed khi khởi động.
+REPORT_HMAC_SECRET=${reportHmacSecret}
 
 # Token bảo vệ endpoint giám sát hệ thống (/metrics, /ready)
 OPS_TOKEN=${opsToken}
