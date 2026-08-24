@@ -28,7 +28,7 @@
     "capacitor:ios": "vite build && npx cap open ios",
     "db:backup": "node scripts/backup-db.mjs",
     "lint:ds": "node scripts/design-system-lint.mjs",
-    "prepare": "node scripts/set-hooks-path.mjs"
+    "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'})}catch(e){}\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1111.0",
