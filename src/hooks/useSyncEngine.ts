@@ -91,7 +91,7 @@ export function useSyncEngine() {
   useEffect(() => {
     // A-NEW-47 (2026-08-13): sync engine chạy lại khi trạng thái đăng nhập thay
     // đổi. Trước đây deps [] — mount trên /login (chưa đăng nhập) → isAuthenticated
-    // false → bỏ qua fetch; sau login SPA navigate không remount → engine KHÔNG
+    // false → bỏ qua fetch; sau login SPA navigate KHÔNG remount → engine KHÔNG
     // bao giờ chạy lại → dashboard trống "0 thiếu nhi" dù server có đủ dữ liệu
     // (evidence: Playwright iPhone 13 — chỉ 1 API call POST /login, không có
     // /api/students; reload lại mới fetch được). Giờ: chưa đăng nhập → early return;
@@ -406,7 +406,7 @@ export async function runSyncFlow() {
     const s = useSyncStore.getState()
     const finalCount = await s.refreshCount()
     const db = getDB()
-    const failedCount = await db.syncQueue.where('status').equals('failed').count()
+    const failedCount = (await db.syncQueue.where('status').equals('failed').toArray()).filter(isOwnOp).length
     const totalConflicts = syncState.mergedConflictCount + syncState.serverWinsConflictCount
     if (finalCount === 0) {
       const pullResult = await fetchAllData(true)
@@ -578,13 +578,14 @@ async function applyServerResultAsync(op: SyncQueueItem, serverData: any) {
   }
 }
 
-/** Sau khi notice create trả về server ID, remap trong tất cả pending ops đang dùng temp ID */
-async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
+/** Sau khi notice create trả về server ID, remap chỉ trong pending ops của user hiện tại. */
+export async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
   const db = getDB()
-  const pending = await db.syncQueue
+  const raw = await db.syncQueue
     .where('status')
     .anyOf(['pending', 'retrying'])
     .toArray()
+  const pending = raw.filter(isOwnOp)
   for (const item of pending) {
     try {
       const payload = await parseQueuePayload(item.payload)
@@ -838,7 +839,7 @@ export async function flushAttendanceBatchWithIsolation(
  */
 export async function promoteTransientFailedOps(): Promise<void> {
   const db = getDB()
-  const failed = await db.syncQueue.where('status').equals('failed').toArray()
+  const failed = (await db.syncQueue.where('status').equals('failed').toArray()).filter(isOwnOp)
   for (const item of failed) {
     // A-NEW-32: lastError được mã hóa khi ghi — giải mã trước khi regex (mã
     // ciphertext base64 không bao giờ khớp pattern nên op lỗi vĩnh viễn sẽ bị
