@@ -24,6 +24,11 @@ import { initNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
 import cspReportRouter from './routes/cspReport.js'
+import { initSentryNode, captureServerException } from './utils/observability.js'
+
+// OBS-2 (2026-08-24): Sentry node opt-in qua SENTRY_DSN — phải init TRƯỚC mọi
+// error path khác để stack trace từ startup/onError đều được ghi nhận khi bật.
+initSentryNode()
 
 const app = new Hono()
 
@@ -45,6 +50,8 @@ app.onError((err, c) => {
     error: err?.message || String(err),
     stack: err?.stack,
   }))
+  // OBS-2: gửi kèm context kỹ thuật (không PII) vào Sentry khi đã init.
+  captureServerException(err, { requestId, method: c.req.method, path: c.req.path })
   const detail = process.env.NODE_ENV === 'development' ? err.message : undefined
   return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal Server Error', details: detail } }, 500)
 })
@@ -188,6 +195,7 @@ if (process.env.NODE_ENV !== 'test') {
       error: message,
       stack: reason instanceof Error ? reason.stack : undefined,
     }))
+    captureServerException(reason, { kind: 'unhandledRejection' })
     void sendTelegramAlert(`Unhandled rejection: ${message.slice(0, 500)}`)
   })
 
@@ -199,6 +207,7 @@ if (process.env.NODE_ENV !== 'test') {
       error: err?.message || String(err),
       stack: err?.stack,
     }))
+    captureServerException(err, { kind: 'uncaughtException' })
     void sendTelegramAlert(`Uncaught exception — container sẽ thoát: ${String(err?.message || err).slice(0, 500)}`)
     // Cho Telegram/log flush trước khi thoát; WAL checkpoint trong gracefulShutdown.
     setTimeout(() => { try { gracefulShutdown('uncaughtException') } catch { process.exit(1) } }, 1000)
