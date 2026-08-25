@@ -108,7 +108,48 @@ docker-compose exec app node scripts/backup-db.js
 
 ---
 
-## 7. ALTERNATIVE DEPLOYMENT (RAILWAY) — KHÔNG CÓ NGINX
+## 7. CURRENT DEPLOYMENT — RENDER (backend) + TURSO (DB) + VERCEL (SPA) — DEPLOY-MIGRATE 2026-08-25
+
+> **Supersede**: Railway backend (`tnttvn-production.up.railway.app`) đã NGỪNG do hết gói — xem §7.3 legacy. Kiến trúc mới: SPA tĩnh trên **Vercel**, API Hono chạy Docker trên **Render free**, DB là **Turso** remote libSQL (ADR-041 `TURSO_URL`).
+
+### 7.0 Kiến trúc & luồng request
+
+```
+Browser/PWA (https://tnttvn.vercel.app)
+   └─ /api/* → vercel.json rewrite → https://tnttvn-api.onrender.com/api/*
+                                     └─ Hono (Docker, render.yaml blueprint)
+                                          └─ @libsql/client → Turso cloud DB (TURSO_URL)
+```
+
+- Repo có sẵn **`render.yaml`** blueprint: Render Dashboard → New → Blueprint → chọn repo → Render tự tạo service `tnttvn-api`, healthcheck `/health`.
+- Render inject biến `PORT` (~10000) — server bind theo `SERVER_PORT || PORT || 3001` nên KHÔNG cần cấu hình port.
+- DB mới TRỐNG: startup seed user admin qua `SEED_ADMIN_PASSWORD` (chỉ seed khi chưa có user nào — `seed-no-overwrite`).
+
+### 7.1 Các bước thiết lập (một lần)
+
+1. **Turso**: đăng ký platform.turso.io → tạo DB (vd `tnttvn`) → lấy `TURSO_URL` (`libsql://...`) + tạo token (`TURSO_AUTH_TOKEN`).
+2. **Render**: New → Blueprint → connect repo → sau sync đầu, nhập tay các env đánh dấu `sync:false` trong render.yaml:
+   - Bắt buộc: `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `PASSWORD_CIPHER_KEY` (64 hex), `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt).
+   - Tuỳ chọn: `OPS_TOKEN`, `TELEGRAM_*`, `SENTRY_DSN`.
+   - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `PASSWORD_CIPHER_KEY` dùng 64 hex.
+3. **Vercel**: `vercel.json` rewrite `/api/:path*` → `https://tnttvn-api.onrender.com/api/:path*` (đã cập nhật trong repo) — push là deploy lại.
+4. **Mobile build**: `codemagic.yaml` + `.github/workflows/ios-ipa.yml` đã trỏ `VITE_API_BASE` sang Render domain.
+
+### 7.2 Đặc tính gói Render free — cần biết
+
+- **Cold start**: service spin-down sau ~15 phút không có request; request đầu mất ~30–60s. Client fetch timeout 30s → lần login đầu sau idle CÓ THỂ timeout, thử lại lần 2 sẽ vào được. Giải pháp: keep-alive ping `/health` mỗi 10 phút (cron-job.org miễn phí) hoặc nâng gói Starter ($7).
+- **Disk ephemeral**: KHÔNG lưu gì lâu dài trên container — mọi dữ liệu phải nằm ở Turso; file backup local chỉ mang tính tạm. Nên cấu hình `AUTO_BACKUP_*` đẩy snapshot lên Cloudflare R2 (backupScheduler).
+- **750 giờ/tháng**: đủ cho 1 service luôn bật.
+
+### 7.3 Legacy — Railway (SUPERSEDED, không còn hoạt động)
+
+- Domain cũ `tnttvn-production.up.railway.app` trả 404 nền tảng (`x-railway-fallback: true`, "Application not found") từ 2026-08-24 do hết hạn gói.
+- Chẩn đoán chi tiết + dấu hiệu nhận biết: xem git history DEPLOYMENT_GUIDE trước 2026-08-25 và ADR/API-DIAG trong AI_CONTEXT_MAP.
+- Nếu quay lại Railway: resume service + giữ nguyên kiến trúc SQLite volume, hoàn tác rewrite vercel.json về domain Railway.
+
+## 7-BIS. [DEPRECATED] RAILWAY DEPLOYMENT NOTES (2026-08-15 → 2026-08-24)
+
+> Toàn bộ mục này chỉ giữ lại để tham khảo khi quay về Railway. Cấu hình hiện hành là §7 (Render + Turso).
 
 - `railway.json` dùng `"builder": "DOCKERFILE"` (**không phải Nixpacks**) → Railway chạy **cùng Dockerfile** nhưng **không có Nginx** đứng trước.
 - Hệ quả bảo mật (A15): nếu publish thẳng cổng Node **KHÔNG được set `TRUST_PROXY`** — `getClientIp` fallback về socket IP thật (chống spoof header bypass rate limit).
@@ -116,7 +157,7 @@ docker-compose exec app node scripts/backup-db.js
 - Frontend `vercel.json` định tuyến proxy `/api/:path*` $\rightarrow$ `https://tnttvn-production.up.railway.app/api/:path*` để chuyển tiếp an toàn mọi REST API methods (POST/GET/PUT/DELETE) về backend Railway, tránh lỗi 405 Method Not Allowed do static SPA fallback.
 - **PWA freshness (FE-07, 2026-08-16)**: `vercel.json` ép `Cache-Control: no-store` cho `/sw.js` và `no-cache, no-store` cho `/index.html`; `pushManager` đăng ký SW với `updateViaCache: 'none'`; SW có `skipWaiting()` + `clientsClaim()` và **tự động reload mọi tab đang mở** khi có build mới activate (trừ `/login`). Hệ quả: sau mỗi deploy, mọi tab cũ nhảy lên build mới ngay — không còn hiện tượng tab mở nhiều ngày chạy JS cũ ("0 thiếu nhi" ảo, sync queue kẹt). Người dùng không cần thao tác gì; nếu tab treo quá lâu vẫn chưa reload, hard refresh 1 lần (`Ctrl+Shift+R` / Clear site data).
 
-### 7.1 Troubleshooting — API trả 404 "Application not found" (backend offline)
+### 7-BIS.1 Troubleshooting — API trả 404 "Application not found" (backend offline)
 
 **Triệu chứng**: Vercel load SPA bình thường nhưng mọi call `/api/*` (vd `/api/auth/login`) → **404**, console hiển thị body `{"status":"error","code":404,"message":"Application not found","request_id":...}`. Client (từ API-DIAG 2026-08-25) hiện thông điệp *"Máy chủ API hiện không khả dụng (backend chưa chạy hoặc đã dừng)..."*.
 

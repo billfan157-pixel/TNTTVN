@@ -1,0 +1,49 @@
+# DEPLOY-MIGRATE (2026-08-25): Backend Render (thay Railway) + Turso remote DB.
+# Blueprint deploy: Render Dashboard → New → Blueprint → trỏ repo này.
+# LƯU Ý:
+# - DB KHÔNG còn file local: bắt buộc set TURSO_URL + TURSO_AUTH_TOKEN (ADR-041).
+# - Các secret đánh dấu sync:false phải nhập tay trong Render Dashboard sau lần
+#   sync đầu tiên — KHÔNG bao giờ commit secret vào repo.
+# - Healthcheck /health (healthRouter) — Render gọi để xác định deploy thành công.
+services:
+  - type: web
+    name: tnttvn-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # CORS cho SPA trên Vercel (originPolicy.ts allowlist) — đổi nếu đổi domain FE.
+      - key: CLIENT_ORIGIN
+        value: https://tnttvn.vercel.app
+      # ─── DB (Turso) ───
+      - key: TURSO_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      # ─── Secrets (bắt buộc — xem .env.example) ───
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: PASSWORD_CIPHER_KEY
+        sync: false
+      # SEC-HMAC-1: bắt buộc ở production, fail-closed khi thiếu.
+      - key: REPORT_HMAC_SECRET
+        sync: false
+      # Chỉ dùng lúc khởi tạo DB TRỐNG lần đầu (tạo user admin).
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      # ─── Tuỳ chọn ───
+      - key: OPS_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_CHAT_ID
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: SENTRY_DSN
+        sync: false

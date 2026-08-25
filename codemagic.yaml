@@ -25,7 +25,7 @@ workflows:
       xcode: latest
       node: 22
       vars:
-        VITE_API_BASE: https://tnttvn-production.up.railway.app/api
+        VITE_API_BASE: https://tnttvn-api.onrender.com/api
     scripts:
       - name: Install dependencies
         script: npm ci
@@ -66,7 +66,7 @@ workflows:
       node: 22
       java: 21
       vars:
-        VITE_API_BASE: https://tnttvn-production.up.railway.app/api
+        VITE_API_BASE: https://tnttvn-api.onrender.com/api
         GRADLE_WRAPPER_VERSION: 8.14.3
     scripts:
       - name: Install dependencies

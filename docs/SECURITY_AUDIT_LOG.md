@@ -3216,3 +3216,17 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - **Pre-commit hook**: `.githooks/pre-commit` — oxlint trên file staged JS/TS, exit non-zero khi có ERROR; kích hoạt tự động qua `"prepare": "git config core.hooksPath .githooks"` (chạy khi `npm install`). Đã verify cơ chế với file staged thật.
 - **Repo hygiene**: xóa file rác zero-byte `400` ở root.
 - **Verify**: full suite **230 files / 1667 tests PASS**; tsc client+server PASS; oxlint exit 0.
+
+---
+
+## EXAM-MIXED — Validation surface mở rộng cho đề TN + TL — ✅ SECURED BY DESIGN (2026-08-24, ADR-053)
+
+### 1. Phạm vi thay đổi bề mặt bảo mật
+- `POST /api/exams`: nhận thêm `examType='mixed'`; validate MỚI chặt hơn trước: mixed bắt buộc `questions` (≥1 câu essay, không mang options/correctOption), câu TN chiếm index 1..questionCount liên tục, `points ∈ (0,100]`, vẫn giữ cap 50 câu/200KB.
+- `POST /api/exams/:id/results`: field mới `essayScore?` (0..10). Server là thẩm quyền tổng hợp — client score chỉ là proposal; từ chối essayScore trên phiên non-mixed, từ chối điểm TL vượt Σ points câu TL, từ chối request mixed thiếu cả answers lẫn essayScore. RBAC/ownership/audit `EXAM_SAVE_RESULTS` giữ nguyên.
+- Không có endpoint upload file mới: parser đề mixed chạy 100% client-side (giống pipeline hiện hữu); Excel/text chỉ đọc trong browser, không rời thiết bị.
+
+### 2. Kiểm chứng
+- [x] `server/src/__tests__/examMixedScoring.test.ts` 8/8 PASS — gồm các case reject: mixed thiếu questions/answerKey, essay mang options, câu TN xen kẽ, essayScore vượt trần, essayScore trên phiên non-mixed.
+- [x] Merge semantics khóa test: quét trước → nhập TL sau KHÔNG mất `answers`; nhập trước → quét sau GIỮ `essay_score`.
+- [x] tsc client+server PASS; oxlint exit 0. Chi tiết đầy đủ tại ADR-053.

@@ -1419,3 +1419,50 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 - Regression targeted: client exam-related **9 files / 123 tests PASS**, utils 27 files/268 tests, answerSheet/omrConsensus/scanAcceptance/designTokens 28 tests, sync engine 51 tests; **full server suite 119 files / 741 tests PASS**.
 - Source-of-truth synced: BUSINESS_RULES §21.5, FRONTEND_API_CONTRACT §10, 07_DATABASE_PLAN #29/#30, AI_CONTEXT_MAP EXAM-MIXED, IMPORT_EXPORT_SPECIFICATION §7.
 
+
+---
+
+## ADR-056: Migrate Backend Railway → Render + Turso (DEPLOY-MIGRATE, 2026-08-25)
+
+**Status: APPROVED / DEPLOYMENT PENDING USER SETUP. Severity: D3 (production infrastructure + data layer). Profile: ARCHITECTURE/INFRASTRUCTURE.**
+
+### Context & evidence
+
+- **E1 HIGH**: Railway hết gói → service dừng từ 2026-08-24; domain `tnttvn-production.up.railway.app` trả 404 nền tảng (`x-railway-fallback: true`, "Application not found") — mọi API call từ SPA Vercel fail. Chứng minh rewrite Vercel + app code KHÔNG phải nguyên nhân.
+- Chủ tài khoản xác nhận: dữ liệu volume Railway **không còn cách khôi phục**; chấp nhận khởi tạo DB mới trống.
+- **E3**: code đã hỗ trợ Turso remote sẵn (`dbConfig.ts` ADR-041 — `TURSO_URL`/`TURSO_AUTH_TOKEN`), server bind theo `PORT` do platform inject (`SERVER_PORT || PORT || 3001`), healthcheck `/health` có sẵn.
+
+### Decision matrix
+
+| Criterion | Weight | A: Render free + Turso free (chọn) | B: Fly.io VM + volume | C: Trả $5/tháng Railway |
+|---|---:|---:|---:|---:|
+| Maintainability | 20% | 8 | 7 | 10 |
+| Reliability | 15% | 7 (cold start) | 9 | 9 |
+| Security | 15% | 8 | 8 | 8 |
+| Data Integrity | 15% | 8 (Turso managed) | 8 | 8 |
+| Reversibility | 15% | 8 | 7 | 9 |
+| Performance | 10% | 7 (cold start) | 9 | 8 |
+| Observability | 5% | 8 | 7 | 8 |
+| Operational Fit ($0 yêu cầu) | 5% | 10 | 4 | 2 |
+| **Weighted** | **100%** | **7.80** | **7.60** | **8.20** |
+
+**Decision: A** — C điểm cao hơn nhưng bị loại bởi ràng buộc sản phẩm "$0" của chủ tài khoản (Operational Fit). A vs B: chọn A vì $0 tuyệt đối + Turso managed DB (backup PITR miễn phí) bù rủi ro cold start; B cần thẻ tín dụng + vẫn mất tiền.
+
+### Implementation
+
+1. **`render.yaml` blueprint** (mới): service docker `tnttvn-api`, `healthCheckPath: /health`, env bắt buộc `sync:false` (TURSO_URL/TOKEN, JWT secrets, PASSWORD_CIPHER_KEY, REPORT_HMAC_SECRET, SEED_ADMIN_PASSWORD).
+2. **Routing**: `vercel.json` rewrite `/api/:path*` → `https://tnttvn-api.onrender.com/api/:path*`; `codemagic.yaml` + ios-ipa workflow đổi `VITE_API_BASE`.
+3. **DB mới trống**: startup migration runner tự tạo schema; seed admin qua `SEED_ADMIN_PASSWORD` (guard no-overwrite đã có test).
+4. **Không đổi code server** — chỉ cấu hình hạ tầng.
+
+### Gates and compatibility
+
+- **D3 gates**: Security 8 (secret không commit, CORS default originPolicy giữ nguyên), Privacy 8, Data Integrity 8 (Turso embedded replicas/PITR thay volume đơn điểm) — PASS.
+- **ADR compatibility**: ADR-041 (dual-mode DB) `PASS` — dùng đúng nhánh remote; ADR-016 offline sync `PASS` (API contract không đổi); ADR-031 tenant isolation `PASS`.
+- **Rủi ro đã ghi nhận**: cold start free tier (~30–60s sau 15' idle) — client fetch timeout 30s có thể miss lần đầu; mitigation keep-alive ping `/health` mỗi 10 phút (cron-job.org) hoặc nâng Starter $7. Disk ephemeral → backup local vô nghĩa dài hạn; khuyến nghị cấu hình AUTO_BACKUP_* lên R2.
+- **Reversibility**: R1 — hoàn tác = resume Railway + hoàn tác rewrite vercel.json.
+
+### Verification
+
+- tsc client/server + oxlint PASS sau thay đổi config.
+- Hạ tầng: chờ user setup Turso/Render theo DEPLOYMENT_GUIDE §7.1; acceptance = `/api/health` 200 trên render domain + login thành công qua Vercel.
