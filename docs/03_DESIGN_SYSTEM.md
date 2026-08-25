@@ -320,6 +320,12 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
   - `DesktopGradeMatrix`, `DesktopGradeCards`, `DesktopGradeComparison`, `DesktopDailyGradeEntry`, `DesktopCalendarView`
 - `PageHeader` hỗ trợ `card?: boolean` (mặc định `true` cho styled card container) và `className?: string` cho layout tùy biến linh hoạt.
 
+**UI-POLISH Batch 2026-08-25 (Sidebar + Settings + Shell header)**:
+- **Shell**: HeaderBar + OfflineStatusBanner lên full-width top (RootLayout) — diệt góc trên-trái trống lệch với sidebar; sidebar bỏ sticky/`calc(100vh - …)`, chuyển flex stretch (xem §13 Shell & Sidebar).
+- **Sidebar**: nền card + border-right cả 2 mode (light trước đây trong suốt); section-label padding-top tạo nhịp; active inset-ring + `:focus-visible` ring; scrollbar 4px hover-only; `.sidebar-footer` ghim đáy (Bộ lọc admin + Cài Đặt, 1 divider); filter select compact 32px; `aria-current="page"`; badge 18px chuẩn.
+- **SettingsPage**: `narrow` → `wide` grid `lg:grid-cols-12` (7/5) — form `max-w-lg`; FormField ×5 (htmlFor/aria-describedby); autoComplete `name/tel/current-password/new-password`; eye + theme + view-mode `aria-pressed`; hint quy tắc mật khẩu; Vùng Nguy Hiểm về cột phải; SectionTitle tile `w-8 h-8` icon `w-4 h-4`. Đóng finding MED a11y Settings (desktop audit 2026-08-22 §2).
+- Verify: tsc 0 · oxlint 0 · lint:ds 0/135 · HeaderBar+CommonComponents 20/20 · build pass.
+
 ## §13. Desktop Layout Contract (2026-08-22)
 
 > Nguồn: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` PHA 2/4. Áp dụng cho desktop mode (viewport ≥ 768px).
@@ -335,8 +341,33 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 | Tier | Class | Dành cho |
 |---|---|---|
 | `full` | `w-full` | Data workspace: Dashboard, Students, Grades, Attendance, Calendar |
-| `wide` | `w-full max-w-7xl mx-auto` | Admin/directory: Finance, Users, AuditLog, AcademicYear, Catechist, ParentDashboard |
-| `narrow` | `w-full max-w-3xl mx-auto` | Form/settings: SettingsPage |
+| `wide` | `w-full max-w-7xl mx-auto` | Admin/directory: Finance, Users, AuditLog, AcademicYear, Catechist, ParentDashboard, **SettingsPage** (UI-POLISH 2026-08-25: narrow→wide — grid 12-col 7/5, form giới hạn `max-w-lg` giữ nhịp đọc; narrow trước đây gây chật 2-col + trống ~800px hai bên màn rộng) |
+| `narrow` | `w-full max-w-3xl mx-auto` | (Hiện không còn page nào — dành cho form đơn giản tương lai) |
+
+### Shell & Sidebar desktop (UI-POLISH 2026-08-25)
+
+**Cấu trúc shell (RootLayout desktop branch):**
+```
+flex h-screen flex-col
+├── HeaderBar (FULL-WIDTH: OfflineStatusBanner + header gradient 68px)
+└── flex flex-1 min-h-0
+    ├── DesktopSidebar (260px, stretch full chiều cao còn lại)
+    └── main#main-content (flex-1 overflow-y-auto p-6) + global modals
+```
+> Header full-width → sidebar + content start cùng mép trên; header có thêm ~260px
+> chống overflow (audit A7). Sidebar KHÔNG dùng `position: sticky` hay
+> `height: calc(100vh - …)` — là flex child stretch của row.
+
+**Sidebar spec (`src/index.css` block SIDEBAR):**
+| Class | Vai trò |
+|---|---|
+| `.sidebar-container` | 260px · `bg-surface-card` + `border-right surface-border` (CẢ HAI mode) · padding 16/14 · flex-col gap 16 |
+| `.sidebar-nav` | flex:1 min-h-0 overflow-y-auto · scrollbar 4px chỉ hiện khi hover |
+| `.sidebar-section-label` | 11px/700 CAPS · padding 14/12/8 (nhịp phân nhóm) |
+| `.sidebar-nav-item` | 9px 12px · radius 10px · 13.5px/600 · `:focus-visible` ring `--color-focus-ring` |
+| `.sidebar-nav-item-active` | `parish-primary-light` + inset ring `color-mix(parish-primary 25%)` + `aria-current="page"` |
+| `.sidebar-footer` | ghim đáy: border-top + gap 12 — chứa Bộ lọc (admin) + Cài Đặt, MỘT divider duy nhất |
+| `.sidebar-filter-field` | label 11px/600 · select compact 32px/12.5px |
 
 ### Quy tắc
 1. Cấm container max-width tự phát ngoài 3 tier trên.

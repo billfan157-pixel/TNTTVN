@@ -153,7 +153,19 @@ Inventory đã verify: offline banner (:55), logo+title+parish badge (:72-84), c
 
 ### Settings (`SettingsPage.tsx`)
 - [MED] Theme toggle button trần không `role="switch"`/`aria-checked`/label (:267-272); eye password không aria-label/pressed (:165-167); label-input không associate toàn file — HIGH
+  → ✅ **CLOSED (UI-POLISH 2026-08-25)**: theme + view-mode buttons `aria-pressed`; eye `aria-label` + `aria-pressed`; 5/5 field qua `FormField` (htmlFor + aria-describedby) + autoComplete + hint mật khẩu.
 - (+) Purge gated PurgeDataModal + reload; phone lock cho phuhuynh có giải thích; sectioned layout tốt
+
+### UI-POLISH batch 2026-08-25 — Sidebar + Settings + Shell header (✅ DONE, user-report driven)
+
+| # | Task | Files | Verification |
+|---|---|---|---|
+| P.1 | **Shell header full-width** (sửa hệ quả layout A6/A7 + user report "khoảng trống đầu sidebar"): HeaderBar + OfflineStatusBanner chuyển lên trên cùng span toàn viewport; sidebar + main start cùng mép dưới header; sidebar bỏ `sticky top:68px` + `height: calc(100vh - 68px)` → flex stretch | `RootLayout.tsx`, `index.css` | tsc 0 · oxlint 0 · HeaderBar test 8/8 · build pass |
+| P.2 | **Sidebar polish**: nền card + border-right cả 2 mode; section-label nhịp 14/12/8; active inset-ring `color-mix` + focus-visible ring; scrollbar 4px hover-only; `.sidebar-footer` (Bộ lọc + Cài Đặt, 1 divider); filter compact 32px; `aria-current`; badge 18px | `DesktopSidebar.tsx`, `index.css` | lint:ds 0/135 · oxlint 0 |
+| P.3 | **Settings wide 12-col + a11y** (đóng finding MED §2 ở trên): narrow→wide 7/5; FormField ×5; autoComplete ×5; aria-pressed theme/view-mode/eye; hint mật khẩu; Vùng Nguy Hiểm về cột phải; SectionTitle 32px tile | `SettingsPage.tsx` | tsc 0 · CommonComponents 12/12 · build pass |
+
+> Ghi nhận thay đổi contract: DS §13 container tier — SettingsPage `narrow` → `wide` (kèm note);
+> sidebar spec mới document tại DS §13 "Shell & Sidebar desktop". Không đổi API/auth/schema.
 
 ### Users/IAM (`src/components/desktop/UserManagementPage.tsx`, 1081 LOC)
 - [U1] **HIGH — Force-logout & lock/unlock account KHÔNG có confirm dialog** — direct onClick→API (:659-663 handleForceLogout, :670-675 toggleUserStatus). **Đã spot-check CONFIRMED** (path đúng là `components/desktop/`, không phải `pages/`)

@@ -223,58 +223,65 @@ export function RootLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-surface-app overflow-hidden font-sans">
+    <div className="flex h-screen flex-col bg-surface-app overflow-hidden font-sans">
       <a href="#main-content" className="skip-link">Bỏ qua đến nội dung chính</a>
-      <DesktopSidebar
-        activeTab={activeTab}
-        setActiveTab={(tab) => navigate({ to: DESKTOP_TAB_PATHS[tab] })}
-        selectedBranchId={selectedBranchId}
-        setSelectedBranchId={setSelectedBranchId}
-        selectedClassId={selectedClassId}
-        setSelectedClassId={setSelectedClassId}
-        classes={classList as any}
-        branches={BRANCHES}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <HeaderBar />
-        <main id="main-content" className="flex-1 overflow-y-auto p-6 scroll-smooth">
-          <PageSuspense>
-            <Outlet />
-          </PageSuspense>
-        </main>
-        
-        {isStudentModalOpen && (
-          <StudentModal
-            isOpen={isStudentModalOpen}
-            onClose={closeStudentModal}
-            studentToEdit={studentToEdit}
-          />
-        )}
-        {isReportModalOpen && studentForReport && (
-          <StudentReportModal
-            isOpen={isReportModalOpen}
-            onClose={closeReport}
-            student={studentForReport}
-            autoPrint={reportPrintRequested}
-          />
-        )}
-        {isPhotoCardOpen && photoCardStudent && (
-          <PhotoCard
-            isOpen={isPhotoCardOpen}
-            onClose={closePhotoCard}
-            student={photoCardStudent}
-          />
-        )}
-        {isCertificateOpen && certificateStudent && (
-          <Certificate
-            isOpen={isCertificateOpen}
-            onClose={closeCertificate}
-            student={certificateStudent}
-            type={certificateType}
-          />
-        )}
-        <InstallPrompt />
-        <ForcePasswordChangeModal />
+      {/* UI-POLISH 2026-08-25: HeaderBar lên span full-width — trước đây header nằm
+          trong cột phải (sau sidebar) nên góc trên-trái tạo khoảng trống sáng lệch
+          với header tối, đồng thời sidebar sticky top lệch khỏi mép header do
+          OfflineStatusBanner đẩy header xuống. Header full-width = sidebar + content
+          start cùng một mép trên, header có thêm ~260px chống overflow (audit A7). */}
+      <HeaderBar />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <DesktopSidebar
+          activeTab={activeTab}
+          setActiveTab={(tab) => navigate({ to: DESKTOP_TAB_PATHS[tab] })}
+          selectedBranchId={selectedBranchId}
+          setSelectedBranchId={setSelectedBranchId}
+          selectedClassId={selectedClassId}
+          setSelectedClassId={setSelectedClassId}
+          classes={classList as any}
+          branches={BRANCHES}
+        />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+          <main id="main-content" className="flex-1 overflow-y-auto p-6 scroll-smooth">
+            <PageSuspense>
+              <Outlet />
+            </PageSuspense>
+          </main>
+
+          {isStudentModalOpen && (
+            <StudentModal
+              isOpen={isStudentModalOpen}
+              onClose={closeStudentModal}
+              studentToEdit={studentToEdit}
+            />
+          )}
+          {isReportModalOpen && studentForReport && (
+            <StudentReportModal
+              isOpen={isReportModalOpen}
+              onClose={closeReport}
+              student={studentForReport}
+              autoPrint={reportPrintRequested}
+            />
+          )}
+          {isPhotoCardOpen && photoCardStudent && (
+            <PhotoCard
+              isOpen={isPhotoCardOpen}
+              onClose={closePhotoCard}
+              student={photoCardStudent}
+            />
+          )}
+          {isCertificateOpen && certificateStudent && (
+            <Certificate
+              isOpen={isCertificateOpen}
+              onClose={closeCertificate}
+              student={certificateStudent}
+              type={certificateType}
+            />
+          )}
+          <InstallPrompt />
+          <ForcePasswordChangeModal />
+        </div>
       </div>
     </div>
   )

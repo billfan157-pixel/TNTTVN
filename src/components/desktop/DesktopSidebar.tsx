@@ -104,11 +104,12 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         onClick={() => setActiveTab(item.id)}
         className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item-active' : ''}`}
         title={item.label}
+        aria-current={isActive ? 'page' : undefined}
       >
         <Icon size={18} className={isActive ? 'text-parish-primary' : 'text-text-muted'} />
         <span className="sidebar-nav-label">{item.label}</span>
         {item.badge != null && (
-          <span className="badge badge-warning text-[10px] px-1.5 py-0.2 font-extrabold rounded-full">
+          <span className="badge badge-warning text-[10px] min-h-0 h-[18px] min-w-[18px] px-1.5 font-extrabold rounded-full">
             {item.badge}
           </span>
         )}
@@ -130,64 +131,71 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </nav>
       </div>
 
-      {/* Branch & Class Filter Section (admin only — GLV only sees their assigned classes) */}
-      {role === 'admin' && (
-      <div className="sidebar-filter-section">
-        <div className="sidebar-section-label">
-          BỘ LỌC PHÂN NGÀNH & LỚP
-        </div>
+      {/* Footer ghim đáy (UI-POLISH-2026-08-25): Bộ lọc (admin) + Cài Đặt trong MỘT
+          khối có 1 đường kẻ phân cách — nav phía trên tự cuộn, footer luôn nhìn thấy. */}
+      <div className="sidebar-footer">
+        {/* Branch & Class Filter Section (admin only — GLV only sees their assigned classes) */}
+        {role === 'admin' && (
+        <div className="sidebar-filter-section">
+          <div className="sidebar-section-label">
+            BỘ LỌC PHÂN NGÀNH & LỚP
+          </div>
 
-        {/* Branch Filter */}
-        <div className="sidebar-filter-field">
-          <label className="form-label">
-            Phân Ngành
-          </label>
-          <select
-            value={selectedBranchId}
-            onChange={(e) => {
-              setSelectedBranchId(e.target.value);
-              setSelectedClassId('all');
-            }}
-            className="form-select"
-          >
-            <option value="all">Tất cả Phân ngành</option>
-            {Object.values(branches).map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name} ({b.ageRange})
-              </option>
-            ))}
-          </select>
-        </div>
+          {/* Branch Filter */}
+          <div className="sidebar-filter-field">
+            <label htmlFor="sidebar-branch-filter" className="form-label">
+              Phân Ngành
+            </label>
+            <select
+              id="sidebar-branch-filter"
+              value={selectedBranchId}
+              onChange={(e) => {
+                setSelectedBranchId(e.target.value);
+                setSelectedClassId('all');
+              }}
+              className="form-select"
+            >
+              <option value="all">Tất cả Phân ngành</option>
+              {Object.values(branches).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name} ({b.ageRange})
+                </option>
+              ))}
+            </select>
+          </div>
 
-        {/* Class Filter */}
-        <div className="sidebar-filter-field">
-          <label className="form-label">
-            Lớp Học
-          </label>
-          <select
-            value={selectedClassId}
-            onChange={(e) => setSelectedClassId(e.target.value)}
-            className="form-select"
-          >
-            <option value="all">Tất cả Lớp học ({filteredClasses.length})</option>
-            {filteredClasses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} - {c.room}
-              </option>
-            ))}
-          </select>
+          {/* Class Filter */}
+          <div className="sidebar-filter-field">
+            <label htmlFor="sidebar-class-filter" className="form-label">
+              Lớp Học
+            </label>
+            <select
+              id="sidebar-class-filter"
+              value={selectedClassId}
+              onChange={(e) => setSelectedClassId(e.target.value)}
+              className="form-select"
+            >
+              <option value="all">Tất cả Lớp học ({filteredClasses.length})</option>
+              {filteredClasses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} - {c.room}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        )}
+
+        {/* Settings button */}
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`sidebar-nav-item ${activeTab === 'settings' ? 'sidebar-nav-item-active' : ''}`}
+          aria-current={activeTab === 'settings' ? 'page' : undefined}
+        >
+          <Settings size={18} className={activeTab === 'settings' ? 'text-parish-primary' : 'text-text-muted'} />
+          <span className="sidebar-nav-label">Cài Đặt</span>
+        </button>
       </div>
-      )}
-
-      {/* Settings button */}
-      <button
-        onClick={() => setActiveTab('settings')}
-        className={`sidebar-nav-item ${activeTab === 'settings' ? 'sidebar-nav-item-active' : ''}`}
-      >
-        <Settings size={18} className={activeTab === 'settings' ? 'text-parish-primary' : 'text-text-muted'} />
-        <span className="sidebar-nav-label">Cài Đặt</span>
-      </button>
     </aside>
   );
 };

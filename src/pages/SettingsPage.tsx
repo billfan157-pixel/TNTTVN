@@ -6,6 +6,7 @@ import {
   AlertTriangle, Trash2, Settings, ShieldCheck, Palette, Info, Users
 } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
+import { FormField } from '../components/common/FormField'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { useTheme } from '../hooks/useTheme'
 import { useFilterStore } from '../stores/filterStore'
@@ -107,8 +108,8 @@ const SettingsPage: React.FC = () => {
   ]
 
   const SectionTitle: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, text }) => (
-    <div className="flex items-center gap-2">
-      <span className="w-7 h-7 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
+    <div className="flex items-center gap-2.5">
+      <span className="w-8 h-8 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
         {icon}
       </span>
       <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">{text}</h2>
@@ -118,18 +119,21 @@ const SettingsPage: React.FC = () => {
   const inputCls = 'w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary transition-shadow'
 
   return (
-    <DesktopAppShell width="narrow" className="flex flex-col gap-5">
+    <DesktopAppShell width="wide" className="flex flex-col gap-5">
       <PageHeader
         icon={<Settings className="w-5 h-5" />}
         title="Cài Đặt Hệ Thống"
         description="Tùy chỉnh giao diện hiển thị, thông tin cá nhân và quản trị hệ thống"
       />
 
-      <div className="grid lg:grid-cols-5 gap-5 items-start">
+      {/* UI-POLISH 2026-08-25: narrow (max-w-3xl) → wide 12-col — màn desktop rộng
+          trước đây trống ~800px hai bên, grid 3/2 bị chật. 7/5 cân bằng hơn;
+          form giới hạn max-w-lg để giữ nhịp đọc (DS §13 đã cập nhật tier). */}
+      <div className="grid lg:grid-cols-12 gap-5 items-start">
         {/* ─── CỘT TRÁI: tài khoản & bảo mật ─── */}
-        <div className="lg:col-span-3 space-y-5 min-w-0">
+        <div className="lg:col-span-7 space-y-5 min-w-0">
           <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-            <SectionTitle icon={<UserCog className="w-3.5 h-3.5" />} text="Hồ Sơ Cá Nhân" />
+            <SectionTitle icon={<UserCog className="w-4 h-4" />} text="Hồ Sơ Cá Nhân" />
             <div className="flex items-center gap-3.5">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-parish-primary to-parish-primary-hover flex items-center justify-center text-white font-extrabold text-lg shrink-0 shadow-xs">
                 {user?.fullName?.charAt(0) || 'U'}
@@ -144,25 +148,22 @@ const SettingsPage: React.FC = () => {
                 <div className="text-xs text-text-muted truncate mt-0.5">@{user?.username}{(user as any).phone ? ` · ${(user as any).phone}` : ''}</div>
               </div>
             </div>
-            <form onSubmit={handleSaveProfile} className="space-y-3 pt-3 border-t border-surface-border">
-              <div>
-                <label className="block text-xs font-semibold text-text-muted mb-1">Họ Và Tên</label>
-                <input type="text" value={pfFullName} onChange={e => setPfFullName(e.target.value)} required maxLength={100} className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-text-muted mb-1">Số Điện Thoại</label>
+            <form onSubmit={handleSaveProfile} className="space-y-3 pt-3 border-t border-surface-border max-w-lg">
+              <FormField label="Họ Và Tên" htmlFor="pf-fullname" required>
+                <input id="pf-fullname" type="text" autoComplete="name" value={pfFullName} onChange={e => setPfFullName(e.target.value)} required maxLength={100} className={inputCls} />
+              </FormField>
+              <FormField
+                label="Số Điện Thoại"
+                htmlFor="pf-phone"
+                hint={role === 'phuhuynh' ? 'Số điện thoại là tên đăng nhập và khóa liên kết con — do Ban Giáo Lý quản lý. Vui lòng liên hệ quản trị viên nếu cần đổi.' : undefined}
+              >
                 {role === 'phuhuynh' ? (
-                  <>
-                    <input type="text" value={pfPhone} disabled
-                      className="w-full px-3 py-2 bg-surface-hover border border-surface-border rounded-lg text-sm text-text-muted focus:outline-hidden cursor-not-allowed" />
-                    <p className="text-[11px] text-text-muted mt-1">
-                      Số điện thoại là tên đăng nhập và khóa liên kết con — do Ban Giáo Lý quản lý. Vui lòng liên hệ quản trị viên nếu cần đổi.
-                    </p>
-                  </>
+                  <input id="pf-phone" type="text" value={pfPhone} disabled
+                    className="w-full px-3 py-2 bg-surface-hover border border-surface-border rounded-lg text-sm text-text-muted focus:outline-hidden cursor-not-allowed" />
                 ) : (
-                  <input type="text" placeholder="0901234567" value={pfPhone} onChange={e => setPfPhone(e.target.value)} maxLength={20} className={inputCls} />
+                  <input id="pf-phone" type="tel" autoComplete="tel" placeholder="0901234567" value={pfPhone} onChange={e => setPfPhone(e.target.value)} maxLength={20} className={inputCls} />
                 )}
-              </div>
+              </FormField>
               {pfSuccess && (
                 <div className="flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 size={14} />Đã lưu thông tin cá nhân!</div>
               )}
@@ -176,7 +177,7 @@ const SettingsPage: React.FC = () => {
           </section>
 
           <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-            <SectionTitle icon={<Key className="w-3.5 h-3.5" />} text="Đổi Mật Khẩu" />
+            <SectionTitle icon={<Key className="w-4 h-4" />} text="Đổi Mật Khẩu" />
             {cpSuccess ? (
               <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 rounded-lg border border-emerald-200 text-sm">
                 <CheckCircle2 size={16} />
@@ -185,26 +186,26 @@ const SettingsPage: React.FC = () => {
             ) : (
               <form onSubmit={handleChangePassword} className="space-y-3">
                 {!isSuperAdmin && (
-                  <div>
-                    <label className="block text-xs font-semibold text-text-muted mb-1">Mật Khẩu Hiện Tại</label>
+                  <FormField label="Mật Khẩu Hiện Tại" htmlFor="cp-current" required>
                     <div className="relative">
-                      <input type={cpShow ? 'text' : 'password'} value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} required
+                      <input id="cp-current" type={cpShow ? 'text' : 'password'} autoComplete="current-password" value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} required
                         className={`${inputCls} pr-9`} />
-                      <button type="button" onClick={() => setCpShow(!cpShow)} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main transition-colors" tabIndex={-1}>
+                      <button type="button" onClick={() => setCpShow(!cpShow)}
+                        aria-label={cpShow ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                        aria-pressed={cpShow}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main transition-colors" tabIndex={-1}>
                         {cpShow ? <EyeOff size={15} /> : <Eye size={15} />}
                       </button>
                     </div>
-                  </div>
+                  </FormField>
                 )}
                 <div className="grid sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-text-muted mb-1">Mật Khẩu Mới</label>
-                    <input type="password" value={cpNew} onChange={e => setCpNew(e.target.value)} required minLength={8} className={inputCls} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-text-muted mb-1">Xác Nhận</label>
-                    <input type="password" value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} required minLength={8} className={inputCls} />
-                  </div>
+                  <FormField label="Mật Khẩu Mới" htmlFor="cp-new" required hint="Tối thiểu 8 ký tự, gồm chữ HOA, số và ký tự đặc biệt">
+                    <input id="cp-new" type="password" autoComplete="new-password" value={cpNew} onChange={e => setCpNew(e.target.value)} required minLength={8} className={inputCls} />
+                  </FormField>
+                  <FormField label="Xác Nhận" htmlFor="cp-confirm" required>
+                    <input id="cp-confirm" type="password" autoComplete="new-password" value={cpConfirm} onChange={e => setCpConfirm(e.target.value)} required minLength={8} className={inputCls} />
+                  </FormField>
                 </div>
                 {cpError && <div className="flex items-center gap-2 text-xs text-rose-600"><AlertCircle size={14} />{cpError}</div>}
                 <button type="submit" disabled={cpLoading} className="btn btn-primary disabled:opacity-50">
@@ -218,14 +219,15 @@ const SettingsPage: React.FC = () => {
         </div>
 
         {/* ─── CỘT PHẢI: giao diện & tiện ích ─── */}
-        <div className="lg:col-span-2 space-y-5 min-w-0">
+        <div className="lg:col-span-5 space-y-5 min-w-0">
           <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
-            <SectionTitle icon={<Palette className="w-3.5 h-3.5" />} text="Giao Diện" />
+            <SectionTitle icon={<Palette className="w-4 h-4" />} text="Giao Diện" />
             <div>
               <label className="block text-xs font-semibold text-text-muted mb-2">Chế Độ Hiển Thị</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => { if (theme !== 'light') toggleTheme() }}
+                  aria-pressed={theme === 'light'}
                   className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                     theme === 'light'
                       ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
@@ -236,6 +238,7 @@ const SettingsPage: React.FC = () => {
                 </button>
                 <button
                   onClick={() => { if (theme !== 'dark') toggleTheme() }}
+                  aria-pressed={theme === 'dark'}
                   className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                     theme === 'dark'
                       ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
@@ -257,6 +260,7 @@ const SettingsPage: React.FC = () => {
                       key={vm.value}
                       onClick={() => setViewMode(vm.value)}
                       title={vm.label}
+                      aria-pressed={isActive}
                       className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-[11px] font-semibold transition-all ${
                         isActive
                           ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
@@ -274,7 +278,7 @@ const SettingsPage: React.FC = () => {
 
           {role === 'admin' && (
             <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-1">
-              <div className="mb-2"><SectionTitle icon={<ShieldCheck className="w-3.5 h-3.5" />} text="Quản Trị Nhanh" /></div>
+              <div className="mb-2"><SectionTitle icon={<ShieldCheck className="w-4 h-4" />} text="Quản Trị Nhanh" /></div>
               {[
                 { to: '/users' as const, icon: Users, title: 'Tài Khoản', desc: 'GLV, phân công, mật khẩu' },
                 { to: '/academic-years' as const, icon: Calendar, title: 'Năm Học', desc: 'Khóa sổ, chốt năm, lên lớp' },
@@ -299,7 +303,7 @@ const SettingsPage: React.FC = () => {
           )}
 
           <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
-            <div className="px-5 pt-5 pb-2"><SectionTitle icon={<Database className="w-3.5 h-3.5" />} text="Dữ Liệu & Hệ Thống" /></div>
+            <div className="px-5 pt-5 pb-2"><SectionTitle icon={<Database className="w-4 h-4" />} text="Dữ Liệu & Hệ Thống" /></div>
             <div className="divide-y divide-surface-border/70 pb-1">
               <button onClick={() => setShowBackup(true)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-surface-hover transition-colors group">
                 <span className="flex items-center gap-3">
@@ -325,6 +329,29 @@ const SettingsPage: React.FC = () => {
             </div>
           </section>
 
+          {/* UI-POLISH 2026-08-25: Vùng Nguy Hiểm chuyển vào cột phải — full-width
+              max-w-7xl trước đây khiến banner kéo dài bất thường. */}
+          {role === 'admin' && (
+            <section className="bg-surface-card border border-rose-200 dark:border-rose-900 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">
+                  <AlertTriangle size={18} />
+                </div>
+                <div>
+                  <h2 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider m-0">Vùng Nguy Hiểm</h2>
+                  <p className="text-xs text-text-muted m-0 mt-0.5">Xóa toàn bộ dữ liệu giáo xứ để bắt đầu năm học mới từ đầu</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPurge(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-300 dark:border-rose-900 text-rose-600 dark:text-rose-400 font-semibold text-sm hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
+              >
+                <Trash2 size={16} />
+                Xóa Toàn Bộ Dữ Liệu Giáo Xứ
+              </button>
+            </section>
+          )}
+
           <button
             onClick={() => { authStore.logout(); navigate({ to: '/login' }) }}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-rose-200 text-rose-600 font-semibold hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950 transition-colors"
@@ -334,27 +361,6 @@ const SettingsPage: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {role === 'admin' && (
-        <section className="bg-surface-card border border-rose-200 dark:border-rose-900 rounded-2xl p-5 space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">
-              <AlertTriangle size={18} />
-            </div>
-            <div>
-              <h2 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider m-0">Vùng Nguy Hiểm</h2>
-              <p className="text-xs text-text-muted m-0 mt-0.5">Xóa toàn bộ dữ liệu giáo xứ để bắt đầu năm học mới từ đầu</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowPurge(true)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-300 dark:border-rose-900 text-rose-600 dark:text-rose-400 font-semibold text-sm hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
-          >
-            <Trash2 size={16} />
-            Xóa Toàn Bộ Dữ Liệu Giáo Xứ
-          </button>
-        </section>
-      )}
 
       <BackupRestoreModal isOpen={showBackup} onClose={() => setShowBackup(false)} />
       <SystemDiagnosticsModal isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />

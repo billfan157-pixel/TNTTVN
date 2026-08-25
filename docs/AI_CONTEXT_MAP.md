@@ -403,6 +403,11 @@ server/src/                         ─ Backend Hono Application
 - **⚠️ Concurrent session warning**: working tree có MỘT session khác đang sửa `src/lib/api.ts` + `AuditLogPage.test.tsx` song song — tsc batch này bắt lỗi type của HỌ (không phải của audit), session đó tự sửa giữa 2 lần chạy. Khuyến nghị: không chạy 2 agent đụng chéo cùng working tree.
 - **Verify**: full suite **222/1618 ALL PASS** · build pass · lint:ds 0/134 · re-grep alert-error ×3 đúng chỗ.
 
+### Module: UI-POLISH 2026-08-25 — Desktop Sidebar + Settings + Shell header (✅ DONE)
+- **Files Modified**: `src/index.css` (block SIDEBAR viết lại: nền card + border-right cả 2 mode, nhịp section label, active inset-ring + focus-visible, scrollbar mảnh hover-mới-hiện, `.sidebar-footer` ghim đáy 1 divider, filter compact 32px), `src/components/desktop/DesktopSidebar.tsx` (footer group Bộ lọc + Cài Đặt; `aria-current="page"`; label/select liên kết htmlFor; badge 18px), `src/components/common/RootLayout.tsx` (**HeaderBar + OfflineStatusBanner lên full-width top** — sidebar + main start cùng mép dưới header, diệt góc trên-trái trống; sidebar bỏ sticky/height calc → flex stretch), `src/pages/SettingsPage.tsx` (narrow→**wide 12-col 7/5**; FormField ×5 field + autoComplete name/tel/current+new-password; eye toggle + theme/view-mode buttons `aria-pressed`; hint quy tắc mật khẩu; Vùng Nguy Hiểm về cột phải; SectionTitle tile 32px).
+- **Summary**: sửa gap đầu sidebar (user report — sticky top 68px lệch với cột phải có banner đẩy header xuống); sidebar light-mode hết "hòa vào nền"; Settings hết chật 2-col trong max-w-3xl (audit §2 Settings MED a11y đóng kèm).
+- **Verify**: tsc exit 0 · oxlint 0 · lint:ds 0/135 · HeaderBar+CommonComponents 20/20 · build pass. Container tier SettingsPage narrow→wide đã cập nhật DS §13.
+
 
 
 
