@@ -295,6 +295,11 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
   }
 
   if (!res.ok) {
+    // API-DIAG (2026-08-25): backend offline qua platform proxy (Railway fallback)
+    // — ném message hướng dẫn rõ ràng thay vì JSON "Application not found" của nền tảng.
+    if (isBackendUnavailableResponse(res)) {
+      throw new ApiError(res.status, BACKEND_UNAVAILABLE_MESSAGE, path)
+    }
     const text = await res.text().catch(() => '')
     let details: any = undefined
     let issues: any[] | undefined
@@ -373,6 +378,27 @@ export class ApiError extends Error {
     this.path = path
   }
 }
+
+/**
+ * API-DIAG (2026-08-25): nhận diện phản hồi từ PLATFORM PROXY fallback của Railway —
+ * khi domain backend (`*.up.railway.app`) trỏ vào nhưng KHÔNG có deployment nào
+ * đang chạy (service bị pause/xóa/deploy fail), edge của Railway tự trả
+ * `404/502/503` kèm header `x-railway-fallback: true` + body
+ * {"message":"Application not found"}. Đây KHÔNG phải lỗi nghiệp vụ (vd sai
+ * username/mật khẩu hay thiếu dữ liệu) mà là backend offline → hiển thị thông
+ * điệp hướng dẫn thay vì dump JSON nền tảng gây hiểu nhầm.
+ */
+export function isBackendUnavailableResponse(res: Pick<Response, 'status' | 'headers'>): boolean {
+  if (res.status !== 404 && res.status !== 502 && res.status !== 503) return false
+  try {
+    return (res.headers.get('x-railway-fallback') || '').trim().toLowerCase() === 'true'
+  } catch {
+    return false
+  }
+}
+
+export const BACKEND_UNAVAILABLE_MESSAGE =
+  'Máy chủ API hiện không khả dụng (backend chưa chạy hoặc đã dừng). Vui lòng thử lại sau ít phút hoặc báo quản trị viên khởi động lại dịch vụ backend.'
 
 export const httpFetch = {
   get: <T>(path: string) => request<T>('GET', path),
@@ -481,7 +507,7 @@ export const api = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
   updateAnswerVariants: (id: string, answerVariants: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string }[]) =>
+  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string }[]) =>
     request<{
       saved: number
       upserted: number
