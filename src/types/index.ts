@@ -149,24 +149,33 @@ export interface DailyGradeEntry {
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final';
 export type ExamSessionStatus = 'draft' | 'completed';
 export type ExamResultSource = 'qr_scan' | 'omr' | 'quick_entry';
-export type ExamType = 'written' | 'multiple_choice';
+export type ExamType = 'written' | 'multiple_choice' | 'mixed';
 export type MultipleChoiceOption = 'A' | 'B' | 'C' | 'D';
 export type ExamVersionCode = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H';
 export type ExamAnswerVariants = Record<ExamVersionCode, Record<number, MultipleChoiceOption>>;
+/** EXAM-MIXED (2026-08-24): loại từng câu hỏi — đề mixed gồm cả hai loại. */
+export type QuestionType = 'multiple_choice' | 'essay';
 
 export interface ExamQuestion {
   index: number;
   question: string;
-  options: {
+  /** Mặc định 'multiple_choice' với dữ liệu cũ không có type. */
+  type?: QuestionType;
+  /** Chỉ bắt buộc với câu multiple_choice; câu tự luận KHÔNG có options/correctOption. */
+  options?: {
     A: string;
     B: string;
     C: string;
     D: string;
   };
-  correctOption: MultipleChoiceOption;
+  correctOption?: MultipleChoiceOption;
   explanation?: string;
+  /** Điểm của câu hỏi (mặc định 1) — dùng để cộng điểm phần TN / trần phần TL ở đề mixed. */
   points?: number;
 }
+
+/** Phiên có phần trắc nghiệm tự chấm (multiple_choice hoặc mixed). */
+export const isMcGradedExamType = (t?: ExamType): boolean => t === 'multiple_choice' || t === 'mixed';
 
 export interface ExamSession {
   id: string;
@@ -195,6 +204,8 @@ export interface ExamResult {
   examSessionId: string;
   studentId: string;
   score: number;
+  /** EXAM-MIXED: điểm phần tự luận nhập tay; score = điểm TN (tự chấm) + essayScore. */
+  essayScore?: number | null;
   source: ExamResultSource;
   createdAt: string;
   studentCode?: string;

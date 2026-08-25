@@ -20,6 +20,10 @@ interface ExamImportModalProps {
     questions: ExamQuestion[]
     answerKey: Record<number, MultipleChoiceOption>
     questionCount: number
+    /** EXAM-MIXED: số câu trắc nghiệm (questionCount của phiên = số câu TN cho OMR). */
+    mcQuestionCount: number
+    essayQuestionCount: number
+    totalPoints: number
     subject?: string
   }) => void
 }
@@ -109,6 +113,9 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
       questions: previewResult.questions,
       answerKey: previewResult.answerKey,
       questionCount: previewResult.questionCount,
+      mcQuestionCount: previewResult.mcQuestionCount,
+      essayQuestionCount: previewResult.essayQuestionCount,
+      totalPoints: previewResult.totalPoints,
       subject: detectedSubject || previewResult.rawSubject,
     })
     onClose()
@@ -125,8 +132,8 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               <Sparkles size={20} />
             </div>
             <div>
-              <h3 id="exam-import-title" className="font-black text-lg text-parish-primary m-0">Import Đề Thi Trắc Nghiệm Thông Minh</h3>
-              <p className="text-xs text-text-muted m-0 mt-0.5">Tự động nhận diện câu hỏi, các phương án A-B-C-D và bảng đáp án chuẩn</p>
+              <h3 id="exam-import-title" className="font-black text-lg text-parish-primary m-0">Import Đề Thi Thông Minh</h3>
+              <p className="text-xs text-text-muted m-0 mt-0.5">Hỗ trợ đề trắc nghiệm, tự luận hoặc KẾT HỢP cả hai — tự nhận diện câu hỏi, phương án A-B-C-D và bảng đáp án</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
@@ -193,7 +200,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 <textarea
                   value={rawText}
                   onChange={handleTextChange}
-                  placeholder={`Dán đề thi tại đây...\n\nVí dụ:\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng\n\nCâu 2: ...\nĐáp án: B`}
+                  placeholder={`Dán đề thi tại đây...\n\nVí dụ đề KẾT HỢP:\nPHẦN I. TRẮC NGHIỆM (3 điểm)\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng\n\nPHẦN II. TỰ LUẬN (7 điểm)\nCâu 5 (4 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể...`}
                   className="w-full flex-1 p-3 bg-surface-app border border-surface-border rounded-xl font-mono text-xs text-text-main resize-none focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
                 />
               </>
@@ -204,7 +211,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 </div>
                 <h4 className="font-bold text-sm text-text-main mb-1">Chọn File Excel Đề Thi</h4>
                 <p className="text-xs text-text-muted max-w-xs mb-4">
-                  Hỗ trợ định dạng .xlsx, .xls, .csv theo mẫu 7 cột (Câu, Nội dung, A, B, C, D, Đáp án)
+                  Hỗ trợ .xlsx, .xls, .csv — 7 cột (Câu, Nội dung, A, B, C, D, Đáp án) hoặc mở rộng 9 cột có thêm cột Loại (TN/TL) và Điểm
                 </p>
                 <label className="btn btn-primary btn-sm cursor-pointer">
                   <span>Chọn File Từ Máy Tính</span>
@@ -225,11 +232,12 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               <span className="text-xs font-bold text-parish-primary flex items-center gap-1.5">
                 <Eye size={14} /> Xem Trước Kết Quả Phân Tích
               </span>
-              {previewResult && previewResult.ok && (
-                <span className="text-xs font-extrabold text-emerald-600 px-2 py-0.5 bg-emerald-500/10 rounded-full">
-                  Đã nhận diện {previewResult.questionCount} câu
-                </span>
-              )}
+            {previewResult && previewResult.ok && (
+              <span className="text-xs font-extrabold text-emerald-600 px-2 py-0.5 bg-emerald-500/10 rounded-full">
+                {previewResult.mcQuestionCount} câu TN
+                {previewResult.essayQuestionCount > 0 ? ` + ${previewResult.essayQuestionCount} câu TL` : ''} · {previewResult.totalPoints}đ
+              </span>
+            )}
             </div>
 
             {/* Error / Warning alerts */}
@@ -252,41 +260,56 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 {/* Answer Key Grid Quick View */}
                 <div className="bg-surface-card p-3 rounded-lg border border-surface-border">
                   <div className="text-[11px] font-bold text-text-muted mb-1.5 flex items-center gap-1">
-                    <ListChecks size={12} /> Bảng Đáp Án Chuẩn Đã Trích Xuất:
+                    <ListChecks size={12} /> Bảng Đáp Án Chuẩn Đã Trích Xuất (câu trắc nghiệm):
                   </div>
                   <div className="grid grid-cols-5 sm:grid-cols-10 gap-1 text-center">
-                    {previewResult.questions.map(q => (
+                    {previewResult.questions.filter(q => (q.type ?? 'multiple_choice') === 'multiple_choice').map(q => (
                       <div key={q.index} className="p-1 rounded bg-surface-hover border border-surface-border text-[10px]">
                         <span className="text-text-muted block">C{q.index}</span>
                         <strong className="text-parish-primary font-black text-xs">{q.correctOption}</strong>
                       </div>
                     ))}
+                    {previewResult.essayQuestionCount > 0 && (
+                      <div className="p-1 rounded bg-violet-500/10 border border-violet-500/40 text-[10px] text-violet-600 dark:text-violet-300 font-bold col-span-full">
+                        + {previewResult.essayQuestionCount} câu tự luận ({previewResult.essayPoints}đ) — chấm bằng nhập tay
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Questions Details */}
-                {previewResult.questions.map((q) => (
+                {previewResult.questions.map((q) => {
+                  const qOptions = q.options
+                  return (
                   <div key={q.index} className="p-3 bg-surface-card rounded-lg border border-surface-border text-xs">
                     <div className="font-bold text-text-main mb-1.5 flex items-start gap-1">
                       <span className="text-parish-primary shrink-0">Câu {q.index}:</span>
                       <span>{q.question}</span>
+                      {(q.type ?? 'multiple_choice') === 'essay' && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[10px] font-black border border-violet-500/30">
+                          TỰ LUẬN{q.points !== undefined ? ` · ${q.points}đ` : ''}
+                        </span>
+                      )}
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 pl-3">
-                      {(['A', 'B', 'C', 'D'] as const).map(opt => (
-                        <div
-                          key={opt}
-                          className={`p-1.5 rounded border text-[11px] transition-colors ${
-                            q.correctOption === opt
-                              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold'
-                              : 'bg-surface-hover/60 border-surface-border text-text-muted'
-                          }`}
-                        >
-                          <span className="font-black mr-1">{opt}.</span> {q.options[opt]}
-                        </div>
-                      ))}
-                    </div>
+                    {(q.type ?? 'multiple_choice') === 'multiple_choice' && qOptions && (
+                      <div className="grid grid-cols-2 gap-1.5 pl-3">
+                        {(['A', 'B', 'C', 'D'] as const).map(opt => (
+                          <div
+                            key={opt}
+                            className={`p-1.5 rounded border text-[11px] transition-colors ${
+                              q.correctOption === opt
+                                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold'
+                                : 'bg-surface-hover/60 border-surface-border text-text-muted'
+                            }`}
+                          >
+                            <span className="font-black mr-1">{opt}.</span> {qOptions[opt]}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-text-muted text-xs text-center p-4">

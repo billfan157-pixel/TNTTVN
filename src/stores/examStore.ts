@@ -69,6 +69,8 @@ export const SCORE_TYPE_LABELS: Record<string, string> = {
 export interface ExamScoreItem {
   studentId: string
   score: number
+  /** EXAM-MIXED: điểm phần tự luận; server tự cộng phần TN đã quét. */
+  essayScore?: number
   source?: string
   answers?: string
   /** JSON chẩn đoán tổng hợp; tuyệt đối không chứa ảnh/base64. */
@@ -83,7 +85,7 @@ export interface CreateExamInput {
   maxScore?: number
   semester: 1 | 2
   academicYear?: string
-  examType?: 'written' | 'multiple_choice'
+  examType?: 'written' | 'multiple_choice' | 'mixed'
   questionCount?: number
   answerKey?: string
   answerVariants?: string
@@ -266,6 +268,7 @@ export const useExamStore = create<ExamState>()(
               examSessionId: id,
               studentId: s.studentId,
               score: s.score,
+              essayScore: s.essayScore ?? existing?.essayScore ?? null,
               source: (s.source as ExamResult['source']) || 'qr_scan',
               createdAt: existing?.createdAt || now,
               answers: s.answers ? (JSON.parse(s.answers) as Record<number, MultipleChoiceOption | null>) : existing?.answers,

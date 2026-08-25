@@ -37,13 +37,15 @@ import { getConfiguredExamVersions, normalizeAnswerVariants } from '../../lib/ex
 import { purgeExpiredScanReviewSnapshots, saveScanReviewSnapshot } from '../../lib/scanReviewStorage'
 import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
-import type { ExamAnswerVariants, ExamVersionCode } from '../../types'
+import { isMcGradedExamType } from '../../types'
+import type { ExamAnswerVariants, ExamType, ExamVersionCode } from '../../types'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface ExamScanModalProps {
   sessionId: string
   maxScore: number
-  examType?: 'written' | 'multiple_choice'
+  /** EXAM-MIXED: phiên mixed quét OMR cho phần TN (questionCount = số câu TN). */
+  examType?: ExamType
   questionCount?: number
   answerKey?: Record<number, 'A' | 'B' | 'C' | 'D'>
   answerVariants?: Partial<ExamAnswerVariants>
@@ -260,7 +262,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         setSelectedExamVersion(identity.lock.examVersion)
       }
       if (
-        examType === 'multiple_choice'
+        isMcGradedExamType(examType)
         && identity.lock.questionCount !== undefined
         && identity.lock.questionCount !== questionCount
       ) {
@@ -272,7 +274,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         })
         return true
       }
-      if (examType === 'multiple_choice' && !effectiveAnswerKey) {
+      if (isMcGradedExamType(examType) && !effectiveAnswerKey) {
         recordScanDiagnostic({ outcome: 'rejected', reason: 'UNKNOWN_EXAM_VERSION', templateMode: effectiveTemplateMode })
         stopCamera()
         setPhase({ kind: 'error', message: `Phiếu dùng mã đề ${effectiveExamVersion} nhưng phiên chưa cấu hình đáp án cho mã này.` })
@@ -280,7 +282,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       }
 
       if (!resolveRef.current) {
-        const omr = examType === 'multiple_choice'
+        const omr = isMcGradedExamType(examType)
           ? detectAnswersFromImage(frame, effectiveAnswerKey, questionCount, maxScore, effectiveTemplateMode)
           : detectScoreFromImage(frame, maxScore)
 
@@ -656,7 +658,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     try {
       const score = Math.min(maxScore, Math.max(0, phase.omr.score ?? 0))
       let answers: string | undefined
-      if (examType === 'multiple_choice' && 'questions' in phase.omr) {
+      if (isMcGradedExamType(examType) && 'questions' in phase.omr) {
         const answerMap: Record<string, string | null> = {}
         for (const q of phase.omr.questions) {
           answerMap[String(q.questionIndex)] = q.selectedAnswer
@@ -671,7 +673,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         engineVersion: 'omr-v3-live',
         protocolVersion: phase.identity.protocolVersion ?? 1,
         templateMode: phase.templateMode,
-        questionCount: examType === 'multiple_choice' ? questionCount : undefined,
+        questionCount: isMcGradedExamType(examType) ? questionCount : undefined,
         formChecksum: phase.identity.formChecksum,
         examVersion: phase.examVersion,
         detectionStatus: 'accepted',
@@ -767,7 +769,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
           onChange={handleFileUpload}
         />
 
-        {examType === 'multiple_choice' && phase.kind !== 'detected' && (
+        {isMcGradedExamType(examType) && phase.kind !== 'detected' && (
           <div className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface-app p-1.5">
             <div className="grid grid-cols-2 gap-1" role="group" aria-label="Loại mẫu phiếu OMR">
             <button
@@ -1201,7 +1203,7 @@ function formatScanQualityReason(reason: ScanQualityAssessment['reasons'][number
 
 /** Hướng dẫn hai pha: QR cần cận cảnh; OMR cần khung đáp án đủ lớn. */
 const SheetAlignmentGuide: React.FC<{
-  examType: 'written' | 'multiple_choice'
+  examType: ExamType
   questionCount: number
   mcTemplateMode: Exclude<OmrTemplateMode, 'auto'>
   skipIdentityCode?: boolean
@@ -1220,7 +1222,7 @@ const SheetAlignmentGuide: React.FC<{
     )
   }
 
-  if (examType === 'multiple_choice' && mcTemplateMode === 'integrated') {
+  if (isMcGradedExamType(examType) && mcTemplateMode === 'integrated') {
     const guideLayout = getIntegratedScanGuideLayout(questionCount)
     return (
       <div className="absolute inset-0 pointer-events-none">
@@ -1260,7 +1262,7 @@ const SheetAlignmentGuide: React.FC<{
           />
         ))}
         <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1.5 text-center">
-          <p className="text-[10px] font-bold text-white">{examType === 'multiple_choice' ? 'Giữ trọn phiếu A4 và căn đủ 4 ô đen' : 'Căn 4 chấm xanh vào 4 ô đen trên phiếu'}</p>
+          <p className="text-[10px] font-bold text-white">{isMcGradedExamType(examType) ? 'Giữ trọn phiếu A4 và căn đủ 4 ô đen' : 'Căn 4 chấm xanh vào 4 ô đen trên phiếu'}</p>
           <p className="mt-0.5 text-[9px] text-emerald-200">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Mã đã đọc, đang xác nhận OMR'}</p>
         </div>
       </div>

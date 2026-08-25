@@ -678,7 +678,8 @@ export const examSessions = sqliteTable('exam_sessions', {
   createdBy: text('created_by').notNull(),
   completedBy: text('completed_by'),
   completedAt: text('completed_at'),
-  examType: text('exam_type', { enum: ['written', 'multiple_choice'] }).notNull().default('written'),
+  // EXAM-MIXED (20260824-129): 'mixed' = đề kết hợp trắc nghiệm (chấm OMR tự động) + tự luận (nhập tay).
+  examType: text('exam_type', { enum: ['written', 'multiple_choice', 'mixed'] }).notNull().default('written'),
   questionCount: integer('question_count', { mode: 'number' }),
   answerKey: text('answer_key'), // JSON string: {"1":"A","2":"C"}
   // JSON map mã đề A..H -> answer key đầy đủ. `answer_key` tiếp tục là mã A để tương thích.
@@ -705,6 +706,8 @@ export const examResults = sqliteTable('exam_results', {
   examSessionId: text('exam_session_id').notNull(),
   studentId: text('student_id').notNull(),
   score: real('score').notNull(),
+  // EXAM-MIXED: điểm phần tự luận nhập tay; score = điểm TN tự chấm + essay_score.
+  essayScore: real('essay_score'),
   source: text('source').notNull().default('qr_scan'),
   answers: text('answers'), // JSON string: {"1":"A","2":null}
   examVersion: text('exam_version').notNull().default('A'),

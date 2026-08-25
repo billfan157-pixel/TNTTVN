@@ -25,7 +25,7 @@ import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../../lib/examPrintSafety'
-import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
+import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption } from '../../types'
 
 export type ExamDocType = 'exam_paper' | 'answer_sheet' | 'qr_sheet'
 
@@ -40,7 +40,7 @@ interface ExamPaperModalProps {
   sessionId?: string
   answerKey?: Record<number, MultipleChoiceOption>
   answerVariants?: Partial<ExamAnswerVariants>
-  examType?: 'written' | 'multiple_choice'
+  examType?: ExamType
   maxScore?: number
   questionCount?: number
   scoreTypeLabel?: string
@@ -562,7 +562,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
             {/* Badges for Answer Sheet */}
             {docType === 'answer_sheet' && (
               <span className="badge badge-neutral text-xs font-bold">
-                {examType === 'multiple_choice' ? `${questionCount} Câu Trắc Nghiệm` : `Tự Luận (Tối đa ${maxScore} điểm)`}
+                {(examType === 'multiple_choice' || examType === 'mixed') ? `${questionCount} Câu Trắc Nghiệm` : `Tự Luận (Tối đa ${maxScore} điểm)`}
               </span>
             )}
 

@@ -81,7 +81,7 @@ export function syncCreateExam(data: any): Promise<string> {
   return enqueue('exam', 'CREATE', data.id as string, data)
 }
 
-export function syncSaveExamResults(sessionId: string, scores: { studentId: string; score: number; source?: string; answers?: string; scanMetadata?: string }[]): Promise<string> {
+export function syncSaveExamResults(sessionId: string, scores: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string }[]): Promise<string> {
   return enqueue('exam', 'UPDATE', sessionId, { action: 'save_results', sessionId, scores })
 }
 

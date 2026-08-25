@@ -83,6 +83,76 @@ function computeMultipleChoiceScore(
   return Math.round((correct / questionCount) * maxScore * 10) / 10
 }
 
+// ─── EXAM-MIXED (2026-08-24): đề kết hợp trắc nghiệm + tự luận ───
+// score (điểm tổng) = điểm TN tự chấm theo trọng số từng câu + essay_score nhập tay.
+
+export type ExamQuestionType = 'multiple_choice' | 'essay'
+
+interface MixedQuestionMeta {
+  index: number
+  type: ExamQuestionType
+  points: number
+}
+
+/** Parse questions JSON → meta từng câu (type + điểm, mặc định 1đ). Trả null nếu JSON hỏng. */
+function parseMixedQuestionMeta(questionsJson: string | null | undefined): Map<number, MixedQuestionMeta> | null {
+  if (!questionsJson) return null
+  let parsed: unknown
+  try { parsed = JSON.parse(questionsJson) } catch { return null }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null
+  const meta = new Map<number, MixedQuestionMeta>()
+  for (const q of parsed) {
+    if (!q || typeof q !== 'object' || Array.isArray(q)) continue
+    const item = q as Record<string, unknown>
+    const index = Number(item.index)
+    if (!Number.isInteger(index) || index < 1 || index > 50 || meta.has(index)) continue
+    const pointsRaw = Number(item.points)
+    meta.set(index, {
+      index,
+      type: item.type === 'essay' ? 'essay' : 'multiple_choice',
+      points: Number.isFinite(pointsRaw) && pointsRaw > 0 ? Math.round(pointsRaw * 100) / 100 : 1,
+    })
+  }
+  return meta.size > 0 ? meta : null
+}
+
+/** Tổng điểm phần tự luận (trần nhập tay cho giáo viên). */
+function computeEssayMaxPoints(meta: Map<number, MixedQuestionMeta>): number {
+  let total = 0
+  for (const m of meta.values()) {
+    if (m.type === 'essay') total += m.points
+  }
+  return Math.round(total * 100) / 100
+}
+
+/** Điểm phần TN earned theo trọng số từng câu. */
+function computeMcEarnedPoints(
+  answers: Record<number, MultipleChoiceAnswer>,
+  answerKeyObj: Record<string, unknown>,
+  meta: Map<number, MixedQuestionMeta>,
+  mcQuestionCount: number,
+): number {
+  let earned = 0
+  for (let index = 1; index <= mcQuestionCount; index++) {
+    const expected = answerKeyObj[String(index)]
+    if (expected === undefined) continue
+    if (answers[index] !== null && answers[index] !== undefined && answers[index] === expected) {
+      earned += meta.get(index)?.points ?? 1
+    }
+  }
+  return Math.round(earned * 100) / 100
+}
+
+function hasAnyMcAnswer(answersJson: string | null | undefined): boolean {
+  if (!answersJson) return false
+  try {
+    const parsed = JSON.parse(answersJson) as Record<string, unknown>
+    return Object.entries(parsed).some(([key, value]) => /^\d+$/.test(key) && value !== null && value !== undefined)
+  } catch {
+    return false
+  }
+}
+
 function sanitizeScanMetadata(input: string | undefined): string | null {
   if (!input) return null
   let parsed: unknown
@@ -167,7 +237,7 @@ export interface ExamSessionData {
   maxScore?: number
   semester: 1 | 2
   academicYear?: string
-  examType?: 'written' | 'multiple_choice'
+  examType?: 'written' | 'multiple_choice' | 'mixed'
   questionCount?: number
   answerKey?: string
   answerVariants?: string
@@ -342,7 +412,7 @@ async function assertSessionAccess(sessionId: string, parishId: string, allowedC
 
 export async function upsertExamResults(
   sessionId: string,
-  results: { studentId: string; score: number; source?: ExamResultSource; answers?: string; scanMetadata?: string; examVersion?: string }[],
+  results: { studentId: string; score: number; essayScore?: number; source?: ExamResultSource; answers?: string; scanMetadata?: string; examVersion?: string }[],
   userId: string,
   parishId: string,
   ip: string,
@@ -407,21 +477,79 @@ export async function upsertExamResults(
     let upserted = 0
     const adjustments: Array<{ studentId: string; clientScore: number; serverScore: number }> = []
     const now = new Date().toISOString()
+
+    // EXAM-MIXED: meta câu hỏi + trần điểm tự luận được parse MỘT lần trước loop.
+    const isMixed = session.examType === 'mixed'
+    const mixedMeta = isMixed ? parseMixedQuestionMeta(session.questions) : null
+    if (isMixed && (!mixedMeta || !session.answerKey)) {
+      badRequest('Phiên mixed thiếu ngân hàng câu hỏi/đáp án TN hợp lệ; không thể tách điểm trắc nghiệm và tự luận.')
+    }
+    const mcQuestionCount = session.questionCount ?? 0
+
     for (const r of results) {
       const source = r.source ?? 'qr_scan'
       const examVersion = normalizeExamVersion(r.examVersion)
       const scanMetadata = sanitizeScanMetadata(r.scanMetadata)
       let authoritativeScore = r.score
+      let essayComponent: number | null = null
+      // EXAM-MIXED: đọc row hiện có để merge (không được xóa answers đã quét khi
+      // chỉ gửi essayScore mới, và ngược lại giữ essayScore khi quét thêm).
+      const existingRow = isMixed
+        ? (await tx
+            .select({ answers: examResults.answers, essayScore: examResults.essayScore })
+            .from(examResults)
+            .where(and(
+              eq(examResults.parishId, parishId),
+              eq(examResults.examSessionId, sessionId),
+              eq(examResults.studentId, r.studentId),
+            ))
+            .limit(1))[0]
+        : undefined
       if (session.examType === 'multiple_choice' && (source === 'omr' || source === 'qr_scan')) {
-        const totalQuestions = session.questionCount ?? 0
-        if (totalQuestions < 1 || totalQuestions > 50) badRequest('Số câu của phiên trắc nghiệm không hợp lệ.')
-        const parsedAnswers = parseSubmittedAnswers(r.answers, totalQuestions)
+        if (mcQuestionCount < 1 || mcQuestionCount > 50) badRequest('Số câu của phiên trắc nghiệm không hợp lệ.')
+        const parsedAnswers = parseSubmittedAnswers(r.answers, mcQuestionCount)
         const versionAnswerKey = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, examVersion)
         if (!versionAnswerKey) badRequest(`Phiên chưa cấu hình đáp án cho mã đề ${examVersion}.`)
-        authoritativeScore = computeMultipleChoiceScore(parsedAnswers, versionAnswerKey, totalQuestions, session.maxScore)
+        authoritativeScore = computeMultipleChoiceScore(parsedAnswers, versionAnswerKey, mcQuestionCount, session.maxScore)
         if (Math.abs(authoritativeScore - r.score) > 0.0001) {
           adjustments.push({ studentId: r.studentId, clientScore: r.score, serverScore: authoritativeScore })
         }
+      } else if (isMixed && mixedMeta) {
+        // Merge 2 pha: quét OMR lưu answers trước → nhập điểm TL sau (hoặc ngược lại).
+        // Server luôn TỔNG HỢP lại từ thành phần: MC earned (tự chấm theo trọng số) + essay_score.
+        const answersJson = r.answers ?? existingRow?.answers ?? null
+        let mcEarned = 0
+        if (hasAnyMcAnswer(answersJson)) {
+          if (mcQuestionCount < 1 || mcQuestionCount > 50) badRequest('Số câu trắc nghiệm của phiên mixed không hợp lệ.')
+          const parsedAnswers = parseSubmittedAnswers(answersJson as string, mcQuestionCount)
+          const versionAnswerKey = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, examVersion)
+          if (!versionAnswerKey) badRequest(`Phiên chưa cấu hình đáp án TN cho mã đề ${examVersion}.`)
+          let answerKeyObj: Record<string, unknown>
+          try { answerKeyObj = JSON.parse(versionAnswerKey) as Record<string, unknown> } catch { badRequest('Đáp án chuẩn của phiên bị lỗi JSON.') }
+          mcEarned = computeMcEarnedPoints(parsedAnswers, answerKeyObj, mixedMeta, mcQuestionCount)
+        }
+
+        const essayVal = typeof r.essayScore === 'number'
+          ? Math.round(r.essayScore * 100) / 100
+          : (existingRow?.essayScore ?? null)
+        if (essayVal !== null && (essayVal < 0 || essayVal > session.maxScore)) {
+          badRequest(`Điểm tự luận phải nằm trong khoảng 0–${session.maxScore}.`)
+        }
+        const essayCeiling = computeEssayMaxPoints(mixedMeta)
+        if (essayVal !== null && essayVal > essayCeiling + 0.004) {
+          badRequest(`Điểm tự luận vượt tổng điểm phần tự luận của đề (${essayCeiling}đ).`)
+        }
+        if (!hasAnyMcAnswer(answersJson) && essayVal === null) {
+          badRequest('Kết quả đề mixed cần có đáp án trắc nghiệm hoặc điểm phần tự luận.')
+        }
+        essayComponent = essayVal
+        authoritativeScore = Math.min(Math.round(((essayVal ?? 0) + mcEarned) * 100) / 100, session.maxScore)
+        if (Math.abs(authoritativeScore - r.score) > 0.0001) {
+          adjustments.push({ studentId: r.studentId, clientScore: r.score, serverScore: authoritativeScore })
+        }
+      } else if (typeof r.essayScore === 'number') {
+        // Phiên không phải mixed nhưng client gửi essayScore → dữ liệu mâu thuẫn.
+        badRequest('Chỉ đề mixed mới chấp nhận điểm phần tự luận (essayScore).')
       }
       if (!Number.isFinite(authoritativeScore) || authoritativeScore < 0 || authoritativeScore > session.maxScore) {
         const err = new Error(`Điểm không hợp lệ (0–${session.maxScore})`) as any
@@ -437,8 +565,9 @@ export async function upsertExamResults(
           examSessionId: sessionId,
           studentId: r.studentId,
           score: authoritativeScore,
+          essayScore: essayComponent,
           source,
-          answers: r.answers ?? null,
+          answers: r.answers ?? (isMixed ? existingRow?.answers ?? null : null),
           examVersion,
           scanMetadata,
           parishId,
@@ -448,8 +577,9 @@ export async function upsertExamResults(
           target: [examResults.parishId, examResults.examSessionId, examResults.studentId],
           set: {
             score: authoritativeScore,
+            ...(isMixed ? { essayScore: essayComponent } : {}),
             source,
-            answers: r.answers ?? null,
+            answers: r.answers ?? (isMixed ? existingRow?.answers ?? null : null),
             examVersion,
             scanMetadata,
           },
@@ -524,6 +654,7 @@ export async function getExamResults(sessionId: string, parishId: string, allowe
       examSessionId: examResults.examSessionId,
       studentId: examResults.studentId,
       score: examResults.score,
+      essayScore: examResults.essayScore,
       source: examResults.source,
       examVersion: examResults.examVersion,
       answers: examResults.answers,
@@ -965,8 +1096,16 @@ export async function updateAnswerKeyAndRescore(
     let skipped = 0
     const scoreChanges: { studentId: string; oldScore: number; newScore: number }[] = []
 
+    // EXAM-MIXED: rescore phiên mixed = chấm lại phần TN theo trọng số câu hỏi,
+    // CỘNG VỚI essay_score đã lưu (không mất điểm tự luận khi đổi đáp án).
+    const isMixedRescore = sessionBefore.examType === 'mixed'
+    const mixedMeta = isMixedRescore ? parseMixedQuestionMeta(sessionBefore.questions) : null
+    if (isMixedRescore && !mixedMeta) {
+      badRequest('Phiên mixed thiếu ngân hàng câu hỏi hợp lệ; không thể chấm lại.')
+    }
+
     for (const result of existingResults) {
-      if (result.source === 'quick_entry') {
+      if (result.source === 'quick_entry' && !isMixedRescore) {
         skipped++
         continue
       }
@@ -982,25 +1121,36 @@ export async function updateAnswerKeyAndRescore(
         continue
       }
 
-      let correctCount = 0
       const version = normalizeExamVersion(result.examVersion)
       const selectedKeyJson = resolveAnswerKeyForVersion(newAnswerKey, newAnswerVariants, version)
       if (!selectedKeyJson) {
         skipped++
         continue
       }
-      const answerKeyObj = JSON.parse(selectedKeyJson) as Record<number, string>
-      for (let q = 1; q <= newQuestionCount; q++) {
-        const userAns = answers[String(q)]
-        if (userAns && answerKeyObj[q] && userAns === answerKeyObj[q]) {
-          correctCount++
-        }
-      }
+      const answerKeyObj = JSON.parse(selectedKeyJson)
 
-      const rawScore = newQuestionCount > 0
-        ? Math.round((correctCount / newQuestionCount) * maxScore * 10) / 10
-        : 0
-      const newScore = Math.min(rawScore, maxScore)
+      let newScore: number
+      if (isMixedRescore && mixedMeta) {
+        const numericAnswers: Record<number, MultipleChoiceAnswer> = {}
+        for (let q = 1; q <= newQuestionCount; q++) {
+          const v = answers[String(q)]
+          numericAnswers[q] = v === 'A' || v === 'B' || v === 'C' || v === 'D' ? v : null
+        }
+        const mcEarned = computeMcEarnedPoints(numericAnswers, answerKeyObj, mixedMeta, newQuestionCount)
+        newScore = Math.min(Math.round((mcEarned + (result.essayScore ?? 0)) * 100) / 100, maxScore)
+      } else {
+        let correctCount = 0
+        for (let q = 1; q <= newQuestionCount; q++) {
+          const userAns = answers[String(q)]
+          if (userAns && answerKeyObj[q] && userAns === answerKeyObj[q]) {
+            correctCount++
+          }
+        }
+        const rawScore = newQuestionCount > 0
+          ? Math.round((correctCount / newQuestionCount) * maxScore * 10) / 10
+          : 0
+        newScore = Math.min(rawScore, maxScore)
+      }
 
       const oldScore = result.score
       if (oldScore !== newScore) {
@@ -1051,7 +1201,11 @@ export async function updateAnswerVariantsAndRescore(
       .limit(1)
     if (!session) throw new ExamNotFoundError()
     if (session.status !== 'draft') throw new ExamStateError('Chỉ có thể sửa mã đề khi phiên đang ở trạng thái nháp.')
-    if (session.examType !== 'multiple_choice') badRequest('Chỉ phiên trắc nghiệm mới có nhiều mã đề.')
+    // EXAM-MIXED: phần TN của đề mixed cũng hỗ trợ nhiều mã đề (chỉ áp dụng cho câu TN).
+    if (session.examType !== 'multiple_choice' && session.examType !== 'mixed') badRequest('Chỉ phiên trắc nghiệm hoặc mixed mới có nhiều mã đề.')
+    const isMixedVariants = session.examType === 'mixed'
+    const variantsMeta = isMixedVariants ? parseMixedQuestionMeta(session.questions) : null
+    if (isMixedVariants && !variantsMeta) badRequest('Phiên mixed thiếu ngân hàng câu hỏi hợp lệ; không thể chấm lại.')
 
     const variants = JSON.parse(answerVariantsJson) as Record<string, Record<string, string>>
     if (!variants.A) badRequest('Mã đề A là bắt buộc để tương thích với phiếu cũ.')
@@ -1072,11 +1226,34 @@ export async function updateAnswerVariantsAndRescore(
     let skipped = 0
     const scoreChanges: Array<{ studentId: string; examVersion: string; oldScore: number; newScore: number }> = []
     for (const result of existingResults) {
-      if (result.source === 'quick_entry' || !result.answers) {
+      if (!result.answers) {
+        skipped++
+        continue
+      }
+      if (result.source === 'quick_entry' && !isMixedVariants) {
         skipped++
         continue
       }
       const version = normalizeExamVersion(result.examVersion)
+      if (isMixedVariants && variantsMeta) {
+        // Mixed: điểm TN theo trọng số + giữ nguyên essay_score đã lưu.
+        let answersMap: Record<string, string | null> = {}
+        try { answersMap = JSON.parse(result.answers) } catch { }
+        const numericAnswers: Record<number, MultipleChoiceAnswer> = {}
+        for (let q = 1; q <= questionCount; q++) {
+          const v = answersMap[String(q)]
+          numericAnswers[q] = v === 'A' || v === 'B' || v === 'C' || v === 'D' ? v : null
+        }
+        const mcEarned = computeMcEarnedPoints(numericAnswers, variants[version], variantsMeta, questionCount)
+        const newScore = Math.min(Math.round((mcEarned + (result.essayScore ?? 0)) * 100) / 100, session.maxScore)
+        if (Math.abs(newScore - result.score) > 0.0001) {
+          scoreChanges.push({ studentId: result.studentId, examVersion: version, oldScore: result.score, newScore })
+        }
+        await tx.update(examResults).set({ score: newScore })
+          .where(and(eq(examResults.id, result.id), eq(examResults.parishId, parishId)))
+        rescored++
+        continue
+      }
       const answers = parseSubmittedAnswers(result.answers, questionCount)
       const newScore = computeMultipleChoiceScore(answers, JSON.stringify(variants[version]), questionCount, session.maxScore)
       if (Math.abs(newScore - result.score) > 0.0001) {

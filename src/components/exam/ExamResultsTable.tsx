@@ -8,12 +8,14 @@ interface ExamResultsTableProps {
   results: ExamResult[]
   onRemove: (resultId: string) => void
   sessionId?: string
+  /** EXAM-MIXED: hiện thêm cột điểm tự luận (thành phần của điểm tổng). */
+  essayMode?: boolean
 }
 
 /**
  * Smart Exam Grading — ExamResultsTable: danh sách kết quả đã lưu của phiên.
  */
-export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onRemove, sessionId }) => {
+export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onRemove, sessionId, essayMode }) => {
   const [snapshot, setSnapshot] = useState<ScanReviewSnapshot | null>(null)
   // PHA 1 nợ (audit A19): focus trap cho review overlay
   const trapRef = useFocusTrap(Boolean(snapshot))
@@ -59,6 +61,7 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
             <th className="py-2 pr-2" scope="col">#</th>
             <th className="py-2 pr-2" scope="col">Mã Số</th>
             <th className="py-2 pr-2" scope="col">Thiếu Nhi</th>
+            {essayMode && <th className="py-2 pr-2" scope="col">Điểm TL</th>}
             <th className="py-2 pr-2" scope="col">Điểm</th>
             <th className="py-2 pr-2" scope="col">Mã đề</th>
             <th className="py-2 pr-2" scope="col">Nguồn</th>
@@ -74,6 +77,11 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
                 {r.holyName && <span className="text-amber-600 mr-1">{r.holyName}</span>}
                 {r.studentName}
               </td>
+              {essayMode && (
+                <td className="py-2 pr-2 font-semibold">
+                  {typeof r.essayScore === 'number' ? r.essayScore : <span className="text-text-muted">—</span>}
+                </td>
+              )}
               <td className="py-2 pr-2 font-bold text-parish-primary">{r.score}</td>
               <td className="py-2 pr-2 font-black">{r.examVersion ?? 'A'}</td>
               <td className="py-2 pr-2">

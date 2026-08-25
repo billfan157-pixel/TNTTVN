@@ -83,7 +83,15 @@ function parseAnswerVariants(input: string | undefined, questionCount: number | 
 // QB-F2 (audit 2026-08-21): ngân hàng câu hỏi phải là mảng ExamQuestion hợp lệ —
 // trước đây chỉ z.string() trần không shape/không giới hạn, dữ liệu rác được tích
 // trữ và client phải tự liều lĩnh parse.
-function parseQuestions(input: string | undefined): { ok: true } | { ok: false; message: string } {
+// EXAM-MIXED (2026-08-24): chấp nhận thêm câu tự luận (type 'essay') — KHÔNG có
+// options/correctOption; câu trắc nghiệm giữ nguyên ràng buộc A–D + đáp án.
+export interface ParsedExamQuestion {
+  index: number
+  type: 'multiple_choice' | 'essay'
+  points?: number
+}
+
+function parseQuestions(input: string | undefined): { ok: true; questions?: ParsedExamQuestion[] } | { ok: false; message: string } {
   if (!input) return { ok: true }
   let parsed: unknown
   try { parsed = JSON.parse(input) } catch { return { ok: false, message: 'questions phải là chuỗi JSON hợp lệ (mảng ExamQuestion).' } }
@@ -91,6 +99,7 @@ function parseQuestions(input: string | undefined): { ok: true } | { ok: false; 
   if (parsed.length < 1 || parsed.length > 50) {
     return { ok: false, message: `questions phải có từ 1 đến 50 câu (nhận ${parsed.length}).` }
   }
+  const summary: ParsedExamQuestion[] = []
   for (const q of parsed) {
     if (!q || typeof q !== 'object' || Array.isArray(q)) return { ok: false, message: 'questions chứa câu hỏi không hợp lệ.' }
     const item = q as Record<string, unknown>
@@ -101,7 +110,31 @@ function parseQuestions(input: string | undefined): { ok: true } | { ok: false; 
     if (typeof item.question !== 'string' || item.question.trim().length === 0 || item.question.length > 2000) {
       return { ok: false, message: `Câu ${index}: nội dung câu hỏi phải là chuỗi 1..2000 ký tự.` }
     }
+    if (item.type !== undefined && item.type !== null && item.type !== 'multiple_choice' && item.type !== 'essay') {
+      return { ok: false, message: `Câu ${index}: type phải là 'multiple_choice' hoặc 'essay'.` }
+    }
+    const isEssay = item.type === 'essay'
+    if (item.points !== undefined && item.points !== null) {
+      const pts = Number(item.points)
+      if (!Number.isFinite(pts) || pts <= 0 || pts > 100) {
+        return { ok: false, message: `Câu ${index}: điểm câu hỏi phải nằm trong khoảng (0, 100].` }
+      }
+      summary.push({ index, type: isEssay ? 'essay' : 'multiple_choice', points: Math.round(pts * 100) / 100 })
+    } else {
+      summary.push({ index, type: isEssay ? 'essay' : 'multiple_choice' })
+    }
     const options = item.options as Record<string, unknown> | undefined
+    if (isEssay) {
+      // Câu tự luận không được mang dữ liệu trắc nghiệm — tránh trạng thái mơ hồ
+      // (có "đáp án đúng" nhưng không bao giờ chấm tự động).
+      if (options !== undefined && options !== null) {
+        return { ok: false, message: `Câu ${index}: câu tự luận không được có options A/B/C/D.` }
+      }
+      if (item.correctOption !== undefined && item.correctOption !== null) {
+        return { ok: false, message: `Câu ${index}: câu tự luận không được có correctOption.` }
+      }
+      continue
+    }
     if (!options || typeof options !== 'object' || Array.isArray(options)) {
       return { ok: false, message: `Câu ${index}: thiếu options.` }
     }
@@ -118,7 +151,26 @@ function parseQuestions(input: string | undefined): { ok: true } | { ok: false; 
       return { ok: false, message: `Câu ${index}: explanation phải là chuỗi.` }
     }
   }
-  return { ok: true }
+  return { ok: true, questions: summary }
+}
+
+/**
+ * EXAM-MIXED: với phiên trắc nghiệm/mixed, các câu TN phải chiếm CHÍNH XÁC index
+ * 1..questionCount (liên tục từ đầu đề) — phiếu OMR đánh số bubble 1..N theo
+ * questionCount nên câu TN xen kẽ giữa các câu TL sẽ làm lệch toàn bộ chấm quét.
+ */
+function validateMcIndexLayout(questions: ParsedExamQuestion[], questionCount: number): string | null {
+  const mcIndexes = questions.filter(q => q.type === 'multiple_choice').map(q => q.index).sort((a, b) => a - b)
+  if (mcIndexes.length === 0) return 'Đề mixed phải có ít nhất một câu trắc nghiệm.'
+  if (mcIndexes.length !== questionCount) {
+    return `Số câu trắc nghiệm (${mcIndexes.length}) không khớp questionCount (${questionCount}).`
+  }
+  for (let i = 0; i < mcIndexes.length; i++) {
+    if (mcIndexes[i] !== i + 1) {
+      return `Các câu trắc nghiệm phải liên tục bắt đầu từ câu 1 (phát hiện câu TN tại index ${mcIndexes[i]} sau ${i} câu).`
+    }
+  }
+  return null
 }
 
 const createSchema = z.object({
@@ -128,7 +180,8 @@ const createSchema = z.object({
   maxScore: z.coerce.number().int().min(1).max(10).optional().default(10),
   semester: z.coerce.number().int().min(1).max(2),
   academicYear: z.string().trim().min(1).optional(),
-  examType: z.enum(['written', 'multiple_choice']).optional().default('written'),
+  // EXAM-MIXED: 'mixed' = đề kết hợp trắc nghiệm (questionCount = số câu TN) + tự luận.
+  examType: z.enum(['written', 'multiple_choice', 'mixed']).optional().default('written'),
   // questionCount giới hạn 1..50 — khớp template phiếu in (answerSheetTemplate.getMcColumnLayout clamp 50).
   questionCount: z.coerce.number().int().min(1).max(50).optional(),
   answerKey: z.string().optional(),
@@ -139,6 +192,9 @@ const createSchema = z.object({
   if (data.examType === 'multiple_choice' && data.questionCount === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questionCount'], message: 'questionCount bắt buộc với hình thức trắc nghiệm' })
   }
+  if (data.examType === 'mixed' && data.questionCount === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questionCount'], message: 'questionCount (số câu trắc nghiệm) bắt buộc với đề mixed' })
+  }
   // EXAM-AUDIT F3 (2026-08-21): chặn năm học tự do ("abc") ngay tại create —
   // trước đây phiên tạo được nhưng complete sẽ fail 400 "Năm học không tồn tại"
   // (upsertGrade verify) với thông báo khó hiểu.
@@ -148,6 +204,13 @@ const createSchema = z.object({
   if (data.examType === 'multiple_choice' && !data.answerKey && !data.answerVariants) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: 'answerKey hoặc answerVariants đầy đủ bắt buộc với hình thức trắc nghiệm' })
   }
+  if (data.examType === 'mixed' && !data.answerKey && !data.answerVariants) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: 'answerKey (phần trắc nghiệm) bắt buộc với đề mixed' })
+  }
+  if (data.examType === 'mixed' && !data.questions) {
+    // Không có ngân hàng câu hỏi thì không thể tách trọng số điểm TN/TL khi chấm.
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: 'questions (có ít nhất 1 câu tự luận) bắt buộc với đề mixed' })
+  }
   const check = parseAnswerKey(data.answerKey, data.questionCount)
   if (!check.ok) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerKey'], message: check.message })
@@ -155,13 +218,28 @@ const createSchema = z.object({
   const variantsCheck = parseAnswerVariants(data.answerVariants, data.questionCount)
   if (!variantsCheck.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['answerVariants'], message: variantsCheck.message })
   const questionsCheck = parseQuestions(data.questions)
-  if (!questionsCheck.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: questionsCheck.message })
+  if (!questionsCheck.ok) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: questionsCheck.message })
+  } else if ((data.examType === 'mixed' || data.examType === 'multiple_choice') && questionsCheck.questions && questionsCheck.questions.length > 0) {
+    // EXAM-MIXED: cross-check bố cục câu TN với questionCount (phiếu OMR đánh
+    // bubble 1..questionCount nên câu TN phải liên tục từ đầu đề).
+    const layoutError = validateMcIndexLayout(questionsCheck.questions, data.questionCount ?? questionsCheck.questions.filter(q => q.type === 'multiple_choice').length)
+    if (layoutError) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: layoutError })
+    }
+    if (data.examType === 'mixed' && !questionsCheck.questions.some(q => q.type === 'essay')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: 'Đề mixed phải có ít nhất một câu tự luận.' })
+    }
+  }
 })
 
 const resultsSchema = z.object({
   results: z.array(z.object({
     studentId: z.string().trim().min(1),
     score: z.coerce.number().min(0).max(10),
+    // EXAM-MIXED: điểm phần tự luận (nhập tay). Server cộng vào phần TN tự chấm
+    // rồi mới clamp theo maxScore — client KHÔNG được tự quyết định điểm tổng.
+    essayScore: z.coerce.number().min(0).max(10).optional(),
     source: z.enum(['qr_scan', 'omr', 'quick_entry']).optional(),
     answers: z.string().max(20_000).optional(),
     scanMetadata: z.string().max(10_000).optional(),
@@ -368,8 +446,8 @@ examsRouter.patch('/:id/answer-key', zValidator('json', updateAnswerKeySchema), 
     if (session.status === 'completed') {
       return errorResponse(c, 'STATE_TRANSITION_INVALID', 'Phiên đã hoàn tất — mở lại trước khi sửa answer key', 409)
     }
-    if (session.examType !== 'multiple_choice') {
-      return errorResponse(c, 'INVALID_OPERATION', 'Chỉ sửa answer key cho phiên trắc nghiệm', 400)
+    if (session.examType !== 'multiple_choice' && session.examType !== 'mixed') {
+      return errorResponse(c, 'INVALID_OPERATION', 'Chỉ sửa answer key cho phiên trắc nghiệm hoặc mixed', 400)
     }
 
     const effectiveAnswerKey = answerKey ?? session.answerKey

@@ -607,6 +607,25 @@ Hệ thống cung cấp tính năng xuất đề thi và bảng đáp án đa đ
 4. **JSON (.json)**: Gói dữ liệu đầy đủ metadata, câu hỏi, điểm và đáp án. Phiên key-only (không có ngân hàng câu hỏi) đánh dấu `metadata.syntheticQuestions = true` — danh sách câu hỏi kèm theo là PLACEHOLDER, không phải dữ liệu thật (EP-F3).
 5. **Bảo mật**: Khử XSS toàn bộ nội dung HTML sinh ra bằng `escapeHtml`; tên file xuất qua `sanitizeFilename` (thay `[<>:"/\\|?*]`) và `<title>` PDF export được sanitize qua `applyPdfTitle` — chặn stored XSS từ `subject` của phiên chấm khi nạn nhân bấm "Tải PDF" (EP-F1/F2, AUDIT-EP-01 2026-08-21).
 
+### 21.5 Đề Kết Hợp Trắc Nghiệm + Tự Luận — EXAM-MIXED (ADR-053, 2026-08-24)
+
+Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự động OMR/QR) và phần tự luận (nhập tay):
+
+1. **Mô hình dữ liệu**: `ExamQuestion.type ∈ {multiple_choice, essay}` (thiếu `type` ở dữ liệu cũ → mặc định `multiple_choice`). Câu `essay` KHÔNG có `options`/`correctOption` (server từ chối nếu có). Mỗi câu có thể khai báo `points` (mặc định 1đ, range (0,100]).
+2. **Ràng buộc bố cục**: các câu TN phải chiếm CHÍNH XÁC index `1..questionCount` liên tục từ đầu đề (phiếu OMR đánh bubble 1..N theo `questionCount`); câu TL đứng sau. `questionCount` của phiên mixed = **số câu trắc nghiệm**. Server validate chặt ở create; vi phạm → 400.
+3. **Import đề mixed**:
+   - Văn bản: tiêu đề phần `PHẦN I. TRẮC NGHIỆM` / `PHẦN II. TỰ LUẬN` (hoặc `Part`, số La Mã, nhãn TN/TL ngắn) chuyển mode phân tích; câu sau tiêu đề TL không cần phương án. Điểm câu `(3 điểm)`/`(0,5 đ)` được trích khỏi nội dung hiển thị; điểm khai báo ở TIÊU ĐỀ PHẦN được chia đều cho các câu chưa có điểm riêng kèm warning. Regex mở đầu câu hỏi chấp nhận chú thích điểm: `Câu 4 (5 điểm): ...`.
+   - Excel: layout mở rộng có cột `Loại` (TN/TL) + cột `Điểm`; parser map cột THEO TÊN HEADER nên thứ tự cột linh hoạt; file 7 cột cũ vẫn import bình thường (toàn bộ hiểu là TN).
+   - `answerKey` chỉ chứa đáp án câu TN. Xuất Excel round-trip ghi thêm cột `Loại`.
+4. **Hợp đồng điểm (server-authoritative)**:
+   - Phần TN tự chấm theo trọng số từng câu: `mcEarned = Σ points(câu đúng)`. KHÔNG dùng tỉ lệ `correct/count × maxScore` như đề thuần TN.
+   - Phần TL nhập tay per-student (`essayScore` trên `POST /:id/results`), lưu cột `essay_score` (migration `20260824-129`), bị từ chối nếu vượt tổng điểm câu TL của đề hoặc `maxScore`.
+   - `score = clamp(mcEarned + essayScore, 0, maxScore)` luôn do server tổng hợp từ thành phần đã lưu — merge 2 pha (quét trước/nhập sau hoặc ngược lại) KHÔNG làm mất `answers` hay `essay_score`. Request mixed thiếu cả hai thành phần → 400.
+   - Phiên không phải mixed gửi `essayScore` → 400.
+   - Rescore (đổi key/mã đề): chấm lại phần TN theo trọng số + giữ nguyên `essay_score` đã lưu; rows `quick_entry` của mixed vẫn được rescore phần TN.
+5. **In & quét**: khung OMR tích hợp trên đề in chỉ render các câu TN; QR payload embed `questionCount` = số câu TN (detector fail-closed so số bubble). Bản in hiển thị câu TL với dòng kẻ trình bày; bảng đáp án GLV tách phần TN (key) và gợi ý chấm TL. Scan/batch scan/analytics hoạt động trên phần TN; analytics ghi rõ phạm vi khi mixed.
+6. **Nhập điểm UI**: QuickScoreEntry/GuidedGrade ở chế độ mixed là "Nhập điểm TỰ LUẬN" (trần = Σ points câu TL), hiển thị cột Tổng (TN+TL); bảng kết quả có cột riêng "Điểm TL". Hoàn tất phiên/finalize dùng điểm tổng như thường lệ.
+
 ---
 
 ## 22. QUY CHẾ QUẢN LÝ NGÂN QUỸ & THU CHI XỨ ĐOÀN TNTT (ADR-039)

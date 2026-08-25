@@ -27,7 +27,8 @@ import {
 } from '../lib/answerSheetTemplate'
 import { escapeHtml } from './grades'
 import { ReportExportService } from '../services/reportExportService'
-import type { ExamQuestion } from '../types'
+import { isMcGradedExamType } from '../types'
+import type { ExamQuestion, ExamType } from '../types'
 
 /**
  * A01 Phase 2 + A-NEW-03 (2026-08-10): builder tách để test — KHÔNG dùng document.write;
@@ -96,7 +97,7 @@ export interface BatchAnswerSheetParams {
   scoreTypeLabel: string
   classLabel: string
   maxScore: number
-  examType?: 'written' | 'multiple_choice'
+  examType?: ExamType
   questionCount?: number
   examVersion?: ExamVersionCode
 }
@@ -115,7 +116,7 @@ export function buildSingleAnswerSheetSvgString(
   const { sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType = 'written', questionCount = 20, examVersion = 'A' } = params
   const qrPayload = buildExamQrPayload(sessionId, student.id, {
     templateMode: 'full_page',
-    questionCount: examType === 'multiple_choice' ? questionCount : Math.max(1, maxScore + 1),
+    questionCount: isMcGradedExamType(examType) ? questionCount : Math.max(1, maxScore + 1),
     examVersion,
   })
   const rawQr = generateExamQrSvg(qrPayload, 4)
@@ -137,7 +138,7 @@ export function buildSingleAnswerSheetSvgString(
 
   let contentSvg = ''
 
-  if (examType === 'multiple_choice') {
+  if (isMcGradedExamType(examType)) {
     // Vẽ khối khung cột cho các câu hỏi
     const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
     let questionsMarkup = ''
@@ -249,14 +250,14 @@ export function buildSingleAnswerSheetSvgString(
     <rect x="${px(0.04)}" y="${py(0.235)}" width="${px(0.92)}" height="${py(0.055)}" rx="6" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1" />
     <text x="${px(0.06)}" y="${py(0.262)}" font-size="12.5" font-weight="800" fill="#1E40AF">HƯỚNG DẪN TÔ Ô:</text>
     <text x="${px(0.21)}" y="${py(0.262)}" font-size="11.5" font-weight="600" fill="#1E293B">${
-      examType === 'multiple_choice'
+      isMcGradedExamType(examType)
         ? `T\\u00f4 k\\u00edn \\u0111\\u0103m M\\u1ed8T \\u0111\\u00e1p \\u00e1n \\u0111\\u00fang (A, B, C, D) cho t\\u1ea7ng c\\u00e2u (${questionCount} c\\u00e2u).`
         : `T\\u00f4 k\\u00edn \\u0111\\u0103m M\\u1ed8T \\u00f4 duy nh\\u1ea5t t\\u01b0\\u0303ng \\u1ee9ng v\\u1edbi \\u0111i\\u1ec3m \\u0111\\u1ea1t \\u0111\\u01b0\\u1ee3c (0 \\u2013 ${maxScore}).`
     }</text>
 
     <g transform="translate(${px(0.68)}, ${py(0.245)})">
       ${
-        examType === 'multiple_choice'
+        isMcGradedExamType(examType)
           ? `<rect x="0" y="0" width="16" height="16" rx="3" fill="#0F172A" />
       <text x="22" y="13" font-size="11" font-weight="bold" fill="#166534">\u0110\u00daNG</text>
       <rect x="70" y="0" width="16" height="16" rx="3" fill="#FFFFFF" stroke="#64748B" stroke-width="1.5" />
@@ -848,8 +849,23 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
 
   const title = `Đề Thi & Phiếu Trả Lời — ${subject} (${classLabel})`
   const effectiveQuestions = [...questions].sort((a, b) => (a.index || 0) - (b.index || 0))
+  // EXAM-MIXED: tách 2 loại câu — khung OMR/chấm quét chỉ áp dụng cho phần trắc nghiệm.
+  const mcQuestions = effectiveQuestions.filter(q => (q.type ?? 'multiple_choice') === 'multiple_choice')
+  const essayQuestions = effectiveQuestions.filter(q => q.type === 'essay')
 
   const questionsHtml = effectiveQuestions.map((q) => {
+    // ── Câu tự luận: không có phương án — in ô trống cho học sinh trình bày ──
+    if (q.type === 'essay') {
+      return `
+      <div class="question-block">
+        <div class="question-title">
+          <strong>Câu ${q.index}:</strong> ${escapeHtml(q.question)}${q.points !== undefined ? ` <em>(${q.points} điểm)</em>` : ''}
+        </div>
+        <div class="essay-answer-space" style="border-bottom: 1px dotted #94a3b8; height: 64px;"></div>
+        <div class="essay-answer-space" style="border-bottom: 1px dotted #94a3b8; height: 64px;"></div>
+      </div>
+    `
+    }
     const isA = q.correctOption === 'A' && showAnswerKey
     const isB = q.correctOption === 'B' && showAnswerKey
     const isC = q.correctOption === 'C' && showAnswerKey
@@ -862,16 +878,16 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
         </div>
         <div class="options-grid">
           <div class="option-item ${isA ? 'option-correct' : ''}">
-            <span class="option-label">A.</span> ${escapeHtml(q.options.A)}
+            <span class="option-label">A.</span> ${escapeHtml(q.options?.A || '')}
           </div>
           <div class="option-item ${isB ? 'option-correct' : ''}">
-            <span class="option-label">B.</span> ${escapeHtml(q.options.B)}
+            <span class="option-label">B.</span> ${escapeHtml(q.options?.B || '')}
           </div>
           <div class="option-item ${isC ? 'option-correct' : ''}">
-            <span class="option-label">C.</span> ${escapeHtml(q.options.C)}
+            <span class="option-label">C.</span> ${escapeHtml(q.options?.C || '')}
           </div>
           <div class="option-item ${isD ? 'option-correct' : ''}">
-            <span class="option-label">D.</span> ${escapeHtml(q.options.D)}
+            <span class="option-label">D.</span> ${escapeHtml(q.options?.D || '')}
           </div>
         </div>
       </div>
@@ -880,13 +896,15 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
 
   // Sinh QR code định danh dạng Base64 Data URL (tương thích 100% cả trình duyệt, in ấn, PDF và Microsoft Word)
   // P0 Guard: Nếu là bản Đáp Án GLV hoặc không có khung OMR (includeAnswerGrid = false), không encode templateMode: 'integrated'
+  // EXAM-MIXED: questionCount trong QR = số câu TRẮC NGHIỆM — detector fail-closed
+  // so số bubble nên không được đếm câu tự luận vào payload.
   const qrPayload = showAnswerKey
     ? `tntt-exam:${sessionId}:KEY:${examVersion}`
     : student
-      ? (includeAnswerGrid && effectiveQuestions.length > 0
+      ? (includeAnswerGrid && mcQuestions.length > 0
           ? buildExamQrPayload(sessionId, student.id, {
               templateMode: 'integrated',
-              questionCount: Math.max(1, effectiveQuestions.length),
+              questionCount: Math.max(1, mcQuestions.length),
               examVersion,
             })
           : buildExamQrPayload(sessionId, student.id))
@@ -895,8 +913,8 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
 
   // Bảng ma trận phiếu trả lời trắc nghiệm tích hợp (gộp trực tiếp trên tờ đề)
   let answerGridHtml = ''
-  if (includeAnswerGrid && effectiveQuestions.length > 0) {
-    const totalQ = effectiveQuestions.length
+  if (includeAnswerGrid && mcQuestions.length > 0) {
+    const totalQ = mcQuestions.length
     // V3 compatibility: giữ nguyên 5 cột ≤20 và 8 cột 21..50. V4 chỉ sửa
     // CSS track sizing/min-content để không thay tọa độ detector hay phiếu cũ.
     const gridCols = integratedGridCols(totalQ)
@@ -920,7 +938,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           <div class="omr-corner-marker omr-marker-br" title="Marker BR"></div>
 
           <div class="answer-grid-container" style="grid-template-columns: repeat(${gridCols}, minmax(0, 1fr));">
-            ${effectiveQuestions.map((q) => {
+            ${mcQuestions.map((q) => {
               const correct = q.correctOption
               return `
                 <div class="grid-q-row">
@@ -946,22 +964,30 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     answerKeyTableHtml = `
       <div class="answer-key-summary">
         <div class="key-header">
-          📋 BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN — MÃ ĐỀ: <strong>${examVersion}</strong> (${effectiveQuestions.length} CÂU)
+          📋 BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN — MÃ ĐỀ: <strong>${examVersion}</strong> (${mcQuestions.length} CÂU TN${essayQuestions.length > 0 ? ` + ${essayQuestions.length} CÂU TL` : ''})
         </div>
         <div class="key-grid">
-          ${effectiveQuestions.map(q => `
+          ${mcQuestions.map(q => `
             <div class="key-cell">
               <span class="key-q">C${q.index}:</span>
               <span class="key-ans">${q.correctOption}</span>
             </div>
           `).join('')}
         </div>
+        ${essayQuestions.length > 0 ? `
+          <div style="margin-top: 6px; font-size: 9.5pt;">
+            <div style="font-weight: bold; color: #1e3a8a;">✍️ GỢI Ý CHẤM PHẦN TỰ LUẬN (nhập điểm tay trên hệ thống):</div>
+            ${essayQuestions.map(q => `
+              <div style="margin-bottom: 2px;"><strong>Câu ${q.index}${q.points !== undefined ? ` (${q.points}đ)` : ''}:</strong> chấm theo nội dung đề.</div>
+            `).join('')}
+          </div>
+        ` : ''}
         ${options.includeExplanations && effectiveQuestions.some(q => Boolean(q.explanation)) ? `
           <div class="explanations-wrapper" style="margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
             <div style="font-weight: bold; color: #1e3a8a; font-size: 10pt; margin-bottom: 4px;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
             ${effectiveQuestions.filter(q => Boolean(q.explanation)).map(q => `
               <div style="font-size: 9.5pt; margin-bottom: 3px; line-height: 1.3;">
-                <strong>Câu ${q.index} (${q.correctOption}):</strong> <em>${escapeHtml(q.explanation || '')}</em>
+                <strong>Câu ${q.index}${q.correctOption ? ` (${q.correctOption})` : ''}:</strong> <em>${escapeHtml(q.explanation || '')}</em>
               </div>
             `).join('')}
           </div>

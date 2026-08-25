@@ -118,3 +118,28 @@ Import Processing Route (server/src/routes/import.ts)
 
 ### 6.3 Class Summary HTML Print View
 - Renders printable HTML views adhering to standard A4 page layout guidelines with exact parish branding tokens.
+
+---
+
+## 7. EXAM QUESTION IMPORT SPECIFICATION (`examParser.ts`) — EXAM-MIXED (ADR-053, 2026-08-24)
+
+Import đề thi (trắc nghiệm, tự luận hoặc KẾT HỢP) chạy 100% client-side/offline; kết quả đi vào `POST /api/exams` như một phiên chấm.
+
+### 7.1 Văn bản / Word / Markdown paste
+- Tiêu đề phần chuyển mode phân tích: `PHẦN I. TRẮC NGHIỆM` → câu TN; `PHẦN II. TỰ LUẬN` → câu TL. Chấp nhận: prefix `Phần/Part/Phần số La Mã/số Ả Rập`, nhãn ngắn ≤40 ký tự chứa từ khóa (`trắc nghiệm`, `TN`, `tự luận`, `TL`, `essay`). Không có tiêu đề phần → toàn bộ là TN (tương thích ngược).
+- Câu TN giữ nguyên quy tắc §21.1 BUSINESS_RULES (A–D, đáp án inline/bảng cuối đề). Câu TL: toàn bộ khối là nội dung; KHÔNG parse A–D; không có key.
+- Điểm: `(3 điểm)` / `(0,5 đ)` trên dòng câu hỏi hoặc trong nội dung được trích làm `points` và gỡ khỏi text hiển thị; điểm khai báo ở TIÊU ĐỀ PHẦN được chia đều cho các câu chưa có điểm riêng của phần đó (warning kèm theo). Regex mở đầu câu chấp nhận chú thích điểm xen giữa: `Câu 4 (5 điểm): ...`.
+- Kết quả trả thêm thống kê: `mcQuestionCount`, `essayQuestionCount`, `mcPoints`, `essayPoints`, `totalPoints`; `answerKey` CHỈ chứa câu TN.
+- Giới hạn tổng 50 câu (khớp server + OMR).
+
+### 7.2 Excel (.xlsx/.xls/.csv)
+- Layout cũ 7 cột `[Câu, Nội dung, A, B, C, D, Đáp án]`: import bình thường, toàn bộ là TN.
+- Layout mở rộng: parser map cột THEO TÊN HEADER (`Câu/Nội dung/Lựa chọn A–D/Đáp án/Loại/Điểm`) nên thứ tự cột linh hoạt. Ô `Loại`: `TL/Tự luận/Essay` → essay; còn lại/mặc định → TN. Ô `Điểm`: số thập phân (>0); thiếu → default 1đ khi tính điểm.
+- File mẫu 9 cột tải về từ modal import gồm cả dòng TL minh họa.
+
+### 7.3 Round-trip export
+- `generateExamExcelWorkbook` xuất sheet `Danh_Sach_Cau_Hoi` 10 cột `[Câu Số, Loại, Nội Dung, A, B, C, D, Đáp Án, Điểm, Giải Thích]` — file xuất ra có thể import lại trực tiếp.
+- Word/Text/Markdown/PDF: câu TL in không kèm A–D, có chú thích điểm; bảng đáp án chỉ liệt kê câu TN + danh sách câu TL chấm tay.
+
+### 7.4 Ràng buộc dữ liệu khi tạo phiên mixed
+- `questionCount` = số câu TN (phiếu OMR bubble 1..N); các câu TN phải chiếm index 1..questionCount LIÊN TỤC từ đầu đề; ≥1 câu TL bắt buộc; server reject nếu vi phạm hoặc thiếu `questions`/`answerKey`. Chi tiết hợp đồng điểm xem BUSINESS_RULES §21.5.

@@ -197,19 +197,21 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
   const wb = XLSX.utils.book_new()
 
   // 1. Sheet 1: Danh sách câu hỏi chi tiết (chuẩn format để import lại được vào app)
+  // EXAM-MIXED: thêm cột "Loại" (Trắc nghiệm/Tự luận) — parser import map theo tên header.
   const questionsData = [
-    ['Câu Số', 'Nội Dung Câu Hỏi', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng (A/B/C/D)', 'Điểm', 'Giải Thích Chi Tiết'],
+    ['Câu Số', 'Loại', 'Nội Dung Câu Hỏi', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng (A/B/C/D)', 'Điểm', 'Giải Thích Chi Tiết'],
     ...questions.map((q, idx) => {
       const qNum = q.index || idx + 1
-      const correct = options.answerKey?.[qNum] || q.correctOption || 'A'
+      const isEssay = q.type === 'essay'
       return [
         qNum,
+        isEssay ? 'Tự luận' : 'Trắc nghiệm',
         q.question || '',
         q.options?.A || '',
         q.options?.B || '',
         q.options?.C || '',
         q.options?.D || '',
-        correct,
+        isEssay ? '' : (options.answerKey?.[qNum] || q.correctOption || 'A'),
         q.points ?? 1,
         q.explanation || '',
       ]
@@ -219,6 +221,7 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
   const wsQuestions = XLSX.utils.aoa_to_sheet(questionsData)
   wsQuestions['!cols'] = [
     { wch: 8 },
+    { wch: 14 },
     { wch: 45 },
     { wch: 25 },
     { wch: 25 },
@@ -325,6 +328,11 @@ export function exportExamToText(options: ExamExportOptions): string {
 
   questions.forEach((q, idx) => {
     const qNum = q.index || idx + 1
+    // EXAM-MIXED: câu tự luận không in phương án — in dòng trống trình bày.
+    if (q.type === 'essay') {
+      text += `Câu ${qNum}${q.points !== undefined ? ` (${q.points} điểm)` : ''}: ${q.question}\n\n`
+      return
+    }
     text += `Câu ${qNum}: ${q.question}\n`
     text += `A. ${q.options?.A || ''}\n`
     text += `B. ${q.options?.B || ''}\n`
@@ -335,12 +343,23 @@ export function exportExamToText(options: ExamExportOptions): string {
   if (includeKey) {
     text += `===========================================\n`
     text += `BẢNG ĐÁP ÁN & HƯỚNG DẪN CHẤM (MÃ ĐỀ ${versionCode}):\n`
-    const keyPairs = questions.map((q, idx) => {
-      const qNum = q.index || idx + 1
-      const ans = activeKey[qNum] || q.correctOption || 'A'
-      return `${qNum}.${ans}`
-    })
-    text += `${keyPairs.join('   ')}\n\n`
+    const keyPairs = questions
+      .filter(q => q.type !== 'essay')
+      .map((q, idx) => {
+        const qNum = q.index || idx + 1
+        const ans = activeKey[qNum] || q.correctOption || 'A'
+        return `${qNum}.${ans}`
+      })
+    text += `${keyPairs.join('   ')}\n`
+    const essayList = questions.filter(q => q.type === 'essay')
+    if (essayList.length > 0) {
+      text += `\nPHẦN TỰ LUẬN (chấm bằng nhập điểm tay trên hệ thống):\n`
+      essayList.forEach(q => {
+        const qNum = q.index || 0
+        text += `- Câu ${qNum}${q.points !== undefined ? ` (${q.points}đ)` : ''}\n`
+      })
+    }
+    text += '\n'
 
     if (includeExp) {
       questions.forEach((q, idx) => {
@@ -405,6 +424,11 @@ export function exportExamToMarkdown(options: ExamExportOptions): string {
 
   questions.forEach((q, idx) => {
     const qNum = q.index || idx + 1
+    // EXAM-MIXED: câu tự luận không in phương án.
+    if (q.type === 'essay') {
+      md += `#### Câu ${qNum}${q.points !== undefined ? ` (${q.points} điểm)` : ''}: ${q.question}\n\n`
+      return
+    }
     md += `#### Câu ${qNum}: ${q.question}\n`
     md += `- **A.** ${q.options?.A || ''}\n`
     md += `- **B.** ${q.options?.B || ''}\n`
@@ -417,12 +441,20 @@ export function exportExamToMarkdown(options: ExamExportOptions): string {
     md += `### 📋 BẢNG ĐÁP ÁN (MÃ ĐỀ ${versionCode})\n\n`
     md += `| Câu | Đáp Án | Nội Dung |\n`
     md += `| :---: | :---: | :--- |\n`
-    questions.forEach((q, idx) => {
+    questions.filter(q => q.type !== 'essay').forEach((q, idx) => {
       const qNum = q.index || idx + 1
       const ans = activeKey[qNum] || q.correctOption || 'A'
       const optionText = q.options?.[ans] || ''
       md += `| **${qNum}** | **${ans}** | ${optionText} |\n`
     })
+    const essayList = questions.filter(q => q.type === 'essay')
+    if (essayList.length > 0) {
+      md += `\n**PHẦN TỰ LUẬN** — chấm bằng nhập điểm tay trên hệ thống:\n\n`
+      essayList.forEach(q => {
+        const qNum = q.index || 0
+        md += `- **Câu ${qNum}**${q.points !== undefined ? ` (${q.points}đ)` : ''}\n`
+      })
+    }
     md += `\n`
 
     if (includeExp) {

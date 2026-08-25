@@ -24,7 +24,7 @@ import {
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
   Download,
 } from 'lucide-react'
-import type { ExamScoreType, ExamQuestion } from '../../types'
+import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
@@ -144,7 +144,7 @@ export const ExamSessionView: React.FC = () => {
     subject: string
     scoreType: ExamScoreType
     maxScore: number
-    examType: 'written' | 'multiple_choice'
+    examType: ExamType
     questionCount: number
     answerKey: Record<number, 'A' | 'B' | 'C' | 'D'>
     questions?: ExamQuestion[]
@@ -228,6 +228,23 @@ export const ExamSessionView: React.FC = () => {
     () => (activeSession ? parseQuestionsSafe(activeSession.questions) : []),
     [activeSession]
   )
+  // EXAM-MIXED: trần điểm phần tự luận = tổng points của các câu TL; phần TN tự chấm.
+  const activeIsMixed = activeSession?.examType === 'mixed'
+  const activeEssayMaxPoints = useMemo(
+    () => Math.round(activeSessionQuestions
+      .filter(q => q.type === 'essay')
+      .reduce((sum, q) => sum + (q.points ?? 1), 0) * 100) / 100,
+    [activeSessionQuestions]
+  )
+  // Điểm phần tự luận đã lưu từng em (để nhập/cập nhật lại đúng phần TL).
+  const savedEssayScores = useMemo(() => {
+    if (!activeIsMixed) return {}
+    const map: Record<string, number> = {}
+    for (const r of results) {
+      if (typeof r.essayScore === 'number') map[r.studentId] = r.essayScore
+    }
+    return map
+  }, [results, activeIsMixed])
   const activeExamVersions = useMemo(
     () => activeSession
       ? getConfiguredExamVersions(activeSession.answerVariants, activeSession.answerKey, activeSession.questionCount)
@@ -256,14 +273,21 @@ export const ExamSessionView: React.FC = () => {
     }
     // Trắc nghiệm bắt buộc có đủ đáp án cho từng câu — nếu không, OMR detector
     // không chấm được (câu thiếu key → isCorrect undefined → điểm lệch).
-    if (createForm.examType === 'multiple_choice') {
+    if (createForm.examType === 'multiple_choice' || createForm.examType === 'mixed') {
       const missingCount = createForm.questionCount - Object.keys(createForm.answerKey).length
       if (missingCount > 0) {
-        setCreateError(`Còn ${missingCount} câu chưa có đáp án — điền đủ đáp án A/B/C/D trước khi tạo phiên.`)
+        setCreateError(`Còn ${missingCount} câu trắc nghiệm chưa có đáp án — điền đủ đáp án A/B/C/D trước khi tạo phiên.`)
         return
       }
       const bad = Object.keys(createForm.answerKey).find(q => Number(q) > createForm.questionCount)
       if (bad) setCreateError(`Đáp án câu ${bad} vượt quá ${createForm.questionCount} câu.`)
+      if (createForm.examType === 'mixed') {
+        const hasEssay = (createForm.questions ?? []).some(q => q.type === 'essay')
+        if (!hasEssay) {
+          setCreateError('Đề mixed phải có ít nhất một câu tự luận — import lại đề có phần TỰ LUẬN hoặc chọn hình thức khác.')
+          return
+        }
+      }
     }
     // Cảnh báo tạo trùng: đã có phiên draft cùng lớp + môn + loại điểm (cùng học kỳ).
     const duplicateDraft = sessions.find(s =>
@@ -290,8 +314,11 @@ export const ExamSessionView: React.FC = () => {
       academicYear: useAcademicYearStore.getState().resolveActiveYear(),
       semester: selectedSemester,
       examType: createForm.examType,
-      questionCount: createForm.examType === 'multiple_choice' ? createForm.questionCount : undefined,
-      answerKey: createForm.examType === 'multiple_choice' ? (JSON.stringify(createForm.answerKey) as any) : undefined,
+      // questionCount = số câu TRẮC NGHIỆM (khớp phiếu OMR 1..N) với mọi hình thức có phần TN.
+      questionCount: createForm.examType === 'multiple_choice' || createForm.examType === 'mixed' ? createForm.questionCount : undefined,
+      answerKey: createForm.examType === 'multiple_choice' || createForm.examType === 'mixed'
+        ? (JSON.stringify(createForm.answerKey) as any)
+        : undefined,
       questions: createForm.questions ? JSON.stringify(createForm.questions) : undefined,
     })
     if (session) {
@@ -311,7 +338,11 @@ export const ExamSessionView: React.FC = () => {
     }
   }
 
-  const handleSaveScore = async (studentId: string, score: number) => {
+  const handleSaveScore = async (studentId: string, score: number, opts?: { essay?: boolean }) => {
+    // EXAM-MIXED: score ở đây là ĐIỂM TỰ LUẬN — server tự cộng phần TN đã quét.
+    if (opts?.essay) {
+      return (await saveScores([{ studentId, score, essayScore: score, source: 'quick_entry' }])) !== null
+    }
     return (await saveScores([{ studentId, score, source: 'quick_entry' }])) !== null
   }
 
@@ -513,14 +544,14 @@ export const ExamSessionView: React.FC = () => {
                   <button className="btn btn-secondary btn-sm min-h-11 col-span-2 justify-center sm:w-auto" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
                     <ScanLine size={14} /> Quét QR + OMR
                   </button>
-                  {activeSession.examType === 'multiple_choice' && (
+                  {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
                     <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowBatchScan(true)}>
                       <Images size={14} /> Chấm Nhiều Ảnh
                     </button>
                   )}
                 </>
               )}
-              {activeSession.examType === 'multiple_choice' && canManage && activeSession.status === 'draft' && (
+              {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canManage && activeSession.status === 'draft' && (
                 <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowVariants(true)}>
                   <Layers3 size={14} /> Mã Đề ({activeExamVersions.length})
                 </button>
@@ -597,15 +628,20 @@ export const ExamSessionView: React.FC = () => {
 
           {canScan && activeSession.status === 'draft' && (
             <div className="mb-4">
-              <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2">
-                <Save size={14} /> Nhập Điểm Nhanh (Enter để lưu)
+              <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2 flex-wrap">
+                <Save size={14} />
+                {activeIsMixed
+                  ? `Nhập Điểm Tự Luận (0–${activeEssayMaxPoints}đ) — Enter để lưu, điểm TN tự cộng sau khi quét phiếu`
+                  : 'Nhập Điểm Nhanh (Enter để lưu)'}
               </div>
               <QuickScoreEntry
                 students={classStudents}
-                savedScores={savedScores}
-                maxScore={activeSession.maxScore}
-                onSave={handleSaveScore}
+                savedScores={activeIsMixed ? savedEssayScores : savedScores}
+                maxScore={activeIsMixed ? activeEssayMaxPoints : activeSession.maxScore}
+                onSave={(studentId, score) => handleSaveScore(studentId, score, { essay: activeIsMixed })}
                 disabled={saving}
+                essayMode={activeIsMixed}
+                totalScores={activeIsMixed ? savedScores : undefined}
               />
             </div>
           )}
@@ -617,6 +653,7 @@ export const ExamSessionView: React.FC = () => {
             <ExamResultsTable
               results={results}
               sessionId={activeSession.id}
+              essayMode={activeIsMixed}
               onRemove={canScan && activeSession.status === 'draft' ? handleRemoveResult : () => {}}
             />
           </div>
@@ -642,9 +679,11 @@ export const ExamSessionView: React.FC = () => {
       {showGuidedGrade && activeSession && (
         <GuidedGradeModal
           students={classStudents}
-          savedScores={savedScores}
-          maxScore={activeSession.maxScore}
-          onSave={handleSaveScore}
+          savedScores={activeIsMixed ? savedEssayScores : savedScores}
+          maxScore={activeIsMixed ? activeEssayMaxPoints : activeSession.maxScore}
+          essayMode={activeIsMixed}
+          totalScores={activeIsMixed ? savedScores : undefined}
+          onSave={(studentId, score) => handleSaveScore(studentId, score, { essay: activeIsMixed })}
           onScanOmr={student => {
             setFixedScanStudent(student)
             setShowGuidedGrade(false)
@@ -693,7 +732,7 @@ export const ExamSessionView: React.FC = () => {
                   Đáp Án Chuẩn — {activeSession.subject}
                 </h4>
                 <p className="text-xs text-text-muted mt-0.5 m-0 font-medium">
-                  {activeSession.questionCount || 20} câu hỏi trắc nghiệm · Thang điểm {activeSession.maxScore}
+                  {activeSession.questionCount || 20} câu hỏi trắc nghiệm{activeIsMixed ? ` · ${activeEssayMaxPoints}đ tự luận` : ''} · Thang điểm {activeSession.maxScore}
                 </p>
               </div>
               <button onClick={() => setShowAnswerKeyModal(false)} className="btn btn-secondary btn-sm rounded-xl">
@@ -722,7 +761,7 @@ export const ExamSessionView: React.FC = () => {
             </div>
 
             {/* Re-score button for draft MC sessions */}
-            {activeSession.status === 'draft' && activeSession.examType === 'multiple_choice' && (
+            {activeSession.status === 'draft' && (activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
               <div className="flex items-center gap-2 pt-2 border-t border-surface-border">
                 <button
                   onClick={async () => {
@@ -821,27 +860,32 @@ export const ExamSessionView: React.FC = () => {
               </button>
             </div>
 
-            {createForm.questions && createForm.questions.length > 0 && (
-              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
-                <span className="flex items-center gap-1.5 font-bold">
-                  <CheckCircle2 size={16} /> Đã nạp đề thi gồm <strong>{createForm.questions.length} câu hỏi</strong> trắc nghiệm
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setCreateForm(f => ({ ...f, questions: undefined }))}
-                  className="text-[11px] underline text-text-muted hover:text-rose-600 font-semibold"
-                >
-                  Gỡ đề thi
-                </button>
-              </div>
-            )}
+            {createForm.questions && createForm.questions.length > 0 && (() => {
+              const mcCount = createForm.questions.filter(q => (q.type ?? 'multiple_choice') === 'multiple_choice').length
+              const essayCount = createForm.questions.length - mcCount
+              return (
+                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
+                  <span className="flex items-center gap-1.5 font-bold">
+                    <CheckCircle2 size={16} /> Đã nạp đề thi gồm <strong>{mcCount} câu trắc nghiệm</strong>
+                    {essayCount > 0 ? <> + <strong>{essayCount} câu tự luận</strong></> : ''}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCreateForm(f => ({ ...f, questions: undefined, examType: f.examType === 'mixed' ? 'written' : f.examType }))}
+                    className="text-[11px] underline text-text-muted hover:text-rose-600 font-semibold"
+                  >
+                    Gỡ đề thi
+                  </button>
+                </div>
+              )
+            })()}
 
             <label className="block text-xs font-bold text-text-secondary mb-1">Hình thức Bài Kiểm Tra</label>
-            <div className="grid grid-cols-2 gap-2 mb-3">
+            <div className="grid grid-cols-3 gap-2 mb-3">
               <button
                 type="button"
                 onClick={() => { setCreateForm(f => ({ ...f, examType: 'written' })); setCreateError('') }}
-                className={`rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
                   createForm.examType === 'written'
                     ? 'border-parish-primary bg-parish-primary text-white'
                     : 'border-surface-border text-text-secondary hover:bg-surface-hover'
@@ -852,7 +896,7 @@ export const ExamSessionView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => { setCreateForm(f => ({ ...f, examType: 'multiple_choice' })); setCreateError('') }}
-                className={`rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
                   createForm.examType === 'multiple_choice'
                     ? 'border-parish-primary bg-parish-primary text-white'
                     : 'border-surface-border text-text-secondary hover:bg-surface-hover'
@@ -860,7 +904,24 @@ export const ExamSessionView: React.FC = () => {
               >
                 Trắc nghiệm (A/B/C/D)
               </button>
+              <button
+                type="button"
+                onClick={() => { setCreateForm(f => ({ ...f, examType: 'mixed' })); setCreateError('') }}
+                title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
+                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                  createForm.examType === 'mixed'
+                    ? 'border-violet-500 bg-violet-500 text-white'
+                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
+                }`}
+              >
+                Kết hợp TN + TL
+              </button>
             </div>
+            {createForm.examType === 'mixed' && !createForm.questions?.some(q => q.type === 'essay') && (
+              <div className="mb-3 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-[11px] text-amber-700 dark:text-amber-300">
+                Đề mixed cần có nội dung câu hỏi gồm cả phần trắc nghiệm lẫn phần tự luận. Bấm <strong>Import Đề Thi</strong> ở trên với đề có tiêu đề <em>PHẦN TRẮC NGHIỆM / PHẦN TỰ LUẬN</em>.
+              </div>
+            )}
 
             <label className="block text-xs font-bold text-text-secondary mb-1">Loại Điểm</label>
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -901,10 +962,12 @@ export const ExamSessionView: React.FC = () => {
               className="w-24 px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
             />
 
-            {createForm.examType === 'multiple_choice' && (
+            {(createForm.examType === 'multiple_choice' || createForm.examType === 'mixed') && (
               <div className="mb-3">
                 <div className="flex items-center gap-3 flex-wrap mb-2">
-                  <label className="block text-xs font-bold text-text-secondary">Số câu hỏi</label>
+                  <label className="block text-xs font-bold text-text-secondary">
+                    {createForm.examType === 'mixed' ? 'Số câu trắc nghiệm' : 'Số câu hỏi'}
+                  </label>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -1008,8 +1071,9 @@ export const ExamSessionView: React.FC = () => {
             setCreateForm(f => ({
               ...f,
               subject: data.subject || f.subject,
-              examType: 'multiple_choice',
-              questionCount: data.questionCount,
+              // EXAM-MIXED: có câu tự luận → đề mixed; questionCount = số câu TN (phiếu OMR).
+              examType: data.essayQuestionCount > 0 ? 'mixed' : 'multiple_choice',
+              questionCount: data.mcQuestionCount > 0 ? data.mcQuestionCount : data.questionCount,
               answerKey: data.answerKey,
               questions: data.questions,
             }))

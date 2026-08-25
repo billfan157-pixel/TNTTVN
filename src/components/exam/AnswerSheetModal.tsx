@@ -5,7 +5,7 @@ import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, get
 import { printBatchAnswerSheets, exportAnswerSheetPdf, sanitizeSvgInner } from '../../utils/examSheets'
 import { X, Printer, Layers, Settings2, CheckSquare, Square, Loader2, FileDown } from 'lucide-react'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
-import type { ExamVersionCode } from '../../types'
+import type { ExamType, ExamVersionCode } from '../../types'
 
 interface AnswerSheetProps {
   sessionId: string
@@ -14,7 +14,7 @@ interface AnswerSheetProps {
   scoreTypeLabel: string
   classLabel: string
   maxScore: number
-  examType?: 'written' | 'multiple_choice'
+  examType?: ExamType
   questionCount?: number
   examVersion?: ExamVersionCode
 }
@@ -264,7 +264,7 @@ interface AnswerSheetModalProps {
   scoreTypeLabel: string
   classLabel: string
   maxScore: number
-  examType?: 'written' | 'multiple_choice'
+  examType?: ExamType
   questionCount?: number
   availableVersions?: ExamVersionCode[]
   onClose: () => void
@@ -286,7 +286,8 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
   const [idx, setIdx] = useState(0)
   // PHA 1 nợ (audit A19): focus trap — exam suite giữ shell custom (camera/print)
   const trapRef = useFocusTrap(true)
-  const [examType, setExamType] = useState<'written' | 'multiple_choice'>(initialExamType)
+  // EXAM-MIXED: phiếu trả lời của đề mixed là phiếu OMR phần TN.
+  const [examType, setExamType] = useState<'written' | 'multiple_choice'>(initialExamType === 'mixed' ? 'multiple_choice' : initialExamType)
   const [questionCount, setQuestionCount] = useState<number>(initialQuestionCount)
   const [examVersion, setExamVersion] = useState<ExamVersionCode>(availableVersions[0] ?? 'A')
   const [viewMode, setViewMode] = useState<'single' | 'batch'>('single')

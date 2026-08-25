@@ -1367,3 +1367,55 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 - Targeted: studentService (10, gồm IDEM-F3 race), academicYearLifecycle (12, gồm AYL-F2 + PRM-F4), BatchPromotionService (5, gồm F1 move + rollback), students routes — **32 tests PASS**.
 - Full server suite: **110 files / 683 tests PASS**. Client store tests (promotionStore/studentStore/zustandStores): 23 PASS.
 
+---
+
+## ADR-053: EXAM-MIXED — Đề Kết Hợp Trắc Nghiệm + Tự Luận Trong Một Phiên Chấm (2026-08-24)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2 (cross-module: schema + validation + scoring + parser + UI + print/export + offline sync). Profile: GENERAL.**
+
+### Problem & evidence
+
+- **E3 HIGH**: `exam_type` hiện là XOR `written | multiple_choice` ở cấp phiên; `parseQuestions` (routes/exams.ts) bắt buộc MỌI câu có options A–D + correctOption → đề thực tế "PHẦN I TN + PHẦN II TL" không thể import; `points?: number` tồn tại trong TS type và cột Excel export nhưng chưa được validate/dùng khi chấm.
+- **Business fit**: đề kiểm tra giáo lý phổ biến nhất trong thực tế là kết hợp TN + TL. Phương án tách 2 phiên bị loại (phá UX, finalize/gradebook 2 lần, điểm tổng rời rạc); giả lập câu TL thành MC với options rác bị loại (phá semantics validation, sai OMR).
+- **E2**: test suite hiện hành pass trước thay đổi (client targeted 9 files/123 tests; server 119 files/741 tests) → mọi fail phát sinh sau đó thuộc scope quyết định.
+
+### Decision matrix (rút gọn, profile GENERAL)
+
+| Criterion | Weight | A: exam_type 'mixed' + per-question type/points (chọn) | B: Tách 2 phiên riêng |
+|---|---:|---:|---:|
+| Business fit | 15% | 9 | 4 |
+| Reliability & Data Integrity | 20% | 9 | 6 |
+| Security & Privacy | 20% | 9 | 8 |
+| Maintainability | 15% | 8 | 7 |
+| Performance | 10% | 9 | 8 |
+| Testability | 10% | 9 | 7 |
+| Reversibility | 5% | 8 | 9 |
+| Observability | 5% | 9 | 7 |
+| **Weighted** | **100%** | **8.75** | **6.60** |
+
+**Decision: A.** Hard gates D2: Security & Privacy 9, Data Integrity 9, Testability 9 — PASS.
+
+### Implementation
+
+1. **Schema** (add-only): `ExamType += 'mixed'` (raw SQL KHÔNG có CHECK constraint trên `exam_type` nên chỉ đổi drizzle enum); migration đơn lẻ add-only `20260824-129` thêm `exam_results.essay_score REAL` nullable (+ defensive ALTER try/catch). Không đụng row cũ.
+2. **Model câu hỏi**: `ExamQuestion.type ∈ {multiple_choice, essay}` (thiếu type = MC — backward compatible), essay KHÔNG có `options/correctOption`, `points` optional >0 ≤100 (default 1). Server `parseQuestions` validate chặt + cross-check bố cục: câu TN phải chiếm index 1..questionCount LIÊN TỤC từ đầu đề (phiếu OMR đánh bubble 1..N theo `questionCount`; mixed `questionCount` = số câu TN); mixed bắt buộc `questions` (≥1 essay) + `answerKey`.
+3. **Scoring server-authoritative**: mixed `score = clamp(Σ points(câu TN đúng theo key version) + essay_score, 0, maxScore)` — KHÔNG dùng tỉ lệ `correct/count × maxScore`. Merge 2 pha: request thiếu `answers` tái dùng answers đã lưu; thiếu `essayScore` giữ essay_score đã lưu; thiếu cả hai → 400; phiên non-mixed gửi `essayScore` → 400 (dữ liệu mâu thuẫn); essayScore vượt Σ points câu TL → 400. Rescore đổi key/mã đề: tính lại phần TN theo trọng số, GIỮ essay_score; rows quick_entry của mixed vẫn rescore phần TN.
+4. **Parser/UI**: nhận diện tiêu đề phần (PHẦN/PART/La Mã/nhãn TN-TL), trích điểm `(N điểm)` khỏi nội dung + chia đều điểm từ tiêu đề phần, regex câu hỏi chấp nhận chú thích điểm xen giữa (`Câu 4 (5 điểm): ...`); Excel map cột theo tên header (tương thích 7 cột cũ), file mẫu 9 cột; preview modal tách 2 loại câu; QuickScoreEntry/GuidedGrade chế độ nhập ĐIỂM TỰ LUẬN (trần Σ points TL) + cột Tổng; ExamResultsTable cột "Điểm TL".
+5. **In/quét**: OMR grid trên đề in chỉ render câu TN; QR embed questionCount = số câu TN (detector fail-closed so bubble không đổi); câu TL in dòng kẻ trình bày; bảng đáp án GLV tách phần key TN và gợi ý chấm TL. Scan/batch/analytics vận hành trên phần TN như MC thuần.
+6. **Offline/sync**: payload đi qua `CreateExamInput`/`syncSaveExamResults` hiện hữu (thêm field optional) — temp-ID remap + idempotency không đổi.
+
+### Gates and compatibility
+
+- **D2 gates**: Security & Privacy 9 (không mở attack surface mới — validation chặt hơn), Data Integrity 9 (merge 2 pha không mất thành phần; score luôn server-tổng-hợp), Testability 9 — PASS.
+- **Business Rule Gate**: hợp đồng điểm mixed + merge semantics = `CONFIRMED` bằng tests (`server/src/__tests__/examMixedScoring.test.ts`: create/validate/merge-2-pha/essay-ceiling/rescore/guard; `examParser.test.ts` +4 case mixed). OCR tự luận (chấm bài viết tay tự động) vẫn **BLOCKED** theo ADR-050 — phần TL tiếp tục nhập tay.
+- **ADR compatibility**: ADR-023/024 (offline sync + persistence) PASS; ADR-043/048/049/050 (scan engine, geometry SSOT, ops scale) PASS — pipeline OMR không đổi, chỉ thu hẹp phạm vi câu TN; ADR-031 tenant isolation PASS (không đổi RBAC/ownership).
+- **Reversibility**: R1–R2 (redeploy; cột `essay_score` nullable giữ nguyên vô hại nếu rollback code).
+
+### Verification
+
+- Client `tsc -b` PASS; server `tsc` PASS; oxlint exit 0 (chỉ baseline warnings cũ, gồm 2 warning pre-existing của ExamSessionView).
+- Parser: `src/__tests__/utils/examParser.test.ts` **12/12 PASS** (gồm 4 case mixed + sample round-trip).
+- Server mixed: `server/src/__tests__/examMixedScoring.test.ts` **8/8 PASS**.
+- Regression targeted: client exam-related **9 files / 123 tests PASS**, utils 27 files/268 tests, answerSheet/omrConsensus/scanAcceptance/designTokens 28 tests, sync engine 51 tests; **full server suite 119 files / 741 tests PASS**.
+- Source-of-truth synced: BUSINESS_RULES §21.5, FRONTEND_API_CONTRACT §10, 07_DATABASE_PLAN #29/#30, AI_CONTEXT_MAP EXAM-MIXED, IMPORT_EXPORT_SPECIFICATION §7.
+

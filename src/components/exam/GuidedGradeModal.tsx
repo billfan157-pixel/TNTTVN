@@ -15,6 +15,9 @@ interface GuidedGradeModalProps {
   onSave: (studentId: string, score: number) => Promise<boolean>
   onScanOmr: (student: GuidedGradeStudent) => void
   onClose: () => void
+  /** EXAM-MIXED: nhập ĐIỂM TỰ LUẬN; totalScores hiển thị tổng TN+TL đối chiếu. */
+  essayMode?: boolean
+  totalScores?: Record<string, number>
 }
 
 /**
@@ -29,6 +32,8 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
   onSave,
   onScanOmr,
   onClose,
+  essayMode,
+  totalScores,
 }) => {
   const [query, setQuery] = useState('')
   // PHA 1 nợ (audit A19): focus trap
@@ -81,7 +86,9 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
 
     const nextScores = { ...localScores, [selected.id]: parsedScore }
     setLocalScores(nextScores)
-    setMessage(`Đã lưu ${parsedScore}/${maxScore} cho ${selected.name}.`)
+    setMessage(essayMode
+      ? `Đã lưu điểm tự luận ${parsedScore}/${maxScore} cho ${selected.name}.`
+      : `Đã lưu ${parsedScore}/${maxScore} cho ${selected.name}.`)
     const currentIndex = students.findIndex(student => student.id === selected.id)
     const nextStudent = students
       .slice(currentIndex + 1)
@@ -167,7 +174,11 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
               <p className="text-lg font-black text-parish-primary">{selected.name}</p>
               <p className="text-sm font-semibold text-text-muted">Mã {selected.code}</p>
               {localScores[selected.id] !== undefined && (
-                <p className="mt-1 text-xs font-bold text-amber-600">Điểm đang lưu: {localScores[selected.id]}/{maxScore} — lưu mới sẽ ghi đè kết quả phiên.</p>
+                <p className="mt-1 text-xs font-bold text-amber-600">
+                  {essayMode ? 'Điểm tự luận đang lưu' : 'Điểm đang lưu'}: {localScores[selected.id]}/{maxScore}
+                  {essayMode && totalScores?.[selected.id] !== undefined ? ` — tổng hiện tại: ${totalScores[selected.id]}` : ''}
+                  {' — '}lưu mới sẽ ghi đè phần này.
+                </p>
               )}
             </div>
 
@@ -176,7 +187,7 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
             </button>
 
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-extrabold text-text-main">Hoặc nhập điểm trực tiếp</span>
+              <span className="text-sm font-extrabold text-text-main">{essayMode ? 'Nhập điểm tự luận' : 'Hoặc nhập điểm trực tiếp'}</span>
               <span className="text-xs text-text-muted">0–{maxScore}</span>
             </div>
             <div className="grid grid-cols-[48px_1fr_48px] gap-2">

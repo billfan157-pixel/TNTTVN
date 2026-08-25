@@ -1515,6 +1515,10 @@ CREATE UNIQUE INDEX idx_exam_sessions_idempotency ON exam_sessions(parish_id, id
   { version: '20260822-128', sql: `
 CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_created_at ON audit_logs(parish_id, created_at);
 ` },
+  // EXAM-MIXED (2026-08-24): điểm phần tự luận nhập tay của đề kết hợp TN + TL.
+  // score vẫn là điểm TỔNG (TN tự chấm + essay_score) — cột này phục vụ merge
+  // 2 pha lưu điểm (quét OMR trước / nhập TL sau) và kiểm toán.
+  { version: '20260824-129', sql: `ALTER TABLE exam_results ADD COLUMN essay_score REAL` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate
@@ -1526,6 +1530,7 @@ await applyMigrations(client, MIGRATIONS)
 // required columns before the server is allowed to accept traffic.
 try { await client.execute(`ALTER TABLE import_batches ADD COLUMN classes_created TEXT DEFAULT '[]'`) } catch {}
 try { await client.execute(`ALTER TABLE import_batches ADD COLUMN content_hash TEXT`) } catch {}
+try { await client.execute(`ALTER TABLE exam_results ADD COLUMN essay_score REAL`) } catch {}
 
 for (const statement of INDICES) {
   try { await client.execute(statement) } catch {}

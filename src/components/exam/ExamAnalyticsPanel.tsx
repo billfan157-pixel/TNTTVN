@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 import { BarChart3, X } from 'lucide-react'
 import { computeExamAnalytics } from '../../lib/examAnalytics'
 import { normalizeAnswerVariants } from '../../lib/examVariants'
+import { isMcGradedExamType } from '../../types'
 import type { ExamSession, ExamResult } from '../../types'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
@@ -19,7 +20,7 @@ export const ExamAnalyticsPanel: React.FC<ExamAnalyticsPanelProps> = ({ session,
     [session.answerVariants, session.answerKey, session.questionCount],
   )
   const analytics = useMemo(
-    () => computeExamAnalytics(results, session.examType === 'multiple_choice' ? session.questionCount ?? 0 : 0, session.maxScore, variants),
+    () => computeExamAnalytics(results, isMcGradedExamType(session.examType) ? session.questionCount ?? 0 : 0, session.maxScore, variants),
     [results, session.examType, session.questionCount, session.maxScore, variants],
   )
   const maxFrequency = Math.max(1, ...analytics.distribution.map(item => item.count))
@@ -47,9 +48,9 @@ export const ExamAnalyticsPanel: React.FC<ExamAnalyticsPanelProps> = ({ session,
             {analytics.versions.length > 1 && <p className="mt-3 text-xs font-semibold text-text-muted">Theo mã đề: {analytics.versions.map(item => `${item.version}: ${item.count}`).join(' · ')}</p>}
           </section>
 
-          {session.examType === 'multiple_choice' && (
+          {isMcGradedExamType(session.examType) && (
             <section className="rounded-xl border border-surface-border">
-              <div className="border-b border-surface-border p-3"><h5 className="m-0 font-black text-text-main">Phân tích từng câu</h5><p className="m-0 text-[11px] text-text-muted">Độ phân biệt dùng point-biserial; chỉ tính khi có ít nhất 5 bài và tồn tại cả nhóm đúng/sai.</p></div>
+              <div className="border-b border-surface-border p-3"><h5 className="m-0 font-black text-text-main">Phân tích từng câu</h5><p className="m-0 text-[11px] text-text-muted">Độ phân biệt dùng point-biserial; chỉ tính khi có ít nhất 5 bài và tồn tại cả nhóm đúng/sai.{session.examType === 'mixed' ? ' (Chỉ áp dụng cho phần trắc nghiệm.)' : ''}</p></div>
               <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="text-left text-xs text-text-muted"><tr><th className="p-2">Câu</th><th className="p-2">Đúng</th><th className="p-2">Trống</th><th className="p-2">A</th><th className="p-2">B</th><th className="p-2">C</th><th className="p-2">D</th><th className="p-2">Độ phân biệt</th></tr></thead><tbody>{analytics.items.map(item => <tr key={item.questionIndex} className="border-t border-surface-border"><td className="p-2 font-black">{item.questionIndex}</td><td className={`p-2 font-bold ${(item.correctRate ?? 0) < 0.4 ? 'text-red-600' : (item.correctRate ?? 0) > 0.85 ? 'text-emerald-600' : ''}`}>{formatPercent(item.correctRate)}</td><td className="p-2">{formatPercent(item.blankRate)}</td><td className="p-2">{item.counts.A}</td><td className="p-2">{item.counts.B}</td><td className="p-2">{item.counts.C}</td><td className="p-2">{item.counts.D}</td><td className={`p-2 font-bold ${item.discrimination !== null && item.discrimination < 0 ? 'text-red-600' : ''}`}>{item.discrimination ?? '—'}</td></tr>)}</tbody></table></div>
             </section>
           )}

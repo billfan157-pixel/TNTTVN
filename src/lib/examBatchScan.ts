@@ -2,13 +2,14 @@ import { detectAnswersFromImage, detectScoreFromImage, type OmrTemplateMode } fr
 import { scanExamCode } from './examCodeScanner'
 import { assessScanQuality, type ScanQualityAssessment } from './scanQuality'
 import { decideScanAcceptance } from './scanAcceptancePolicy'
-import type { ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../types'
+import { isMcGradedExamType } from '../types'
+import type { ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption } from '../types'
 
 export type BatchScanStatus = 'accepted' | 'review_required' | 'rejected'
 
 export interface BatchScanConfig {
   sessionId: string
-  examType: 'written' | 'multiple_choice'
+  examType: ExamType
   questionCount: number
   maxScore: number
   answerVariants: Partial<ExamAnswerVariants>
@@ -50,11 +51,11 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
   const examVersion = code.payload.examVersion ?? 'A'
   const templateMode = code.payload.templateMode ?? config.defaultTemplateMode
   const answerKey = config.answerVariants[examVersion]
-  if (config.examType === 'multiple_choice' && !answerKey) {
+  if (isMcGradedExamType(config.examType) && !answerKey) {
     return { status: 'rejected', reason: `Chưa cấu hình đáp án mã đề ${examVersion}.`, studentId: code.payload.studentId, examVersion }
   }
 
-  const omr = config.examType === 'multiple_choice'
+  const omr = isMcGradedExamType(config.examType)
     ? detectAnswersFromImage(image, answerKey, config.questionCount, config.maxScore, templateMode)
     : detectScoreFromImage(image, config.maxScore)
   const quality = assessScanQuality(image)
@@ -109,7 +110,7 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     engineVersion: 'omr-v3-batch',
     protocolVersion: code.payload.protocolVersion ?? 1,
     templateMode,
-    questionCount: config.examType === 'multiple_choice' ? config.questionCount : undefined,
+    questionCount: isMcGradedExamType(config.examType) ? config.questionCount : undefined,
     examVersion,
     formChecksum: code.payload.formChecksum,
     initialDetectionStatus: 'status' in omr ? omr.status : (omr.ok ? 'accepted' : 'rejected'),
