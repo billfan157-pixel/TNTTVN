@@ -346,6 +346,24 @@ export const ExamSessionView: React.FC = () => {
     }))
   }
 
+  // UI-POLISH 2026-08-25: đổi hình thức → dọn phần đề không còn phù hợp
+  // (import 2 phần TN/TL CHỈ dành cho hình thức Kết hợp; MC chỉ ô TN; written không import).
+  const handleExamTypeChange = (next: ExamType) => {
+    setCreateError('')
+    if (next === 'written') {
+      setMcPart(null)
+      setEssayPart(null)
+      setCreateForm(f => ({ ...f, examType: next, questions: undefined, answerKey: {}, questionCount: 20 }))
+      return
+    }
+    if (next === 'multiple_choice') {
+      setEssayPart(null)
+      setCreateForm(f => ({ ...f, examType: next, questions: mergeExamParts(mcPart, null) }))
+      return
+    }
+    setCreateForm(f => ({ ...f, examType: next, questions: mergeExamParts(mcPart, essayPart) }))
+  }
+
   const handleCreate = async () => {
     const targetClassId = createForm.classId || effectiveClassId
     if (!targetClassId) {
@@ -939,14 +957,56 @@ export const ExamSessionView: React.FC = () => {
               </div>
             )}
 
-            {/* UI-POLISH 2026-08-25: 2 Ô IMPORT RIÊNG — Phần Trắc Nghiệm / Phần Tự Luận.
-                Mỗi ô nạp độc lập (dán văn bản hoặc Excel), ghép lại thành 1 đề khi tạo phiên. */}
+            {/* Hình thức Bài Kiểm Tra — chọn trước để ô import hiển đúng phạm vi */}
+            <label className="block text-xs font-bold text-text-secondary mb-1">Hình thức Bài Kiểm Tra</label>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => handleExamTypeChange('written')}
+                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                  createForm.examType === 'written'
+                    ? 'border-parish-primary bg-parish-primary text-white'
+                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
+                }`}
+              >
+                Tự luận (Tô điểm 0-10)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExamTypeChange('multiple_choice')}
+                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                  createForm.examType === 'multiple_choice'
+                    ? 'border-parish-primary bg-parish-primary text-white'
+                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
+                }`}
+              >
+                Trắc nghiệm (A/B/C/D)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExamTypeChange('mixed')}
+                title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
+                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                  createForm.examType === 'mixed'
+                    ? 'border-violet-500 bg-violet-500 text-white'
+                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
+                }`}
+              >
+                Kết hợp TN + TL
+              </button>
+            </div>
+
+            {/* UI-POLISH 2026-08-25: ô import THEO HÌNH THỨC — mixed: 2 ô TN/TL riêng;
+                multiple_choice: chỉ ô TN; written (tô điểm 0-10): không import đề. */}
+            {createForm.examType !== 'written' && (
             <div className="mb-4">
               <div className="flex items-center gap-1.5 mb-2">
                 <Sparkles size={14} className="text-amber-500" />
-                <span className="text-xs font-bold text-text-main">Import Đề Thi — Tự Động Phân Tích:</span>
+                <span className="text-xs font-bold text-text-main">
+                  {createForm.examType === 'mixed' ? 'Import Đề Thi (2 phần) — Tự Động Phân Tích:' : 'Import Đề Trắc Nghiệm — Tự Động Phân Tích:'}
+                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className={`grid grid-cols-1 ${createForm.examType === 'mixed' ? 'sm:grid-cols-2' : ''} gap-2`}>
                 {/* ── Ô PHẦN TRẮC NGHIỆM ── */}
                 <div className={`p-3 rounded-xl border ${mcPart ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-surface-hover/70 border-surface-border'}`}>
                   <div className="flex items-center justify-between mb-1">
@@ -986,7 +1046,8 @@ export const ExamSessionView: React.FC = () => {
                   )}
                 </div>
 
-                {/* ── Ô PHẦN TỰ LUẬN ── */}
+                {/* ── Ô PHẦN TỰ LUẬN — chỉ hiện ở hình thức Kết hợp TN + TL ── */}
+                {createForm.examType === 'mixed' && (
                 <div className={`p-3 rounded-xl border ${essayPart ? 'bg-violet-500/10 border-violet-500/30' : 'bg-surface-hover/70 border-surface-border'}`}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
@@ -1024,46 +1085,10 @@ export const ExamSessionView: React.FC = () => {
                     </>
                   )}
                 </div>
+                )}
               </div>
             </div>
-
-            <label className="block text-xs font-bold text-text-secondary mb-1">Hình thức Bài Kiểm Tra</label>
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => { setCreateForm(f => ({ ...f, examType: 'written' })); setCreateError('') }}
-                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
-                  createForm.examType === 'written'
-                    ? 'border-parish-primary bg-parish-primary text-white'
-                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                Tự luận (Tô điểm 0-10)
-              </button>
-              <button
-                type="button"
-                onClick={() => { setCreateForm(f => ({ ...f, examType: 'multiple_choice' })); setCreateError('') }}
-                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
-                  createForm.examType === 'multiple_choice'
-                    ? 'border-parish-primary bg-parish-primary text-white'
-                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                Trắc nghiệm (A/B/C/D)
-              </button>
-              <button
-                type="button"
-                onClick={() => { setCreateForm(f => ({ ...f, examType: 'mixed' })); setCreateError('') }}
-                title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
-                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
-                  createForm.examType === 'mixed'
-                    ? 'border-violet-500 bg-violet-500 text-white'
-                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                Kết hợp TN + TL
-              </button>
-            </div>
+            )}
             {createForm.examType === 'mixed' && (!mcPart || !essayPart) && (
               <div className="mb-3 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-[11px] text-amber-700 dark:text-amber-300">
                 Đề Kết hợp cần CẢ HAI phần: {!mcPart && <><strong>Phần Trắc Nghiệm</strong> (bấm Import ở ô bên trái) </>}
