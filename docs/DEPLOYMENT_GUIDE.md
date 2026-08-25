@@ -116,7 +116,7 @@ docker-compose exec app node scripts/backup-db.js
 
 ```
 Browser/PWA (https://tnttvn.vercel.app)
-   └─ /api/* → vercel.json rewrite → https://tnttvn-api.onrender.com/api/*
+   └─ /api/* → vercel.json rewrite → https://tnttvn.onrender.com/api/*
                                      └─ Hono (Docker, render.yaml blueprint)
                                           └─ @libsql/client → Turso cloud DB (TURSO_URL)
 ```
@@ -132,7 +132,7 @@ Browser/PWA (https://tnttvn.vercel.app)
    - Bắt buộc: `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `PASSWORD_CIPHER_KEY` (64 hex), `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt).
    - Tuỳ chọn: `OPS_TOKEN`, `TELEGRAM_*`, `SENTRY_DSN`.
    - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `PASSWORD_CIPHER_KEY` dùng 64 hex.
-3. **Vercel**: `vercel.json` rewrite `/api/:path*` → `https://tnttvn-api.onrender.com/api/:path*` (đã cập nhật trong repo) — push là deploy lại.
+3. **Vercel**: `vercel.json` rewrite `/api/:path*` → `https://tnttvn.onrender.com/api/:path*` (đã cập nhật trong repo) — push là deploy lại.
 4. **Mobile build**: `codemagic.yaml` + `.github/workflows/ios-ipa.yml` đã trỏ `VITE_API_BASE` sang Render domain.
 
 ### 7.2 Đặc tính gói Render free — cần biết

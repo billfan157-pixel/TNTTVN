@@ -1424,7 +1424,7 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 
 ## ADR-056: Migrate Backend Railway → Render + Turso (DEPLOY-MIGRATE, 2026-08-25)
 
-**Status: APPROVED / DEPLOYMENT PENDING USER SETUP. Severity: D3 (production infrastructure + data layer). Profile: ARCHITECTURE/INFRASTRUCTURE.**
+**Status: APPROVED / IMPLEMENTED & VERIFIED E2E (2026-08-25). Severity: D3 (production infrastructure + data layer). Profile: ARCHITECTURE/INFRASTRUCTURE.**
 
 ### Context & evidence
 
@@ -1466,3 +1466,10 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 
 - tsc client/server + oxlint PASS sau thay đổi config.
 - Hạ tầng: chờ user setup Turso/Render theo DEPLOYMENT_GUIDE §7.1; acceptance = `/api/health` 200 trên render domain + login thành công qua Vercel.
+
+### Post-implementation (2026-08-25) — kết quả thực tế + 1 fix phát hiện khi deploy
+
+- Service Render thực tế do user tạo tay tên `TNTTVN` → domain **`https://tnttvn.onrender.com`**; vercel.json/codemagic/ios workflow đã trỏ đúng domain này (commit `d9c9da4`).
+- **Bug phát hiện khi deploy (đã fix, commit `d9119f7`)**: container crash lúc startup — `SQL_PARSE_ERROR: SQL not allowed statement: PRAGMA busy_timeout=5000`. Root cause: `runDbTransaction` chạy PRAGMA trong MỌI transaction, nhưng Turso/sqld cấm PRAGMA qua Hrana batch trong transaction (file SQLite local thì được). Fix: guard `if (!dbConfig.isRemote)` — remote đã có retry SQLITE_BUSY riêng. Audit các PRAGMA khác: migrationRunner dùng executeMultiple (Turso chấp nhận), purgeService đã wrap try/catch + thiết kế an toàn không defer, backupScheduler/shutdown có try/catch.
+- **Verify E2E**: `/health` trực tiếp Render = 200 `{database:"connected"}`; login qua Vercel rewrite (`POST /api/auth/login`) thành công 3/3 lần với user seed `bill`; wrong-password → 401 `INVALID_CREDENTIALS` sạch. DB Turso khởi tạo đầy đủ schema + seed (branches/năm học/lớp/admin USR-001).
+- Lưu ý vận hành: cold start free tier — request đầu sau idle có thể chậm/timeout 1 lần; khuyến nghị keep-alive ping `/health` mỗi 10 phút.
