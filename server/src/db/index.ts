@@ -1548,7 +1548,12 @@ export async function runDbTransaction<T>(fn: (tx: DbTransaction) => Promise<T>)
   for (let attempt = 0; ; attempt++) {
     try {
       return await db.transaction(async (tx) => {
-        await tx.run(sql`PRAGMA busy_timeout=5000`)
+        // DEPLOY-MIGRATE (ADR-056): Turso remote từ chối PRAGMA trong transaction
+        // (SQL_PARSE_ERROR "not allowed statement" qua Hrana batch) — busy_timeout
+        // chỉ áp dụng cho file SQLite local; remote đã có retry loop bên dưới.
+        if (!dbConfig.isRemote) {
+          await tx.run(sql`PRAGMA busy_timeout=5000`)
+        }
         return fn(tx)
       })
     } catch (err) {
