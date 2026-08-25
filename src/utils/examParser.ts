@@ -54,6 +54,65 @@ export function extractPointsHint(text: string): number | undefined {
   return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : undefined
 }
 
+/**
+ * UI-POLISH 2026-08-25: phạm vi import — tạo phiên cho phép nạp RIÊNG phần
+ * trắc nghiệm và phần tự luận (2 ô import riêng), hoặc cả hai (đề gộp).
+ */
+export type ExamImportScope = 'multiple_choice' | 'essay' | 'both'
+
+const isEssayQuestion = (q: ExamQuestion): boolean => (q.type ?? 'multiple_choice') === 'essay'
+
+/**
+ * Lọc kết quả parse theo phạm vi import:
+ *  - 'multiple_choice': giữ câu TN (đánh lại index 1..N, rebuild answerKey theo index mới),
+ *    bỏ câu TL kèm warning.
+ *  - 'essay': giữ câu TL (đánh lại 1..M), bỏ câu TN + answerKey.
+ *  - 'both': trả nguyên kết quả.
+ * Không đủ câu theo phạm vi → ok=false + lỗi rõ ràng để modal chặn "Áp Dụng".
+ */
+export function scopeExamParseResult(result: ExamParseResult, scope: ExamImportScope): ExamParseResult {
+  if (scope === 'both') return result
+
+  const kept = result.questions.filter(q => scope === 'essay' ? isEssayQuestion(q) : !isEssayQuestion(q))
+  const dropped = result.questions.length - kept.length
+  const scopeLabel = scope === 'essay' ? 'tự luận' : 'trắc nghiệm'
+  const warnings = [...result.warnings]
+  if (dropped > 0) {
+    warnings.unshift(`Đã bỏ qua ${dropped} câu ${scope === 'essay' ? 'trắc nghiệm' : 'tự luận'} — ô import này chỉ nhận phần ${scopeLabel}.`)
+  }
+  if (kept.length === 0) {
+    return {
+      ok: false,
+      questions: [],
+      answerKey: {},
+      questionCount: 0,
+      ...emptyStats(),
+      errors: [`Không tìm thấy câu hỏi ${scopeLabel} nào trong nội dung đã dán. Kiểm tra lại đề hoặc dán vào ô import ${scope === 'essay' ? 'trắc nghiệm' : 'tự luận'}.`],
+      warnings,
+    }
+  }
+
+  // Đánh lại index 1..N trên phần giữ lại + rebuild answerKey theo index mới
+  // (Data integrity: index là khóa của answerKey/OMR — không được lệch).
+  const questions: ExamQuestion[] = kept.map((q, i) => ({ ...q, index: i + 1 }))
+  const answerKey: Record<number, MultipleChoiceOption> = {}
+  if (scope === 'multiple_choice') {
+    kept.forEach((q, i) => {
+      if (!isEssayQuestion(q) && q.correctOption) answerKey[i + 1] = q.correctOption
+    })
+  }
+  const stats = computeStats(questions)
+  return {
+    ...result,
+    ok: true,
+    questions,
+    answerKey,
+    questionCount: kept.length,
+    ...stats,
+    warnings,
+  }
+}
+
 function emptyStats() {
   return { mcQuestionCount: 0, essayQuestionCount: 0, totalPoints: 0, mcPoints: 0, essayPoints: 0 }
 }
@@ -648,12 +707,15 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array): Prom
 
 /**
  * Generates sample exam text template for users to copy/paste and test.
+ * UI-POLISH 2026-08-25: theo scope — ô import TN chỉ dán mẫu TN, ô TL chỉ mẫu TL.
  */
-export function generateSampleExamTemplateText(): string {
-  return `ĐỀ KIỂM TRA GIÁO LÝ & PHỤNG VỤ THIẾU NHI
-Thời gian làm bài: 60 phút (Đề gồm 6 câu trắc nghiệm và 2 câu tự luận)
+export function generateSampleExamTemplateText(scope: ExamImportScope = 'both'): string {
+  const header = `ĐỀ KIỂM TRA GIÁO LÝ & PHỤNG VỤ THIẾU NHI
+Thời gian làm bài: 60 phút${scope === 'both' ? ' (Đề gồm 6 câu trắc nghiệm và 2 câu tự luận)' : scope === 'multiple_choice' ? ' (Phần trắc nghiệm)' : ' (Phần tự luận)'}
 
-PHẦN I. TRẮC NGHIỆM (3 điểm)
+`
+
+  const mcBlock = `PHẦN I. TRẮC NGHIỆM (3 điểm)
 
 Câu 1: Bí tích nào là cội nguồn và chóp đỉnh của đời sống Kitô hữu?
 A. Bí tích Rửa Tội
@@ -693,13 +755,21 @@ Câu 6: Mùa Phụng Vụ nào mở đầu cho một Năm Phụng Vụ mới?
 B. Mùa Giáng Sinh
 C. Mùa Chay
 D. Mùa Phục Sinh
-
-PHẦN II. TỰ LUẬN (7 điểm)
-
-Câu 7 (3 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể đối với đời sống thiếu nhi TNTT.
-
-Câu 8 (4 điểm): Nêu 4 khẩu hiệu của Phong trào Thiếu Nhi Thánh Thể Việt Nam và cho biết em hiểu như thế nào về khẩu hiệu ấy trong cuộc sống hằng ngày của em?
 `
+
+  const essayBlock = `PHẦN II. TỰ LUẬN (7 điểm)
+
+Câu 1 (3 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể đối với đời sống thiếu nhi TNTT.
+
+Câu 2 (4 điểm): Nêu 4 khẩu hiệu của Phong trào Thiếu Nhi Thánh Thể Việt Nam và cho biết em hiểu như thế nào về khẩu hiệu ấy trong cuộc sống hằng ngày của em?
+`
+
+  if (scope === 'multiple_choice') return header + mcBlock
+  if (scope === 'essay') return header + essayBlock
+  // Đề gộp: câu TL tiếp thị số 7, 8 sau 6 câu TN (giữ format gốc).
+  return header + mcBlock + '\n' + essayBlock
+    .replace('Câu 1 (3 điểm)', 'Câu 7 (3 điểm)')
+    .replace('Câu 2 (4 điểm)', 'Câu 8 (4 điểm)')
 }
 
 /**

@@ -8,7 +8,9 @@ import {
   parseExamFromExcel,
   generateSampleExamTemplateText,
   generateSampleExcelWorkbook,
+  scopeExamParseResult,
   type ExamParseResult,
+  type ExamImportScope,
 } from '../../utils/examParser'
 import type { ExamQuestion, MultipleChoiceOption } from '../../types'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
@@ -26,9 +28,29 @@ interface ExamImportModalProps {
     totalPoints: number
     subject?: string
   }) => void
+  /**
+   * UI-POLISH 2026-08-25: phạm vi import — 'multiple_choice' | 'essay' khi mở từ
+   * ô import riêng trong Tạo Phiên Chấm; 'both' (mặc định) = đề gộp như cũ.
+   */
+  scope?: ExamImportScope
 }
 
-export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport }) => {
+const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> = {
+  both: {
+    title: 'Import Đề Thi Thông Minh',
+    subtitle: 'Hỗ trợ đề trắc nghiệm, tự luận hoặc KẾT HỢP cả hai — tự nhận diện câu hỏi, phương án A-B-C-D và bảng đáp án',
+  },
+  multiple_choice: {
+    title: 'Import Phần Trắc Nghiệm',
+    subtitle: 'Chỉ nhận câu hỏi A/B/C/D + đáp án (dán Word/Text hoặc Excel) — phần tự luận (nếu có) sẽ được bỏ qua',
+  },
+  essay: {
+    title: 'Import Phần Tự Luận',
+    subtitle: 'Chỉ nhận câu hỏi tự luận + điểm từng câu — phần trắc nghiệm (nếu có) sẽ được bỏ qua',
+  },
+}
+
+export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport, scope = 'both' }) => {
   // PHA 1 nợ (audit A19): focus trap
   const trapRef = useFocusTrap(isOpen)
   const [activeTab, setActiveTab] = useState<'text' | 'excel'>('text')
@@ -49,9 +71,10 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   if (!isOpen) return null
 
   const handleParseText = (textToParse: string) => {
-    const res = parseExamFromText(textToParse)
+    // UI-POLISH 2026-08-25: parse rồi lọc theo scope (ô import TN/TL riêng).
+    const res = scopeExamParseResult(parseExamFromText(textToParse), scope)
     setPreviewResult(res)
-    
+
     // Tự động nhận diện môn học nếu dòng đầu tiên có chữ "ĐỀ KIỂM TRA..."
     const firstLine = textToParse.trim().split('\n')[0] || ''
     if (firstLine.length > 5 && firstLine.length < 80 && !firstLine.toLowerCase().startsWith('câu')) {
@@ -70,7 +93,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   }
 
   const handleLoadSample = () => {
-    const sample = generateSampleExamTemplateText()
+    const sample = generateSampleExamTemplateText(scope)
     setRawText(sample)
     handleParseText(sample)
     setDetectedSubject('Kiểm tra Giáo Lý & Phụng Vụ')
@@ -83,7 +106,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
     setIsProcessing(true)
     try {
       const buffer = await file.arrayBuffer()
-      const res = await parseExamFromExcel(buffer)
+      const res = scopeExamParseResult(await parseExamFromExcel(buffer), scope)
       setPreviewResult(res)
       setDetectedSubject(file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '))
     } finally {
@@ -132,8 +155,8 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               <Sparkles size={20} />
             </div>
             <div>
-              <h3 id="exam-import-title" className="font-black text-lg text-parish-primary m-0">Import Đề Thi Thông Minh</h3>
-              <p className="text-xs text-text-muted m-0 mt-0.5">Hỗ trợ đề trắc nghiệm, tự luận hoặc KẾT HỢP cả hai — tự nhận diện câu hỏi, phương án A-B-C-D và bảng đáp án</p>
+              <h3 id="exam-import-title" className="font-black text-lg text-parish-primary m-0">{SCOPE_META[scope].title}</h3>
+              <p className="text-xs text-text-muted m-0 mt-0.5">{SCOPE_META[scope].subtitle}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
@@ -200,7 +223,13 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 <textarea
                   value={rawText}
                   onChange={handleTextChange}
-                  placeholder={`Dán đề thi tại đây...\n\nVí dụ đề KẾT HỢP:\nPHẦN I. TRẮC NGHIỆM (3 điểm)\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng\n\nPHẦN II. TỰ LUẬN (7 điểm)\nCâu 5 (4 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể...`}
+                  placeholder={
+                    scope === 'essay'
+                      ? `Dán PHẦN TỰ LUẬN tại đây...\n\nVí dụ:\nPHẦN TỰ LUẬN (7 điểm)\nCâu 1 (3 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể...\nCâu 2 (4 điểm): Nêu 4 khẩu hiệu của Phong trào TNTT...`
+                      : scope === 'multiple_choice'
+                        ? `Dán PHẦN TRẮC NGHIỆM tại đây...\n\nVí dụ:\nPHẦN I. TRẮC NGHIỆM (3 điểm)\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng`
+                        : `Dán đề thi tại đây...\n\nVí dụ đề KẾT HỢP:\nPHẦN I. TRẮC NGHIỆM (3 điểm)\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng\n\nPHẦN II. TỰ LUẬN (7 điểm)\nCâu 5 (4 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể...`
+                  }
                   className="w-full flex-1 p-3 bg-surface-app border border-surface-border rounded-xl font-mono text-xs text-text-main resize-none focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
                 />
               </>
@@ -211,7 +240,11 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 </div>
                 <h4 className="font-bold text-sm text-text-main mb-1">Chọn File Excel Đề Thi</h4>
                 <p className="text-xs text-text-muted max-w-xs mb-4">
-                  Hỗ trợ .xlsx, .xls, .csv — 7 cột (Câu, Nội dung, A, B, C, D, Đáp án) hoặc mở rộng 9 cột có thêm cột Loại (TN/TL) và Điểm
+                  {scope === 'essay'
+                    ? 'Hỗ trợ .xlsx, .xls, .csv — 9 cột có cột Loại (TN/TL) và Điểm; chỉ hàng Tự luận (TL) được nạp'
+                    : scope === 'multiple_choice'
+                      ? 'Hỗ trợ .xlsx, .xls, .csv — 7 cột (Câu, Nội dung, A, B, C, D, Đáp án) hoặc 9 cột có Loại + Điểm; chỉ hàng Trắc nghiệm (TN) được nạp'
+                      : 'Hỗ trợ .xlsx, .xls, .csv — 7 cột (Câu, Nội dung, A, B, C, D, Đáp án) hoặc mở rộng 9 cột có thêm cột Loại (TN/TL) và Điểm'}
                 </p>
                 <label className="btn btn-primary btn-sm cursor-pointer">
                   <span>Chọn File Từ Máy Tính</span>
@@ -234,8 +267,11 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               </span>
             {previewResult && previewResult.ok && (
               <span className="text-xs font-extrabold text-emerald-600 px-2 py-0.5 bg-emerald-500/10 rounded-full">
-                {previewResult.mcQuestionCount} câu TN
-                {previewResult.essayQuestionCount > 0 ? ` + ${previewResult.essayQuestionCount} câu TL` : ''} · {previewResult.totalPoints}đ
+                {scope === 'essay'
+                  ? `${previewResult.essayQuestionCount} câu TL · ${previewResult.totalPoints}đ`
+                  : scope === 'multiple_choice'
+                    ? `${previewResult.mcQuestionCount} câu TN · ${previewResult.totalPoints}đ`
+                    : `${previewResult.mcQuestionCount} câu TN${previewResult.essayQuestionCount > 0 ? ` + ${previewResult.essayQuestionCount} câu TL` : ''} · ${previewResult.totalPoints}đ`}
               </span>
             )}
             </div>
@@ -257,7 +293,8 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
             {/* Questions scroll view */}
             {previewResult && previewResult.ok ? (
               <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                {/* Answer Key Grid Quick View */}
+                {/* Answer Key Grid Quick View — ẩn ở ô import tự luận */}
+                {scope !== 'essay' && (
                 <div className="bg-surface-card p-3 rounded-lg border border-surface-border">
                   <div className="text-[11px] font-bold text-text-muted mb-1.5 flex items-center gap-1">
                     <ListChecks size={12} /> Bảng Đáp Án Chuẩn Đã Trích Xuất (câu trắc nghiệm):
@@ -269,13 +306,14 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                         <strong className="text-parish-primary font-black text-xs">{q.correctOption}</strong>
                       </div>
                     ))}
-                    {previewResult.essayQuestionCount > 0 && (
+                    {scope === 'both' && previewResult.essayQuestionCount > 0 && (
                       <div className="p-1 rounded bg-violet-500/10 border border-violet-500/40 text-[10px] text-violet-600 dark:text-violet-300 font-bold col-span-full">
                         + {previewResult.essayQuestionCount} câu tự luận ({previewResult.essayPoints}đ) — chấm bằng nhập tay
                       </div>
                     )}
                   </div>
                 </div>
+                )}
 
                 {/* Questions Details */}
                 {previewResult.questions.map((q) => {

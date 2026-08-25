@@ -5,6 +5,7 @@ import {
   parseExamFromExcel,
   generateSampleExamTemplateText,
   generateSampleExcelWorkbook,
+  scopeExamParseResult,
 } from '../../utils/examParser'
 
 describe('examParser utility', () => {
@@ -247,5 +248,74 @@ B. Đức Giám Mục
     expect(detectSectionMode('Phần tự luận')).toBe('essay')
     expect(detectSectionMode('BÀI LÀM')).toBeNull()
     expect(detectSectionMode('Câu 5: Kể lại phép tính lòng nhân hậu của Chúa (7 điểm)')).toBeNull()
+  })
+})
+
+// ─── UI-POLISH 2026-08-25: 2 ô import riêng (Trắc nghiệm / Tự luận) ───
+describe('scopeExamParseResult (import theo phần)', () => {
+  const combined = parseExamFromText(generateSampleExamTemplateText()) // 6 TN + 2 TL
+
+  it('1. scope multiple_choice: giữ 6 câu TN, bỏ TL kèm warning, answerKey nguyên vẹn', () => {
+    const scoped = scopeExamParseResult(combined, 'multiple_choice')
+    expect(scoped.ok).toBe(true)
+    expect(scoped.mcQuestionCount).toBe(6)
+    expect(scoped.essayQuestionCount).toBe(0)
+    expect(scoped.questionCount).toBe(6)
+    expect(scoped.answerKey[1]).toBe('B')
+    expect(scoped.answerKey[6]).toBe('A')
+    expect(scoped.questions.every(q => (q.type ?? 'multiple_choice') === 'multiple_choice')).toBe(true)
+    expect(scoped.warnings.some(w => w.includes('tự luận'))).toBe(true)
+  })
+
+  it('2. scope essay: giữ 2 câu TL đánh lại index 1..2, answerKey rỗng, điểm đúng', () => {
+    const scoped = scopeExamParseResult(combined, 'essay')
+    expect(scoped.ok).toBe(true)
+    expect(scoped.essayQuestionCount).toBe(2)
+    expect(scoped.mcQuestionCount).toBe(0)
+    expect(scoped.questionCount).toBe(2)
+    expect(Object.keys(scoped.answerKey)).toHaveLength(0)
+    expect(scoped.questions[0]?.index).toBe(1)
+    expect(scoped.questions[0]?.type).toBe('essay')
+    expect(scoped.questions[0]?.points).toBe(3)
+    expect(scoped.questions[1]?.index).toBe(2)
+    expect(scoped.essayPoints).toBe(7)
+    expect(scoped.warnings.some(w => w.includes('trắc nghiệm'))).toBe(true)
+  })
+
+  it('3. scope both: trả nguyên kết quả (same reference)', () => {
+    expect(scopeExamParseResult(combined, 'both')).toBe(combined)
+  })
+
+  it('4. Đề chỉ có TN + scope essay → ok=false với lỗi hướng dẫn', () => {
+    const mcOnly = parseExamFromText(`Câu 1: Test?
+A. A
+*B. B
+C. C
+D. D
+`)
+    const scoped = scopeExamParseResult(mcOnly, 'essay')
+    expect(scoped.ok).toBe(false)
+    expect(scoped.questions).toHaveLength(0)
+    expect(scoped.errors[0]).toContain('tự luận')
+  })
+
+  it('5. Đề chỉ có TL + scope multiple_choice → ok=false với lỗi hướng dẫn', () => {
+    const essayOnly = parseExamFromText(`PHẦN TỰ LUẬN (7 điểm)
+Câu 1 (3 điểm): Trình bày ý nghĩa Bí tích Thánh Thể.
+`)
+    const scoped = scopeExamParseResult(essayOnly, 'multiple_choice')
+    expect(scoped.ok).toBe(false)
+    expect(scoped.errors[0]).toContain('trắc nghiệm')
+  })
+
+  it('6. Mẫu đề theo scope: TN-only / TL-only parse đúng phần tương ứng', () => {
+    const mcSample = parseExamFromText(generateSampleExamTemplateText('multiple_choice'))
+    expect(mcSample.mcQuestionCount).toBe(6)
+    expect(mcSample.essayQuestionCount).toBe(0)
+
+    const essaySample = parseExamFromText(generateSampleExamTemplateText('essay'))
+    expect(essaySample.essayQuestionCount).toBe(2)
+    expect(essaySample.mcQuestionCount).toBe(0)
+    expect(essaySample.essayPoints).toBe(7)
   })
 })

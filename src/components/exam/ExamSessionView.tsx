@@ -22,9 +22,10 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-  Download,
+  Download, Upload,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
+import type { ExamImportScope } from '../../utils/examParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 
@@ -47,6 +48,24 @@ function normalizeActiveAY(ay: string): string {
 }
 
 const VALID_MC_OPTIONS = new Set(['A', 'B', 'C', 'D'])
+
+/** UI-POLISH 2026-08-25: một phần đề nạp từ ô import (TN hoặc TL). */
+interface ExamPartSummary {
+  questions: ExamQuestion[]
+  totalPoints: number
+}
+
+/**
+ * Ghép 2 phần đề thành mảng questions của phiên:
+ * TN index 1..N (khớp phiếu OMR), TL tiếp theo N+1..N+M (server validate
+ * MC contiguous từ 1 — validateMcIndexLayout). Trả undefined khi rỗng.
+ */
+function mergeExamParts(mc: ExamPartSummary | null, essay: ExamPartSummary | null): ExamQuestion[] | undefined {
+  if (!mc && !essay) return undefined
+  const mcQs = (mc?.questions ?? []).map((q, i) => ({ ...q, index: i + 1 }))
+  const essayQs = (essay?.questions ?? []).map((q, i) => ({ ...q, index: mcQs.length + i + 1 }))
+  return [...mcQs, ...essayQs]
+}
 
 /**
  * Parse answerKey an toàn — dữ liệu từ server có thể hỏng (zod chỉ nhận string),
@@ -133,6 +152,10 @@ export const ExamSessionView: React.FC = () => {
   const [rescoreLoading, setRescoreLoading] = useState(false)
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
+  // UI-POLISH 2026-08-25: 2 Ô IMPORT RIÊNG — Phần Trắc Nghiệm / Phần Tự Luận.
+  const [importScope, setImportScope] = useState<ExamImportScope>('multiple_choice')
+  const [mcPart, setMcPart] = useState<ExamPartSummary | null>(null)
+  const [essayPart, setEssayPart] = useState<ExamPartSummary | null>(null)
   const [showPaperModal, setShowPaperModal] = useState(false)
   const [showBatchScan, setShowBatchScan] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
@@ -261,6 +284,68 @@ export const ExamSessionView: React.FC = () => {
     setShowCreate(true)
   }
 
+  // ─── UI-POLISH 2026-08-25: import theo từng phần ───
+  /** Tổng điểm của một loại câu (points ?? 1) — payload import chỉ có totalPoints chung. */
+  const sumPointsOf = (qs: ExamQuestion[], kind: 'mc' | 'essay') =>
+    Math.round(qs
+      .filter(q => (((q.type ?? 'multiple_choice') === 'essay') ? 'essay' : 'mc') === kind)
+      .reduce((s, q) => s + (q.points ?? 1), 0) * 100) / 100
+
+  const handleMcImport = (data: {
+    questions: ExamQuestion[]
+    answerKey: Record<number, 'A' | 'B' | 'C' | 'D'>
+    mcQuestionCount: number
+    subject?: string
+  }) => {
+    const part: ExamPartSummary = { questions: data.questions, totalPoints: sumPointsOf(data.questions, 'mc') }
+    setMcPart(part)
+    setCreateForm(f => ({
+      ...f,
+      subject: data.subject || f.subject,
+      examType: essayPart ? 'mixed' : 'multiple_choice',
+      questionCount: data.mcQuestionCount,
+      answerKey: data.answerKey,
+      questions: mergeExamParts(part, essayPart),
+    }))
+    setCreateError('')
+  }
+
+  const handleEssayImport = (data: {
+    questions: ExamQuestion[]
+    subject?: string
+  }) => {
+    const part: ExamPartSummary = { questions: data.questions, totalPoints: sumPointsOf(data.questions, 'essay') }
+    setEssayPart(part)
+    setCreateForm(f => ({
+      ...f,
+      subject: data.subject || f.subject,
+      // Có phần TL → đề mixed (bắt cặp với phần TN; thiếu TN sẽ bị chặn ở validate).
+      examType: 'mixed',
+      questions: mergeExamParts(mcPart, part),
+    }))
+    setCreateError('')
+  }
+
+  const removeMcPart = () => {
+    setMcPart(null)
+    setCreateForm(f => ({
+      ...f,
+      questionCount: 20,
+      answerKey: {},
+      questions: mergeExamParts(null, essayPart),
+      examType: f.examType === 'multiple_choice' ? 'written' : f.examType,
+    }))
+  }
+
+  const removeEssayPart = () => {
+    setEssayPart(null)
+    setCreateForm(f => ({
+      ...f,
+      questions: mergeExamParts(mcPart, null),
+      examType: f.examType === 'mixed' ? 'multiple_choice' : f.examType,
+    }))
+  }
+
   const handleCreate = async () => {
     const targetClassId = createForm.classId || effectiveClassId
     if (!targetClassId) {
@@ -269,6 +354,15 @@ export const ExamSessionView: React.FC = () => {
     }
     if (!createForm.subject.trim()) {
       setCreateError('Vui lòng nhập tên bài kiểm tra / môn học.')
+      return
+    }
+    // UI-POLISH 2026-08-25: ràng buộc theo 2 phần đề đã nạp.
+    if (createForm.examType === 'mixed' && !mcPart) {
+      setCreateError('Đề Kết hợp cần PHẦN TRẮC NGHIỆM — bấm Import ở ô "Phần Trắc Nghiệm" hoặc đổi hình thức khác.')
+      return
+    }
+    if (createForm.examType === 'multiple_choice' && essayPart) {
+      setCreateError('Đang nạp PHẦN TỰ LUẬN — chọn hình thức "Kết hợp TN + TL" hoặc gỡ phần tự luận.')
       return
     }
     // Trắc nghiệm bắt buộc có đủ đáp án cho từng câu — nếu không, OMR detector
@@ -324,6 +418,8 @@ export const ExamSessionView: React.FC = () => {
     if (session) {
       setShowCreate(false)
       setCreateError('')
+      setMcPart(null)
+      setEssayPart(null)
       setCreateForm({
         classId: '',
         subject: '',
@@ -843,42 +939,93 @@ export const ExamSessionView: React.FC = () => {
               </div>
             )}
 
-            {/* Smart Exam Importer Banner */}
-            <div className="flex items-center justify-between mb-4 bg-surface-hover/70 p-3 rounded-xl border border-surface-border">
-              <div>
-                <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
-                  <Sparkles size={14} className="text-amber-500" /> Tự Động Phân Tích Đề Thi:
-                </span>
-                <span className="text-[11px] text-text-muted">Import từ Word / Markdown / Excel để tự điền số câu và đáp án</span>
+            {/* UI-POLISH 2026-08-25: 2 Ô IMPORT RIÊNG — Phần Trắc Nghiệm / Phần Tự Luận.
+                Mỗi ô nạp độc lập (dán văn bản hoặc Excel), ghép lại thành 1 đề khi tạo phiên. */}
+            <div className="mb-4">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Sparkles size={14} className="text-amber-500" />
+                <span className="text-xs font-bold text-text-main">Import Đề Thi — Tự Động Phân Tích:</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowImportModal(true)}
-                className="btn btn-primary btn-sm flex items-center gap-1.5 text-xs font-bold shadow-xs"
-              >
-                <Sparkles size={13} className="text-amber-300" /> Import Đề Thi
-              </button>
-            </div>
-
-            {createForm.questions && createForm.questions.length > 0 && (() => {
-              const mcCount = createForm.questions.filter(q => (q.type ?? 'multiple_choice') === 'multiple_choice').length
-              const essayCount = createForm.questions.length - mcCount
-              return (
-                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
-                  <span className="flex items-center gap-1.5 font-bold">
-                    <CheckCircle2 size={16} /> Đã nạp đề thi gồm <strong>{mcCount} câu trắc nghiệm</strong>
-                    {essayCount > 0 ? <> + <strong>{essayCount} câu tự luận</strong></> : ''}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCreateForm(f => ({ ...f, questions: undefined, examType: f.examType === 'mixed' ? 'written' : f.examType }))}
-                    className="text-[11px] underline text-text-muted hover:text-rose-600 font-semibold"
-                  >
-                    Gỡ đề thi
-                  </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {/* ── Ô PHẦN TRẮC NGHIỆM ── */}
+                <div className={`p-3 rounded-xl border ${mcPart ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-surface-hover/70 border-surface-border'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
+                      <ListChecks size={12} className={mcPart ? 'text-emerald-600' : 'text-text-muted'} /> Phần Trắc Nghiệm
+                    </span>
+                    {mcPart && (
+                      <button type="button" onClick={removeMcPart} className="text-[10px] underline text-text-muted hover:text-rose-600 font-semibold">
+                        Gỡ
+                      </button>
+                    )}
+                  </div>
+                  {mcPart ? (
+                    <>
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-bold m-0 mb-0.5 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> {mcPart.questions.length} câu · {mcPart.totalPoints}đ — đáp án đã tự điền
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
+                        className="text-[11px] underline text-text-muted hover:text-parish-primary font-semibold"
+                      >
+                        Đổi đề trắc nghiệm
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[11px] text-text-muted m-0 mb-1.5">Câu hỏi A/B/C/D + đáp án (dán Word/Text hoặc Excel)</p>
+                      <button
+                        type="button"
+                        onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
+                        className="btn btn-primary btn-sm text-[11px] font-bold"
+                      >
+                        <Upload size={12} /> Import Trắc Nghiệm
+                      </button>
+                    </>
+                  )}
                 </div>
-              )
-            })()}
+
+                {/* ── Ô PHẦN TỰ LUẬN ── */}
+                <div className={`p-3 rounded-xl border ${essayPart ? 'bg-violet-500/10 border-violet-500/30' : 'bg-surface-hover/70 border-surface-border'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
+                      <FileText size={12} className={essayPart ? 'text-violet-600 dark:text-violet-300' : 'text-text-muted'} /> Phần Tự Luận
+                    </span>
+                    {essayPart && (
+                      <button type="button" onClick={removeEssayPart} className="text-[10px] underline text-text-muted hover:text-rose-600 font-semibold">
+                        Gỡ
+                      </button>
+                    )}
+                  </div>
+                  {essayPart ? (
+                    <>
+                      <p className="text-[11px] text-violet-700 dark:text-violet-300 font-bold m-0 mb-0.5 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> {essayPart.questions.length} câu · {essayPart.totalPoints}đ — chấm bằng nhập tay
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => { setImportScope('essay'); setShowImportModal(true) }}
+                        className="text-[11px] underline text-text-muted hover:text-parish-primary font-semibold"
+                      >
+                        Đổi đề tự luận
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[11px] text-text-muted m-0 mb-1.5">Câu hỏi + điểm từng câu (chấm nhập tay)</p>
+                      <button
+                        type="button"
+                        onClick={() => { setImportScope('essay'); setShowImportModal(true) }}
+                        className="btn btn-secondary btn-sm text-[11px] font-bold"
+                      >
+                        <Upload size={12} /> Import Tự Luận
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
 
             <label className="block text-xs font-bold text-text-secondary mb-1">Hình thức Bài Kiểm Tra</label>
             <div className="grid grid-cols-3 gap-2 mb-3">
@@ -917,9 +1064,12 @@ export const ExamSessionView: React.FC = () => {
                 Kết hợp TN + TL
               </button>
             </div>
-            {createForm.examType === 'mixed' && !createForm.questions?.some(q => q.type === 'essay') && (
+            {createForm.examType === 'mixed' && (!mcPart || !essayPart) && (
               <div className="mb-3 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-[11px] text-amber-700 dark:text-amber-300">
-                Đề mixed cần có nội dung câu hỏi gồm cả phần trắc nghiệm lẫn phần tự luận. Bấm <strong>Import Đề Thi</strong> ở trên với đề có tiêu đề <em>PHẦN TRẮC NGHIỆM / PHẦN TỰ LUẬN</em>.
+                Đề Kết hợp cần CẢ HAI phần: {!mcPart && <><strong>Phần Trắc Nghiệm</strong> (bấm Import ở ô bên trái) </>}
+                {!mcPart && !essayPart && 'và '}
+                {!essayPart && <><strong>Phần Tự Luận</strong> (bấm Import ở ô bên phải)</>}
+                {' '}— mỗi phần nạp riêng rồi ghép tự động khi tạo phiên.
               </div>
             )}
 
@@ -1062,22 +1212,15 @@ export const ExamSessionView: React.FC = () => {
         </div>
       )}
 
-      {/* Smart Exam Import Modal */}
+      {/* Smart Exam Import Modal — scope theo ô import đang mở (TN / TL) */}
       {showImportModal && (
         <ExamImportModal
           isOpen={showImportModal}
+          scope={importScope}
           onClose={() => setShowImportModal(false)}
           onImport={(data) => {
-            setCreateForm(f => ({
-              ...f,
-              subject: data.subject || f.subject,
-              // EXAM-MIXED: có câu tự luận → đề mixed; questionCount = số câu TN (phiếu OMR).
-              examType: data.essayQuestionCount > 0 ? 'mixed' : 'multiple_choice',
-              questionCount: data.mcQuestionCount > 0 ? data.mcQuestionCount : data.questionCount,
-              answerKey: data.answerKey,
-              questions: data.questions,
-            }))
-            setCreateError('')
+            if (importScope === 'essay') handleEssayImport(data)
+            else handleMcImport(data)
           }}
         />
       )}

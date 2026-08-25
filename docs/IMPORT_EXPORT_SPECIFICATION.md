@@ -143,3 +143,8 @@ Import đề thi (trắc nghiệm, tự luận hoặc KẾT HỢP) chạy 100% c
 
 ### 7.4 Ràng buộc dữ liệu khi tạo phiên mixed
 - `questionCount` = số câu TN (phiếu OMR bubble 1..N); các câu TN phải chiếm index 1..questionCount LIÊN TỤC từ đầu đề; ≥1 câu TL bắt buộc; server reject nếu vi phạm hoặc thiếu `questions`/`answerKey`. Chi tiết hợp đồng điểm xem BUSINESS_RULES §21.5.
+
+### 7.5 Import theo phần — 2 ô riêng TN / TL (UI-POLISH 2026-08-25)
+- Modal "Tạo Phiên Chấm" có **2 ô import độc lập**: "Phần Trắc Nghiệm" và "Phần Tự Luận" (mỗi ô mở `ExamImportModal` với prop `scope = 'multiple_choice' | 'essay'`; vẫn còn đường import đề gộp qua scope `'both'` nếu cần tái sử dụng).
+- `scopeExamParseResult()` (`examParser.ts`) lọc kết quả parse theo scope: phần không thuộc scope bị **bỏ qua kèm warning**; phần giữ lại được **đánh lại index 1..N** và `answerKey` rebuild theo index mới (khóa OMR không được lệch). Không có câu nào khớp scope → `ok=false` + lỗi hướng dẫn, chặn nút "Áp Dụng".
+- Ghép 2 phần ở `ExamSessionView.mergeExamParts()`: TN index 1..N + TL tiếp N+1..N+M — khớp ràng buộc §7.4. examType tự suy: chỉ TN → `multiple_choice`; có TL → `mixed` (thiếu phần TN khi submit bị chặn với thông báo rõ). Mẫu "Dán Đề Mẫu" sinh theo scope.
