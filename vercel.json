@@ -21,7 +21,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://tnttvn-api.onrender.com/api/:path*"
+      "destination": "https://tnttvn.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

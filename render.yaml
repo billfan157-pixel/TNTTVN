@@ -8,7 +8,9 @@
 services:
   - type: web
     name: tnttvn-api
-    runtime: docker
+    # LƯU Ý (2026-08-25): service thực tế trên Render do user tạo tay tên "TNTTVN"
+    # → domain thật là https://tnttvn.onrender.com (đã đồng bộ vercel.json + mobile).
+    # Blueprint này chỉ dùng khi tái tạo service từ đầu qua Blueprints.
     plan: free
     healthCheckPath: /health
     autoDeploy: true
