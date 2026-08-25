@@ -54,3 +54,5 @@ playwright-report/
 *.tsbuildinfo
 
 .secrets-render.local.txt
+
+.render-env-paste.txt
