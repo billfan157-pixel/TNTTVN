@@ -11,6 +11,7 @@ import { useClassStore } from '../stores/classStore'
 import { BRANCHES } from '../constants/branches'
 import { getSacramentStatus, getAge } from '../utils/sacraments'
 import { generateCertificateQrSvg, buildCertificateQrPayload } from '../lib/qr'
+import { PARISH_LOGO_DATA_URI, parishLogoImgHtml } from './parishLogo'
 
 export type ReportType = 'CLASS_GRADEBOOK' | 'STUDENT_REPORT_CARD' | 'SACRAMENT_CERTIFICATE' | 'BATCH_STUDENT_REPORT_CARDS' | 'BATCH_PHOTO_CARDS' | 'PARENT_INVITATION' | 'BATCH_PARENT_INVITATIONS'
 
@@ -29,6 +30,9 @@ export const REPORT_CARD_STYLES = `
   @page { size: A4 portrait; margin: 10mm; }
   body { font-family: Arial, sans-serif; color: #1E293B; margin: 0; padding: 15px; font-size: 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .card-header { text-align: center; border-bottom: 2px solid #1E3A8A; padding-bottom: 12px; margin-bottom: 15px; }
+  .card-header.with-logo { display: flex; align-items: center; gap: 14px; text-align: left; }
+  .card-header.with-logo .parish-logo { width: 58px; height: 58px; object-fit: contain; flex-shrink: 0; }
+  .card-header.with-logo .header-text { flex: 1; text-align: center; }
   .card-header h1 { color: #1E3A8A; font-size: 18px; margin: 4px 0; text-transform: uppercase; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #F8FAFC; padding: 12px; border-radius: 6px; border: 1px solid #CBD5E1; margin-bottom: 15px; }
   table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -97,10 +101,13 @@ export function renderStudentReportCardBody(vm: StudentReportCardViewModel): str
 
   return `
     <div class="report-card-container">
-      <div class="card-header">
-        <p><strong>${escapeHtml(options.dioceseName)}</strong> - <strong>${escapeHtml(options.parishName)}</strong></p>
-        <h1>PHIẾU KẾT QUẢ HỌC TẬP GIÁO LÝ CẢ NĂM</h1>
-        <p>Năm học: <strong>${escapeHtml(options.academicYear)}</strong></p>
+      <div class="card-header with-logo">
+        ${parishLogoImgHtml(58)}
+        <div class="header-text">
+          <p><strong>${escapeHtml(options.dioceseName)}</strong> - <strong>${escapeHtml(options.parishName)}</strong></p>
+          <h1>PHIẾU KẾT QUẢ HỌC TẬP GIÁO LÝ CẢ NĂM</h1>
+          <p>Năm học: <strong>${escapeHtml(options.academicYear)}</strong></p>
+        </div>
       </div>
 
       <div class="info-grid">
@@ -324,10 +331,13 @@ export function generateParentReportCardHTML(report: ReportCardDTO, options?: Re
     </head>
     <body>
       <div class="report-card-container">
-        <div class="card-header">
-          <p><strong>${escapeHtml(dioceseName)}</strong> - <strong>${escapeHtml(parishName)}</strong></p>
-          <h1>PHIẾU KẾT QUẢ HỌC TẬP GIÁO LÝ</h1>
-          <p>Năm học: <strong>${escapeHtml(report.academicYear)}</strong></p>
+        <div class="card-header with-logo">
+          ${parishLogoImgHtml(58)}
+          <div class="header-text">
+            <p><strong>${escapeHtml(dioceseName)}</strong> - <strong>${escapeHtml(parishName)}</strong></p>
+            <h1>PHIẾU KẾT QUẢ HỌC TẬP GIÁO LÝ</h1>
+            <p>Năm học: <strong>${escapeHtml(report.academicYear)}</strong></p>
+          </div>
         </div>
         <div class="info-grid">
           <div>Tên Thánh, Họ và Tên: <strong>${escapeHtml(report.student.holyName ?? '')} ${escapeHtml(report.student.fullName)}</strong></div>
@@ -444,8 +454,15 @@ export function generateClassGradebookHTML(
       </style>
     </head>
     <body>
-      <div class="header">
-        <div><h1>SỔ ĐIỂM GIÁO LÝ</h1></div>
+      <div class="header" style="gap:14px;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          ${parishLogoImgHtml(52)}
+          <div>
+            <div style="font-size:11px;font-weight:700;color:#1E3A8A;text-transform:uppercase;">${escapeHtml(resolveParishName(options))}</div>
+            <h1 style="margin:2px 0 0;">SỔ ĐIỂM GIÁO LÝ</h1>
+          </div>
+        </div>
+        <div style="font-size:11px;color:#64748B;">Năm học: <strong style="color:#1E3A8A;">${escapeHtml(normalizeAcademicYear(options?.academicYear || getCurrentAcademicYear()))}</strong></div>
       </div>
       <table>
         <thead>
@@ -489,6 +506,8 @@ export function generateSacramentCertificateHTML(student: Student, options?: Rep
       </style>
     </head>
     <body>
+      <div style="display:flex;justify-content:center;margin-bottom:14px;">${parishLogoImgHtml(72)}</div>
+      <div style="font-size:11px;font-weight:700;color:#1E3A8A;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(resolveParishName(options))} — ${escapeHtml(options?.dioceseName || 'Giáo Phận Xuân Lộc')}</div>
       <h1>GIẤY CHỨNG NHẬN BÍ TÍCH</h1>
       <p>${escapeHtml(student.holyName)} ${escapeHtml(student.fullName)}</p>
     </body>
@@ -507,7 +526,10 @@ export const PARENT_INVITATION_STYLES = `
   @page { size: A4 portrait; margin: 15mm; }
   body { font-family: 'Times New Roman', 'Arial', serif; color: #1E293B; margin: 0; padding: 24px; font-size: 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .invite { border: 2px solid #1E3A8A; border-radius: 8px; padding: 28px 32px; background: #FFFFFF; }
-  .parish-header { text-align: center; margin-bottom: 12px; }
+  .parish-header { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 12px; }
+  .parish-header.with-logo { gap: 14px; }
+  .parish-header .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+  .parish-header-text { text-align: center; }
   .diocese-line { font-size: 12px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
   .parish-name { font-size: 18px; font-weight: 800; color: #1E3A8A; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
   .invite-title { text-align: center; font-size: 22px; font-weight: 800; color: #0F172A; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -565,9 +587,12 @@ export function generateParentInvitationHTML(student: Student, options?: ReportO
     </head>
     <body>
       <div class="invite">
-        <div class="parish-header">
-          <div class="diocese-line">${escapeHtml(dioceseName)}</div>
-          <div class="parish-name">${escapeHtml(parishHeader)}</div>
+        <div class="parish-header with-logo">
+          ${parishLogoImgHtml(52)}
+          <div class="parish-header-text">
+            <div class="diocese-line">${escapeHtml(dioceseName)}</div>
+            <div class="parish-name">${escapeHtml(parishHeader)}</div>
+          </div>
         </div>
 
         <div class="invite-title">${title}</div>
@@ -675,7 +700,9 @@ export function generatePhotoCardHTML(student: Student, options?: ReportOptions)
         @page { size: A6 portrait; margin: 5mm; }
         body { font-family: Arial, sans-serif; color: #1E293B; margin: 0; padding: 10px; font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .card { border: 2px solid #1E3A8A; border-radius: 12px; padding: 15px; max-width: 150px; margin: 0 auto; background: white; }
-        .header { text-align: center; margin-bottom: 10px; }
+        .header { display: flex; align-items: center; gap: 8px; justify-content: center; margin-bottom: 10px; }
+        .header .parish-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
+        .header-text { text-align: center; }
         .header-title { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #64748B; }
         .header-name { font-size: 14px; font-weight: 800; color: #1E3A8A; }
         .avatar { width: 60px; height: 60px; border-radius: 50%; background: #EFF6FF; border: 2px solid #1E3A8A; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-size: 24px; font-weight: 800; color: #1E3A8A; }
@@ -696,8 +723,11 @@ export function generatePhotoCardHTML(student: Student, options?: ReportOptions)
     <body>
       <div class="card">
         <div class="header">
-          <div class="header-title">${escapeHtml(resolveParishName(options))}</div>
-          <div class="header-name">Thiếu Nhi Thánh Thể</div>
+          ${parishLogoImgHtml(36)}
+          <div class="header-text">
+            <div class="header-title">${escapeHtml(resolveParishName(options))}</div>
+            <div class="header-name">Thiếu Nhi Thánh Thể</div>
+          </div>
         </div>
 
         <div class="avatar">${student.holyName.charAt(0)}</div>
@@ -783,7 +813,9 @@ export function generateBatchPhotoCardsHTML(students: Student[], options?: Repor
         @page { size: A6 portrait; margin: 5mm; }
         body { font-family: Arial, sans-serif; color: #1E293B; margin: 0; padding: 0; font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .card { border: 2px solid #1E3A8A; border-radius: 12px; padding: 15px; max-width: 150px; margin: 0 auto; background: white; }
-        .header { text-align: center; margin-bottom: 10px; }
+        .header { display: flex; align-items: center; gap: 8px; justify-content: center; margin-bottom: 10px; }
+        .header .parish-logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
+        .header-text { text-align: center; }
         .header-title { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #64748B; }
         .header-name { font-size: 14px; font-weight: 800; color: #1E3A8A; }
         .avatar { width: 60px; height: 60px; border-radius: 50%; background: #EFF6FF; border: 2px solid #1E3A8A; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; font-size: 24px; font-weight: 800; color: #1E3A8A; }

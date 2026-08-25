@@ -2,6 +2,7 @@
  * Convert numbers to Vietnamese words for official receipts & financial vouchers.
  */
 import { useToastStore } from '../stores/toastStore'
+import { PARISH_LOGO_DATA_URI } from './parishLogo'
 
 export function numberToVietnameseWords(n: number): string {
   if (n === 0) return 'Không đồng'
@@ -145,6 +146,9 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
       font-size: 13px;
       line-height: 1.4;
     }
+    .header-left.with-logo { display: flex; align-items: center; gap: 10px; text-align: left; }
+    .header-left .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+    .header-left-text { flex: 1; text-align: center; }
     .header-left .unit {
       font-weight: bold;
       text-transform: uppercase;
@@ -261,10 +265,13 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
     <!-- Header -->
     <table class="header-table">
       <tr>
-        <td class="header-left">
-          <div>${data.dioceseName || 'GIÁO PHẬN'} — ${data.parishName || 'GIÁO XỨ GIA TÔN'}</div>
-          <div class="unit">${data.unitName || 'XỨ ĐOÀN THIẾU NHI THÁNH THỂ'}</div>
-          <div>Số sổ: <strong>${data.fundName}</strong></div>
+        <td class="header-left with-logo">
+          <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:52px;height:52px;object-fit:contain;" />
+          <div class="header-left-text">
+            <div>${data.dioceseName || 'GIÁO PHẬN'} — ${data.parishName || 'GIÁO XỨ GIA TÔN'}</div>
+            <div class="unit">${data.unitName || 'XỨ ĐOÀN THIẾU NHI THÁNH THỂ'}</div>
+            <div>Số sổ: <strong>${data.fundName}</strong></div>
+          </div>
         </td>
         <td class="header-right">
           <div><strong>Mẫu số: 01-${isIncome ? 'TT' : 'TC'}</strong></div>

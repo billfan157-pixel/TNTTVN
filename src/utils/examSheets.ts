@@ -1,4 +1,5 @@
 import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
+import { PARISH_LOGO_DATA_URI } from './parishLogo'
 import type { ExamVersionCode } from '../types'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import {
@@ -378,9 +379,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
   return `
     @page {
       size: A4 portrait;
-      /* QB-MARGIN (2026-08-21): 10/8/8/8 → 8/6/6/6 theo yêu cầu thu hẹp viền in.
-         Marker khung OMR còn cách mép giấy ~8.2mm (>5mm hardware margin thông thường). */
-      margin: 8mm 6mm 6mm 6mm;
+      /* QB-MARGIN (2026-08-27d): 2/4/2/4 → 4/6/4/6 tăng 2mm theo yêu cầu (review = in).
+         Tổng lề in = @page 6mm ngang + container 4mm = 10mm, dọc = @page 4mm + container 2mm = 6mm. */
+      margin: 4mm 6mm 4mm 6mm;
     }
     * {
       box-sizing: border-box;
@@ -396,17 +397,30 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    @media screen {
+      /* Đồng bộ tuyệt đối preview = in: body padding mô phỏng @page 4mm/6mm, container 2mm/4mm */
+      html { background: #e5e7eb; }
+      body { background: #e5e7eb; padding: 4mm 6mm; }
+      .exam-paper-container {
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08);
+        border-radius: 2px;
+        padding: 2mm 4mm !important;
+        margin: 0 auto;
+      }
+    }
+    @media print {
+      html, body { background: #fff; padding: 0; }
+      .exam-paper-container { box-shadow: none; border-radius: 0; background: #fff; }
+    }
     .exam-paper-container {
       width: 100%;
       max-width: 210mm;
       min-width: 0;
       margin: 0 auto;
       position: relative;
-      /* Lề ngang 7mm (QB-MARGIN 2026-08-21, trước 8mm) — khớp lề wrapper batch (buildBatchExamPapersHtml): marker
-         khung integrated nằm lệch ra ngoài theo INTEGRATED_MARKER_SIZE; lề này cùng
-         @page margin bảo đảm marker TL/BL không bị clip mép giấy (~8.2mm đề đơn /
-         ~6.4mm đề gộp tính đến mép marker). KHÔNG giảm thêm nếu không chạy lại E2E scan. */
-      padding: 0 7mm;
+      /* Lề trong container 2mm dọc + 4mm ngang — cộng @page = 5mm dọc / 8mm ngang tổng */
+      padding: 2mm 4mm;
     }
     .watermark {
       position: absolute;
@@ -426,15 +440,17 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
        106%, khiến browser/driver in tự shrink khác nhau và làm QR/header lệch. */
     .paper-header {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr) 122px;
-      column-gap: 8px;
-      align-items: start;
+      grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1.12fr) 122px;
+      column-gap: 10px;
+      align-items: center;
       width: 100%;
       min-width: 0;
       border-bottom: 2px solid #000;
-      padding-bottom: 4px;
-      margin-bottom: 5px;
+      padding-bottom: 5px;
+      margin-bottom: 6px;
     }
+    .header-logo { display: flex; align-items: center; justify-content: center; }
+    .header-logo .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
     .header-left {
       text-align: center;
       width: auto;
@@ -1031,6 +1047,9 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     <div class="exam-paper-container">
       <div class="watermark">${escapeHtml(showAnswerKey ? 'ĐÁP ÁN GIÁO VIÊN' : (parishName || 'TNTT'))}</div>
       <div class="paper-header">
+        <div class="header-logo">
+          <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:52px;height:52px;object-fit:contain;" />
+        </div>
         <div class="header-left">
           <div class="org-top">${escapeHtml(dioceseName)}</div>
           <div class="org-parish">${escapeHtml(parishName)}</div>
@@ -1145,7 +1164,7 @@ export function buildBatchExamPapersHtml(
   <style>
     @page Section1 {
       size: 210mm 297mm;
-      margin: 12mm 8mm 10mm 8mm;
+      margin: 6mm 6mm 6mm 6mm;
       mso-header-margin: 0pt;
       mso-footer-margin: 0pt;
       mso-paper-source: 0;
@@ -1154,22 +1173,24 @@ export function buildBatchExamPapersHtml(
       page: Section1;
     }
     ${baseStyles}
-    @page { size: A4 portrait; margin: 0; }
+    @page { size: A4 portrait; margin: 4mm 6mm 4mm 6mm; }
     body {
       margin: 0;
       padding: 0;
-      background: #f1f5f9;
+      background: #e5e7eb;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    @media screen {
+      /* Batch preview: body padding mô phỏng @page 4mm/6mm */
+      body { padding: 4mm 6mm !important; background: #e5e7eb !important; }
+      .exam-paper-container { padding: 2mm 4mm !important; }
+    }
     .batch-exam-page {
       width: 210mm;
       min-height: 297mm;
-      /* A-NEW-50: padding 0 — khớp hoàn toàn layout buildExamPaperHtml (container
-         lề 7mm — QB-MARGIN 2026-08-21) để khung OMR integrated có cùng geometry
-         trên cả 2 luồng in — detector hiệu chỉnh tọa độ ô theo rect đo được của
-         đúng layout chuẩn này. */
+      /* QB-MARGIN 2026-08-27: padding 0 giữ nguyên — geometry OMR đã đồng bộ với single (container 4mm + @page 4mm). */
       padding: 0;
       margin: 0 auto 10mm auto;
       background: #ffffff;

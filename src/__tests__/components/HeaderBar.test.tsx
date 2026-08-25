@@ -77,6 +77,7 @@ vi.mock('../../constants/branches', () => ({
   BRANCHES: { AuNhi: { id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#16A34A' } },
 }))
 vi.mock('../../assets/logo-tntt.png', () => ({ default: 'logo.png' }))
+vi.mock('../../assets/logo-gia-ton.png', () => ({ default: 'logo.png' }))
 
 const mockNavigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mockNavigate }))

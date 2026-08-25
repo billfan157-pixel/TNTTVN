@@ -28,6 +28,7 @@ import { useSyncStore } from '../../stores/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
+import logo from '../../assets/logo-gia-ton.png'
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Tổng quan giáo xứ',
@@ -61,7 +62,7 @@ export const MobileTopBar: React.FC = () => {
 
   const title = pageTitles[location.pathname] || 'Sổ điểm giáo lý'
   const isParent = currentUser?.role === 'phuhuynh'
-  const eyebrow = isParent ? `CỔNG PHỤ HUYNH · ${academicYearDisplay}` : `GIÁO XỨ GIA TÔN · ${academicYearDisplay}`
+  const eyebrow = isParent ? `CỔNG PHỤ HUYNH · ${academicYearDisplay}` : `GIÁO XỨ GIA TÔN · XỨ ĐOÀN ĐỨC MẸ FATIMA · ${academicYearDisplay}`
   const summary = isParent ? 'Theo dõi việc học của gia đình' : `${students.length} thiếu nhi đang quản lý`
 
   useEffect(() => {
@@ -80,7 +81,9 @@ export const MobileTopBar: React.FC = () => {
       <header className="mobile-top-bar">
         <div className="mobile-top-bar__content">
           <div className="mobile-top-bar__identity">
-            <div className="mobile-top-bar__brand-mark" aria-hidden="true">GL</div>
+            <div className="mobile-top-bar__brand-mark" aria-hidden="true" style={{ background: 'rgba(255,255,255,0.14)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', padding: 4, borderRadius: 12, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 16px rgba(15,23,42,0.28), inset 0 1px 0 rgba(255,255,255,0.32)' }}>
+              <img src={logo} alt="Logo Xứ Đoàn Đức Mẹ Fatima" style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 1px 6px rgba(0,0,0,0.35))' }} />
+            </div>
             <div className="mobile-top-bar__copy">
               <div className="mobile-top-bar__eyebrow">{eyebrow}</div>
               <h1>{title}</h1>

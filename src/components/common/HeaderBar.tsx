@@ -7,7 +7,7 @@ import { useTheme } from '../../hooks/useTheme'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import { OfflineStatusBanner } from './OfflineStatusBanner'
-import logo from '../../assets/logo-tntt.png'
+import logo from '../../assets/logo-gia-ton.png'
 import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck, Activity } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useNavigate } from '@tanstack/react-router'
@@ -74,13 +74,13 @@ export const HeaderBar: React.FC = () => {
           >
             {/* Logo & Title Section */}
             <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-white/10 p-2 flex items-center justify-center border border-white/25 shadow-inner backdrop-blur-md">
-                <img src={logo} alt="TNTT Logo" className="w-full h-full object-contain drop-shadow" />
+              <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-xl p-1 flex items-center justify-center border border-white/20 shadow-[0_8px_24px_rgba(15,23,42,0.35),inset_0_1px_0_rgba(255,255,255,0.35)] overflow-hidden">
+                <img src={logo} alt="Logo Xứ Đoàn Đức Mẹ Fatima" className="w-full h-full object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]" />
               </div>
               <div>
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h1 className="font-extrabold tracking-tight m-0 text-white text-lg drop-shadow-sm">
-                    Giáo Lý Thiếu Nhi Thánh Thể
+                    Xứ Đoàn Đức Mẹ Fatima
                   </h1>
                   <span className="font-bold rounded-full text-[11px] px-2.5 py-0.5 bg-amber-300 text-slate-900 shadow-sm uppercase tracking-wide">
                     Giáo Xứ Gia Tôn

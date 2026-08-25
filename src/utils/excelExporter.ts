@@ -4,6 +4,7 @@ import { calculateGradeAverage, escapeHtml, type GradeInput, type GradeWeightsCo
 import { normalizeAcademicYear, getCurrentAcademicYear } from './academicYear'
 import { useAcademicYearStore } from '../stores/academicYearStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { PARISH_LOGO_DATA_URI } from './parishLogo'
 
 export interface ExportGradebookOptions {
   students: Student[]
@@ -108,6 +109,9 @@ export function exportGradebookToExcel({
 </head>
 <body>
   <table>
+    <tr>
+      <td colspan="15" style="text-align:center;padding:6px 0 2px;"><img src="${PARISH_LOGO_DATA_URI}" width="64" height="64" style="width:64px;height:64px;object-fit:contain;" alt="Logo" /></td>
+    </tr>
     <tr>
       <td colspan="15" class="header-title">${escapeHtml(dioceseName.toUpperCase())} • ${escapeHtml(parishName.toUpperCase())}</td>
     </tr>
