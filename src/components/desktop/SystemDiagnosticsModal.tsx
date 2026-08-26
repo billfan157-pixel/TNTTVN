@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Activity, Database, HardDrive, ShieldCheck, RefreshCw, X, Zap, Cpu, AlertTriangle, AlertCircle, Trash2, History } from 'lucide-react'
+import { Activity, Database, HardDrive, ShieldCheck, RefreshCw, X, Zap, Cpu, AlertTriangle, AlertCircle, Trash2, History, Server, CheckCircle2, XCircle } from 'lucide-react'
 import { getDB, type SyncQueueItem, type SyncConflict } from '../../lib/db'
 import { useSyncStore } from '../../stores/syncStore'
 import { runSyncFlow } from '../../hooks/useSyncEngine'
@@ -10,6 +10,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useNoticeStore } from '../../stores/noticeStore'
+import { api } from '../../lib/api'
 
 interface SystemDiagnosticsModalProps {
   isOpen: boolean
@@ -35,14 +36,22 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   const syncNow = () => runSyncFlow()
   const [latencyLoading, setLatencyLoading] = useState(false)
   const [dbStatus, setDbStatus] = useState<'healthy' | 'error' | 'checking'>('checking')
+  const [healthDetails, setHealthDetails] = useState<{ database: string; uptimeSeconds: number; timestamp: string } | null>(null)
   const [memoryUsage, setMemoryUsage] = useState<string | null>(null)
+  const [memoryDetail, setMemoryDetail] = useState<string | null>(null)
+  const [serverCounts, setServerCounts] = useState<{ notices: number | null; students: number | null }>({ notices: null, students: null })
+  const [queueByEntity, setQueueByEntity] = useState<Record<string, number>>({})
+  const [schemaCheck, setSchemaCheck] = useState<'ok' | 'fail' | 'checking'>('checking')
   const cancelledRef = useRef(false)
 
   const runDiagnostics = useCallback(async () => {
     cancelledRef.current = false
     setDbStatus('checking')
+    setSchemaCheck('checking')
     setLatencyLoading(true)
     setApiLatency(null)
+    setHealthDetails(null)
+    setServerCounts({ notices: null, students: null })
     const start = performance.now()
 
     try {
@@ -52,6 +61,14 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
     
     const failed = await db.syncQueue.where('status').equals('failed').toArray()
     setFailedOps(failed)
+
+    // Breakdown by entity for deeper insight
+    try {
+      const allPending = await db.syncQueue.where('status').anyOf(['pending', 'retrying', 'failed']).toArray()
+      const byEntity: Record<string, number> = {}
+      for (const item of allPending) byEntity[item.entity] = (byEntity[item.entity] || 0) + 1
+      if (!cancelledRef.current) setQueueByEntity(byEntity)
+    } catch { if (!cancelledRef.current) setQueueByEntity({}) }
     
     const conflictList = await store.getConflicts()
     setConflicts(conflictList)
@@ -60,21 +77,59 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
       const duration = Math.round(performance.now() - start)
       if (cancelledRef.current) return
       setApiLatency(duration)
-      setDbStatus(res.ok ? 'healthy' : 'error')
+      const ok = res.ok
+      setDbStatus(ok ? 'healthy' : 'error')
+      if (ok) {
+        try {
+          const data = await res.json()
+          setHealthDetails({ database: data.database, uptimeSeconds: data.uptimeSeconds, timestamp: data.timestamp })
+        } catch { setHealthDetails(null) }
+      } else {
+        setHealthDetails(null)
+      }
+      // Schema check: thử gọi API notices để xem target_audience có hoạt động không (migration 20260827-130)
+      try {
+        await api.getNotices()
+        if (!cancelledRef.current) setSchemaCheck('ok')
+      } catch { if (!cancelledRef.current) setSchemaCheck('fail') }
+
+      // Server vs Local counts (phát hiện ghost-data / lệch sync)
+      try {
+        const serverNotices: any = await api.getNotices().catch(() => null)
+        if (!cancelledRef.current) {
+          setServerCounts({
+            notices: Array.isArray(serverNotices) ? serverNotices.length : (serverNotices as any)?.data?.length ?? null,
+            students: null,
+          })
+        }
+      } catch { /* ignore */ }
     } catch {
       if (!cancelledRef.current) {
         setDbStatus('error')
         setApiLatency(null)
+        setSchemaCheck('fail')
       }
     } finally {
       if (!cancelledRef.current) setLatencyLoading(false)
     }
 
-    if ((performance as any).memory) {
+    // Memory: Chromium có performance.memory, fallback cho Firefox/Safari
+    if ((performance as any).memory?.usedJSHeapSize) {
       const usedMB = Math.round((performance as any).memory.usedJSHeapSize / (1024 * 1024))
-      setMemoryUsage(`${usedMB} MB`)
+      const totalMB = (performance as any).memory.jsHeapSizeLimit ? Math.round((performance as any).memory.jsHeapSizeLimit / (1024 * 1024)) : null
+      setMemoryUsage(`${usedMB} MB${totalMB ? ` / ${totalMB} MB` : ''}`)
+      setMemoryDetail(`HeapLimit ${totalMB ? totalMB + ' MB' : 'N/A'}`)
     } else {
-      setMemoryUsage(null)
+      const nav: any = navigator
+      const devMem = nav.deviceMemory ? `${nav.deviceMemory} GB` : null
+      const cores = nav.hardwareConcurrency ? `${nav.hardwareConcurrency} cores` : null
+      if (devMem || cores) {
+        setMemoryUsage([devMem, cores].filter(Boolean).join(' · '))
+        setMemoryDetail('Trình duyệt không hỗ trợ performance.memory (Firefox/Safari) — hiển thị deviceMemory thay thế')
+      } else {
+        setMemoryUsage('N/A')
+        setMemoryDetail('Trình duyệt không hỗ trợ đo RAM chi tiết')
+      }
     }
   }, [])
 
@@ -142,11 +197,37 @@ if (!isOpen) return null
               </div>
             </div>
 
-            <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl flex items-center gap-3">
+            <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl flex items-center gap-3" title={memoryDetail || undefined}>
               <Cpu className="w-8 h-8 text-purple-600 shrink-0" />
               <div>
                 <div className="text-xs text-text-muted font-semibold uppercase">Bộ Nhớ RAM JS Heap</div>
                 <div className={`text-sm font-extrabold ${memoryUsage ? 'text-purple-600' : 'text-text-muted'}`}>{memoryUsage || 'N/A'}</div>
+                {memoryDetail && <div className="text-[10px] text-text-muted leading-tight">{memoryDetail}</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* Health chi tiết + Schema */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3 bg-surface-hover/20 border border-surface-border rounded-xl">
+              <div className="text-[11px] font-bold uppercase text-text-muted flex items-center gap-1.5"><Server className="w-3.5 h-3.5" /> Server Health</div>
+              <div className="mt-1 text-xs space-y-0.5">
+                <div className="flex justify-between"><span className="text-text-muted">DB:</span><span className={`font-bold ${healthDetails?.database === 'connected' ? 'text-emerald-600' : healthDetails ? 'text-rose-600' : 'text-text-muted'}`}>{healthDetails?.database || (dbStatus === 'checking' ? '...' : 'N/A')}</span></div>
+                <div className="flex justify-between"><span className="text-text-muted">Uptime:</span><span className="font-mono font-bold">{healthDetails ? `${Math.floor(healthDetails.uptimeSeconds / 3600)}h ${Math.floor((healthDetails.uptimeSeconds % 3600)/60)}m` : 'N/A'}</span></div>
+                <div className="text-[10px] text-text-muted truncate" title={healthDetails?.timestamp || ''}>{healthDetails?.timestamp ? new Date(healthDetails.timestamp).toLocaleString('vi-VN') : ''}</div>
+              </div>
+            </div>
+            <div className="p-3 bg-surface-hover/20 border border-surface-border rounded-xl">
+              <div className="text-[11px] font-bold uppercase text-text-muted flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" /> Schema & API</div>
+              <div className="mt-1 text-xs space-y-1">
+                <div className="flex items-center gap-1.5">
+                  {schemaCheck === 'ok' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : schemaCheck === 'fail' ? <XCircle className="w-3.5 h-3.5 text-rose-600" /> : <RefreshCw className="w-3.5 h-3.5 text-amber-500 animate-spin" />}
+                  <span className={schemaCheck === 'ok' ? 'text-emerald-700 font-bold' : schemaCheck === 'fail' ? 'text-rose-700 font-bold' : 'text-text-muted'}>{schemaCheck === 'ok' ? 'target_audience OK' : schemaCheck === 'fail' ? 'Lỗi schema/API' : 'Đang kiểm...'}</span>
+                </div>
+                <div className="flex justify-between text-[11px]"><span className="text-text-muted">Server notices:</span><span className="font-bold">{serverCounts.notices !== null ? serverCounts.notices : '—'}</span><span className="text-text-muted">Local:</span><span className="font-bold">{notices.length}</span></div>
+                {serverCounts.notices !== null && serverCounts.notices !== notices.length && (
+                  <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Lệch {Math.abs(serverCounts.notices - notices.length)} bản ghi — có thể ghost-data hoặc chưa sync</div>
+                )}
               </div>
             </div>
           </div>
@@ -176,14 +257,22 @@ if (!isOpen) return null
             </div>
           </div>
 
-          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <HardDrive className="w-5 h-5 text-amber-600" />
-              <div>
-                <div className="text-xs font-bold text-amber-800">Hàng Chờ Đồng Bộ Ngoại Tuyến</div>
-                <div className="text-xs text-amber-700 mt-0.5">Hiện có {pendingSyncOps} thao tác chờ đồng bộ lên Server</div>
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <HardDrive className="w-5 h-5 text-amber-600" />
+                <div>
+                  <div className="text-xs font-bold text-amber-800">Hàng Chờ Đồng Bộ Ngoại Tuyến</div>
+                  <div className="text-xs text-amber-700 mt-0.5">Hiện có {pendingSyncOps} thao tác chờ đồng bộ lên Server</div>
+                  {Object.keys(queueByEntity).length > 0 && (
+                    <div className="text-[10px] text-amber-700/80 mt-1 flex flex-wrap gap-1">
+                      {Object.entries(queueByEntity).map(([entity, count]) => (
+                        <span key={entity} className="bg-white/60 border border-amber-200 rounded px-1.5 py-0.5 font-mono">{entity}: {count}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => syncNow()}
@@ -201,6 +290,7 @@ if (!isOpen) return null
                 <span>Chẩn Đoán Lại</span>
               </button>
             </div>
+          </div>
           </div>
 
           {/* Option 1: Failed Operations Section */}
