@@ -614,9 +614,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .integrated-omr-wrapper {
       width: 100%;
       min-width: 0;
-      /* Tạo khoảng thở khoảng 3.7mm trước phần câu hỏi, không đụng vào
-         khung OMR nên marker/bubble và geometry quét giữ nguyên. */
-      margin-bottom: 14px;
+      /* Marker đáy nhô 18px khỏi khung; chừa 25px từ mép khung giúp phần
+         câu hỏi còn cách marker 7px (~1.9mm), không đổi geometry quét. */
+      margin-bottom: 25px;
       background: #f8fafc;
       border-radius: 4px;
     }

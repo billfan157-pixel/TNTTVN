@@ -676,7 +676,7 @@ export const api = {
 
   // ─── Notifications ───
   sendReportCards: (data: { students: any[] }) =>
-    request<{ success: boolean }>('POST', '/notifications/smart/report-cards', data),
+    request<{ sent: number; total: number }>('POST', '/notifications/smart/report-cards', data),
 
   // ─── Audit Logs ───
   getAuditLogs: (params?: { page?: number; limit?: number; userId?: string; action?: string; entityType?: string }) => {

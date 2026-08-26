@@ -85,7 +85,7 @@ async function seed() {
     const branch = branchesMap[classId]
 
     await client.execute({
-      sql: `INSERT OR IGNORE INTO students (id, code, holy_name, full_name, gender, date_of_birth, parent_name, parent_phone, address, branch, class_id, status, parish_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '2014-05-12', 'Phụ huynh học sinh', '0901234567', 'Giáo xứ Gia Ton', ?, ?, 'Đang học', ?, ?, ?)`,
+      sql: `INSERT OR IGNORE INTO students (id, code, holy_name, full_name, gender, date_of_birth, parent_name, parent_phone, address, branch, class_id, status, parish_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '2014-05-12', 'Phụ huynh học sinh', '0901234567', 'Giáo xứ Gia Tôn', ?, ?, 'Đang học', ?, ?, ?)`,
       args: [studentId, code, holy, full, gender, branch, classId, parishId, now, now],
     })
 

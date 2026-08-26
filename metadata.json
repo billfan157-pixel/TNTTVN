@@ -1,6 +1,6 @@
 {
   "name": "TNTT Parish Management Platform",
-  "description": "Hệ thống quản lý điểm số, chuyên cần và phụ huynh cho Thiếu Nhi Thánh Thể Giáo Xứ Gia Tôn",
+  "description": "Hệ thống quản lý điểm số, chuyên cần và phụ huynh cho Thiếu Nhi Thánh Thể Giáo Xứ Gia Tôn • Xứ Đoàn Đức Mẹ Fatima",
   "requestFramePermissions": [
     "camera"
   ],

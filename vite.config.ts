@@ -38,8 +38,8 @@ export default defineConfig({
       filename: 'sw.ts',
       includeAssets: ['favicon.svg', 'pwa-icon.svg'],
       manifest: {
-        name: 'Giáo Lý Thiếu Nhi Thánh Thể — Giáo Xứ Gia Tôn',
-        short_name: 'Giáo Lý TNTT',
+        name: 'Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn',
+        short_name: 'Fatima Gia Tôn',
         description: 'Hệ thống quản lý điểm số & theo dõi chuyên cần Thiếu Nhi Thánh Thể',
         start_url: '/',
         display: 'standalone',

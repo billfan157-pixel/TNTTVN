@@ -62,12 +62,16 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       {/* Welcome Hero Card */}
       <div className="bg-gradient-to-br from-parish-primary to-parish-primary-hover text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
         <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="w-6 h-6 rounded-lg bg-amber-400/20 flex items-center justify-center text-amber-300 border border-amber-300/30">
             <Sparkles size={14} />
           </span>
           <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">
             Giáo Xứ Gia Tôn
+          </span>
+          <span className="text-amber-300/60">•</span>
+          <span className="text-[11px] font-black uppercase tracking-widest text-white">
+            Xứ Đoàn Đức Mẹ Fatima
           </span>
         </div>
         <h2 className="text-xl font-black m-0 tracking-tight text-white">

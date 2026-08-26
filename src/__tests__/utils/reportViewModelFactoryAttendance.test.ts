@@ -14,7 +14,7 @@ describe('ReportViewModelFactory Attendance Breakdown Tests', () => {
     branch: 'AuNhi',
     parentName: 'Nguyễn Văn Bình',
     parentPhone: '0901234567',
-    address: 'Xứ Đoàn Gia Tôn',
+    address: 'Xứ Đoàn Đức Mẹ Fatima',
     status: 'Đang học',
   }
 

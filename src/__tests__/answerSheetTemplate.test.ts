@@ -14,6 +14,7 @@ import {
   buildExamPaperHtml,
   buildBatchExamPapersHtml,
   printBatchExamPapers,
+  getEssayAnswerLineCount,
 } from '../utils/examSheets'
 import { ReportExportService } from '../services/reportExportService'
 
@@ -156,9 +157,35 @@ describe('Answer Sheet Template & Batch Print Engine', () => {
       expect(html).toContain('omr-corner-marker omr-marker-tl')
       expect(html).toContain('omr-corner-marker omr-marker-br')
       expect(html).toContain('BẢNG TRẢ LỜI TRẮC NGHIỆM')
+      expect(html).toContain('margin-bottom: 25px')
       expect(html).toContain('Ai là Đấng sáng tạo trời đất?')
       expect(html).toContain('TRẮC NGHIỆM')
       expect(html).toContain('LỜI PHÊ')
+    })
+
+    it('dàn phần tự luận hai cột với dòng viết đều, tăng theo mức độ câu hỏi', () => {
+      const shortQuestion = { index: 3, type: 'essay' as const, question: 'Kể tên ba nhân đức đối thần.', points: 1 }
+      const longQuestion = { index: 4, type: 'essay' as const, question: 'Trình bày cách em áp dụng lời Chúa vào đời sống hằng ngày ở gia đình, tại lớp giáo lý và khi phục vụ những người xung quanh. Nêu các việc làm cụ thể, lý do lựa chọn và kết quả em mong muốn đạt được.', points: 4 }
+      const html = buildExamPaperHtml({
+        subject: 'Giáo lý',
+        classLabel: 'Thiếu Nhi 2',
+        academicYear: '2026-2027',
+        layoutColumns: 2,
+        questions: [
+          { index: 1, question: 'Câu trắc nghiệm?', options: { A: 'A', B: 'B', C: 'C', D: 'D' }, correctOption: 'A' as const },
+          shortQuestion,
+          longQuestion,
+        ],
+      })
+
+      expect(getEssayAnswerLineCount(shortQuestion)).toBe(3)
+      expect(getEssayAnswerLineCount(longQuestion)).toBeGreaterThan(getEssayAnswerLineCount(shortQuestion))
+      expect(html).toContain('PHẦN II. TỰ LUẬN')
+      expect(html).toContain('column-count: 2')
+      expect(html).toContain('height: 8.2mm')
+      expect(html).toContain(`data-essay-answer-lines="${getEssayAnswerLineCount(shortQuestion)}"`)
+      expect(html).toContain(`data-essay-answer-lines="${getEssayAnswerLineCount(longQuestion)}"`)
+      expect(html).not.toContain('height: 64px')
     })
 
     it('buildBatchExamPapersHtml tạo HTML in hàng loạt cho toàn bộ học sinh trong lớp', () => {
