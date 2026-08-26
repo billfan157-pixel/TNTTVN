@@ -50,16 +50,16 @@ const reportCardsSchema = z.object({
   students: z.array(z.object({
     studentId: z.string().trim().min(1).max(100).optional(),
     parentPhone: z.string().trim().min(1).max(20).optional(),
-    studentName: z.string().trim().min(1).max(200),
-    holyName: z.string().trim().min(1).max(200),
+    studentName: z.string({ required_error: "Thiếu tên thiếu nhi" }).trim().min(1, "Tên thiếu nhi không được để trống").max(200, "Tên quá dài"),
+    holyName: z.string({ required_error: "Thiếu tên thánh" }).trim().min(1, "Tên thánh không được để trống").max(200, "Tên thánh quá dài"),
     classId: z.string().trim().min(1).max(100).optional(),
-    className: z.string().trim().min(1).max(100),
-    score: z.number().min(0).max(10),
-    rank: z.string().trim().min(1).max(50),
-    attendanceRate: z.number().min(0).max(100),
-    attendancePresent: z.number().min(0),
-    attendanceTotal: z.number().min(0),
-  })).min(1),
+    className: z.string({ required_error: "Thiếu tên lớp" }).trim().min(1, "Tên lớp không được để trống").max(100, "Tên lớp quá dài"),
+    score: z.number({ invalid_type_error: "Điểm phải là số" }).min(0, "Điểm không được âm").max(10, "Điểm tối đa 10"),
+    rank: z.string({ required_error: "Thiếu xếp loại" }).trim().min(1, "Xếp loại không được để trống").max(50, "Xếp loại quá dài"),
+    attendanceRate: z.number({ invalid_type_error: "Tỉ lệ chuyên cần phải là số" }).min(0, "Tỉ lệ không được âm").max(100, "Tỉ lệ tối đa 100%"),
+    attendancePresent: z.number({ invalid_type_error: "Số buổi có mặt phải là số" }).min(0, "Số buổi không được âm"),
+    attendanceTotal: z.number({ invalid_type_error: "Tổng số buổi phải là số" }).min(0, "Tổng số buổi không được âm"),
+  })).min(1, "Phải có ít nhất 1 thiếu nhi để gửi"),
 })
 
 const classReminderSchema = z.object({
