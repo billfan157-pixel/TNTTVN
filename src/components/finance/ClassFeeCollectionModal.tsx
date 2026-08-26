@@ -7,7 +7,7 @@ import { formatVND } from '../../utils/receiptGenerator'
 import { EmptyState } from '../common/StateFeedback'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalShell } from '../common/ModalShell'
-import type { ClassInfo, StudentFeeRecord, FeeType, FeeStatus } from '../../types'
+import type { StudentFeeRecord, FeeType, FeeStatus } from '../../types'
 
 interface ClassFeeCollectionModalProps {
   isOpen: boolean
@@ -18,7 +18,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   isOpen,
   onClose,
 }) => {
-  const { classFeeRecords, fetchClassFeeRecords, updateStudentFee, funds, isLoading } = useFinanceStore()
+  const { classFeeRecords, fetchClassFeeRecords, updateStudentFee, funds, isLoading: _isLoading } = useFinanceStore()
   const { currentYear } = useAcademicYearStore()
   const getClassList = useClassStore((s) => s.getClassList)
   const classesList = getClassList()
@@ -30,7 +30,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   const [targetFundId, setTargetFundId] = useState<string>('')
   const [filterStatus, setFilterStatus] = useState<string>('ALL')
   const [isCollectAllConfirmOpen, setIsCollectAllConfirmOpen] = useState(false)
-  const [pendingCollectAll, setPendingCollectAll] = useState(false)
+  const [_pendingCollectAll, setPendingCollectAll] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -46,7 +46,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     if (selectedClassId && isOpen) {
       fetchClassFeeRecords(selectedClassId, currentYear || '2025-2026', feeType)
     }
-  }, [selectedClassId, feeType, isOpen, currentYear])
+  }, [selectedClassId, feeType, isOpen, currentYear, fetchClassFeeRecords])
 
   if (!isOpen) return null
 
@@ -121,7 +121,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   const exemptedCount = classFeeRecords.filter((r) => r.status === 'EXEMPTED').length
   const unpaidCount = totalStudents - paidCount - exemptedCount
   const totalCollected = classFeeRecords.reduce((sum, r) => sum + (r.paidAmount || 0), 0)
-  const totalExpected = classFeeRecords.reduce((sum, r) => sum + (r.expectedAmount || defaultAmount), 0)
+  const _totalExpected = classFeeRecords.reduce((sum, r) => sum + (r.expectedAmount || defaultAmount), 0)
 
   return (
     <>

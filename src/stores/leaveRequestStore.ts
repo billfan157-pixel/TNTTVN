@@ -22,7 +22,7 @@ interface LeaveRequestState {
   cancelRequest: (id: string) => Promise<void>
 }
 
-export const useLeaveRequestStore = create<LeaveRequestState>((set, get) => ({
+export const useLeaveRequestStore = create<LeaveRequestState>((set, _get) => ({
   requests: [],
   loading: false,
   error: null,

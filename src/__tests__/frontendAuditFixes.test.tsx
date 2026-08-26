@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import React from 'react'
 import { render, screen } from '@testing-library/react'
 import { DesktopSidebar } from '../components/desktop/DesktopSidebar'
 import { ErrorBoundary } from '../components/common/ErrorBoundary'

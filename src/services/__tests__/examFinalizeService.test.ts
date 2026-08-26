@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { evaluateExamFinalizeConflictsAndRoute, SCORE_FIELD_MAP, DAILY_TYPES } from '../examFinalizeService'
 import type { ExamResult, ExamSession } from '../../types'

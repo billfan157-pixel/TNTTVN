@@ -1,4 +1,3 @@
-import React from 'react'
 import { DesktopLeaveRequests } from '../components/desktop/DesktopLeaveRequests'
 import { MobileLeaveRequests } from '../components/mobile/MobileLeaveRequests'
 import { useEffectiveMode } from '../hooks/useEffectiveMode'

@@ -25,7 +25,7 @@ function percentile(values: number[], fraction: number): number {
   return sorted[index]
 }
 
-function formatMs(value: number): string {
+function _formatMs(value: number): string {
   return `${value.toFixed(2)} ms`
 }
 

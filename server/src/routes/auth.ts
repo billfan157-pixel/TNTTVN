@@ -4,11 +4,10 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import bcrypt from 'bcryptjs'
 import { db } from '../db/index.js'
-import { users, auditLogs, students } from '../db/schema.js'
-import { eq, and, sql, isNull, inArray } from 'drizzle-orm'
+import { users, auditLogs } from '../db/schema.js'
+import { eq, and, sql } from 'drizzle-orm'
 import { authMiddleware, getSuperAdminId } from '../middleware/auth.js'
 import { loginRateLimiter, adminReauthRateLimiter, parentForgotRateLimiter } from '../middleware/security.js'
-import { encryptPassword } from '../utils/passwordCipher.js'
 import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import { BCRYPT_COST, consumeDummyPassword, isLegacyCostHash } from '../utils/passwordPolicy.js'
 import { generateId } from '../utils/id.js'
@@ -17,8 +16,6 @@ import { getClientIp } from '../utils/ip.js'
 import { isOriginAllowed, resolveAllowedOrigins } from '../utils/originPolicy.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, errorResponse } from '../utils/response.js'
-import { normalizePhone, phoneMatchVariants } from '../utils/phone.js'
-import { removeDiacritics } from '../utils/username.js'
 import type { Context } from 'hono'
 import {
   issueTokensWithSession,
@@ -269,153 +266,10 @@ auth.post('/change-password', authMiddleware, zValidator('json', changePasswordS
   return successResponse(c, { success: true, message: 'Đổi mật khẩu thành công!', accessToken: tokens.accessToken })
 })
 
-// ─── ADR-042 (2026-08-15): Quên mật khẩu phụ huynh — tự xác minh thông tin con ───
-// - Cho phép phụ huynh tự đặt lại mật khẩu 24/7 mà KHÔNG tốn chi phí SMS Brandname.
-// - Xác minh bảo mật 2 lớp: SĐT phụ huynh + (Ngày sinh của con VÀ Tên Thánh/Họ tên con).
-// - Bảo vệ: parentForgotRateLimiter (5/60s/IP) + timing-neutral dummy bcrypt + A16 sanitize audit.
-// - Thành công → cập nhật bcrypt hash (cost 12), xóa passwordEncrypted (NULL), bump tokenVersion, revoke old sessions.
-function normalizeDob(d: string): string {
-  const clean = (d || '').trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean
-  const parts = clean.split(/[/.-]/)
-  if (parts.length === 3) {
-    const [p1, p2, p3] = parts
-    // DD/MM/YYYY
-    if (p3.length === 4) {
-      return `${p3}-${p2.padStart(2, '0')}-${p1.padStart(2, '0')}`
-    }
-    // YYYY/MM/DD
-    if (p1.length === 4) {
-      return `${p1}-${p2.padStart(2, '0')}-${p3.padStart(2, '0')}`
-    }
-  }
-  return clean
-}
-
-function matchChildName(inputName: string, holyName?: string | null, fullName?: string | null): boolean {
-  const target = removeDiacritics(inputName || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '')
-  if (!target) return false
-  const h = removeDiacritics(holyName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  const f = removeDiacritics(fullName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  return (h.length > 0 && (h.includes(target) || target.includes(h))) ||
-         (f.length > 0 && (f.includes(target) || target.includes(f)))
-}
-
-const parentResetPasswordSchema = z.object({
-  phone: z.string().trim().regex(/^0\d{9}$/, 'Số điện thoại phải là 10 chữ số bắt đầu bằng 0'),
-  childDob: z.string().trim().min(1, 'Ngày sinh của con không được để trống'),
-  childName: z.string().trim().min(1, 'Họ tên hoặc Tên Thánh của con không được để trống'),
-  newPassword: strongPassword,
-})
-
-auth.post('/parent-reset-password', parentForgotRateLimiter, zValidator('json', parentResetPasswordSchema), async (c) => {
-  const { phone: rawPhone, childDob, childName, newPassword } = c.req.valid('json')
-  const phone = normalizePhone(rawPhone)
-  const variants = phoneMatchVariants(phone)
-  const ip = getClientIp(c)
-  const userAgent = c.req.header('user-agent') || ''
-  const genericFailureMessage = 'Thông tin xác minh không khớp với hồ sơ thiếu nhi trong hệ thống. Vui lòng kiểm tra lại ngày sinh và tên của con, hoặc liên hệ Ban Giáo Lý.'
-  const maskedPhone = phone.slice(0, 3) + '****' + phone.slice(-3)
-
-  // Domain 2: phone is not globally unique. Resolve the tenant from child evidence,
-  // never from database row order. Multiple matching tenants are intentionally
-  // fail-closed so the endpoint cannot reset an arbitrary parish account.
-  const parentCandidates = await db
-    .select()
-    .from(users)
-    .where(and(eq(users.role, 'phuhuynh'), inArray(users.phone, variants)))
-
-  if (parentCandidates.length === 0) {
-    await consumeDummyPassword(newPassword)
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: 'unknown',
-      action: 'PARENT_RESET_PASSWORD_FAILED',
-      entityType: 'auth',
-      entityId: 'unknown',
-      newValue: JSON.stringify({ reason: 'verification_failed', maskedPhone }),
-      ip,
-      userAgent,
-      parishId: 'global',
-    })
-    return errorResponse(c, 'INVALID_VERIFICATION_DATA', genericFailureMessage, 400)
-  }
-
-  const candidateParishIds = [...new Set(parentCandidates.map(candidate => candidate.parishId))]
-  const candidateStudents = await db
-    .select({
-      id: students.id,
-      parishId: students.parishId,
-      holyName: students.holyName,
-      fullName: students.fullName,
-      dateOfBirth: students.dateOfBirth,
-    })
-    .from(students)
-    .where(and(
-      inArray(students.parishId, candidateParishIds),
-      isNull(students.deletedAt),
-      inArray(students.parentPhone, variants),
-    ))
-
-  const normInputDob = normalizeDob(childDob)
-  const matchedCandidates = parentCandidates.flatMap((candidate) => {
-    if (candidate.status === 'LOCKED' && candidate.id !== getSuperAdminId()) return []
-    const matchedStudent = candidateStudents.find((student) => (
-      student.parishId === candidate.parishId
-      && normalizeDob(student.dateOfBirth) === normInputDob
-      && matchChildName(childName, student.holyName, student.fullName)
-    ))
-    return matchedStudent ? [{ user: candidate, student: matchedStudent }] : []
-  })
-
-  if (matchedCandidates.length !== 1) {
-    await consumeDummyPassword(newPassword)
-    const auditCandidate = matchedCandidates[0]?.user ?? parentCandidates[0]
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: auditCandidate?.id ?? 'unknown',
-      action: 'PARENT_RESET_PASSWORD_FAILED',
-      entityType: 'auth',
-      entityId: auditCandidate?.id ?? 'unknown',
-      newValue: JSON.stringify({ reason: matchedCandidates.length > 1 ? 'ambiguous_tenant_match' : 'verification_failed', maskedPhone }),
-      ip,
-      userAgent,
-      parishId: matchedCandidates.length > 1 ? 'global' : (auditCandidate?.parishId ?? 'global'),
-    })
-    return errorResponse(c, 'INVALID_VERIFICATION_DATA', genericFailureMessage, 400)
-  }
-
-  const { user, student: matchedStudent } = matchedCandidates[0]
-  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
-  const nextVersion = (user.tokenVersion || 1) + 1
-  await db.update(users).set({
-    passwordHash,
-    passwordEncrypted: null,
-    status: 'ACTIVE',
-    mustChangePassword: 0,
-    failedAttempts: 0,
-    lockedUntil: null,
-    tokenVersion: nextVersion,
-  }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-
-  await revokeAllSessions(user.id, user.parishId)
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.id,
-    action: 'PARENT_RESET_PASSWORD',
-    entityType: 'auth',
-    entityId: user.id,
-    newValue: JSON.stringify({
-      maskedPhone,
-      matchedStudentId: matchedStudent.id,
-    }),
-    ip,
-    userAgent,
-    parishId: user.parishId,
-  })
-
-  return successResponse(c, { success: true, message: 'Đặt lại mật khẩu thành công! Quý phụ huynh có thể đăng nhập ngay bằng mật khẩu mới.' })
+// ADR-058: ngày sinh + tên trẻ là KBA dễ đoán và là dữ liệu trẻ em, không phải
+// yếu tố xác thực. Client cũ nhận 410; phụ huynh dùng kênh Ban Giáo Lý đã xác minh.
+auth.post('/parent-reset-password', parentForgotRateLimiter, async (c) => {
+  return errorResponse(c, 'PARENT_SELF_RESET_REMOVED', 'Vui lòng liên hệ Ban Giáo Lý qua kênh đã xác minh để được cấp mật khẩu tạm.', 410)
 })
 
 
@@ -454,7 +308,7 @@ auth.post('/admin-change-password', authMiddleware, adminReauthRateLimiter, zVal
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
   const nextTargetVersion = (target.tokenVersion || 1) + 1
-  await db.update(users).set({ passwordHash, passwordEncrypted: encryptPassword(newPassword), status: 'FORCE_PASSWORD_CHANGE', mustChangePassword: 1, failedAttempts: 0, lockedUntil: null, tokenVersion: nextTargetVersion }).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId)))
+  await db.update(users).set({ passwordHash, passwordEncrypted: null, status: 'FORCE_PASSWORD_CHANGE', mustChangePassword: 1, failedAttempts: 0, lockedUntil: null, tokenVersion: nextTargetVersion }).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId)))
   await revokeAllSessions(userId, jwtUser.parishId)
 
   await db.insert(auditLogs).values({

@@ -36,8 +36,8 @@ const ADMIN_PASSWORD = 'AuditBAdmin@123'
 
 const adminAToken = generateTokens({ userId: adminAId, username: `admin_a_${PREFIX}`, role: 'admin', parishId: parishA, tokenVersion: 1 }).accessToken
 const catA1Token = generateTokens({ userId: catA1Id, username: `cat_a1_${PREFIX}`, role: 'chunhiem', parishId: parishA, tokenVersion: 1 }).accessToken
-const catA2Token = generateTokens({ userId: catA2Id, username: `cat_a2_${PREFIX}`, role: 'chunhiem', parishId: parishA, tokenVersion: 1 }).accessToken
-const adminBToken = generateTokens({ userId: adminBId, username: `admin_b_${PREFIX}`, role: 'admin', parishId: parishB, tokenVersion: 1 }).accessToken
+const _catA2Token = generateTokens({ userId: catA2Id, username: `cat_a2_${PREFIX}`, role: 'chunhiem', parishId: parishA, tokenVersion: 1 }).accessToken
+const _adminBToken = generateTokens({ userId: adminBId, username: `admin_b_${PREFIX}`, role: 'admin', parishId: parishB, tokenVersion: 1 }).accessToken
 
 const headersAdminA = { Authorization: `Bearer ${adminAToken}` }
 const headersCatA1 = { Authorization: `Bearer ${catA1Token}` }

@@ -339,10 +339,10 @@ export function parseExamFromText(rawText: string): ExamParseResult {
     let correctOption: MultipleChoiceOption | null = endKeyMap[questionIndex] || null
 
     // Regex nhận diện phương án: "A.", "A)", "A:", "[A]", "*A.", "*A)", "(A)"
-    const optionRegex = /^(?:\*|\[|\()?([A-D])(?:\*|\]|\))?[\s.:)\-]*(.*)$/i
+    const optionRegex = /^(?:\*|\[|\()?([A-D])(?:\*|\]|\))?[\s.:)-]*(.*)$/i
 
     // Regex nhận diện dòng đáp án riêng: "Đáp án: A", "Đ/A: B", "Key: C", "Chọn: D"
-    const inlineAnswerRegex = /(?:đáp\s*án|đ\/a|key|chọn|ans)\s*[:.\-]?\s*([A-D])/i
+    const inlineAnswerRegex = /(?:đáp\s*án|đ\/a|key|chọn|ans)\s*[:.-]?\s*([A-D])/i
 
     let currentOptionKey: MultipleChoiceOption | null = null
 
@@ -359,7 +359,7 @@ export function parseExamFromText(rawText: string): ExamParseResult {
 
       // Kiểm tra nếu dòng này là một phương án A, B, C, D
       // Cũng xử lý trường hợp 1 dòng có nhiều phương án: "A. Hà Nội   B. Huế   C. Sài Gòn   D. Đà Nẵng"
-      const multiOptMatches = Array.from(line.matchAll(/(?:^|[\s\t]+)(?:\*|\[|\()?([A-D])(?:\*|\]|\))?[\s.:)\-]+([^A-D\n\r]*?)(?=(?:[\s\t]+(?:\*|\[|\()?[A-D](?:\*|\]|\))?[\s.:)\-])|$)/gi))
+      const multiOptMatches = Array.from(line.matchAll(/(?:^|[\s\t]+)(?:\*|\[|\()?([A-D])(?:\*|\]|\))?[\s.:)-]+([^A-D\n\r]*?)(?=(?:[\s\t]+(?:\*|\[|\()?[A-D](?:\*|\]|\))?[\s.:)-])|$)/gi))
 
       if (multiOptMatches.length > 1) {
         for (const m of multiOptMatches) {

@@ -1,4 +1,3 @@
-import React from 'react'
 export const SPECIAL_CHAR_REGEX = /[!@#$%^&*()_+\-=[\]{};:'",.<>?/\\|`~]/
 
 export function validatePassword(pass: string): string | null {

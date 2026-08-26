@@ -1,4 +1,3 @@
-import React from 'react'
 import { useMemo, useState } from 'react'
 import { Calculator, Check, Download, Edit3, Grid3X3, Save, Settings2, Upload } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'

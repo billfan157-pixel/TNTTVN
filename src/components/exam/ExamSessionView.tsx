@@ -22,7 +22,7 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-  Download, Upload,
+   Upload,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import type { ExamImportScope } from '../../utils/examParser'

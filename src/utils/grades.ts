@@ -1,4 +1,3 @@
-import React from 'react'
 import {
   GradePolicyEngine,
   DEFAULT_GRADE_POLICY_WEIGHTS,

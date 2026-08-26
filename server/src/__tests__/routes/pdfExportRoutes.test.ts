@@ -6,7 +6,7 @@ import { users } from '../../db/schema.js'
 // Nhánh PDF export (2026-08-12): POST /api/reports/generate-pdf render HTML → PDF
 // qua Puppeteer. Mock `generatePDFFromHTML` — không launch Chromium thật trong test.
 vi.mock('../../services/pdfService.js', () => ({
-  generatePDFFromHTML: vi.fn(async (html: string) => new TextEncoder().encode('<pdf-bytes>')),
+  generatePDFFromHTML: vi.fn(async (_html: string) => new TextEncoder().encode('<pdf-bytes>')),
   closeBrowser: vi.fn(async () => {}),
 }))
 

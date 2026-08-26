@@ -1,4 +1,3 @@
-import React from 'react'
 import type { BranchType, Student } from '../types'
 import { parseClassHierarchy, detectBranchWeight } from './classSort'
 

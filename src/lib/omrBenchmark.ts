@@ -1,5 +1,6 @@
 export interface OmrBenchmarkObservation {
   sampleId: string
+  cohort: 'normal' | 'stress' | 'negative'
   expectedAnswers: Array<string | null>
   detectedAnswers: Array<string | null>
   expectedOutcome: 'accepted' | 'review_required' | 'rejected'
@@ -10,11 +11,17 @@ export interface OmrBenchmarkObservation {
 
 export interface OmrBenchmarkReport {
   samples: number
+  normalSamples: number
+  stressSamples: number
+  negativeSamples: number
   exactSheetAccuracy: number
+  normalExactSheetAccuracy: number
+  stressExactSheetAccuracy: number
   answerAccuracy: number
   firstCaptureRate: number
   falseAcceptCount: number
   reviewRoutingAccuracy: number
+  negativeRoutingAccuracy: number
   p95DurationMs: number
 }
 
@@ -33,6 +40,13 @@ export function buildOmrBenchmarkReport(observations: OmrBenchmarkObservation[])
   let firstCaptures = 0
   let falseAcceptCount = 0
   let routedReviews = 0
+  let acceptedSamples = 0
+  let normalSamples = 0
+  let stressSamples = 0
+  let negativeSamples = 0
+  let normalExactSheets = 0
+  let stressExactSheets = 0
+  let correctlyRoutedNegative = 0
 
   for (const observation of observations) {
     const maxLength = Math.max(observation.expectedAnswers.length, observation.detectedAnswers.length)
@@ -44,7 +58,20 @@ export function buildOmrBenchmarkReport(observations: OmrBenchmarkObservation[])
       answerCells++
     }
     if (sheetExact) exactSheets++
-    if (observation.firstCaptureAccepted) firstCaptures++
+    if (observation.cohort === 'normal') {
+      normalSamples++
+      if (sheetExact) normalExactSheets++
+    } else if (observation.cohort === 'stress') {
+      stressSamples++
+      if (sheetExact) stressExactSheets++
+    } else {
+      negativeSamples++
+      if (observation.actualOutcome === observation.expectedOutcome) correctlyRoutedNegative++
+    }
+    if (observation.expectedOutcome === 'accepted') {
+      acceptedSamples++
+      if (observation.firstCaptureAccepted) firstCaptures++
+    }
     if (observation.actualOutcome === 'accepted' && observation.expectedOutcome !== 'accepted') falseAcceptCount++
     if (observation.actualOutcome === observation.expectedOutcome) routedReviews++
   }
@@ -53,11 +80,17 @@ export function buildOmrBenchmarkReport(observations: OmrBenchmarkObservation[])
   const p95Index = Math.max(0, Math.ceil(sortedDurations.length * 0.95) - 1)
   return {
     samples: observations.length,
+    normalSamples,
+    stressSamples,
+    negativeSamples,
     exactSheetAccuracy: ratio(exactSheets, observations.length),
+    normalExactSheetAccuracy: ratio(normalExactSheets, normalSamples),
+    stressExactSheetAccuracy: ratio(stressExactSheets, stressSamples),
     answerAccuracy: ratio(correctAnswers, answerCells),
-    firstCaptureRate: ratio(firstCaptures, observations.length),
+    firstCaptureRate: ratio(firstCaptures, acceptedSamples),
     falseAcceptCount,
     reviewRoutingAccuracy: ratio(routedReviews, observations.length),
+    negativeRoutingAccuracy: ratio(correctlyRoutedNegative, negativeSamples),
     p95DurationMs: sortedDurations[p95Index] ?? 0,
   }
 }

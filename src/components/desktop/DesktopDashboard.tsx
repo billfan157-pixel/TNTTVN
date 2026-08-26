@@ -11,8 +11,8 @@ import { useClassStore } from '../../stores/classStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import {
-  Users, Award, CheckCircle2, BookOpen,
-  TrendingUp, Sparkles, AlertCircle, Plus, School, BarChart3, PieChart
+  Users, Award, CheckCircle2,
+  Sparkles, AlertCircle, Plus, School, BarChart3, PieChart
 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { LiturgicalTodayWidget } from './LiturgicalTodayWidget';
@@ -87,7 +87,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
     };
   }, [students, attendance, grades, selectedSemester, gradeWeights]);
 
-  const maxBranchCount = Math.max(...Object.values(branchStats), 1);
+  const _maxBranchCount = Math.max(...Object.values(branchStats), 1);
 
   return (
     <div className="space-y-6 pb-12">

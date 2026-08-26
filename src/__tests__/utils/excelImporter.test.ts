@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect } from 'vitest'
 import * as XLSX from 'xlsx'
 import { buildGradeRecords, countPreservedRows, parseGradeFile, parseScore, detectGradeColumn, detectGradeColumns, isIgnoredColumn } from '../../utils/excelImporter'

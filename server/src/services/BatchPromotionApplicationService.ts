@@ -1,4 +1,4 @@
-import { db, runDbTransaction } from '../db/index.js'
+import {  runDbTransaction } from '../db/index.js'
 import { students } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { promotionApplicationService, PromotionApplicationService } from './PromotionApplicationService.js'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { create } from 'zustand'
 import { getDB } from '../lib/db'
 import { encryptQueueValue, decryptQueueValue } from '../lib/offlineCipher'

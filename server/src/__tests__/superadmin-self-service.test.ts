@@ -5,10 +5,6 @@ import { generateTokens, getSuperAdminId } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
-import { decryptPassword } from '../utils/passwordCipher.js'
-
-// Test cipher key (hex 64 chars) — bật mã hóa pass tạm (password_encrypted)
-process.env.PASSWORD_CIPHER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
 // A-NEW-41 (2026-08-12): Admin trưởng (superadmin) phải TỰ đổi được mật khẩu chính mình
 // qua admin-change-password (vẫn re-auth mật khẩu hiện tại + rate limit + audit), trong
@@ -119,7 +115,7 @@ describe('Superadmin self-service password change (A-NEW-41)', () => {
       tokenVersion: users.tokenVersion,
     }).from(users).where(eq(users.id, SA_ID))
     expect(await bcrypt.compare(SA_NEW_PASSWORD, row?.passwordHash ?? '')).toBe(true)
-    expect(decryptPassword(row?.passwordEncrypted)).toBe(SA_NEW_PASSWORD)
+    expect(row?.passwordEncrypted).toBeNull()
     expect(row?.status).toBe('FORCE_PASSWORD_CHANGE')
     expect(row?.mustChangePassword).toBe(1)
     expect(row?.tokenVersion).toBe(2)

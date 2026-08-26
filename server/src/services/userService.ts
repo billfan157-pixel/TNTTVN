@@ -6,7 +6,6 @@ import bcrypt from 'bcryptjs'
 import { generateId } from '../utils/id.js'
 import { getSuperAdminId } from '../middleware/auth.js'
 import { revokeAllSessionsWith } from './refreshSessionService.js'
-import { encryptPassword, decryptPassword } from '../utils/passwordCipher.js'
 import { BCRYPT_COST } from '../utils/passwordPolicy.js'
 import { normalizePhone } from '../utils/phone.js'
 import { buildAutoUsername, isValidVnPhone } from '../utils/username.js'
@@ -24,10 +23,10 @@ export async function getUsers(parishId: string, limit: number = 50, page: numbe
 
   return userList.map((u) => {
     const userClasses = assignmentMap.get(u.id) || []
-    const { passwordHash: _passwordHash, passwordEncrypted, ...safeUser } = u
+    const { passwordHash: _passwordHash, passwordEncrypted: _passwordEncrypted, ...safeUser } = u
     return {
       ...safeUser,
-      hasPasswordCopy: Boolean(passwordEncrypted),
+      hasPasswordCopy: false,
       assignedClasses: userClasses,
     }
   })
@@ -67,8 +66,8 @@ export async function getUserById(id: string, parishId: string) {
     .where(and(eq(users.id, id), eq(users.parishId, parishId)))
     .limit(1)
   if (!u) return null
-  const { passwordHash: _passwordHash, passwordEncrypted, ...safeUser } = u
-  return { ...safeUser, hasPasswordCopy: Boolean(passwordEncrypted) }
+  const { passwordHash: _passwordHash, passwordEncrypted: _passwordEncrypted, ...safeUser } = u
+  return { ...safeUser, hasPasswordCopy: false }
 }
 
 export interface CreateUserData {
@@ -127,7 +126,7 @@ export async function createUser(
         id,
         username,
         passwordHash,
-        passwordEncrypted: encryptPassword(tempPass),
+        passwordEncrypted: null,
         fullName: data.fullName,
         holyName: data.holyName?.trim() || null,
         phone: data.phone || null,
@@ -242,7 +241,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
     const nextVersion = (existing.tokenVersion || 1) + 1
     await tx.update(users).set({
       passwordHash,
-      passwordEncrypted: encryptPassword(tempPass),
+      passwordEncrypted: null,
       status: 'FORCE_PASSWORD_CHANGE',
       failedAttempts: 0,
       lockedUntil: null,
@@ -304,46 +303,6 @@ export async function verifyAdminReauth(
     return false
   }
   return true
-}
-
-export type RevealPasswordResult =
-  | { status: 'ok'; username: string; password: string }
-  | { status: 'invalid_admin_password' }
-  | { status: 'not_found' }
-
-export async function revealUserPassword(
-  id: string,
-  adminUserId: string,
-  adminPassword: string,
-  parishId: string,
-  ip: string,
-  userAgent: string,
-): Promise<RevealPasswordResult> {
-  if (getSuperAdminId() === id) return { status: 'not_found' }
-
-  const reauthOk = await verifyAdminReauth(adminUserId, adminPassword, parishId, ip, userAgent, id, 'REVEAL_PASSWORD_FAILED')
-  if (!reauthOk) return { status: 'invalid_admin_password' }
-
-  const [existing] = await db.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
-  if (!existing) return { status: 'not_found' }
-  if (!existing.passwordEncrypted) return { status: 'not_found' }
-
-  const plaintext = decryptPassword(existing.passwordEncrypted)
-  if (!plaintext) return { status: 'not_found' }
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: adminUserId,
-    action: 'REVEAL_PASSWORD',
-    entityType: 'user',
-    entityId: id,
-    newValue: JSON.stringify({ username: existing.username }),
-    ip,
-    userAgent,
-    parishId,
-  })
-
-  return { status: 'ok', username: existing.username, password: plaintext }
 }
 
 export type UpdateUserPhoneResult =
@@ -577,7 +536,7 @@ export async function provisionParentAccounts(
         id,
         username: candidate.phone,
         passwordHash,
-        passwordEncrypted: encryptPassword(tempPass),
+        passwordEncrypted: null,
         fullName: candidate.parentName,
         phone: candidate.phone,
         role: 'phuhuynh',

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useInstallPrompt } from '../../hooks/useInstallPrompt'
 import { Download } from 'lucide-react'
 

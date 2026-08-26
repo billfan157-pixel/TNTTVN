@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "./";
+@source "../index.html";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -667,7 +669,7 @@ body {
 }
 
 /* PHA 5.6 (audit 2026-08-22): alert lỗi nội tuyến chuẩn — thay các banner
-   rose-*/red-* rải rác không có dark variant. Dùng danger tokens → tự dark. */
+   màu rose/red rải rác không có dark variant. Dùng danger tokens → tự dark. */
 .alert-error {
   display: flex;
   align-items: center;

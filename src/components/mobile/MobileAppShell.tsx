@@ -1,4 +1,3 @@
-import React from 'react'
 import { MobileBottomNav, type MobileTab } from './MobileBottomNav'
 
 interface MobileAppShellProps {

@@ -33,7 +33,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   onOpenAddStudent,
   onImportStudents,
   onEditStudent,
-  onViewReport,
+  onViewReport: _onViewReport,
   onPrintReport,
   onNavigateToClasses,
   onSendReportCards,
@@ -56,7 +56,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const selectedSemester = useFilterStore(s => s.selectedSemester)
 
   const pagination = useStudentStore(s => s.pagination)
-  const setPagination = useStudentStore(s => s.setPagination)
+  const _setPagination = useStudentStore(s => s.setPagination)
 
   const [pageSize, setPageSize] = React.useState(pagination.limit || 50)
   const [page, setPage] = React.useState(pagination.page || 1)

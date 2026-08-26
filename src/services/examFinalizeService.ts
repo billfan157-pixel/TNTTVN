@@ -1,4 +1,3 @@
-import React from 'react'
 import type { ExamSession, ExamResult, ExamConflict, ExamFinalizeResult, DailyScoreType } from '../types'
 
 /**

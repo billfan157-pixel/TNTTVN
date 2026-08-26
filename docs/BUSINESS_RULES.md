@@ -334,20 +334,16 @@ Enforcement:
 - **Username phụ huynh đồng bộ theo SĐT**: nếu username đang là SĐT cũ (đúng quy ước) → admin đổi SĐT sẽ cập nhật username = SĐT mới (PH đăng nhập bằng số mới); trùng username tài khoản khác → 409, không đổi. Username custom (admin nhập override) KHÔNG bị đổi.
 - **GLV/CN tự đổi SĐT** qua `PUT /api/auth/profile` vẫn được phép (SĐT của họ không phải identity liên kết dữ liệu) — format validate `^0\d{9}$`.
 - **Giao credential mới**: admin giao SĐT mới + mật khẩu tạm (đặt lại qua reset-password) cho phụ huynh qua kênh riêng; UI provision hỗ trợ "Sao Chép Tất Cả Credential" dạng văn bản.
-### 10.12 Quên mật khẩu phụ huynh — Tự Phục Hồi & Hỗ Trợ Zalo (ADR-042, 2026-08-15)
-- **Tầng 1: Tự phục hồi 24/7 (Self-Service)**: Phụ huynh tự đặt lại mật khẩu bằng cách xác minh đồng thời 2 yếu tố dữ liệu học sinh (`POST /api/auth/parent-reset-password`):
-  1. **Số điện thoại phụ huynh**: Đúng format `^0\d{9}$` (đã đăng ký trong tài khoản role `phuhuynh`).
-  2. **Thông tin xác minh con**: Ngày tháng năm sinh của con (`DD/MM/YYYY` hoặc `YYYY-MM-DD`) **VÀ** Tên Thánh / Họ tên của con (so khớp không dấu, không phân biệt hoa thường). Hỗ trợ gia đình có nhiều con (anh chị em ruột) — chỉ cần nhập đúng thông tin của bất kỳ người con nào.
-- **Bảo mật**:
-  - `parentForgotRateLimiter`: Tối đa 10 lần thử / 60s / IP.
-  - *Timing-neutral*: Chạy `consumeDummyPassword()` với cost 12 khi SĐT không tồn tại hoặc dữ liệu con không khớp (chống timing enumeration).
-  - Khi thành công: Băm `passwordHash` (bcrypt cost 12), xóa `passwordEncrypted` về `NULL`, tăng `tokenVersion` hủy toàn bộ phiên cũ, ghi audit log `PARENT_RESET_PASSWORD` che PII (chuẩn A16).
-- **Tầng 2: Hỗ trợ Zalo 1-chạm**: Modal cung cấp tab "Nhắn Zalo Ban Giáo Lý" tự động tạo sẵn nội dung tin nhắn kèm SĐT phụ huynh để gửi qua Zalo cho GLV/Ban Giáo Lý cấp lại mật khẩu tạm.
+### 10.12 Quên mật khẩu phụ huynh — Hỗ trợ có xác minh (ADR-058, supersedes ADR-042)
+- Không được dùng SĐT + tên/ngày sinh của trẻ làm yếu tố tự đặt lại mật khẩu. Đây là KBA từ dữ liệu nhận dạng dễ biết, không chứng minh người yêu cầu đang sở hữu kênh liên lạc.
+- `POST /api/auth/parent-reset-password` chỉ là compatibility tombstone: luôn `410 PARENT_SELF_RESET_REMOVED`, không lookup hồ sơ và không đổi credential.
+- Modal chỉ hướng dẫn phụ huynh liên hệ Ban Giáo Lý qua kênh đã xác minh. Admin cấp mật khẩu tạm qua flow reset có JWT admin + re-auth + rate-limit + audit; mật khẩu tạm hiển thị đúng một lần và tài khoản ở `FORCE_PASSWORD_CHANGE`.
+- Hệ thống chỉ lưu bcrypt hash. `users.password_encrypted` bị purge về `NULL`; `reveal-password` luôn `410 PASSWORD_REVEAL_REMOVED`. Nếu mất mật khẩu tạm, phải tạo mật khẩu tạm mới, không xem lại bí mật cũ.
 
 ### 10.13 Hai cổng đăng nhập — Phụ Huynh & Giáo Lý Viên/Nhân Sự (ADR-044, 2026-08-16)
 - **2 cổng UI, chung 1 backend auth** (chỉ tách giao diện, KHÔNG tách endpoint/session/bảo mật):
   - `/login` — trang chọn cổng (chooser).
-  - `/login/phuhuynh` — cổng Phụ Huynh: đăng nhập bằng **SĐT** (username phụ huynh = SĐT chuẩn hóa, quy ước §10.8) + mật khẩu; "Quên mật khẩu?" mở modal ADR-042 (§10.12 — tự đổi xác minh con / Zalo).
+  - `/login/phuhuynh` — cổng Phụ Huynh: đăng nhập bằng **SĐT** (username phụ huynh = SĐT chuẩn hóa, quy ước §10.8) + mật khẩu; "Quên mật khẩu?" mở hướng dẫn liên hệ BGL theo ADR-058 (§10.12).
   - `/login/nhan-su` — cổng Giáo Lý Viên / Nhân Sự: đăng nhập bằng **tên đăng nhập** (prefix `glv_`/`cn_`/`ad_`, ADR-027) + mật khẩu; quên mật khẩu → liên hệ Quản Trị Viên / Ban Giáo Lý cấp mật khẩu tạm (admin flow, KHÔNG dùng luồng xác minh con).
 - **1 tài khoản = 1 vai trò** (`users.role` enum — không đổi schema): người vừa là GLV vừa là phụ huynh dùng **2 tài khoản riêng** (nhân sự + phụ huynh qua Parent Provisioning ADR-026).
 - **Role gate sau login**: đăng nhập cổng Phụ Huynh với tài khoản không phải `phuhuynh` (hoặc ngược lại) → hệ thống **tự logout** phiên vừa tạo + hiện thông báo chỉ đường sang cổng đúng. Không tồn tại session nhầm vai trò.
@@ -597,6 +593,7 @@ Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side,
 8. **Batch file explicit**: người có quyền có thể chọn tối đa 500 ảnh/thư mục và xem ba nhóm accepted/review/rejected. Chỉ nhóm accepted mới được lưu sau thao tác xác nhận; ảnh sai phiên, sai lớp, sai số câu, mã đề thiếu key, OMR ngoại lệ hoặc quality khác `good` không được tự ghi điểm.
 9. **Analytics**: thống kê chỉ đọc `exam_results`; không thay đổi điểm. Point-biserial chỉ hiển thị khi tối thiểu 5 bài và tồn tại cả response đúng/sai. SBD/OCR/mẫu BGD chưa đạt D3 evidence gate nên không được gán identity hoặc điểm tự động.
 10. **Phạm vi mã đề**: A–H dùng cho phiếu trả lời rời tương ứng với đề đảo được chuẩn bị bên ngoài. `In Đề & Phiếu Gộp` chưa có question-set riêng theo version nên chỉ in mã A; không được đổi nhãn B–H trên cùng nội dung câu hỏi.
+11. **Go-live gate camera OMR (ADR-060)**: auto-accept thực địa chỉ được bật khi corpus privacy-safe có ≥400 mẫu gồm normal ≥200, stress ≥100, negative ≥100 và đồng thời đạt normal exact-sheet ≥99.5%, stress ≥98%, answer ≥99.5%, first-capture ≥95%, false accept =0, review routing=100%, negative routing=100%, p95 ≤150ms. Thiếu corpus/hụt một ngưỡng → fail-closed về review/manual; test tổng hợp không được dùng để tuyên bố accuracy thực địa.
 
 ---
 

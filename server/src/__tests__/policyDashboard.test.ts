@@ -4,7 +4,7 @@ import { generateTokens } from '../middleware/auth.js'
 import auditLogsApp from '../routes/auditLogs.js'
 import { db } from '../db/index.js'
 import { users, branches, academicYears, classes, students, grades, auditLogs } from '../db/schema.js'
-import { eq, and } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 
 // P3 (2026-08-17): Policy Visualization Dashboard — integration test for

@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Student, GradeRecord } from '../types'
 import { calculateGradeAverage, escapeHtml, type GradeInput, type GradeWeightsConfig } from './grades'
 import { normalizeAcademicYear, getCurrentAcademicYear } from './academicYear'

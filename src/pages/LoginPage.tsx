@@ -1,4 +1,3 @@
-import React from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { LogIn, HeartHandshake, GraduationCap, ChevronRight } from 'lucide-react'
 

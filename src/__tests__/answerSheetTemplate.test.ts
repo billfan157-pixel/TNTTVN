@@ -3,7 +3,6 @@ import {
   getMcColumnLayout,
   mcOptionToCell,
   allMcCells,
-  allCells,
   scoreToCell,
   CORNER_MARKERS,
 } from '../lib/answerSheetTemplate'

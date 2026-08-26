@@ -6,9 +6,6 @@ import { db } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 
-// Test cipher key — bật mã hóa pass tạm (password_encrypted) cho reveal-password tests
-process.env.PASSWORD_CIPHER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-
 const TEST_USERNAME = `dup_route_${Date.now()}`
 
 // A05 (2026-08-10): admin dành riêng để test re-authentication. Không dùng USR-001
@@ -104,64 +101,14 @@ describe('Server Users Route Handler Tests', () => {
     const body = (await res.json()) as any
     const created = (body.data || []).find((u: any) => u.username === TEST_USERNAME)
     expect(created).toBeDefined()
-    // Plaintext không bao giờ nằm trong GET — chỉ cờ hasPasswordCopy cho UI.
+    // Plaintext và bản reversible không bao giờ nằm trong GET.
     expect(created.password).toBeUndefined()
     expect(created.passwordHash).toBeUndefined()
     expect(created.passwordEncrypted).toBeUndefined()
-    expect(created.hasPasswordCopy).toBe(true)
+    expect(created.hasPasswordCopy).toBe(false)
   })
 
-  it('reveal-password returns 404 for a non-existent user (với pass admin hợp lệ)', async () => {
-    const reveal = await usersApp.request('/USR-nonexistent/reveal-password', {
-      method: 'POST',
-      headers: revealAdminHeaders(),
-      body: JSON.stringify({ adminPassword: REVEAL_ADMIN_PASSWORD }),
-    })
-    expect(reveal.status).toBe(404)
-  })
-
-  it('reveal-password returns the temp password for an admin-created user', async () => {
-    const list = await usersApp.request('/', { headers: adminHeaders() })
-    const body = (await list.json()) as any
-    const created = (body.data || []).find((u: any) => u.username === TEST_USERNAME)
-    expect(created).toBeDefined()
-
-    const reveal = await usersApp.request(`/${created.id}/reveal-password`, {
-      method: 'POST',
-      headers: revealAdminHeaders(),
-      body: JSON.stringify({ adminPassword: REVEAL_ADMIN_PASSWORD }),
-    })
-    expect(reveal.status).toBe(200)
-    const revealBody = (await reveal.json()) as any
-    expect(revealBody.data.username).toBe(TEST_USERNAME)
-    expect(revealBody.data.password).toMatch(/^Parish@\d{6}$/)
-  })
-
-  it('A05: reveal-password với mật khẩu admin SAI → 401 INVALID_ADMIN_PASSWORD + audit REVEAL_PASSWORD_FAILED', async () => {
-    const list = await usersApp.request('/', { headers: adminHeaders() })
-    const body = (await list.json()) as any
-    const created = (body.data || []).find((u: any) => u.username === TEST_USERNAME)
-    expect(created).toBeDefined()
-
-    const reveal = await usersApp.request(`/${created.id}/reveal-password`, {
-      method: 'POST',
-      headers: revealAdminHeaders(),
-      body: JSON.stringify({ adminPassword: 'SaiMatKhau@123' }),
-    })
-    expect(reveal.status).toBe(401)
-    const err = (await reveal.json()) as any
-    expect(err.error.code).toBe('INVALID_ADMIN_PASSWORD')
-
-    const [auditRow] = await db
-      .select()
-      .from(auditLogs)
-      .where(and(eq(auditLogs.userId, REVEAL_ADMIN_ID), eq(auditLogs.action, 'REVEAL_PASSWORD_FAILED'), eq(auditLogs.entityId, created.id)))
-      .limit(1)
-    expect(auditRow).toBeDefined()
-    expect(auditRow!.parishId).toBe('gia-ton')
-  })
-
-  it('A05: reveal-password thiếu adminPassword → 400', async () => {
+  it('reveal-password is permanently removed and returns 410 without a secret', async () => {
     const list = await usersApp.request('/', { headers: adminHeaders() })
     const body = (await list.json()) as any
     const created = (body.data || []).find((u: any) => u.username === TEST_USERNAME)
@@ -172,58 +119,10 @@ describe('Server Users Route Handler Tests', () => {
       headers: revealAdminHeaders(),
       body: JSON.stringify({}),
     })
-    expect(reveal.status).toBe(400)
-  })
-
-  it('A05: reveal-password với adminPassword rỗng → 400', async () => {
-    const list = await usersApp.request('/', { headers: adminHeaders() })
-    const body = (await list.json()) as any
-    const created = (body.data || []).find((u: any) => u.username === TEST_USERNAME)
-    expect(created).toBeDefined()
-
-    const reveal = await usersApp.request(`/${created.id}/reveal-password`, {
-      method: 'POST',
-      headers: revealAdminHeaders(),
-      body: JSON.stringify({ adminPassword: '' }),
-    })
-    expect(reveal.status).toBe(400)
-  })
-
-  it('A05: reveal-password nhắm vào superadmin (USR-001) → 403 FORBIDDEN', async () => {
-    const reveal = await usersApp.request('/USR-001/reveal-password', {
-      method: 'POST',
-      headers: revealAdminHeaders(),
-      body: JSON.stringify({ adminPassword: REVEAL_ADMIN_PASSWORD }),
-    })
-    expect(reveal.status).toBe(403)
-    const err = (await reveal.json()) as any
-    expect(err.error.code).toBe('FORBIDDEN')
-  })
-
-  it('A05+A10: reveal-password với admin LOCKED → 401 NGAY ở middleware (không đổi status)', async () => {
-    await db
-      .update(users)
-      .set({ status: 'LOCKED' })
-      .where(eq(users.id, REVEAL_ADMIN_ID))
-
-    try {
-      const list = await usersApp.request('/', { headers: adminHeaders() })
-      const body = (await list.json()) as any
-      const created = (body.data || []).find((u: any) => u.username === TEST_USERNAME)
-      expect(created).toBeDefined()
-
-      const reveal = await usersApp.request(`/${created.id}/reveal-password`, {
-        method: 'POST',
-        headers: revealAdminHeaders(),
-        body: JSON.stringify({ adminPassword: REVEAL_ADMIN_PASSWORD }),
-      })
-expect(reveal.status).toBe(401) // A10: middleware chặn LOCKED từ đầu (không tới verifyAdminReauth)
-    } finally {
-      await db
-        .update(users)
-        .set({ status: 'ACTIVE' })
-        .where(eq(users.id, REVEAL_ADMIN_ID))
-    }
+    expect(reveal.status).toBe(410)
+    const revealBody = (await reveal.json()) as any
+    expect(revealBody.error.code).toBe('PASSWORD_REVEAL_REMOVED')
+    expect(JSON.stringify(revealBody)).not.toMatch(/Parish@|Reset@/)
   })
 
   // ─── A06 (2026-08-10): reset-password — re-authentication ───

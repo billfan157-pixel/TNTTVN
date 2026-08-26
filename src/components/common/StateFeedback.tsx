@@ -1,4 +1,3 @@
-import React from 'react'
 import { FolderOpen, SearchX, AlertTriangle, RefreshCw } from 'lucide-react'
 
 export interface EmptyStateProps {

@@ -21,15 +21,15 @@ hard CI gate cho production cho tới khi thư mục này có corpus ảnh thậ
 
 Mức tối thiểu mặc định hiện tại:
 
-- ít nhất 100 mẫu thực;
+- ít nhất 400 mẫu thực: 200 normal, 100 stress và 100 negative;
 - answer accuracy >= 99.5%;
-- exact-sheet accuracy >= 98%;
-- first-capture >= 90%;
+- exact-sheet accuracy >= 99,5% ở normal và >= 98% ở stress;
+- first-capture >= 95% trên các mẫu kỳ vọng được chấp nhận;
 - false accept = 0 trong corpus negative;
-- review routing >= 99%;
-- p95 detector <= 500 ms trên thiết bị benchmark mục tiêu.
+- review routing = 100%, riêng negative routing cũng = 100%;
+- p95 detector <= 150 ms trên thiết bị benchmark mục tiêu.
 
-Manifest cho mỗi ảnh nên lưu tối thiểu: `sampleId`, loại thiết bị/browser,
+Manifest cho mỗi ảnh phải lưu tối thiểu: `sampleId`, `cohort`, loại thiết bị/browser,
 `templateMode`, `expectedAnswers`, `expectedOutcome`, `firstCaptureAccepted` và
 `durationMs`. Không lưu student/session id thật hoặc nội dung QR production.
 

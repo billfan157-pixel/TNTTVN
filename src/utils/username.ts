@@ -1,4 +1,3 @@
-import React from 'react'
 // ADR-027 (2026-08-12): username tự sinh `chức vụ_Tên thánh + Họ và tên` —
 // bản MIRROR của server (server/src/utils/username.ts = SSOT). Preview realtime
 // trong form tạo tài khoản; server tự sinh lại lúc lưu, KHÔNG bao giờ tin client.

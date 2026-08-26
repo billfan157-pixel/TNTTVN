@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2, ArrowRight, Download, FileDown, History, RotateCcw, Layers, Info, Settings2, AlertTriangle } from 'lucide-react'
 import { loadXlsx } from '../../lib/xlsxLoader'
 import { findHeaderRow, detectColumnsWithConfidence, parseToImportRows, normalizeDate, type ImportRow, type ColumnDetectionResult } from '../../utils/excelParser'
@@ -57,18 +57,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   const allFields = Object.keys(FIELD_LABELS)
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen])
-
-  if (!isOpen) return null
-
-  const reset = () => {
+  const reset = useCallback(() => {
     setStep('upload')
     setRawRows([])
     setColMap({})
@@ -85,12 +74,23 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setDetailView(null)
     setPreviousImport(null)
     setServiceExclusions(new Set())
-  }
+  }, [])
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     reset()
     onClose()
-  }
+  }, [onClose, reset])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', handleKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
+  }, [isOpen, handleClose])
+
+  if (!isOpen) return null
 
   const readFile = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {

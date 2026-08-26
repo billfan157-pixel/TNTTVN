@@ -4,11 +4,9 @@ import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useNoticeStore } from '../../stores/noticeStore';
-import { useClassStore } from '../../stores/classStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuth } from '../../hooks/useAuth';
 import { calculateGradeAverage, calculateAttendanceRate } from '../../utils/grades';
-import { BRANCHES } from '../../constants/branches';
 import { 
   CheckSquare, FileSpreadsheet, UserPlus, 
   Sparkles, Bell, Users, Award, TrendingUp, ChevronRight
@@ -23,12 +21,12 @@ interface MobileHomeViewProps {
 
 export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, onOpenAddStudent }) => {
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const { role: _role } = useAuth();
   const students = useStudentStore(s => s.students);
   const attendance = useAttendanceStore(s => s.attendance);
   const grades = useGradeStore(s => s.grades);
-  const selectedClassId = useFilterStore(s => s.selectedClassId);
-  const setSelectedClassId = useFilterStore(s => s.setSelectedClassId);
+  const _selectedClassId = useFilterStore(s => s.selectedClassId);
+  const _setSelectedClassId = useFilterStore(s => s.setSelectedClassId);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
   const notices = useNoticeStore(s => s.notices);
 

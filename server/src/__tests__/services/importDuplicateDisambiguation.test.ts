@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db } from '../../db/index.js'
 import { students, classes, branches, academicYears, users, examSessions, examResults, semesterLocks, auditLogs, importBatches, importBatchStudents, grades, assessmentEntries } from '../../db/schema.js'
-import { detectDuplicates, validateImport, importStudents, normalizeImportRows } from '../../services/importService.js'
+import { detectDuplicates, validateImport, importStudents } from '../../services/importService.js'
 import { reopenExamSession, createExamSession, completeExamSession } from '../../services/examService.js'
 import { eq, and } from 'drizzle-orm'
 

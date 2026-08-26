@@ -1,4 +1,3 @@
-import React from 'react'
 // 1. Polyfill IndexedDB for Dexie in Node/jsdom CI environment FIRST
 import 'fake-indexeddb/auto'
 import '@testing-library/jest-dom'

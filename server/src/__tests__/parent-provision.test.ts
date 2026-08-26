@@ -7,9 +7,6 @@ import { users, students, classes, branches, academicYears, auditLogs, catechist
 import { eq, and } from 'drizzle-orm'
 import { createUser } from '../services/userService.js'
 
-// Test cipher key — bật mã hóa pass tạm (password_encrypted) cho mật khẩu vừa tạo.
-process.env.PASSWORD_CIPHER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-
 const PREFIX = Date.now()
 const T = (s: string) => `${s}-${PREFIX}`
 const parishId = T('parish-pp') // pp = parent provision
@@ -173,7 +170,7 @@ describe('ADR-026: Parent Account Provisioning (cấp tài khoản phụ huynh h
     expect(created[0].username).toBe(PHONE_CANDIDATE_1)
     expect(created[0].status).toBe('FORCE_PASSWORD_CHANGE')
     expect(created[0].mustChangePassword).toBe(1)
-    expect(created[0].passwordEncrypted).toBeTruthy() // PASSWORD_CIPHER_KEY có trong test
+    expect(created[0].passwordEncrypted).toBeNull()
 
     const item = body.data.results.find((r: any) => r.phone === PHONE_CANDIDATE_1)
     expect(item.username).toBe(PHONE_CANDIDATE_1)

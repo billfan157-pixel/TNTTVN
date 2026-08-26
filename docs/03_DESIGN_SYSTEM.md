@@ -11,10 +11,11 @@
 ## 1. Triết Lý Thiết Kế
 
 1. **Token-First & Dark-Mode-First:** Mọi màu sắc qua CSS variables (`var(--color-*)`) — tự động thích nghi light/dark. Cấm hex cứng trong JSX (`style={{...}}`) và arbitrary values (`bg-[#...]`).
-2. **Brand nhất quán:** Màu chủ đạo duy nhất `parish-primary #1E3A8A` (Xanh Đại Hội). `blue-600 #2563EB` KHÔNG phải màu brand — nó là màu khăn chi đoàn **Thiếu Nhi** (dữ liệu nghiệp vụ, xem §2.4).
-3. **Accessibility (WCAG AA):** Chữ thường ≥ 4.5:1 trên nền. `text-text-muted #64748B` (4.76:1) là màu chữ phụ tối đa — cấm `text-slate-400 #94A3B8` (2.56:1 FAIL) làm chữ.
-4. **Mobile-First, Data-Dense:** Trải nghiệm desktop + mobile PWA đồng bộ qua primitives `mobile-*`; bảng dữ liệu thoáng, rõ, không cắt chữ.
-5. **Glassmorphism có kiểm soát:** Chỉ dùng cho header/hero/bottom-nav (có backdrop nền màu phù hợp), KHÔNG dùng cho card nội dung/bảng (cần nền đục để đọc).
+2. **Source scope:** Tailwind v4 chỉ scan `src/` và `index.html` qua `source(none)` + `@source`; không scan Markdown/audit text để tránh sinh utility giả từ ví dụ tài liệu.
+3. **Brand nhất quán:** Màu chủ đạo duy nhất `parish-primary #1E3A8A` (Xanh Đại Hội). `blue-600 #2563EB` KHÔNG phải màu brand — nó là màu khăn chi đoàn **Thiếu Nhi** (dữ liệu nghiệp vụ, xem §2.4).
+4. **Accessibility (WCAG AA):** Chữ thường ≥ 4.5:1 trên nền. `text-text-muted #64748B` (4.76:1) là màu chữ phụ tối đa — cấm `text-slate-400 #94A3B8` (2.56:1 FAIL) làm chữ.
+5. **Mobile-First, Data-Dense:** Trải nghiệm desktop + mobile PWA đồng bộ qua primitives `mobile-*`; bảng dữ liệu thoáng, rõ, không cắt chữ.
+6. **Glassmorphism có kiểm soát:** Chỉ dùng cho header/hero/bottom-nav (có backdrop nền màu phù hợp), KHÔNG dùng cho card nội dung/bảng (cần nền đục để đọc).
 
 ---
 
@@ -308,7 +309,7 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 
 **UX/UI Audit Batch 2026-08-16 (Pha 3 — a11y modal + tables + icon buttons)**:
 - `scope="col"` cho **129 `<th>` / 18 file** (scripted; `ExamResultsTable` 1 th tự-đóng → `aria-label="Thao tác"`).
-- `aria-label` cho icon-only buttons: HeaderBar 6 nút, DesktopStudentList 5 nút, AuditLogPage Eye (+`aria-expanded`), UserManagementPage reveal-password, ParentLoginPage show/hide.
+- `aria-label` cho icon-only buttons: HeaderBar 6 nút, DesktopStudentList 5 nút, AuditLogPage Eye (+`aria-expanded`), ParentLoginPage show/hide. UserManagementPage không còn reveal-password (ADR-058).
 - `ModalShell` mở rộng props optional: `icon` (icon tile), `subtitle`, `headerActions` (như PrintReceiptModal); `title` kiểu `ReactNode` (icon trong title). **Batch 1 migrate (finance 4/4)**: `FundManageModal`, `TransactionModal`, `PrintReceiptModal`, `ClassFeeCollectionModal` — shell full-bleed (toolbar `-mt-4 -mx-6`) giữ nguyên visual. **Batch 2 migrate (desktop 16 modal)**: `AttendanceHistoryModal`, `DesktopCalendarView` ×2, `DesktopClasses` ×2 (confirmDelete → `ConfirmDialog`), `DesktopLeaveRequests` review, `PromotionPanel` confirm, `UserManagementPage` 8/8.
 - **Quy ước Tier B** (modal giữ shell custom — header brand/màu, tabs, sticky footer, camera/print): thêm trực tiếp `role="dialog"|"alertdialog"` + `aria-modal` + `aria-labelledby` (id trên heading) + Escape + scroll-lock. Đã áp: `ConflictInboxModal`, `GradeFormulaConfigModal`, `SystemDiagnosticsModal`, `ExcelImportModal`, `ExcelGradeImportModal`, `ConflictResolutionModal`, `BackupRestoreModal`, `PurgeDataModal` (alertdialog), `ForcePasswordChangeModal` (gate — chỉ scroll-lock, không Escape), `ParentForgotPasswordModal`, `ExamPaperModal`, `ExamImportModal`, `AnswerSheetModal`, `ExamScanModal`, `ExamSessionView` ×2.
 - **Lưu ý kỹ thuật**: effect a11y (Escape/scroll-lock) phải đặt TRƯỚC early-return `if (!isOpen) return null` (guard bên trong effect) — nếu không, oxlint `rules-of-hooks` báo error.

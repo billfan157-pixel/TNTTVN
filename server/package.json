@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/seed.ts",
     "db:backup": "node ../scripts/backup-db.mjs",
+    "db:restore:remote": "tsx src/scripts/restoreRemoteBackup.ts",
     "vapid:generate": "web-push generate-vapid-keys --json"
   },
   "dependencies": {
@@ -22,7 +23,7 @@
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.45.1",
-    "hono": "^4.7.6",
+    "hono": "^4.13.5",
     "jsonwebtoken": "^9.0.2",
     "puppeteer": "^25.6.0",
     "web-push": "^3.6.7",

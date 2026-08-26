@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, {  } from 'react'
 import { DesktopNotices } from '../components/desktop/DesktopNotices'
 import { MobileNoticesView } from '../components/mobile/MobileNoticesView'
 import { useEffectiveMode } from '../hooks/useEffectiveMode'

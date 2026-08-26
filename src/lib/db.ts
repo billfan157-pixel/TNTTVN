@@ -1,4 +1,3 @@
-import React from 'react'
 import Dexie from 'dexie'
 import { encryptValueStrict, decryptValue, migrateStoredValuesToEncrypted, isEncryptedValue } from './offlineCipher'
 import { scopedStorageKey } from './tenantScope'

@@ -1,4 +1,3 @@
-import React from 'react'
 
 export interface GradeCellInputProps {
   value: string
@@ -62,3 +61,4 @@ function arePropsEqual(prev: GradeCellInputProps, next: GradeCellInputProps): bo
 }
 
 export const GradeCellInput = React.memo(GradeCellInputComponent, arePropsEqual)
+import React from 'react'

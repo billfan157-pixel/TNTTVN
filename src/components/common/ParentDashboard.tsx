@@ -41,14 +41,15 @@ export const ParentDashboard: React.FC = () => {
   const cancelRequest = useLeaveRequestStore((s) => s.cancelRequest)
 
   const selectedChild = children.find(c => c.id === selectedId) ?? null
+  const selectedChildId = selectedChild?.id
 
   useEffect(() => {
-    if (selectedChild) {
-      fetchRequests({ studentId: selectedChild.id })
+    if (selectedChildId) {
+      fetchRequests({ studentId: selectedChildId })
     }
-  }, [selectedChild?.id, fetchRequests])
+  }, [selectedChildId, fetchRequests])
 
-  const childRequests = requests.filter((r) => r.studentId === selectedChild?.id)
+  const childRequests = requests.filter((r) => r.studentId === selectedChildId)
 
   const sem1Gpa = report?.grades.find(g => g.semester === 1)?.gpa ?? null
   const sem2Gpa = report?.grades.find(g => g.semester === 2)?.gpa ?? null

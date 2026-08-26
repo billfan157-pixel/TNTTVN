@@ -18,7 +18,9 @@ import { describe, it, expect } from 'vitest'
 import {
   CORNER_MARKERS,
   CORNER_SIZE,
-  INTEGRATED_CORNER_SIZE,
+  INTEGRATED_MARKER_SIZE,
+  INTEGRATED_BUBBLE_W,
+  INTEGRATED_REF_W,
   scoreToCell,
   allCells,
   mcOptionToCell,
@@ -61,9 +63,11 @@ function createBlankSheet(
     data[i * 4] = 247; data[i * 4 + 1] = 247; data[i * 4 + 2] = 247; data[i * 4 + 3] = 255
   }
   // Vẽ 4 marker đen đặc
-  const half = (cornerSize / 2) * Math.min(w, h)
+  const markerSize = Math.max(3, Math.round(cornerSize * Math.min(w, h)))
   for (const m of markers) {
-    fillRect(img, m.x * w - half, m.y * h - half, m.x * w + half, m.y * h + half, 10)
+    const x0 = Math.round(m.x * w - markerSize / 2)
+    const y0 = Math.round(m.y * h - markerSize / 2)
+    fillRect(img, x0, y0, x0 + markerSize, y0 + markerSize, 10)
   }
   return img
 }
@@ -94,7 +98,7 @@ function fillMcCell(img: ImageData, questionIndex: number, option: 'A' | 'B' | '
 
 function fillIntegratedMcCellForRect(img: ImageData, questionIndex: number, option: 'A' | 'B' | 'C' | 'D', totalQ: number, frame: FrameRect) {
   const cell = integratedMcOptionToCellForRect(questionIndex, option, totalQ, frame)
-  const r = 0.0055 * Math.min(img.width, img.height)
+  const r = (frame.x1 - frame.x0) * img.width * INTEGRATED_BUBBLE_W * 0.32 / INTEGRATED_REF_W
   fillRect(img, cell.x * img.width - r, cell.y * img.height - r, cell.x * img.width + r, cell.y * img.height + r, 25)
 }
 
@@ -462,7 +466,8 @@ describe('E2E: Scan-to-Grade Pipeline Integration', () => {
         { id: 'BR', x: frame.x1, y: frame.y1 },
         { id: 'BL', x: frame.x0, y: frame.y1 },
       ]
-      const img = createBlankSheet(800, 1130, markers, INTEGRATED_CORNER_SIZE)
+      const markerSizeNormalized = framePixelW * INTEGRATED_MARKER_SIZE / INTEGRATED_REF_W / 800
+      const img = createBlankSheet(800, 1130, markers, markerSizeNormalized)
       fillIntegratedMcCellForRect(img, 1, 'A', 4, frame)
       fillIntegratedMcCellForRect(img, 2, 'B', 4, frame)
       fillIntegratedMcCellForRect(img, 3, 'C', 4, frame)

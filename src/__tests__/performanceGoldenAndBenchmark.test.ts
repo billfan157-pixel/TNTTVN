@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'

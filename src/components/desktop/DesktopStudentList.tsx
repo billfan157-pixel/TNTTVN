@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -8,9 +8,9 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 import {
-  UserPlus, Search, Filter, MoreVertical, Edit2, Trash2,
-  FileText, Camera, Upload, CheckCircle2, XCircle, ChevronLeft,
-  ChevronRight, Download, School, AlertCircle, Send, CheckSquare, Square,
+  UserPlus, Search,   Edit2, Trash2,
+  FileText, Camera, Upload, CheckCircle2,  ChevronLeft,
+  ChevronRight,  School,   CheckSquare, Square,
   Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA
 } from 'lucide-react';
 import { useClassStore } from '../../stores/classStore';
@@ -32,6 +32,8 @@ interface DesktopStudentListProps {
   onViewReport: (student: Student) => void;
   onViewPhotoCard: (student: Student) => void;
 }
+
+const columnHelper = createColumnHelper<Student>();
 
 export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   onOpenAddStudent,
@@ -118,8 +120,6 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       useToastStore.getState().addToast(msg, 'error');
     }
   }, []);
-
-  const columnHelper = createColumnHelper<Student>();
 
   const columns = useMemo(() => [
     columnHelper.display({
@@ -240,7 +240,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       },
       size: 120,
     }),
-  ], []);
+  ], [classes]);
 
   const table = useReactTable({
     data: pagedStudents,

@@ -356,7 +356,6 @@ export function getLiturgicalDay(inputDate: Date | string): LiturgicalDay {
   const daysToAdvent = dayOfWeekDec25 === 0 ? 28 : (dayOfWeekDec25 + 21)
   const advent1 = addDays(dec25, -daysToAdvent)
 
-  const jan1 = new Date(Date.UTC(year, 0, 1))
   const jan2 = new Date(Date.UTC(year, 0, 2))
   const dayOfJan2 = jan2.getUTCDay()
   const epiphanyDays = dayOfJan2 === 0 ? 0 : (7 - dayOfJan2)

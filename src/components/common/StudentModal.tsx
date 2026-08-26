@@ -133,7 +133,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         notes: ''
       });
     }
-  }, [studentToEdit, isOpen]);
+  }, [studentToEdit, isOpen, rawClasses]);
 
   useEffect(() => {
     if (!isOpen) return;

@@ -1,4 +1,3 @@
-import React from 'react'
 import { describe, it, expect } from 'vitest'
 import type { Student, GradeRecord, AttendanceRecord, ReportCardDTO } from '../../types'
 import { ReportViewModelFactory } from '../../utils/reportViewModelFactory'

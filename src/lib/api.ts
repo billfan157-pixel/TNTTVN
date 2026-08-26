@@ -1,4 +1,3 @@
-import React from 'react'
 import type {
   ReportCardDTO,
   LeaveRequest,
@@ -433,10 +432,6 @@ export const api = {
   adminChangePassword: (userId: string, newPassword: string, adminPassword: string) =>
     request<{ success: boolean; message: string }>('POST', '/auth/admin-change-password', { userId, newPassword, adminPassword }),
 
-  // ADR-042 (2026-08-15): phụ huynh tự đặt lại mật khẩu qua xác minh thông tin con
-  parentResetPassword: (data: { phone: string; childDob: string; childName: string; newPassword: string }) =>
-    request<{ success: boolean; message: string }>('POST', '/auth/parent-reset-password', data),
-
   // ADR-039: phụ huynh không tự đổi SĐT — gửi phone undefined để server giữ nguyên
   updateProfile: (fullName: string, phone?: string) =>
     request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string }>('PUT', '/auth/profile', { fullName, phone }),
@@ -549,10 +544,6 @@ export const api = {
     request<{ username: string; tempPassword: string }>('POST', `/users/${id}/reset-password`, { adminPassword }),
   forceLogoutUser: (id: string) =>
     request<{ success: boolean }>('POST', `/users/${id}/force-logout`),
-  // ADR-021 rewrite: reveal mật khẩu tạm có chủ đích (audit REVEAL_PASSWORD) — thay GET /users decrypt toàn bộ
-  // A05 (2026-08-10): re-authentication — admin phải gửi kèm mật khẩu hiện tại của chính mình (adminPassword).
-  revealUserPassword: (id: string, adminPassword: string) =>
-    request<{ username: string; password: string }>('POST', `/users/${id}/reveal-password`, { adminPassword }),
   // ADR-026 (2026-08-12): cấp tài khoản phụ huynh hàng loạt từ students.parentPhone
   getParentProvisionPreview: () =>
     request<{ total: number; candidates: Array<{ phone: string; parentName: string; childrenCount: number }>; validPhoneCount: number; existingCount: number }>('GET', '/users/parent-provision-preview'),

@@ -5,7 +5,7 @@ import { authMiddleware, roleMiddleware, getSuperAdminId } from '../middleware/a
 import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
-import { revealPasswordRateLimiter, adminReauthRateLimiter } from '../middleware/security.js'
+import { adminReauthRateLimiter } from '../middleware/security.js'
 import {
   getUsers,
   getCatechists,
@@ -16,7 +16,6 @@ import {
   updateUserPhone,
   resetUserPassword,
   forceLogoutUser,
-  revealUserPassword,
   verifyAdminReauth,
   getParentProvisionPreview,
   provisionParentAccounts,
@@ -148,32 +147,10 @@ usersRouter.post('/:id/reset-password', roleMiddleware('admin'), adminReauthRate
   return successResponse(c, res)
 })
 
-// ADR-021 rewrite: xem lại mật khẩu tạm có chủ đích (admin-only + audit REVEAL_PASSWORD).
-// Không trả lỗi 404 khi không có bản mã hóa — client hiện "—".
-// A05 (2026-08-10): re-authentication — admin nhập lại mật khẩu hiện tại (bcrypt,
-// check trong userService, parish-scoped). Sai → 401 INVALID_ADMIN_PASSWORD + audit
-// REVEAL_PASSWORD_FAILED; rate limit 10/60s/IP chống brute-force.
-const revealPasswordSchema = z.object({
-  adminPassword: z.string().min(1, 'Mật khẩu xác nhận Admin không được để trống').max(128),
-})
-
-usersRouter.post('/:id/reveal-password', roleMiddleware('admin'), revealPasswordRateLimiter, zValidator('json', revealPasswordSchema), async (c) => {
-  const user = c.get('user') as JwtPayload
-  const id = c.req.param('id')
-  const { adminPassword } = c.req.valid('json')
-  const ip = getClientIp(c)
-  const userAgent = c.req.header('user-agent') || ''
-
-  if (getSuperAdminId() === id) return errorResponse(c, 'FORBIDDEN', 'Không thể xem mật khẩu của Admin trưởng', 403)
-
-  const res = await revealUserPassword(id, user.userId, adminPassword, user.parishId, ip, userAgent)
-  if (res.status === 'invalid_admin_password') {
-    return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
-  }
-  if (res.status === 'not_found') {
-    return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại hoặc không còn bản mật khẩu để xem', 404)
-  }
-  return successResponse(c, { username: res.username, password: res.password })
+// ADR-058: mật khẩu tạm chỉ trả đúng một lần khi tạo/reset; server không còn
+// lưu bản reversible. Giữ route 410 để client cũ fail rõ ràng, không âm thầm 404.
+usersRouter.post('/:id/reveal-password', roleMiddleware('admin'), async (c) => {
+  return errorResponse(c, 'PASSWORD_REVEAL_REMOVED', 'Mật khẩu không được lưu để xem lại. Hãy đặt mật khẩu tạm mới nếu cần.', 410)
 })
 
 // ADR-039 (2026-08-15): admin đổi SĐT tài khoản — endpoint DUY NHẤT sửa SĐT.

@@ -1,6 +1,6 @@
 import { db } from '../db/index.js'
 import { systemSettings } from '../db/schema.js'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import { DEFAULT_GRADE_WEIGHTS, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
 import { DEFAULT_PROMOTION_POLICY } from '../domain/PromotionSpecifications.js'
 

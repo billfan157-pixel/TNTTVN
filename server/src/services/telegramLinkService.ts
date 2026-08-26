@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto'
-import { and, eq, gt, inArray, isNull } from 'drizzle-orm'
+import { and, eq,  inArray, isNull } from 'drizzle-orm'
 import { db, runDbTransaction } from '../db/index.js'
 import { telegramLinkTokens, telegramLinks, users } from '../db/schema.js'
 import { generateId } from '../utils/id.js'

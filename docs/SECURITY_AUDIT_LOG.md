@@ -2552,8 +2552,7 @@ offlineCipher: decrypt thất bại (khóa khác? hỏng?) — coi như không c
 | :--- | :--- |
 | 2026-08-13 | User report login 401 dù đúng mật khẩu (dev). Điều tra DB → `bill` bị xóa + DB rỗng. Fix: seed lại admin + dọn user rác + verify login 200. RESOLVED. |
 
-|   A - N E W - 5 1   ( p e r f / U X )   |   =���  P 2 �!'  |   * * B U G   ( u s e r   r e p o r t ) * * :   �n g   d �n g   t r e o / �  k h i   b �m   b �t   k �  n � t   n � o   t r o n g   d a n h   s � c h   h �c   v i � n   D e s k t o p   ( c h �n   d � n g ,   c h u y �n   t r a n g ) .   N g u y � n   n h � n :   ` D e s k t o p S t u d e n t L i s t `   k h �i   t �o   ` c o l u m n s `   c �a   T a n S t a c k   T a b l e   p h �  t h u �c   v � o   ` p a g e d S t u d e n t s `   ( b �  t �o   m �i   m �i   r e n d e r   d o   ` s l i c e ( ) ` )   v �   ` s e l e c t e d I d s `   ( t h a y   �i   l i � n   t �c   k h i   t h a o   t � c ) ,   d �n   �n   v i �c   R e a c t   T a b l e   p h �i   p h �   h u �  v �   t � n h   t o � n   l �i   t o � n   b �  m o d e l   c �t   ( c o l u m n   m o d e l s )   t r � n   m �i   c �   c l i c k .   |   '  * * C L O S E D * *      * * F I X E D * * :   ( 1 )   M e m o i z e   ` p a g e d S t u d e n t s `   b �n g   ` u s e M e m o `   �  g i �  n g u y � n   t h a m   c h i �u   n �u   t r a n g   k h � n g   �i ;   ( 2 )   L o �i   b �  h o � n   t o � n   c � c   d e p e n d e n c i e s   b i �n   �n g   ( ` p a g e d S t u d e n t s ` ,   ` s e l e c t e d I d s ` ,   h � m )   k h �i   ` u s e M e m o `   c �a   ` c o l u m n s ` ;   t h a y   v � o   �   t r u y �n   c h � n g   q u a   ` t a b l e . o p t i o n s . m e t a `   v �   t r u y   x u �t   q u a   ` i n f o . t a b l e . o p t i o n s . m e t a `   �  t �n g   C e l l / H e a d e r .   i �u   n � y   g i � p   c �u   t r � c   c �t   k h � n g   b a o   g i �  b �  r e n d e r   l �i .   |   ` s r c / c o m p o n e n t s / d e s k t o p / D e s k t o p S t u d e n t L i s t . t s x `   |  
- 
+| A-NEW-51 (perf/UX) | 🟡 P2 → ✅ | **BUG (user report)**: Ứng dụng treo/đơ khi bấm bất kỳ nút nào trong danh sách học viên Desktop (chọn dòng, chuyển trang). Nguyên nhân: `DesktopStudentList` khởi tạo `columns` của TanStack Table phụ thuộc vào `pagedStudents` (bị tạo mới mỗi render do `slice()`) và `selectedIds` (thay đổi liên tục khi thao tác), dẫn đến việc React Table phải phá hủy và tính toán lại toàn bộ model cột (column models) trên mỗi cú click. | ✅ **CLOSED** — **FIXED**: (1) Memoize `pagedStudents` bằng `useMemo` để giữ nguyên tham chiếu nếu trang không đổi; (2) Loại bỏ hoàn toàn các dependencies biến động (`pagedStudents`, `selectedIds`, hàm) khỏi `useMemo` của `columns`; thay vào đó truyền chúng qua `table.options.meta` và truy xuất qua `info.table.options.meta` ở từng Cell/Header. Điều này giúp cấu trúc cột không bao giờ bị render lại. | `src/components/desktop/DesktopStudentList.tsx` |
 
 ## Audit FE-01 .. FE-06 — Frontend Deep Audit & Remediation (2026-08-14)
 
@@ -2621,7 +2620,7 @@ offlineCipher: decrypt thất bại (khóa khác? hỏng?) — coi như không c
 
 1. **D-04a (🟠 P2) — `promotion_records.is_latest` bị DROP mất bởi rebuild migration `20260814-109`**:
    - **Vấn đề**: Migration `20240730-043` (`ALTER TABLE promotion_records ADD COLUMN is_latest`) chạy TRƯỚC rebuild ADR-031. Migration rebuild `__new_promotion_records` (DROP + RENAME) **không khai báo cột `is_latest`** → DB deploy mới/fresh mất cột; `promotion_records` trong `schema.ts` cũng thiếu field → mọi INSERT/restore snapshot promotion fail `no column named is_latest`; purge test kéo theo FK fail khi dọn branch.
-   - **Khắc phục**: 
+   - **Khắc phục**:
      - `server/src/db/index.ts`: thêm `is_latest INTEGER NOT NULL DEFAULT 1` vào base DDL + `"is_latest" integer DEFAULT 1 NOT NULL` vào `__new_promotion_records` (CREATE + INSERT SELECT) của migration rebuild.
      - `server/src/db/schema.ts`: thêm `isLatest: integer('is_latest', {mode:'number'}).notNull().default(1)` vào `promotionRecords`.
    - **Lesson learned (mui-tenancy migration)**: khi rebuild DROP+RENAME dùng `INSERT SELECT`, mọi cột ADD COLUMN từ migration trước NECESSARILY phải có mặt trong cả CREATE lẫn INSERT SELECT của `__new_*` — đối chiếu `schema.ts` (source of truth của Drizzle) với từng migration ADD COLUMN (audit để không trùng nominal case `is_latest`).
@@ -3230,3 +3229,25 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - [x] `server/src/__tests__/examMixedScoring.test.ts` 8/8 PASS — gồm các case reject: mixed thiếu questions/answerKey, essay mang options, câu TN xen kẽ, essayScore vượt trần, essayScore trên phiên non-mixed.
 - [x] Merge semantics khóa test: quét trước → nhập TL sau KHÔNG mất `answers`; nhập trước → quét sau GIỮ `essay_score`.
 - [x] tsc client+server PASS; oxlint exit 0. Chi tiết đầy đủ tại ADR-053.
+
+---
+
+## Audit APP-HARDENING-5 — Release, credential, backup, OMR, quality gates — ✅ CODE CLOSED / OPS CONDITIONAL (2026-08-27)
+
+### Findings và xử lý
+
+| ID | Severity | Finding | Resolution |
+|---|---:|---|---|
+| REL-1 | 🔴 P1 | Push `main` có thể auto-deploy trước khi CI/E2E kết thúc | Tắt Vercel/Render auto-deploy; workflow `workflow_run` chỉ deploy exact SHA sau toàn CI xanh, stale-SHA guard + readiness/smoke |
+| CRED-1 | 🔴 P1 | Password tạm có ciphertext giải mã được + admin reveal endpoint | Purge `password_encrypted`, mọi writer ghi NULL, temp credential one-time, reveal compatibility route 410 |
+| CRED-2 | 🔴 P1 | Parent self-reset dùng KBA từ SĐT/tên/ngày sinh trẻ | Endpoint 410 không lookup/mutate; UI chuyển sang hỗ trợ qua kênh xác minh; admin reset vẫn re-auth/audit/rate-limit |
+| DR-1 | 🟠 P2 | Turso remote không có application-owned independent backup/restore drill | Read-transaction logical snapshot + SHA-256 + gzip + AES-256-GCM + R2; restore CLI chỉ target cô lập, explicit flag, production URL guard |
+| OMR-1 | 🟠 P2 | Geometry phụ thuộc frame width giả định; benchmark chưa tách negative/stress | Adaptive theo marker ink; 400-sample cohort gate, false accept 0, thiếu corpus fail-closed |
+| QUAL-1 | 🟡 P2 | 183 lint warnings/dead branches làm regression khó thấy; dependency scan chưa là gate | Zero-warning `oxlint --deny-warnings`, dead code/hook cleanup, Hono 4.13.5, gitleaks + Dependabot |
+
+### Hard gates / evidence
+
+- D3 REL/CRED/DR: Security 9–10, Privacy 9–10, Data Integrity 9, Testability 9 — **PASS**. ADR-021/042 conflict được giải quyết bằng ADR-058 supersession; ADR-041/056 compatible và được ADR-059 bổ sung.
+- Targeted cuối: security/auth/backup **6 files / 39 tests PASS**; OMR/print/orientation **8 files / 115 tests PASS**; PDF snapshot **9/9 PASS**. Full coverage **233/233 files / 1678/1678 tests PASS** (65.55% statements, 67.48% lines); client/server TypeScript, production build và design-system lint PASS; oxlint 0 warning; production dependency audit 0 vulnerability.
+- **OPS CONDITIONAL**: chưa có credential ngoài repo để chạy restore drill R2→Turso thật; chưa có corpus camera privacy-safe 400 mẫu đạt gate; chưa cấu hình GitHub Environment production secrets. Các mục này không được báo “verified production” cho đến khi có artifact/log thực tế.
+- **DEV-TOOL CONDITIONAL**: `npm audit --omit=dev` = 0; full audit còn 7 moderate trong toolchain `drizzle-kit`/esbuild và Capacitor CLI/`xcode`/`uuid`. Phiên bản CLI hiện hành chưa loại được chuỗi này; `audit fix --force` yêu cầu downgrade/breaking nên bị bác. Dependabot tiếp tục theo dõi upstream.

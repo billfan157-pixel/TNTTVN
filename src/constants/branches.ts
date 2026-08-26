@@ -1,4 +1,3 @@
-import React from 'react'
 import type { BranchInfo } from '../types';
 
 export const BRANCHES: Record<string, BranchInfo> = {

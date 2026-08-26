@@ -65,7 +65,7 @@ describe('A01 Phase 1 + A-NEW-01/02 — refresh token HttpOnly cookie (cookie-on
   })
 
   it('/refresh từ COOKIE (body rỗng) vẫn rotate & set cookie mới; response KHÔNG chứa refreshToken trong JSON', async () => {
-    const { accessToken, refreshToken } = await login()
+    const { refreshToken } = await login()
     const res = await authApp.request('/refresh', {
       method: 'POST',
       headers: { Cookie: `parish_refresh=${refreshToken}` },
@@ -95,7 +95,7 @@ describe('A01 Phase 1 + A-NEW-01/02 — refresh token HttpOnly cookie (cookie-on
   })
 
   it('/refresh IGNORE body hoàn toàn — body rác + cookie hợp lệ vẫn 200', async () => {
-    const { accessToken, refreshToken } = await login()
+    const { refreshToken } = await login()
     const res = await authApp.request('/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: `parish_refresh=${refreshToken}` },

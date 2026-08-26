@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseClassHierarchy,
-  compareClassHierarchy,
-  compareStudentByClassHierarchy,
   sortClassesByHierarchy,
   sortStudentsByClassHierarchy,
 } from '../../utils/classSort'

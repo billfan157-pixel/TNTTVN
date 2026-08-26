@@ -1,17 +1,11 @@
 import React, { useState, useMemo } from 'react'
 import {
-  BarChart2,
   Search,
-  CheckCircle2,
-  ShieldAlert,
-  Percent,
   Church,
   BookOpen,
   HeartHandshake,
   FileSpreadsheet,
-  Calendar,
   ChevronRight,
-  Filter,
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'

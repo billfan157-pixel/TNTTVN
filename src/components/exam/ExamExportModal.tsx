@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import {
   X, Download, FileText, FileSpreadsheet, Copy, Check,
   Printer, Sparkles, Settings2, Eye, LayoutGrid, Columns,
-  Layers3, BookOpen, CheckSquare, Square, Award, Code, Globe
+  Layers3, BookOpen,    Code, Globe
 } from 'lucide-react'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
 import { useFocusTrap } from '../../hooks/useFocusTrap'

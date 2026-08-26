@@ -1,4 +1,3 @@
-import React from 'react'
 import { LogIn } from 'lucide-react'
 
 interface LoginShellProps {

@@ -1520,6 +1520,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_created_at ON audit_logs(parish
   // 2 pha lưu điểm (quét OMR trước / nhập TL sau) và kiểm toán.
   { version: '20260824-129', sql: `ALTER TABLE exam_results ADD COLUMN essay_score REAL` },
   { version: '20260827-130', sql: `ALTER TABLE notices ADD COLUMN target_audience TEXT NOT NULL DEFAULT 'all'` },
+  // ADR-058: remove all reversible password copies; bcrypt hash remains SSOT.
+  { version: '20260827-131', sql: `UPDATE users SET password_encrypted = NULL WHERE password_encrypted IS NOT NULL` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate

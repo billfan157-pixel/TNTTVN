@@ -13,7 +13,6 @@ import {
   INTEGRATED_MARKER_SIZE,
   INTEGRATED_PAD_X,
   INTEGRATED_PAD_Y,
-  INTEGRATED_QNUM_GAP,
   INTEGRATED_QNUM_W,
   INTEGRATED_ROW_BORDER_W,
   INTEGRATED_ROW_H,
@@ -382,7 +381,7 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     @page {
       size: A4 portrait;
       /* QB-MARGIN (2026-08-27d): 2/4/2/4 → 4/6/4/6 tăng 2mm theo yêu cầu (review = in).
-         Tổng lề in = @page 6mm ngang + container 4mm = 10mm, dọc = @page 4mm + container 2mm = 6mm. */
+         Tổng lề in = @page 6mm ngang + container 5.6mm = 11.6mm, dọc = @page 4mm + container 2mm = 6mm. */
       margin: 4mm 6mm 4mm 6mm;
     }
     * {
@@ -400,14 +399,14 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       print-color-adjust: exact;
     }
     @media screen {
-      /* Đồng bộ tuyệt đối preview = in: body padding mô phỏng @page 4mm/6mm, container 2mm/4mm */
+      /* Đồng bộ preview = in: body padding mô phỏng @page 4mm/6mm, container 2mm/5.6mm. */
       html { background: #e5e7eb; }
       body { background: #e5e7eb; padding: 4mm 6mm; }
       .exam-paper-container {
         background: #fff;
         box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08);
         border-radius: 2px;
-        padding: 2mm 4mm !important;
+        padding: 2mm 5.6mm !important;
         margin: 0 auto;
       }
     }
@@ -421,8 +420,8 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       min-width: 0;
       margin: 0 auto;
       position: relative;
-      /* Lề trong container 2mm dọc + 4mm ngang — cộng @page = 5mm dọc / 8mm ngang tổng */
-      padding: 2mm 4mm;
+      /* 5.6mm giữ toàn bộ mực marker cách mép A4 tối thiểu 6mm sau phần overhang. */
+      padding: 2mm 5.6mm;
     }
     .watermark {
       position: absolute;
@@ -1233,7 +1232,7 @@ export function buildBatchExamPapersHtml(
     @media screen {
       /* Batch preview: body padding mô phỏng @page 4mm/6mm */
       body { padding: 4mm 6mm !important; background: #e5e7eb !important; }
-      .exam-paper-container { padding: 2mm 4mm !important; }
+      .exam-paper-container { padding: 2mm 5.6mm !important; }
     }
     .batch-exam-page {
       width: 210mm;

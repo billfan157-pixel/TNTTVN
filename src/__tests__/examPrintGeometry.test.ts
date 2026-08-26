@@ -120,7 +120,13 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
 
       for (let q = 1; q <= totalQuestions; q++) {
         for (let optionIndex = 0; optionIndex < options.length; optionIndex++) {
-          const expected = integratedMcOptionToCellForRect(q, options[optionIndex], totalQuestions, frame)
+          const expected = integratedMcOptionToCellForRect(
+            q,
+            options[optionIndex],
+            totalQuestions,
+            frame,
+            (frame.x1 - frame.x0) * measured.width,
+          )
           const actual = measured.bubbles[q - 1][optionIndex]
           expect(Math.abs(expected.x * measured.width - actual.x), `Q${q}${options[optionIndex]} X`).toBeLessThanOrEqual(2)
           expect(Math.abs(expected.y * measured.height - actual.y), `Q${q}${options[optionIndex]} Y`).toBeLessThanOrEqual(2)

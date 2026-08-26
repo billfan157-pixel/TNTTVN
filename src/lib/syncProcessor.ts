@@ -1,4 +1,3 @@
-import React from 'react'
 import { api, ApiError } from './api'
 import { decryptQueueValue } from './offlineCipher'
 import * as Sentry from '@sentry/react'

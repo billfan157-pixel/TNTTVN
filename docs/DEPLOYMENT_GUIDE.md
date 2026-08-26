@@ -57,7 +57,8 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `VAPID_PUBLIC_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID public key — client subscribe cần (trả qua `GET /api/notifications/vapid-public-key`); thiếu → endpoint trả 501 `VAPID_NOT_CONFIGURED`, `/send` trả 501 và queue đánh `failed` (không `sent` giả) — **fail-closed đúng thiết kế** (xem §8 Web Push Setup) |
 | `VAPID_PRIVATE_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID private key — **điều kiện**: BẮT BUỘC set cùng `VAPID_PUBLIC_KEY` nếu muốn tính năng thông báo web push hoạt động (thiếu → 501, client skip graceful) |
 | `VAPID_SUBJECT` | ❌ No | `mailto:admin@giaoly.com` | VAPID contact subject (khuyến nghị đổi thành email quản trị thật của giáo xứ) |
-| `PASSWORD_CIPHER_KEY` | ❌ No | Hex 64 chars (32 bytes) | Key AES-256-GCM cho `users.password_encrypted` — **chỉ mã hóa password tạm do admin đặt** (user tự đổi pass → NULL), xem lại qua `POST /api/users/:id/reveal-password` có audit (ADR-021 rewrite). **Khuyến nghị bật** ở production; thiếu → không lưu bản mã hóa, cột hiển thị "—". Giữ bí mật như JWT secret — kẻ có key + DB sẽ đọc được password tạm |
+| `BACKUP_ENCRYPTION_KEY` | ⚠️ Required với Turso backup | 32 byte (64 hex hoặc base64), tách khỏi JWT/R2 keys | AES-256-GCM cho logical backup Turso trước khi upload R2 (ADR-059). Mất key = không giải mã được backup; lộ key + R2 artifact = mất tính bí mật |
+| `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ⚠️ Required với Turso backup | Cloudflare R2 S3-compatible | Kho backup độc lập với Turso. Remote DB không fallback xuống disk Render ephemeral |
 | `TELEGRAM_BOT_TOKEN` | ❌ No | String | Optional Telegram bot token for alerts |
 | `TELEGRAM_ADMIN_CHAT_ID` | ❌ No | String | Admin chat ID for system alerts |
 | `VITE_SENTRY_DSN` | ❌ No | URL | Frontend Sentry project DSN |
@@ -129,16 +130,16 @@ Browser/PWA (https://tnttvn.vercel.app)
 
 1. **Turso**: đăng ký platform.turso.io → tạo DB (vd `tnttvn`) → lấy `TURSO_URL` (`libsql://...`) + tạo token (`TURSO_AUTH_TOKEN`).
 2. **Render**: New → Blueprint → connect repo → sau sync đầu, nhập tay các env đánh dấu `sync:false` trong render.yaml:
-   - Bắt buộc: `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `PASSWORD_CIPHER_KEY` (64 hex), `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt).
+   - Bắt buộc: `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt), `BACKUP_ENCRYPTION_KEY` (64 hex/base64 32 byte) và đủ 4 biến `R2_*`.
    - Tuỳ chọn: `OPS_TOKEN`, `TELEGRAM_*`, `SENTRY_DSN`.
-   - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `PASSWORD_CIPHER_KEY` dùng 64 hex.
-3. **Vercel**: `vercel.json` rewrite `/api/:path*` → `https://tnttvn.onrender.com/api/:path*` (đã cập nhật trong repo) — push là deploy lại.
+   - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `BACKUP_ENCRYPTION_KEY` dùng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+3. **GitHub Environment `production`**: set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `RENDER_API_KEY`, `RENDER_SERVICE_ID`; có thể bật required reviewers. Vercel Git auto-deploy và Render auto-deploy đều tắt. Chỉ `deploy-production.yml` sau toàn bộ CI xanh mới deploy đúng SHA, đợi ready và smoke-check.
 4. **Mobile build**: `codemagic.yaml` + `.github/workflows/ios-ipa.yml` đã trỏ `VITE_API_BASE` sang Render domain.
 
 ### 7.2 Đặc tính gói Render free — cần biết
 
 - **Cold start**: service spin-down sau ~15 phút không có request; request đầu mất ~30–60s. Client fetch timeout 30s → lần login đầu sau idle CÓ THỂ timeout, thử lại lần 2 sẽ vào được. Giải pháp: keep-alive ping `/health` mỗi 10 phút (cron-job.org miễn phí) hoặc nâng gói Starter ($7).
-- **Disk ephemeral**: KHÔNG lưu gì lâu dài trên container — mọi dữ liệu phải nằm ở Turso; file backup local chỉ mang tính tạm. Nên cấu hình `AUTO_BACKUP_*` đẩy snapshot lên Cloudflare R2 (backupScheduler).
+- **Disk ephemeral**: KHÔNG lưu gì lâu dài trên container. Với Turso, scheduler tạo logical snapshot mã hóa và bắt buộc upload R2; thiếu R2/key sẽ báo backup failure, không giả thành công hoặc fallback local.
 - **750 giờ/tháng**: đủ cho 1 service luôn bật.
 
 ### 7.3 Legacy — Railway (SUPERSEDED, không còn hoạt động)
@@ -209,10 +210,12 @@ Output có dạng:
 ## 9. AUTOMATED & SNAPSHOT-SAFE DATABASE BACKUP (INF-01, INF-02, INF-03)
 
 ### 9.1 Cơ Chế Sao Lưu Nhất Quán (Snapshot-Consistent)
-Hệ thống sử dụng cơ chế sao lưu 2 lớp đảm bảo an toàn cho SQLite ở chế độ WAL (`PRAGMA journal_mode=WAL`):
+SQLite local sử dụng cơ chế hai lớp ở chế độ WAL (`PRAGMA journal_mode=WAL`):
 1. **Lớp 1 (VACUUM INTO)**: Sử dụng lệnh chuẩn SQLite `VACUUM INTO '<destination_file>'` sau khi đã `PRAGMA wal_checkpoint(TRUNCATE)`, tạo bản sao lưu nguyên tử, nén và nhất quán 100% ngay cả khi đang có truy vấn ghi đồng thời.
 2. **Lớp 2 (Fallback Copy)**: Nếu VACUUM INTO không khả dụng, thực hiện checkpoint WAL trước khi sao lưu file nhị phân.
 3. **Chính Sách Lưu Trữ (Retention)**: Tự động giữ lại 5 bản sao lưu gần nhất (có thể cấu hình qua biến `BACKUP_RETENTION_COUNT`).
+
+Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction, snapshot toàn bộ bảng ứng dụng, ghi row count + SHA-256, gzip rồi mã hóa AES-256-GCM bằng `BACKUP_ENCRYPTION_KEY` trước khi upload `backups/turso-*.json.gz.enc` lên R2. Thiếu key/R2 hoặc upload lỗi → run thất bại và marker ngày không được ghi.
 
 ### 9.2 Các Phương Thức Kích Hoạt
 1. **Tự Động Nội Bộ (In-Process Scheduler - INF-02)**: Khởi động tự động cùng server Node.js (`backupScheduler.ts`), mặc định thực hiện sao lưu vào 02:00 AM hàng ngày và đánh dấu marker `auto_backup_last_date` trong `system_settings`. Tắt bằng `AUTO_BACKUP_ENABLED=false`.
@@ -225,3 +228,12 @@ Hệ thống sử dụng cơ chế sao lưu 2 lớp đảm bảo an toàn cho SQ
    ```bash
    node /usr/local/bin/backup-db.mjs
    ```
+
+### 9.3 Restore drill Turso (không ghi production)
+
+1. Tạo DB Turso cô lập, chạy migration hiện hành trên target.
+2. Set `RESTORE_DATABASE_URL`, `RESTORE_DATABASE_AUTH_TOKEN`, `BACKUP_ENCRYPTION_KEY`, đủ `R2_*`, và `ALLOW_BACKUP_RESTORE=true`. `RESTORE_DATABASE_URL` phải khác `TURSO_URL`.
+3. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>`.
+4. Xác nhận checksum/GCM pass, số row restore, đăng nhập smoke trên target và đối chiếu các bảng trọng yếu. Ghi ngày drill + RTO/RPO; khuyến nghị hàng quý.
+
+CLI có hard guard từ chối target URL trùng production. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.

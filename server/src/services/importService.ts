@@ -243,37 +243,6 @@ function explainMatch(normInput: string, classNorm: string, classCandidate: any,
   return reasons
 }
 
-const VALID_BRANCH_IDS = new Set(['ChienCon', 'AuNhi', 'ThieuNhi', 'NghiaSi', 'HiepSi'])
-
-function toBranchId(value: string | undefined | null): string | undefined {
-  if (!value) return undefined
-  const v = value.trim()
-  if (VALID_BRANCH_IDS.has(v)) return v
-  const lower = v.toLowerCase()
-  if (lower.includes('chiên') || lower.includes('chien')) return 'ChienCon'
-  if (lower.includes('ấu') || lower.includes('au')) return 'AuNhi'
-  if (lower.includes('thiếu') || lower.includes('thieu')) return 'ThieuNhi'
-  if (lower.includes('nghĩa') || lower.includes('nghia')) return 'NghiaSi'
-  if (lower.includes('hiệp') || lower.includes('hiep')) return 'HiepSi'
-  return undefined
-}
-
-const branchCache = new Map<string, { id: string; expiresAt: number }>()
-const BRANCH_CACHE_TTL = 5 * 60 * 1000
-
-async function getBranchId(parishId: string, branch: string | undefined | null): Promise<string | null> {
-  if (!branch) return null
-  const branchId = toBranchId(branch)
-  if (!branchId) return null
-  const key = `${parishId}:${branchId}`
-  const cached = branchCache.get(key)
-  if (cached && Date.now() < cached.expiresAt) return cached.id
-  const [row] = await db.select({ id: branches.id }).from(branches).where(and(eq(branches.id, branchId), eq(branches.parishId, parishId))).limit(1)
-  if (!row) return null
-  branchCache.set(key, { id: row.id, expiresAt: Date.now() + BRANCH_CACHE_TTL })
-  return row.id
-}
-
 async function matchClass(
   className: string,
   branch: string,

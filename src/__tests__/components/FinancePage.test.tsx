@@ -1,9 +1,7 @@
-import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import { FinancePage } from '../../pages/FinancePage'
 import { useAuthStore } from '../../stores/authStore'
-import { useFinanceStore } from '../../stores/financeStore'
 
 vi.mock(import('../../lib/api'), async (importOriginal) => {
   const actual = await importOriginal()

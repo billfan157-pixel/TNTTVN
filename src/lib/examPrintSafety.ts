@@ -15,7 +15,7 @@ const EXAM_DOCUMENT_HINTS = [
 const OMR_MARKER_PATTERN = /<div\s+class="omr-corner-marker\s+(omr-marker-(?:tl|tr|bl|br))"\s+title="Marker\s+(TL|TR|BL|BR)"\s*><\/div>/gi
 const OMR_MARKER_STYLE_PATTERN = /\.omr-corner-marker\s*\{[^}]*\}/gi
 const QNUM_PATTERN = /<span\s+class="q-num">C(\d+):<\/span>/g
-const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^\"]*)?)">([ABCD])<\/span>/g
+const BUBBLE_LABEL_PATTERN = /<span\s+class="(bubble(?:\s+[^"]*)?)">([ABCD])<\/span>/g
 const FULL_PAGE_BUBBLE_LABEL_PATTERN = /<text\s+x="[^"]+"\s+y="[^"]+"\s+font-size="[^"]+"\s+font-weight="600"\s+fill="#64748B"\s+text-anchor="middle"\s+dominant-baseline="central">([ABCD])<\/text>/g
 const FULL_PAGE_SCORE_LABEL_PATTERN = /<text\s+x="([^"]+)"\s+y="([^"]+)"\s+font-size="18"\s+font-weight="800"\s+fill="#0F172A"\s+text-anchor="middle"\s+dominant-baseline="central">(\d+)<\/text>/g
 const GUIDE_PATTERN = /\* Bút xanh\/đen hoặc chì đậm; tô kín 01 ô \(A, B, C, D\):/g

@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Student, BranchType } from '../types'
 
 export interface ImportRow {

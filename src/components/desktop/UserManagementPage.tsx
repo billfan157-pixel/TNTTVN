@@ -22,7 +22,6 @@ export interface UserAccount {
   status: 'ACTIVE' | 'INACTIVE' | 'LOCKED' | 'FORCE_PASSWORD_CHANGE'
   assignedClasses: string[]
   lastLoginAt: string
-  hasPasswordCopy?: boolean
 }
 
 // Tách trang quản lý tài khoản (2026-08-22): 'staff' = GLV & nhân sự
@@ -78,19 +77,6 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
   // Không dùng chung modal "Đặt Mật Khẩu Thành Công" để tránh nhầm lẫn.
   const [createdAccount, setCreatedAccount] = useState<{ username: string; fullName: string; tempPassword: string } | null>(null)
   const [copied, setCopied] = useState(false)
-
-  // ADR-021 rewrite: GET /users không trả plaintext nữa — cột "Mật Khẩu" chỉ hiện
-  // pass tạm sau khi admin bấm eye → POST reveal-password (có audit REVEAL_PASSWORD).
-  // User đã tự đổi mật khẩu → không còn bản mã hóa → hiện "—" (không xem lại được).
-  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, string>>({})
-
-  // A05 (2026-08-10): re-authentication — xem pass tạm phải nhập lại mật khẩu
-  // HIỆN TẠI của admin (server bcrypt + audit). Không giữ mật khẩu xác nhận sau
-  // khi đóng modal.
-  const [revealConfirmUser, setRevealConfirmUser] = useState<UserAccount | null>(null)
-  const [adminConfirmPassword, setAdminConfirmPassword] = useState('')
-  const [revealConfirmError, setRevealConfirmError] = useState<string | null>(null)
-  const [revealConfirming, setRevealConfirming] = useState(false)
 
   // ADR-026 (2026-08-12): cấp tài khoản phụ huynh hàng loạt từ students.parentPhone.
   // Preview → admin xem trước danh sách SĐT chưa có tài khoản → xác nhận với re-auth
@@ -201,38 +187,6 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
       setPpError(err?.message || 'Không thể đổi số điện thoại')
     } finally {
       setPpLoading(false)
-    }
-  }
-
-  async function handleRevealPassword(u: UserAccount) {
-    if (revealedPasswords[u.id]) {
-      setRevealedPasswords((prev) => ({ ...prev, [u.id]: '' }))
-      return
-    }
-    // A05: mở modal xác nhận mật khẩu admin thay vì gọi thẳng reveal
-    setRevealConfirmUser(u)
-    setAdminConfirmPassword('')
-    setRevealConfirmError(null)
-  }
-
-  function closeRevealConfirm() {
-    setRevealConfirmUser(null)
-    setAdminConfirmPassword('')
-    setRevealConfirmError(null)
-  }
-
-  async function handleRevealConfirm() {
-    if (!revealConfirmUser) return
-    setRevealConfirming(true)
-    setRevealConfirmError(null)
-    try {
-      const res = await api.revealUserPassword(revealConfirmUser.id, adminConfirmPassword)
-      setRevealedPasswords((prev) => ({ ...prev, [revealConfirmUser.id]: res.password }))
-      closeRevealConfirm()
-    } catch (err) {
-      setRevealConfirmError(err instanceof Error ? err.message : 'Không thể xem mật khẩu tạm')
-    } finally {
-      setRevealConfirming(false)
     }
   }
 
@@ -619,7 +573,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
               <th className="p-4" scope="col">Vai Trò</th>
               <th className="p-4" scope="col">Lớp Phụ Trách</th>
               <th className="p-4" scope="col">Trạng Thái</th>
-              <th className="p-4" scope="col">Mật Khẩu</th>
+              <th className="p-4" scope="col">Bảo Mật</th>
               <th className="p-4" scope="col">Đăng Nhập Cuối</th>
               <th className="p-4 text-right" scope="col">Thao Tác</th>
             </tr>
@@ -658,23 +612,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
                   {u.status === 'FORCE_PASSWORD_CHANGE' && <span className="px-2.5 py-1 text-xs font-semibold bg-amber-500/10 text-amber-600 rounded-full">Cần Đổi Pass</span>}
                 </td>
                 <td className="p-4">
-                  <div className="flex items-center gap-1.5">
-                    {u.hasPasswordCopy && !isSuperAdmin(u) ? (
-                      <>
-                        <span className="font-mono text-sm text-text-main whitespace-nowrap">
-                          {revealedPasswords[u.id] ? revealedPasswords[u.id] : '••••••••'}
-                        </span>
-                        <button onClick={() => handleRevealPassword(u)}
-                          title={revealedPasswords[u.id] ? 'Ẩn mật khẩu' : 'Xem mật khẩu tạm'}
-                          aria-label={revealedPasswords[u.id] ? 'Ẩn mật khẩu' : 'Xem mật khẩu tạm'}
-                          className="p-1 rounded-lg text-text-muted hover:text-parish-primary hover:bg-parish-primary-light transition-colors">
-                          {revealedPasswords[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-xs text-text-muted whitespace-nowrap">—</span>
-                    )}
-                  </div>
+                  <span className="text-xs text-text-muted whitespace-nowrap">Không lưu mật khẩu để xem lại</span>
                   {u.status === 'FORCE_PASSWORD_CHANGE' && (
                     <div className="text-xs text-amber-600 dark:text-amber-400 mt-0.5 whitespace-nowrap">
                       Mật khẩu tạm — chưa đổi
@@ -851,7 +789,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
           <div className="space-y-4">
             <p className="text-xs text-text-muted">
               Tài khoản <strong>{createdAccount.fullName}</strong> (@{createdAccount.username}) đã được tạo.
-              Mật khẩu sẽ hiển thị trong cột <strong>Mật Khẩu</strong>; khi giáo lý viên đổi mật khẩu, cột cập nhật theo mật khẩu mới.
+              Đây là lần duy nhất hệ thống hiển thị mật khẩu tạm. Hãy sao chép và giao qua kênh riêng; máy chủ không lưu bản có thể xem lại.
             </p>
             {createdAccount.tempPassword && (
               <div className="p-4 bg-surface-hover border border-surface-border rounded-xl space-y-2 text-center">
@@ -937,44 +875,6 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
         </ModalShell>
       )}
 
-      {/* A05 (2026-08-10): re-authentication — modal xác nhận mật khẩu admin trước khi xem pass tạm */}
-      {revealConfirmUser && (
-        <ModalShell
-          isOpen={!!revealConfirmUser}
-          onClose={closeRevealConfirm}
-          title={<><Lock className="w-5 h-5 text-parish-primary inline mr-2" />Xác Nhận Xem Mật Khẩu Tạm</>}
-          maxWidth="448px"
-        >
-          <div className="space-y-4">
-            <p className="text-xs text-text-muted">
-              Bảo mật bổ sung: nhập lại mật khẩu <strong>hiện tại của bạn</strong> để xem mật
-              khẩu tạm của <strong>{revealConfirmUser.fullName}</strong> (@{revealConfirmUser.username}).
-              Hành động này được ghi vào nhật ký kiểm toán.
-            </p>
-            {revealConfirmError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600">{revealConfirmError}</div>
-            )}
-            <input
-              type="password"
-              autoFocus
-              value={adminConfirmPassword}
-              onChange={(e) => setAdminConfirmPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !revealConfirming) handleRevealConfirm() }}
-              placeholder="Mật khẩu hiện tại của Admin"
-              className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
-            />
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeRevealConfirm} disabled={revealConfirming}
-                className="btn btn-ghost">Hủy</button>
-              <button type="button" onClick={handleRevealConfirm} disabled={revealConfirming || !adminConfirmPassword.trim()}
-                className="btn btn-primary">
-                {revealConfirming && <Loader2 size={14} className="animate-spin" />}
-                <span>{revealConfirming ? 'Đang Xác Minh...' : 'Xác Nhận & Xem'}</span>
-              </button>
-            </div>
-          </div>
-        </ModalShell>
-      )}
     {/* ADR-026 (2026-08-12): cấp tài khoản phụ huynh hàng loạt từ students.parentPhone */}
       {isProvisionOpen && (
         <ModalShell

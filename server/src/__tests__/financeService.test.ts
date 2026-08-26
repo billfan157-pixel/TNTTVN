@@ -12,7 +12,6 @@ import {
 import {
   createFund,
   createTransaction,
-  deleteTransaction,
   updateStudentFee,
 } from '../services/FinanceApplicationService.js'
 

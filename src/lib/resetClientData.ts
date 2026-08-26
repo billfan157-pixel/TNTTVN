@@ -1,4 +1,3 @@
-import React from 'react'
 import { db } from './db'
 import { clearTokens } from './api'
 import { resetAllStoresToDefault } from '../stores/resetStores'

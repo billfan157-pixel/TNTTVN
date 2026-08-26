@@ -9,7 +9,6 @@ import {
 } from '@tanstack/react-table';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
-import { useDailyGradeStore } from '../../stores/dailyGradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { calculateGradeAverage } from '../../utils/grades';
@@ -17,7 +16,7 @@ import type { GradeRecord, Student } from '../../types';
 import { useClassStore, getFilteredClassList } from '../../stores/classStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/academicYear';
-import { FileSpreadsheet, Save, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, Calculator, Download, Upload, RefreshCw, Link, AlertCircle, Settings2 } from 'lucide-react';
+import { FileSpreadsheet,  CheckCircle,    Calculator, Download, Upload, RefreshCw,   Settings2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { useSyncStore } from '../../stores/syncStore';
@@ -26,7 +25,6 @@ import { exportGradebookToExcel } from '../../utils/excelExporter';
 import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
-import type { Table as RTable } from '@tanstack/react-table';
 
 interface RowData {
   student: Student
@@ -46,7 +44,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
   const setSelectedSemester = useFilterStore(s => s.setSelectedSemester);
-  const { restricted: semesterRestricted, openSemester } = useSemesterAccess();
+  const { restricted: _semesterRestricted, openSemester: _openSemester } = useSemesterAccess();
 
   const [matrixData, setMatrixData] = useState<Record<string, Partial<GradeRecord>>>({});
   const [isOverrideModeEnabled, setIsOverrideModeEnabled] = useState(false);
@@ -178,7 +176,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     }
   }, [updateField]);
 
-  const handleScoreKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
+  const handleScoreKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, _studentId: string, _field: keyof GradeRecord) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       e.currentTarget.blur();

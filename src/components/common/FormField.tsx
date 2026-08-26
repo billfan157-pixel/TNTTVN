@@ -1,4 +1,3 @@
-import React from 'react'
 
 interface FormFieldProps {
   label: string
@@ -52,3 +51,4 @@ export const FormField: React.FC<FormFieldProps> = ({
 }
 
 export default FormField
+import React from 'react'

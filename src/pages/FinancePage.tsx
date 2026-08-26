@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect,  useRef } from 'react'
 import {
   Wallet,
   ArrowDownRight,
@@ -37,20 +37,20 @@ export const FinancePage: React.FC = () => {
     funds,
     transactions,
     selectedFundId,
-    selectedAcademicYear,
+    selectedAcademicYear: _selectedAcademicYear,
     pagination,
     fetchSummary,
     fetchTransactions,
     deleteTransaction,
     setSelectedFundId,
-    setSelectedAcademicYear,
+    setSelectedAcademicYear: _setSelectedAcademicYear,
     ledgerFilters,
     setLedgerFilters,
     setPage,
-    isLoading,
+    isLoading: _isLoading,
   } = useFinanceStore()
 
-  const { currentYear, academicYears } = useAcademicYearStore()
+  const { currentYear: _currentYear, academicYears: _academicYears } = useAcademicYearStore()
   const addToast = useToastStore((s) => s.addToast)
 
   // Modal States
@@ -91,7 +91,7 @@ export const FinancePage: React.FC = () => {
       setIsInitialLoading(false)
     }
     load()
-  }, [])
+  }, [fetchSummary, fetchTransactions])
 
   if (user?.role !== 'admin') {
     return (
@@ -316,7 +316,7 @@ export const FinancePage: React.FC = () => {
           Tất Cả Quỹ ({formatVND(summary?.totalBalance || 0)})
         </button>
 
-        {funds.map((f, idx) => (
+        {funds.map((f) => (
           <button
             key={f.id}
             onClick={() => setSelectedFundId(f.id)}
@@ -584,8 +584,6 @@ export const FinancePage: React.FC = () => {
               {filteredTransactions.map((tx) => {
                 const isInc = tx.type === 'INCOME'
                 const isExp = tx.type === 'EXPENSE'
-                const isTrf = tx.type === 'TRANSFER'
-
                 return (
                   <div key={tx.id} className="p-4 space-y-2">
                     <div className="flex items-center justify-between">

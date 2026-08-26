@@ -13,6 +13,7 @@ import {
   CORNER_MARKERS,
   CORNER_SIZE,
   INTEGRATED_CORNER_SIZE,
+  INTEGRATED_MARKER_SIZE,
   allCells,
   allMcCells,
   integratedMcCellsForRect,
@@ -76,6 +77,85 @@ export interface MarkerHit {
   x: number
   y: number
   coverage: number
+}
+
+function markerInkRun(gray: GrayImage, marker: MarkerHit, dx: number, dy: number, maxRadius: number): number {
+  const cx = Math.round(marker.x)
+  const cy = Math.round(marker.y)
+  const inkWeight = (offset: number) => {
+    const x = cx + dx * offset
+    const y = cy + dy * offset
+    if (x < 0 || x >= gray.width || y < 0 || y >= gray.height) return 0
+    // Trọng số xám giữ thông tin sub-pixel từ cạnh anti-alias của marker;
+    // đếm nhị phân làm sai 5–10% khi marker camera chỉ còn 12–18px.
+    return clamp01((240 - gray.data[y * gray.width + x]) / 220)
+  }
+  let total = inkWeight(0)
+  for (const direction of [-1, 1]) {
+    let whiteRun = 0
+    for (let offset = 1; offset <= maxRadius; offset++) {
+      const weight = inkWeight(direction * offset)
+      if (weight < 0.03) {
+        whiteRun++
+        if (whiteRun >= 2) break
+        continue
+      }
+      whiteRun = 0
+      total += weight
+    }
+  }
+  return total
+}
+
+/**
+ * Window scoring can land anywhere inside a solid marker when several windows
+ * have identical coverage. Recenter on the marker's continuous dark runs so
+ * geometry and scale are measured from the printed square, not from the scan
+ * window selected by its positional tie-breaker.
+ */
+function refineMarkerCenter(gray: GrayImage, marker: MarkerHit, maxRadius: number): MarkerHit {
+  const originX = Math.round(marker.x)
+  const originY = Math.round(marker.y)
+  const darkAt = (x: number, y: number) => (
+    x >= 0 && x < gray.width && y >= 0 && y < gray.height && gray.data[y * gray.width + x] < 180
+  )
+  const bounds = (dx: number, dy: number): [number, number] => {
+    let lower = 0
+    let upper = 0
+    for (const direction of [-1, 1]) {
+      let whiteRun = 0
+      for (let offset = 1; offset <= maxRadius; offset++) {
+        if (darkAt(originX + dx * offset * direction, originY + dy * offset * direction)) {
+          whiteRun = 0
+          if (direction < 0) lower = -offset
+          else upper = offset
+        } else if (++whiteRun >= 2) {
+          break
+        }
+      }
+    }
+    return [lower, upper]
+  }
+  const [left, right] = bounds(1, 0)
+  const [top, bottom] = bounds(0, 1)
+  return {
+    ...marker,
+    x: originX + (left + right) / 2,
+    y: originY + (top + bottom) / 2,
+  }
+}
+
+/** Ước lượng tỉ lệ raster/CSS từ chính ô marker 18px thay vì giả định viewport cố định. */
+export function estimateIntegratedFrameReferenceWidth(gray: GrayImage, markers: MarkerHit[], fallbackSizePx: number): number {
+  const maxRadius = Math.max(4, Math.ceil(fallbackSizePx * 1.25))
+  const sizes = markers.flatMap(marker => [
+    markerInkRun(gray, marker, 1, 0, maxRadius),
+    markerInkRun(gray, marker, 0, 1, maxRadius),
+  ]).filter(size => size >= 3)
+  sizes.sort((a, b) => a - b)
+  const markerInkPx = sizes.length > 0 ? sizes[Math.floor(sizes.length / 2)] : fallbackSizePx
+  const markerSpanPx = Math.hypot(markers[1].x - markers[0].x, markers[1].y - markers[0].y)
+  return markerSpanPx * INTEGRATED_MARKER_SIZE / Math.max(1, markerInkPx)
 }
 
 /** Tìm 1 marker quanh vị trí kỳ vọng (normalized) — scan window, tối ưu coverage với contrast cục bộ. */
@@ -327,7 +407,11 @@ function findMarkerInBand(
     }
   }
   if (!best) return null
-  return { id, x: best.x, y: best.y, coverage: best.cov }
+  return refineMarkerCenter(
+    gray,
+    { id, x: best.x, y: best.y, coverage: best.cov },
+    Math.max(6, Math.ceil(INTEGRATED_CORNER_SIZE * Math.min(width, height))),
+  )
 }
 
 export interface IntegratedFrameLocation {
@@ -363,7 +447,9 @@ export function tryLocateIntegratedFrame(gray: GrayImage, totalQuestions = 50): 
     const rectW = rect.x1 - rect.x0
     const rectH = rect.y1 - rect.y0
     const alignTolerance = Math.max(4, sizePx * 2.5)
-    if (rectW < 0.45 || rectH < 0.045 || rectH > 0.35) continue
+    // Một hàng (đề rất ngắn) chỉ cao khoảng 3.7% trang A4; vẫn phải qua gate
+    // tỷ lệ khung động bên dưới nên có thể hạ sàn mà không nhận bốn điểm tùy ý.
+    if (rectW < 0.45 || rectH < 0.025 || rectH > 0.35) continue
     if (rectW / rectH < 3) continue
     const pixelAspect = (rectW * gray.width) / (rectH * gray.height)
     const expectedAspect = integratedFrameAspectRatio(totalQuestions)
@@ -582,7 +668,11 @@ export function detectAnswersFromImage(
 
   const mcCells = (
     frameRect
-      ? integratedMcCellsForRect(totalQuestions, frameRect)
+      ? integratedMcCellsForRect(
+          totalQuestions,
+          frameRect,
+          estimateIntegratedFrameReferenceWidth(gray, markers, sizePx),
+        )
       : allMcCells(totalQuestions)
   ) as Array<{ questionIndex: number; option: 'A' | 'B' | 'C' | 'D'; x: number; y: number }>
 

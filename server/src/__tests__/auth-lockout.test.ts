@@ -6,10 +6,6 @@ import { generateTokens } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
-import { decryptPassword } from '../utils/passwordCipher.js'
-
-// Test cipher key (hex 64 chars) — bật khả năng mã hóa hiển thị pass trong test
-process.env.PASSWORD_CIPHER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
 const PREFIX = Date.now()
 const parishId = `parish-lockout-${PREFIX}`
@@ -137,8 +133,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
     const [row] = await db.select({ status: users.status, mustChangePassword: users.mustChangePassword, tokenVersion: users.tokenVersion, passwordEncrypted: users.passwordEncrypted }).from(users).where(eq(users.id, userId))
     expect(row?.status).toBe('FORCE_PASSWORD_CHANGE')
     expect(row?.mustChangePassword).toBe(1)
-    // Admin đặt mật khẩu cụ thể → lưu bản mã hóa (giải mã ra đúng pass vừa đặt)
-    expect(decryptPassword(row?.passwordEncrypted)).toBe(STRONG_2)
+    expect(row?.passwordEncrypted).toBeNull()
 
     // Token issued with the old tokenVersion must be rejected
     const oldRes = await authApp.request('/me', {

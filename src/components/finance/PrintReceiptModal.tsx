@@ -15,8 +15,8 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   onClose,
   transaction,
 }) => {
-  const [pastorName, setPastorName] = useState('Lm. Tuyên Úy')
-  const [leaderName, setLeaderName] = useState('Trưởng Ban Quản Trị')
+  const [pastorName, _setPastorName] = useState('Lm. Tuyên Úy')
+  const [leaderName, _setLeaderName] = useState('Trưởng Ban Quản Trị')
 
   if (!isOpen || !transaction) return null
 

@@ -1,4 +1,4 @@
-import type { AttendanceRecord, AttendanceType, Student } from '../types'
+import type { AttendanceRecord, Student } from '../types'
 import { BRANCHES } from '../constants/branches'
 import { calculateAttendanceRate } from '../utils/grades'
 import { loadXlsx } from '../lib/xlsxLoader'

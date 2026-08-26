@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
-  Calendar, CheckCircle2, XCircle, Clock, Search, Filter,
-  RefreshCw, Check, X, MessageSquare, AlertCircle, User, Phone,
-  School, Church, BookOpen, Flame
+  Calendar, CheckCircle2, XCircle, Clock, Search,
+  RefreshCw, Check, X, Phone,
+  Church, BookOpen, Flame
 } from 'lucide-react'
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore'
 import { useClassStore } from '../../stores/classStore'

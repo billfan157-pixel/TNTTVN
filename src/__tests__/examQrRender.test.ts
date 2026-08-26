@@ -145,8 +145,8 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
       y1: bl.y / measured.height,
     }
     const expected = [
-      { cell: integratedMcOptionToCellForRect(1, 'A', totalQuestions, frame), actual: measured.firstA },
-      { cell: integratedMcOptionToCellForRect(totalQuestions, 'D', totalQuestions, frame), actual: measured.lastD },
+      { cell: integratedMcOptionToCellForRect(1, 'A', totalQuestions, frame, (frame.x1 - frame.x0) * measured.width), actual: measured.firstA },
+      { cell: integratedMcOptionToCellForRect(totalQuestions, 'D', totalQuestions, frame, (frame.x1 - frame.x0) * measured.width), actual: measured.lastD },
     ]
     const errors = expected.map(({ cell, actual }) => ({
       x: cell.x * measured.width - actual.x,
@@ -233,7 +233,9 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
       document.querySelector('.questions-wrapper')?.remove()
       document.body.style.minHeight = '1131px'
       for (const row of Array.from(document.querySelectorAll('.grid-q-row'))) {
-        row.querySelector('.bubble')?.classList.add('bubble-filled')
+        const filledBubble = row.querySelector('.bubble')
+        filledBubble?.classList.add('bubble-filled')
+        if (filledBubble) filledBubble.textContent = ''
       }
     })
     const frame = await cameraFrameFromPage(page)

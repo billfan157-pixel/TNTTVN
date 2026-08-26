@@ -1,11 +1,8 @@
-import React from 'react'
-import { createRootRoute, createRoute, createRouter, Outlet, redirect } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter,  redirect } from '@tanstack/react-router'
 import { useAuthStore } from './stores/authStore'
 import { RootLayout, PageSuspense } from './components/common/RootLayout'
-import { useClassStore } from './stores/classStore'
 import { setNavigateToLogin } from './lib/api'
 import { lazyWithRetry } from './utils/lazyWithRetry'
-import type { ClassInfo } from './types'
 
 const DashboardPage = lazyWithRetry(() => import('./pages/DashboardPage'))
 const StudentsPage = lazyWithRetry(() => import('./pages/StudentsPage'))

@@ -1474,3 +1474,89 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 - **Verify E2E**: `/health` trực tiếp Render = 200 `{database:"connected"}`; login qua Vercel rewrite (`POST /api/auth/login`) thành công 3/3 lần với user seed `bill`; wrong-password → 401 `INVALID_CREDENTIALS` sạch. DB Turso khởi tạo đầy đủ schema + seed (branches/năm học/lớp/admin USR-001).
 - Lưu ý vận hành: cold start free tier — request đầu sau idle có thể chậm/timeout 1 lần; khuyến nghị keep-alive ping `/health` mỗi 10 phút.
 - **Smoke test production (2026-08-25)**: qua Vercel rewrite — login admin OK; GET classes = 5 lớp seed; **WRITE path xác minh trên Turso**: POST students 201 (`ST-*`) + DELETE thành công; academic-years trả đúng trạng thái (2026-2027 OPEN). Backup scheduler an toàn trên remote (guard `isRemote` từ ADR-041 — skip file backup, khuyến nghị Turso managed backup/R2).
+
+---
+
+## ADR-057: Production Release Gate theo commit đã qua CI (2026-08-26)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3 (production delivery). Profile: ARCHITECTURE + SECURITY.**
+
+### Evidence và quyết định
+
+- Trước thay đổi, Vercel/Render có thể auto-deploy ngay khi push; build/test/E2E đang chạy song song với production nên một commit lỗi vẫn có cửa sổ được phục vụ.
+- Chọn **CI hoàn tất toàn bộ → workflow `workflow_run` deploy đúng `head_sha`**. Phương án deploy hook theo branch bị loại vì hook lấy HEAD mới nhất, không chứng minh đó là SHA vừa được kiểm thử.
+- Matrix: Security 9, Data Integrity 9, Reliability 9, Testability 9, Reversibility 8, weighted 8.9. D3 gates Security/Privacy/Data Integrity đều ≥8 — **PASS**.
+
+### Implementation / gates
+
+1. `vercel.json` tắt Git auto-deploy cho `main`; `render.yaml` đặt `autoDeploy:false`.
+2. `deploy-production.yml` chỉ chạy khi workflow CI của push `main` kết luận `success`, checkout đúng SHA, từ chối SHA cũ nếu HEAD đã tiến, gọi Vercel Git deployment và Render `commitId` bằng đúng SHA, đợi trạng thái sẵn sàng rồi smoke-check hai origin.
+3. CI bắt buộc secret scan, lint không warning, typecheck, coverage suite, build, design-system guard và Playwright; local `.githooks/pre-push` chạy `verify:ci` như lớp phản hồi sớm.
+4. Dependabot theo dõi npm và GitHub Actions hàng tuần. Secret production chỉ ở GitHub Environment `production`.
+
+**ADR compatibility:** ADR-056 `PASS` (giữ Render/Turso/Vercel, chỉ đổi authority deploy). **Rollback:** bật lại auto-deploy và vô hiệu workflow. **Điều kiện vận hành:** phải cấu hình `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `RENDER_API_KEY`, `RENDER_SERVICE_ID`; thiếu secret → fail-closed, không deploy.
+
+---
+
+## ADR-058: Loại bỏ credential có thể giải mã và KBA phụ huynh (2026-08-26)
+
+**Status: APPROVED / IMPLEMENTED; supersedes phần reversible-password của ADR-021 và self-reset KBA của ADR-042. Severity: D3. Profile: SECURITY.**
+
+### Evidence và quyết định
+
+- `users.password_encrypted` cho phép người có DB + key khôi phục mật khẩu tạm; endpoint admin `reveal-password` mở thêm bề mặt lộ bí mật.
+- Self-reset phụ huynh dùng SĐT + tên/ngày sinh của trẻ — dữ liệu nhận dạng dễ biết, không phải possession factor; rate-limit không biến KBA thành cơ chế khôi phục mạnh.
+- Chọn **one-time credential + reset có kiểm soát qua admin/re-auth**. Matrix SECURITY: Security 10, Privacy 10, Data Integrity 9, Usability 7, Testability 9, weighted 9.2; phương án giữ AES/KBA bị loại bởi hard gate Security/Privacy <8.
+
+### Implementation / contract
+
+1. Mọi create/reset/provision chỉ lưu bcrypt hash; response trả mật khẩu tạm đúng một lần. `password_encrypted` luôn `NULL`; migration `20260827-131` purge mọi ciphertext lịch sử. Cột được giữ nullable để rollback schema an toàn nhưng đã deprecated.
+2. `POST /api/users/:id/reveal-password` là compatibility tombstone `410 PASSWORD_REVEAL_REMOVED`; không thực hiện re-auth, không trả bí mật. UI/API client bỏ chức năng xem lại.
+3. `POST /api/auth/parent-reset-password` trả `410 PARENT_SELF_RESET_REMOVED` bất kể body; không lookup SĐT/trẻ và không đổi dữ liệu. UI chỉ hướng dẫn liên hệ Ban Giáo Lý qua kênh đã xác minh để cấp mật khẩu tạm.
+4. Admin reset vẫn yêu cầu JWT admin + re-auth + rate-limit + audit; user buộc đổi mật khẩu tạm ở lần đăng nhập sau.
+
+**Business Rule Gate:** không lưu credential reversible và không dùng KBA trẻ em = `CONFIRMED` bằng source + 39 targeted tests. **ADR compatibility:** ADR-044/045/046 `PASS`; ADR-021/042 `CONFLICT RESOLVED BY SUPERSESSION`. **Rollback:** code R1 có thể khôi phục UI nhưng ciphertext đã purge không thể/không được phục hồi; phải reset mật khẩu mới.
+
+---
+
+## ADR-059: Backup Turso độc lập, mã hóa và restore drill (2026-08-26)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3 (durability/recovery). Profile: ARCHITECTURE + SECURITY.**
+
+### Evidence và quyết định
+
+- Scheduler cũ bỏ qua DB remote và dựa vào backup managed của cùng nhà cung cấp; đây không phải bản sao độc lập và chưa có đường restore được kiểm thử từ artifact ứng dụng.
+- Chọn transaction đọc nhất quán → logical JSON toàn bộ bảng → checksum SHA-256 → gzip → AES-256-GCM → R2 độc lập. Matrix: Security 9, Privacy 9, Data Integrity 9, Reliability 9, Testability 9, Reversibility 8 — D3 **PASS**.
+
+### Implementation / recovery gate
+
+1. Turso backup mở read transaction, lấy mọi bảng ứng dụng, bảo toàn blob/bigint, ghi row count + checksum; chỉ commit snapshot khi đọc xong, sau đó mã hóa và upload `backups/turso-*.json.gz.enc`.
+2. Remote backup **fail-closed** nếu thiếu R2 hoặc `BACKUP_ENCRYPTION_KEY` 32 byte; retention dùng cùng blob abstraction. Khóa phải tách khỏi R2 credentials và JWT secrets.
+3. Restore CLI chỉ chạy khi `ALLOW_BACKUP_RESTORE=true`, bắt buộc `RESTORE_DATABASE_URL`, từ chối URL trùng `TURSO_URL`, yêu cầu target đã migrate, verify GCM + checksum + schema rồi restore transactionally.
+4. Production acceptance gồm restore drill định kỳ trên DB cô lập và đối chiếu row count; tuyệt đối không dùng CLI này để ghi trực tiếp production.
+
+**ADR compatibility:** ADR-041/056 `PASS`; thay thế câu “remote skip backup” của ADR-041/056. **Rollback:** tắt scheduler hoặc redeploy; artifact đã mã hóa giữ theo retention. **Verification:** remoteBackup tests 6/6 + server build PASS; restore drill thật cần R2/Turso credentials ngoài repo nên là operational gate, không được suy diễn từ unit test.
+
+---
+
+## ADR-060: OMR adaptive geometry + corpus go-live gate (2026-08-26)
+
+**Status: APPROVED / IMPLEMENTED; field auto-accept remains CONDITIONAL. Severity: D2. Profile: GENERAL + SECURITY.**
+
+- Detector suy kích thước frame tham chiếu từ marker ink thực tế thay vì giả định CSS width cố định; template tăng lề ngang để marker không chạm câu 1 nhưng giữ vertical flow đã người dùng duyệt. Bubble fixture dùng nét tô opaque giống hành vi học sinh.
+- Benchmark chia cohort `normal | stress | negative`; go-live yêu cầu tối thiểu 400 mẫu (200/100/100), normal exact-sheet ≥99.5%, stress ≥98%, answer accuracy ≥99.5%, first-capture ≥95%, false accept =0, review routing=100%, negative routing=100%, p95 ≤150ms.
+- Thiếu corpus hoặc hụt bất kỳ gate → auto-live **fail-closed**, chỉ review/manual. Unit/Chromium geometry chứng minh contract, **không chứng minh accuracy camera thực địa**.
+
+**D2 gates:** Security/Privacy 9, Data Integrity 9, Testability 9 — PASS cho code; field accuracy = `NOT CONFIRMED` đến khi corpus privacy-safe đạt gate. **ADR compatibility:** ADR-043/048/049/050 `PASS`. **Rollback:** geometry/adaptive detector R1; không hạ threshold để ép pass.
+
+---
+
+## ADR-061: Zero-warning quality baseline và dependency hygiene (2026-08-26)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D1. Profile: GENERAL.**
+
+- Dọn dead imports/branches sau khi loại KBA/reveal, sửa dependency arrays/hooks và giữ function identity ổn định; `oxlint --deny-warnings` biến warning thành CI failure.
+- Hono nâng lên `4.13.5`; production dependency audit = 0 known vulnerabilities tại thời điểm kiểm tra. Dependabot + gitleaks tạo lớp phòng ngừa liên tục.
+- Không đổi domain behavior ngoài ADR-058. Typecheck client/server, targeted security/backup/OMR và full suite là acceptance gate; rollback là revert mechanical cleanup/dependency pin.
+- Kiểm chứng cuối 2026-08-27: lint **0 warning**, design-system **0/136 vi phạm**, client/server typecheck + production build PASS; full coverage **233/233 files, 1678/1678 tests PASS** (65.55% statements, 67.48% lines); `npm audit --omit=dev` **0 vulnerability**.
+- Toolchain audit vẫn báo **7 moderate dev-only** từ `drizzle-kit` → esbuild cũ và Capacitor CLI → `xcode`/`uuid`; bản mới nhất hiện hành vẫn mang chuỗi phụ thuộc này, còn `audit fix --force` đề xuất downgrade/breaking nên không áp dụng mù. Dependabot theo dõi; CI chặn vulnerability production, không tuyên bố toàn bộ dev tree sạch.

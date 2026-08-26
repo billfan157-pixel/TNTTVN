@@ -13,7 +13,9 @@ services:
     # Blueprint này chỉ dùng khi tái tạo service từ đầu qua Blueprints.
     plan: free
     healthCheckPath: /health
-    autoDeploy: true
+    # RELEASE-GATE-1 (ADR-057): production chi deploy dung commit SHA da qua CI.
+    # Workflow deploy-production.yml goi Render API voi commitId bat bien.
+    autoDeploy: false
     envVars:
       - key: NODE_ENV
         value: production
@@ -29,8 +31,6 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: JWT_REFRESH_SECRET
-        sync: false
-      - key: PASSWORD_CIPHER_KEY
         sync: false
       # SEC-HMAC-1: bắt buộc ở production, fail-closed khi thiếu.
       - key: REPORT_HMAC_SECRET
@@ -48,4 +48,19 @@ services:
       - key: TELEGRAM_BOT_USERNAME
         sync: false
       - key: SENTRY_DSN
+        sync: false
+      # ─── Backup Turso độc lập, mã hóa phía ứng dụng (ADR-059) ───
+      - key: AUTO_BACKUP_ENABLED
+        value: true
+      - key: BACKUP_RETENTION_COUNT
+        value: 7
+      - key: BACKUP_ENCRYPTION_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
         sync: false

@@ -20,7 +20,6 @@ const BANDS = [
   { id: 'BL', xMin: 0, xMax: 0.12, yMin: 0.22, yMax: 0.75, ax: 0, ay: 0.75 },
 ] as const
 const MIN_COV = 0.72
-const EPS = 0.005
 
 function buildSat(gray: GrayImage): Uint32Array {
   const { width, height, data } = gray

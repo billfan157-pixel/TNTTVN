@@ -116,21 +116,8 @@ export const purgeRateLimiter = createMiddleware(async (c, next) => {
   await next()
 })
 
-// A05 (2026-08-10): re-authentication khi xem mật khẩu tạm — tối đa 10 lần thử
-// mật khẩu xác nhận Admin/60s/IP. Chống brute-force mật khẩu admin qua endpoint này
-// (mật khẩu admin = quyền cao nhất; audit REVEAL_PASSWORD_FAILED ở service).
-export const revealPasswordRateLimiter = createMiddleware(async (c, next) => {
-  const ip = getClientIp(c)
-  const entry = await getRateLimitEntry(`reveal-password:${ip}`)
-  if (entry.count > 10) {
-    return c.json({ error: 'Quá nhiều lần thử xác nhận, vui lòng thử lại sau' }, 429)
-  }
-  await next()
-})
-
 // A06 (2026-08-10): re-authentication cho reset-password + admin-change-password —
-// cùng chuẩn revealPasswordRateLimiter (10/60s/IP) nhưng key riêng để 3 endpoint
-// xác nhận mật khẩu admin không cộng dồn chung cửa sổ với nhau.
+// tối đa 10/60s/IP, tách khỏi cửa sổ đăng nhập.
 export const adminReauthRateLimiter = createMiddleware(async (c, next) => {
   const ip = getClientIp(c)
   const entry = await getRateLimitEntry(`admin-reauth:${ip}`)
@@ -140,8 +127,8 @@ export const adminReauthRateLimiter = createMiddleware(async (c, next) => {
   await next()
 })
 
-// ADR-042 (2026-08-15): Quên mật khẩu phụ huynh — giới hạn 10 lần thử/60s/IP
-// chống brute-force / dò đoán thông tin con của phụ huynh (chuẩn thống nhất loginRateLimiter).
+// ADR-058: endpoint self-reset đã ngừng (410); giữ giới hạn 10/60s/IP để chặn spam
+// vào compatibility route trong thời gian các client cũ còn tồn tại.
 export const parentForgotRateLimiter = createMiddleware(async (c, next) => {
   const ip = getClientIp(c)
   const entry = await getRateLimitEntry(`parent-forgot:${ip}`)

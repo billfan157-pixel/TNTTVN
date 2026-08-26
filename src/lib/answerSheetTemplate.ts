@@ -268,7 +268,8 @@ export function integratedMcOptionToCellForRect(
   questionIndex: number,
   option: 'A' | 'B' | 'C' | 'D',
   totalQuestions: number,
-  frame: FrameRect
+  frame: FrameRect,
+  frameReferenceWidth = INTEGRATED_REF_W,
 ): McQuestionCellPosition {
   const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
   const optIndex = options.indexOf(option)
@@ -285,7 +286,7 @@ export function integratedMcOptionToCellForRect(
   // outer frame border cancels out; adding it here shifts every sample inward.
   const gridLeft = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_X
   const gridTop = INTEGRATED_MARKER_OVERHANG + INTEGRATED_PAD_Y
-  const contentW = INTEGRATED_REF_W - 2 * gridLeft
+  const contentW = frameReferenceWidth - 2 * gridLeft
   const colW = (contentW - (cols - 1) * INTEGRATED_GRID_GAP_X) / cols
   const rowPitch = INTEGRATED_ROW_H + INTEGRATED_GRID_GAP_Y
 
@@ -293,7 +294,7 @@ export function integratedMcOptionToCellForRect(
   // Bubble group is aligned to the row content-box, one row border inside the
   // grid-cell border-box.
   const rowRight = (colIndex + 1) * colW + colIndex * INTEGRATED_GRID_GAP_X - INTEGRATED_ROW_BORDER_W
-  const xf = (gridLeft + rowRight - bubbleCenterFromRowRight) / INTEGRATED_REF_W
+  const xf = (gridLeft + rowRight - bubbleCenterFromRowRight) / frameReferenceWidth
   // Chiều cao khung thay đổi theo số hàng. Dùng REF_H cố định của đề 50 câu
   // khiến đề 10/20 câu sample lệch 11–27px trên render Chromium thật.
   const frameRefH = integratedFrameH(totalQuestions)
@@ -316,12 +317,16 @@ export function integratedMcOptionToCell(
 }
 
 /** Danh sách ô cho detector khi quét khung INTEGRATED theo rect đo được — questionIndex 1..totalQuestions. */
-export function integratedMcCellsForRect(totalQuestions = 20, frame: FrameRect): McQuestionCellPosition[] {
+export function integratedMcCellsForRect(
+  totalQuestions = 20,
+  frame: FrameRect,
+  frameReferenceWidth = INTEGRATED_REF_W,
+): McQuestionCellPosition[] {
   const out: McQuestionCellPosition[] = []
   const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
   for (let q = 1; q <= totalQuestions; q++) {
     for (const opt of options) {
-      out.push(integratedMcOptionToCellForRect(q, opt, totalQuestions, frame))
+      out.push(integratedMcOptionToCellForRect(q, opt, totalQuestions, frame, frameReferenceWidth))
     }
   }
   return out

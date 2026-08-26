@@ -1,4 +1,3 @@
-import React from 'react'
 import { useState, useEffect, useMemo } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';

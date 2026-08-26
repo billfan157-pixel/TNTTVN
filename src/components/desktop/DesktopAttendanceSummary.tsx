@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react'
 import {
   BarChart2,
   TrendingUp,
-  AlertTriangle,
   FileSpreadsheet,
   Search,
   CheckCircle2,

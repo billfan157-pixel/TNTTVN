@@ -7,7 +7,7 @@ import settingsApp from '../routes/settings.js'
 import authApp from '../routes/auth.js'
 import parentsApp from '../routes/parents.js'
 import { db } from '../db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, auditLogs, grades, telegramLinks } from '../db/schema.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, auditLogs,  telegramLinks } from '../db/schema.js'
 import { eq, and, desc } from 'drizzle-orm'
 
 // GRADE-SYNC-1 (2026-08-14): E2E mô phỏng luồng frontend upsertGrade → backend
@@ -56,7 +56,7 @@ describe('GRADE-SYNC-1: upsertGrade → audit_logs → GET /api/audit-logs', () 
   })
 
   it('POST /api/grades ghi audit_logs (CREATE) cho thao tác nhập điểm', async () => {
-    const { status, body } = await jsonReq(gradesApp, '/', {
+    const { status } = await jsonReq(gradesApp, '/', {
       method: 'POST',
       token: cnToken,
       body: { studentId: 'st-audit-01', semester: 1, academicYear: '2025-2026', score15m: 8 },
@@ -78,7 +78,7 @@ describe('GRADE-SYNC-1: upsertGrade → audit_logs → GET /api/audit-logs', () 
 
   it('PUT /api/settings ghi audit_logs (UPDATE, settings) khi cập nhật cấu hình', async () => {
     const adminToken = generateTokens({ userId: 'usr-audit-admin', username: 'audit_admin', role: 'admin', parishId }).accessToken
-    const { status, body } = await jsonReq(settingsApp, '/', {
+    const { status } = await jsonReq(settingsApp, '/', {
       method: 'PUT',
       token: adminToken,
       body: { sundayMassTime: '07:30' },

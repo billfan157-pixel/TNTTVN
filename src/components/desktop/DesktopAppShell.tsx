@@ -1,4 +1,3 @@
-import React from 'react'
 
 /**
  * Container contract cho desktop pages (PHA 2 — audit finding A17).

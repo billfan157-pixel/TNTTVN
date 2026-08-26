@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LeaveRequestModal } from '../components/common/LeaveRequestModal'
 import { DesktopSidebar } from '../components/desktop/DesktopSidebar'

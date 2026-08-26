@@ -1,4 +1,3 @@
-import React from 'react'
 const SYNC_LEASE_KEY = 'parish_sync_lease'
 const SYNC_LEASE_TTL_MS = 60_000
 

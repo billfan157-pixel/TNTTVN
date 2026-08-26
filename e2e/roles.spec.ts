@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginAsRole, loginAsAdmin } from './helpers'
+import { loginAsRole } from './helpers'
 
 test.describe('E2E Role-Scoped Access & Navigation Flow', () => {
   test('phuhuynh role sees limited sidebar items', async ({ page }) => {

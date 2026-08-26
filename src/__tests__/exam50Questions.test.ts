@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_CORNER_SIZE, INTEGRATED_BUBBLE_W, type FrameRect } from '../lib/answerSheetTemplate'
+import { getMcColumnLayout, mcOptionToCell, allMcCells, integratedMcCells, integratedMcCellsForRect, integratedGridCols, CORNER_MARKERS, CORNER_SIZE, INTEGRATED_BUBBLE_W, INTEGRATED_MARKER_SIZE, INTEGRATED_REF_W, type FrameRect } from '../lib/answerSheetTemplate'
 import { buildSingleAnswerSheetSvgString, buildExamPaperHtml } from '../utils/examSheets'
 import { detectAnswersFromImage } from '../lib/omr'
 import { buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
@@ -12,6 +12,19 @@ function FakeImageData(w: number, h: number): ImageData {
     height: h,
     colorSpace: 'srgb',
   } as unknown as ImageData
+}
+
+function fillPixelSquare(img: ImageData, cx: number, cy: number, size: number, c: number) {
+  const { width: W, height: H, data } = img
+  const pixelSize = Math.max(3, Math.round(size))
+  const x0 = Math.round(cx - pixelSize / 2)
+  const y0 = Math.round(cy - pixelSize / 2)
+  for (let y = Math.max(0, y0); y < Math.min(H, y0 + pixelSize); y++) {
+    for (let x = Math.max(0, x0); x < Math.min(W, x0 + pixelSize); x++) {
+      const i = (y * W + x) * 4
+      data[i] = c; data[i + 1] = c; data[i + 2] = c
+    }
+  }
 }
 
 function buildMcSheet(fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {}, totalQuestions = 50): ImageData {
@@ -87,7 +100,6 @@ function buildIntegratedSheet(
   fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {},
   totalQuestions = 50,
   frame: FrameRect = REAL_SINGLE_PRINT_FRAME,
-  contentScale = 1
 ): ImageData {
   const W = 800
   const H = 1130
@@ -110,15 +122,19 @@ function buildIntegratedSheet(
     { x0: frame.x1, y0: frame.y1, x1: frame.x1, y1: frame.y1 },
     { x0: frame.x0, y0: frame.y1, x1: frame.x0, y1: frame.y1 },
   ]
+  const frameSpanPx = (frame.x1 - frame.x0) * W
   for (const c of corners) {
-    const half = (INTEGRATED_CORNER_SIZE / 2) * Math.min(W, H) * contentScale
-    fillRect(c.x0 * W - half, c.y0 * H - half, c.x1 * W + half, c.y1 * H + half, 10)
+    // Render-consistent: marker là 18 CSS px trong frame tham chiếu 749.2px,
+    // rồi scale cùng rect in/camera. INTEGRATED_CORNER_SIZE chỉ là search hint.
+    const markerSize = frameSpanPx * INTEGRATED_MARKER_SIZE / INTEGRATED_REF_W
+    fillPixelSquare(img, c.x0 * W, c.y0 * H, markerSize, 10)
   }
   for (const [q, opt] of Object.entries(fill)) {
     const cell = integratedMcCellsForRect(totalQuestions, frame).find(c => c.questionIndex === Number(q) && c.option === opt)
     if (!cell) continue
-    // Ô tô kín theo bubble in; phủ trọn core ring mà detector lấy mẫu.
-    const r = 0.00875 * Math.min(W, H) * contentScale
+    // Nét tô opaque nằm trong lòng bubble, không phủ annulus nền mà detector
+    // dùng để chuẩn hóa ánh sáng (bubble 16px, vùng tô mô phỏng bán kính ~5px).
+    const r = frameSpanPx * INTEGRATED_BUBBLE_W * 0.40 / INTEGRATED_REF_W
     fillRect(cell.x * W - r, cell.y * H - r, cell.x * W + r, cell.y * H + r, 25)
   }
   return img
@@ -436,7 +452,7 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
         x1: offsetX + REAL_SINGLE_PRINT_FRAME.x1 * scale,
         y1: offsetY + REAL_SINGLE_PRINT_FRAME.y1 * scale,
       }
-      const img = buildIntegratedSheet(filledAnswers, 50, cameraFrame, scale)
+      const img = buildIntegratedSheet(filledAnswers, 50, cameraFrame)
       const res = detectAnswersFromImage(img, answerKey, 50, 10)
 
       expect(res.ok).toBe(true)

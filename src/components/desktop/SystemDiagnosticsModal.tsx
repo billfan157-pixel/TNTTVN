@@ -29,7 +29,9 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   const [showConflictInbox, setShowConflictInbox] = useState(false)
   const [apiLatency, setApiLatency] = useState<number | null>(null)
   
-  const store = useSyncStore()
+  const getConflicts = useSyncStore((s) => s.getConflicts)
+  const updateOp = useSyncStore((s) => s.updateOp)
+  const removeOp = useSyncStore((s) => s.removeOp)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   // PHA 1 (audit A19): focus trap — trước đây Tab thoát ra nền phía sau overlay
   const trapRef = useFocusTrap(isOpen)
@@ -70,7 +72,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
       if (!cancelledRef.current) setQueueByEntity(byEntity)
     } catch { if (!cancelledRef.current) setQueueByEntity({}) }
     
-    const conflictList = await store.getConflicts()
+    const conflictList = await getConflicts()
     setConflicts(conflictList)
 
       const res = await fetch('/health', { signal: AbortSignal.timeout(5000) })
@@ -131,7 +133,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
         setMemoryDetail('Trình duyệt không hỗ trợ đo RAM chi tiết')
       }
     }
-  }, [])
+  }, [getConflicts])
 
   useEffect(() => {
     if (isOpen) {
@@ -304,7 +306,7 @@ if (!isOpen) return null
                 <div className="flex gap-2">
                   <button 
                     onClick={async () => {
-                      for (const op of failedOps) await store.updateOp(op.id, { status: 'retrying', retryCount: 0 })
+                      for (const op of failedOps) await updateOp(op.id, { status: 'retrying', retryCount: 0 })
                       await runDiagnostics()
                       syncNow()
                     }}
@@ -321,7 +323,7 @@ if (!isOpen) return null
                         variant: 'danger',
                       })
                       if (!ok) return
-                      for (const op of failedOps) await store.removeOp(op.id)
+                      for (const op of failedOps) await removeOp(op.id)
                       await runDiagnostics()
                     }}
                     className="text-[10px] font-bold bg-surface-hover text-rose-600 px-2 py-1 rounded hover:bg-rose-100"
@@ -340,7 +342,7 @@ if (!isOpen) return null
                     </div>
                     <button 
                       onClick={async () => {
-                        await store.removeOp(op.id)
+                        await removeOp(op.id)
                         await runDiagnostics()
                       }}
                       className="text-rose-400 hover:text-rose-600"

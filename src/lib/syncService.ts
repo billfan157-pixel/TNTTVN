@@ -1,4 +1,3 @@
-import React from 'react'
 import { useSyncStore } from '../stores/syncStore'
 
 type Entity = 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam'

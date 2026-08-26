@@ -1,4 +1,3 @@
-import React from 'react'
 import type { GradeRecord, GradeOverride, OverrideReasonCode, EffectiveGradeView } from '../types'
 
 export interface DomainEventPayload {

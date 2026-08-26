@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ShieldCheck, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react'
+import {  ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react'
 
 export default function VerificationPage() {
   const [params, setParams] = useState<{ studentId?: string; academicYear?: string; certId?: string; sig?: string }>({})

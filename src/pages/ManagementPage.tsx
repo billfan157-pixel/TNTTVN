@@ -1,4 +1,3 @@
-import React from 'react'
 import { useState } from 'react'
 import { Calendar, BookOpen, ShieldCheck, UserCheck, Users } from 'lucide-react'
 import AcademicYearPage from './AcademicYearPage'

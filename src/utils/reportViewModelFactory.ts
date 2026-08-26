@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Student, GradeRecord, AttendanceRecord } from '../types'
 import type { StudentReportCardViewModel, BatchReportViewModel, GradeRowViewModel } from '../types/reportViewModel'
 import { calculateGradeAverage, calculateAttendanceRate, calculateYearlyGpa, countAttendancePresent, getClassificationLabel, type GradeWeightsConfig } from './grades'

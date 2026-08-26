@@ -1,0 +1,148 @@
+name: Production Deployment Gate
+
+on:
+  workflow_run:
+    workflows: ["Parish LMS Enterprise CI/CD Pipeline"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    name: Deploy verified SHA to Vercel and Render
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+    steps:
+      - name: Checkout the verified commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.VERIFIED_SHA }}
+          fetch-depth: 1
+
+      - name: Validate deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_TEAM_ID VERCEL_PROJECT_ID RENDER_API_KEY RENDER_SERVICE_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required production secret: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Confirm SHA is still the main head
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$latest_sha" != "$VERIFIED_SHA" ]; then
+            echo "A newer main commit exists; skip stale deployment $VERIFIED_SHA."
+            exit 1
+          fi
+
+      - name: Deploy exact SHA to Vercel production
+        id: vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -n \
+            --arg name "tnttvn" \
+            --arg project "$VERCEL_PROJECT_ID" \
+            --arg sha "$VERIFIED_SHA" \
+            --arg ref "main" \
+            --argjson repoId '${{ github.event.repository.id }}' \
+            '{name:$name, project:$project, target:"production", gitSource:{type:"github", repoId:$repoId, ref:$ref, sha:$sha}}')"
+          response="$(curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.vercel.com/v13/deployments?teamId=${VERCEL_TEAM_ID}" \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "$payload")"
+          deployment_id="$(jq -r '.id // empty' <<<"$response")"
+          if [ -z "$deployment_id" ]; then
+            echo "Vercel did not return a deployment id." >&2
+            exit 1
+          fi
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Vercel readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            response="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.vercel.com/v13/deployments/${{ steps.vercel.outputs.deployment_id }}?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}")"
+            state="$(jq -r '.readyState // empty' <<<"$response")"
+            case "$state" in
+              READY) exit 0 ;;
+              ERROR|CANCELED) echo "Vercel deployment ended in $state" >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out waiting for Vercel deployment." >&2
+          exit 1
+
+      - name: Deploy exact SHA to Render production
+        id: render
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n --arg commitId "$VERIFIED_SHA" '{commitId:$commitId}')")"
+          deployment_id="$(jq -r '.id // empty' <<<"$response")"
+          if [ -z "$deployment_id" ]; then
+            echo "Render did not return a deployment id." >&2
+            exit 1
+          fi
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Render readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            response="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${{ steps.render.outputs.deployment_id }}" \
+              --header "Authorization: Bearer ${RENDER_API_KEY}")"
+            state="$(jq -r '.status // empty' <<<"$response")"
+            case "$state" in
+              live) break ;;
+              build_failed|update_failed|canceled|deactivated) echo "Render deployment ended in $state" >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          if [ "${state:-}" != "live" ]; then
+            echo "Timed out waiting for Render deployment." >&2
+            exit 1
+          fi
+
+      - name: Production smoke checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 6 --retry-all-errors \
+            --retry-delay 10 https://tnttvn.onrender.com/health >/dev/null
+          curl --fail --silent --show-error --retry 6 --retry-all-errors \
+            --retry-delay 10 https://tnttvn.vercel.app/ >/dev/null

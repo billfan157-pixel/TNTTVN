@@ -1,0 +1,7 @@
+#!/bin/sh
+# RELEASE-GATE-1 (ADR-057): repo private khong co branch protection tren goi hien tai.
+# Chan push local neu build/test/coverage/design-system guard khong xanh.
+set -eu
+
+echo "[pre-push] Running the same quality gate required for production..."
+npm run verify:ci

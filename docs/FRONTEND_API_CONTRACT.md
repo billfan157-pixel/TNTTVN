@@ -219,33 +219,15 @@ Client: `src/lib/api.ts` (`api.login/changePassword/adminChangePassword/logout/m
 ### JWT secrets (production)
 - `JWT_SECRET` + `JWT_REFRESH_SECRET` **bắt buộc** riêng biệt (server throw khi thiếu; docker-compose fail-fast `${VAR:?}`). Không còn fallback hardcoded trong repo.
 
-### Password visibility (`password_encrypted`, ADR-021 rewrite 2026-08-08)
-- `POST /api/users` (tạo GLV), `POST /api/users/:id/reset-password`, `POST /api/auth/admin-change-password` → server lưu bản **AES-256-GCM** của **password tạm** (admin-đặt) vào `users.password_encrypted` (key `PASSWORD_CIPHER_KEY`, không plaintext).
-  - **A06 (2026-08-10) — RE-AUTHENTICATION** mở rộng cho cả `reset-password` và `admin-change-password`: body bắt buộc `{ adminPassword }` (mật khẩu HIỆN TẠI của admin đang thao tác, `min(1)`/`max(128)`). Server xác minh bcrypt parish-scoped qua `verifyAdminReauth` (SSOT dùng chung với `reveal-password`) trước khi đổi password. Sai → `401 INVALID_ADMIN_PASSWORD` + audit `RESET_PASSWORD_FAILED` / `ADMIN_CHANGE_PASSWORD_FAILED`; admin LOCKED bị chặn; rate limit `adminReauthRateLimiter` 10 lần/60s/IP. Audit thành công: `RESET_PASSWORD` (service, có sẵn), `ADMIN_CHANGE_PASSWORD` (bổ sung — endpoint trước đây KHÔNG ghi audit).
-- `POST /api/auth/change-password` (chính user đổi pass, **bao gồm Admin trưởng trong Settings**) → **`passwordEncrypted = NULL`** — mật khẩu user-chọn không bao giờ tồn tại dạng reversible. Response cấp access token + refresh cookie mới; client thay access token trong memory để phiên đang mở tiếp tục hợp lệ.
-- `GET /api/users` (admin/chunhiem) **không trả plaintext** — chỉ cờ `hasPasswordCopy: boolean` (còn bản mã hóa password tạm để xem lại).
-- `POST /api/users/:id/reveal-password` (admin-only) → `{ username, password }` — truy xuất password tạm có chủ đích, ghi audit `REVEAL_PASSWORD`; 404 khi không còn bản mã hóa.
-  - **A05 (2026-08-10) — RE-AUTHENTICATION**: body `{ adminPassword }` (mật khẩu HIỆN TẠI của admin đang thao tác, `min(1)`/`max(128)`). Server xác minh bcrypt (parish-scoped) trước khi giải mã. Sai → `401 INVALID_ADMIN_PASSWORD` + audit `REVEAL_PASSWORD_FAILED`; admin LOCKED bị chặn như login; rate limit 10 lần/60 giây/IP (`revealPasswordRateLimiter`). Không đổi `failedAttempts` (lockout chỉ áp dụng login per BUSINESS_RULES §10.1). Target superadmin → `403 FORBIDDEN`.
-- Mật khẩu tạm (`Parish@\d{6}` / `Reset@\d{6}`) trả 1 lần ở response tạo/reset; sau đó xem lại qua `reveal-password`.
+### Credential lifecycle (ADR-058, supersedes ADR-021 reversible copy)
+- `POST /api/users`, `POST /api/users/:id/reset-password`, `POST /api/auth/admin-change-password`: server chỉ lưu bcrypt hash; `passwordEncrypted = null`. Create/reset response có thể trả mật khẩu tạm đúng một lần; mất giá trị đó thì phải reset mới.
+- Reset/admin-change vẫn bắt buộc `{ adminPassword }`, JWT admin, parish-scoped bcrypt re-auth, `adminReauthRateLimiter` 10/60s/IP và audit success/failure. Chính user đổi qua `POST /api/auth/change-password` được rotate phiên như cũ.
+- `GET /api/users` không trả hash/ciphertext; `hasPasswordCopy` nếu còn trong payload legacy luôn `false`.
+- `POST /api/users/:id/reveal-password` → **410** `{ success:false, error:{ code:"PASSWORD_REVEAL_REMOVED", ... } }`; không nhận/kiểm tra admin password và không có secret trong response.
 
-### `POST /api/auth/parent-reset-password` (ADR-042, 2026-08-15)
-- **Mục đích**: Phụ huynh tự đặt lại mật khẩu bằng cách xác minh thông tin bảo mật của con (0đ SMS, không cần Telegram).
-- **Rate limit**: `parentForgotRateLimiter` 10 requests / 60s / IP.
-- **Request Body**:
-  ```json
-  {
-    "phone": "0901234567",
-    "childDob": "2015-05-20",
-    "childName": "Nguyễn Văn An",
-    "newPassword": "StrongPassword@123"
-  }
-  ```
-- **Xác thực**: Khớp SĐT phụ huynh (`role = 'phuhuynh'`) + Ngày sinh của con (`YYYY-MM-DD` hoặc `DD/MM/YYYY`) + Tên Thánh / Họ tên của con (so khớp không dấu). Hỗ trợ anh chị em ruột.
-- **Response**: `{ "success": true, "data": { "success": true, "message": "Đặt lại mật khẩu thành công!..." } }`.
-- **Errors**:
-  - `400 INVALID_VERIFICATION_DATA`: Thông tin không khớp với hồ sơ học sinh hoặc SĐT không tồn tại (timing-neutral).
-  - `429 TOO_MANY_REQUESTS`: Quá số lần thử cho phép.
-  - `400 VALIDATION_ERROR`: Mật khẩu mới không đạt chuẩn mạnh.
+### `POST /api/auth/parent-reset-password` compatibility tombstone (ADR-058)
+- Endpoint luôn trả **410** `{ success:false, error:{ code:"PARENT_SELF_RESET_REMOVED", ... } }` bất kể body; không lookup SĐT/hồ sơ trẻ và không mutate user/session.
+- Client mới không gọi endpoint này. UI "Quên mật khẩu" chỉ hướng dẫn liên hệ Ban Giáo Lý qua kênh đã xác minh để được cấp mật khẩu tạm.
 
 ---
 

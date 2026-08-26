@@ -1,4 +1,3 @@
-import React from 'react'
 import { Church, BookOpen } from 'lucide-react'
 import { childAvatarGradient, childInitials, promotionTone } from '../../utils/parentDisplay'
 

@@ -38,14 +38,15 @@ export const ParentPage: React.FC = () => {
   const cancelRequest = useLeaveRequestStore((s) => s.cancelRequest)
 
   const selectedChild = children.find(c => c.id === selectedId) ?? null
+  const selectedChildId = selectedChild?.id
 
   useEffect(() => {
-    if (selectedChild) {
-      fetchRequests({ studentId: selectedChild.id })
+    if (selectedChildId) {
+      fetchRequests({ studentId: selectedChildId })
     }
-  }, [selectedChild?.id, fetchRequests])
+  }, [selectedChildId, fetchRequests])
 
-  const childRequests = requests.filter((r) => r.studentId === selectedChild?.id)
+  const childRequests = requests.filter((r) => r.studentId === selectedChildId)
 
   // B2 consolidation: template duy nhất bên utils/pdfGenerator (generateParentReportCardHTML) —
   // escaped + watermark + @page; print qua ReportExportService như mọi phiếu in khác.

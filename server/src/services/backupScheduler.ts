@@ -4,6 +4,7 @@ import { db, client, dbConfig } from '../db/index.js'
 import { systemSettings } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
 import { putObject, listObjects, deleteObject } from './blobStorage.js'
+import { createAndStoreRemoteBackup } from './remoteBackup.js'
 
 const CHECK_INTERVAL_MS = 60 * 1000 // Check every minute
 const MARKER_KEY = 'auto_backup_last_date'
@@ -40,14 +41,16 @@ function dateKey(d: Date): string {
  * INF-01 / INF-02 / INF-03 (2026-08-14): Tự động sao lưu định kỳ với VACUUM INTO + WAL checkpoint.
  */
 export async function runBackupNow(): Promise<{ success: boolean; destFile?: string; error?: string }> {
-  // ADR-041: VACUUM INTO / WAL checkpoint là thao tác LOCAL SQLite. Với DB remote
-  // (Turso), không thể dump qua VACUUM → bỏ qua (Turso có managed backup riêng).
   if (dbConfig.isRemote) {
-    console.warn(
-      '[BACKUP] Scheduled file backup requires local SQLite; TURSO_URL is set (remote DB). ' +
-        'Use Turso managed backups instead. Skipping automated VACUUM backup.',
-    )
-    return { success: false, error: 'remote-db-unsupported' }
+    try {
+      const result = await createAndStoreRemoteBackup(client)
+      console.log(`[BACKUP SUCCESS] Encrypted Turso logical backup stored at ${result.objectKey} (${result.rowCount} rows)`)
+      await enforceRetention(getRetentionCount())
+      return { success: true, destFile: result.objectKey }
+    } catch (err: any) {
+      console.error('[BACKUP ERROR] Remote backup failed:', err)
+      return { success: false, error: err?.message || 'Remote backup failed' }
+    }
   }
 
   try {
@@ -90,24 +93,28 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
     await putObject(`backups/${path.basename(destFile)}`, buf, 'application/x-sqlite3')
 
     // 4. Retention policy: Keep only last retentionCount files (qua abstraction).
-    try {
-      const objects = (await listObjects('backups/')).sort(
-        (a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0),
-      )
-      if (objects.length > retentionCount) {
-        for (const old of objects.slice(retentionCount)) {
-          await deleteObject(old.key)
-          console.log(`[BACKUP CLEANUP] Removed old backup ${old.key}`)
-        }
-      }
-    } catch (cleanupErr: any) {
-      console.warn('[BACKUP WARNING] Cleanup old backups encountered an issue:', cleanupErr?.message || cleanupErr)
-    }
+    await enforceRetention(retentionCount)
 
     return { success: true, destFile }
   } catch (err: any) {
     console.error('[BACKUP ERROR] Automatic backup failed:', err)
     return { success: false, error: err?.message || 'Backup failed' }
+  }
+}
+
+async function enforceRetention(retentionCount: number): Promise<void> {
+  try {
+    const objects = (await listObjects('backups/')).sort(
+      (a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0),
+    )
+    if (objects.length > retentionCount) {
+      for (const old of objects.slice(retentionCount)) {
+        await deleteObject(old.key)
+        console.log(`[BACKUP CLEANUP] Removed old backup ${old.key}`)
+      }
+    }
+  } catch (cleanupErr: any) {
+    console.warn('[BACKUP WARNING] Cleanup old backups encountered an issue:', cleanupErr?.message || cleanupErr)
   }
 }
 

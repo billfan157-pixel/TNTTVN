@@ -38,7 +38,7 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'json-summary', 'html'],
       // QUALITY-GATE-1 (2026-08-24): nâng gate từ 40/30/30/40 (thực tế ~65/53/57/66)
       // để chặn regression — dư địa giảm coverage mà gate không bắt là quá rộng.
       // Lưu ý JWT_SECRET ở env trên phải ≥32 ký tự — khớp SEC-HMAC-1.

@@ -14,7 +14,7 @@ console.log('🔑 Đang sinh các mã bảo mật ngẫu nhiên chuẩn quân s�
 
 const jwtSecret = generateHex(32)
 const jwtRefreshSecret = generateHex(32)
-const cipherKey = generateHex(32)
+const backupEncryptionKey = generateHex(32)
 const reportHmacSecret = generateHex(32)
 const opsToken = generateHex(32)
 const seedAdminPassword = `Parish@${crypto.randomInt(100000, 999999)}`
@@ -35,8 +35,8 @@ JWT_SECRET=${jwtSecret}
 # Secret signing Refresh token (BẮT BUỘC khác JWT_SECRET)
 JWT_REFRESH_SECRET=${jwtRefreshSecret}
 
-# Khóa giải mã AES-256-GCM cho mật khẩu tạm do Admin đặt (64 hex characters)
-PASSWORD_CIPHER_KEY=${cipherKey}
+# Khóa AES-256-GCM cho backup logic Turso (64 ký tự hex)
+BACKUP_ENCRYPTION_KEY=${backupEncryptionKey}
 
 # SEC-HMAC-1 (2026-08-24): BẮT BUỘC — secret riêng ký HMAC QR phiếu điểm (64 hex).
 # Production thiếu biến này → server fail-closed khi khởi động.

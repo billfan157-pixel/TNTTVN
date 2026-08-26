@@ -14,10 +14,7 @@
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+import { join } from 'node:path'
 const dbDir = mkdtempSync(join(tmpdir(), 'omr-e2e-'))
 process.env.DB_PATH = join(dbDir, 'parish-e2e.db')
 process.env.PORT = '8897'

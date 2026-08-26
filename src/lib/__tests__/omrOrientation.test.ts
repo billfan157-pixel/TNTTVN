@@ -3,7 +3,9 @@ import { detectAnswersFromImage, detectScoreFromImage } from '../omr'
 import {
   CORNER_MARKERS,
   CORNER_SIZE,
-  INTEGRATED_CORNER_SIZE,
+  INTEGRATED_BUBBLE_W,
+  INTEGRATED_MARKER_SIZE,
+  INTEGRATED_REF_W,
   integratedFrameAspectRatio,
   integratedMcOptionToCellForRect,
   mcOptionToCell,
@@ -29,6 +31,22 @@ function fillRect(img: ImageData, cx: number, cy: number, half: number, luma: nu
   const y1 = Math.min(img.height - 1, Math.ceil(cy + half))
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
+      const offset = (y * img.width + x) * 4
+      img.data[offset] = luma
+      img.data[offset + 1] = luma
+      img.data[offset + 2] = luma
+      img.data[offset + 3] = 255
+    }
+  }
+}
+
+function fillPixelSquare(img: ImageData, cx: number, cy: number, size: number, luma: number): void {
+  const x0 = Math.round(cx - size / 2)
+  const y0 = Math.round(cy - size / 2)
+  const x1 = Math.min(img.width, x0 + size)
+  const y1 = Math.min(img.height, y0 + size)
+  for (let y = Math.max(0, y0); y < y1; y++) {
+    for (let x = Math.max(0, x0); x < x1; x++) {
       const offset = (y * img.width + x) * 4
       img.data[offset] = luma
       img.data[offset + 1] = luma
@@ -91,18 +109,19 @@ function integratedMc(totalQuestions = 20): ImageData {
   const y0 = 0.20
   const y1 = y0 + frameHeightPx / img.height
   const frame: FrameRect = { x0, y0, x1, y1 }
-  const markerHalf = (INTEGRATED_CORNER_SIZE / 2) * Math.min(img.width, img.height)
+  const markerSize = Math.round(frameWidthPx * INTEGRATED_MARKER_SIZE / INTEGRATED_REF_W)
   const markers = [
     [x0, y0], [x1, y0], [x1, y1], [x0, y1],
   ] as const
-  for (const [x, y] of markers) fillRect(img, x * img.width, y * img.height, markerHalf, 8)
+  for (const [x, y] of markers) fillPixelSquare(img, x * img.width, y * img.height, markerSize, 8)
 
   const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
   for (let q = 1; q <= totalQuestions; q++) {
     const option = (['A', 'B', 'C', 'D'] as const)[(q - 1) % 4]
     answerKey[q] = option
     const cell = integratedMcOptionToCellForRect(q, option, totalQuestions, frame)
-    fillRect(img, cell.x * img.width, cell.y * img.height, Math.min(img.width, img.height) * 0.0055, 20)
+    const markRadius = frameWidthPx * INTEGRATED_BUBBLE_W * 0.32 / INTEGRATED_REF_W
+    fillRect(img, cell.x * img.width, cell.y * img.height, markRadius, 20)
   }
   return img
 }

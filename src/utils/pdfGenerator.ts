@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Student, GradeRecord, AttendanceRecord, ReportCardDTO } from '../types'
 import type { StudentReportCardViewModel, BatchReportViewModel } from '../types/reportViewModel'
 import { escapeHtml, calculateGradeAverage, calculateAttendanceRate, countAttendancePresent, roundToDecimal, getClassificationLabel, type GradeWeightsConfig } from './grades'
@@ -11,7 +10,7 @@ import { useClassStore } from '../stores/classStore'
 import { BRANCHES } from '../constants/branches'
 import { getSacramentStatus, getAge } from '../utils/sacraments'
 import { generateCertificateQrSvg, buildCertificateQrPayload } from '../lib/qr'
-import { PARISH_LOGO_DATA_URI, parishLogoImgHtml } from './parishLogo'
+import {  parishLogoImgHtml } from './parishLogo'
 
 export type ReportType = 'CLASS_GRADEBOOK' | 'STUDENT_REPORT_CARD' | 'SACRAMENT_CERTIFICATE' | 'BATCH_STUDENT_REPORT_CARDS' | 'BATCH_PHOTO_CARDS' | 'PARENT_INVITATION' | 'BATCH_PARENT_INVITATIONS'
 

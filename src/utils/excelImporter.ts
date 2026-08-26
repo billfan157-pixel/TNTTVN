@@ -1,4 +1,3 @@
-import React from 'react'
 import type { Student, GradeRecord } from '../types'
 import { matchStudentWithConfidence, normalizeHolyName, explainMatchFailure } from './excelGradeParser'
 import { loadXlsx } from '../lib/xlsxLoader'

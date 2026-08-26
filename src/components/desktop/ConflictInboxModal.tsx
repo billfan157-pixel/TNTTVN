@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { X, AlertTriangle, CheckCircle2, Trash2, History, ChevronRight } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { X,  CheckCircle2, Trash2, History, ChevronRight } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { isEncryptedValue, decryptQueueValue } from '../../lib/offlineCipher'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
@@ -62,33 +62,35 @@ function ConflictValue({ value, tone }: { value: string; tone: 'local' | 'server
 }
 
 export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, onClose }) => {
-  const store = useSyncStore()
+  const getConflicts = useSyncStore((s) => s.getConflicts)
+  const resolveConflict = useSyncStore((s) => s.resolveConflict)
+  const clearResolvedConflicts = useSyncStore((s) => s.clearResolvedConflicts)
   const [conflicts, setConflicts] = useState<SyncConflict[]>([])
   const [loading, setLoading] = useState(true)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   // PHA 1 (audit A19): focus trap
   const trapRef = useFocusTrap(isOpen)
 
-  const loadConflicts = async () => {
+  const loadConflicts = useCallback(async () => {
     setLoading(true)
     try {
-      const list = await store.getConflicts()
+      const list = await getConflicts()
       setConflicts(list)
     } catch (err) {
       console.error('Failed to load conflicts:', err)
     } finally {
       setLoading(false)
     }
-  }
+  }, [getConflicts])
 
   useEffect(() => {
     if (isOpen) {
       loadConflicts()
     }
-  }, [isOpen])
+  }, [isOpen, loadConflicts])
 
   const handleResolve = async (id: string) => {
-    await store.resolveConflict(id)
+    await resolveConflict(id)
     await loadConflicts()
   }
 
@@ -100,7 +102,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
       variant: 'danger',
     })
     if (!ok) return
-    await store.clearResolvedConflicts()
+    await clearResolvedConflicts()
     await loadConflicts()
   }
 

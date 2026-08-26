@@ -118,7 +118,7 @@ export function StudentsPage() {
       setSendingCards(false)
       setShowConfirmSend(false)
     }
-  }, [filteredStudentsForSend, calculateStudentAvg, getStudentAttendanceRate, selectedSemester, findClassById, confirmSendInfo])
+  }, [filteredStudentsForSend, calculateStudentAvg, getStudentAttendanceRate, selectedSemester, selectedClassId, findClassById, confirmSendInfo])
 
   if (effectiveMode === 'desktop') {
     return (

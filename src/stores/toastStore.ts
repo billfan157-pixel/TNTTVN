@@ -1,4 +1,3 @@
-import React from 'react'
 import { create } from 'zustand'
 
 export type ToastType = 'success' | 'error' | 'info'

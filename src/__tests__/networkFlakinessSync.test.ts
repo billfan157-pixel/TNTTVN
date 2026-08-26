@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { processOperation, getBackoffMs, isNetworkError } from '../lib/syncProcessor'
+import { processOperation, getBackoffMs } from '../lib/syncProcessor'
 import { api, ApiError } from '../lib/api'
 
 vi.mock('../lib/api', () => {

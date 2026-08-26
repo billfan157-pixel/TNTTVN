@@ -1,4 +1,3 @@
-import React from 'react'
 import { GradeAggregate } from './GradeAggregate'
 import type { GradeRecord, GradeOverride, OverrideReasonCode, EffectiveGradeView } from '../types'
 

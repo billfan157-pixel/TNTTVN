@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Lock, Phone, AlertCircle, Loader2, Eye, EyeOff, KeyRound, ArrowLeft } from 'lucide-react'
+import { Lock, Phone, AlertCircle, Loader2, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { ParentForgotPasswordModal } from '../components/auth/ParentForgotPasswordModal'
 import { LoginShell } from '../components/auth/LoginShell'
@@ -11,7 +11,6 @@ export function ParentLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false)
   const [portalError, setPortalError] = useState<string | null>(null)
-  const [resetSuccessToast, setResetSuccessToast] = useState<string | null>(null)
   const passwordInputRef = useRef<HTMLInputElement>(null)
   const { login, isLoading, error, clearError } = useAuthStore()
 
@@ -24,7 +23,6 @@ export function ParentLoginPage() {
     }
     clearError()
     setPortalError(null)
-    setResetSuccessToast(null)
     const success = await login(phone.trim(), password)
     if (success) {
       const user = useAuthStore.getState().user
@@ -38,25 +36,9 @@ export function ParentLoginPage() {
     }
   }
 
-  const handleForgotSuccess = (resetPhone: string) => {
-    setPhone(resetPhone)
-    setPassword('')
-    setResetSuccessToast(`Mật khẩu cho @${resetPhone} đã đổi thành công. Vui lòng nhập mật khẩu mới để đăng nhập!`)
-    setTimeout(() => {
-      passwordInputRef.current?.focus()
-    }, 100)
-  }
-
   return (
     <LoginShell title="Cổng Phụ Huynh" subtitle="Sổ Điểm Giáo Lý — Xem điểm & chuyên cần của con">
       <form onSubmit={handleLogin} className="p-8 space-y-5">
-        {resetSuccessToast && (
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs font-semibold text-emerald-600 flex items-center gap-2">
-            <KeyRound className="w-4 h-4 shrink-0" />
-            <span>{resetSuccessToast}</span>
-          </div>
-        )}
-
         {portalError && (
           <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -150,7 +132,6 @@ export function ParentLoginPage() {
       <ParentForgotPasswordModal
         isOpen={isForgotModalOpen}
         onClose={() => setIsForgotModalOpen(false)}
-        onSuccess={handleForgotSuccess}
       />
     </LoginShell>
   )

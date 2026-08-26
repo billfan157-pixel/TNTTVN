@@ -4,11 +4,10 @@ import backupRouter from '../routes/backup.js'
 import studentsRouter from '../routes/students.js'
 import gradesRouter from '../routes/grades.js'
 import { db } from '../db/index.js'
-import { students, grades, classes, users, auditLogs, promotionRecords, catechistAssignments, branches, academicYears } from '../db/schema.js'
+import { students, grades, classes, users, auditLogs,  catechistAssignments, branches, academicYears } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { generateTokens } from '../middleware/auth.js'
 import { eq, and } from 'drizzle-orm'
-import { createHash } from 'crypto'
 
 describe('PARISH LMS GO-LIVE PRODUCTION COMBAT VERIFICATION SUITE', () => {
   const parishId = 'gia-ton-golive'
@@ -26,7 +25,7 @@ describe('PARISH LMS GO-LIVE PRODUCTION COMBAT VERIFICATION SUITE', () => {
 
   const { accessToken: adminToken } = generateTokens({ userId: adminId, username: 'admin_golive', role: 'admin', parishId, tokenVersion: 1 })
   const { accessToken: catechistAToken } = generateTokens({ userId: catechistAId, username: 'glv_a', role: 'chunhiem', parishId, tokenVersion: 1 })
-  const { accessToken: catechistBToken } = generateTokens({ userId: catechistBId, username: 'glv_b', role: 'chunhiem', parishId, tokenVersion: 1 })
+  const { accessToken: _catechistBToken } = generateTokens({ userId: catechistBId, username: 'glv_b', role: 'chunhiem', parishId, tokenVersion: 1 })
   const { accessToken: parentToken } = generateTokens({ userId: parentId, username: 'parent_user', role: 'phuhuynh', parishId, tokenVersion: 1 })
 
   beforeEach(async () => {
@@ -305,7 +304,7 @@ describe('PARISH LMS GO-LIVE PRODUCTION COMBAT VERIFICATION SUITE', () => {
     const startTime = performance.now()
 
     // Query 40 students roster
-    const roster = await db.select().from(students).where(eq(students.classId, classAId)).limit(40)
+    const _roster = await db.select().from(students).where(eq(students.classId, classAId)).limit(40)
     
     const duration = performance.now() - startTime
     expect(duration).toBeLessThan(100) // Must execute under 100ms

@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState,  useEffect } from 'react'
 import {
-  X, Upload, FileText, CheckCircle2, AlertTriangle,
+  X, Upload, FileText,  AlertTriangle,
   Download, Eye, Sparkles, HelpCircle, Check, ListChecks
 } from 'lucide-react'
 import {
@@ -57,7 +57,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   const [rawText, setRawText] = useState('')
   const [previewResult, setPreviewResult] = useState<ExamParseResult | null>(null)
   const [detectedSubject, setDetectedSubject] = useState('')
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [, setIsProcessing] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
