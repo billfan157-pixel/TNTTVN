@@ -126,7 +126,13 @@ export function isAdmin(user: JwtPayload): boolean {
 }
 
 export function getSuperAdminId(): string {
-  return process.env.SUPER_ADMIN_ID || 'USR-001'
+  const envId = process.env.SUPER_ADMIN_ID?.trim()
+  if (envId) return envId
+  if (process.env.NODE_ENV === 'production') {
+    // Fail-closed: production must set SUPER_ADMIN_ID explicitly — fallback USR-001 predictable
+    throw new Error('SUPER_ADMIN_ID must be set in production (no default)')
+  }
+  return 'USR-001'
 }
 
 export function isSuperAdmin(userId: string): boolean {
