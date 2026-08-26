@@ -58,7 +58,7 @@ const reportCardsSchema = z.object({
     rank: z.string().trim().min(1).max(50),
     attendanceRate: z.number().min(0).max(100),
     attendancePresent: z.number().min(0),
-    attendanceTotal: z.number().min(1),
+    attendanceTotal: z.number().min(0),
   })).min(1),
 })
 
