@@ -32,7 +32,6 @@ const SettingsPage: React.FC = () => {
   const setViewMode = useFilterStore(s => s.setViewMode)
   const { user, role } = useAuth()
   const authStore = useAuthStore()
-  const isSuperAdmin = user?.username === 'bill'
   const [showBackup, setShowBackup] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [showPurge, setShowPurge] = useState(false)
@@ -86,13 +85,10 @@ const SettingsPage: React.FC = () => {
     if (passValidation) { setCpError(passValidation); return }
     setCpLoading(true)
     try {
-      if (isSuperAdmin) {
-        // A06 (2026-08-10): re-authentication — superadmin đổi mật khẩu chính mình
-        // cũng phải gửi kèm mật khẩu hiện tại (cpCurrent) để server xác minh lại.
-        await api.adminChangePassword(user!.id, cpNew, cpCurrent)
-      } else {
-        await api.changePassword(cpCurrent, cpNew)
-      }
+      // Tự đổi mật khẩu luôn đi qua endpoint self-service, kể cả admin trưởng:
+      // endpoint này xác minh mật khẩu hiện tại, phát hành phiên mới và không biến
+      // mật khẩu do người dùng chọn thành mật khẩu tạm/reversible.
+      await api.changePassword(cpCurrent, cpNew)
       setCpSuccess(true)
       setCpCurrent(''); setCpNew(''); setCpConfirm('')
     } catch (err: any) {
@@ -181,24 +177,22 @@ const SettingsPage: React.FC = () => {
             {cpSuccess ? (
               <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 rounded-lg border border-emerald-200 text-sm">
                 <CheckCircle2 size={16} />
-                <span>Đổi mật khẩu thành công! Lần đăng nhập sau vui lòng dùng mật khẩu mới.</span>
+                <span>Đổi mật khẩu thành công! Phiên hiện tại đã được làm mới bằng mật khẩu mới.</span>
               </div>
             ) : (
               <form onSubmit={handleChangePassword} className="space-y-3">
-                {!isSuperAdmin && (
-                  <FormField label="Mật Khẩu Hiện Tại" htmlFor="cp-current" required>
-                    <div className="relative">
-                      <input id="cp-current" type={cpShow ? 'text' : 'password'} autoComplete="current-password" value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} required
-                        className={`${inputCls} pr-9`} />
-                      <button type="button" onClick={() => setCpShow(!cpShow)}
-                        aria-label={cpShow ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                        aria-pressed={cpShow}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main transition-colors" tabIndex={-1}>
-                        {cpShow ? <EyeOff size={15} /> : <Eye size={15} />}
-                      </button>
-                    </div>
-                  </FormField>
-                )}
+                <FormField label="Mật Khẩu Hiện Tại" htmlFor="cp-current" required>
+                  <div className="relative">
+                    <input id="cp-current" type={cpShow ? 'text' : 'password'} autoComplete="current-password" value={cpCurrent} onChange={e => setCpCurrent(e.target.value)} required
+                      className={`${inputCls} pr-9`} />
+                    <button type="button" onClick={() => setCpShow(!cpShow)}
+                      aria-label={cpShow ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      aria-pressed={cpShow}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main transition-colors" tabIndex={-1}>
+                      {cpShow ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </FormField>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <FormField label="Mật Khẩu Mới" htmlFor="cp-new" required hint="Tối thiểu 8 ký tự, gồm chữ HOA, số và ký tự đặc biệt">
                     <input id="cp-new" type="password" autoComplete="new-password" value={cpNew} onChange={e => setCpNew(e.target.value)} required minLength={8} className={inputCls} />

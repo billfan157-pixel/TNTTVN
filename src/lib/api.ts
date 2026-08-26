@@ -420,8 +420,13 @@ export const api = {
   me: () =>
     request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string }>('GET', '/auth/me'),
 
-  changePassword: (currentPassword: string, newPassword: string) =>
-    request<{ success: boolean }>('POST', '/auth/change-password', { currentPassword, newPassword }),
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    const response = await request<{ success: boolean; accessToken: string }>('POST', '/auth/change-password', { currentPassword, newPassword })
+    // Server đã hủy tokenVersion cũ và cấp token mới cùng response. Cập nhật
+    // ngay memory token để phiên Settings/force-change không phải chờ 401+refresh.
+    setTokens(response.accessToken)
+    return response
+  },
 
   // A06 (2026-08-10): admin-change-password / reset-password yêu cầu re-authentication —
   // gửi kèm adminPassword (mật khẩu HIỆN TẠI của admin đang thao tác).
