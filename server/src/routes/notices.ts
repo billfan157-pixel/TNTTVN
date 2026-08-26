@@ -17,6 +17,7 @@ const noticeSchema = z.object({
   author: z.string().trim().min(1).max(100),
   priority: z.enum(['normal', 'important', 'urgent']).default('normal'),
   targetBranch: z.string().trim().optional(),
+  targetAudience: z.enum(['all', 'staff', 'parents']).default('all').optional(),
   idempotencyKey: z.string().trim().optional(),
 })
 
@@ -25,7 +26,7 @@ noticesRouter.get('/', async (c) => {
   const updatedAfter = c.req.query('updatedAfter')
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10))
   const limit = Math.min(10000, Math.max(1, parseInt(c.req.query('limit') || '50', 10)))
-  const list = await getNotices(user.parishId, updatedAfter, limit, page)
+  const list = await getNotices(user.parishId, updatedAfter, limit, page, undefined, user.role)
   return listResponse(c, list)
 })
 

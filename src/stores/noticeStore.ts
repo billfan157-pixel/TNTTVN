@@ -92,7 +92,7 @@ export const useNoticeStore = create<NoticeState>()(
 
       createNotice: async (data) => {
         const localId = generateId('NC')
-        const submissionKey = `${data.title}_${data.targetBranch || 'All'}_${data.date}`
+        const submissionKey = `${data.title}_${(data as any).targetAudience || 'all'}_${data.targetBranch || 'All'}_${data.date}`
         if (activeNoticeSubmissions.has(submissionKey)) {
           console.warn('[noticeStore] Blocked duplicate createNotice call in flight:', submissionKey)
           return { id: localId, ...data } as ParishNotice

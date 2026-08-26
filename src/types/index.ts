@@ -113,6 +113,8 @@ export interface LeaveRequest {
   updatedAt?: string;
 }
 
+export type NoticeAudience = 'all' | 'staff' | 'parents';
+
 export interface ParishNotice {
   id: string;
   title: string;
@@ -121,6 +123,7 @@ export interface ParishNotice {
   author: string;
   priority: 'normal' | 'important' | 'urgent';
   targetBranch?: BranchType | 'All';
+  targetAudience?: NoticeAudience;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -1519,6 +1519,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_created_at ON audit_logs(parish
   // score vẫn là điểm TỔNG (TN tự chấm + essay_score) — cột này phục vụ merge
   // 2 pha lưu điểm (quét OMR trước / nhập TL sau) và kiểm toán.
   { version: '20260824-129', sql: `ALTER TABLE exam_results ADD COLUMN essay_score REAL` },
+  { version: '20260827-130', sql: `ALTER TABLE notices ADD COLUMN target_audience TEXT NOT NULL DEFAULT 'all'` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate
@@ -1531,6 +1532,7 @@ await applyMigrations(client, MIGRATIONS)
 try { await client.execute(`ALTER TABLE import_batches ADD COLUMN classes_created TEXT DEFAULT '[]'`) } catch {}
 try { await client.execute(`ALTER TABLE import_batches ADD COLUMN content_hash TEXT`) } catch {}
 try { await client.execute(`ALTER TABLE exam_results ADD COLUMN essay_score REAL`) } catch {}
+try { await client.execute(`ALTER TABLE notices ADD COLUMN target_audience TEXT NOT NULL DEFAULT 'all'`) } catch {}
 
 for (const statement of INDICES) {
   try { await client.execute(statement) } catch {}

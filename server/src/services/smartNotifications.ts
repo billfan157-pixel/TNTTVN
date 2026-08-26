@@ -266,39 +266,47 @@ export async function notifyParishNotice(
   title: string,
   content: string,
   author: string,
-  targetBranch?: string | null
+  targetBranch?: string | null,
+  targetAudience: 'all' | 'staff' | 'parents' = 'all'
 ): Promise<number> {
-  let whereConditions = [eq(users.parishId, parishId), ne(users.status, 'INACTIVE'), inArray(users.role, ['admin', 'chunhiem', 'phuta'])]
-
-  const userList = await db.select({ phone: users.phone, fullName: users.fullName, username: users.username, role: users.role })
-    .from(users)
-    .where(and(...whereConditions))
-
   let sent = 0
   const phonesNotified = new Set<string>()
 
-  for (const user of userList) {
-    if (!user.phone || phonesNotified.has(user.phone)) continue
-    phonesNotified.add(user.phone)
+  // audience: 'all' | 'staff' | 'parents' — staff = Telegram cho GLV, parents = WebPush cho PH
+  const sendStaff = targetAudience === 'all' || targetAudience === 'staff'
+  const sendParents = targetAudience === 'all' || targetAudience === 'parents'
 
-    try {
-      const noticeCtx = buildContext({ parentPhone: user.phone, studentName: user.fullName })
-      enqueueNotification('telegram', 'info', NOTIFICATION_TEMPLATES.parishNotice, { ...noticeCtx, title, content, author }, parishId)
-      sent++
-    } catch (err) {
-      console.error(`[smartNotifications] failed to enqueue parish notice for ${user.fullName}:`, err)
+  if (sendStaff) {
+    let whereConditions = [eq(users.parishId, parishId), ne(users.status, 'INACTIVE'), inArray(users.role, ['admin', 'chunhiem', 'phuta'])]
+
+    const userList = await db.select({ phone: users.phone, fullName: users.fullName, username: users.username, role: users.role })
+      .from(users)
+      .where(and(...whereConditions))
+
+    for (const user of userList) {
+      if (!user.phone || phonesNotified.has(user.phone)) continue
+      phonesNotified.add(user.phone)
+
+      try {
+        const noticeCtx = buildContext({ parentPhone: user.phone, studentName: user.fullName })
+        enqueueNotification('telegram', 'info', NOTIFICATION_TEMPLATES.parishNotice, { ...noticeCtx, title, content, author }, parishId)
+        sent++
+      } catch (err) {
+        console.error(`[smartNotifications] failed to enqueue parish notice for ${user.fullName}:`, err)
+      }
     }
   }
 
-  // Web push CÓ CHỦ ĐÍCH: chỉ gửi tới phụ huynh có con trong targetBranch
-  // (hoặc toàn giáo xứ khi 'All'/null) — KHÔNG broadcast toàn parish như cũ.
-  try {
-    const parentUserIds = await getParentUserIds(parishId, targetBranch)
-    if (parentUserIds.length > 0) {
-      enqueueNotification('webpush', 'info', NOTIFICATION_TEMPLATES.parishNotice, buildContext({ title, content, author }), parishId, undefined, { webpushUserIds: parentUserIds })
+  // Web push CÓ CHỦ ĐÍCH: chỉ gửi tới phụ huynh có con trong targetBranch (hoặc toàn giáo xứ khi 'All'/null)
+  if (sendParents) {
+    try {
+      const parentUserIds = await getParentUserIds(parishId, targetBranch)
+      if (parentUserIds.length > 0) {
+        enqueueNotification('webpush', 'info', NOTIFICATION_TEMPLATES.parishNotice, buildContext({ title, content, author }), parishId, undefined, { webpushUserIds: parentUserIds })
+      }
+    } catch (err) {
+      console.error('[smartNotifications] failed to enqueue parish notice webpush:', err)
     }
-  } catch (err) {
-    console.error('[smartNotifications] failed to enqueue parish notice webpush:', err)
   }
 
   return sent

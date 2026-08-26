@@ -1,16 +1,21 @@
 import { db } from '../db/index.js'
 import { notices, auditLogs } from '../db/schema.js'
-import { eq, and, desc, gte } from 'drizzle-orm'
+import { eq, and, desc, gte, or, isNull } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { notifyParishNotice } from './smartNotifications.js'
 
-type CreateNoticeData = Pick<InferInsertModel<typeof notices>, 'title' | 'content' | 'date' | 'author' | 'priority' | 'targetBranch' | 'idempotencyKey'>
+type CreateNoticeData = Pick<InferInsertModel<typeof notices>, 'title' | 'content' | 'date' | 'author' | 'priority' | 'targetBranch' | 'targetAudience' | 'idempotencyKey'>
 
-export async function getNotices(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1) {
+export async function getNotices(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1, targetAudience?: string, userRole?: string) {
   const conditions = [eq(notices.parishId, parishId)]
   if (updatedAfter) {
     conditions.push(gte(notices.updatedAt, updatedAfter))
+  }
+  // Audience scoping: phuhuynh chỉ thấy all/parents, staff thấy tất cả (admin quản lý)
+  if (userRole === 'phuhuynh') {
+    // SQLite: target_audience IS NULL (cũ) coi như 'all'
+    conditions.push(or(eq(notices.targetAudience, 'all'), eq(notices.targetAudience, 'parents'), isNull(notices.targetAudience)) as any)
   }
   const offset = (page - 1) * limit
   return db
@@ -60,7 +65,7 @@ export async function createNotice(data: CreateNoticeData, userId: string, paris
   })
 
   // Send notifications to users after successful creation
-  await notifyParishNotice(parishId, data.title, data.content, data.author, data.targetBranch ?? undefined)
+  await notifyParishNotice(parishId, data.title, data.content, data.author, data.targetBranch ?? undefined, (data as any).targetAudience ?? 'all')
 
   const [created] = await db.select().from(notices).where(and(eq(notices.id, id), eq(notices.parishId, parishId))).limit(1)
   return created

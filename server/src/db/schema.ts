@@ -200,6 +200,7 @@ export const notices = sqliteTable('notices', {
    author: text('author').notNull(),
    priority: text('priority', { enum: ['normal', 'important', 'urgent'] }).notNull().default('normal'),
    targetBranch: text('target_branch'),
+   targetAudience: text('target_audience', { enum: ['all', 'staff', 'parents'] }).notNull().default('all'),
    idempotencyKey: text('idempotency_key'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),

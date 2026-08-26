@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ParishNotice, BranchType } from '../../types';
+import { ParishNotice, BranchType, NoticeAudience } from '../../types';
 import { useNoticeStore } from '../../stores/noticeStore';
 
 import { BRANCHES } from '../../constants/branches';
@@ -24,6 +24,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
     date: new Date().toISOString().split('T')[0],
     priority: 'normal' as 'normal' | 'important' | 'urgent',
     targetBranch: 'All' as BranchType | 'All',
+    targetAudience: 'all' as NoticeAudience,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -38,6 +39,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
         date: noticeToEdit.date || new Date().toISOString().split('T')[0],
         priority: noticeToEdit.priority || 'normal',
         targetBranch: noticeToEdit.targetBranch || 'All',
+        targetAudience: (noticeToEdit.targetAudience as NoticeAudience) || 'all',
       });
     } else {
       setFormData({
@@ -46,6 +48,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
         date: new Date().toISOString().split('T')[0],
         priority: 'normal',
         targetBranch: 'All',
+        targetAudience: 'all',
       });
     }
   }, [noticeToEdit, isOpen]);
@@ -84,6 +87,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
         author: 'Admin',
         priority: formData.priority,
         targetBranch: formData.targetBranch === 'All' ? undefined : formData.targetBranch,
+        targetAudience: formData.targetAudience,
       };
 
       if (noticeToEdit) {
@@ -105,6 +109,12 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
     { value: 'normal', label: 'Bình thường' },
     { value: 'important', label: 'Thông tin' },
     { value: 'urgent', label: 'Khẩn' },
+  ] as const;
+
+  const audienceOptions = [
+    { value: 'all', label: 'Toàn bộ (GLV + Phụ huynh)' },
+    { value: 'staff', label: 'Chỉ Giáo Lý Viên (nội bộ)' },
+    { value: 'parents', label: 'Chỉ Phụ huynh' },
   ] as const;
 
   const branchOptions = [
@@ -181,16 +191,34 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
         </div>
 
         <FormField
-          label="Đối Tượng Nhận"
-          htmlFor="notice-target"
+          label="Gửi Đến"
+          htmlFor="notice-audience"
           required
-          hint="Chọn 'Tất cả các ngành' để gửi đến toàn bộ học sinh"
+          hint={formData.targetAudience === 'staff' ? 'Chỉ GLV/Admin/Phụ tá nhận Telegram nội bộ' : formData.targetAudience === 'parents' ? 'Chỉ phụ huynh nhận Web Push (theo ngành nếu lọc)' : 'Cả GLV (Telegram) và phụ huynh (Web Push)'}
+        >
+          <select
+            id="notice-audience"
+            className="form-select"
+            value={formData.targetAudience}
+            onChange={e => setFormData({ ...formData, targetAudience: e.target.value as NoticeAudience })}
+          >
+            {audienceOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </FormField>
+
+        <FormField
+          label="Lọc Theo Ngành (Phụ huynh)"
+          htmlFor="notice-target"
+          hint={formData.targetAudience === 'staff' ? 'Không áp dụng khi chỉ gửi nội bộ GLV' : "Chọn 'Tất cả các ngành' để gửi đến toàn bộ phụ huynh"}
         >
           <select
             id="notice-target"
-            className="form-select"
+            className="form-select disabled:opacity-50"
             value={formData.targetBranch}
             onChange={e => setFormData({ ...formData, targetBranch: e.target.value as BranchType | 'All' })}
+            disabled={formData.targetAudience === 'staff'}
           >
             {branchOptions.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
