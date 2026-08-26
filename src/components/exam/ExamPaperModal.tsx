@@ -132,6 +132,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     parishName,
     dioceseName,
     subject,
+    scoreTypeLabel: scoreTypeLabel || 'Kiểm Tra',
     classLabel,
     academicYear,
     durationMinutes,
@@ -143,7 +144,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     includeGradingBox,
     sessionId,
     examVersion: effectiveSelectedVersion,
-  }), [parishName, dioceseName, subject, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion])
+  }), [parishName, dioceseName, subject, scoreTypeLabel, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion])
 
   // Mẫu Chung phải là tài liệu không định danh. `GENERIC` cố ý đi qua legacy
   // payload và bị shared QR parser reject, nên scanner không thể auto-bind nhầm.

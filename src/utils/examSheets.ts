@@ -355,6 +355,8 @@ export interface ExamPaperPrintOptions {
   parishName?: string
   dioceseName?: string
   subject: string
+  /** Nhãn loại điểm (Điểm Miệng / 15 Phút / 1 Tiết / Giữa Kỳ / Cuối Kỳ) — hiển thị trên tiêu đề đề */
+  scoreTypeLabel?: string
   classLabel: string
   academicYear: string
   durationMinutes?: number
@@ -612,7 +614,9 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
     .integrated-omr-wrapper {
       width: 100%;
       min-width: 0;
-      margin-bottom: 8px;
+      /* Tạo khoảng thở khoảng 3.7mm trước phần câu hỏi, không đụng vào
+         khung OMR nên marker/bubble và geometry quét giữ nguyên. */
+      margin-bottom: 14px;
       background: #f8fafc;
       border-radius: 4px;
     }
@@ -777,6 +781,31 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       overflow-wrap: break-word;
       word-break: normal;
     }
+    /* Câu tự luận vẫn dàn cùng hai cột với đề; thay hai khoảng trắng cao
+       64px bằng nhiều dòng viết đều nhau để sử dụng không gian hợp lý. */
+    .essay-section-title {
+      font-size: 11pt;
+      font-weight: 800;
+      color: #1e3a8a;
+      border-bottom: 1.5px solid #1e3a8a;
+      padding-bottom: 3px;
+      margin: 8px 0 7px;
+    }
+    .essay-question-block {
+      margin: 0 0 10px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      font-size: 10pt;
+    }
+    .essay-answer-lines {
+      margin-top: 4px;
+      padding-left: 3px;
+    }
+    .essay-answer-line {
+      height: 8.2mm;
+      border-bottom: 1px dotted #94a3b8;
+      break-inside: avoid;
+    }
     .options-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -843,6 +872,19 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
 }
 
 /**
+ * Ước lượng chỗ viết cho câu tự luận trên đề in A4 hai cột.
+ *
+ * 1 điểm đủ 3 dòng cho một ý ngắn; mỗi điểm tăng thêm một dòng. Đề bài dài
+ * thường cần nhắc lại/giải thích nhiều hơn nên mỗi 120 ký tự tăng thêm một
+ * dòng. Giới hạn 3..8 dòng giữ đề gọn, nhưng vẫn cho nét viết cách nhau 8.2mm.
+ */
+export function getEssayAnswerLineCount(question: Pick<ExamQuestion, 'question' | 'points'>): number {
+  const pointLines = Math.ceil(question.points ?? 1) + 2
+  const contentLines = Math.floor((question.question?.trim().length ?? 0) / 120)
+  return Math.min(8, Math.max(3, pointLines + contentLines))
+}
+
+/**
  * Dựng HTML đề thi A4 chuẩn in ấn gộp Phiếu Chấm & Bảng Trả Lời Trắc Nghiệm (tùy chọn 1/2 cột, có/không kèm đáp án).
  */
 export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
@@ -850,6 +892,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     parishName = 'Giáo Xứ',
     dioceseName = 'Giáo Phận',
     subject,
+    scoreTypeLabel,
     classLabel,
     academicYear,
     durationMinutes = 45,
@@ -863,22 +906,27 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     student,
   } = options
 
-  const title = `Đề Thi & Phiếu Trả Lời — ${subject} (${classLabel})`
+  const displaySubject = scoreTypeLabel ? `${scoreTypeLabel} — ${subject}` : subject
+  const title = `Đề Thi & Phiếu Trả Lời — ${displaySubject} (${classLabel})`
   const effectiveQuestions = [...questions].sort((a, b) => (a.index || 0) - (b.index || 0))
   // EXAM-MIXED: tách 2 loại câu — khung OMR/chấm quét chỉ áp dụng cho phần trắc nghiệm.
   const mcQuestions = effectiveQuestions.filter(q => (q.type ?? 'multiple_choice') === 'multiple_choice')
   const essayQuestions = effectiveQuestions.filter(q => q.type === 'essay')
 
-  const questionsHtml = effectiveQuestions.map((q) => {
+  const questionsHtml = effectiveQuestions.map((q, questionPosition) => {
     // ── Câu tự luận: không có phương án — in ô trống cho học sinh trình bày ──
     if (q.type === 'essay') {
+      const lineCount = getEssayAnswerLineCount(q)
+      const isFirstEssay = questionPosition === mcQuestions.length
       return `
-      <div class="question-block">
+      ${isFirstEssay ? `<div class="essay-section-title">PHẦN ${mcQuestions.length > 0 ? 'II' : 'I'}. TỰ LUẬN</div>` : ''}
+      <div class="question-block essay-question-block" data-essay-answer-lines="${lineCount}">
         <div class="question-title">
           <strong>Câu ${q.index}:</strong> ${escapeHtml(q.question)}${q.points !== undefined ? ` <em>(${q.points} điểm)</em>` : ''}
         </div>
-        <div class="essay-answer-space" style="border-bottom: 1px dotted #94a3b8; height: 64px;"></div>
-        <div class="essay-answer-space" style="border-bottom: 1px dotted #94a3b8; height: 64px;"></div>
+        <div class="essay-answer-lines" aria-label="${lineCount} dòng trả lời cho câu ${q.index}">
+          ${Array.from({ length: lineCount }, () => '<div class="essay-answer-line"></div>').join('')}
+        </div>
       </div>
     `
     }
@@ -1057,7 +1105,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion}</strong></div>
         </div>
         <div class="header-right">
-          <div class="exam-title">${escapeHtml(subject)}</div>
+          <div class="exam-title">${escapeHtml(displaySubject)}</div>
           <div class="exam-sub">Niên Khóa: ${escapeHtml(academicYear)}</div>
           <div class="exam-time">Thời gian: ${durationMinutes} phút (${effectiveQuestions.length} câu)</div>
         </div>
