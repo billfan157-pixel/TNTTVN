@@ -44,7 +44,8 @@ const COMPOSITE_PK_TABLES = new Set([
 ])
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
-  import_batches: ['content_hash', 'classes_created'],
+  import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
+  import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
   notifications: ['target_user_ids'],
   users: ['password_encrypted', 'holy_name'],

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { db, type DbTransaction } from '../db/index.js'
-import { classes, academicYears, students, branches, users, auditLogs, importBatches, importBatchStudents, mappingMemory, serviceAssignments } from '../db/schema.js'
+import { classes, academicYears, students, branches, users, auditLogs, importBatches, importBatchStudents, mappingMemory, serviceAssignments, grades, attendance, examResults, promotionRecords, academicYearSnapshots, assessmentEntries, leaveRequests } from '../db/schema.js'
 import { eq, and, isNull, or, sql, desc, inArray } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
@@ -67,6 +67,22 @@ interface ImportResult {
   contentHash?: string
   orphanClasses?: string[]
   report: { rowIndex: number; studentName: string; status: string; errors: string[] }[]
+}
+
+interface ImportRollbackSnapshot {
+  version: 1
+  kind: 'created' | 'updated'
+  appliedUpdatedAt: string
+  previousStudent?: typeof students.$inferSelect
+  previousServiceAssigned?: boolean
+}
+
+interface ImportRollbackSnapshot {
+  version: 1
+  kind: 'created' | 'updated'
+  appliedUpdatedAt: string
+  previousStudent?: typeof students.$inferSelect
+  previousServiceAssigned?: boolean
 }
 
 async function mapConcurrent<T, R>(items: T[], fn: (item: T) => Promise<R>, concurrency: number): Promise<R[]> {
@@ -1436,6 +1452,48 @@ export async function deleteMappingMemory(id: string, parishId: string): Promise
   await db.update(mappingMemory)
     .set({ isActive: 0 })
     .where(and(eq(mappingMemory.id, id), eq(mappingMemory.parishId, parishId)))
+}
+
+const ROSTER_UNDO_WINDOW_MS = 24 * 60 * 60 * 1000
+
+export async function clearExpiredImportRollbackSnapshots(parishId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - ROSTER_UNDO_WINDOW_MS).toISOString()
+  await db.update(importBatchStudents)
+    .set({ rollbackSnapshot: null })
+    .where(and(
+      eq(importBatchStudents.parishId, parishId),
+      sql`${importBatchStudents.batchId} IN (
+        SELECT id FROM import_batches
+        WHERE parish_id = ${parishId} AND created_at < ${cutoff}
+      )`,
+    ))
+}
+
+function parseRollbackSnapshot(raw: string | null): ImportRollbackSnapshot | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<ImportRollbackSnapshot>
+    if (parsed.version !== 1 || !['created', 'updated'].includes(parsed.kind || '') || !parsed.appliedUpdatedAt) return null
+    return parsed as ImportRollbackSnapshot
+  } catch {
+    return null
+  }
+}
+
+async function hasStudentActivityAfterImport(tx: DbTransaction, studentId: string, parishId: string): Promise<boolean> {
+  const checks = [
+    () => tx.select({ id: grades.id }).from(grades).where(and(eq(grades.studentId, studentId), eq(grades.parishId, parishId))).limit(1),
+    () => tx.select({ id: attendance.id }).from(attendance).where(and(eq(attendance.studentId, studentId), eq(attendance.parishId, parishId))).limit(1),
+    () => tx.select({ id: examResults.id }).from(examResults).where(and(eq(examResults.studentId, studentId), eq(examResults.parishId, parishId))).limit(1),
+    () => tx.select({ id: promotionRecords.id }).from(promotionRecords).where(and(eq(promotionRecords.studentId, studentId), eq(promotionRecords.parishId, parishId))).limit(1),
+    () => tx.select({ id: academicYearSnapshots.id }).from(academicYearSnapshots).where(and(eq(academicYearSnapshots.studentId, studentId), eq(academicYearSnapshots.parishId, parishId))).limit(1),
+    () => tx.select({ id: assessmentEntries.id }).from(assessmentEntries).where(and(eq(assessmentEntries.studentId, studentId), eq(assessmentEntries.parishId, parishId))).limit(1),
+    () => tx.select({ id: leaveRequests.id }).from(leaveRequests).where(and(eq(leaveRequests.studentId, studentId), eq(leaveRequests.parishId, parishId))).limit(1),
+  ]
+  for (const check of checks) {
+    if ((await check()).length > 0) return true
+  }
+  return false
 }
 
 export async function undoImport(batchId: string, parishId: string): Promise<{ undone: number; errors: string[] }> {

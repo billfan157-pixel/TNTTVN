@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db } from '../../db/index.js'
 import { students, classes, branches, academicYears, users, importBatches, importBatchStudents, auditLogs } from '../../db/schema.js'
-import { detectDuplicates, importStudents } from '../../services/importService.js'
+import { detectDuplicates, importStudents, undoImport } from '../../services/importService.js'
 import { eq } from 'drizzle-orm'
 
 describe('Import Deduplication Hardening Suite (ADR-054)', () => {
@@ -334,6 +334,79 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       expect(afterStudent.parentName).toBe(initialStudent.parentName)
       expect(afterStudent.address).toBe(initialStudent.address)
       expect(afterStudent.updatedAt).toBe(initialStudent.updatedAt)
+    })
+
+    it('fails closed to skip when the client omits a duplicate decision', async () => {
+      const before = (await db.select().from(students).where(eq(students.id, ST1_ID)))[0]
+      const result = await importStudents({
+        rows: [{
+          rowIndex: 11, holyName: 'Maria', fullName: 'Trần Thị Mai', gender: 'Nữ',
+          dateOfBirth: '2015-05-10', parentName: 'Không được ghi đè', parentPhone: '0988776655',
+          address: 'Không được ghi đè', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
+        }],
+        classMappings: { 'Thiếu Nhi 1': CLASS_ID },
+        duplicateActions: {},
+      }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
+
+      expect(result.skipped).toBe(1)
+      const after = (await db.select().from(students).where(eq(students.id, ST1_ID)))[0]
+      expect(after.parentName).toBe(before.parentName)
+      expect(after.address).toBe(before.address)
+    })
+
+    it('skips an intra-file duplicate without writing the synthetic id into the FK', async () => {
+      const base = {
+        holyName: 'Anna', fullName: 'Đỗ Thị Minh Châu', gender: 'Nữ', dateOfBirth: '2016-06-06',
+        parentName: 'Đỗ Văn A', parentPhone: '0911222333', address: 'Test', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
+      }
+      const result = await importStudents({
+        rows: [{ ...base, rowIndex: 21 }, { ...base, rowIndex: 22 }],
+        classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: {},
+      }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
+
+      expect(result.imported).toBe(1)
+      expect(result.skipped).toBe(1)
+      expect(result.errors).toBe(0)
+      const details = await db.select().from(importBatchStudents).where(eq(importBatchStudents.batchId, result.batchId))
+      expect(details.find((row) => row.rowIndex === 22)?.studentId).toBeNull()
+    })
+
+    it('allows an explicit create decision for a real same-name collision', async () => {
+      const result = await importStudents({
+        rows: [{
+          rowIndex: 31, holyName: 'Têrêsa', fullName: 'Trần Thị Mai', gender: 'Nữ',
+          dateOfBirth: '2015-05-10', parentName: 'Gia đình', parentPhone: '0988776655',
+          address: 'Test', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
+        }],
+        classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: { '31': 'create' },
+      }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
+
+      expect(result.imported).toBe(1)
+      expect(result.errors).toBe(0)
+    })
+
+    it('preserves blank cells on update and undo restores the exact unredacted PII snapshot', async () => {
+      const before = (await db.select().from(students).where(eq(students.id, ST2_ID)))[0]
+      const result = await importStudents({
+        rows: [{
+          rowIndex: 41, holyName: 'Giuse', fullName: 'Lê Văn Hoàng', gender: '', dateOfBirth: '',
+          parentName: 'Phụ huynh mới', parentPhone: '', address: '', branch: '', className: 'Thiếu Nhi 1',
+        }],
+        classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: { '41': 'update' },
+      }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
+
+      const updated = (await db.select().from(students).where(eq(students.id, ST2_ID)))[0]
+      expect(updated.parentName).toBe('Phụ huynh mới')
+      expect(updated.address).toBe(before.address)
+      expect(updated.parentPhone).toBe(before.parentPhone)
+      expect(updated.gender).toBe(before.gender)
+
+      const undone = await undoImport(result.batchId, PARISH)
+      expect(undone).toEqual({ undone: 1, errors: [] })
+      const restored = (await db.select().from(students).where(eq(students.id, ST2_ID)))[0]
+      expect(restored.parentName).toBe(before.parentName)
+      expect(restored.address).toBe(before.address)
+      expect(restored.parentPhone).toBe(before.parentPhone)
     })
   })
 })
