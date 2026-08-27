@@ -959,17 +959,20 @@ export async function importStudents(
     return newId
   }
 
-  for (const row of normalizedRows) {
+  // PERF-IMPORT-1 (2026-08-28): xử lý song song có kiểm soát thay vì tuần tự từng dòng.
+  // 120 dòng × 3-4 query/tx qua Turso remote (80-120ms) = 30-40s tuần tự → còn 4-6s với concurrency 8.
+  // classIdMap / ayCache dùng chung (Map) — JS đơn luồng nên an toàn khi đọc/ghi xen kẽ trong Promise.all;
+  // fallback tạo lớp xử lý ON CONFLICT để tránh race khi 2 dòng cùng tạo "Lớp mới".
+  const CONCURRENCY = 8
+  const rowOutcomes = await mapConcurrent(normalizedRows, async (row) => {
     try {
       const errors = validateRow(row)
       if (errors.length > 0) {
-        result.errors++
-        result.report.push({ rowIndex: row.rowIndex, studentName: row.fullName, status: 'error', errors })
         await db.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
-        continue
+        return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors }
       }
 
-      let rowResult = 'class_error' as 'created' | 'updated' | 'skipped' | 'class_error'
+      let rowResult: 'created' | 'updated' | 'skipped' | 'class_error' = 'class_error'
       let studentId = ''
 
       await db.transaction(async (tx) => {
@@ -1014,6 +1017,12 @@ export async function importStudents(
             newValue: JSON.stringify(redactStudentForAudit(row)), ip, userAgent, parishId,
           })
           await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, studentId, action: 'updated', rowIndex: row.rowIndex, parishId })
+          // Gộp serviceAssignments vào cùng tx để giảm 1 round-trip
+          if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
+            await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
+          } else {
+            await tx.delete(serviceAssignments).where(and(eq(serviceAssignments.studentId, studentId), eq(serviceAssignments.serviceType, 'le_phuc_vu')))
+          }
           rowResult = 'updated'
           return
         }
@@ -1035,50 +1044,31 @@ export async function importStudents(
           entityId: studentId, newValue: JSON.stringify(redactStudentForAudit(row)), ip, userAgent, parishId,
         })
         await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, studentId, action: 'created', rowIndex: row.rowIndex, parishId })
+        if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
+          await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
+        }
         rowResult = 'created'
       })
 
-      switch (rowResult) {
-        case 'class_error':
-          result.errors++
-          result.report.push({ rowIndex: row.rowIndex, studentName: row.fullName, status: 'error', errors: [`Không xác định được lớp: ${row.className}`] })
-          break
-        case 'skipped':
-          result.skipped++
-          result.report.push({ rowIndex: row.rowIndex, studentName: row.fullName, status: 'skipped', errors: [] })
-          break
-        case 'updated':
-          if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
-            await db.insert(serviceAssignments).values({
-              id: generateId('SA'), studentId, serviceType: 'le_phuc_vu',
-              parishId, createdBy: userId,
-            }).onConflictDoNothing()
-          } else {
-            await db.delete(serviceAssignments)
-              .where(and(
-                eq(serviceAssignments.studentId, studentId),
-                eq(serviceAssignments.serviceType, 'le_phuc_vu'),
-              ))
-          }
-          result.imported++
-          result.report.push({ rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported', errors: [] })
-          break
-        case 'created':
-          if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
-            await db.insert(serviceAssignments).values({
-              id: generateId('SA'), studentId, serviceType: 'le_phuc_vu',
-              parishId, createdBy: userId,
-            }).onConflictDoNothing()
-          }
-          result.imported++
-          result.report.push({ rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported', errors: [] })
-          break
-      }
+      if (rowResult === 'class_error') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [`Không xác định được lớp: ${row.className}`] }
+      if (rowResult === 'skipped') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'skipped' as const, errors: [] as string[] }
+      // created / updated đều là imported
+      return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported' as const, errors: [] as string[] }
     } catch (err: any) {
-      result.errors++
-      result.report.push({ rowIndex: row.rowIndex, studentName: row.fullName, status: 'error', errors: [err?.message || 'Lỗi không xác định'] })
-      await db.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+      try {
+        await db.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+      } catch {}
+      return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [err?.message || 'Lỗi không xác định'] }
     }
+  }, CONCURRENCY)
+
+  // Aggregate kết quả theo rowIndex để report có thứ tự
+  rowOutcomes.sort((a, b) => a.rowIndex - b.rowIndex)
+  for (const o of rowOutcomes) {
+    result.report.push({ rowIndex: o.rowIndex, studentName: o.studentName, status: o.status, errors: o.errors })
+    if (o.status === 'error') result.errors++
+    else if (o.status === 'skipped') result.skipped++
+    else if (o.status === 'imported') result.imported++
   }
 
   // Update import_batches with final counts and status
