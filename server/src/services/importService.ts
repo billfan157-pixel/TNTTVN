@@ -53,7 +53,7 @@ interface ImportInput {
   rows: ImportRow[]
   classMappings: Record<string, string | null>
   newClasses?: { name: string; branch: string; academicYearId: string }[]
-  duplicateActions: Record<string, 'skip' | 'update'>
+  duplicateActions: Record<string, 'skip' | 'update' | 'create'>
   fileName?: string
   serviceExclusions?: number[]
 }
@@ -86,7 +86,12 @@ function toStr(v: unknown): string {
 
 function computeContentHash(rows: ImportRow[]): string {
   const sorted = rows
-    .map(r => `${toStr(r.fullName).trim() || ''}|${toStr(r.dateOfBirth).trim() || ''}|${toStr(r.parentPhone).trim() || ''}`)
+    .map(r => [
+      normalizeName(r.holyName), normalizeName(r.fullName), toStr(r.gender).trim(),
+      toStr(r.dateOfBirth).trim(), toStr(r.parentPhone).trim(), normalizeName(r.parentName),
+      normalizeName(r.address), toStr(r.branch).trim(), canonicalClassKey(r.className),
+      toStr(r.service).trim().toLowerCase(),
+    ].join('|'))
     .sort()
     .join('\n')
   return createHash('sha256').update(sorted).digest('hex').substring(0, 16)
@@ -211,7 +216,16 @@ function validateRow(row: ImportRow): string[] {
   if (holyName && holyName.length > 100) errors.push('Tên Thánh quá dài (tối đa 100 ký tự)')
   if (!fullName) errors.push('Thiếu Họ và Tên')
   if (gender && !['Nam', 'Nữ'].includes(gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
-  if (dateOfBirth && !isPlaceholder(dateOfBirth) && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
+  if (dateOfBirth && !isPlaceholder(dateOfBirth)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+      errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
+    } else {
+      const [year, month, day] = dateOfBirth.split('-').map(Number)
+      const parsed = new Date(Date.UTC(year, month - 1, day))
+      const isRealDate = parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+      if (!isRealDate || parsed.getTime() > Date.now()) errors.push('Ngày sinh không hợp lệ hoặc nằm trong tương lai')
+    }
+  }
   if (parentPhone && !isPlaceholder(parentPhone) && !PHONE_RE.test(parentPhone)) errors.push('Số điện thoại không hợp lệ (phải là số Việt Nam)')
   if (branch && !isPlaceholder(branch) && !VALID_BRANCHES.includes(branch as any)) errors.push(`Phân ngành không hợp lệ: ${branch}`)
   if (!className) errors.push('Thiếu Tên Lớp')
@@ -965,11 +979,21 @@ export async function importStudents(
 
   // Canonical normalizeImportRows (IE-02)
   const normalizedRows = normalizeImportRows(input.rows)
+  const providedFieldsByRow = new Map<number, Set<keyof ImportRow>>()
+  for (const rawRow of input.rows) {
+    const provided = new Set<keyof ImportRow>()
+    for (const field of ['holyName', 'fullName', 'gender', 'dateOfBirth', 'parentName', 'parentPhone', 'address', 'branch', 'className', 'service'] as const) {
+      const value = toStr(rawRow[field]).trim()
+      if (value && !isPlaceholder(value)) provided.add(field)
+    }
+    providedFieldsByRow.set(Number(rawRow.rowIndex) || 0, provided)
+  }
 
   const batchId = generateId('IMP')
   const contentHash = computeContentHash(normalizedRows)
   const serviceExclusions = new Set(input.serviceExclusions || [])
   const result: ImportResult = { imported: 0, skipped: 0, errors: 0, classesCreated: [], batchId, contentHash, report: [] }
+  const createdClassIds: string[] = []
   // classIdMap canonical -> id, dedup case/diacritic variants. Keep original name for display via canonicalToOriginal.
   const classIdMap = new Map<string, string>()
   const canonicalToOriginalImport = new Map<string, string>()
@@ -1034,6 +1058,7 @@ export async function importStudents(
       classIdMap.set(canon, id)
       if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, nc.name)
       result.classesCreated.push(nc.name)
+      createdClassIds.push(id)
     }
   })
 
@@ -1043,11 +1068,12 @@ export async function importStudents(
     id: batchId, userId, fileName: input.fileName || null, contentHash,
     totalRows: input.rows.length, imported: 0, skipped: 0, errorCount: 0,
     classesCreated: JSON.stringify(result.classesCreated),
+    createdClassIds: JSON.stringify(createdClassIds),
     status: 'processing', parishId, createdAt: batchNow,
   })
 
   try {
-    const dupMap = await detectDuplicates(normalizedRows, parishId)
+    const dupMap = await detectDuplicates(normalizedRows, parishId, allowedClassIds)
     const ayCache = new Map<string, string>()
 
   async function resolveClassId(tx: DbTransaction, rowClassName: string, rowBranch: string): Promise<string | null> {
@@ -1099,6 +1125,7 @@ export async function importStudents(
     classIdMap.set(canon, newId)
     if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
     result.classesCreated.push(trimmed)
+    createdClassIds.push(newId)
     return newId
   }
 
@@ -1127,15 +1154,26 @@ export async function importStudents(
         }
 
         const dup = dupMap.get(row.rowIndex)
-        const dupAction = dup ? duplicateActions[String(row.rowIndex)] : null
+        // Server-authoritative fail-closed policy: a missing/tampered duplicate
+        // decision can never silently create or overwrite a student.
+        const dupAction = dup ? (duplicateActions[String(row.rowIndex)] || 'skip') : 'create'
 
         if (dup && dupAction === 'skip') {
-          await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, studentId: dup.studentId, action: 'skipped', rowIndex: row.rowIndex, parishId })
+          await tx.insert(importBatchStudents).values({
+            id: generateId('IBS'), batchId,
+            studentId: dup.studentId === 'intra-file' ? null : dup.studentId,
+            action: 'skipped', rowIndex: row.rowIndex, parishId,
+          })
           rowResult = 'skipped'
           return
         }
 
         if (dup && dupAction === 'update') {
+          if (dup.studentId === 'intra-file') {
+            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+            rowResult = 'class_error'
+            return
+          }
           studentId = dup.studentId
           const now = new Date().toISOString()
           const [existingStudent] = await tx
@@ -1150,16 +1188,57 @@ export async function importStudents(
             return
           }
 
+          if (!existingStudent || existingStudent.deletedAt) {
+            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+            rowResult = 'class_error'
+            return
+          }
+
+          const [previousService] = await tx
+            .select({ id: serviceAssignments.id })
+            .from(serviceAssignments)
+            .where(and(
+              eq(serviceAssignments.studentId, studentId),
+              eq(serviceAssignments.serviceType, 'le_phuc_vu'),
+              eq(serviceAssignments.parishId, parishId),
+            ))
+            .limit(1)
+
+          const provided = providedFieldsByRow.get(row.rowIndex) || new Set<keyof ImportRow>()
+          const updateData = {
+            holyName: provided.has('holyName') ? row.holyName.trim() : existingStudent.holyName,
+            fullName: row.fullName.trim(),
+            gender: (provided.has('gender') ? row.gender : existingStudent.gender) as typeof existingStudent.gender,
+            dateOfBirth: provided.has('dateOfBirth') ? row.dateOfBirth : existingStudent.dateOfBirth,
+            parentName: provided.has('parentName') ? row.parentName : existingStudent.parentName,
+            parentPhone: provided.has('parentPhone') ? row.parentPhone : existingStudent.parentPhone,
+            address: provided.has('address') ? row.address : existingStudent.address,
+            branch: (provided.has('branch') ? row.branch : existingStudent.branch) as typeof existingStudent.branch,
+            classId,
+            updatedBy: userId,
+            updatedAt: now,
+          }
+
           await tx.update(students)
-            .set({ holyName: row.holyName, fullName: row.fullName, gender: row.gender as any, dateOfBirth: row.dateOfBirth, parentName: row.parentName, parentPhone: row.parentPhone, address: row.address || '', branch: row.branch as any, classId, updatedBy: userId, updatedAt: now })
+            .set(updateData)
             .where(and(eq(students.id, studentId), eq(students.parishId, parishId)))
           await tx.insert(auditLogs).values({
             id: generateId('AUD'), userId, action: 'IMPORT_UPDATE', entityType: 'student',
             entityId: studentId,
             oldValue: existingStudent ? JSON.stringify(redactStudentForAudit(existingStudent)) : null,
-            newValue: JSON.stringify(redactStudentForAudit(row)), ip, userAgent, parishId,
+            newValue: JSON.stringify({ ...(redactStudentForAudit(updateData) as Record<string, unknown>), importBatchId: batchId, importRowIndex: row.rowIndex }), ip, userAgent, parishId,
           })
-          await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, studentId, action: 'updated', rowIndex: row.rowIndex, parishId })
+          const rollbackSnapshot: ImportRollbackSnapshot = {
+            version: 1,
+            kind: 'updated',
+            appliedUpdatedAt: now,
+            previousStudent: existingStudent,
+            previousServiceAssigned: Boolean(previousService),
+          }
+          await tx.insert(importBatchStudents).values({
+            id: generateId('IBS'), batchId, studentId, action: 'updated', rowIndex: row.rowIndex, parishId,
+            rollbackSnapshot: JSON.stringify(rollbackSnapshot),
+          })
           // Gộp serviceAssignments vào cùng tx để giảm 1 round-trip
           if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
             await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
@@ -1184,9 +1263,15 @@ export async function importStudents(
         })
         await tx.insert(auditLogs).values({
           id: generateId('AUD'), userId, action: 'IMPORT_CREATE', entityType: 'student',
-          entityId: studentId, newValue: JSON.stringify(redactStudentForAudit(row)), ip, userAgent, parishId,
+          entityId: studentId,
+          newValue: JSON.stringify({ ...(redactStudentForAudit(row) as Record<string, unknown>), importBatchId: batchId, importRowIndex: row.rowIndex }),
+          ip, userAgent, parishId,
         })
-        await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, studentId, action: 'created', rowIndex: row.rowIndex, parishId })
+        const rollbackSnapshot: ImportRollbackSnapshot = { version: 1, kind: 'created', appliedUpdatedAt: now }
+        await tx.insert(importBatchStudents).values({
+          id: generateId('IBS'), batchId, studentId, action: 'created', rowIndex: row.rowIndex, parishId,
+          rollbackSnapshot: JSON.stringify(rollbackSnapshot),
+        })
         if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
           await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
         }
@@ -1223,6 +1308,7 @@ export async function importStudents(
   await db.update(importBatches).set({
     imported: result.imported, skipped: result.skipped,
     errorCount: result.errors, classesCreated: JSON.stringify(result.classesCreated || []),
+    createdClassIds: JSON.stringify(createdClassIds),
     status: finalStatus,
   }).where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
 

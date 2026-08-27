@@ -1145,45 +1145,61 @@ export const ExamSessionView: React.FC = () => {
               </div>
             )}
 
-            <label className="block text-xs font-bold text-text-secondary mb-1">Loại Điểm</label>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
-              {SCORE_TYPES.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setCreateForm(f => ({ ...f, scoreType: t.id }))}
-                  aria-pressed={createForm.scoreType === t.id}
-                  className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
-                    createForm.scoreType === t.id
-                      ? 'border-parish-primary bg-parish-primary text-white'
-                      : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                  }`}
-                >
-                  {t.label}
-                  <span className="block text-[10px] font-normal opacity-70">
-                    {t.daily ? 'vào điểm hằng ngày' : 'ghi trực tiếp'}
-                  </span>
-                </button>
-              ))}
+            <div className="mb-3 p-3 rounded-xl border border-surface-border bg-surface-card">
+              <label className="block text-xs font-bold text-text-secondary mb-2 flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-md bg-amber-500/10 text-amber-600 flex items-center justify-center"><BarChart3 size={12} /></span>
+                Loại Điểm
+              </label>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0 sm:px-0 sm:mx-0 mobile-scroll-row">
+                {SCORE_TYPES.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setCreateForm(f => ({ ...f, scoreType: t.id }))}
+                    aria-pressed={createForm.scoreType === t.id}
+                    className={`shrink-0 sm:shrink min-w-[110px] sm:min-w-0 min-h-[44px] rounded-xl border px-3 py-2 text-xs font-bold transition-colors text-left sm:text-center ${
+                      createForm.scoreType === t.id
+                        ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                        : 'border-surface-border bg-surface-hover/50 text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
+                    }`}
+                  >
+                    {t.label}
+                    <span className="block text-[10px] font-normal opacity-80">
+                      {t.daily ? 'vào điểm hằng ngày' : 'ghi trực tiếp'}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <label className="block text-xs font-bold text-text-secondary mb-1">Môn / Nội dung kiểm tra</label>
-            <input
-              value={createForm.subject}
-              onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
-              onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
-              placeholder="VD: Kiểm tra chương 3"
-              className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
-            />
-            <label className="block text-xs font-bold text-text-secondary mb-1">Thang điểm tối đa</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              pattern="[0-9]*"
-              min={1}
-              max={10}
-              value={createForm.maxScore}
-              onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
-              className="w-24 min-h-[44px] px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 mb-3">
+              <div>
+                <label className="block text-xs font-bold text-text-secondary mb-1.5">Môn / Nội dung kiểm tra <span className="text-red-500">*</span></label>
+                <input
+                  value={createForm.subject}
+                  onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
+                  placeholder="VD: Kiểm tra chương 3"
+                  enterKeyHint="next"
+                  className="w-full min-h-[44px] px-3 py-2.5 rounded-xl border border-surface-border bg-surface-hover focus:bg-surface-card focus:border-parish-primary focus:outline-none text-sm"
+                />
+              </div>
+              <div className="sm:w-[140px]">
+                <label className="block text-xs font-bold text-text-secondary mb-1.5">Thang điểm</label>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.max(1, f.maxScore - 1) }))} className="w-10 h-11 rounded-xl border border-surface-border bg-surface-hover text-text-secondary hover:bg-surface-card flex items-center justify-center shrink-0" aria-label="Giảm thang điểm">−</button>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    pattern="[0-9]*"
+                    min={1}
+                    max={10}
+                    value={createForm.maxScore}
+                    onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
+                    className="flex-1 min-h-[44px] px-2 py-2 rounded-xl border border-surface-border bg-surface-hover focus:bg-surface-card focus:border-parish-primary focus:outline-none text-center font-bold"
+                  />
+                  <button type="button" onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.min(10, f.maxScore + 1) }))} className="w-10 h-11 rounded-xl border border-surface-border bg-surface-hover text-text-secondary hover:bg-surface-card flex items-center justify-center shrink-0" aria-label="Tăng thang điểm">+</button>
+                </div>
+              </div>
+            </div>
 
             {(createForm.examType === 'multiple_choice' || createForm.examType === 'mixed') && (
               <div className="mb-3">
