@@ -442,8 +442,10 @@ export const api = {
   logout: () => request<{ success: boolean }>('POST', '/auth/logout', {}),
 
   // ─── Web Push ───
+  // 200 { publicKey, configured:true } khi đã cấu hình; 200 { publicKey:null, configured:false } khi chưa (tránh 501 spam).
+  // Giữ catch 501 legacy trong pushManager cho deploy cũ chưa redeploy.
   getVapidPublicKey: () =>
-    request<{ publicKey: string }>('GET', '/notifications/vapid-public-key'),
+    request<{ publicKey: string | null; configured?: boolean }>('GET', '/notifications/vapid-public-key'),
 
   subscribePush: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
     request<{ ok: boolean }>('POST', '/notifications/subscribe', sub),

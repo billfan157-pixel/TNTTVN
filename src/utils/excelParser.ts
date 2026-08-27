@@ -217,13 +217,40 @@ export function rowsToRawStrings(rawRows: any[][]): string[][] {
 
 export function normalizeDate(value: string): string {
   const cleaned = value.trim()
+  if (!cleaned || cleaned === 'Chưa cập nhật') return cleaned
   if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned
+  // Excel serial date (e.g., 44927) — happens when Excel stores date as number and sheet_to_json with header:1 + String conversion
+  if (/^\d{5,6}$/.test(cleaned)) {
+    const serial = Number(cleaned)
+    if (serial >= 20000 && serial <= 60000) {
+      const epoch = Date.UTC(1899, 11, 30)
+      const d = new Date(epoch + serial * 86400000)
+      const yyyy = d.getUTCFullYear()
+      if (yyyy >= 1990 && yyyy <= 2060) {
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+        const dd = String(d.getUTCDate()).padStart(2, '0')
+        return `${yyyy}-${mm}-${dd}`
+      }
+    }
+  }
   const parts = cleaned.split(/[/\-.]/)
   if (parts.length === 3) {
     if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`
     return `${parts[2].padStart(4, '20')}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
   }
   return cleaned
+}
+
+export function normalizePhone(value: string): string {
+  let s = value.trim().replace(/[\s\-.]/g, '')
+  if (!s || s === 'Chưa cập nhật') return s
+  if (/^\d{9}$/.test(s) && /^[35789]/.test(s)) s = `0${s}`
+  if (s.includes('E') || s.includes('e')) {
+    const n = Number(s)
+    if (!Number.isNaN(n)) s = String(Math.round(n))
+    if (/^\d{9}$/.test(s) && /^[35789]/.test(s)) s = `0${s}`
+  }
+  return s
 }
 
 export const VALID_BRANCHES: BranchType[] = ['ChienCon', 'AuNhi', 'ThieuNhi', 'NghiaSi', 'HiepSi']

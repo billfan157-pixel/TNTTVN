@@ -16,7 +16,8 @@ async function enrichClassList(classList: any[], parishId: string) {
     .from(catechistAssignments)
     .where(and(eq(catechistAssignments.parishId, parishId), inArray(catechistAssignments.classId, classIds)))
   const userIds = [...new Set(assignments.map(a => a.userId))]
-  const userRows = await db
+  // Hardening: tránh query inArray(users.id, []) khi parish chưa có assignment nào (Drizzle trả false nhưng vẫn 1 query thừa).
+  const userRows = userIds.length === 0 ? [] : await db
     .select({ id: users.id, fullName: users.fullName, username: users.username })
     .from(users)
     .where(and(inArray(users.id, userIds), eq(users.parishId, parishId)))

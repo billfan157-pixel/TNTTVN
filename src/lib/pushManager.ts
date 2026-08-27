@@ -65,12 +65,22 @@ export async function initPushSubscription(): Promise<void> {
     const registration = await registerServiceWorker()
     if (!registration) return
 
-    let publicKey: string
+    let publicKey: string | null = null
     try {
-      const res = await api.getVapidPublicKey()
-      publicKey = res.publicKey
+      const res: any = await api.getVapidPublicKey()
+      // Server mới trả { publicKey: null, configured:false } với 200 khi chưa cấu hình (tránh 501 spam).
+      // Giữ tương thích 501 legacy cho deploy cũ chưa redeploy.
+      if (res && res.configured === false) {
+        console.debug('[pushManager] VAPID not configured — skipping push subscription')
+        return
+      }
+      publicKey = res?.publicKey ?? null
+      if (!publicKey) {
+        console.debug('[pushManager] VAPID not configured — skipping push subscription')
+        return
+      }
     } catch (err: any) {
-      // 501 = VAPID chưa cấu hình — expected khi deploy chưa set env, không phải lỗi app
+      // 501 legacy = VAPID chưa cấu hình — expected khi deploy chưa set env, không phải lỗi app
       if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
         console.debug('[pushManager] VAPID not configured — skipping push subscription')
         return

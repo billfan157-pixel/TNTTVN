@@ -326,6 +326,53 @@ async function matchClass(
   return { className: trimmed, matchedClass: null, suggestions: [], reason: ['Không tìm thấy lớp nào khớp'] }
 }
 
+function normalizeExcelDate(value: string): string {
+  const s = toStr(value).trim()
+  if (!s || isPlaceholder(s) || /^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  // Excel serial date (e.g., 44927) — common when Excel stores date as number.
+  // Detect 5-6 digit integer in plausible Excel range (1900-01-01 .. 2060).
+  if (/^\d{5,6}$/.test(s)) {
+    const serial = Number(s)
+    if (serial >= 20000 && serial <= 60000) {
+      // Excel epoch 1899-12-30 (with Lotus 1900 bug accounted for by this epoch)
+      const epoch = Date.UTC(1899, 11, 30)
+      const ms = epoch + serial * 86400000
+      const d = new Date(ms)
+      const yyyy = d.getUTCFullYear()
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const dd = String(d.getUTCDate()).padStart(2, '0')
+      // Validate resulting date is plausible (1990-2060) to avoid misconverting phone numbers etc.
+      if (yyyy >= 1990 && yyyy <= 2060) return `${yyyy}-${mm}-${dd}`
+    }
+  }
+  // Also handle dd/mm/yyyy with slash splits (client does similar, but server adds safety)
+  const parts = s.split(/[/\-.]/)
+  if (parts.length === 3) {
+    const p = parts.map(x => x.trim())
+    // yyyy-mm-dd already handled, but yyyy/m/d
+    if (p[0].length === 4) return `${p[0].padStart(4, '0')}-${p[1].padStart(2, '0')}-${p[2].padStart(2, '0')}`
+    // dd/mm/yyyy
+    const yyyy2 = p[2].length === 2 ? `20${p[2]}` : p[2].padStart(4, '20')
+    return `${yyyy2}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`
+  }
+  return s
+}
+
+function normalizePhoneValue(value: string): string {
+  let s = toStr(value).trim().replace(/[\s\-.]/g, '')
+  if (!s || isPlaceholder(s)) return s
+  // Excel strips leading 0 when storing phone as number: 901234567 -> "901234567"
+  // Vietnamese mobile numbers are 10 digits starting 0, or 9 digits without 0.
+  if (/^\d{9}$/.test(s) && /^[35789]/.test(s)) s = `0${s}`
+  // Handle scientific notation or float from Excel? "9.01234567E8" unlikely but coerce
+  if (s.includes('E') || s.includes('e')) {
+    const n = Number(s)
+    if (!Number.isNaN(n)) s = String(Math.round(n))
+    if (/^\d{9}$/.test(s) && /^[35789]/.test(s)) s = `0${s}`
+  }
+  return s
+}
+
 export function normalizeImportRows(rows: ImportRow[]): ImportRow[] {
   const normalized: ImportRow[] = []
   for (const row of rows) {
@@ -335,9 +382,9 @@ export function normalizeImportRows(rows: ImportRow[]): ImportRow[] {
       holyName: toStr((row as any).holyName),
       fullName: toStr((row as any).fullName),
       gender: toStr((row as any).gender),
-      dateOfBirth: toStr((row as any).dateOfBirth),
+      dateOfBirth: normalizeExcelDate(toStr((row as any).dateOfBirth)),
       parentName: toStr((row as any).parentName),
-      parentPhone: toStr((row as any).parentPhone),
+      parentPhone: normalizePhoneValue(toStr((row as any).parentPhone)),
       address: toStr((row as any).address),
       branch: toStr((row as any).branch),
       className: toStr((row as any).className),
@@ -366,12 +413,12 @@ export async function detectDuplicates(
 ): Promise<Map<number, { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string }>> {
   const result = new Map<number, { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string }>()
 
-  // Intra-file deduplication
+  // Intra-file deduplication — defensive toStr for Excel numeric/null cells
   const intraFileMap = new Map<string, ImportRow>()
   const rowsToCheck: ImportRow[] = []
   for (const row of rows) {
-    const fn = normalizeName(row.fullName || '')
-    const dob = row.dateOfBirth?.trim()
+    const fn = normalizeName(toStr(row.fullName))
+    const dob = toStr(row.dateOfBirth).trim()
     if (fn && dob && !isPlaceholder(dob)) {
       const key = `${fn}||${dob}`
       if (intraFileMap.has(key)) {
@@ -388,11 +435,11 @@ export async function detectDuplicates(
     rowsToCheck.push(row)
   }
 
-  const phones = [...new Set(rowsToCheck.map(r => r.parentPhone?.trim()).filter(Boolean))]
+  const phones = [...new Set(rowsToCheck.map(r => toStr(r.parentPhone).trim()).filter(Boolean).filter(p => !isPlaceholder(p)))]
   const nameDobPairs = [...new Set(rowsToCheck.map(r => {
-    const n = r.fullName?.trim()
-    const d = r.dateOfBirth?.trim()
-    return n && d ? `${n}||${d}` : ''
+    const n = toStr(r.fullName).trim()
+    const d = toStr(r.dateOfBirth).trim()
+    return n && d && !isPlaceholder(d) ? `${n}||${d}` : ''
   }).filter(Boolean))]
 
   if (phones.length === 0 && nameDobPairs.length === 0) return result
@@ -462,14 +509,14 @@ export async function detectDuplicates(
   const byPhone = new Map<string, typeof existing>()
   const byNameDob = new Map<string, typeof existing>()
   for (const s of uniqueExisting) {
-    const p = s.parentPhone?.trim()
+    const p = toStr(s.parentPhone).trim()
     if (p && !isPlaceholder(p)) {
       const list = byPhone.get(p) || []
       list.push(s)
       byPhone.set(p, list)
     }
-    const fn = normalizeName(s.fullName || '')
-    const dob = s.dateOfBirth?.trim()
+    const fn = normalizeName(toStr(s.fullName))
+    const dob = toStr(s.dateOfBirth).trim()
     if (fn && dob && !isPlaceholder(dob)) {
       const key = `${fn}||${dob}`
       const list = byNameDob.get(key) || []
@@ -479,9 +526,9 @@ export async function detectDuplicates(
   }
 
   for (const row of rowsToCheck) {
-    const phone = row.parentPhone?.trim()
-    const rowNormName = normalizeName(row.fullName || '')
-    const rowDob = row.dateOfBirth?.trim()
+    const phone = toStr(row.parentPhone).trim()
+    const rowNormName = normalizeName(toStr(row.fullName))
+    const rowDob = toStr(row.dateOfBirth).trim()
     const hasValidDob = rowDob && !isPlaceholder(rowDob)
     const nameDobKey = `${rowNormName}||${rowDob}`
 

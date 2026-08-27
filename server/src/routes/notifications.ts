@@ -118,9 +118,12 @@ notificationsRouter.post('/send', roleMiddleware('admin'), zValidator('json', se
 
 notificationsRouter.get('/vapid-public-key', async (c) => {
   if (!isVapidConfigured()) {
-    return errorResponse(c, 'VAPID_NOT_CONFIGURED', 'VAPID keys not configured', 501)
+    // 200 with configured:false — tránh browser log "Failed to load resource: 501" spam mỗi lần load.
+    // Client skip graceful (pushManager debug), không phải lỗi nghiệp vụ. Giữ 501 cho POST /send
+    // (hành động tường minh của user) để fail-closed rõ ràng; GET key là best-effort probe nên 200.
+    return successResponse(c, { publicKey: null, configured: false })
   }
-  return successResponse(c, { publicKey: getVapidPublicKey() })
+  return successResponse(c, { publicKey: getVapidPublicKey(), configured: true })
 })
 
 notificationsRouter.get('/subscriptions', roleMiddleware('admin'), async (c) => {

@@ -54,8 +54,8 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `SAFETY_BACKUP_DIR` | ❌ No | `{DB_PATH dir}/backups/safety` | Safety snapshot directory for destructive ops (purge) |
 | `SEED_ADMIN_PASSWORD` | ⚠️ Required khi DB trống | **Không có default**; 8–128 ký tự, ≥1 chữ hoa, ≥1 chữ số, ≥1 ký tự đặc biệt | **ADR-051 (2026-08-21):** chỉ được đọc khi chạy seed ban đầu (`seedIfEmpty` trên DB chưa có user hoặc `npm run db:seed`). Fresh startup **fail-closed** nếu thiếu/yếu; tuyệt đối không fallback về credential biết trước. Khi DB đã có user, startup không dùng biến này để reset mật khẩu; seed rerun vẫn `onConflictDoNothing` cho admin. Docker Compose truyền biến từ `.env`; Railway phải set trong dashboard trước lần init DB đầu tiên. |
 | `SUPER_ADMIN_ID` | ❌ No | `USR-001` | User ID bypassing role checks (super admin) |
-| `VAPID_PUBLIC_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID public key — client subscribe cần (trả qua `GET /api/notifications/vapid-public-key`); thiếu → endpoint trả 501 `VAPID_NOT_CONFIGURED`, `/send` trả 501 và queue đánh `failed` (không `sent` giả) — **fail-closed đúng thiết kế** (xem §8 Web Push Setup) |
-| `VAPID_PRIVATE_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID private key — **điều kiện**: BẮT BUỘC set cùng `VAPID_PUBLIC_KEY` nếu muốn tính năng thông báo web push hoạt động (thiếu → 501, client skip graceful) |
+| `VAPID_PUBLIC_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID public key — client subscribe cần (trả qua `GET /api/notifications/vapid-public-key`); thiếu → **mới 2026-08-28**: `GET /vapid-public-key` trả 200 `{ publicKey: null, configured:false }` (không còn 501 spam, client skip debug), `/send` vẫn 501 và queue đánh `failed` (không `sent` giả) — **fail-closed đúng thiết kế** (xem §8 Web Push Setup) |
+| `VAPID_PRIVATE_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID private key — **điều kiện**: BẮT BUỘC set cùng `VAPID_PUBLIC_KEY` nếu muốn tính năng thông báo web push hoạt động (thiếu → GET 200 configured:false, client skip graceful; POST /send 501) |
 | `VAPID_SUBJECT` | ❌ No | `mailto:admin@giaoly.com` | VAPID contact subject (khuyến nghị đổi thành email quản trị thật của giáo xứ) |
 | `BACKUP_ENCRYPTION_KEY` | ⚠️ Required với Turso backup | 32 byte (64 hex hoặc base64), tách khỏi JWT/R2 keys | AES-256-GCM cho logical backup Turso trước khi upload R2 (ADR-059). Mất key = không giải mã được backup; lộ key + R2 artifact = mất tính bí mật |
 | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ⚠️ Required với Turso backup | Cloudflare R2 S3-compatible | Kho backup độc lập với Turso. Remote DB không fallback xuống disk Render ephemeral |
@@ -177,7 +177,7 @@ Browser/PWA (https://tnttvn.vercel.app)
 
 ## 8. WEB PUSH (VAPID) SETUP
 
-Web push (thông báo trình duyệt) chỉ hoạt động khi server có cặp VAPID keys. **Thiếu keys → `GET /api/notifications/vapid-public-key` trả 501 `VAPID_NOT_CONFIGURED`** và client bỏ qua đăng ký push (log `[pushManager] push subscription failed (skipping)` — fail-closed đúng thiết kế, không crash app).
+Web push (thông báo trình duyệt) chỉ hoạt động khi server có cặp VAPID keys. **Thiếu keys → từ 2026-08-28 `GET /api/notifications/vapid-public-key` trả 200 `{ data: { publicKey: null, configured:false } }` (không còn 501 spam — browser không log "Failed to load resource", `pushManager` chỉ `console.debug` và skip)** và client bỏ qua đăng ký push — fail-closed đúng thiết kế, không crash app. Legacy deploy cũ vẫn trả 501; client mới bắt cả hai để tương thích.
 
 ### 8.1 Tạo cặp VAPID keys
 
@@ -199,7 +199,7 @@ Output có dạng:
 
 1. Set 3 biến môi trường: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (lấy từ output trên), `VAPID_SUBJECT` (khuyến nghị `mailto:<email quản trị thật>`).
 2. **Restart/redeploy** service (keys được đọc khi server khởi động — `webPushService.ts` đọc `process.env` mỗi lần gọi, nhưng cần khởi động lại để pick env mới trên Railway).
-3. Verify: `curl https://<api-host>/api/notifications/vapid-public-key` với Bearer token → 200 `{ data: { publicKey } }` (trước đó: 501).
+3. Verify: `curl https://<api-host>/api/notifications/vapid-public-key` với Bearer token → 200 `{ data: { publicKey, configured: true } }` (trước đó thiếu keys: 200 `{ data: { publicKey: null, configured:false } }`; legacy 501 `VAPID_NOT_CONFIGURED`).
 4. Client (đã login) sẽ tự đăng ký push ở lần reload/login kế tiếp — không cần thay đổi code.
 
 > Lưu ý bảo mật: `VAPID_PRIVATE_KEY` là bí mật — không commit vào repo, không ghi vào log. Vòng đời key rò rỉ → generate lại cặp mới + set lại env: subscription cũ bị push service từ chối (signature không khớp `applicationServerKey` lúc subscribe) → `sendWebPushToParish` nhận lỗi và dọn subscription chết, client re-subscribe ở lần login/reload kế tiếp.

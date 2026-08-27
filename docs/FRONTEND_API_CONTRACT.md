@@ -237,7 +237,7 @@ Client: `src/lib/pushManager.ts` (`initPushSubscription`/`disablePushSubscriptio
 
 | Method & Path | Purpose | Auth | Success `data` | Errors |
 | :--- | :--- | :--- | :--- | :--- |
-| `GET /api/notifications/vapid-public-key` | VAPID public key để client `PushManager.subscribe` | auth (mọi role) | `{ publicKey }` | 501 `VAPID_NOT_CONFIGURED` |
+| `GET /api/notifications/vapid-public-key` | VAPID public key để client `PushManager.subscribe` | auth (mọi role) | `{ publicKey: string \| null, configured: boolean }` — 200 ngay cả khi chưa cấu hình (`{ publicKey: null, configured:false }` để tránh browser log 501 spam; client skip debug, không lỗi) — legacy 501 `VAPID_NOT_CONFIGURED` vẫn được client bắt để tương thích deploy cũ |
 | `POST /api/notifications/subscribe` | Lưu PushSubscription (endpoint + p256dh + auth) | auth | `{ ok: true }` | — (idempotent, endpoint UNIQUE) |
 | `POST /api/notifications/unsubscribe` | Xóa subscription theo endpoint | auth | `{ ok: true }` | — |
 | `POST /api/notifications/send` | Gửi ngay tới mọi subscription của giáo xứ (title/body/url) | admin + chunhiem | `{ sent, failed, total, removed }` | 501 `VAPID_NOT_CONFIGURED` |
