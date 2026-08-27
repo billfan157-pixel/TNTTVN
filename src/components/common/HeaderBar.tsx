@@ -97,9 +97,51 @@ export const HeaderBar: React.FC = () => {
               </div>
             </div>
 
-            {/* Controls Section — Phase 1: header chỉ brand + utilities (filters đã chuyển xuống secondary toolbar) */}
+            {/* Controls Section — Option A: filters lại trong header (mega-bar), đã fix xl->lg + contrast */}
             <div className="flex items-center gap-2.5 flex-wrap">
-              {/* ── Zone 2: App utilities (PHA 2 — tách khỏi data filters) ── */}
+              {/* Class & Search Group — Option A: giữ trong header, contrast 4.5:1 + clear */}
+              <div className="flex items-center gap-2 bg-black/30 border border-white/20 rounded-2xl p-1 shadow-inner backdrop-blur-md">
+                {currentUser?.role === 'admin' && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-white">
+                    <span className="text-white/70 font-medium hidden sm:inline">Lớp:</span>
+                    <select
+                      value={selectedClassId}
+                      onChange={(e) => setSelectedClassId(e.target.value)}
+                      className="bg-transparent text-white font-semibold outline-none cursor-pointer pr-1"
+                    >
+                      <option value="all" className="text-slate-900">Tất cả lớp học</option>
+                      {classList.map((c) => (
+                        <option key={c.id} value={c.id} className="text-slate-900">{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 px-3 py-1 text-xs text-white relative">
+                  <Search size={14} className="text-white/60 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Tìm tên, mã..."
+                    aria-label="Tìm tên, mã thiếu nhi"
+                    className="bg-transparent text-white placeholder-white/70 text-xs font-medium outline-none w-28 sm:w-36 lg:w-44"
+                  />
+                  {searchQuery && (
+                    <button type="button" onClick={() => setSearchQuery('')} aria-label="Xóa tìm kiếm" className="absolute right-1 w-6 h-6 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/20 transition-colors">×</button>
+                  )}
+                </div>
+              </div>
+              {/* Semester — Option A: giữ trong header */}
+              <div className="flex items-center gap-1 h-11 px-1 rounded-2xl bg-black/30 border border-white/20 shadow-inner backdrop-blur-md">
+                {semesterRestricted ? (
+                  <span className="flex items-center px-3 h-9 text-sm font-bold rounded-lg text-white bg-white/15">Học Kỳ {openSemester === 2 ? 'II' : 'I'}</span>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => setSelectedSemester(1)} aria-pressed={selectedSemester === 1} className="flex items-center px-3 h-9 text-sm font-bold rounded-lg transition-all" style={{ background: selectedSemester === 1 ? 'white' : 'transparent', color: selectedSemester === 1 ? '#1E3A8A' : 'white' }}>HK I</button>
+                    <button type="button" onClick={() => setSelectedSemester(2)} aria-pressed={selectedSemester === 2} className="flex items-center px-3 h-9 text-sm font-bold rounded-lg transition-all" style={{ background: selectedSemester === 2 ? 'white' : 'transparent', color: selectedSemester === 2 ? '#1E3A8A' : 'white' }}>HK II</button>
+                  </>
+                )}
+              </div>
               <div className="hidden lg:block h-8 w-px bg-white/15 shrink-0" aria-hidden="true" />
 
               <div className="flex items-center gap-1.5">
@@ -203,79 +245,6 @@ export const HeaderBar: React.FC = () => {
             </div>
           </div>
         </header>
-      )}
-
-      {/* Phase 1 — Secondary toolbar: filters (sticky dưới header, glass 16px) — giảm crowding header 1024px */}
-      {effectiveMode !== 'mobile' && (
-        <div className="secondary-toolbar hidden md:flex justify-between flex-wrap gap-3 px-6">
-          <div className="flex items-center gap-2 flex-wrap">
-            {currentUser?.role === 'admin' && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-text-muted uppercase tracking-wide">Lớp:</span>
-                <select
-                  value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
-                  className="form-select h-8 text-xs font-semibold pr-6 min-w-[140px]"
-                >
-                  <option value="all">Tất cả lớp học</option>
-                  {classList.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm tên, mã thiếu nhi..."
-                aria-label="Tìm tên, mã thiếu nhi"
-                className="form-input-sm w-56 pl-9 pr-8"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Xóa tìm kiếm"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-text-muted uppercase tracking-wide hidden sm:inline">Học kỳ:</span>
-            {semesterRestricted ? (
-              <span className="inline-flex items-center px-3 h-8 text-xs font-bold rounded-full bg-surface-hover border border-surface-border text-text-secondary">
-                Học Kỳ {openSemester === 2 ? 'II' : 'I'}
-              </span>
-            ) : (
-              <div className="pill-group">
-                <button
-                  type="button"
-                  onClick={() => setSelectedSemester(1)}
-                  aria-pressed={selectedSemester === 1}
-                  className={`pill-group-item ${selectedSemester === 1 ? 'active' : ''}`}
-                >
-                  HK I
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedSemester(2)}
-                  aria-pressed={selectedSemester === 2}
-                  className={`pill-group-item ${selectedSemester === 2 ? 'active' : ''}`}
-                >
-                  HK II
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
       )}
 
       <SystemDiagnosticsModal isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
