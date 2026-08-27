@@ -1,10 +1,11 @@
 # 🎨 Design System — Brave Davinci (TNTT Parish Management PWA)
 
-**Phiên bản:** 3.1 (Operational Product UI System — Updated 2026-08-14)
-**Trạng thái:** ✅ **SSOT DUY NHẤT** — quyết định ADR-030
+**Phiên bản:** 3.2 (Calm 2026 — Phase 0 Foundation — Updated 2026-08-27)
+**Trạng thái:** ✅ **SSOT DUY NHẤT** — quyết định ADR-030 + Phase 0 Calm
 **Nguồn vận hành (code truth):** `src/index.css` — mọi class/token được khai báo tại đây, tài liệu này là tài liệu hóa của nó.
 
 > **Nguyên tắc bất biến:** Mọi thành phần UI MỚI phải dùng token/class trong tài liệu này. Không dùng hex màu cứng, không dùng class không tồn tại, không dùng màu ngoài bảng palette. Migration các module cũ theo bảng §10.
+> **Phase 0 (Calm 2026):** Glass chỉ shell (Header/BottomNav/Sheet) `blur 16-18px + saturate 140%`, card/table **solid** `surface-card`. Motion `160ms var(--motion-ease-out)`. Secondary toolbar sticky `52px` dưới header.
 
 ---
 
@@ -75,6 +76,18 @@
 | `cell-state-saved` | Đã lưu cục bộ | Nền xanh lá nhạt, transition mượt |
 | `cell-state-conflict` | Xung đột phiên bản | Nền đỏ nhạt, viền đỏ cảnh báo |
 | `cell-state-locked` | Khóa sổ / Chỉ đọc | Nền xám, icon khóa, cursor not-allowed |
+
+### 2.5 Motion & Glass (Phase 0 — Calm 2026)
+
+| Token | Giá trị | Dùng cho |
+| --- | --- | --- |
+| `motion-ease-out` | `cubic-bezier(0.23,1,0.32,1)` | Mọi transition (header/bottomNav/sheet/table opacity) |
+| `motion-duration` | `160ms` | Duration chuẩn |
+| `glass-blur` | `16px` | Shell blur (BottomNav 18px, Sheet 14px) |
+| `glass-border` | `rgba(255,255,255,0.15)` | Shell border |
+| `z-secondary-toolbar` | `39` | Sticky toolbar dưới header (`--z-header 40`) |
+| `secondary-toolbar-height` | `52px` | Chiều cao toolbar filters |
+| `scroll-padding-top` | `calc(var(--app-bar-height)+16px)` | WCAG 2.4.11 Focus Not Obscured |
 
 ### 2.3 Radius & Shadow
 
