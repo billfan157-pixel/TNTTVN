@@ -24,22 +24,17 @@ import {
   buildGoogleCalendarUrl,
 } from '../../utils/icalGenerator'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
-import type { LiturgicalDay, ParishEvent } from '../../types/liturgical'
+import type { LiturgicalDay } from '../../types/liturgical'
+import type { ParishEvent } from '../../stores/parishEventStore'
 import { PageHeader } from '../common/PageHeader'
+import { useParishEventStore } from '../../stores/parishEventStore'
+import { useToastStore } from '../../stores/toastStore'
+import { Trash2 } from 'lucide-react'
 
 export const DesktopCalendarView: React.FC = () => {
-  const EVENTS_STORAGE_KEY = 'parish_calendar_events_v1'
-
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [selectedDay, setSelectedDay] = useState<LiturgicalDay>(getLiturgicalDay(new Date()))
-  const [parishEvents, setParishEvents] = useState<ParishEvent[]>(() => {
-    try {
-      const raw = localStorage.getItem(EVENTS_STORAGE_KEY)
-      return raw ? (JSON.parse(raw) as ParishEvent[]) : []
-    } catch {
-      return []
-    }
-  })
+  const { events: parishEvents, fetchEvents, createEvent, updateEvent, deleteEvent } = useParishEventStore()
   const [showAddEventModal, setShowAddEventModal] = useState(false)
   const [editingEvent, setEditingEvent] = useState<ParishEvent | null>(null)
   const [newEventDate, setNewEventDate] = useState(() => getLiturgicalDay(new Date()).date)
@@ -51,12 +46,8 @@ export const DesktopCalendarView: React.FC = () => {
   const [exportScope, setExportScope] = useState<'year' | 'month' | 'solemnity_only'>('year')
 
   useEffect(() => {
-    try {
-      localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify(parishEvents))
-    } catch {
-      // localStorage đầy/bị chặn — best-effort, không chặn thao tác
-    }
-  }, [parishEvents, EVENTS_STORAGE_KEY])
+    fetchEvents()
+  }, [fetchEvents])
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth() + 1 // 1 - 12
@@ -105,7 +96,7 @@ export const DesktopCalendarView: React.FC = () => {
       }
     }
 
-    const icsString = generateLiturgicalIcs(daysToExport, parishEvents, {
+    const icsString = generateLiturgicalIcs(daysToExport, parishEvents as any, {
       calendarName: `Lịch Phụng Vụ ${year} - TNTT`,
       parishName: 'Giáo Xứ Gia Tôn',
     })
@@ -131,7 +122,7 @@ export const DesktopCalendarView: React.FC = () => {
     return parishEvents.filter((e) => e.date === selectedDay.date)
   }, [parishEvents, selectedDay.date])
 
-  const handleAddEvent = (e: React.FormEvent) => {
+  const handleAddEvent = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newEventTitle.trim() || !newEventDate) return
 
@@ -150,20 +141,21 @@ export const DesktopCalendarView: React.FC = () => {
       title: newEventTitle.trim(),
       category: newEventCategory,
       categoryName: categoryNames[newEventCategory],
-      time: newEventTime,
-      location: newEventLocation,
+      time: newEventTime.trim() || undefined,
+      location: newEventLocation.trim() || undefined,
     }
 
-    if (editingEvent) {
-      setParishEvents((prev) =>
-        prev.map((ev) => (ev.id === editingEvent.id ? { ...ev, ...payload } : ev)),
-      )
-    } else {
-      const newEv: ParishEvent = {
-        id: `EV-${Date.now()}`,
-        ...payload,
+    try {
+      if (editingEvent) {
+        await updateEvent(editingEvent.id, payload)
+        useToastStore.getState().addToast('Đã cập nhật sự kiện', 'success')
+      } else {
+        await createEvent(payload as any)
+        useToastStore.getState().addToast('Đã thêm sự kiện xứ đoàn', 'success')
       }
-      setParishEvents((prev) => [...prev, newEv])
+    } catch (err: any) {
+      useToastStore.getState().addToast(err?.message || 'Không thể lưu sự kiện', 'error')
+      return
     }
 
     // Chuyển đến ngày của sự kiện vừa lưu để người dùng thấy kết quả
@@ -178,6 +170,12 @@ export const DesktopCalendarView: React.FC = () => {
     setNewEventLocation('')
     setEditingEvent(null)
     setShowAddEventModal(false)
+  }
+
+  const handleDeleteEvent = async (ev: ParishEvent) => {
+    if (!confirm(`Xóa sự kiện "${ev.title}" ngày ${ev.date}?`)) return
+    await deleteEvent(ev.id)
+    useToastStore.getState().addToast('Đã xóa sự kiện', 'success')
   }
 
   const handleOpenAddEventModal = () => {
@@ -486,6 +484,14 @@ export const DesktopCalendarView: React.FC = () => {
                             title="Chỉnh sửa sự kiện"
                           >
                             <Pencil size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEvent(ev)}
+                            className="p-1 rounded-md text-text-muted hover:text-rose-600 hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+                            title="Xóa sự kiện"
+                          >
+                            <Trash2 size={12} />
                           </button>
                         </span>
                       </div>

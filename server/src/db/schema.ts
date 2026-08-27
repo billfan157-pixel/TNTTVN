@@ -927,3 +927,22 @@ export const studentFeeRecords = sqliteTable('student_fee_records', {
   uniqueIndex('idx_student_fees_unique').on(table.parishId, table.studentId, table.academicYear, table.feeType),
   index('idx_student_fees_class').on(table.parishId, table.classId, table.academicYear),
 ])
+
+export const parishEvents = sqliteTable('parish_events', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  date: text('date').notNull(),
+  title: text('title').notNull(),
+  category: text('category', { enum: ['FEAST_DAY', 'CAMP', 'TRAINING', 'SACRAMENT', 'RETREAT', 'MEETING', 'OTHER'] }).notNull(),
+  categoryName: text('category_name'),
+  time: text('time'),
+  location: text('location'),
+  createdBy: text('created_by'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  index('idx_parish_events_parish_date').on(table.parishId, table.date),
+  index('idx_parish_events_parish_category').on(table.parishId, table.category),
+])

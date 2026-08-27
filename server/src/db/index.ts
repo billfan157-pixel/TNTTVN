@@ -424,6 +424,21 @@ await client.executeMultiple(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS parish_events (
+    id TEXT PRIMARY KEY,
+    parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+    date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL CHECK(category IN ('FEAST_DAY', 'CAMP', 'TRAINING', 'SACRAMENT', 'RETREAT', 'MEETING', 'OTHER')),
+    category_name TEXT,
+    time TEXT,
+    location TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TEXT
+  );
+
   `)
 
 const INDICES = [
@@ -474,6 +489,8 @@ const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_semester_locks_lookup ON semester_locks(parish_id, academic_year, semester)',
   'CREATE INDEX IF NOT EXISTS idx_promotion_records_lookup ON promotion_records(parish_id, student_id, academic_year)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key)',
+  'CREATE INDEX IF NOT EXISTS idx_parish_events_parish_date ON parish_events(parish_id, date)',
+  'CREATE INDEX IF NOT EXISTS idx_parish_events_parish_category ON parish_events(parish_id, category)',
   `CREATE TRIGGER IF NOT EXISTS check_grade_scores_insert BEFORE INSERT ON grades BEGIN SELECT CASE WHEN NEW.score_oral IS NOT NULL AND (NEW.score_oral < 0 OR NEW.score_oral > 10) THEN RAISE(ABORT, 'score_oral out of range 0-10') WHEN NEW.score_15m IS NOT NULL AND (NEW.score_15m < 0 OR NEW.score_15m > 10) THEN RAISE(ABORT, 'score_15m out of range 0-10') WHEN NEW.score_1_period IS NOT NULL AND (NEW.score_1_period < 0 OR NEW.score_1_period > 10) THEN RAISE(ABORT, 'score_1_period out of range 0-10') WHEN NEW.score_midterm IS NOT NULL AND (NEW.score_midterm < 0 OR NEW.score_midterm > 10) THEN RAISE(ABORT, 'score_midterm out of range 0-10') WHEN NEW.score_final IS NOT NULL AND (NEW.score_final < 0 OR NEW.score_final > 10) THEN RAISE(ABORT, 'score_final out of range 0-10') WHEN NEW.score_dao_duc IS NOT NULL AND (NEW.score_dao_duc < 0 OR NEW.score_dao_duc > 10) THEN RAISE(ABORT, 'score_dao_duc out of range 0-10') END; END`,
   `CREATE TRIGGER IF NOT EXISTS check_grade_scores_update BEFORE UPDATE ON grades BEGIN SELECT CASE WHEN NEW.score_oral IS NOT NULL AND (NEW.score_oral < 0 OR NEW.score_oral > 10) THEN RAISE(ABORT, 'score_oral out of range 0-10') WHEN NEW.score_15m IS NOT NULL AND (NEW.score_15m < 0 OR NEW.score_15m > 10) THEN RAISE(ABORT, 'score_15m out of range 0-10') WHEN NEW.score_1_period IS NOT NULL AND (NEW.score_1_period < 0 OR NEW.score_1_period > 10) THEN RAISE(ABORT, 'score_1_period out of range 0-10') WHEN NEW.score_midterm IS NOT NULL AND (NEW.score_midterm < 0 OR NEW.score_midterm > 10) THEN RAISE(ABORT, 'score_midterm out of range 0-10') WHEN NEW.score_final IS NOT NULL AND (NEW.score_final < 0 OR NEW.score_final > 10) THEN RAISE(ABORT, 'score_final out of range 0-10') WHEN NEW.score_dao_duc IS NOT NULL AND (NEW.score_dao_duc < 0 OR NEW.score_dao_duc > 10) THEN RAISE(ABORT, 'score_dao_duc out of range 0-10') END; END`,
   `CREATE TRIGGER IF NOT EXISTS check_outbox_messages_status_insert BEFORE INSERT ON outbox_messages BEGIN SELECT CASE WHEN NEW.status NOT IN ('pending', 'dispatched', 'failed') THEN RAISE(ABORT, 'outbox_messages status invalid') END; END`,
@@ -1524,6 +1541,24 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_created_at ON audit_logs(parish
   { version: '20260827-131', sql: `UPDATE users SET password_encrypted = NULL WHERE password_encrypted IS NOT NULL` },
   { version: '20260828-132', sql: `ALTER TABLE import_batches ADD COLUMN created_class_ids TEXT DEFAULT '[]'` },
   { version: '20260828-133', sql: `ALTER TABLE import_batch_students ADD COLUMN rollback_snapshot TEXT` },
+  { version: '20260828-134', sql: `
+CREATE TABLE IF NOT EXISTS parish_events (
+  id TEXT PRIMARY KEY,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  date TEXT NOT NULL,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL CHECK(category IN ('FEAST_DAY', 'CAMP', 'TRAINING', 'SACRAMENT', 'RETREAT', 'MEETING', 'OTHER')),
+  category_name TEXT,
+  time TEXT,
+  location TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_parish_events_parish_date ON parish_events(parish_id, date);
+CREATE INDEX IF NOT EXISTS idx_parish_events_parish_category ON parish_events(parish_id, category);
+` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate
