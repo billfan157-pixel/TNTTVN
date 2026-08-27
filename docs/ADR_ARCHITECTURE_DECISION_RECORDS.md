@@ -1681,3 +1681,30 @@ runtime chưa được tuyên bố do QA tool không hỗ trợ viewport emulati
 **Post-implementation D2:** Security/Privacy 9, Data Integrity 9, Testability 9
 — PASS; ADR-030/032/055 compatibility PASS; protected behavior CONFIRMED.
 Usability thực địa trên thiết bị/role thật vẫn CONDITIONAL và chưa được claim.
+
+---
+
+## ADR-054: Student Roster Import Deduplication Hardening & Safe Skip Default (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2. Profile: GENERAL + SECURITY. Reversibility: R1.**
+
+### Context & Evidence
+- Trong đợt kiểm tra quy trình Import danh sách học sinh (`server/src/services/importService.ts` và `src/components/common/ExcelImportModal.tsx`):
+  1. `ExcelImportModal.tsx` khởi tạo `duplicateActions` mặc định là `'update'`, tiềm ẩn nguy cơ vô tình ghi đè bản ghi cũ nếu người dùng không chủ động chuyển sang `'skip'`.
+  2. `detectDuplicates` chỉ kiểm tra trùng nội bộ file khi có `dateOfBirth` hợp lệ (`if (fn && dob && !isPlaceholder(dob))`), bỏ sót các file thiếu ngày sinh.
+  3. Thiếu tra cứu theo Họ tên trong lớp mục tiêu khi thiếu ngày sinh và chưa phân biệt trường hợp sinh đôi cùng Họ tên/Ngày sinh nhưng khác Tên Thánh (`name_dob_diff_holy_name`).
+  4. Thiếu cảnh báo mờ (Fuzzy matching) cho các lỗi chính tả nhỏ khi SĐT/Ngày sinh trùng khớp.
+
+### Decision
+1. **Safe UI Default**: Đổi khởi tạo `duplicateActions` trên client sang mặc định `'skip'`. Thêm helper `formatDuplicateReason` để hiển thị lý do trùng khớp trực quan.
+2. **Multi-Key Intra-File Deduplication**: Mở rộng nhận diện trùng lặp nội bộ qua 4 tiêu chí: (1) `fullName + dob`, (2) `fullName + parentPhone`, (3) `holyName + fullName + className`, (4) `fullName + className`.
+3. **Enhanced Database Deduplication**:
+   - Truy vấn bổ sung theo `fullName` trong CSDL để khớp `(holyName, fullName, class)` và `(fullName, class)` khi thiếu ngày sinh.
+   - Phát hiện khác biệt Tên Thánh (`name_dob_diff_holy_name`) để bảo vệ dữ liệu sinh đôi.
+   - Bổ sung Fuzzy match Levenshtein $\ge 80\%$ khi trùng SĐT và/hoặc Ngày sinh.
+4. **Deterministic Concurrency Control**: Điều chỉnh `CONCURRENCY` thành `1` trong môi trường test/Vitest để đảm bảo an toàn lock SQLite nội bộ.
+
+### Verification
+- **Test Suite**: `server/src/__tests__/services/importDeduplicationHardening.test.ts` (7 tests PASS), toàn bộ 6 test file import (50 tests PASS).
+- **Quality**: `oxlint --deny-warnings` 0 error/0 warning, `tsc -b --noEmit` PASS, `npm run build:server` PASS.
+

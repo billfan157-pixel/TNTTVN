@@ -207,7 +207,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
       const dupActions: Record<string, 'skip' | 'update'> = {}
       for (const r of result.rows) {
-        if (r.duplicateOf) dupActions[String(r.rowIndex)] = 'update'
+        if (r.duplicateOf) dupActions[String(r.rowIndex)] = 'skip'
       }
       setDuplicateActions(dupActions)
 
@@ -357,6 +357,23 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   const showCombinedFullName = colMap['fullName'] === undefined && colMap['lastName'] !== undefined && colMap['firstName'] !== undefined
+
+  const formatDuplicateReason = (reason?: string): string => {
+    if (!reason) return 'Dữ liệu trùng khớp'
+    if (reason.startsWith('Trùng lặp') || reason.startsWith('Nghi vấn') || reason.includes('(')) return reason
+    switch (reason) {
+      case 'phone': return 'SĐT Phụ Huynh'
+      case 'phone_and_identity': return 'SĐT + Họ Tên + Ngày Sinh'
+      case 'phone_and_name': return 'SĐT + Họ Tên'
+      case 'name_dob': return 'Họ Tên + Ngày Sinh'
+      case 'name_holy_class': return 'Tên Thánh + Họ Tên trong cùng lớp'
+      case 'name_class': return 'Họ Tên trong cùng lớp'
+      case 'name_dob_diff_holy_name': return 'Họ Tên + Ngày Sinh (Khác Tên Thánh)'
+      case 'fuzzy_phone_dob': return 'Nghi vấn sai chính tả (Trùng SĐT & Ngày Sinh)'
+      case 'fuzzy_phone': return 'Nghi vấn sai chính tả (Trùng SĐT)'
+      default: return reason
+    }
+  }
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="excel-import-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" onClick={handleClose}>
@@ -689,7 +706,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         <div className="text-sm">
                           <span className="font-medium">Dòng {r.rowIndex}</span>: {r.fullName}
                           <span className="text-text-muted ml-2">
-                            → Có thể trùng với <strong>{r.duplicateOf?.fullName}</strong> ({r.duplicateOf?.reason === 'phone' ? 'SĐT' : 'Họ tên + Ngày sinh'})
+                            → Có thể trùng với <strong>{r.duplicateOf?.fullName}</strong> ({formatDuplicateReason(r.duplicateOf?.reason)})
                           </span>
                         </div>
                         <select

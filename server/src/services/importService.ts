@@ -419,25 +419,74 @@ export async function detectDuplicates(
 ): Promise<Map<number, { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string }>> {
   const result = new Map<number, { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string }>()
 
-  // Intra-file deduplication — defensive toStr for Excel numeric/null cells
-  const intraFileMap = new Map<string, ImportRow>()
+  // Multi-key intra-file deduplication (DOB, Phone, HolyName+Class, Name+Class)
+  const intraNameDobMap = new Map<string, ImportRow>()
+  const intraNamePhoneMap = new Map<string, ImportRow>()
+  const intraHolyNameClassMap = new Map<string, ImportRow>()
+  const intraNameClassMap = new Map<string, ImportRow>()
   const rowsToCheck: ImportRow[] = []
+
   for (const row of rows) {
     const fn = normalizeName(toStr(row.fullName))
+    const hn = normalizeName(toStr(row.holyName))
     const dob = toStr(row.dateOfBirth).trim()
-    if (fn && dob && !isPlaceholder(dob)) {
-      const key = `${fn}||${dob}`
-      if (intraFileMap.has(key)) {
-        const first = intraFileMap.get(key)!
-        result.set(row.rowIndex, {
-          studentId: 'intra-file',
-          fullName: first.fullName,
-          reason: `Trùng lặp dữ liệu với dòng ${first.rowIndex} trong cùng file`,
-        })
-        continue
+    const phone = toStr(row.parentPhone).trim()
+    const cls = canonicalClassKey(toStr(row.className))
+    const hasValidDob = Boolean(dob && !isPlaceholder(dob))
+    const hasValidPhone = Boolean(phone && !isPlaceholder(phone))
+
+    let intraFirst: ImportRow | undefined
+    let intraReason = ''
+
+    if (fn && hasValidDob) {
+      const k = `${fn}||${dob}`
+      if (intraNameDobMap.has(k)) {
+        intraFirst = intraNameDobMap.get(k)
+        intraReason = `Trùng lặp Họ Tên và Ngày Sinh với dòng ${intraFirst?.rowIndex} trong cùng file`
+      } else {
+        intraNameDobMap.set(k, row)
       }
-      intraFileMap.set(key, row)
     }
+
+    if (!intraFirst && fn && hasValidPhone) {
+      const k = `${fn}||${phone}`
+      if (intraNamePhoneMap.has(k)) {
+        intraFirst = intraNamePhoneMap.get(k)
+        intraReason = `Trùng lặp Họ Tên và SĐT Phụ Huynh với dòng ${intraFirst?.rowIndex} trong cùng file`
+      } else {
+        intraNamePhoneMap.set(k, row)
+      }
+    }
+
+    if (!intraFirst && hn && fn && cls) {
+      const k = `${hn}||${fn}||${cls}`
+      if (intraHolyNameClassMap.has(k)) {
+        intraFirst = intraHolyNameClassMap.get(k)
+        intraReason = `Trùng lặp Tên Thánh, Họ Tên và Lớp với dòng ${intraFirst?.rowIndex} trong cùng file`
+      } else {
+        intraHolyNameClassMap.set(k, row)
+      }
+    }
+
+    if (!intraFirst && fn && cls && !hasValidDob && !hasValidPhone) {
+      const k = `${fn}||${cls}`
+      if (intraNameClassMap.has(k)) {
+        intraFirst = intraNameClassMap.get(k)
+        intraReason = `Trùng lặp Họ Tên trong cùng lớp với dòng ${intraFirst?.rowIndex} trong cùng file`
+      } else {
+        intraNameClassMap.set(k, row)
+      }
+    }
+
+    if (intraFirst) {
+      result.set(row.rowIndex, {
+        studentId: 'intra-file',
+        fullName: intraFirst.fullName,
+        reason: intraReason,
+      })
+      continue
+    }
+
     rowsToCheck.push(row)
   }
 
@@ -447,22 +496,26 @@ export async function detectDuplicates(
     const d = toStr(r.dateOfBirth).trim()
     return n && d && !isPlaceholder(d) ? `${n}||${d}` : ''
   }).filter(Boolean))]
+  const namesWithoutValidDob = [...new Set(rowsToCheck.map(r => {
+    const d = toStr(r.dateOfBirth).trim()
+    const n = toStr(r.fullName).trim()
+    return (!d || isPlaceholder(d)) && n ? n : ''
+  }).filter(Boolean))]
 
-  if (phones.length === 0 && nameDobPairs.length === 0) return result
+  if (phones.length === 0 && nameDobPairs.length === 0 && namesWithoutValidDob.length === 0) return result
   if (allowedClassIds !== undefined && allowedClassIds !== null && allowedClassIds.length === 0) return result
 
-  // CHUNK size: Turso/libSQL has stricter variable/expression limits than local SQLite.
-  // 100 OR terms (200 variables) hit "too many SQL variables" / "expression tree too large" on production
-  // with ~120 rows (see VALIDATE_FAILED 2026-08-27). Keep chunks small + fallback per-row on failure.
   const CHUNK_PHONE = 50
   const CHUNK_NAME_DOB = 30
+  const CHUNK_NAME = 30
   const baseCond = [eq(students.parishId, parishId), isNull(students.deletedAt)]
   if (allowedClassIds) {
     baseCond.push(inArray(students.classId, allowedClassIds))
   }
 
-  // Query phones in chunks
   let existing: any[] = []
+
+  // 1. Query phones in chunks
   if (phones.length > 0) {
     for (let i = 0; i < phones.length; i += CHUNK_PHONE) {
       const chunk = phones.slice(i, i + CHUNK_PHONE)
@@ -483,7 +536,6 @@ export async function detectDuplicates(
         existing.push(...rows)
       } catch (err) {
         console.warn('[detectDuplicates] phone chunk failed, falling back per-phone', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
-        // Fallback: query each phone individually (still parish-scoped)
         for (const phone of chunk) {
           try {
             const rows = await db
@@ -508,7 +560,7 @@ export async function detectDuplicates(
     }
   }
 
-  // Query nameDob pairs in chunks — small chunks to avoid Turso "too many SQL variables"
+  // 2. Query nameDob pairs in chunks
   if (nameDobPairs.length > 0) {
     for (let i = 0; i < nameDobPairs.length; i += CHUNK_NAME_DOB) {
       const chunk = nameDobPairs.slice(i, i + CHUNK_NAME_DOB)
@@ -558,6 +610,51 @@ export async function detectDuplicates(
     }
   }
 
+  // 3. Query names without valid DOB to detect same-name students in class
+  if (namesWithoutValidDob.length > 0) {
+    for (let i = 0; i < namesWithoutValidDob.length; i += CHUNK_NAME) {
+      const chunk = namesWithoutValidDob.slice(i, i + CHUNK_NAME)
+      try {
+        const rows = await db
+          .select({
+            id: students.id,
+            fullName: students.fullName,
+            parentPhone: students.parentPhone,
+            dateOfBirth: students.dateOfBirth,
+            classId: students.classId,
+            className: classes.name,
+            holyName: students.holyName,
+          })
+          .from(students)
+          .leftJoin(classes, eq(students.classId, classes.id))
+          .where(and(...baseCond, inArray(students.fullName, chunk)))
+        existing.push(...rows)
+      } catch (err) {
+        console.warn('[detectDuplicates] name chunk failed, falling back per-name', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
+        for (const name of chunk) {
+          try {
+            const rows = await db
+              .select({
+                id: students.id,
+                fullName: students.fullName,
+                parentPhone: students.parentPhone,
+                dateOfBirth: students.dateOfBirth,
+                classId: students.classId,
+                className: classes.name,
+                holyName: students.holyName,
+              })
+              .from(students)
+              .leftJoin(classes, eq(students.classId, classes.id))
+              .where(and(...baseCond, eq(students.fullName, name)))
+            existing.push(...rows)
+          } catch (inner) {
+            console.warn('[detectDuplicates] per-name fallback failed', { name, error: String(inner).slice(0, 300) })
+          }
+        }
+      }
+    }
+  }
+
   // Deduplicate existing records by id
   const existingMap = new Map<string, typeof existing[0]>()
   for (const s of existing) {
@@ -565,9 +662,11 @@ export async function detectDuplicates(
   }
   const uniqueExisting = Array.from(existingMap.values())
 
-  // Multi-value maps to properly support siblings sharing the same parentPhone (IE-01)
+  // Multi-value maps to properly support siblings and candidate lookups
   const byPhone = new Map<string, typeof existing>()
   const byNameDob = new Map<string, typeof existing>()
+  const byName = new Map<string, typeof existing>()
+
   for (const s of uniqueExisting) {
     const p = toStr(s.parentPhone).trim()
     if (p && !isPlaceholder(p)) {
@@ -583,26 +682,33 @@ export async function detectDuplicates(
       list.push(s)
       byNameDob.set(key, list)
     }
+    if (fn) {
+      const list = byName.get(fn) || []
+      list.push(s)
+      byName.set(fn, list)
+    }
   }
 
   for (const row of rowsToCheck) {
     const phone = toStr(row.parentPhone).trim()
     const rowNormName = normalizeName(toStr(row.fullName))
+    const rowNormHoly = normalizeName(toStr(row.holyName))
     const rowDob = toStr(row.dateOfBirth).trim()
-    const hasValidDob = rowDob && !isPlaceholder(rowDob)
+    const rowClassNorm = canonicalClassKey(toStr(row.className))
+    const hasValidDob = Boolean(rowDob && !isPlaceholder(rowDob))
+    const hasValidPhone = Boolean(phone && !isPlaceholder(phone))
     const nameDobKey = `${rowNormName}||${rowDob}`
 
     let match: typeof existing[0] | undefined
     let reason = ''
 
     // 1. If phone is provided, inspect all students sharing this parent phone (IE-01 disambiguation)
-    if (phone && !isPlaceholder(phone) && byPhone.has(phone)) {
+    if (hasValidPhone && byPhone.has(phone)) {
       const candidates = byPhone.get(phone)!
       // Check for exact identity match (normalized name match)
       const nameMatchedCandidate = candidates.find(c => {
         const candNorm = normalizeName(c.fullName || '')
         if (candNorm !== rowNormName) return false
-        // If both have DOB, ensure DOB matches or is placeholder
         if (hasValidDob && c.dateOfBirth && !isPlaceholder(c.dateOfBirth)) {
           return c.dateOfBirth === rowDob
         }
@@ -611,20 +717,57 @@ export async function detectDuplicates(
 
       if (nameMatchedCandidate) {
         match = nameMatchedCandidate
-        reason = hasValidDob && nameMatchedCandidate.dateOfBirth === rowDob ? 'phone_and_identity' : 'phone_and_name'
+        const candHolyNorm = normalizeName(nameMatchedCandidate.holyName || '')
+        const hasDiffHoly = Boolean(rowNormHoly && candHolyNorm && rowNormHoly !== candHolyNorm)
+        if (hasValidDob && nameMatchedCandidate.dateOfBirth === rowDob) {
+          reason = hasDiffHoly ? 'name_dob_diff_holy_name' : 'phone_and_identity'
+        } else {
+          reason = 'phone_and_name'
+        }
       } else if (candidates.length === 1 && !hasValidDob && normalizeName(candidates[0].fullName || '') === rowNormName) {
         match = candidates[0]
         reason = 'phone'
+      } else {
+        // Fuzzy match check on phone candidates (detect typos when phone + DOB match)
+        for (const c of candidates) {
+          const candNorm = normalizeName(c.fullName || '')
+          const candDob = toStr(c.dateOfBirth).trim()
+          const sameDob = hasValidDob && candDob && !isPlaceholder(candDob) && candDob === rowDob
+          const dist = levenshtein(rowNormName, candNorm)
+          const maxLen = Math.max(rowNormName.length, candNorm.length)
+          const sim = maxLen > 0 ? Math.round((1 - dist / maxLen) * 100) : 0
+          if (sim >= 80 && (sameDob || candidates.length === 1)) {
+            match = c
+            reason = sameDob ? 'fuzzy_phone_dob' : 'fuzzy_phone'
+            break
+          }
+        }
       }
-      // Note: If candidates have DIFFERENT names (siblings in same family), we DO NOT match!
-      // The incoming row is a distinct sibling (new student), NOT a duplicate of existing siblings!
     }
 
     // 2. Fallback to name + DOB match if no phone match was found
     if (!match && hasValidDob && byNameDob.has(nameDobKey)) {
       const candidates = byNameDob.get(nameDobKey)!
       match = candidates[0]
-      reason = 'name_dob'
+      const candHolyNorm = normalizeName(match.holyName || '')
+      const hasDiffHoly = Boolean(rowNormHoly && candHolyNorm && rowNormHoly !== candHolyNorm)
+      reason = hasDiffHoly ? 'name_dob_diff_holy_name' : 'name_dob'
+    }
+
+    // 3. Name + Holy Name + Class match (when DOB is missing or placeholder)
+    if (!match && !hasValidDob && byName.has(rowNormName)) {
+      const candidates = byName.get(rowNormName)!
+      const classMatched = candidates.find(c => {
+        const candClassNorm = canonicalClassKey(c.className || '')
+        const candHolyNorm = normalizeName(c.holyName || '')
+        const sameClass = Boolean(candClassNorm && rowClassNorm && candClassNorm === rowClassNorm)
+        const sameHoly = Boolean(rowNormHoly && candHolyNorm && rowNormHoly === candHolyNorm)
+        return sameClass && (sameHoly || !rowNormHoly)
+      })
+      if (classMatched) {
+        match = classMatched
+        reason = rowNormHoly ? 'name_holy_class' : 'name_class'
+      }
     }
 
     if (match) {
@@ -963,7 +1106,7 @@ export async function importStudents(
   // 120 dòng × 3-4 query/tx qua Turso remote (80-120ms) = 30-40s tuần tự → còn 4-6s với concurrency 8.
   // classIdMap / ayCache dùng chung (Map) — JS đơn luồng nên an toàn khi đọc/ghi xen kẽ trong Promise.all;
   // fallback tạo lớp xử lý ON CONFLICT để tránh race khi 2 dòng cùng tạo "Lớp mới".
-  const CONCURRENCY = 8
+  const CONCURRENCY = process.env.NODE_ENV === 'test' || process.env.VITEST ? 1 : 8
   const rowOutcomes = await mapConcurrent(normalizedRows, async (row) => {
     try {
       const errors = validateRow(row)

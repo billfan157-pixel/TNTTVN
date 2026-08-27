@@ -15,6 +15,15 @@
 
 ---
 
+### Module: Student Roster Import Deduplication Hardening (2026-08-28)
+
+- **Decision**: ADR-054, D2/GENERAL + SECURITY, R1. Khắc phục triệt để các góc khuất trong cơ chế Import Học Viên (Intra-file đa tiêu chí, DB match khi thiếu ngày sinh, phân biệt Tên Thánh sinh đôi, Fuzzy typo match, và UI Safe Skip Default).
+- **Code truth**: `server/src/services/importService.ts` (`detectDuplicates`), `src/components/common/ExcelImportModal.tsx` (`formatDuplicateReason`, safe default `skip`).
+- **Tests**: `server/src/__tests__/services/importDeduplicationHardening.test.ts` (7 tests PASS).
+- **Scope**: Import Roster logic & modal review UX. Toàn bộ API contracts giữ nguyên envelope tương thích ngược.
+
+---
+
 ## 1. Quick AI Onboarding & Recommended Reading Order
 
 When starting a task, AI Agents MUST read documents in the following order:

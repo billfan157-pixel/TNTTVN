@@ -49,6 +49,11 @@ Import Processing Route (server/src/routes/import.ts)
   - `Lớp` / `Tên lớp` (`classId` resolution)
 - **Cell Preservation Guarantee**:
   - Empty student fields do NOT overwrite existing non-null database fields during re-import updates.
+- **Deduplication & Collision Protection (ADR-054)**:
+  - **Intra-file Multi-Key Deduplication**: Phát hiện trùng lặp ngay trong cùng file qua 4 tiêu chí: (1) `fullName + dob`, (2) `fullName + parentPhone`, (3) `holyName + fullName + className`, (4) `fullName + className`.
+  - **Database Deduplication**: Khớp chính xác qua SĐT + Họ tên (hỗ trợ phân biệt anh chị em IE-01), Họ tên + Ngày sinh (phân biệt Tên Thánh sinh đôi `name_dob_diff_holy_name`), và Họ tên + Lớp khi thiếu ngày sinh (`name_holy_class`, `name_class`).
+  - **Fuzzy Name Matching**: Phát hiện sai chính tả Levenshtein $\ge 80\%$ khi trùng khớp SĐT và/hoặc Ngày sinh.
+  - **Safe UI Default**: Giao diện khởi tạo mặc định hành động là `'skip'` (Bỏ qua an toàn), ngăn chặn việc vô tình ghi đè CSDL mà không có chủ ý rõ ràng của người dùng.
 
 ---
 
