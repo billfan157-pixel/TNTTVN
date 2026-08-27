@@ -1522,6 +1522,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_parish_created_at ON audit_logs(parish
   { version: '20260827-130', sql: `ALTER TABLE notices ADD COLUMN target_audience TEXT NOT NULL DEFAULT 'all'` },
   // ADR-058: remove all reversible password copies; bcrypt hash remains SSOT.
   { version: '20260827-131', sql: `UPDATE users SET password_encrypted = NULL WHERE password_encrypted IS NOT NULL` },
+  { version: '20260828-132', sql: `ALTER TABLE import_batches ADD COLUMN created_class_ids TEXT DEFAULT '[]'` },
+  { version: '20260828-133', sql: `ALTER TABLE import_batch_students ADD COLUMN rollback_snapshot TEXT` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate
@@ -1533,6 +1535,8 @@ await applyMigrations(client, MIGRATIONS)
 // required columns before the server is allowed to accept traffic.
 try { await client.execute(`ALTER TABLE import_batches ADD COLUMN classes_created TEXT DEFAULT '[]'`) } catch {}
 try { await client.execute(`ALTER TABLE import_batches ADD COLUMN content_hash TEXT`) } catch {}
+try { await client.execute(`ALTER TABLE import_batches ADD COLUMN created_class_ids TEXT DEFAULT '[]'`) } catch {}
+try { await client.execute(`ALTER TABLE import_batch_students ADD COLUMN rollback_snapshot TEXT`) } catch {}
 try { await client.execute(`ALTER TABLE exam_results ADD COLUMN essay_score REAL`) } catch {}
 try { await client.execute(`ALTER TABLE notices ADD COLUMN target_audience TEXT NOT NULL DEFAULT 'all'`) } catch {}
 

@@ -399,6 +399,7 @@ export const importBatches = sqliteTable('import_batches', {
    skipped: integer('skipped', { mode: 'number' }).notNull().default(0),
    errorCount: integer('error_count', { mode: 'number' }).notNull().default(0),
    classesCreated: text('classes_created').default('[]'),
+   createdClassIds: text('created_class_ids').default('[]'),
    status: text('status', { enum: ['processing', 'completed', 'partial', 'failed', 'undone', 'partial_undone'] }).notNull().default('processing'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -418,6 +419,9 @@ export const importBatchStudents = sqliteTable('import_batch_students', {
    studentId: text('student_id'),
    action: text('action', { enum: ['created', 'updated', 'skipped', 'error'] }).notNull(),
    rowIndex: integer('row_index', { mode: 'number' }).notNull(),
+   // ADR-064: exact, short-lived rollback source. Audit logs remain PII-redacted
+   // and must never be used as a restore snapshot.
+   rollbackSnapshot: text('rollback_snapshot'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
  }, (table) => [

@@ -22,7 +22,7 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-   Upload,
+   Upload, School,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import type { ExamImportScope } from '../../utils/examParser'
@@ -945,12 +945,29 @@ export const ExamSessionView: React.FC = () => {
               </div>
             </div>
 
-            <div className="px-4 pt-4 pb-3 sm:px-5">
+            <div className="px-4 pt-3 pb-3 sm:px-5">
+            {/* Tiến độ điền form — mobile cần phản hồi nhanh, giảm bỏ dở giữa chừng */}
+            {(() => {
+              const hasClass = !!(createForm.classId || effectiveClassId)
+              const hasSubject = !!createForm.subject.trim()
+              const hasImport = createForm.examType === 'written' || !!mcPart || !!essayPart
+              const hasAnswers = !requiresAnswerKey || completedAnswerCount === createForm.questionCount
+              const filled = [hasClass, hasSubject, hasImport, hasAnswers].filter(Boolean).length
+              return (
+                <div className="mb-3 flex items-center gap-2" aria-live="polite">
+                  <div className="flex-1 h-1.5 rounded-full bg-surface-hover overflow-hidden">
+                    <div className="h-full bg-parish-primary transition-all" style={{ width: `${(filled / 4) * 100}%` }} />
+                  </div>
+                  <span className="text-[11px] font-bold text-text-muted whitespace-nowrap">{filled}/4</span>
+                </div>
+              )
+            })()}
 
-            {/* Class selection in Create Modal */}
+            {/* Class selection in Create Modal — card nhóm */}
             {!effectiveClassId ? (
-              <div className="mb-3">
-                <label className="block text-xs font-bold text-text-secondary mb-1">
+              <div className="mb-3 p-3 rounded-xl border border-surface-border bg-surface-card">
+                <label className="block text-xs font-bold text-text-secondary mb-1.5 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary flex items-center justify-center"><School size={12} /></span>
                   Lớp học <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -959,7 +976,7 @@ export const ExamSessionView: React.FC = () => {
                     setCreateForm(f => ({ ...f, classId: e.target.value }))
                     setCreateError('')
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-surface-border bg-surface-card text-text-main text-xs font-semibold focus:border-parish-primary focus:outline-none"
+                  className="w-full px-3 py-2.5 rounded-xl border border-surface-border bg-surface-hover text-text-main text-xs font-semibold focus:border-parish-primary focus:bg-surface-card focus:outline-none min-h-[44px]"
                 >
                   <option value="">-- Chọn lớp học áp dụng --</option>
                   {assignedClasses.map(c => (
@@ -970,55 +987,60 @@ export const ExamSessionView: React.FC = () => {
                 </select>
               </div>
             ) : (
-              <div className="mb-3 p-2.5 bg-parish-primary/5 border border-parish-primary/20 rounded-xl text-xs font-semibold text-parish-primary flex items-center justify-between">
-                <span>Lớp học: <strong>{findClassById(effectiveClassId)?.name || 'Lớp'}</strong></span>
-                <span className="text-[11px] text-text-muted">Theo bộ lọc hiện tại</span>
+              <div className="mb-3 p-3 bg-parish-primary/5 border border-parish-primary/20 rounded-xl flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-parish-primary flex items-center gap-1.5"><span className="w-6 h-6 rounded-lg bg-parish-primary text-white flex items-center justify-center"><School size={12} /></span> Lớp: <strong>{findClassById(effectiveClassId)?.name || 'Lớp'}</strong></span>
+                <span className="text-[11px] text-text-muted bg-surface-card px-2 py-1 rounded-full border border-surface-border">Theo bộ lọc</span>
               </div>
             )}
 
-            {/* Hình thức Bài Kiểm Tra — chọn trước để ô import hiển đúng phạm vi */}
-            <label className="block text-xs font-bold text-text-secondary mb-1">Hình thức Bài Kiểm Tra</label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4" role="group" aria-label="Hình thức bài kiểm tra">
-              <button
-                type="button"
-                onClick={() => handleExamTypeChange('written')}
-                aria-pressed={createForm.examType === 'written'}
-                className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
-                  createForm.examType === 'written'
-                    ? 'border-parish-primary bg-parish-primary text-white'
-                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                <span className="block">Tự luận</span>
-                <span className="block mt-0.5 text-[11px] font-normal opacity-75">Nhập điểm trực tiếp 0–10</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExamTypeChange('multiple_choice')}
-                aria-pressed={createForm.examType === 'multiple_choice'}
-                className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
-                  createForm.examType === 'multiple_choice'
-                    ? 'border-parish-primary bg-parish-primary text-white'
-                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                <span className="block">Trắc nghiệm</span>
-                <span className="block mt-0.5 text-[11px] font-normal opacity-75">A/B/C/D · quét OMR</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExamTypeChange('mixed')}
-                title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
-                aria-pressed={createForm.examType === 'mixed'}
-                className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
-                  createForm.examType === 'mixed'
-                    ? 'border-violet-500 bg-violet-500 text-white'
-                    : 'border-surface-border text-text-secondary hover:bg-surface-hover'
-                }`}
-              >
-                <span className="block">Kết hợp TN + TL</span>
-                <span className="block mt-0.5 text-[11px] font-normal opacity-75">Quét TN, nhập điểm TL</span>
-              </button>
+            {/* Hình thức Bài Kiểm Tra — card nhóm, mobile 1 cột dễ chạm */}
+            <div className="mb-4 p-3 rounded-xl border border-surface-border bg-surface-card">
+              <label className="block text-xs font-bold text-text-secondary mb-2 flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary flex items-center justify-center"><Layers3 size={12} /></span>
+                Hình thức Bài Kiểm Tra
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="group" aria-label="Hình thức bài kiểm tra">
+                <button
+                  type="button"
+                  onClick={() => handleExamTypeChange('written')}
+                  aria-pressed={createForm.examType === 'written'}
+                  className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
+                    createForm.examType === 'written'
+                      ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                      : 'border-surface-border text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
+                  }`}
+                >
+                  <span className="block">Tự luận</span>
+                  <span className="block mt-0.5 text-[11px] font-normal opacity-80">Nhập điểm trực tiếp 0–10</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExamTypeChange('multiple_choice')}
+                  aria-pressed={createForm.examType === 'multiple_choice'}
+                  className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
+                    createForm.examType === 'multiple_choice'
+                      ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                      : 'border-surface-border text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
+                  }`}
+                >
+                  <span className="block">Trắc nghiệm</span>
+                  <span className="block mt-0.5 text-[11px] font-normal opacity-80">A/B/C/D · quét OMR</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExamTypeChange('mixed')}
+                  title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
+                  aria-pressed={createForm.examType === 'mixed'}
+                  className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
+                    createForm.examType === 'mixed'
+                      ? 'border-violet-500 bg-violet-500 text-white shadow-sm'
+                      : 'border-surface-border text-text-secondary hover:bg-surface-hover hover:border-violet-500/20'
+                  }`}
+                >
+                  <span className="block">Kết hợp TN + TL</span>
+                  <span className="block mt-0.5 text-[11px] font-normal opacity-80">Quét TN, nhập điểm TL</span>
+                </button>
+              </div>
             </div>
 
             {/* UI-POLISH 2026-08-25: ô import THEO HÌNH THỨC — mixed: 2 ô TN/TL riêng;

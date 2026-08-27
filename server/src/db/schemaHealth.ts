@@ -38,6 +38,10 @@ export const REQUIRED_MIGRATION_MARKERS = [
   '20260817-122',
   ...migrationRange('20260818', 123, 125),
   ...migrationRange('20260820', 126, 127),
+  ...migrationRange('20260822', 128, 128),
+  ...migrationRange('20260824', 129, 129),
+  ...migrationRange('20260827', 130, 131),
+  ...migrationRange('20260828', 132, 133),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -67,7 +71,8 @@ const REQUIRED_TRIGGER_NAMES = [
 ] as const
 
 const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
-  import_batches: ['content_hash', 'classes_created'],
+  import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
+  import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
   notifications: ['target_user_ids'],
   users: ['password_encrypted', 'holy_name'],

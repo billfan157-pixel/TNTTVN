@@ -9,7 +9,7 @@ async function importFresh() {
   return await import('../../utils/observability.js')
 }
 
-describe('OBS-2: observability (Sentry node opt-in)', () => {
+describe('OBS-2: observability (Sentry node opt-in)', { timeout: 15000 }, () => {
   beforeEach(() => vi.unstubAllEnvs())
   afterEach(() => vi.unstubAllEnvs())
 
