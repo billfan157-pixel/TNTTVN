@@ -445,7 +445,11 @@ export async function detectDuplicates(
   if (phones.length === 0 && nameDobPairs.length === 0) return result
   if (allowedClassIds !== undefined && allowedClassIds !== null && allowedClassIds.length === 0) return result
 
-  const CHUNK = 100
+  // CHUNK size: Turso/libSQL has stricter variable/expression limits than local SQLite.
+  // 100 OR terms (200 variables) hit "too many SQL variables" / "expression tree too large" on production
+  // with ~120 rows (see VALIDATE_FAILED 2026-08-27). Keep chunks small + fallback per-row on failure.
+  const CHUNK_PHONE = 50
+  const CHUNK_NAME_DOB = 30
   const baseCond = [eq(students.parishId, parishId), isNull(students.deletedAt)]
   if (allowedClassIds) {
     baseCond.push(inArray(students.classId, allowedClassIds))
@@ -454,47 +458,97 @@ export async function detectDuplicates(
   // Query phones in chunks
   let existing: any[] = []
   if (phones.length > 0) {
-    for (let i = 0; i < phones.length; i += CHUNK) {
-      const chunk = phones.slice(i, i + CHUNK)
-      const rows = await db
-        .select({
-          id: students.id,
-          fullName: students.fullName,
-          parentPhone: students.parentPhone,
-          dateOfBirth: students.dateOfBirth,
-          classId: students.classId,
-          className: classes.name,
-          holyName: students.holyName,
-        })
-        .from(students)
-        .leftJoin(classes, eq(students.classId, classes.id))
-        .where(and(...baseCond, inArray(students.parentPhone, chunk)))
-      existing.push(...rows)
+    for (let i = 0; i < phones.length; i += CHUNK_PHONE) {
+      const chunk = phones.slice(i, i + CHUNK_PHONE)
+      try {
+        const rows = await db
+          .select({
+            id: students.id,
+            fullName: students.fullName,
+            parentPhone: students.parentPhone,
+            dateOfBirth: students.dateOfBirth,
+            classId: students.classId,
+            className: classes.name,
+            holyName: students.holyName,
+          })
+          .from(students)
+          .leftJoin(classes, eq(students.classId, classes.id))
+          .where(and(...baseCond, inArray(students.parentPhone, chunk)))
+        existing.push(...rows)
+      } catch (err) {
+        console.warn('[detectDuplicates] phone chunk failed, falling back per-phone', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
+        // Fallback: query each phone individually (still parish-scoped)
+        for (const phone of chunk) {
+          try {
+            const rows = await db
+              .select({
+                id: students.id,
+                fullName: students.fullName,
+                parentPhone: students.parentPhone,
+                dateOfBirth: students.dateOfBirth,
+                classId: students.classId,
+                className: classes.name,
+                holyName: students.holyName,
+              })
+              .from(students)
+              .leftJoin(classes, eq(students.classId, classes.id))
+              .where(and(...baseCond, eq(students.parentPhone, phone)))
+            existing.push(...rows)
+          } catch (inner) {
+            console.warn('[detectDuplicates] per-phone fallback failed', { phone, error: String(inner).slice(0, 300) })
+          }
+        }
+      }
     }
   }
 
-  // Query nameDob pairs in chunks
+  // Query nameDob pairs in chunks — small chunks to avoid Turso "too many SQL variables"
   if (nameDobPairs.length > 0) {
-    for (let i = 0; i < nameDobPairs.length; i += CHUNK) {
-      const chunk = nameDobPairs.slice(i, i + CHUNK)
+    for (let i = 0; i < nameDobPairs.length; i += CHUNK_NAME_DOB) {
+      const chunk = nameDobPairs.slice(i, i + CHUNK_NAME_DOB)
       const conditions = chunk.map(pair => {
         const [fn, dob] = pair.split('||')
         return and(eq(students.fullName, fn), eq(students.dateOfBirth, dob))
       })
-      const rows = await db
-        .select({
-          id: students.id,
-          fullName: students.fullName,
-          parentPhone: students.parentPhone,
-          dateOfBirth: students.dateOfBirth,
-          classId: students.classId,
-          className: classes.name,
-          holyName: students.holyName,
-        })
-        .from(students)
-        .leftJoin(classes, eq(students.classId, classes.id))
-        .where(and(...baseCond, or(...conditions)))
-      existing.push(...rows)
+      try {
+        const rows = await db
+          .select({
+            id: students.id,
+            fullName: students.fullName,
+            parentPhone: students.parentPhone,
+            dateOfBirth: students.dateOfBirth,
+            classId: students.classId,
+            className: classes.name,
+            holyName: students.holyName,
+          })
+          .from(students)
+          .leftJoin(classes, eq(students.classId, classes.id))
+          .where(and(...baseCond, or(...conditions)))
+        existing.push(...rows)
+      } catch (err) {
+        console.warn('[detectDuplicates] nameDob chunk failed, falling back per-pair', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
+        for (const pair of chunk) {
+          const [fn, dob] = pair.split('||')
+          try {
+            const rows = await db
+              .select({
+                id: students.id,
+                fullName: students.fullName,
+                parentPhone: students.parentPhone,
+                dateOfBirth: students.dateOfBirth,
+                classId: students.classId,
+                className: classes.name,
+                holyName: students.holyName,
+              })
+              .from(students)
+              .leftJoin(classes, eq(students.classId, classes.id))
+              .where(and(...baseCond, eq(students.fullName, fn), eq(students.dateOfBirth, dob)))
+            existing.push(...rows)
+          } catch (inner) {
+            console.warn('[detectDuplicates] per-pair fallback failed', { fn, dob, error: String(inner).slice(0, 300) })
+          }
+        }
+      }
     }
   }
 
