@@ -41,13 +41,19 @@ export async function registerServiceWorkerOnly(): Promise<void> {
   }
 }
 
+let pushInitPromise: Promise<void> | null = null
+
 /**
  * Đăng ký web push sau khi đăng nhập (best-effort, không chặn login):
  * - Permission 'default' → hỏi người dùng 1 lần; từ chối thì bỏ qua.
  * - Lấy VAPID public key từ server → PushManager.subscribe → lưu endpoint lên server.
  * - Nếu đã có subscription cũ (cùng endpoint đã lưu) → không đăng ký lại.
+ * - 501 VAPID_NOT_CONFIGURED là trạng thái ops chưa cấu hình — fail-closed đúng thiết kế, KHÔNG spam console (chỉ debug).
+ * - Dedup concurrent calls (login + loadFromStorage race) bằng singleton promise.
  */
 export async function initPushSubscription(): Promise<void> {
+  if (pushInitPromise) return pushInitPromise
+  pushInitPromise = (async () => {
   if (!isSupported() || Notification.permission === 'denied') return
 
   try {
@@ -59,7 +65,18 @@ export async function initPushSubscription(): Promise<void> {
     const registration = await registerServiceWorker()
     if (!registration) return
 
-    const { publicKey } = await api.getVapidPublicKey()
+    let publicKey: string
+    try {
+      const res = await api.getVapidPublicKey()
+      publicKey = res.publicKey
+    } catch (err: any) {
+      // 501 = VAPID chưa cấu hình — expected khi deploy chưa set env, không phải lỗi app
+      if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
+        console.debug('[pushManager] VAPID not configured — skipping push subscription')
+        return
+      }
+      throw err
+    }
 
     const existing = await registration.pushManager.getSubscription()
     if (existing) {
@@ -89,9 +106,15 @@ export async function initPushSubscription(): Promise<void> {
       },
     })
     localStorage.setItem(PUSH_FLAG_KEY, '1')
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
+      console.debug('[pushManager] VAPID not configured — skipping', err)
+      return
+    }
     console.warn('[pushManager] push subscription failed (skipping):', err)
   }
+  })()
+  try { await pushInitPromise } finally { pushInitPromise = null }
 }
 
 /** Hủy đăng ký khi đăng xuất (best-effort). */

@@ -14,18 +14,19 @@ import { db } from '../db/index.js'
 const importRouter = new Hono()
 importRouter.use('*', authMiddleware)
 
+const stringField = z.preprocess((v) => (v == null ? '' : String(v)), z.string())
 const importRowSchema = z.object({
-  rowIndex: z.number(),
-  holyName: z.string(),
-  fullName: z.string(),
-  gender: z.string(),
-  dateOfBirth: z.string(),
-  parentName: z.string(),
-  parentPhone: z.string(),
-  address: z.string(),
-  branch: z.string(),
-  className: z.string(),
-  service: z.string().optional(),
+  rowIndex: z.coerce.number(),
+  holyName: stringField,
+  fullName: stringField,
+  gender: stringField,
+  dateOfBirth: stringField,
+  parentName: stringField,
+  parentPhone: stringField,
+  address: stringField,
+  branch: stringField,
+  className: stringField,
+  service: z.preprocess((v) => (v == null ? undefined : String(v)), z.string().optional()),
 })
 
 importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({
@@ -35,20 +36,36 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
 })), async (c) => {
   const user = c.get('user') as JwtPayload
   const { rows } = c.req.valid('json')
-  const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
+  try {
+    const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
 
-  const classes = await getClasses(user.parishId)
-  const availableClasses = allowedClassIds !== null ? classes.filter(c => allowedClassIds.includes(c.id)) : classes
-  const flatClasses = availableClasses.map(c => ({
-    id: c.id,
-    name: c.name,
-    code: c.code,
-    branchId: c.branchId,
-    branchName: c.branchName || '',
-  }))
+    const classes = await getClasses(user.parishId)
+    const availableClasses = allowedClassIds !== null ? classes.filter(c => allowedClassIds.includes(c.id)) : classes
+    const flatClasses = availableClasses.map(c => ({
+      id: c.id,
+      name: c.name,
+      code: c.code,
+      branchId: c.branchId,
+      branchName: c.branchName || '',
+    }))
 
-  const result = await validateImport(rows, user.parishId, flatClasses, allowedClassIds)
-  return successResponse(c, result)
+    const result = await validateImport(rows, user.parishId, flatClasses, allowedClassIds)
+    return successResponse(c, result)
+  } catch (err: any) {
+    const msg = err?.message || String(err)
+    const stack = err?.stack || ''
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      type: 'VALIDATE_IMPORT_FAILED',
+      parishId: user.parishId,
+      userId: user.userId,
+      rowCount: rows?.length ?? 0,
+      error: msg,
+      stack: stack.slice(0, 2000),
+    }))
+    // Giữ hợp đồng cũ (success envelope) nhưng trả 500 có code để client hiển thị đúng
+    return errorResponse(c, 'VALIDATE_FAILED', `Lỗi khi kiểm tra dữ liệu: ${msg}`, 500)
+  }
 })
 
 importRouter.post('/import', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({

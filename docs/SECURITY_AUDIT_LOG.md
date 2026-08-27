@@ -3266,3 +3266,51 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 | Benchmark integrity | Gate chỉ chứng nhận `workload=multiple_choice`. Negative/null không làm đẹp accuracy; review routing chỉ đo review; sampleId/checksum trùng hoặc observation malformed fail-closed. Timing tách exact engine/device/runtime/resolution/template/questionCount/cold-warm (≥20/profile); accuracy/routing tách cùng identity trừ runKind (≥40/profile gồm normal20/stress10/negative10/review10/accepted20) và áp threshold trên từng profile. Release phải bind exact required matrix; default rỗng/thiếu profile fail. Corpus thật ≥400 vẫn bắt buộc; synthetic không được quảng bá thành accuracy. Written score-grid không có expectedScore KPI nên vẫn manual-confirm. |
 
 **D2 hard gates:** Security & Privacy 9, Data Integrity 9, Testability 9 — PASS. **Tenant isolation/API/auth:** không đổi. **Field claim:** unattended/default MC auto-batch = `NOT CONFIRMED` tới khi corpus ADR-060 đạt toàn bộ gate + exact required matrix; trạng thái accepted hiện chỉ là proposal chờ Save. Web Worker/cloud/ML không được bật trong thay đổi này vì chưa đủ race/device/privacy evidence.
+
+
+---
+
+## Audit 2026-08-27 — Console production incidents: validate 500 + VAPID 501 spam + runtime.lastError — P2 fixed
+
+> **Trang thai: FIXED (2026-08-27).** User report console production (vercel: tnttvn.vercel.app) 4 nhom log:
+> 1. GET /api/notifications/vapid-public-key -> 501 x4 -> [pushManager] push subscription failed
+> 2. POST /api/students/validate -> 500 (ExcelImportModal)
+> 3. dashboard:1 Unchecked runtime.lastError: Could not establish connection
+> 4. Fetch finished GET (normal)
+
+### Phan loai (Evidence-First)
+
+| # | Log | Ket luan | Evidence |
+|---|-----|----------|----------|
+| 1 | VAPID 501 x4 | CONFIRMED — client retry noise | src/lib/api.ts:291 retry 5xx cho GET idempotent -> 501 cung retry =4 fetch; notifications.ts:119 tra 501 dung thiet ke fail-closed. Sau fix chi 1 fetch, debug thay warn. |
+| 2 | validate 500 | CONFIRMED — server thieu fail-closed | import.ts:31 route /validate KHONG try/catch -> exception len app.onError -> 500 generic, khong log chi tiet; importService helper .trim() gia dinh string — Excel cell so/null throw TypeError. |
+| 3 | runtime.lastError | NOT CONFIRMED — ngoai pham vi | Grep chrome.runtime=0 hit (E3). Loi tu browser extension, khong phai code TNTTVN (A-NEW-39 2.3). |
+
+### Giai phap (D2 GENERAL/SECURITY, weighted 8.95)
+
+- A trien khai (chon): coerce validate, log structured, 501 khong retry, pushManager dedup+debug, modal hien message chi tiet.
+- Hard gates D2: Security 9>=7 pass; Data Integrity 9>=7 pass; Testability 9>=6 pass. ADR PASS.
+
+### Trien khai
+
+| # | Thay doi | Vi tri |
+|---|---|---|
+|1| importRowSchema -> stringField preprocess (null->"", number->String) | server/src/routes/import.ts:17|
+|2| /validate boc try/catch, log VALIDATE_IMPORT_FAILED va tra 500 VALIDATE_FAILED | import.ts:31|
+|3| importService hardening: toStr(), computeContentHash, detectService, validateRow, normalizeName, inferBranch, normalizeImportRows coerce string | server/src/services/importService.ts|
+|4| api.ts retry: status!==501 + truyen responseType/keepEnvelope | src/lib/api.ts:291|
+|5| pushManager singleton + catch 501 -> debug | src/lib/pushManager.ts|
+|6| ExcelImportModal catch hien err.message phan biet 500/400 | src/components/common/ExcelImportModal.tsx:212|
+
+### Verification
+
+- [x] batch-caps+helpers+duplicate+api-retry+notifications 54/54 pass; build:frontend+build:server pass
+- [ ] Prod: set VAPID keys tren Render -> GET vapid 200; console khong con 4x 501
+- [ ] Prod: import lai file 500 -> 200
+
+### Ghi nhan
+
+- runtime.lastError giu nguyen — khong fix code; khuyen nghi test Incognito tat extension.
+- VAPID 501 van dung khi thieu env — client sau fix chi 1 fetch debug.
+
+---

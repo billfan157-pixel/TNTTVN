@@ -288,9 +288,10 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
   }
 
   // Handle 5xx with retry — A12: chỉ method idempotent (hoặc có Idempotency-Key)
-  if (res.status >= 500 && canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
+  // 501 Not Implemented là cấu hình tĩnh (vd VAPID chưa set) — retry không bao giờ thành công, chỉ tạo spam 4×.
+  if (res.status >= 500 && res.status !== 501 && canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
     await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
-    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry)
+    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope)
   }
 
   if (!res.ok) {

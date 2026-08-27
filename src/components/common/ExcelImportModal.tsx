@@ -209,8 +209,16 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       setDuplicateActions(dupActions)
 
       setStep('review')
-    } catch {
-      setError('Lỗi kết nối server. Vui lòng thử lại.')
+    } catch (err: any) {
+      const msg = err?.message || 'Lỗi kết nối server. Vui lòng thử lại.'
+      // 500 từ validate đã được server log (VALIDATE_IMPORT_FAILED) — hiển thị chi tiết để user báo admin
+      if (err?.status === 500) {
+        setError(`${msg} (mã lỗi 500 — vui lòng báo quản trị viên kiểm tra log server)`)
+      } else if (err?.status === 400) {
+        setError(`Dữ liệu không hợp lệ: ${msg}`)
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -230,8 +238,9 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       })
       setImportResult(result)
       setStep('report')
-    } catch {
-      setError('Lỗi khi import. Vui lòng thử lại.')
+    } catch (err: any) {
+      const msg = err?.message || 'Lỗi khi import. Vui lòng thử lại.'
+      setError(msg)
     } finally {
       setLoading(false)
     }

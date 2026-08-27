@@ -79,22 +79,27 @@ async function mapConcurrent<T, R>(items: T[], fn: (item: T) => Promise<R>, conc
   return results
 }
 
+function toStr(v: unknown): string {
+  if (v == null) return ''
+  return String(v)
+}
+
 function computeContentHash(rows: ImportRow[]): string {
   const sorted = rows
-    .map(r => `${r.fullName?.trim() || ''}|${r.dateOfBirth?.trim() || ''}|${r.parentPhone?.trim() || ''}`)
+    .map(r => `${toStr(r.fullName).trim() || ''}|${toStr(r.dateOfBirth).trim() || ''}|${toStr(r.parentPhone).trim() || ''}`)
     .sort()
     .join('\n')
   return createHash('sha256').update(sorted).digest('hex').substring(0, 16)
 }
 
 function detectService(row: ImportRow): 'yes' | 'no' {
-  const raw = row.service?.trim().toLowerCase()
+  const raw = toStr(row.service).trim().toLowerCase()
   if (raw) {
     if (['x', 'có', 'co', 'yes', '1', 'true', 'phục vụ', 'phuc vu', 'le phuc vu', 'lễ phục vụ'].includes(raw)) return 'yes'
     if (['không', 'khong', 'no', '0', 'false'].includes(raw)) return 'no'
     return 'no'
   }
-  if (['NghiaSi', 'HiepSi'].includes(row.branch)) return 'yes'
+  if (['NghiaSi', 'HiepSi'].includes(toStr(row.branch))) return 'yes'
   return 'no'
 }
 
@@ -169,7 +174,7 @@ function levenshtein(a: string, b: string): number {
 }
 
 function normalizeName(str: string): string {
-  return str
+  return toStr(str)
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -179,7 +184,7 @@ function normalizeName(str: string): string {
 }
 
 function stripForMatch(str: string): string {
-  return normalizeName(str).replace(/\s/g, '')
+  return normalizeName(toStr(str)).replace(/\s/g, '')
 }
 
 const PLACEHOLDER = 'Chưa cập nhật'
@@ -190,13 +195,20 @@ function isPlaceholder(value: string | undefined | null): boolean {
 
 function validateRow(row: ImportRow): string[] {
   const errors: string[] = []
-  if (!row.holyName?.trim()) errors.push('Thiếu Tên Thánh')
-  if (!row.fullName?.trim()) errors.push('Thiếu Họ và Tên')
-  if (row.gender && !['Nam', 'Nữ'].includes(row.gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
-  if (row.dateOfBirth && !isPlaceholder(row.dateOfBirth) && !/^\d{4}-\d{2}-\d{2}$/.test(row.dateOfBirth)) errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
-  if (row.parentPhone?.trim() && !isPlaceholder(row.parentPhone) && !PHONE_RE.test(row.parentPhone.trim())) errors.push('Số điện thoại không hợp lệ (phải là số Việt Nam)')
-  if (row.branch && !isPlaceholder(row.branch) && !VALID_BRANCHES.includes(row.branch as any)) errors.push(`Phân ngành không hợp lệ: ${row.branch}`)
-  if (!row.className?.trim()) errors.push('Thiếu Tên Lớp')
+  const holyName = toStr(row.holyName).trim()
+  const fullName = toStr(row.fullName).trim()
+  const gender = toStr(row.gender).trim()
+  const dateOfBirth = toStr(row.dateOfBirth).trim()
+  const parentPhone = toStr(row.parentPhone).trim()
+  const branch = toStr(row.branch).trim()
+  const className = toStr(row.className).trim()
+  if (!holyName) errors.push('Thiếu Tên Thánh')
+  if (!fullName) errors.push('Thiếu Họ và Tên')
+  if (gender && !['Nam', 'Nữ'].includes(gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
+  if (dateOfBirth && !isPlaceholder(dateOfBirth) && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
+  if (parentPhone && !isPlaceholder(parentPhone) && !PHONE_RE.test(parentPhone)) errors.push('Số điện thoại không hợp lệ (phải là số Việt Nam)')
+  if (branch && !isPlaceholder(branch) && !VALID_BRANCHES.includes(branch as any)) errors.push(`Phân ngành không hợp lệ: ${branch}`)
+  if (!className) errors.push('Thiếu Tên Lớp')
   return errors
 }
 
@@ -209,7 +221,7 @@ const BRANCH_KEYWORDS: Record<string, string[]> = {
 }
 
 function inferBranch(className: string): string | null {
-  const lower = className.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const lower = toStr(className).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   for (const [branch, keywords] of Object.entries(BRANCH_KEYWORDS)) {
     for (const kw of keywords) {
       if (lower.includes(kw)) return branch
@@ -223,7 +235,7 @@ const FEMALE_GENDER_KEYWORDS = [
 ]
 
 function inferGenderFromName(fullName: string): 'Nam' | 'Nữ' | null {
-  const normalized = fullName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const normalized = toStr(fullName).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   for (const kw of FEMALE_GENDER_KEYWORDS) {
     if (normalized.includes(kw)) return 'Nữ'
   }
@@ -317,18 +329,31 @@ async function matchClass(
 export function normalizeImportRows(rows: ImportRow[]): ImportRow[] {
   const normalized: ImportRow[] = []
   for (const row of rows) {
-    const r = { ...row }
-    if (!r.gender) {
+    // Defensive coerce: Excel may produce numbers/nulls; ensure strings
+    const r: ImportRow = {
+      rowIndex: Number((row as any).rowIndex) || 0,
+      holyName: toStr((row as any).holyName),
+      fullName: toStr((row as any).fullName),
+      gender: toStr((row as any).gender),
+      dateOfBirth: toStr((row as any).dateOfBirth),
+      parentName: toStr((row as any).parentName),
+      parentPhone: toStr((row as any).parentPhone),
+      address: toStr((row as any).address),
+      branch: toStr((row as any).branch),
+      className: toStr((row as any).className),
+      service: (row as any).service == null ? undefined : toStr((row as any).service),
+    }
+    if (!r.gender.trim()) {
       const inferred = inferGenderFromName(r.fullName)
       r.gender = inferred || 'Nam'
     }
-    if (!r.dateOfBirth || !r.dateOfBirth.trim()) {
+    if (!r.dateOfBirth.trim()) {
       r.dateOfBirth = PLACEHOLDER
     }
-    if (!r.parentName?.trim()) r.parentName = PLACEHOLDER
-    if (!r.parentPhone?.trim()) r.parentPhone = PLACEHOLDER
-    if (!r.address?.trim()) r.address = PLACEHOLDER
-    if (!r.branch) r.branch = inferBranch(r.className) || 'ThieuNhi'
+    if (!r.parentName.trim()) r.parentName = PLACEHOLDER
+    if (!r.parentPhone.trim()) r.parentPhone = PLACEHOLDER
+    if (!r.address.trim()) r.address = PLACEHOLDER
+    if (!r.branch.trim()) r.branch = inferBranch(r.className) || 'ThieuNhi'
     normalized.push(r)
   }
   return normalized
