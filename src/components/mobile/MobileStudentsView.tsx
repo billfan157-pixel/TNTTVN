@@ -237,8 +237,41 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </div>
       )}
 
+      {/* Lưới lớp — khi đang xem Tất cả, hiển thị các lớp để bấm vào xem học viên */}
+      {selectedClassId === 'all' && classList.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setSelectedClassId('all')}
+            className="text-left rounded-2xl p-3 bg-gradient-to-br from-parish-primary to-[#1E40AF] text-white flex flex-col gap-2 border border-parish-primary"
+          >
+            <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center"><Users size={16} /></span>
+            <span className="font-black text-sm">Tất cả</span>
+            <span className="text-xs opacity-80">{students.length} em • Toàn xứ</span>
+          </button>
+          {classList.map(c => {
+            const count = students.filter(s => s.classId === c.id).length
+            return (
+              <button
+                key={c.id}
+                onClick={() => setSelectedClassId(c.id)}
+                className="text-left rounded-2xl p-3 bg-surface-card border border-surface-border flex flex-col gap-2 active:scale-[0.98] transition-transform"
+              >
+                <span className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: (BRANCHES as any)[c.branch]?.badgeBg || 'var(--color-parish-primary-light)', color: (BRANCHES as any)[c.branch]?.textColor || 'var(--color-parish-primary)', borderColor: ((BRANCHES as any)[c.branch]?.scarfColor || '#E2E8F0') + '40' }}>{c.name.slice(0,2).toUpperCase()}</span>
+                <span className="font-bold text-sm text-text-main truncate">{c.name}</span>
+                <span className="text-xs text-text-muted">{count} em • {(BRANCHES as any)[c.branch]?.name || c.branch}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {selectedClassId !== 'all' && (
+        <button onClick={() => setSelectedClassId('all')} className="flex items-center gap-1.5 text-xs font-bold text-parish-primary">
+          <ChevronLeft size={14} /> Quay lại lưới lớp
+        </button>
+      )}
+
       {/* Class Selector Pill Bar (admin only — GLV only sees their assigned classes) */}
-      {role === 'admin' && (
+      {role === 'admin' && selectedClassId !== 'all' && (
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         <button
           onClick={() => setSelectedClassId('all')}
@@ -289,11 +322,13 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </div>
       </div>
 
-      {/* Student List Cards */}
+      {/* Student List — chỉ hiện khi đã chọn 1 lớp cụ thể, khi đang xem lưới lớp thì ẩn để tập trung */}
+      {selectedClassId !== 'all' && (
+      <>
       <div className="flex flex-col gap-3">
         {pagedStudents.length === 0 ? (
           <div className="bg-surface-card rounded-2xl text-text-muted text-center p-8">
-            Không tìm thấy thiếu nhi nào.
+            Không tìm thấy thiếu nhi nào trong lớp này.
           </div>
         ) : (
           pagedStudents.map(s => {
@@ -417,6 +452,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
       </>
       )}

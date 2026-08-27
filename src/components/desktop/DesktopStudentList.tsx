@@ -18,6 +18,7 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useAuth } from '../../hooks/useAuth';
+import { BRANCHES } from '../../constants/branches';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
@@ -262,6 +263,20 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     },
   });
 
+  // Lưới lớp — khi đang xem "Tất cả", hiển thị các lớp để bấm vào xem học viên từng lớp
+  const handleSelectClass = (classId: string) => {
+    setSelectedClassId(classId)
+    setPageIndex(0)
+    clearSelection()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleBackToClasses = () => {
+    setSelectedClassId('all')
+    setPageIndex(0)
+    clearSelection()
+  }
+
   return (
     <div className="product-view flex flex-col gap-6">
       {/* Header card */}
@@ -269,10 +284,22 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         icon={<Users className="text-parish-primary" size={24} />}
         title="Danh Sách Thiếu Nhi"
         description={
-          <span className="inline-flex flex-wrap items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0"></span>
-            <span>Hiển thị <span className="text-parish-primary font-bold">{start + 1}-{Math.min(start + pageSize, totalFiltered)}</span> trên tổng số <span className="text-parish-primary font-bold">{totalFiltered}</span> em</span>
-          </span>
+          selectedClassId !== 'all' ? (
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              <button onClick={handleBackToClasses} className="inline-flex items-center gap-1 text-parish-primary hover:underline font-bold">
+                <ChevronLeft size={14} /> Tất cả lớp
+              </button>
+              <span className="text-text-muted">/</span>
+              <span className="font-bold text-parish-primary">{classes.find(c => c.id === selectedClassId)?.name || 'Lớp'}</span>
+              <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0 ml-1"></span>
+              <span>{totalFiltered} em</span>
+            </span>
+          ) : (
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0"></span>
+              <span>Hiển thị <span className="text-parish-primary font-bold">{start + 1}-{Math.min(start + pageSize, totalFiltered)}</span> trên tổng số <span className="text-parish-primary font-bold">{totalFiltered}</span> em</span>
+            </span>
+          )
         }
         actions={
           <div className="flex flex-wrap items-center gap-2 justify-end w-full lg:w-auto">
@@ -396,8 +423,61 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Bulk Action Bar */}
-      {selectedIds.size > 0 && (
+      {/* Lưới lớp — khi đang xem "Tất cả", hiển thị các lớp để bấm vào xem học viên từng lớp */}
+      {selectedClassId === 'all' && hasClasses && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[...classes]
+            .sort((a, b) => {
+              const order: Record<string, number> = { ChienCon: 1, AuNhi: 2, ThieuNhi: 3, NghiaSi: 4, HiepSi: 5 }
+              const ao = order[a.branchId] ?? 99
+              const bo = order[b.branchId] ?? 99
+              if (ao !== bo) return ao - bo
+              return a.name.localeCompare(b.name, 'vi')
+            })
+            .map((c) => (
+              <button
+                key={c.id}
+                onClick={() => handleSelectClass(c.id)}
+                className="group text-left bg-surface-card border border-surface-border rounded-2xl p-4 flex flex-col gap-3 hover:border-parish-primary/30 hover:shadow-md transition-all active:scale-[0.98] relative overflow-hidden"
+              >
+                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-parish-primary/0 via-parish-primary/40 to-parish-gold/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="flex items-center justify-between">
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: BRANCHES[c.branchId as keyof typeof BRANCHES]?.badgeBg || 'var(--color-parish-primary-light)', color: BRANCHES[c.branchId as keyof typeof BRANCHES]?.textColor || 'var(--color-parish-primary)', borderColor: (BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor || '#E2E8F0') + '40' }}>
+                    {c.name.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full bg-surface-hover border border-surface-border text-xs font-black text-text-secondary group-hover:bg-parish-primary group-hover:text-white group-hover:border-parish-primary transition-colors">
+                    {c.studentCount ?? 0} em
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-text-main text-sm leading-tight truncate" title={c.name}>{c.name}</h4>
+                  <p className="text-xs text-text-muted mt-1 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: (BRANCHES as any)[c.branchId]?.scarfColor || '#10B981' }}></span>
+                    {c.branchName || (BRANCHES as any)[c.branchId]?.name || c.branchId} {c.room ? `• ${c.room}` : ''}
+                  </p>
+                  {c.homeroomTeacher && (
+                    <p className="text-[11px] text-text-muted mt-1 truncate flex items-center gap-1">
+                      <Users size={10} /> {c.homeroomTeacher.fullName}
+                    </p>
+                  )}
+                </div>
+              </button>
+            ))}
+        </div>
+      )}
+
+      {/* Khi đã chọn 1 lớp cụ thể, hiện danh sách học viên của lớp đó */}
+      {selectedClassId !== 'all' && (
+        <div className="flex items-center gap-2 text-xs">
+          <button onClick={handleBackToClasses} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-hover border border-surface-border text-text-secondary font-bold hover:bg-surface-card hover:text-parish-primary transition-colors">
+            <ChevronLeft size={14} /> Quay lại lưới lớp
+          </button>
+          <span className="text-text-muted">Đang xem lớp <strong className="text-parish-primary">{classes.find(c => c.id === selectedClassId)?.name}</strong> — {totalFiltered} em</span>
+        </div>
+      )}
+
+      {/* Bulk Action Bar — chỉ hiện khi đã vào danh sách lớp cụ thể hoặc đang xem tất cả qua nút */}
+      {(selectedClassId !== 'all' ? selectedIds.size > 0 : false) && (
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl px-6 py-3.5 flex items-center justify-between gap-4 shadow-xl sticky top-4 z-20 animate-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-blue-500 flex items-center justify-center text-white shadow-lg">
@@ -423,7 +503,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Table Section */}
+      {/* Table Section — chỉ hiện khi đã chọn 1 lớp cụ thể, khi đang xem lưới lớp thì ẩn */}
+      {selectedClassId !== 'all' && (
       <div className="app-panel overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-base text-left border-collapse bg-surface-card text-text-main">
@@ -501,6 +582,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
           </div>
         )}
       </div>
+      )}
 
       <ConfirmDialog
         isOpen={pendingBulkDelete}
