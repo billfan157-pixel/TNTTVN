@@ -508,6 +508,11 @@ export const ExamSessionView: React.FC = () => {
   }
 
   const hasBlockedConflicts = !!lastFinalize && lastFinalize.conflicts.length > 0
+  const requiresAnswerKey = createForm.examType === 'multiple_choice' || createForm.examType === 'mixed'
+  const completedAnswerCount = requiresAnswerKey
+    ? Array.from({ length: createForm.questionCount }, (_, index) => index + 1)
+        .filter(question => Boolean(createForm.answerKey[question])).length
+    : 0
 
   return (
     <div className="flex flex-col gap-3 sm:gap-4">
@@ -921,12 +926,26 @@ export const ExamSessionView: React.FC = () => {
 
       {/* Create modal */}
       {showCreate && (
-        <div role="dialog" aria-modal="true" aria-labelledby="create-session-title" className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
-          <div ref={createTrapRef} className="bg-surface-card rounded-2xl p-5 w-full max-w-2xl shadow-xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h4 id="create-session-title" className="font-extrabold text-parish-primary mb-1">Tạo Phiên Chấm</h4>
-            <p className="text-xs text-text-muted mb-3">
-              Năm học {normalizeActiveAY(activeAY)} · Học kỳ {selectedSemester} — điểm sẽ ghi đúng cột theo loại điểm khi hoàn tất phiên.
-            </p>
+        <div role="dialog" aria-modal="true" aria-labelledby="create-session-title" className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" onClick={() => setShowCreate(false)}>
+          <div ref={createTrapRef} className="bg-surface-card rounded-t-3xl sm:rounded-2xl w-full max-w-2xl shadow-xl max-h-[96dvh] sm:max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 bg-surface-card border-b border-surface-border px-4 pt-2 sm:px-5 sm:pt-0">
+              <div className="flex justify-center py-1.5 sm:hidden" aria-hidden="true">
+                <span className="h-1 w-10 rounded-full bg-surface-border" />
+              </div>
+              <div className="flex items-start justify-between gap-3 pb-3 pt-1 sm:pt-4">
+                <div className="min-w-0">
+                  <h4 id="create-session-title" className="font-extrabold text-parish-primary mb-1">Tạo Phiên Chấm</h4>
+                  <p className="text-xs text-text-muted m-0">
+                    Năm học {normalizeActiveAY(activeAY)} · Học kỳ {selectedSemester}
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowCreate(false)} className="mobile-touch-target shrink-0 rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-main flex items-center justify-center" aria-label="Đóng tạo phiên chấm">
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="px-4 pt-4 pb-3 sm:px-5">
 
             {/* Class selection in Create Modal */}
             {!effectiveClassId ? (
@@ -959,40 +978,46 @@ export const ExamSessionView: React.FC = () => {
 
             {/* Hình thức Bài Kiểm Tra — chọn trước để ô import hiển đúng phạm vi */}
             <label className="block text-xs font-bold text-text-secondary mb-1">Hình thức Bài Kiểm Tra</label>
-            <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4" role="group" aria-label="Hình thức bài kiểm tra">
               <button
                 type="button"
                 onClick={() => handleExamTypeChange('written')}
-                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                aria-pressed={createForm.examType === 'written'}
+                className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
                   createForm.examType === 'written'
                     ? 'border-parish-primary bg-parish-primary text-white'
                     : 'border-surface-border text-text-secondary hover:bg-surface-hover'
                 }`}
               >
-                Tự luận (Tô điểm 0-10)
+                <span className="block">Tự luận</span>
+                <span className="block mt-0.5 text-[11px] font-normal opacity-75">Nhập điểm trực tiếp 0–10</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleExamTypeChange('multiple_choice')}
-                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                aria-pressed={createForm.examType === 'multiple_choice'}
+                className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
                   createForm.examType === 'multiple_choice'
                     ? 'border-parish-primary bg-parish-primary text-white'
                     : 'border-surface-border text-text-secondary hover:bg-surface-hover'
                 }`}
               >
-                Trắc nghiệm (A/B/C/D)
+                <span className="block">Trắc nghiệm</span>
+                <span className="block mt-0.5 text-[11px] font-normal opacity-75">A/B/C/D · quét OMR</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleExamTypeChange('mixed')}
                 title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
-                className={`rounded-xl border px-2 py-2 text-xs font-bold transition-colors ${
+                aria-pressed={createForm.examType === 'mixed'}
+                className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
                   createForm.examType === 'mixed'
                     ? 'border-violet-500 bg-violet-500 text-white'
                     : 'border-surface-border text-text-secondary hover:bg-surface-hover'
                 }`}
               >
-                Kết hợp TN + TL
+                <span className="block">Kết hợp TN + TL</span>
+                <span className="block mt-0.5 text-[11px] font-normal opacity-75">Quét TN, nhập điểm TL</span>
               </button>
             </div>
 
@@ -1099,12 +1124,13 @@ export const ExamSessionView: React.FC = () => {
             )}
 
             <label className="block text-xs font-bold text-text-secondary mb-1">Loại Điểm</label>
-            <div className="grid grid-cols-2 gap-2 mb-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
               {SCORE_TYPES.map(t => (
                 <button
                   key={t.id}
                   onClick={() => setCreateForm(f => ({ ...f, scoreType: t.id }))}
-                  className={`rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                  aria-pressed={createForm.scoreType === t.id}
+                  className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
                     createForm.scoreType === t.id
                       ? 'border-parish-primary bg-parish-primary text-white'
                       : 'border-surface-border text-text-secondary hover:bg-surface-hover'
@@ -1123,7 +1149,7 @@ export const ExamSessionView: React.FC = () => {
               onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
               onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
               placeholder="VD: Kiểm tra chương 3"
-              className="w-full px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
+              className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
             />
             <label className="block text-xs font-bold text-text-secondary mb-1">Thang điểm tối đa</label>
             <input
@@ -1134,7 +1160,7 @@ export const ExamSessionView: React.FC = () => {
               max={10}
               value={createForm.maxScore}
               onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
-              className="w-24 px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
+              className="w-24 min-h-[44px] px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none mb-3"
             />
 
             {(createForm.examType === 'multiple_choice' || createForm.examType === 'mixed') && (
@@ -1158,7 +1184,7 @@ export const ExamSessionView: React.FC = () => {
                       })
                       setCreateError('')
                     }}
-                    className="w-20 px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none"
+                    className="w-20 min-h-[44px] px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none"
                   />
                   <span className="text-xs text-text-muted">(1–50, khớp mẫu phiếu trả lời)</span>
                 </div>
@@ -1177,7 +1203,7 @@ export const ExamSessionView: React.FC = () => {
                         })
                         setCreateError('')
                       }}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-black transition-colors ${
+                      className={`min-h-[40px] px-3 py-1 rounded-lg text-[11px] font-black transition-colors ${
                         Object.values(createForm.answerKey).every(v => v === opt) && Object.keys(createForm.answerKey).length === createForm.questionCount
                           ? 'bg-parish-primary text-white'
                           : 'bg-surface-hover text-text-secondary hover:bg-parish-primary-light hover:text-parish-primary'
@@ -1188,14 +1214,14 @@ export const ExamSessionView: React.FC = () => {
                   ))}
                 </div>
 
-                <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 max-h-56 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
+                <div className="grid grid-cols-1 sm:grid-cols-5 lg:grid-cols-10 gap-1.5 max-h-[46dvh] sm:max-h-56 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
                   {Array.from({ length: createForm.questionCount }).map((_, i) => {
                     const q = i + 1
                     const current = createForm.answerKey[q]
                     return (
-                      <div key={q} className="flex flex-col items-center gap-0.5 p-1 rounded-lg bg-surface-card border border-surface-border">
-                        <span className="text-[9px] font-bold text-text-muted">câu {q}</span>
-                        <div className="flex gap-0.5">
+                      <div key={q} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-surface-card border border-surface-border sm:flex-col sm:items-center sm:gap-0.5 sm:p-1">
+                        <span className="min-w-10 text-[11px] font-bold text-text-muted sm:min-w-0 sm:text-[9px]">Câu {q}</span>
+                        <div className="flex gap-1 sm:gap-0.5">
                           {(['A', 'B', 'C', 'D'] as const).map(opt => (
                             <button
                               key={opt}
@@ -1204,7 +1230,9 @@ export const ExamSessionView: React.FC = () => {
                                 setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q]: opt } }))
                                 setCreateError('')
                               }}
-                              className={`w-5 h-5 rounded text-[10px] font-black ${
+                              aria-label={`Câu ${q}, đáp án ${opt}`}
+                              aria-pressed={current === opt}
+                              className={`w-11 h-11 sm:w-5 sm:h-5 rounded text-xs sm:text-[10px] font-black transition-colors ${
                                 current === opt
                                   ? 'bg-parish-primary text-white'
                                   : 'bg-surface-app text-text-muted hover:bg-surface-hover'
@@ -1222,18 +1250,30 @@ export const ExamSessionView: React.FC = () => {
             )}
 
             {createError && (
-              <div className="mb-3 rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3 py-2 text-xs font-semibold text-parish-warning">
+              <div role="alert" className="mb-3 rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3 py-2 text-xs font-semibold text-parish-warning">
                 {createError}
               </div>
             )}
 
-            <div className="flex gap-2 justify-end">
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowCreate(false)}>Hủy</button>
-              <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={!createForm.subject.trim()}>
-                <Plus size={14} /> Tạo Phiên
-              </button>
+            <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-4 border-t border-surface-border bg-surface-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {requiresAnswerKey ? (
+                  <p className={`m-0 text-xs font-semibold ${completedAnswerCount === createForm.questionCount ? 'text-emerald-600 dark:text-emerald-300' : 'text-text-muted'}`} aria-live="polite">
+                    Đáp án: {completedAnswerCount}/{createForm.questionCount} câu
+                  </p>
+                ) : (
+                  <p className="m-0 text-xs text-text-muted">Sẵn sàng nhập điểm trực tiếp sau khi tạo phiên.</p>
+                )}
+                <div className="flex gap-2 sm:justify-end">
+                  <button className="btn btn-secondary flex-1 min-h-[44px] sm:flex-none" onClick={() => setShowCreate(false)}>Hủy</button>
+                  <button className="btn btn-primary flex-1 min-h-[44px] sm:flex-none" onClick={handleCreate} disabled={!createForm.subject.trim()}>
+                    <Plus size={16} /> Tạo Phiên
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
         </div>
       )}
 

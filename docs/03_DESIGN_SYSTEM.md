@@ -210,6 +210,7 @@ Cấm: thead `bg-slate-800 text-white`, `bg-slate-50/*`, `bg-parish-primary text
 - Top bar: `.mobile-top-bar` (gradient brand cố định `#17347f→#2454bf`, ≤767px `#1d3f99→#2c58c7` — giữ nguyên, không phải token).
 - Bottom nav: `.mobile-bottom-nav` (token-based, tự dark-adapt); action: `.mobile-floating-action`, `.mobile-bottom-action-bar`.
 - Touch target tối thiểu: **44×44px** (`.mobile-touch-target`). Cấm button < 40px trên mobile.
+- Modal tác vụ dài (ví dụ **Tạo Phiên Chấm**) dùng bottom-sheet ở mobile: tiêu đề/nút đóng và hành động chính sticky, phần nội dung tự cuộn, footer chừa `safe-area-inset-bottom`; từ `sm` trở lên quay về modal giữa màn hình.
 - **Cấm** `space-y-*` chồng lên `.mobile-screen--stack` (gap 14px đã có) — tránh double-spacing.
 - Không lạm dụng `backdrop-blur` cho nội dung cuộn (tốn GPU trên máy yếu).
 
