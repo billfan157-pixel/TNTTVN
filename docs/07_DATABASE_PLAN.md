@@ -23,8 +23,8 @@
 | 12 | `notifications` | Persistent notification history — thêm `target_user_ids` (JSON array userId, migration `20260808-082`): web push CÓ CHỦ ĐÍCH (phụ huynh theo chi đoàn), queue recover sau restart gửi lại đúng nhóm, không broadcast nhầm (ADR-022) | `idx_notifications_lookup` |
 | 13 | `permissions` | RBAC permission definitions | `id` PK |
 | 14 | `role_permissions` | Role ↔ permission mapping | `idx_role_permissions_pk` `(role, permission_id)` UNIQUE |
-| 15 | `import_batches` | Student Excel import batch records (`status` enum: `'processing'`, `'completed'`, `'partial'`, `'failed'`, `'undone'`, `'partial_undone'`) | `id` PK |
-| 16 | `import_batch_students` | Itemized import batch row status (bắt buộc `parish_id` explicit binding, D-01) | `batch_id` FK |
+| 15 | `import_batches` | Student roster import batch; `created_class_ids` JSON exact IDs phục vụ undo an toàn (migration `20260828-132`); status `processing/completed/partial/failed/undone/partial_undone` | `id` PK |
+| 16 | `import_batch_students` | Itemized row status + `rollback_snapshot` nullable, gắn đúng batch và xóa sau cửa sổ 24h (migration `20260828-133`); bắt buộc `parish_id` explicit | `batch_id` FK |
 | 17 | `grade_import_hashes` | Content hash deduplication for grade sheets | `idx_grade_import_hashes_unique` UNIQUE |
 | 18 | `push_subscriptions` | Web push notification endpoints | `endpoint` UNIQUE |
 | 19 | `service_assignments` | Parish service roles (Lễ Phục Vụ) | `idx_service_assignments_unique` UNIQUE |

@@ -52,9 +52,11 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
   } catch (err: any) {
     const msg = err?.message || String(err)
     const stack = err?.stack || ''
+    const referenceId = generateId('ERR')
     console.error(JSON.stringify({
       level: 'ERROR',
       type: 'VALIDATE_IMPORT_FAILED',
+      referenceId,
       parishId: user.parishId,
       userId: user.userId,
       rowCount: rows?.length ?? 0,
@@ -62,7 +64,6 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
       stack: stack.slice(0, 2000),
     }))
     // Giữ hợp đồng cũ (success envelope) nhưng trả 500 có code để client hiển thị đúng
-    const referenceId = generateId('ERR')
     return errorResponse(c, 'VALIDATE_FAILED', `Không thể kiểm tra dữ liệu lúc này. Mã tham chiếu: ${referenceId}`, 500)
   }
 })

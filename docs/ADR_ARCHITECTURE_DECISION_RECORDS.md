@@ -1684,9 +1684,9 @@ Usability thực địa trên thiết bị/role thật vẫn CONDITIONAL và ch�
 
 ---
 
-## ADR-054: Student Roster Import Deduplication Hardening & Safe Skip Default (2026-08-28)
+## ADR-064: Student Roster Import — Server-Authoritative Deduplication, Bounded Parsing & Exact Rollback (2026-08-28)
 
-**Status: APPROVED / IMPLEMENTED. Severity: D2. Profile: GENERAL + SECURITY. Reversibility: R1.**
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profile: SECURITY. Reversibility: R2.**
 
 ### Context & Evidence
 - Trong đợt kiểm tra quy trình Import danh sách học sinh (`server/src/services/importService.ts` và `src/components/common/ExcelImportModal.tsx`):
@@ -1702,9 +1702,26 @@ Usability thực địa trên thiết bị/role thật vẫn CONDITIONAL và ch�
    - Truy vấn bổ sung theo `fullName` trong CSDL để khớp `(holyName, fullName, class)` và `(fullName, class)` khi thiếu ngày sinh.
    - Phát hiện khác biệt Tên Thánh (`name_dob_diff_holy_name`) để bảo vệ dữ liệu sinh đôi.
    - Bổ sung Fuzzy match Levenshtein $\ge 80\%$ khi trùng SĐT và/hoặc Ngày sinh.
-4. **Deterministic Concurrency Control**: Điều chỉnh `CONCURRENCY` thành `1` trong môi trường test/Vitest để đảm bảo an toàn lock SQLite nội bộ.
+4. **Server-authoritative decisions**: `duplicateActions` hỗ trợ `skip|update|create`; thiếu quyết định luôn `skip` tại server. ID giả `intra-file` không bao giờ được ghi vào FK, và không được dùng làm target update. Quyền chủ nhiệm được kiểm lại lúc commit; collision ngoài phạm vi chỉ trả thông báo chung, không lộ identity.
+5. **Blank-cell preservation**: update chỉ ghi các field thật sự có trong file; ô trống/placeholder giữ dữ liệu hiện có. Audit tiếp tục che PII.
+6. **Exact rollback boundary**: `import_batch_students.rollback_snapshot` (migration `20260828-133`) gắn snapshot trước update với đúng row/batch; `import_batches.created_class_ids` (migration `20260828-132`) lưu ID lớp tạo bởi batch. Snapshot tự bị xóa sau 24 giờ. Undo từ chối khi student đã sửa hoặc có grade/attendance/exam/promotion/snapshot/assessment/leave data; lớp chỉ xóa theo exact ID và khi rỗng. `audit_logs` đã redacted không còn là restore source.
+7. **Bounded client parsing**: allowlist `.xlsx/.xls/.csv/.txt`, file/text ≤10 MB, dữ liệu ≤2000 dòng; SheetJS dùng `dense`, `sheetRows`, tắt formula/HTML/VBA extraction. CSV báo lỗi dùng encoder chống spreadsheet formula injection.
+8. **Input/error envelope**: field/key/fileName/array có max length/count tại Zod; lỗi 500 chỉ trả mã tham chiếu, không trả DB cause.
+
+### Decision Matrix & Gates
+
+| Phương án | Security | Privacy | Data Integrity | Testability | Kết luận |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Giữ UI-only + audit làm rollback | 5 | 6 | 4 | 6 | REJECT |
+| Server fail-closed + snapshot TTL 24h + partial success | 9 | 8 | 9 | 9 | **CHỌN** |
+| Một transaction toàn file, bỏ partial success | 9 | 8 | 9 | 8 | CONFLICT ADR-008 |
+
+- **Hard gates D3**: Security 9, Privacy 8, Data Integrity 9 — PASS.
+- **ADR compatibility**: ADR-008 partial success PASS; ADR-016 class/tenant authorization PASS; ADR-031 composite tenant binding PASS; A16 PII-redacted audit PASS.
+- **Business rule**: server-default skip, explicit create/update, 24h undo và blank preservation = CONFIRMED trong BUSINESS_RULES §23.2.
+- **Rollback**: R2 — revert code sau khi giữ hai cột nullable; không xóa cột khi rollback deployment.
 
 ### Verification
-- **Test Suite**: `server/src/__tests__/services/importDeduplicationHardening.test.ts` (7 tests PASS), toàn bộ 6 test file import (50 tests PASS).
-- **Quality**: `oxlint --deny-warnings` 0 error/0 warning, `tsc -b --noEmit` PASS, `npm run build:server` PASS.
+- **Targeted verification**: 8 test files / 76 tests PASS (dedup, exact rollback/TTL, tenant/class authorization, parish isolation, schema health, parser, safe CSV).
+- **Build**: server TypeScript PASS; frontend TypeScript + Vite/PWA production build PASS.
 

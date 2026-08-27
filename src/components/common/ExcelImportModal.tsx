@@ -1121,7 +1121,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                           >
                             Xem
                           </button>
-                          {b.status === 'completed' && b.imported > 0 && (
+                          {['completed', 'partial', 'partial_undone'].includes(b.status) && b.imported > 0 && (
                             <button
                               onClick={async () => {
                                 try {

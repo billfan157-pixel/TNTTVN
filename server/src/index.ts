@@ -23,6 +23,7 @@ import { registerOutboxSubscribers, startOutboxWorker, stopOutboxWorker } from '
 import { initNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
+import { startImportRollbackSnapshotCleanup } from './services/importService.js'
 import cspReportRouter from './routes/cspReport.js'
 import { initSentryNode, captureServerException } from './utils/observability.js'
 
@@ -165,11 +166,13 @@ try {
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST })
 console.log(`Server running at http://${HOST}:${PORT}`)
+const stopImportRollbackCleanup = startImportRollbackSnapshotCleanup()
 
 const gracefulShutdown = async (signal: string) => {
   console.log(`[shutdown] Received ${signal}, shutting down gracefully...`)
   try { await client.execute('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}
   stopBackupScheduler()
+  stopImportRollbackCleanup()
   stopOutboxWorker()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(1), 10000)

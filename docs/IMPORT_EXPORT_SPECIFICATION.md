@@ -49,11 +49,19 @@ Import Processing Route (server/src/routes/import.ts)
   - `Lớp` / `Tên lớp` (`classId` resolution)
 - **Cell Preservation Guarantee**:
   - Empty student fields do NOT overwrite existing non-null database fields during re-import updates.
-- **Deduplication & Collision Protection (ADR-054)**:
+- **Deduplication & Collision Protection (ADR-064)**:
   - **Intra-file Multi-Key Deduplication**: Phát hiện trùng lặp ngay trong cùng file qua 4 tiêu chí: (1) `fullName + dob`, (2) `fullName + parentPhone`, (3) `holyName + fullName + className`, (4) `fullName + className`.
   - **Database Deduplication**: Khớp chính xác qua SĐT + Họ tên (hỗ trợ phân biệt anh chị em IE-01), Họ tên + Ngày sinh (phân biệt Tên Thánh sinh đôi `name_dob_diff_holy_name`), và Họ tên + Lớp khi thiếu ngày sinh (`name_holy_class`, `name_class`).
   - **Fuzzy Name Matching**: Phát hiện sai chính tả Levenshtein $\ge 80\%$ khi trùng khớp SĐT và/hoặc Ngày sinh.
   - **Safe UI Default**: Giao diện khởi tạo mặc định hành động là `'skip'` (Bỏ qua an toàn), ngăn chặn việc vô tình ghi đè CSDL mà không có chủ ý rõ ràng của người dùng.
+  - **Server Fail-Closed**: backend cũng mặc định `skip` nếu key quyết định bị thiếu/tamper. `create` là lựa chọn tường minh cho sinh đôi/người khác trùng định danh; `intra-file` không được dùng làm ID cập nhật hoặc FK.
+  - **Blank Preservation**: khi update, chỉ field thật sự có dữ liệu trong file mới ghi đè; ô trống/`Chưa cập nhật` giữ nguyên dữ liệu hiện có.
+- **Resource & Export Safety**:
+  - Client chỉ nhận `.xlsx/.xls/.csv/.txt`, tối đa 10 MB và 2000 dòng; SheetJS parse ở dense mode với row cap, không giữ formula/HTML/VBA metadata.
+  - CSV báo lỗi prefix các cell có dấu hiệu formula và quote toàn bộ field để giảm spreadsheet formula injection.
+- **Undo Roster Import**:
+  - Cửa sổ 24 giờ; snapshot exact thuộc `import_batch_students.rollback_snapshot`, không dùng `audit_logs` đã che PII.
+  - Undo fail-closed khi student đã được sửa hoặc phát sinh dữ liệu nghiệp vụ. Snapshot bị xóa sau undo hoặc hết hạn; lớp chỉ soft-delete theo exact `created_class_ids` và khi không còn học viên active.
 
 ---
 

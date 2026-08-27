@@ -1465,17 +1465,35 @@ export async function deleteMappingMemory(id: string, parishId: string): Promise
 
 const ROSTER_UNDO_WINDOW_MS = 24 * 60 * 60 * 1000
 
-export async function clearExpiredImportRollbackSnapshots(parishId: string): Promise<void> {
+export async function clearExpiredImportRollbackSnapshots(parishId?: string): Promise<void> {
   const cutoff = new Date(Date.now() - ROSTER_UNDO_WINDOW_MS).toISOString()
+  const conditions = [
+    sql`${importBatchStudents.batchId} IN (
+      SELECT id FROM import_batches
+      WHERE import_batches.parish_id = import_batch_students.parish_id
+        AND created_at < ${cutoff}
+    )`,
+  ]
+  if (parishId) conditions.push(eq(importBatchStudents.parishId, parishId))
   await db.update(importBatchStudents)
     .set({ rollbackSnapshot: null })
-    .where(and(
-      eq(importBatchStudents.parishId, parishId),
-      sql`${importBatchStudents.batchId} IN (
-        SELECT id FROM import_batches
-        WHERE parish_id = ${parishId} AND created_at < ${cutoff}
-      )`,
-    ))
+    .where(and(...conditions))
+}
+
+let rollbackCleanupTimer: ReturnType<typeof setInterval> | null = null
+
+export function startImportRollbackSnapshotCleanup(intervalMs = 60 * 60 * 1000): () => void {
+  if (rollbackCleanupTimer) return () => {}
+  const run = () => void clearExpiredImportRollbackSnapshots().catch((error) => {
+    console.error('[import] rollback snapshot cleanup failed', error)
+  })
+  run()
+  rollbackCleanupTimer = setInterval(run, intervalMs)
+  rollbackCleanupTimer.unref?.()
+  return () => {
+    if (rollbackCleanupTimer) clearInterval(rollbackCleanupTimer)
+    rollbackCleanupTimer = null
+  }
 }
 
 function parseRollbackSnapshot(raw: string | null): ImportRollbackSnapshot | null {
@@ -1514,7 +1532,7 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
     .limit(1)
 
   if (!batch) throw new Error('Không tìm thấy batch import')
-  if (!['completed', 'partial'].includes(batch.status)) throw new Error('Batch này đã được hoàn tác hoặc đang xử lý')
+  if (!['completed', 'partial', 'partial_undone'].includes(batch.status)) throw new Error('Batch này đã được hoàn tác hoặc đang xử lý')
 
   const undoWindow = new Date(Date.now() - ROSTER_UNDO_WINDOW_MS).toISOString()
   if (batch.createdAt < undoWindow) throw new Error('Chỉ có thể hoàn tác trong vòng 24 giờ sau khi import')
@@ -1530,6 +1548,7 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
     for (const bs of batchStudents) {
       if (!bs.studentId || !['created', 'updated'].includes(bs.action)) continue
       const snapshot = parseRollbackSnapshot(bs.rollbackSnapshot)
+      if (!snapshot && batch.status === 'partial_undone') continue
       if (!snapshot || snapshot.kind !== bs.action) {
         result.errors.push(`Dòng ${bs.rowIndex}: thiếu snapshot hoàn tác an toàn; không thay đổi dữ liệu`)
         continue

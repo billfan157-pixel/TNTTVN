@@ -17,10 +17,11 @@
 
 ### Module: Student Roster Import Deduplication Hardening (2026-08-28)
 
-- **Decision**: ADR-054, D2/GENERAL + SECURITY, R1. Khắc phục triệt để các góc khuất trong cơ chế Import Học Viên (Intra-file đa tiêu chí, DB match khi thiếu ngày sinh, phân biệt Tên Thánh sinh đôi, Fuzzy typo match, và UI Safe Skip Default).
-- **Code truth**: `server/src/services/importService.ts` (`detectDuplicates`), `src/components/common/ExcelImportModal.tsx` (`formatDuplicateReason`, safe default `skip`).
-- **Tests**: `server/src/__tests__/services/importDeduplicationHardening.test.ts` (7 tests PASS).
-- **Scope**: Import Roster logic & modal review UX. Toàn bộ API contracts giữ nguyên envelope tương thích ngược.
+- **Decision**: ADR-064, D3/SECURITY, R2. Server-authoritative duplicate decision, explicit `create`, blank-cell preservation, bounded parsing, exact batch rollback và PII-safe audit.
+- **Code truth**: `server/src/services/importService.ts`, `server/src/routes/import.ts`, `server/src/db/schema.ts`, `src/components/common/ExcelImportModal.tsx`, `src/utils/csv.ts`.
+- **Migrations**: `20260828-132` (`import_batches.created_class_ids`) và `20260828-133` (`import_batch_students.rollback_snapshot`); readiness gate fail-closed.
+- **Tests**: targeted import/tenant/schema/parser/CSV: 8 files / 76 tests PASS.
+- **Scope**: roster Excel/CSV/paste → validate → conflict review → partial import → history/undo. API envelope giữ tương thích; `duplicateActions` mở rộng thêm `create`.
 
 ---
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db } from '../../db/index.js'
 import { students, classes, branches, academicYears, users, importBatches, importBatchStudents, auditLogs } from '../../db/schema.js'
-import { detectDuplicates, importStudents, undoImport } from '../../services/importService.js'
+import { clearExpiredImportRollbackSnapshots, detectDuplicates, importStudents, undoImport } from '../../services/importService.js'
 import { eq } from 'drizzle-orm'
 
 describe('Import Deduplication Hardening Suite (ADR-054)', () => {
@@ -407,6 +407,23 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       expect(restored.parentName).toBe(before.parentName)
       expect(restored.address).toBe(before.address)
       expect(restored.parentPhone).toBe(before.parentPhone)
+    })
+
+    it('purges rollback snapshots after the 24-hour privacy window', async () => {
+      const batchId = 'imp-expired-rollback'
+      const rowId = 'ibs-expired-rollback'
+      await db.insert(importBatches).values({
+        id: batchId, userId: ADMIN_ID, parishId: PARISH, totalRows: 1,
+        status: 'completed', createdAt: '2020-01-01T00:00:00.000Z',
+      })
+      await db.insert(importBatchStudents).values({
+        id: rowId, batchId, parishId: PARISH, rowIndex: 1, action: 'error',
+        rollbackSnapshot: JSON.stringify({ secret: 'must-expire' }),
+      })
+
+      await clearExpiredImportRollbackSnapshots(PARISH)
+      const [row] = await db.select().from(importBatchStudents).where(eq(importBatchStudents.id, rowId))
+      expect(row.rollbackSnapshot).toBeNull()
     })
   })
 })

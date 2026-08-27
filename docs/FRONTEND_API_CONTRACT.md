@@ -563,4 +563,14 @@ Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/khô
 
 > Lưu ý sync client: sync engine gửi toàn bộ pending grades trong 1 call — cap 2000 đủ dư địa nhiều lớp; nếu tương lai vượt cần chunk phía client.
 
+### Student roster import contract (ADR-064, 2026-08-28)
+
+| Endpoint | Contract chính |
+| :--- | :--- |
+| `POST /api/students/validate` | `rows[0..2000]`; field có max length; trả preview, class suggestions, duplicate reason và previous batch hash. Duplicate ngoài class scope của chủ nhiệm không lộ metadata. |
+| `POST /api/students/import` | `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip` tại server. `fileName ≤255`, mapping/newClasses/serviceExclusions đều có cap 2000. Partial-success itemized. |
+| `POST /api/students/undo/:batchId` | Admin-only, 24h; trả `{ undone, errors[] }`. Exact snapshot + post-import mutation/dependency gate; batch có thể thành `partial_undone` và retry idempotently trong cửa sổ còn lại. |
+
+Lỗi 500 từ validate/import trả message chung kèm mã tham chiếu; chi tiết DB/stack chỉ nằm trong server log. Client chặn file >10 MB hoặc >2000 data rows trước request.
+
 

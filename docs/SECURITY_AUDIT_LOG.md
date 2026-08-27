@@ -142,6 +142,18 @@
 
 ---
 
+## Audit 2026-08-28 — Student roster import authority, rollback PII integrity & spreadsheet safety — FIXED
+
+**Classification:** D3 / SECURITY · **Decision:** ADR-064 · **Status:** FIXED.
+
+- **CONFIRMED:** duplicate decision trước đây chỉ safe-default ở UI; payload thiếu action có thể rơi xuống create. `intra-file` dùng ID tổng hợp có thể đi vào FK. Đã chuyển default `skip` thành invariant server và thêm explicit `create`.
+- **CONFIRMED:** roster undo trước đây lấy `audit_logs.old_value` đã mask `parentPhone/address`, đồng thời chọn latest import audit không gắn batch; có thể restore sai/mất PII. Đã thay bằng short-lived exact rollback snapshot theo row/batch, TTL 24h, mutation/dependency gate và exact class IDs.
+- **CONFIRMED:** client chưa có file-size/decompressed-row cap và CSV error export chưa neutralize formula cells. Đã thêm allowlist, 10 MB/2000-row cap, bounded SheetJS parsing và safe CSV encoder.
+- **Tenant/privacy:** commit-time collision scan toàn parish nhưng class-scoped user chỉ nhận generic conflict; rollback snapshot chỉ qua admin undo/batch boundary, tự clear khi undo/hết hạn; audit tiếp tục redacted.
+- **Verification:** targeted 8 files / 76 tests PASS; server TypeScript build PASS; frontend TypeScript + Vite/PWA build PASS.
+
+---
+
 ## Audit A01 — Refresh Token trong localStorage — 🔴 P1
 
 > **Trạng thái**: BẢN CHUẨN HỢP NHẤT (SSOT) — 2026-08-09 · Severity: **🔴 P1** (không phải P0)

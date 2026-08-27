@@ -675,6 +675,11 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
   - Hệ thống thực hiện kiểm tra 2 lớp:
     1. **Lớp 1 (Nội bộ file)**: Phát hiện các dòng trùng lặp `(Họ và tên chuẩn hóa, Ngày sinh)` ngay trong cùng một file Excel tải lên, gắn cờ `intra-file` cảnh báo người dùng.
     2. **Lớp 2 (Cơ sở dữ liệu)**: Đối chiếu với CSDL hiện tại để phân biệt anh chị em cùng số điện thoại (IE-01) hoặc học sinh trùng tên khác ngày sinh (IE-02).
+  - Mọi collision mặc định **Bỏ qua** ở cả UI và server. Người dùng phải chọn tường minh **Cập nhật hồ sơ hiện có** hoặc **Đây là người khác — tạo mới**; dòng `intra-file` không được cập nhật bằng ID giả.
+  - Ô trống/placeholder trong file không được xóa dữ liệu đang có khi update. `fullName` và lớp mục tiêu vẫn bắt buộc hợp lệ.
+  - Chủ nhiệm chỉ xem collision trong lớp được phân công ở preview; lúc commit server vẫn chặn tạo trùng toàn giáo xứ nhưng trả thông báo chung cho collision ngoài phạm vi.
+  - Undo danh sách chỉ trong 24 giờ, dùng snapshot exact gắn batch. Nếu học viên đã sửa hoặc có điểm, điểm danh, kỳ thi, xét lên lớp, snapshot năm, assessment hay đơn nghỉ thì item đó bị từ chối; kết quả có thể `partial_undone`. Audit redacted không phải nguồn restore.
+  - Batch `partial_undone` có thể retry trong cửa sổ 24 giờ sau khi người dùng xử lý dependency; item đã undo bị bỏ qua idempotently.
 
 ### 23.3 Quy Chuẩn Đánh Số Phiếu Thu / Chi Tuần Tự (Sequential Voucher Numbering)
 - Số phiếu thu (`PT-YYYY-XXXX`) và phiếu chi (`PC-YYYY-XXXX`) được sinh tuần tự tăng dần dựa trên dữ liệu thực tế của từng năm trong CSDL (bắt đầu từ `0001`), không sử dụng số ngẫu nhiên nhằm đảm bảo tính duy nhất và tính liên tục của sổ sách kế toán Xứ Đoàn.
