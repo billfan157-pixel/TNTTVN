@@ -1,15 +1,17 @@
-﻿import React from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { BRANCHES } from '../../constants/branches';
-import { Printer, FileText, BarChart2, Award } from 'lucide-react';
+import { Printer, FileText, BarChart2, Award, Search, Users } from 'lucide-react';
 import type { Student } from '../../types';
 
 interface MobileReportsViewProps {
   onPrintReport: (student: Student) => void;
 }
+
+const REPORT_PAGE_SIZE = 30;
 
 export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintReport }) => {
   const students = useStudentStore(s => s.students);
@@ -17,6 +19,41 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
   const selectedSemester = useFilterStore(s => s.selectedSemester);
   const setSelectedSemester = useFilterStore(s => s.setSelectedSemester);
   const { restricted: semesterRestricted, openSemester } = useSemesterAccess();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleLimit, setVisibleLimit] = useState(REPORT_PAGE_SIZE);
+
+  const filteredStudents = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase('vi');
+    if (!normalizedQuery) return students;
+    return students.filter(student => (
+      `${student.holyName || ''} ${student.fullName} ${student.code}`
+        .toLocaleLowerCase('vi')
+        .includes(normalizedQuery)
+    ));
+  }, [searchQuery, students]);
+
+  useEffect(() => {
+    setVisibleLimit(REPORT_PAGE_SIZE);
+  }, [searchQuery]);
+
+  const visibleStudents = useMemo(
+    () => filteredStudents.slice(0, visibleLimit),
+    [filteredStudents, visibleLimit],
+  );
+
+  const branchStats = useMemo(() => Object.values(BRANCHES).map(branch => {
+    const branchStudents = students.filter(student => student.branch === branch.id);
+    let excellent = 0, good = 0, fair = 0, average = 0, weak = 0;
+    branchStudents.forEach(student => {
+      const result = calculateStudentAvg(student.id, selectedSemester);
+      if (result.label === 'Xuất Sắc') excellent++;
+      else if (result.label === 'Giỏi') good++;
+      else if (result.label === 'Khá') fair++;
+      else if (result.label === 'Trung Bình') average++;
+      else if (result.label === 'Yếu') weak++;
+    });
+    return { branch, studentCount: branchStudents.length, excellent, good, fair, average, weak };
+  }), [calculateStudentAvg, selectedSemester, students]);
 
   return (
     <div className="mobile-screen mobile-screen--stack" style={{ gap: '16px' }}>
@@ -66,47 +103,44 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
           Thống Kê Phân Ngành (HK{selectedSemester})
         </h3>
         <div className="flex flex-col gap-2.5">
-          {Object.values(BRANCHES).map(b => {
-            const branchStudents = students.filter(s => s.branch === b.id);
-            let xs = 0, g = 0, k = 0, tb = 0, y = 0;
-            branchStudents.forEach(s => {
-              const res = calculateStudentAvg(s.id, selectedSemester);
-              if (res.label === 'Xuất Sắc') xs++;
-              else if (res.label === 'Giỏi') g++;
-              else if (res.label === 'Khá') k++;
-              else if (res.label === 'Trung Bình') tb++;
-              else if (res.label === 'Yếu') y++;
-            });
+          {branchStats.map(({ branch: b, studentCount, excellent, good, fair, average, weak }) => {
             return (
               <div key={b.id} className="bg-surface-hover p-3 rounded-xl border border-surface-border flex flex-col gap-1.5">
                 <div className="flex justify-between items-center">
-                  <span className="badge text-xs font-bold" style={{ background: b.badgeBg, color: b.textColor }}>
+                  <span
+                    className="badge branch-badge text-xs font-bold"
+                    style={{
+                      '--branch-accent': b.scarfColor,
+                      '--branch-bg': b.badgeBg,
+                      '--branch-text': b.textColor,
+                    } as React.CSSProperties}
+                  >
                     {b.name}
                   </span>
                   <span className="text-xs font-semibold text-text-muted">
-                    Sĩ số: <strong className="text-text-main">{branchStudents.length}</strong> em
+                    Sĩ số: <strong className="text-text-main">{studentCount}</strong> em
                   </span>
                 </div>
                 <div className="grid grid-cols-5 gap-1 text-center text-xs mt-1">
                   <div className="bg-emerald-50 dark:bg-emerald-950/40 p-1 rounded border border-emerald-200 dark:border-emerald-800">
                     <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">XS</div>
-                    <div className="font-bold text-emerald-600 dark:text-emerald-400">{xs}</div>
+                    <div className="font-bold text-emerald-600 dark:text-emerald-400">{excellent}</div>
                   </div>
                   <div className="bg-sky-50 dark:bg-sky-950/40 p-1 rounded border border-sky-200 dark:border-sky-800">
                     <div className="text-[10px] text-sky-700 dark:text-sky-400 font-medium">Giỏi</div>
-                    <div className="font-bold text-sky-600 dark:text-sky-400">{g}</div>
+                    <div className="font-bold text-sky-600 dark:text-sky-400">{good}</div>
                   </div>
                   <div className="bg-amber-50 dark:bg-amber-950/40 p-1 rounded border border-amber-200 dark:border-amber-800">
                     <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Khá</div>
-                    <div className="font-bold text-amber-600 dark:text-amber-400">{k}</div>
+                    <div className="font-bold text-amber-600 dark:text-amber-400">{fair}</div>
                   </div>
                   <div className="bg-surface-hover dark:bg-surface-card p-1 rounded border border-surface-border dark:border-surface-hover">
                     <div className="text-[10px] text-text-muted font-medium">TB</div>
-                    <div className="font-bold text-text-main">{tb}</div>
+                    <div className="font-bold text-text-main">{average}</div>
                   </div>
                   <div className="bg-rose-50 dark:bg-rose-950/40 p-1 rounded border border-rose-200 dark:border-rose-800">
                     <div className="text-[10px] text-rose-700 dark:text-rose-400 font-medium">Yếu</div>
-                    <div className="font-bold text-rose-600 dark:text-rose-400">{y}</div>
+                    <div className="font-bold text-rose-600 dark:text-rose-400">{weak}</div>
                   </div>
                 </div>
               </div>
@@ -117,12 +151,34 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
 
       {/* Student List for Print */}
       <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card">
-        <h3 className="text-sm font-extrabold text-parish-primary mb-3 flex items-center gap-2">
-          <FileText size={16} className="text-parish-secondary" />
-          Danh Sách In Kết Quả Học Tập
-        </h3>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-extrabold text-parish-primary m-0 flex items-center gap-2">
+            <FileText size={16} className="text-parish-secondary" />
+            Danh Sách In Kết Quả
+          </h3>
+          <span className="text-xs font-semibold text-text-muted">{filteredStudents.length}/{students.length} em</span>
+        </div>
+        <label className="relative mb-3 block">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={event => setSearchQuery(event.target.value)}
+            className="form-input w-full pl-9"
+            placeholder="Tìm tên thánh, họ tên hoặc mã..."
+            aria-label="Tìm học sinh để in kết quả"
+          />
+        </label>
         <div className="flex flex-col gap-2">
-          {students.map(s => {
+          {filteredStudents.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-surface-border bg-surface-app p-6 text-center text-text-muted">
+              <Users size={28} className="mx-auto mb-2 opacity-50" />
+              <p className="m-0 text-sm font-bold">Không tìm thấy học sinh phù hợp</p>
+              <button type="button" className="btn btn-ghost mt-2" onClick={() => setSearchQuery('')}>
+                Xóa tìm kiếm
+              </button>
+            </div>
+          ) : visibleStudents.map(s => {
             const avg = calculateStudentAvg(s.id, selectedSemester);
             return (
               <div key={s.id} className="p-3 rounded-xl border border-surface-border bg-surface-hover flex justify-between items-center">
@@ -144,6 +200,15 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
               </div>
             );
           })}
+          {visibleStudents.length < filteredStudents.length && (
+            <button
+              type="button"
+              className="btn btn-secondary mobile-btn w-full mt-1"
+              onClick={() => setVisibleLimit(limit => limit + REPORT_PAGE_SIZE)}
+            >
+              Xem thêm {Math.min(REPORT_PAGE_SIZE, filteredStudents.length - visibleStudents.length)} em
+            </button>
+          )}
         </div>
       </div>
     </div>

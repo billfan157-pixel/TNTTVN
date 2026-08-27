@@ -54,3 +54,17 @@ Phương pháp: agent sweep toàn bộ 16/16 file theo checklist anti-pattern (t
 4. **Dot màu phụng vụ** (`LITURGICAL_COLORS.hex` gần trắng `#F8FAFC`) tàng hình trên card sáng — cần thêm viền/đổi giá trị.
 5. **NoticeModal focus trap** đầy đủ (hiện chỉ có Escape + scroll-lock).
 6. 3 warning oxlint pre-existing trong `MobileCalendarView.tsx` (unused vars).
+
+## Follow-up implementation — MOBILE-UX-2 (2026-08-27)
+
+Đợt nghiên cứu lại toàn bộ shell + 16/16 mobile views xác nhận các follow-up 1–3 là vấn đề xuyên màn hình, không nên vá lẻ. Phương án được duyệt theo ADR-063 và đã triển khai:
+
+1. **Modal responsive dùng chung:** `ModalShell` tách header/body/footer; body là vùng cuộn độc lập, mobile render bottom-sheet có safe-area và modal phủ bottom navigation. `ExcelGradeImportModal` + `GradeFormulaConfigModal` bỏ custom overlay/focus/scroll lock để dùng shell chuẩn; `AttendanceHistoryModal` tăng vùng chạm filter và chuyển record sang stack ở màn hẹp.
+2. **Form mobile/iOS:** input/select/textarea trong mobile shell và modal có min-height 44px + font 16px; control sheet top bar được nâng 42→44px. `NoticeModal` chuyển date/priority về 1 cột và action stack trên mobile.
+3. **Khả năng tìm/lọc + tải danh sách:** `MobileReportsView` thêm tìm theo tên thánh, họ tên hoặc mã; hiển thị số kết quả và empty state có nút khôi phục. QA với 566 học sinh phát hiện màn cũ dựng 566 card/nút In ngay lần đầu; nay thống kê ngành được memo hóa và danh sách render theo lô 30 với nút Xem thêm.
+4. **Dark mode phân ngành:** badge ở MobileStudents/MobileReports dùng `.branch-badge` với palette light/dark từ accent thay vì inline màu light-only.
+5. **Touch consistency:** ô tìm chuyên cần 40→44px; ô lịch rỗng đồng chiều cao 44px với ngày có thể chạm.
+
+Follow-up 4 (dot phụng vụ) và 5 (focus trap NoticeModal) đã được code hiện hành đóng trước đợt này: dot có border/ring; NoticeModal dùng ModalShell. Follow-up 6 cũng đã sạch theo oxlint mục tiêu 2026-08-27.
+
+Verification MOBILE-UX-2: TypeScript project build `PASS`; oxlint các file đổi `PASS`; design-system lint `0/137`; CommonComponents + ExcelGradeImportModal `25/25 PASS`; MobileReportsView `3/3 PASS`. QA Edge ở 390×844 với dữ liệu thật 566 học sinh: control tìm kiếm 44px/16px, initial print cards 566→30, tìm kiếm trả đúng 6/566, bottom-sheet/footer/dark badge đạt; console 0 warning/error. Không chạy lại full suite đã pass ở baseline ADR-062 theo yêu cầu tránh lặp test không liên quan.

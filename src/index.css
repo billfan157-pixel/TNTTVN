@@ -115,6 +115,14 @@
   --shadow-modal: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
   --shadow-dropdown: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
   --shadow-toast: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+
+  /* ─── Motion (Phase 0 — Calm 2026) ─── */
+  --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-duration: 160ms;
+
+  /* ─── Glass (Phase 0 — shell only) ─── */
+  --glass-blur: 16px;
+  --glass-border: rgba(255, 255, 255, 0.15);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -371,6 +379,17 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   box-shadow: var(--shadow-modal);
+}
+
+.modal-content__body {
+  min-width: 0;
+}
+
+.modal-content__footer {
+  margin: 20px -24px -24px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-surface-border);
+  background: color-mix(in srgb, var(--color-surface-card) 96%, var(--color-surface-hover));
 }
 
 .modal-content.modal-report {
@@ -1150,7 +1169,11 @@ table td {
   --mobile-content-gutter: 16px;
   --mobile-top-safe-area: env(safe-area-inset-top, 0px);
   --mobile-action-gap: 12px;
-  --mobile-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --mobile-ease-out: var(--motion-ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+
+  /* Phase 0 (Calm 2026): secondary toolbar — sticky dưới header cho filters (header không còn mega-bar). */
+  --secondary-toolbar-height: 52px;
+  --z-secondary-toolbar: 39;
 
   /* ─── Z-index ladder (PHA 1 — audit A22) ─────────────────────────
      header < install-prompt < modal < mobile-nav < toast/skip-link.
@@ -1158,10 +1181,33 @@ table td {
      DOM order; InstallPrompt (render sau) đè lên modal mở. */
   --z-header: 40;
   --z-install-prompt: 30;
-  --z-modal: 50;
   --z-mobile-nav: 1000;
+  /* Modal phải phủ cả bottom navigation; nếu nav nằm trên aria-modal thì người
+     dùng bàn phím/chạm vẫn có thể kích hoạt điều hướng phía sau dialog. */
+  --z-modal: 1100;
   --z-toast: 9999;
   --z-skip-link: 9999;
+}
+
+/* Phase 0 — Focus Not Obscured (WCAG 2.4.11): sticky header/toolbar không che input khi focus */
+html {
+  scroll-padding-top: calc(var(--app-bar-height) + 16px);
+}
+
+/* Phase 0 — Secondary toolbar (sticky dưới header, glass 16px, dùng cho filters) */
+.secondary-toolbar {
+  position: sticky;
+  top: var(--app-bar-height);
+  z-index: var(--z-secondary-toolbar);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--secondary-toolbar-height);
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--color-surface-card) 95%, transparent);
+  border-bottom: 1px solid var(--color-surface-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
 }
 
 .mobile-app-shell {
@@ -1566,8 +1612,8 @@ table td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   margin-left: auto;
   border: 0;
   border-radius: 12px;
@@ -1595,7 +1641,7 @@ table td {
 
 .mobile-control-field select,
 .mobile-control-search {
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.12);
@@ -1607,6 +1653,7 @@ table td {
   width: 100%;
   padding: 0 10px;
   outline: none;
+  font-size: 16px;
 }
 
 .mobile-control-field select option {
@@ -1628,6 +1675,7 @@ table td {
   background: transparent;
   color: white;
   font: inherit;
+  font-size: 16px;
 }
 
 .mobile-control-search input::placeholder {
@@ -1638,7 +1686,7 @@ table td {
   display: flex;
   align-items: center;
   gap: 3px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 3px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.12);
@@ -1648,7 +1696,7 @@ table td {
 }
 
 .mobile-semester-control button {
-  min-height: 36px;
+  min-height: 38px;
   padding: 0 12px;
   border: 0;
   border-radius: 9px;
@@ -1671,8 +1719,8 @@ table td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 42px;
-  min-height: 42px;
+  min-width: 44px;
+  min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.1);
@@ -1687,7 +1735,7 @@ table td {
 }
 
 .mobile-control-action {
-  min-height: 42px;
+  min-height: 44px;
   flex: 1 1 auto;
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.1);
@@ -1724,6 +1772,103 @@ table td {
   .mobile-control-icon {
     flex: 1 1 0;
   }
+}
+
+/* ─── Mobile modal + form contract (MOBILE-UX-2 / ADR-063) ─── */
+@media (max-width: 767px) {
+  .modal-overlay {
+    align-items: flex-end;
+    padding: max(8px, env(safe-area-inset-top, 0px)) 0 0;
+  }
+
+  .modal-content {
+    display: flex;
+    max-width: 100% !important;
+    max-height: calc(100dvh - max(8px, env(safe-area-inset-top, 0px)));
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -12px 38px rgba(15, 23, 42, 0.24);
+  }
+
+  .modal-content::before {
+    width: 42px;
+    height: 4px;
+    flex: 0 0 auto;
+    margin: 8px auto 2px;
+    border-radius: var(--radius-full);
+    background: var(--color-surface-border);
+    content: '';
+  }
+
+  .modal-content__header {
+    flex: 0 0 auto;
+    margin: 0 !important;
+    padding: 10px var(--mobile-content-gutter) 12px !important;
+  }
+
+  .modal-content__title {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .modal-content__header-actions {
+    gap: 4px;
+  }
+
+  .modal-content__header-actions > .btn,
+  .modal-content__header-actions > button:last-child {
+    min-width: 44px;
+    min-height: 44px;
+    padding-inline: 10px;
+  }
+
+  .modal-content__body {
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 16px var(--mobile-content-gutter);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-content__footer {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 12px var(--mobile-content-gutter) max(12px, env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.08);
+  }
+
+  .mobile-app-shell :is(.form-input, .form-select, .form-textarea, .form-input-sm),
+  .modal-overlay :is(.form-input, .form-select, .form-textarea, .form-input-sm) {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .mobile-app-shell .form-textarea,
+  .modal-overlay .form-textarea {
+    min-height: 96px;
+  }
+
+  .modal-overlay .btn {
+    min-height: 44px;
+  }
+}
+
+.branch-badge {
+  border: 1px solid color-mix(in srgb, var(--branch-accent) 34%, transparent);
+  background: var(--branch-bg);
+  color: var(--branch-text);
+}
+
+.dark .branch-badge {
+  background: color-mix(in srgb, var(--branch-accent) 20%, var(--color-surface-card));
+  color: color-mix(in srgb, var(--branch-accent) 58%, white);
 }
 
 

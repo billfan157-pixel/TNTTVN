@@ -23,6 +23,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
 import { compareClassHierarchy } from '../../utils/classSort';
+import { useDeferredSearch } from '../../hooks/useDeferredSearch';
 import type { Student } from '../../types';
 
 interface DesktopStudentListProps {
@@ -52,8 +53,9 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const setSelectedClassId = useFilterStore((s) => s.setSelectedClassId);
   const selectedBranchId = useFilterStore((s) => s.selectedBranchId);
   const setSelectedBranchId = useFilterStore((s) => s.setSelectedBranchId);
-  const searchQuery = useFilterStore((s) => s.searchQuery);
+  const { searchQuery, deferredSearchQuery } = useDeferredSearch();
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery);
+  const isSearchStale = searchQuery !== deferredSearchQuery;
   const classes = useClassStore((s) => s.classes);
   const hasClasses = classes.length > 0;
 
@@ -68,18 +70,19 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
 
-  // Filter logic
+  // Filter logic — Phase 0: deferred search keeps input 60fps (urgent) while list is transition (deferred)
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
       const matchClass = selectedClassId === 'all' || s.classId === selectedClassId;
       const matchBranch = selectedBranchId === 'all' || s.branch === selectedBranchId;
-      const matchSearch = !searchQuery ||
-        s.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.holyName.toLowerCase().includes(searchQuery.toLowerCase());
+      const q = deferredSearchQuery.trim().toLowerCase();
+      const matchSearch = !q ||
+        s.fullName.toLowerCase().includes(q) ||
+        s.code.toLowerCase().includes(q) ||
+        s.holyName.toLowerCase().includes(q);
       return matchClass && matchBranch && matchSearch;
     });
-  }, [students, selectedClassId, selectedBranchId, searchQuery]);
+  }, [students, selectedClassId, selectedBranchId, deferredSearchQuery]);
 
   const totalFiltered = filteredStudents.length;
   const totalPages = Math.ceil(totalFiltered / pageSize);
@@ -420,8 +423,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Table Section */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+      {/* Table Section — Phase 0: deferred search stale 60fps */}
+      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden" aria-busy={isSearchStale} style={{ opacity: isSearchStale ? 0.7 : 1, transition: 'opacity 120ms var(--motion-ease-out)' }}>
         <div className="overflow-x-auto">
           <table className="w-full text-base text-left border-collapse bg-surface-card text-text-main">
             <thead>

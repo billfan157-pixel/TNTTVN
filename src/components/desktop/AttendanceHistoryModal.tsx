@@ -101,14 +101,14 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
       maxWidth="672px"
     >
       {/* Filter Toolbar */}
-        <div className="p-4 border-b border-surface-border flex items-center justify-between gap-2 flex-wrap bg-surface-card text-xs">
+        <div className="p-3 sm:p-4 border-b border-surface-border flex items-center justify-between gap-2 flex-wrap bg-surface-card text-xs">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-text-muted font-bold flex items-center gap-1 mr-1">
               <Filter size={12} /> Loại:
             </span>
             <button
               onClick={() => setTypeFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-colors ${
+              className={`px-2.5 min-h-[44px] rounded-lg font-bold transition-colors ${
                 typeFilter === 'all'
                   ? 'bg-parish-primary text-white'
                   : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
@@ -118,7 +118,7 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('SundayMass')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-colors ${
+              className={`px-2.5 min-h-[44px] rounded-lg font-bold transition-colors ${
                 typeFilter === 'SundayMass'
                   ? 'bg-[var(--color-parish-info)] text-white'
                   : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
@@ -128,7 +128,7 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('CatechismClass')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-colors ${
+              className={`px-2.5 min-h-[44px] rounded-lg font-bold transition-colors ${
                 typeFilter === 'CatechismClass'
                   ? 'bg-[var(--color-parish-secondary)] text-white'
                   : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
@@ -138,7 +138,7 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('EucharisticAdoration')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-colors ${
+              className={`px-2.5 min-h-[44px] rounded-lg font-bold transition-colors ${
                 typeFilter === 'EucharisticAdoration'
                   ? 'bg-[var(--color-parish-primary)] text-white'
                   : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
@@ -148,7 +148,7 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
             </button>
           </div>
 
-          <label className="flex items-center gap-1.5 font-bold text-text-secondary cursor-pointer select-none">
+          <label className="flex min-h-[44px] items-center gap-1.5 font-bold text-text-secondary cursor-pointer select-none">
             <input
               type="checkbox"
               checked={onlyAbsents}
@@ -170,14 +170,14 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
             records.map((r, idx) => (
               <div
                 key={`${r.id}-${idx}`}
-                className="bg-surface-card border border-surface-border p-3.5 rounded-xl flex items-center justify-between gap-3 shadow-xs hover:border-parish-primary/40 transition-colors"
+                className="bg-surface-card border border-surface-border p-3.5 rounded-xl flex flex-col items-stretch sm:flex-row sm:items-center justify-between gap-3 shadow-xs hover:border-parish-primary/40 transition-colors"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-start sm:items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-surface-app flex items-center justify-center text-text-muted border border-surface-border shrink-0">
                     <Calendar size={15} />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-xs text-text-main">{formatDate(r.date)}</span>
                       {getSessionTypeBadge(r.type)}
                     </div>
@@ -189,7 +189,7 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
                   </div>
                 </div>
 
-                <div className="shrink-0">{getStatusBadge(r.status)}</div>
+                <div className="shrink-0 self-end sm:self-auto">{getStatusBadge(r.status)}</div>
               </div>
             ))
           )}
@@ -200,7 +200,7 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
           <div className="text-xs text-text-muted">
             Hiển thị <strong>{records.length}</strong> buổi điểm danh
           </div>
-          <button onClick={onClose} className="btn btn-secondary text-xs font-bold px-4 py-2">
+          <button onClick={onClose} className="btn btn-secondary text-xs font-bold px-4 min-h-[44px]">
             Đóng
           </button>
         </div>

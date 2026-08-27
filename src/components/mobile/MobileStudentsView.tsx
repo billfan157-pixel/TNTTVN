@@ -14,6 +14,7 @@ import {
   Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA
 } from 'lucide-react';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
+import { useDeferredSearch } from '../../hooks/useDeferredSearch';
 
 interface MobileStudentsViewProps {
   onOpenAddStudent: () => void;
@@ -51,7 +52,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
   const selectedBranchId = useFilterStore(s => s.selectedBranchId)
-  const searchQuery = useFilterStore(s => s.searchQuery)
+  const { searchQuery, deferredSearchQuery } = useDeferredSearch()
+  const isSearchStale = searchQuery !== deferredSearchQuery
   const setSearchQuery = useFilterStore(s => s.setSearchQuery)
   const selectedSemester = useFilterStore(s => s.selectedSemester)
 
@@ -76,8 +78,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
     return students.filter(s => {
       if (selectedBranchId !== 'all' && s.branch !== selectedBranchId) return false;
       if (selectedClassId !== 'all' && s.classId !== selectedClassId) return false;
-      if (searchQuery.trim() !== '') {
-        const q = searchQuery.toLowerCase();
+      const q = deferredSearchQuery.trim().toLowerCase();
+      if (q !== '') {
         const matchHoly = s.holyName.toLowerCase().includes(q);
         const matchFull = s.fullName.toLowerCase().includes(q);
         const matchCode = s.code.toLowerCase().includes(q);
@@ -85,7 +87,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       }
       return true;
     });
-  }, [students, selectedBranchId, selectedClassId, searchQuery]);
+  }, [students, selectedBranchId, selectedClassId, deferredSearchQuery]);
 
   const sortedStudents = React.useMemo(() => {
     if (!sortClassDirection) return filteredStudents
@@ -153,7 +155,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
   return (
     <>
-    <div className="mobile-screen mobile-screen--stack">
+    <div className="mobile-screen mobile-screen--stack" aria-busy={isSearchStale} style={{ opacity: isSearchStale ? 0.7 : 1, transition: 'opacity 120ms var(--motion-ease-out)' }}>
       {/* View Switcher & Send Report Cards Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-2">
@@ -330,7 +332,14 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                       {s.fullName}
                     </div>
                     <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5">
-                      <span className="badge" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
+                      <span
+                        className="badge branch-badge"
+                        style={{
+                          '--branch-accent': branch?.scarfColor,
+                          '--branch-bg': branch?.badgeBg,
+                          '--branch-text': branch?.textColor,
+                        } as React.CSSProperties}
+                      >
                         {branch?.name}
                       </span>
                       <span>• {cls?.name}</span>

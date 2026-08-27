@@ -1614,3 +1614,41 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 - Full coverage: **235/235 files, 1708/1708 tests PASS**; 65,90% statements, 67,89% lines. Targeted post-review benchmark/KPI/lifecycle: PASS.
 - `npm run benchmark:omr`: **15/15 workload PASS**. Isolated warm synthetic: integrated 1280 p95 19,94ms; full-page 960 p95 10,25ms, 1280 p95 15,99ms; QR standard live-fast 1280 p95 26,76ms; QR negative live-fast 1280 p95 99,45ms. Recovery/exhaustive ít mẫu chỉ báo max, không giả p95.
 - **Post-implementation D2:** Security/Privacy 9, Data Integrity 9, Testability 9 — `PASS`; ADR-023/024/043/048/049/050/060 compatibility `PASS`. Business semantics/persistence authority = `CONFIRMED`; real-camera MC accuracy/target-mobile latency = `NOT CONFIRMED`; written score-grid field KPI = `NOT CONFIRMED`. Synthetic/unit không được dùng để tuyên bố field accuracy.
+
+---
+
+## ADR-063: Mobile responsive primitives + modal convergence (2026-08-27)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2 (cross-module UI contract). Profile: GENERAL.**
+
+### Evidence và lựa chọn
+
+- Audit 16/16 mobile views và follow-up 2026-08-22 cho thấy `ExcelGradeImportModal`/`GradeFormulaConfigModal` vẫn tự dựng centered desktop overlay; `AttendanceHistoryModal` có filter dưới 44px; base form là 38px/14px và top-bar controls 42px, gây vùng chạm nhỏ và nguy cơ iOS auto-zoom.
+- `--z-modal: 50` thấp hơn `--z-mobile-nav: 1000`, khiến bottom navigation nằm trên dialog `aria-modal`; `MobileReportsView` render toàn bộ học sinh nhưng không có tìm kiếm/empty recovery; badge phân ngành dùng màu light-only inline.
+
+| Criterion | Weight | A: Shared primitives + targeted views (chọn) | B: Vá từng màn | C: Viết lại native UI |
+|---|---:|---:|---:|---:|
+| Business / UX Fit | 20% | 9 | 7 | 8 |
+| Reliability & Data Integrity | 15% | 9 | 8 | 6 |
+| Security & Privacy | 15% | 9 | 9 | 8 |
+| Maintainability | 15% | 9 | 5 | 6 |
+| Accessibility / Mobile Usability | 15% | 9 | 7 | 9 |
+| Testability | 10% | 8 | 6 | 5 |
+| Reversibility | 10% | 9 | 8 | 4 |
+| **Weighted** | **100%** | **8.85** | **7.15** | **6.80** |
+
+**Decision: A.** D2 hard gates đạt Security/Privacy 9, Data Integrity 9, Testability 8. B không xử lý drift và tạo nhiều focus/scroll implementations; C mở rộng platform/race/release surface khi chưa có bằng chứng cần viết lại.
+
+### Contract và implementation
+
+1. `ModalShell` là owner duy nhất của focus trap, Escape, scroll lock, responsive shell; bổ sung body/footer semantic. Ở ≤767px: bottom-sheet, header/footer không cuộn, body overscroll-contained, safe-area bottom và z-index 1100 phủ nav. Desktop giữ centered dialog.
+2. Mobile/modal form controls tối thiểu 44px và font 16px. Top-bar close/select/search/icons/actions đạt 44px. Không đổi desktop density.
+3. `ExcelGradeImportModal` và `GradeFormulaConfigModal` migrate về `ModalShell`; footer hành động giữ ngoài vùng nội dung cuộn. Notice/date actions, lịch, chuyên cần và AttendanceHistory reflow theo breakpoint.
+4. MobileReports tìm cục bộ theo tên thánh/họ tên/mã, có count + recoverable empty state; thống kê ngành được memo hóa và danh sách lớn render theo lô 30 (QA data thật: initial card/nút In 566→30). Branch badge dùng CSS variables và dark `color-mix`; không đổi dữ liệu báo cáo hay công thức tính điểm.
+
+### Gates, compatibility, rollback
+
+- **Business Rule Gate:** không đổi scoring, import, quyền, persistence hay API; chỉ presentation/filter client-side = `CONFIRMED` bằng source + targeted regression.
+- **ADR compatibility:** ADR-030/032/047 = `PASS`; contract này mở rộng DS primitive hiện hữu, không tạo shell song song. Security/privacy, tenant isolation, offline sync và data integrity không đổi.
+- **Rollback:** R1 — revert client/CSS/docs; không schema migration, không dữ liệu cần chuyển đổi.
+- **Verification:** TypeScript `PASS`; changed-file oxlint `PASS`; design-system lint `0/137`; ModalShell + ExcelGradeImport `25/25 PASS`; MobileReports `3/3 PASS`. Edge QA 390×844 với 566 học sinh: input 44px/16px, initial print cards 30, search 6/566, bottom-sheet/footer/dark badge đạt, console 0 warning/error. Full suite không chạy lại vì baseline ADR-062 đã pass và thay đổi chỉ có targeted UI coverage.

@@ -2,6 +2,8 @@
 
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
 > Version: 2.5 | Last reviewed: 2026-08-14 | Status: ✅ Current | Prerequisites: none
+
+> **MOBILE-UX-2 (2026-08-27, ADR-063):** Mobile UI dùng một responsive contract tại `ModalShell`/`index.css`: ≤767px modal là bottom-sheet, header/footer cố định, body cuộn độc lập, safe-area và z-index trên bottom nav; form control trong mobile/modal ≥44px và font 16px chống iOS auto-zoom. `ExcelGradeImportModal` + `GradeFormulaConfigModal` đã bỏ custom shell; AttendanceHistory/Notice được reflow; MobileReports có tìm tên/mã + empty state + render theo lô 30 (QA data thật giảm initial print cards 566→30); badge phân ngành có dark palette qua `.branch-badge`. Targeted verification 28/28 tests + tsc/oxlint/design lint + Edge 390×844 console sạch; không thay đổi API/schema/scoring.
 # AI Agent Context Map & Repository Entrypoint
 
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.

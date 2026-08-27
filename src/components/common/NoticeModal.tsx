@@ -131,8 +131,28 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
       title={noticeToEdit ? 'Chỉnh Sửa Thông Báo' : 'Tạo Thông Báo Mới'}
       icon={<Bell size={20} />}
       maxWidth="600px"
+      footer={(
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end sm:gap-3">
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
+            Hủy
+          </button>
+          <button type="submit" form="notice-form" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <span className="animate-spin">⏳</span>
+                Đang lưu...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Save size={16} />
+                {noticeToEdit ? 'Lưu Thay Đổi' : 'Tạo Thông Báo'}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form id="notice-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
         <FormField label="Tiêu Đề" htmlFor="notice-title" required error={errors.title || null}>
           <input
             id="notice-title"
@@ -164,7 +184,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
         </FormField>
         <span className="text-xs text-text-muted text-right block -mt-2">{formData.content.length}/5000 ký tự</span>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField label="Ngày Thông Báo" htmlFor="notice-date" required>
             <input
               id="notice-date"
@@ -226,24 +246,6 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
           </select>
         </FormField>
 
-        <div className="flex justify-end gap-3 mt-2 pt-3 border-t border-surface-border">
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSubmitting}>
-            Hủy
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <span className="flex items-center gap-2">
-                <span className="animate-spin">⏳</span>
-                Đang lưu...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <Save size={16} />
-                {noticeToEdit ? 'Lưu Thay Đổi' : 'Tạo Thông Báo'}
-              </span>
-            )}
-          </button>
-        </div>
       </form>
     </ModalShell>
   );

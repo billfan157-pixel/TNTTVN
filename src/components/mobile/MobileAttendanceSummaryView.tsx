@@ -184,7 +184,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
             placeholder="Tìm theo tên hoặc mã..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="form-input pl-8 text-xs font-medium min-h-[40px] w-full"
+            className="form-input pl-8 font-medium min-h-[44px] w-full"
           />
         </div>
       </div>

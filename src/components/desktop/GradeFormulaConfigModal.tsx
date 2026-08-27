@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { Settings, Calculator, Save, RefreshCw, X, HelpCircle, Check } from 'lucide-react'
+import { Settings, Calculator, Save, RefreshCw, HelpCircle, Check } from 'lucide-react'
 import {
   DEFAULT_GRADE_WEIGHTS,
   calculateGradeAverage,
   type GradeWeightsConfig,
 } from '../../utils/grades'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { ModalShell } from '../common/ModalShell'
 
 interface GradeFormulaConfigModalProps {
   isOpen: boolean
@@ -30,23 +30,11 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
     scoreFinal: 9.5,
   })
   const [savedSuccess, setSavedSuccess] = useState(false)
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
-
   useEffect(() => {
     if (isOpen) {
       setConfig(settingsWeights)
     }
   }, [isOpen, settingsWeights])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
@@ -68,26 +56,40 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
   const previewResult = calculateGradeAverage(testScore, config)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-labelledby="grade-formula-title">
-      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="bg-parish-primary text-white p-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/10 rounded-xl">
-              <Calculator className="w-6 h-6 text-[var(--color-parish-warning)]" />
-            </div>
-            <div>
-              <h2 id="grade-formula-title" className="text-lg font-bold">Cấu Hình Công Thức Tính Điểm & Hệ Số</h2>
-              <p className="text-xs text-white/80">Tùy chỉnh hệ số cột điểm và xếp loại học lực Giáo lý</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="btn btn-icon btn-sm text-white/80 hover:text-white hover:bg-white/10 transition-colors">
-            <X className="w-5 h-5" />
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Cấu Hình Công Thức Tính Điểm & Hệ Số"
+      subtitle="Tùy chỉnh hệ số cột điểm và xếp loại học lực Giáo lý"
+      icon={<Calculator className="w-5 h-5" />}
+      maxWidth="768px"
+      closeOnOverlay={false}
+      footer={(
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
+          <button
+            onClick={handleResetDefault}
+            className="btn btn-ghost flex items-center gap-1.5 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Mặc Định</span>
           </button>
-        </div>
 
-        {/* Content Body */}
-        <div className="p-6 space-y-6 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <button onClick={onClose} className="btn btn-ghost">
+              Hủy
+            </button>
+            <button
+              onClick={handleSave}
+              className="btn btn-primary flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              {savedSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              <span>{savedSuccess ? 'Đã Lưu!' : 'Lưu Cấu Hình'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+    >
+        <div className="space-y-6">
           {/* Section 1: Column Weights */}
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted mb-3 flex items-center gap-2">
@@ -273,7 +275,7 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
               <span>Mô Phỏng Trực Tiếp Kết Quả Tính ĐTB</span>
             </h4>
 
-            <div className="grid grid-cols-5 gap-2 text-center text-xs font-semibold">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs font-semibold">
               <div>
                 <span className="text-[10px] text-text-muted block">Miệng</span>
                 <input
@@ -338,30 +340,6 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 bg-surface-hover/20 border-t border-surface-border flex items-center justify-between">
-          <button
-            onClick={handleResetDefault}
-            className="btn btn-ghost btn-sm flex items-center gap-1.5 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Mặc Định</span>
-          </button>
-
-          <div className="flex items-center gap-2">
-            <button onClick={onClose} className="btn btn-ghost btn-sm">
-              Hủy
-            </button>
-            <button
-              onClick={handleSave}
-              className="btn btn-primary btn-sm flex items-center gap-1.5 transition-colors shadow-sm"
-            >
-              {savedSuccess ? <Check className="w-4 h-4 text-[var(--color-parish-success)]" /> : <Save className="w-4 h-4" />}
-              <span>{savedSuccess ? 'Đã Lưu!' : 'Lưu Cấu Hình'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

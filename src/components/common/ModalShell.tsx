@@ -16,6 +16,8 @@ interface ModalShellProps {
   maxWidth?: string
   /** overlay-click đóng modal (mặc định true) */
   closeOnOverlay?: boolean
+  /** vùng hành động cố định dưới nội dung cuộn */
+  footer?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -33,6 +35,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
   headerActions,
   maxWidth = '560px',
   closeOnOverlay = true,
+  footer,
   children,
 }) => {
   const modalRef = useFocusTrap(isOpen)
@@ -76,7 +79,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
         className="modal-content"
         style={{ maxWidth }}
       >
-        <div className="flex items-center justify-between gap-4 mb-4 border-b border-surface-border pb-4">
+        <div className="modal-content__header flex items-center justify-between gap-4 mb-4 border-b border-surface-border pb-4">
           <div className="flex items-center gap-2.5 min-w-0">
             {icon && (
               <div className="icon-container-lg rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
@@ -84,7 +87,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
               </div>
             )}
             <div className="min-w-0">
-              <h3 id={titleId} className="typography-card-title m-0 truncate">
+              <h3 id={titleId} className="modal-content__title typography-card-title m-0 truncate">
                 {title}
               </h3>
               {subtitle && (
@@ -94,7 +97,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="modal-content__header-actions flex items-center gap-2 shrink-0">
             {headerActions}
             <button
               onClick={onClose}
@@ -105,7 +108,8 @@ export const ModalShell: React.FC<ModalShellProps> = ({
             </button>
           </div>
         </div>
-        {children}
+        <div className="modal-content__body">{children}</div>
+        {footer && <div className="modal-content__footer">{footer}</div>}
       </div>
     </div>
   )

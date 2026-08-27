@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Upload, CheckCircle2, AlertCircle, X, Loader2, FileSpreadsheet, RefreshCw, RotateCcw } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle, Loader2, FileSpreadsheet, RefreshCw, RotateCcw } from 'lucide-react'
 import { parseGradeFile, buildGradeRecords, countPreservedRows, type ParsedGradeRow } from '../../utils/excelImporter'
 import { loadXlsx } from '../../lib/xlsxLoader'
 import { parseGradeText, type ParsedGradeRow as ParsedTextRow } from '../../utils/excelGradeParser'
@@ -12,7 +12,7 @@ import { api, isAuthenticated } from '../../lib/api'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/academicYear'
 import { calculateGradeAverage } from '../../utils/grades'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { ModalShell } from './ModalShell'
 import * as Sentry from '@sentry/react'
 
 interface Props {
@@ -84,9 +84,6 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
   const syncStatus = useSyncStore((s) => s.status)
 
   const { askConfirm, dialog } = useConfirmDialog()
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
-
   useEffect(() => {
     if (importPhase === 'syncing') {
       const checkSync = async () => {
@@ -104,15 +101,6 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
   useEffect(() => {
     if (isOpen) setUndoSnapshot(loadUndoSnapshot())
   }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
@@ -411,48 +399,91 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
     }
   }
 
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="excel-grade-import-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 rounded-lg">
-              <FileSpreadsheet className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 id="excel-grade-import-title" className="text-lg font-bold text-text-main">Import Bảng Điểm Lớp Từ Excel</h2>
-              <p className="text-xs text-text-muted">
-                Hỗ trợ file `.xlsx`, `.xls`, `.csv` hoặc dán trực tiếp — Học Kỳ {semester} ({academicYear})
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                void (async () => {
-                  const XLSX = await loadXlsx()
-                  const wb = await GradeTemplateBuilder.createWorksheet('Lớp', students)
-                  XLSX.writeFile(wb, `Mau_Nhap_Diem_${academicYear}.xlsx`)
-                })()
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5 rotate-180" />
-              <span>Tải File Mẫu</span>
-            </button>
-            <button
-              onClick={onClose}
-              aria-label="Đóng"
-              className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+  const downloadTemplateAction = (
+    <button
+      type="button"
+      aria-label="Tải file mẫu"
+      onClick={() => {
+        void (async () => {
+          const XLSX = await loadXlsx()
+          const wb = await GradeTemplateBuilder.createWorksheet('Lớp', students)
+          XLSX.writeFile(wb, `Mau_Nhap_Diem_${academicYear}.xlsx`)
+        })()
+      }}
+      className="btn btn-secondary btn-sm"
+    >
+      <Upload className="w-3.5 h-3.5 rotate-180" />
+      <span className="hidden sm:inline">Tải File Mẫu</span>
+    </button>
+  )
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+  const footer = (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs">
+        {importPhase === 'local' && (
+          <span className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 animate-pulse">
+            <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
+            Đã lưu cục bộ, chuẩn bị đồng bộ...
+          </span>
+        )}
+        {importPhase === 'syncing' && (
+          <span className="flex items-center gap-1.5 text-sky-700 bg-sky-50 px-2 py-1 rounded-lg border border-sky-200">
+            <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin" />
+            Đang đồng bộ {syncPendingCount > 0 ? `(${syncPendingCount} bản ghi)` : ''}...
+          </span>
+        )}
+        {importPhase === 'done' && (
+          <span className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            Đã lưu cục bộ {syncPendingCount > 0 ? `· ${syncPendingCount} bản ghi đang đồng bộ nền` : '· Đã đồng bộ xong'}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
+        {undoSnapshot && importPhase !== 'local' && importPhase !== 'syncing' && (
+          <button
+            onClick={handleUndoImport}
+            disabled={isUndoing}
+            title={`Hoàn tác đợt nhập ${undoSnapshot.count} bản ghi (học kỳ ${undoSnapshot.semester}) — hiệu lực 7 ngày`}
+            className="btn btn-secondary col-span-2 text-rose-700 dark:text-rose-300 disabled:opacity-50"
+          >
+            {isUndoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+            <span>Hoàn Tác ({undoSnapshot.count})</span>
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          disabled={importPhase === 'local' || importPhase === 'syncing'}
+          className="btn btn-secondary disabled:opacity-50"
+        >
+          {importPhase === 'local' || importPhase === 'syncing' ? 'Đang xử lý...' : 'Đóng'}
+        </button>
+        <button
+          onClick={handleImport}
+          disabled={validCount === 0 || isImporting}
+          className="btn btn-primary"
+        >
+          {isImporting && <Loader2 className="w-4 h-4 animate-spin" />}
+          <span>Nhập {validCount} Bản Ghi</span>
+        </button>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      <ModalShell
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Import Bảng Điểm Lớp Từ Excel"
+        subtitle={`Hỗ trợ .xlsx, .xls, .csv hoặc dán trực tiếp — Học Kỳ ${semester} (${academicYear})`}
+        icon={<FileSpreadsheet className="w-5 h-5" />}
+        headerActions={downloadTemplateAction}
+        maxWidth="1024px"
+        closeOnOverlay={false}
+        footer={footer}
+      >
+        <div className="space-y-6">
           {/* Options: Upload vs Paste */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -638,61 +669,9 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-surface-border bg-surface-hover/30">
-          <div className="flex items-center gap-3 text-xs">
-            {importPhase === 'local' && (
-              <span className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 animate-pulse">
-                <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
-                Đã lưu cục bộ, chuẩn bị đồng bộ...
-              </span>
-            )}
-            {importPhase === 'syncing' && (
-              <span className="flex items-center gap-1.5 text-sky-700 bg-sky-50 px-2 py-1 rounded-lg border border-sky-200">
-                <RefreshCw className="w-3.5 h-3.5 text-sky-600 animate-spin" />
-                Đang đồng bộ {syncPendingCount > 0 ? `(${syncPendingCount} bản ghi)` : ''}...
-              </span>
-            )}
-            {importPhase === 'done' && (
-              <span className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                Đã lưu cục bộ {syncPendingCount > 0 ? `· ${syncPendingCount} bản ghi đang đồng bộ nền` : '· Đã đồng bộ xong'}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {undoSnapshot && importPhase !== 'local' && importPhase !== 'syncing' && (
-              <button
-                onClick={handleUndoImport}
-                disabled={isUndoing}
-                title={`Hoàn tác đợt nhập ${undoSnapshot.count} bản ghi (học kỳ ${undoSnapshot.semester}) — hiệu lực 7 ngày`}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isUndoing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                <span>Hoàn Tác Đợt Nhập Trước ({undoSnapshot.count})</span>
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              disabled={importPhase === 'local' || importPhase === 'syncing'}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-text-muted hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {importPhase === 'local' || importPhase === 'syncing' ? 'Đang xử lý...' : 'Đóng'}
-            </button>
-            <button
-              onClick={handleImport}
-              disabled={validCount === 0 || isImporting}
-              className="btn btn-primary text-sm font-semibold flex items-center gap-2"
-            >
-              {isImporting && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>Nhập {validCount} Bản Ghi Điểm</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      </ModalShell>
       {dialog}
-    </div>
+    </>
   )
 }
 

@@ -69,8 +69,11 @@ export const FinancePage: React.FC = () => {
   // filter trên 1 trang server-pagination làm count/pagination sai.
   // Text search giữ client-side (server chưa có param search) → badge count
   // hiển thị trung thực "kết quả trên trang hiện tại".
+  // Phase 0 (Calm 2026): debouncedSearch 300ms + deferred (transition) giữ input 60fps
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const deferredSearch = React.useDeferredValue(debouncedSearch)
+  const isFinanceSearchStale = debouncedSearch !== deferredSearch
 
   // Chart tooltip
   const [tooltip, setTooltip] = useState<{ x: number; y: number; month: string; income: number; expense: number } | null>(null)
@@ -133,10 +136,10 @@ export const FinancePage: React.FC = () => {
   }
 
   // Client-side text search trên trang hiện tại (server chưa hỗ trợ param search)
-  const isTextSearchActive = debouncedSearch.trim().length > 0
+  const isTextSearchActive = deferredSearch.trim().length > 0
   const filteredTransactions = transactions.filter((tx) => {
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase()
+    if (deferredSearch) {
+      const q = deferredSearch.toLowerCase()
       const matchTitle = tx.title.toLowerCase().includes(q)
       const matchPerson = (tx.personName || tx.studentName || '').toLowerCase().includes(q)
       const matchCategory = tx.category.toLowerCase().includes(q)
@@ -429,8 +432,8 @@ export const FinancePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Transaction Ledger Table */}
-      <div className="table-wrapper">
+      {/* Transaction Ledger Table — Phase 0 deferred search stale */}
+      <div className="table-wrapper" aria-busy={isFinanceSearchStale} style={{ opacity: isFinanceSearchStale ? 0.7 : 1, transition: 'opacity 120ms var(--motion-ease-out)' }}>
         {/* Ledger Toolbar */}
         <div className="p-4 border-b border-surface-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">

@@ -66,6 +66,16 @@ describe('ModalShell (DS / ADR-032)', () => {
     render(<ModalShell isOpen onClose={vi.fn()} title="T">x</ModalShell>)
     expect(screen.getByRole('button', { name: 'Đóng' })).toHaveClass('btn', 'btn-icon', 'btn-ghost')
   })
+
+  it('separates scrollable body from a persistent footer', () => {
+    const { container } = render(
+      <ModalShell isOpen onClose={vi.fn()} title="T" footer={<button>Lưu</button>}>
+        <span>Nội dung dài</span>
+      </ModalShell>,
+    )
+    expect(container.querySelector('.modal-content__body')).toHaveTextContent('Nội dung dài')
+    expect(container.querySelector('.modal-content__footer')).toContainElement(screen.getByRole('button', { name: 'Lưu' }))
+  })
 })
 
 describe('FormField (DS §3.2 / ADR-032)', () => {

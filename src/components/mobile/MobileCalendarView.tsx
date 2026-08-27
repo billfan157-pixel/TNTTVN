@@ -138,7 +138,7 @@ export const MobileCalendarView: React.FC = () => {
         {/* Days Grid */}
         <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-            <div key={`empty-${i}`} className="h-10 rounded-lg bg-surface-app/30 opacity-30" />
+            <div key={`empty-${i}`} className="h-11 rounded-lg bg-surface-app/30 opacity-30" />
           ))}
 
           {monthDays.map((dayItem) => {
