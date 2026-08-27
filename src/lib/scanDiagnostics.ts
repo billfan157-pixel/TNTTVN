@@ -10,7 +10,7 @@ export interface ScanDiagnosticEvent {
 }
 
 export interface ScanDiagnosticAggregate {
-  version: 1
+  version: 2
   total: number
   outcomes: Record<string, number>
   reasons: Record<string, number>
@@ -18,14 +18,32 @@ export interface ScanDiagnosticAggregate {
   quality: Record<string, number>
   durationTotalMs: number
   durationSamples: number
+  durationBuckets: Record<ScanDurationBucket, number>
   updatedAt: string
 }
 
-const STORAGE_KEY = 'tntt.omr.scan-diagnostics.v1'
+export type ScanDurationBucket = 'lte50' | 'lte100' | 'lte150' | 'lte250' | 'lte500' | 'lte1000' | 'gt1000'
+
+const STORAGE_KEY = 'tntt.omr.scan-diagnostics.v2'
+const LEGACY_STORAGE_KEY = 'tntt.omr.scan-diagnostics.v1'
+
+function emptyDurationBuckets(): Record<ScanDurationBucket, number> {
+  return { lte50: 0, lte100: 0, lte150: 0, lte250: 0, lte500: 0, lte1000: 0, gt1000: 0 }
+}
+
+function durationBucket(durationMs: number): ScanDurationBucket {
+  if (durationMs <= 50) return 'lte50'
+  if (durationMs <= 100) return 'lte100'
+  if (durationMs <= 150) return 'lte150'
+  if (durationMs <= 250) return 'lte250'
+  if (durationMs <= 500) return 'lte500'
+  if (durationMs <= 1_000) return 'lte1000'
+  return 'gt1000'
+}
 
 function emptyAggregate(): ScanDiagnosticAggregate {
   return {
-    version: 1,
+    version: 2,
     total: 0,
     outcomes: {},
     reasons: {},
@@ -33,6 +51,7 @@ function emptyAggregate(): ScanDiagnosticAggregate {
     quality: {},
     durationTotalMs: 0,
     durationSamples: 0,
+    durationBuckets: emptyDurationBuckets(),
     updatedAt: new Date(0).toISOString(),
   }
 }
@@ -40,8 +59,21 @@ function emptyAggregate(): ScanDiagnosticAggregate {
 export function readScanDiagnostics(storage: Pick<Storage, 'getItem'> | null = typeof localStorage === 'undefined' ? null : localStorage): ScanDiagnosticAggregate {
   if (!storage) return emptyAggregate()
   try {
-    const parsed = JSON.parse(storage.getItem(STORAGE_KEY) ?? '') as ScanDiagnosticAggregate
-    return parsed?.version === 1 ? parsed : emptyAggregate()
+    const currentRaw = storage.getItem(STORAGE_KEY)
+    if (currentRaw) {
+      const parsed = JSON.parse(currentRaw) as ScanDiagnosticAggregate
+      if (parsed?.version === 2) {
+        return { ...parsed, durationBuckets: { ...emptyDurationBuckets(), ...parsed.durationBuckets } }
+      }
+    }
+    const legacyRaw = storage.getItem(LEGACY_STORAGE_KEY)
+    if (legacyRaw) {
+      const legacy = JSON.parse(legacyRaw) as Omit<ScanDiagnosticAggregate, 'version' | 'durationBuckets'> & { version: 1 }
+      if (legacy?.version === 1) {
+        return { ...legacy, version: 2, durationBuckets: emptyDurationBuckets() }
+      }
+    }
+    return emptyAggregate()
   } catch {
     return emptyAggregate()
   }
@@ -61,8 +93,11 @@ export function recordScanDiagnostic(
     if (event.templateMode) aggregate.templates[event.templateMode] = (aggregate.templates[event.templateMode] ?? 0) + 1
     if (event.qualityStatus) aggregate.quality[event.qualityStatus] = (aggregate.quality[event.qualityStatus] ?? 0) + 1
     if (event.durationMs !== undefined && Number.isFinite(event.durationMs)) {
-      aggregate.durationTotalMs += Math.max(0, Math.round(event.durationMs))
+      const durationMs = Math.max(0, Math.round(event.durationMs))
+      aggregate.durationTotalMs += durationMs
       aggregate.durationSamples++
+      const bucket = durationBucket(durationMs)
+      aggregate.durationBuckets[bucket]++
     }
     aggregate.updatedAt = new Date().toISOString()
     storage.setItem(STORAGE_KEY, JSON.stringify(aggregate))

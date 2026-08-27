@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FolderOpen, Images, Loader2, Save, X } from 'lucide-react'
 import { analyzeBatchExamImage, type BatchScanAnalysis } from '../../lib/examBatchScan'
+import { clearOmrScratchBuffers } from '../../lib/omr'
 import { imageFileToImageData } from '../../lib/imageFile'
 import { normalizeAnswerVariants } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
@@ -20,9 +21,13 @@ interface ExamBatchScanModalProps {
   onClose: () => void
 }
 
+const BATCH_UI_COMMIT_SIZE = 8
+const BATCH_MAIN_THREAD_YIELD_SIZE = 1
+
 export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session, students, onClose }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const processingGenerationRef = useRef(0)
   const { results, saveScores, saving, error } = useExamStore()
   const [items, setItems] = useState<BatchItem[]>([])
   // PHA 1 nợ (audit A19): focus trap
@@ -34,6 +39,10 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '')
     folderInputRef.current?.setAttribute('directory', '')
+    return () => {
+      processingGenerationRef.current += 1
+      clearOmrScratchBuffers()
+    }
   }, [])
 
   const studentById = useMemo(() => new Map(students.map(student => [student.id, student])), [students])
@@ -56,6 +65,7 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
       setMessage('Mỗi batch tối đa 500 ảnh để tránh trình duyệt điện thoại hết bộ nhớ.')
       return
     }
+    const processingGeneration = ++processingGenerationRef.current
     setProcessing(true)
     setMessage('')
     setItems([])
@@ -63,43 +73,64 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
     const next: BatchItem[] = []
     const seenStudents = new Set<string>()
     const allowedStudentIds = new Set(students.map(student => student.id))
-    for (let index = 0; index < selected.length; index++) {
-      const file = selected[index]
-      let analysis: BatchScanAnalysis
-      try {
-        const image = await imageFileToImageData(file)
-        analysis = analyzeBatchExamImage(image, {
-          sessionId: session.id,
-          examType: session.examType ?? 'written',
-          questionCount: session.questionCount ?? 20,
-          maxScore: session.maxScore,
-          answerVariants,
-          defaultTemplateMode: 'full_page',
-          allowedStudentIds,
+    try {
+      for (let index = 0; index < selected.length; index++) {
+        const file = selected[index]
+        let analysis: BatchScanAnalysis
+        try {
+          const image = await imageFileToImageData(file)
+          if (processingGenerationRef.current !== processingGeneration) return
+          analysis = analyzeBatchExamImage(image, {
+            sessionId: session.id,
+            examType: session.examType ?? 'written',
+            questionCount: session.questionCount ?? 20,
+            maxScore: session.maxScore,
+            answerVariants,
+            defaultTemplateMode: 'full_page',
+            allowedStudentIds,
+          })
+        } catch (cause) {
+          if (processingGenerationRef.current !== processingGeneration) return
+          analysis = { status: 'rejected', reason: cause instanceof Error ? cause.message : 'Không xử lý được file ảnh.' }
+        }
+        if (analysis.status === 'accepted' && analysis.studentId) {
+          if (seenStudents.has(analysis.studentId)) {
+            analysis = { ...analysis, status: 'rejected', reason: 'Trùng thiếu nhi trong cùng batch; chỉ giữ ảnh hợp lệ đầu tiên.' }
+          } else {
+            seenStudents.add(analysis.studentId)
+          }
+        }
+        const student = analysis.studentId ? studentById.get(analysis.studentId) : undefined
+        next.push({
+          ...analysis,
+          id: `${file.name}-${file.lastModified}-${index}`,
+          fileName: file.webkitRelativePath || file.name,
+          studentName: student ? `${student.name} (${student.code})` : undefined,
+          overwritesExisting: Boolean(analysis.studentId && existingIds.has(analysis.studentId)),
         })
-      } catch (cause) {
-        analysis = { status: 'rejected', reason: cause instanceof Error ? cause.message : 'Không xử lý được file ảnh.' }
-      }
-      if (analysis.status === 'accepted' && analysis.studentId) {
-        if (seenStudents.has(analysis.studentId)) {
-          analysis = { ...analysis, status: 'rejected', reason: 'Trùng thiếu nhi trong cùng batch; chỉ giữ ảnh hợp lệ đầu tiên.' }
-        } else {
-          seenStudents.add(analysis.studentId)
+        const done = index + 1
+        // Không clone/render lại mảng tăng dần sau từng ảnh (O(n²) cho batch 500).
+        // Commit theo chunk nhưng vẫn yield đều để progress/cancel của browser
+        // không bị OMR đồng bộ chiếm main thread quá lâu.
+        if (done % BATCH_UI_COMMIT_SIZE === 0 || done === selected.length) {
+          setItems([...next])
+          setProgress({ done, total: selected.length })
+        }
+        if (done % BATCH_MAIN_THREAD_YIELD_SIZE === 0 || done === selected.length) {
+          await new Promise(resolve => setTimeout(resolve, 0))
+          if (processingGenerationRef.current !== processingGeneration) return
         }
       }
-      const student = analysis.studentId ? studentById.get(analysis.studentId) : undefined
-      next.push({
-        ...analysis,
-        id: `${file.name}-${file.lastModified}-${index}`,
-        fileName: file.webkitRelativePath || file.name,
-        studentName: student ? `${student.name} (${student.code})` : undefined,
-        overwritesExisting: Boolean(analysis.studentId && existingIds.has(analysis.studentId)),
-      })
-      setItems([...next])
-      setProgress({ done: index + 1, total: selected.length })
-      await new Promise(resolve => setTimeout(resolve, 0))
+    } finally {
+      clearOmrScratchBuffers()
+      if (processingGenerationRef.current === processingGeneration) setProcessing(false)
     }
-    setProcessing(false)
+  }
+
+  const closeModal = () => {
+    processingGenerationRef.current += 1
+    clearOmrScratchBuffers()
+    onClose()
   }
 
   const saveAccepted = async () => {
@@ -118,14 +149,14 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="batch-scan-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-labelledby="batch-scan-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={closeModal}>
       <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div>
             <h4 id="batch-scan-title" className="m-0 font-black text-parish-primary">Chấm hàng loạt từ ảnh</h4>
-            <p className="m-0 text-[11px] text-text-muted">Đọc tuần tự, không giữ ảnh trong RAM sau phân tích, ngoại lệ không tự ghi điểm.</p>
+            <p className="m-0 text-[11px] text-text-muted">Đọc tuần tự, không lưu hoặc tải ảnh gốc lên mạng, ngoại lệ không tự ghi điểm.</p>
           </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}><X size={15} /> Đóng</button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={closeModal}><X size={15} /> Đóng</button>
         </div>
 
         <div className="flex flex-wrap gap-2 border-b border-surface-border p-3">

@@ -100,9 +100,10 @@ function buildIntegratedSheet(
   fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {},
   totalQuestions = 50,
   frame: FrameRect = REAL_SINGLE_PRINT_FRAME,
+  width = 800,
 ): ImageData {
-  const W = 800
-  const H = 1130
+  const W = width
+  const H = Math.round(width * 1130 / 800)
   const img = FakeImageData(W, H)
   const data = img.data
   for (let i = 0; i < W * H; i++) {
@@ -394,6 +395,32 @@ const payload = buildExamQrPayload(params.sessionId, student.id)
       expect(res.ok).toBe(true)
       expect(res.rawCorrectCount).toBe(50)
       expect(res.score).toBe(10)
+    })
+
+    it('frame nhanh 960px và frame xác nhận 1280px cho cùng đáp án 50 câu', () => {
+      const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const filledAnswers: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+      const options: ('A' | 'B' | 'C' | 'D')[] = ['A', 'B', 'C', 'D']
+      for (let i = 1; i <= 50; i++) {
+        answerKey[i] = options[(i - 1) % 4]
+        filledAnswers[i] = answerKey[i]
+      }
+
+      const fastImage = buildIntegratedSheet(filledAnswers, 50, REAL_SINGLE_PRINT_FRAME, 960)
+      const verificationImage = buildIntegratedSheet(filledAnswers, 50, REAL_SINGLE_PRINT_FRAME, 1280)
+      const fast = detectAnswersFromImage(fastImage, answerKey, 50, 10, 'integrated')
+      const verification = detectAnswersFromImage(verificationImage, answerKey, 50, 10, 'integrated')
+      const fastAfterLargerFrame = detectAnswersFromImage(fastImage, answerKey, 50, 10, 'integrated')
+      expect(fast.ok, fast.reason).toBe(true)
+      expect(verification.ok, verification.reason).toBe(true)
+      expect(fastAfterLargerFrame.ok, fastAfterLargerFrame.reason).toBe(true)
+      expect(fast.questions.map(question => question.selectedAnswer))
+        .toEqual(verification.questions.map(question => question.selectedAnswer))
+      expect(fastAfterLargerFrame.questions.map(question => question.selectedAnswer))
+        .toEqual(verification.questions.map(question => question.selectedAnswer))
+      expect(fast.rawCorrectCount).toBe(50)
+      expect(verification.rawCorrectCount).toBe(50)
+      expect(fastAfterLargerFrame.rawCorrectCount).toBe(50)
     })
 
     it('quét phiếu gộp: 40/50 đúng → score 8.0 (rect in thật single-print)', () => {

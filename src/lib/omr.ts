@@ -43,6 +43,22 @@ export interface GrayImage {
   data: Uint8ClampedArray
 }
 
+interface PreparedOmrImage {
+  gray: GrayImage
+  summedArea: Uint32Array
+}
+
+interface OmrScratchBuffers {
+  gray: Uint8ClampedArray
+  summedArea: Uint32Array
+}
+
+// Auto camera tối đa khoảng 1280×1920. Tái sử dụng arena cho hot path này để
+// tránh cấp phát ~11MB/frame rồi tạo GC pause; ảnh still lớn hơn dùng buffer cục
+// bộ và không làm arena giữ RAM quá mức sau một lần chụp.
+const MAX_REUSABLE_OMR_PIXELS = 2_500_000
+let reusableOmrScratch: OmrScratchBuffers | null = null
+
 const DARK_THRESHOLD = 0.38
 const MIN_GAP = 0.08
 const MIN_FILL = 0.38
@@ -69,6 +85,69 @@ export function toGrayscale(img: ImageData): GrayImage {
     out[i] = (0.299 * r + 0.587 * g + 0.114 * b) | 0
   }
   return { width, height, data: out }
+}
+
+/**
+ * Chuẩn bị grayscale + integral image trong cùng một lượt đọc RGBA.
+ * Detector marker dùng cả hai cấu trúc trên mọi frame, nên gộp lượt này tránh
+ * quét lại toàn bộ ảnh và giảm áp lực cache/GC trên điện thoại.
+ */
+function acquireOmrScratch(width: number, height: number): OmrScratchBuffers {
+  const grayLength = width * height
+  const summedAreaLength = (width + 1) * (height + 1)
+  if (grayLength > MAX_REUSABLE_OMR_PIXELS) {
+    return {
+      gray: new Uint8ClampedArray(grayLength),
+      summedArea: new Uint32Array(summedAreaLength),
+    }
+  }
+  if (!reusableOmrScratch
+    || reusableOmrScratch.gray.length < grayLength
+    || reusableOmrScratch.summedArea.length < summedAreaLength) {
+    reusableOmrScratch = {
+      gray: new Uint8ClampedArray(grayLength),
+      summedArea: new Uint32Array(summedAreaLength),
+    }
+  }
+  return {
+    gray: reusableOmrScratch.gray.subarray(0, grayLength),
+    summedArea: reusableOmrScratch.summedArea.subarray(0, summedAreaLength),
+  }
+}
+
+/** Xóa dữ liệu ảnh dẫn xuất khỏi arena khi modal/batch kết thúc. */
+export function clearOmrScratchBuffers(): void {
+  if (!reusableOmrScratch) return
+  reusableOmrScratch.gray.fill(0)
+  reusableOmrScratch.summedArea.fill(0)
+  reusableOmrScratch = null
+}
+
+function prepareOmrImage(img: ImageData): PreparedOmrImage {
+  const { width, height, data } = img
+  const scratch = acquireOmrScratch(width, height)
+  const grayData = scratch.gray
+  const summedArea = scratch.summedArea
+  const satStride = width + 1
+  // Khi arena đổi width, các vị trí border mới có thể từng là pixel nội bộ của
+  // stride cũ. Reset đúng hàng/cột sentinel; mọi ô còn lại được ghi đè bên dưới.
+  summedArea.fill(0, 0, satStride)
+  for (let y = 1; y <= height; y++) summedArea[y * satStride] = 0
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0
+    const grayRow = y * width
+    const satRow = (y + 1) * satStride
+    const previousSatRow = y * satStride
+    for (let x = 0; x < width; x++) {
+      const pixel = grayRow + x
+      const rgba = pixel * 4
+      const luma = (0.299 * data[rgba] + 0.587 * data[rgba + 1] + 0.114 * data[rgba + 2]) | 0
+      grayData[pixel] = luma
+      rowSum += luma
+      summedArea[satRow + x + 1] = summedArea[previousSatRow + x + 1] + rowSum
+    }
+  }
+  return { gray: { width, height, data: grayData }, summedArea }
 }
 
 export interface MarkerHit {
@@ -146,14 +225,19 @@ function refineMarkerCenter(gray: GrayImage, marker: MarkerHit, maxRadius: numbe
 }
 
 /** Ước lượng tỉ lệ raster/CSS từ chính ô marker 18px thay vì giả định viewport cố định. */
-export function estimateIntegratedFrameReferenceWidth(gray: GrayImage, markers: MarkerHit[], fallbackSizePx: number): number {
+export function estimateMarkerInkSize(gray: GrayImage, markers: MarkerHit[], fallbackSizePx: number): number {
   const maxRadius = Math.max(4, Math.ceil(fallbackSizePx * 1.25))
   const sizes = markers.flatMap(marker => [
     markerInkRun(gray, marker, 1, 0, maxRadius),
     markerInkRun(gray, marker, 0, 1, maxRadius),
   ]).filter(size => size >= 3)
   sizes.sort((a, b) => a - b)
-  const markerInkPx = sizes.length > 0 ? sizes[Math.floor(sizes.length / 2)] : fallbackSizePx
+  return sizes.length > 0 ? sizes[Math.floor(sizes.length / 2)] : fallbackSizePx
+}
+
+/** Ước lượng tỉ lệ raster/CSS từ chính ô marker 18px thay vì giả định viewport cố định. */
+export function estimateIntegratedFrameReferenceWidth(gray: GrayImage, markers: MarkerHit[], fallbackSizePx: number): number {
+  const markerInkPx = estimateMarkerInkSize(gray, markers, fallbackSizePx)
   const markerSpanPx = Math.hypot(markers[1].x - markers[0].x, markers[1].y - markers[0].y)
   return markerSpanPx * INTEGRATED_MARKER_SIZE / Math.max(1, markerInkPx)
 }
@@ -226,44 +310,50 @@ function sampleDarkness(gray: GrayImage, cx: number, cy: number, r: number, back
   const bgInnerR2 = bgInnerR * bgInnerR
   const bgOuterR2 = bgOuterR * bgOuterR
 
-  let coreSum = 0
-  let coreCount = 0
   let bgSum = 0
   let bgCount = 0
 
+  // Đo annulus trước để biết ngưỡng tối thích ứng. Bản cũ quét cả bounding box
+  // hai lần cho mỗi bubble; tách annulus/core giữ nguyên phép đo nhưng bỏ phần
+  // lớn pixel chắc chắn không thuộc vùng cần tính.
   for (let y = y0; y <= y1; y++) {
     const dy = y - cy
     for (let x = x0; x <= x1; x++) {
       const dx = x - cx
       const d2 = dx * dx + dy * dy
-      const luma = data[y * width + x]
-      if (d2 <= coreR2) {
-        coreSum += luma
-        coreCount++
-      } else if (d2 >= bgInnerR2 && d2 <= bgOuterR2) {
+      if (d2 >= bgInnerR2 && d2 <= bgOuterR2) {
+        const luma = data[y * width + x]
         bgSum += luma
         bgCount++
       }
     }
   }
 
-  if (coreCount === 0) return 0
-  const coreMean = coreSum / coreCount
   const bgMean = bgCount > 0 ? bgSum / bgCount : 245
-  const meanContrast = clamp01((bgMean - coreMean) / Math.max(96, bgMean))
-
   // Đếm pixel mực đậm sau khi đã biết nền địa phương. Delta 82 giữ nét chì nhạt
   // trong vùng review thay vì đẩy thẳng sang filled, còn bút xanh/đen vẫn rõ.
   const darkCutoff = Math.max(0, bgMean - 82)
+  const coreX0 = Math.max(0, Math.floor(cx - coreR))
+  const coreX1 = Math.min(width - 1, Math.ceil(cx + coreR))
+  const coreY0 = Math.max(0, Math.floor(cy - coreR))
+  const coreY1 = Math.min(height - 1, Math.ceil(cy + coreR))
+  let coreSum = 0
+  let coreCount = 0
   let darkPixels = 0
-  for (let y = y0; y <= y1; y++) {
+  for (let y = coreY0; y <= coreY1; y++) {
     const dy = y - cy
-    for (let x = x0; x <= x1; x++) {
+    for (let x = coreX0; x <= coreX1; x++) {
       const dx = x - cx
       if (dx * dx + dy * dy > coreR2) continue
-      if (data[y * width + x] <= darkCutoff) darkPixels++
+      const luma = data[y * width + x]
+      coreSum += luma
+      coreCount++
+      if (luma <= darkCutoff) darkPixels++
     }
   }
+  if (coreCount === 0) return 0
+  const coreMean = coreSum / coreCount
+  const meanContrast = clamp01((bgMean - coreMean) / Math.max(96, bgMean))
   const darkRatio = darkPixels / coreCount
 
   return clamp01(meanContrast * 0.82 + darkRatio * 0.18)
@@ -420,8 +510,12 @@ export interface IntegratedFrameLocation {
   rect: FrameRect
 }
 
-export function tryLocateIntegratedFrame(gray: GrayImage, totalQuestions = 50): IntegratedFrameLocation | null {
-  const sat = buildSummedArea(gray)
+export function tryLocateIntegratedFrame(
+  gray: GrayImage,
+  totalQuestions = 50,
+  summedArea?: Uint32Array,
+): IntegratedFrameLocation | null {
+  const sat = summedArea ?? buildSummedArea(gray)
   for (const scale of [1, 0.82, 0.68, 0.55, 0.45, 0.38]) {
     const sizePx = INTEGRATED_CORNER_SIZE * Math.min(gray.width, gray.height) * scale
     const half = Math.max(2, Math.floor(sizePx / 2))
@@ -468,16 +562,22 @@ const FULL_PAGE_MARKER_BANDS = [
   { id: 'BL', xMin: 0.01, xMax: 0.44, yMin: 0.65, yMax: 0.99, ax: 0.05, ay: 0.93 },
 ] as const
 
-export function tryLocateFullPageFrame(gray: GrayImage): { markers: MarkerHit[]; sizePx: number } | null {
-  const sat = buildSummedArea(gray)
+export function tryLocateFullPageFrame(
+  gray: GrayImage,
+  summedArea?: Uint32Array,
+): { markers: MarkerHit[]; sizePx: number } | null {
+  const sat = summedArea ?? buildSummedArea(gray)
   for (const scale of [1, 0.84, 0.70, 0.58]) {
     const sizePx = CORNER_SIZE * Math.min(gray.width, gray.height) * scale
     const half = Math.max(3, Math.floor(sizePx / 2))
     const tl = findMarkerInBand(gray, sat, 'TL', FULL_PAGE_MARKER_BANDS[0], half, 0.62)
+    if (!tl) continue
     const tr = findMarkerInBand(gray, sat, 'TR', FULL_PAGE_MARKER_BANDS[1], half, 0.62)
+    if (!tr) continue
     const br = findMarkerInBand(gray, sat, 'BR', FULL_PAGE_MARKER_BANDS[2], half, 0.62)
+    if (!br) continue
     const bl = findMarkerInBand(gray, sat, 'BL', FULL_PAGE_MARKER_BANDS[3], half, 0.62)
-    if (!tl || !tr || !br || !bl) continue
+    if (!bl) continue
 
     const edgeMargin = sizePx * 0.62
     if ([tl, tr, br, bl].some(marker => (
@@ -546,13 +646,15 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
   const fail = (reason: string): OmrResult => ({ ok: false, score: null, confidence: 0, cells: [], reason })
 
   if (!img || img.width < 100 || img.height < 100) return fail('IMAGE_TOO_SMALL')
-  const gray = toGrayscale(img)
-  const located = tryLocateFullPageFrame(gray)
+  const prepared = prepareOmrImage(img)
+  const { gray } = prepared
+  const located = tryLocateFullPageFrame(gray, prepared.summedArea)
 
   if (!located) return fail('MISSING_MARKER_TL')
 
   const { markers, sizePx } = located
   if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
+  const markerInkSizePx = estimateMarkerInkSize(gray, markers, sizePx)
 
   const src = CORNER_MARKERS.map(m => ({ x: m.x, y: m.y }))
   const dst = markers.map(m => ({ x: m.x / gray.width, y: m.y / gray.height }))
@@ -569,7 +671,7 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
     // Keep the written core compact enough to detect partial pencil/pen marks,
     // but move only the local-paper annulus beyond the 36px printed score box.
     // This avoids contrast cancellation without diluting a small real mark.
-    const r = Math.max(1.5, sizePx * 0.22)
+    const r = Math.max(1.5, markerInkSizePx * 0.22)
     readings.push({ score: cell.score, coverage: sampleDarkness(gray, px, py, r, 1.45) })
   }
 
@@ -636,23 +738,25 @@ export function detectAnswersFromImage(
   })
 
   if (!img || img.width < 100 || img.height < 100) return fail('IMAGE_TOO_SMALL')
-  const gray = toGrayscale(img)
+  const prepared = prepareOmrImage(img)
+  const { gray } = prepared
 
   let located: IntegratedFrameLocation | { markers: MarkerHit[]; sizePx: number } | null = null
   let frameRect: FrameRect | null = null
   if (templateMode !== 'full_page') {
-    const integratedLocation = tryLocateIntegratedFrame(gray, totalQuestions)
+    const integratedLocation = tryLocateIntegratedFrame(gray, totalQuestions, prepared.summedArea)
     if (integratedLocation) {
       located = integratedLocation
       frameRect = integratedLocation.rect
     }
   }
-  if (!located && templateMode !== 'integrated') located = tryLocateFullPageFrame(gray)
+  if (!located && templateMode !== 'integrated') located = tryLocateFullPageFrame(gray, prepared.summedArea)
 
   if (!located) return fail('MISSING_MARKER_TL')
 
   const { markers, sizePx } = located
   if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
+  const markerInkSizePx = estimateMarkerInkSize(gray, markers, sizePx)
 
   const src = frameRect
     ? [
@@ -683,7 +787,7 @@ export function detectAnswersFromImage(
     if (!isFinite(center.x) || !isFinite(center.y)) return fail('CELL_OUT_OF_IMAGE')
     const px = center.x * gray.width
     const py = center.y * gray.height
-    const r = Math.max(1.5, sizePx * 0.24)
+    const r = Math.max(1.5, markerInkSizePx * 0.24)
     const reading = { option: cell.option, coverage: sampleDarkness(gray, px, py, r) }
     if (!questionReadingsMap[cell.questionIndex]) questionReadingsMap[cell.questionIndex] = []
     questionReadingsMap[cell.questionIndex].push(reading)

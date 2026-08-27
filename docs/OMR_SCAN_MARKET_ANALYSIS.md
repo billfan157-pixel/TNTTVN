@@ -1,7 +1,7 @@
 # NGHIÊN CỨU THỊ TRƯỜNG & ĐÁNH GIÁ CƠ CHẾ QUÉT CHẤM ĐIỂM (OMR SCAN & GRADING)
 
-**Ngày nghiên cứu:** 2026-08-18 (lần 2 — bản nâng cấp Scan Engine v2)
-**Trạng thái:** SCALE FOUNDATION ĐÃ TRIỂN KHAI (ADR-049/050) — batch file explicit, mã đề A–H, analytics và local review đã có; SBD/OCR/mẫu BGD vẫn khóa theo decision gate; **Đánh giá v2 tại §VI**
+**Ngày nghiên cứu:** 2026-08-27 (lần 3 — Scan Engine v4 performance/accuracy hardening)
+**Trạng thái:** V4 ĐÃ TRIỂN KHAI Ở CODE (ADR-062) — core/QR/live/batch/benchmark đã tối ưu; field accuracy vẫn CONDITIONAL theo corpus gate ADR-060; SBD/OCR/mẫu BGD vẫn khóa; **đánh giá mới tại §VII**
 **Phạm vi:** Tính năng Smart Exam Grading (quét phiếu trả lời + chấm điểm), so sánh với các app trên thị trường
 **Framework áp dụng:** Decision Matrix v4.1.2 (Evidence-First; nhận định kèm evidence type + confidence)
 
@@ -9,12 +9,13 @@
 
 ## I. TỔNG QUAN CƠ CHẾ HIỆN TẠI (TÓM TẮT)
 
-Kiến trúc quét chấm điểm hiện tại (chi tiết: `docs/AI_CONTEXT_MAP.md:98-116`, `docs/FRONTEND_API_CONTRACT.md:371-383`, ADR-023/024/025/043/048):
+Kiến trúc quét chấm điểm hiện tại (chi tiết: mục `EXAM-SCAN-V4-PERF` trong `docs/AI_CONTEXT_MAP.md`, bảng `Exam Features` trong `docs/FRONTEND_API_CONTRACT.md`, ADR-023/024/025/043/048/062):
 
 ```
-[Giấy in] ← AnswerSheetModal/ExamPaperModal (QR 21 module + Code128 dải cuối + 4 marker góc)
-    ↓ (camera / upload 1 ảnh)
-[ExamScanModal.tsx] — Bước 1: scanExamCode() QR→barcode → identity lock 20s (examScanIdentity.ts)
+[Giấy in] ← AnswerSheetModal/ExamPaperModal (T3/T2 25 module; TE 21 module + Code128 dải cuối + 4 marker)
+    ↓ (camera / upload 1 ảnh / batch file-folder tối đa 500)
+[ExamScanModal.tsx] — Bước 1 live 3 fast ROI→1 focused 2× recovery (không inversion) → identity lock 8s/recheck 1,2s
+                      explicit capture/file/batch → exhaustive 9 normal + 4 invertFirst → Code128
     ↓ Bước 2: OMR detect (detectScoreFromImage / detectAnswersFromImage, omr.ts)
     ↓ 2-frame consensus (omrScanConsensus.ts) / nút "Chụp & chấm" (fixed student)
 [handleSave] → saveScores() → examStore (source: 'qr_scan' | 'omr' | 'quick_entry')
@@ -36,11 +37,11 @@ Lưu ý phạm vi: **tính năng này là chấm phiếu bài kiểm tra (OMR), 
 |---|---|---|---|---|
 | Cơ chế định danh phiếu | Học sinh tự **viết tên/ID** lên phiếu; chấm theo quiz, map sau | Form ID code in trên phiếu | **Tô SBD + mã đề** trên phiếu, hệ thống nhận diện | **QR cá nhân hóa** (`TE:session:student` / legacy `tntt-exam:`) + Code128 dự phòng |
 | Nhận diện khung | 4 ô vuông góc khớp 4 viewfinder, **tự động bắt khi đủ nét** (không bấm nút) | Bất kỳ camera nào (mobile/laptop/webcam) | Tự nhận diện trang giấy, đối chiếu **mã mẫu phiếu in cuối phiếu** ("v3.0", "v15.0") | Marker 4 góc + homography; 2 locator (integrated/full-page); cấm fallback chéo (ADR-048) |
-| Xử lý chất lượng ảnh | **Cảnh báo "Bright Light Detected"** (glare), "Waiting For Autofocus", thanh trượt Sheet Strictness | — | Yêu cầu in chuẩn A4 100%, không photocopy, nền phẳng sáng | Paper-surface gate, lọc ánh sáng đa vòng tròn (core vs annulus), 2-frame consensus, identity TTL 20s |
-| Chấm hàng loạt | Camera liên tục 1-1, **rung xác nhận**, không nút bấm | — | **Chấm file scan trên web: 1000 bài/5 phút** (cả thư mục) | Chỉ quét camera tuần tự + upload 1 ảnh; **chưa có batch upload/đa ảnh** |
+| Xử lý chất lượng ảnh | **Cảnh báo "Bright Light Detected"** (glare), "Waiting For Autofocus", thanh trượt Sheet Strictness | — | Yêu cầu in chuẩn A4 100%, không photocopy, nền phẳng sáng | Paper/geometry gate + quality good/review/bad; bad short-circuit, review khóa auto-save; 2-frame consensus, identity TTL 8s |
+| Chấm hàng loạt | Camera liên tục 1-1, **rung xác nhận**, không nút bấm | — | **Chấm file scan trên web: 1000 bài/5 phút** (cả thư mục) | Camera batch giữ stream giữa phiếu + file/folder tối đa 500, tuần tự/cap RAM, accepted-only explicit save |
 | Chấm tự luận | Không | **OCR chữ viết tay** (LSTM, CER 10.63%), lưu ảnh câu hỏi chấm tay | Phiếu hỗn hợp trắc nghiệm + tự luận (tự luận chấm tay) | Chỉ chấm **thang điểm 0-10** dạng ô tô (không OCR) |
-| Đặc điểm đáp án | Combination 3 chữ cái (matching), xử lý tẩy xóa kém | — | **Nhiều mã đề đảo** trong 1 kỳ thi | 1 answerKey/phiên; re-score khi sửa đáp án (draft MC) |
-| Thống kê | **Item analysis + discriminant factor**, export CSV | Item analysis, báo cáo nhóm | **Phổ điểm, tỷ lệ câu đúng/sai**, gửi kết quả học sinh | Chưa có phân tích câu hỏi/phổ điểm (dữ liệu `exam_results.answers` đã có) |
+| Đặc điểm đáp án | Combination 3 chữ cái (matching), xử lý tẩy xóa kém | — | **Nhiều mã đề đảo** trong 1 kỳ thi | Mã đề A–H, T3 checksum-bound, server chọn key và re-score theo version |
+| Thống kê | **Item analysis + discriminant factor**, export CSV | Item analysis, báo cáo nhóm | **Phổ điểm, tỷ lệ câu đúng/sai**, gửi kết quả học sinh | Phổ điểm, đúng/trống từng câu, point-biserial có minimum-sample gate |
 | Offline | **Chấm hoàn toàn không cần mạng**, sync sau | — | Cần mạng khi chấm | **Offline queue đầy đủ** (ADR-023) — mạnh hơn Azota |
 | Quyền riêng tư | Ảnh scan lưu cloud (mặc định) | Cloud | Cloud | **100% client-side**, không vision server (ADR-043: Option C REJECT, Security & Privacy 6<7) |
 
@@ -60,27 +61,27 @@ Lưu ý phạm vi: **tính năng này là chấm phiếu bài kiểm tra (OMR), 
 
 ### III.1 Điểm mạnh (vượt thị trường)
 
-1. **Fail-closed toàn diện** — hiếm app đạt: paper-surface gate (`omr.ts:416-447`), marker isolation + quadrant + geometry/aspect/convexity gates (`omr.ts:225-293, 305-409`), cấm fallback chéo template (ADR-048), 2-frame consensus (`omrScanConsensus.ts`), identity TTL 20s + wrong-session hard-stop (`examScanIdentity.ts`). Nền bàn nâu từng sinh điểm ảo `score=8` → sau fix trả `NO_PAPER_SURFACE` (E2 fixture, ADR-043). Confidence: HIGH.
+1. **Fail-closed toàn diện** — paper-surface, marker isolation/quadrant/geometry/aspect/convexity, explicit template, quality policy, 2-frame consensus, identity TTL 8s/recheck + wrong-session hard-stop. Nền bàn nâu từng sinh điểm ảo `score=8` → sau fix bị reject (E2 fixture, ADR-043/062). Confidence: HIGH cho contract; field accuracy vẫn CONDITIONAL.
 2. **Chuẩn hóa in-quét SSOT** (`answerSheetTemplate.ts`): geometry in = geometry detect, sai số tâm ≤2px verify bằng render Chromium thật (ADR-048). Confidence: HIGH.
 3. **Bảo mật/riêng tư**: toàn bộ CV client-side, không gửi ảnh PII ra ngoài — vượt ZipGrade/Azota (đều cloud). Audit đầy đủ (`EXAM_CREATE/SAVE_RESULTS/FINALIZE/RESCORE...`, SECURITY_AUDIT_LOG). Confidence: HIGH.
 4. **Chống gán nhầm phiếu**: QR cá nhân + khóa phiên + ràng buộc học sinh thuộc lớp phiên ở server (`examService.ts:210-227`). Confidence: HIGH.
-5. **Hiệu năng**: summed-area table đưa OMR từ 1.0-1.17s → 12-50ms/lần (E2, ADR-043). Confidence: HIGH.
+5. **Hiệu năng có benchmark tái lập**: v4 gộp grayscale+SAT, tái sử dụng SAT + scratch arena, giảm bubble pass, staged 960→1280 và QR lazy. Baseline synthetic integrated trước v4 p95 12,57ms @960 và 19,54ms @1280 trên máy dev; benchmark v4 cô lập hiện hành được ghi ở §VII.3. Đây không phải target-device/camera claim. Confidence: HIGH về phép đo local, LOW về suy rộng thiết bị.
 6. **Vận hành offline**: queue + idempotency + parent-first (ADR-023) — khác biệt lớn so Azota (cần mạng). Confidence: HIGH.
 
-### III.2 Khoảng trống so với thị trường
+### III.2 Khoảng trống so với thị trường (đã cập nhật trạng thái tới v4)
 
 | # | Khoảng trống | Bằng chứng | Đối thủ làm gì |
 |---|---|---|---|
-| G1 | **Không có chấm hàng loạt từ file ảnh/thư mục scan** — kỳ thi 100-200 TNTT phải quét từng phiếu qua camera | `ExamScanModal` chỉ nhận camera/1 ảnh; không pipeline batch (E3) | Azota: 1000 bài/5 phút |
+| G1 | **Batch file đã có nhưng chưa có worker pool/device throughput gate** | Tối đa 500, xử lý detector tuần tự để giữ RAM; UI commit chunk 8 (E3) | Azota: 1000 bài/5 phút |
 | G2 | **Phụ thuộc giấy in sẵn QR cá nhân** — phiếu photocopy/tự in lại mất định danh → không chấm được | Identity = QR/Code128 bắt buộc; không có chế độ SBD (E3) | Azota: tô SBD + mã đề |
-| G3 | **Chưa có chẩn đoán điều kiện ảnh cho người dùng** (glare, nét/mờ, strictness) | `OMR_FAIL_REASONS` là code kỹ thuật; không có cảnh báo "Bright Light Detected" kiểu ZipGrade (E3) | ZipGrade: 3 cảnh báo trực quan + thanh trượt cấu hình |
-| G4 | **Không có thống kê/phân tích câu hỏi** (phổ điểm, tỷ lệ đúng/sai từng câu, câu khó/dễ) | `exam_results.answers` JSON đã lưu nhưng chưa có view khai thác (E3) | Azota phổ điểm; ZipGrade item analysis + discriminant |
-| G5 | **Chỉ 1 mã đề/phiên** — không hỗ trợ trộn đề nhiều mã | `answerKey` đơn, re-score theo 1 key (E3) | Azota hỗ trợ nhiều mã đề |
+| G3 | **Chẩn đoán đã có, còn thiếu strictness theo corpus/device** | quality reason + remediation + good/review/bad; chưa cho phép user tùy ý hạ threshold (có chủ đích) | ZipGrade: cảnh báo + strictness slider |
+| G4 | **Analytics đã có, còn thiếu export/feedback workflow sâu** | phổ điểm/item rate/point-biserial đã triển khai (E3) | Azota/ZipGrade có workflow báo cáo rộng hơn |
+| G5 | **Mã đề A–H đã có; đề gộp chỉ in A** | T3 + `answerVariants`; question-set đảo B–H chưa sinh từ cùng nội dung (E3) | Azota hỗ trợ đảo/in nhiều mã |
 | G6 | **Không hỗ trợ mẫu phiếu chuẩn BGD** và dạng đáp án khác (matching, combination, trả lời nhiều ô) | Template geometry tự định nghĩa duy nhất (E3) | Azota: mẫu BGD 2025, A4/A5/A6; ZipGrade: 20/50/100 câu + 3-letter combos |
-| G7 | **Không lưu ảnh phiếu để rà soát/hiệu đính sau** | Không có lưu scan image (E3) | GradeCam lưu ảnh câu hỏi; ZipGrade "Review Papers" có ảnh gốc |
+| G7 | **Chỉ lưu snapshot local opt-in 24h, chưa có archive dài hạn** | Dexie tenant AES-GCM, không upload (E3) | GradeCam/ZipGrade có cloud review |
 | G8 | Không OCR chữ viết tay phần tự luận | Chỉ ô điểm 0-10 (E3) | GradeCam (LSTM, CER 10.63%) |
 
-### III.3 Đánh giá tổng thể (D2 / GENERAL)
+### III.3 Đánh giá tổng thể lịch sử trước v2 (D2 / GENERAL; xem §VII cho hiện hành)
 
 | Criterion | Weight | Điểm | Evidence / Rationale |
 |---|--:|--:|---|
@@ -88,13 +89,13 @@ Lưu ý phạm vi: **tính năng này là chấm phiếu bài kiểm tra (OMR), 
 | Reliability & Data Integrity | 20% | 9 | Ledger + finalization + conflict + idempotency (E3) |
 | Security & Privacy | 20% | 9 | Client-side CV, fail-closed, audit; không vision server (E3) |
 | Maintainability | 15% | 8 | SSOT geometry, detector 684 dòng tập trung (E3) |
-| Performance | 10% | 9 | 12-50ms/lần OMR (E2) |
+| Performance | 10% | 8 | Benchmark cũ 12–50ms chỉ là E2 local; v4 có harness theo resolution nhưng target-device p95 còn CONDITIONAL |
 | Testability | 10% | 9 | 1468 tests, regression Chromium thật (E2) |
 | Reversibility | 5% | 9 | Các fix đều R1, không đổi schema/API |
 | Observability | 5% | 6 | Thiếu chẩn đoán ảnh đầu vào cho UX (G3) |
-| **Weighted Score** | **100%** | **8.4** | |
+| **Weighted Score** | **100%** | **8.3** | |
 
-**Kết luận chung (CONFIRMED):** lõi quét OMR thuộc **hàng đầu về an toàn dữ liệu + độ chính xác fail-closed** (ngang/hơn ZipGrade, vượt Azota về Privacy), nhưng **thua xa về vận hành quy mô** (batch scan, SBD, mã đề) và **chẩn đoán trải nghiệm quét** so với Azota/ZipGrade. Định hướng ADR-043 (camera là tùy chọn, không bắt buộc) giữ nguyên.
+**Kết luận lịch sử:** phần đánh giá này phản ánh trạng thái trước ADR-049/050/062; các gap batch/mã đề/analytics/quality đã thay đổi như bảng §III.2 và §VII. Định hướng ADR-043 (camera là tùy chọn, không bắt buộc) giữ nguyên.
 
 ---
 
@@ -177,7 +178,7 @@ Thứ tự ưu tiên theo TNTTVN Priority Order (§29): Security & Privacy > Dat
 - **Save khóa cứng**: còn `needsReview` hoặc không còn đáp án được chọn → nút Ghi Điểm disabled + banner hướng dẫn; edit câu lưu vào `wasCorrected/correctedQuestions`.
 - **Server authoritative** (`examService.upsertExamResults`): MC + source `omr|qr_scan` → bắt buộc parse/validate `answers` (index 1..N, A/B/C/D/null, bỏ key `_*`), tính lại `correct/N × maxScore` từ session answerKey; sai lệch trả `adjustments` + ghi audit `EXAM_SAVE_RESULTS`. Metadata `scanMetadata` (≤10KB) qua **sanitizer đệ quy cấm image/photo/frame/blob/base64/data URL**; `detectionStatus ≠ accepted` → 400.
 - **Capture**: `cameraStillCapture.ts` — ImageCapture API (Chromium/Android) lấy frame sensor tới 2200px, fallback video-frame cho iOS Safari.
-- **Quan sát**: `scanQuality.ts` (meanLuma/GLARE/LOW_DETAIL — advisory, không phải hard gate) + `scanDiagnostics.ts` (telemetry localStorage **aggregate counter/timing, không ID/ảnh**) + `omrBenchmark.ts` (KPI: exactSheetAccuracy, falseAcceptCount, firstCaptureRate, reviewRoutingAccuracy, p95DurationMs) + corpus contract khử định danh (`tests/fixtures/omr-camera/README.md`).
+- **Quan sát**: `scanQuality.ts` (meanLuma/GLARE/LOW_DETAIL; hiện hành: bad=reject, review=manual review) + `scanDiagnostics.ts` (telemetry localStorage **aggregate counter/histogram, không ID/ảnh**) + `omrBenchmark.ts` (KPI accuracy/routing/p95 tách profile, duplicate/malformed fail-closed) + corpus contract khử định danh (`tests/fixtures/omr-camera/README.md`).
 - **DB/offline**: migration `20260818-123` (`exam_results.scan_metadata` nullable, add-only); offline sync gửi metadata + re-pull results khi server trả adjustments (`useSyncEngine.ts`).
 - **Tenant fix**: `updateAnswerKeyAndRescore` + `getExamResults` bổ sung `parishId` filter (A-NEW-56 hardening).
 
@@ -199,10 +200,10 @@ Thứ tự ưu tiên theo TNTTVN Priority Order (§29): Security & Privacy > Dat
 | G3 chẩn đoán ảnh | ✅ **PARTIAL → FOUNDATION** | `scanQuality.ts` + badge UI "Chất lượng ảnh: Đạt/Nên kiểm tra" + telemetry. Còn thiếu: hướng dẫn khắc phục theo reason (bật đèn pin khi TOO_DARK...), chưa có strictness slider kiểu ZipGrade |
 | Trust boundary (score client) | ✅ **GIẢI QUYẾT TRIỆT ĐỂ** | Server recompute + adjustments + audit — vượt ZipGrade/Azota (cả hai tin client/cloud). Đây là nâng cấp Data Integrity lớn nhất |
 | Sai mẫu/sai số câu | ✅ **GIẢI QUYẾT** | T2 metadata + mismatch hard-stop (camera dừng, chặn ghi) — chưa app nào có |
-| Mobile accuracy | ✅ **CẢI THIỆN ĐÁNG KỂ** | 2200px still capture, 6-scale locator, full-page edge margin, geometry normalize theo câu — nhưng **E1 thực địa chưa xác nhận** (gate §21.3 vẫn đóng) |
+| Mobile accuracy | 🟡 **FIXTURE/IMPLEMENTATION IMPROVED; FIELD NOT CONFIRMED** | 2200px still capture, 6-scale locator, full-page edge margin, geometry normalize theo câu; E1 thực địa chưa đủ corpus nên gate §21.3 vẫn đóng |
 | Tenant isolation | ✅ **FIX** | parishId filter trong rescore/getResults (A-NEW-56) |
 | G1 batch scan | ✅ **FILE/FOLDER EXPLICIT** | Tối đa 500 ảnh, xử lý tuần tự; chỉ accepted + quality good mới vào nhóm chờ lưu. Auto-live mặc định vẫn đóng theo gate §21.3 |
-| G3 chẩn đoán ảnh | ✅ **FOUNDATION + REMEDIATION** | Badge quality kèm hướng dẫn tối/chói/mất nét; batch route quality khác good sang review |
+| G3 chẩn đoán ảnh | ✅ **FOUNDATION + REMEDIATION** | Badge quality kèm hướng dẫn tối/chói/mất nét; batch route `review` sang rà soát và `bad` sang rejected |
 | G4 item analysis | ✅ **TRIỂN KHAI** | Phổ điểm, tỷ lệ đúng/trống A-D và point-biserial có minimum-sample gate |
 | G5 nhiều mã đề | ✅ **TRIỂN KHAI A–H** | T3 checksum-bound; DB lưu version; server chọn key và recompute |
 | G7 ảnh lưu trữ | 🟡 **LOCAL OPT-IN** | Ảnh nén mã hóa tenant-scoped, TTL 24h, không upload. Chưa có kho server/long-term review |
@@ -210,12 +211,12 @@ Thứ tự ưu tiên theo TNTTVN Priority Order (§29): Security & Privacy > Dat
 
 ### VI.4 Rủi ro mới & điểm cần theo dõi (post-review ADR-049)
 
-1. **QR v2 25 module > v1 21** — mật độ module/px giảm ~19% ở cùng ô in; đã có regression blur/render, nhưng cần theo dõi E1 trên máy rẻ tiền (CONFIDENCE MEDIUM).
+1. **T2/T3 25 module > TE 21** — mật độ module/px giảm ~19% ở cùng ô in; đã có regression blur/render, nhưng cần theo dõi E1 trên máy rẻ tiền (CONFIDENCE MEDIUM).
 2. **Checksum FNV duplicate client/server** (`qr.ts` vs `routes/exams.ts`) — 2 nguồn sự thật, rủi ro drift nếu đổi thuật toán; cần test khớp chéo (hiện đã có qr.test.ts +17, giữ nguyên).
 3. **Phiên MC cũ (tạo trước bản vá) thiếu answerKey** — server recompute không reject, chỉ tính 0 cho câu thiếu key; cần cân nhắc chặn hoặc cảnh báo khi complete (CONDITIONAL).
 4. **Weak-mark band 0.24–0.38** — máy in kém/bút chì nhạt có thể tạo nhiều review_required, tốc độ giảm; đây là trade-off fail-safe có chủ đích (ADR-049), theo dõi qua telemetry.
 5. **Telemetry local-only** — không quan sát được từ server; đề xuất sau khi đủ cờ: gửi aggregate counters (không PII) lên server để đo thực địa.
-6. **capture 2200px 1 lần/chụp** — thêm latency ~100–300ms khi bấm `Chụp & chấm`; p95 detector vẫn trong gate.
+6. **capture 2200px 1 lần/chụp** — thêm latency khi bấm `Chụp & chấm`; p95 detector trên target device/corpus vẫn **NOT CONFIRMED**.
 
 ### VI.5 Ma trận cập nhật (D2/GENERAL — sau v2)
 
@@ -225,10 +226,69 @@ Thứ tự ưu tiên theo TNTTVN Priority Order (§29): Security & Privacy > Dat
 | Reliability & Data Integrity | 20% | 9 | 9.5 | Server authoritative + tenant fix + review states |
 | Security & Privacy | 20% | 9 | 9.5 | Sanitizer đệ quy + telemetry không PII + checksum |
 | Maintainability | 15% | 8 | 8.5 | Protocol SSOT + benchmark harness (−: FNV duplicate) |
-| Performance | 10% | 9 | 9 | Detector giữ 12–50ms; still capture 1 lần/chụp |
+| Performance | 10% | 9 | 8.5 | Số 12–50ms là baseline local lịch sử; v4 giảm O(N)/allocation/cadence nhưng p95 target-device chưa đo |
 | Testability | 10% | 9 | 9.5 | 1478 tests + corpus contract + KPI harness |
 | Reversibility | 5% | 9 | 9 | Migration add-only, R1 |
 | Observability | 5% | 6 | 7.5 | Quality assessment + diagnostics telemetry (local-only) |
-| **Weighted** | **100%** | **8.4** | **8.8** | |
+| **Weighted** | **100%** | **8.4** | **8.9** | |
 
-**Kết luận v2 (CONFIRMED):** bản nâng cấp giải quyết đúng 2 rủi ro Data Integrity/Privacy nghiêm trọng nhất (server tin điểm client; không ràng buộc mẫu) và đưa chất lượng quét mobile lên ngang chuẩn SOTA classical (marker-guided homography, JENER 2026). Khoảng trống vận hành quy mô (batch/SBD/mã đề) được **khóa có chủ đích** theo gate §21.3 thay vì vô tình triển khai chưa chuẩn — đúng ưu tiên TNTTVN. Còn lại: hoàn thiện hướng dẫn khắc phục quality, xem xét SBD (D3) và item analysis (P2.1) khi có nhu cầu, không đổi hướng kiến trúc client-side.
+**Kết luận v2 (historical, reassessed by ADR-050/060/062):** server-authoritative scoring và form binding đã giải quyết hai rủi ro Data Integrity chính; marker-guided homography phù hợp với hướng classical được khảo sát nhưng **không suy ra accuracy mobile tương đương thị trường** khi chưa có corpus. Batch file, mã đề A–H và item analysis hiện đã triển khai; SBD/OCR/BGD vẫn bị khóa theo gate §21.3.
+
+---
+
+## VII. ĐÁNH GIÁ CHUYÊN SÂU SCAN ENGINE V4 — TỐC ĐỘ + ĐỘ CHÍNH XÁC (2026-08-27, ADR-062)
+
+### VII.1 Trace end-to-end và bottleneck đã xác nhận
+
+```text
+camera crop object-cover
+  → QR live: 3 fast ROI → 1 focused 2× recovery (normal-only, kể cả recheck)
+       explicit/file/batch: 9 normal → 4 invertFirst → Code128
+  → identity: session/student/template/count/version/checksum + TTL/recheck
+  → quality: bad reject sớm; review không auto-accept
+  → OMR: RGBA→gray+SAT một lượt → marker → homography → bubble coverage
+  → 2-frame fingerprint consensus (frame cuối 1280px)
+  → human review/save
+  → server chọn key đúng mã đề và recompute score
+```
+
+Các hotspot E3 trước v4: main thread chạy toàn bộ pipeline; ba QR crop được copy dù attempt đầu thành công; `attemptBoth` nhân nhánh inversion cho mọi ROI; grayscale/SAT quét ảnh riêng và SAT có thể dựng hai lần ở auto fallback; bubble quét bounding box hai lượt; cadence 350ms làm hai-frame có sàn khoảng 700ms; batch clone/render mảng tăng dần sau từng file và live batch reacquire camera sau 600ms.
+
+### VII.2 Nâng cấp đã chọn và lý do
+
+- QR chuẩn do app in luôn đen/nền trắng: live xen 3 `live_fast` ROI thường với 1 `live_recovery` crop focus phóng 2×, đều `dontInvert` và cùng cadence khi recheck identity. Chỉ explicit capture/file/batch chạy exhaustive 9 normal + 4 `invertFirst`; Code128 không bị xóa. `jsQR` upstream ghi rõ `attemptBoth` gây khoảng 50% performance hit; `onlyInvert` 1.4.x còn có bug matrix undefined nên không được dùng.
+- Integral image vẫn là kiến trúc phù hợp: OpenCV mô tả summed-area cho phép tính tổng vùng chữ nhật O(1). V4 giữ đúng gate/thuật toán nhưng dựng gray+SAT cùng lượt, tái sử dụng một SAT và dùng scratch arena cho camera frame ≤2,5 triệu pixel. Arena được zeroize/release theo lifecycle; ảnh still lớn dùng buffer cục bộ.
+- Không chọn worker ngay: Web Worker giúp UI không block nhưng không tự giảm CPU/time-to-result; transfer/stale-result/backpressure tạo thêm integrity surface. Chỉ mở lại sau target-device benchmark và test out-of-order/crash fallback.
+- Hai tầng 960→1280 giảm pixel candidate khoảng 44% so với 1280² tương ứng, nhưng frame quyết định cuối vẫn 1280 và 2-frame consensus không đổi. Đây là trade-off bảo thủ hơn việc hạ threshold hay chỉ dùng low-res.
+- Quality bad short-circuit không đổi outcome: policy cũ cũng luôn reject. Nó chỉ tránh chạy detector vô ích và hướng dẫn người dùng sớm hơn.
+
+### VII.3 Measurement contract mới
+
+| KPI | Mẫu số hợp lệ | Fail-closed |
+|---|---|---|
+| exact sheet | normal + stress | negative không được tính; length/blank mismatch làm sai sheet |
+| answer accuracy | chỉ ô normal/stress có expected answer khác null | ô null/negative không làm đẹp tỷ lệ |
+| review routing | chỉ sample expected=`review_required` | từng accuracy profile cần ≥10 review |
+| negative routing / false accept | negative cohort | accepted sai bất kỳ mẫu nào → fail |
+| detector p95 | tách exact workload/engine/device/runtime/resolution/template/questionCount/cold-warm; mỗi profile ≥20 mẫu | required release matrix rỗng/thiếu hoặc pool profile → gate fail |
+| accuracy profile | cùng identity timing nhưng gộp cold/warm; ≥40 mẫu gồm normal20/stress10/negative10/review10/accepted20 | từng profile phải đạt toàn bộ threshold; aggregate đẹp không che profile yếu |
+| corpus identity | sampleId + SHA-256 file unique, engine `omr-v4-*` | duplicate/malformed bị loại khỏi mẫu số và làm gate fail |
+
+Gate hiện chỉ chứng nhận `workload=multiple_choice`; score-grid written không có `expectedScore/detectedScore` KPI nên tiếp tục manual-confirm. `accepted` trong UI là proposal chờ người chấm bấm Save, không phải auto-save. `npm run benchmark:omr` dùng `tsx` direct dependency, fixture synthetic và tự kiểm kết quả mỗi lượt. Fast workloads chạy tối thiểu 100 lượt mới được gắn nhãn empirical p95; workload recovery/exhaustive ít mẫu chỉ báo `max diagnostic`, không giả p95. Harness bao phủ integrated 800/960/1280, explicit full-page production 960/1280, auto→full-page fallback, auto no-marker và QR standard/negative ở ba mode; output gắn engine/device/runtime/resolution/template/questionCount/runKind.
+
+Đo cô lập trên máy dev hiện tại (detector-only, warm, 2026-08-27): integrated accepted 1280×1808 p95 **19,94ms**; full-page accepted 960×1356 p95 **10,25ms**, full-page 1280×1808 p95 **15,99ms**; auto no-marker 960×1356 p95 **22,87ms**; QR chuẩn `live_fast` 1280×1707 p95 **26,76ms**; QR âm tính `live_fast` p95 **99,45ms**. Recovery âm tính n=10 chỉ báo max **68,49ms**; exhaustive âm tính n=3 chỉ báo max **406,43ms**, không gọi hai số này là p95. Baseline 15 lượt cũ chỉ là lịch sử; mọi số desktop/synthetic vẫn không thay corpus camera hoặc target mobile.
+
+### VII.4 Trạng thái sau triển khai
+
+| Hạng mục | Trạng thái |
+|---|---|
+| Core OMR single-pass/shared-SAT/bubble optimization | ✅ IMPLEMENTED |
+| QR live 3-fast/1-focused recovery + exhaustive 9-normal/4-inverted | ✅ IMPLEMENTED |
+| 960 candidate + 1280 final verification + adaptive backpressure | ✅ IMPLEMENTED |
+| Quality bad early reject; review/save gates | ✅ IMPLEMENTED |
+| Live batch warm stream + file batch chunked UI | ✅ IMPLEMENTED |
+| Histogram diagnostics + benchmark KPI correctness | ✅ IMPLEMENTED |
+| Web Worker / tracked-marker fast path | ⏸ CONDITIONAL — chưa đủ device/race evidence |
+| 400-image privacy-safe MC corpus + exact release matrix | ⛔ CHƯA CÓ — field accuracy NOT CONFIRMED |
+
+**Kết luận v4:** pipeline đã giảm công việc trên live path và loại race/stale-configuration/lifecycle continuation mà không hạ một ngưỡng chấm nào; độ chính xác được bảo vệ bằng final high-resolution consensus và benchmark gate không còn tính sai/trộn mẫu số/template. Chỉ được báo kết quả của từng microbenchmark có profile rõ; chưa được tuyên bố đạt accuracy thực địa hoặc p95 mobile tới khi corpus/required target-device matrix ADR-060 chạy thật.

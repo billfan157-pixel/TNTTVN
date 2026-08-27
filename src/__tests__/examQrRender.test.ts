@@ -94,7 +94,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
 
   afterAll(async () => {
     await browser?.close()
-  })
+  }, 60_000)
 
   it('camera landscape 1920×1080 chỉ quét crop portrait 810×1080 user nhìn thấy', () => {
     expect(getObjectCoverSourceRect(1920, 1080, 3, 4)).toEqual({
@@ -241,7 +241,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     const frame = await cameraFrameFromPage(page)
     await page.close()
 
-    const result = scanExamCode(frame)
+    const result = scanExamCode(frame, 'live_fast')
     expect(result.source).toBe('qr')
     expect(result.payload).toMatchObject({
       sessionId,
@@ -274,7 +274,7 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     const frame = await cameraFrameFromPage(page, 1.1)
     await page.close()
 
-    expect(scanExamCode(frame).payload).toMatchObject({
+    expect(scanExamCode(frame, 'live_recovery').payload).toMatchObject({
       sessionId,
       studentId: student.id,
       protocolVersion: 3,
@@ -302,6 +302,6 @@ describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
     const frame = await cameraFrameFromPage(page, 1.1)
     await page.close()
 
-    expect(scanExamCode(frame).payload).toEqual({ sessionId, studentId: student.id })
+    expect(scanExamCode(frame, 'live_recovery').payload).toEqual({ sessionId, studentId: student.id })
   }, 20_000)
 })

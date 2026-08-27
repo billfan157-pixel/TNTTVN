@@ -6,6 +6,10 @@ const modalSource = readFileSync(
   resolve(process.cwd(), 'src/components/exam/ExamScanModal.tsx'),
   'utf8',
 )
+const batchModalSource = readFileSync(
+  resolve(process.cwd(), 'src/components/exam/ExamBatchScanModal.tsx'),
+  'utf8',
+)
 
 describe('integrated scan guide UI contract', () => {
   it('renders the integrated guide from the centralized placement helper', () => {
@@ -21,5 +25,27 @@ describe('integrated scan guide UI contract', () => {
     const fullPageGuide = modalSource.indexOf('h-[88%] aspect-[210/297]')
     expect(integratedStart).toBeGreaterThan(-1)
     expect(fullPageGuide).toBeGreaterThan(integratedStart)
+  })
+})
+
+describe('scan performance safety contract', () => {
+  it('RAF gọi callback mới nhất thay vì giữ mã đề/template từ render mở camera', () => {
+    expect(modalSource).toContain('processImageFrameRef.current = processImageFrame')
+    expect(modalSource).toContain('processImageFrameRef.current(frame)')
+    expect(modalSource).not.toContain('const handled = processImageFrame(frame)')
+  })
+
+  it('batch giữ commit theo chunk nhưng nhường event loop sau từng ảnh', () => {
+    expect(batchModalSource).toContain('const BATCH_UI_COMMIT_SIZE = 8')
+    expect(batchModalSource).toContain('const BATCH_MAIN_THREAD_YIELD_SIZE = 1')
+  })
+
+  it('hủy tác vụ ảnh bất đồng bộ và xóa scratch khi modal đóng', () => {
+    expect(modalSource).toContain('pendingUploadRef.current')
+    expect(modalSource).toContain('cameraGenerationRef.current !== captureGeneration')
+    expect(modalSource).toContain('cameraGenerationRef.current !== uploadGeneration')
+    expect(batchModalSource).toContain('processingGenerationRef.current !== processingGeneration')
+    expect(batchModalSource).toContain('finally {')
+    expect(batchModalSource).toContain('clearOmrScratchBuffers()')
   })
 })

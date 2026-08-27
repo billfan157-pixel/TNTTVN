@@ -8,13 +8,25 @@ export interface ExamCodeScanResult {
   source: 'qr' | 'barcode' | null
 }
 
+export type ExamCodeScanMode = 'live_fast' | 'live_recovery' | 'exhaustive'
+
+type RasterImage = { data: Uint8ClampedArray; width: number; height: number }
+
+function lazyRaster(factory: () => RasterImage): () => RasterImage {
+  let cached: RasterImage | undefined
+  return () => {
+    cached ??= factory()
+    return cached
+  }
+}
+
 function cropImageData(
   image: ImageData,
   xRatio: number,
   yRatio: number,
   widthRatio: number,
   heightRatio: number
-): { data: Uint8ClampedArray; width: number; height: number } {
+): RasterImage {
   const x0 = Math.max(0, Math.floor(image.width * xRatio))
   const y0 = Math.max(0, Math.floor(image.height * yRatio))
   const width = Math.max(1, Math.min(image.width - x0, Math.ceil(image.width * widthRatio)))
@@ -28,9 +40,9 @@ function cropImageData(
 }
 
 function upscaleNearest(
-  image: { data: Uint8ClampedArray; width: number; height: number },
+  image: RasterImage,
   scale: number
-): { data: Uint8ClampedArray; width: number; height: number } {
+): RasterImage {
   const width = Math.max(1, Math.round(image.width * scale))
   const height = Math.max(1, Math.round(image.height * scale))
   const data = new Uint8ClampedArray(width * height * 4)
@@ -55,8 +67,8 @@ function upscaleNearest(
  * Chỉ xử lý crop phía trên/phải để không nhân chi phí CPU trên toàn frame.
  */
 function sharpenLuma(
-  image: { data: Uint8ClampedArray; width: number; height: number }
-): { data: Uint8ClampedArray; width: number; height: number } {
+  image: RasterImage
+): RasterImage {
   const { data: source, width, height } = image
   const data = new Uint8ClampedArray(source.length)
   const gray = new Uint8ClampedArray(width * height)
@@ -87,34 +99,78 @@ function sharpenLuma(
  * nửa trên/phải nơi mã được in để giảm nhiễu chữ và bubble trên ảnh điện thoại.
  * rawText khác null nhưng payload null nghĩa là đã đọc được một mã không hợp lệ.
  */
-export function scanExamCode(image: ImageData): ExamCodeScanResult {
-  const upperRight = cropImageData(image, 0.42, 0, 0.58, 0.55)
+export function scanExamCode(image: ImageData, mode: ExamCodeScanMode = 'exhaustive'): ExamCodeScanResult {
+  const fullFrame = () => ({ data: image.data, width: image.width, height: image.height })
+  const upperRight = lazyRaster(() => cropImageData(image, 0.42, 0, 0.58, 0.55))
   // Crop chặt vùng mã của cả phiếu rời (x=.70..94) lẫn đề gộp. Đây là vùng
   // quan trọng trên camera portrait: phóng 2x giúp finder pattern còn đủ pixel
   // khi toàn bộ A4 chỉ rộng khoảng 700–850px trên sensor.
-  const upperRightFocus = cropImageData(image, 0.52, 0, 0.48, 0.38)
+  const upperRightFocus = lazyRaster(() => cropImageData(image, 0.52, 0, 0.48, 0.38))
   // Raw camera thường landscape trong khi UI portrait: A4 nằm giữa frame và QR
   // rơi vào x≈0.52..0.70. Crop hẹp + upscale nearest giữ cạnh module sắc nét.
-  const landscapePaperQr = cropImageData(image, 0.48, 0, 0.28, 0.38)
-  // Dùng factory để các bước tốn CPU (sharpen/upscale) chỉ chạy khi attempt
-  // nhanh trước đó thất bại; QR nét thường dừng ngay ở crop đầu tiên.
-  const qrAttempts = [
-    () => upperRight,
-    () => upperRightFocus,
-    () => upscaleNearest(upperRightFocus, 2),
-    () => sharpenLuma(upscaleNearest(upperRightFocus, 2)),
-    () => sharpenLuma(upperRight),
-    () => ({ data: image.data, width: image.width, height: image.height }),
-    () => landscapePaperQr,
-    () => upscaleNearest(landscapePaperQr, 2),
-    () => cropImageData(image, 0, 0, 1, 0.48),
-  ]
+  const landscapePaperQr = lazyRaster(() => cropImageData(image, 0.48, 0, 0.28, 0.38))
+  const focusedUpscaled = lazyRaster(() => upscaleNearest(upperRightFocus(), 2))
+  const landscapeUpscaled = lazyRaster(() => upscaleNearest(landscapePaperQr(), 2))
+  const focusedSharpened = lazyRaster(() => sharpenLuma(focusedUpscaled()))
+  const upperRightSharpened = lazyRaster(() => sharpenLuma(upperRight()))
+  const upperHalf = lazyRaster(() => cropImageData(image, 0, 0, 1, 0.48))
 
-  for (const createAttempt of qrAttempts) {
+  // Phiếu do ứng dụng sinh luôn là QR đen trên nền trắng. `attemptBoth` làm
+  // jsQR tốn thêm khoảng 50% cho từng candidate; chạy normal-only trước giúp
+  // đường phổ biến dừng ngay ở crop chặt đầu tiên. Các bước upscale/sharpen vẫn
+  // lazy và được cache, không còn sao chép ba crop trước khi biết có cần hay không.
+  const fastStandardAttempts: Array<() => RasterImage> = [
+    upperRightFocus,
+    upperRight,
+    landscapePaperQr,
+  ]
+  const recoveryStandardAttempts: Array<() => RasterImage> = [
+    ...fastStandardAttempts,
+    fullFrame,
+    focusedUpscaled,
+    focusedSharpened,
+    upperRightSharpened,
+    landscapeUpscaled,
+    upperHalf,
+  ]
+  // Recovery live chạy ở frame riêng sau ba fast frame: chỉ upscale crop focus
+  // một lần, không lặp ROI fast hay ghép thêm sharpen/full-frame trên cùng tick.
+  // Ảnh khó vẫn có exhaustive path khi người dùng bấm chụp hoặc tải tệp.
+  const liveRecoveryAttempts: Array<() => RasterImage> = [
+    focusedUpscaled,
+  ]
+  const standardAttempts = mode === 'live_fast'
+    ? fastStandardAttempts
+    : mode === 'live_recovery'
+      ? liveRecoveryAttempts
+      : recoveryStandardAttempts
+
+  for (const createAttempt of standardAttempts) {
     const attempt = createAttempt()
-    const decoded = jsQR(attempt.data, attempt.width, attempt.height, { inversionAttempts: 'attemptBoth' })
+    const decoded = jsQR(attempt.data, attempt.width, attempt.height, { inversionAttempts: 'dontInvert' })
     if (!decoded?.data) continue
     return { rawText: decoded.data, payload: parseExamQrPayload(decoded.data), source: 'qr' }
+  }
+
+  // Recovery có giới hạn cho ảnh đã bị đảo màu bởi phần mềm scan. Giữ các ROI
+  // đúng geometry in + full frame, nhưng không nhân đôi toàn bộ 9 biến thể ở
+  // mọi frame âm tính.
+  if (mode === 'exhaustive') {
+    const invertedRecoveryAttempts: Array<() => RasterImage> = [
+      upperRightFocus,
+      upperRight,
+      landscapePaperQr,
+      focusedUpscaled,
+    ]
+    for (const createAttempt of invertedRecoveryAttempts) {
+      const attempt = createAttempt()
+      // jsQR 1.4.x có bug `onlyInvert`: nhánh đó không yêu cầu binarizer tạo
+      // inverted matrix rồi gọi locator(undefined), có thể crash trên frame âm
+      // tính. `invertFirst` tạo đúng matrix, thử inverted trước và fallback normal.
+      const decoded = jsQR(attempt.data, attempt.width, attempt.height, { inversionAttempts: 'invertFirst' })
+      if (!decoded?.data) continue
+      return { rawText: decoded.data, payload: parseExamQrPayload(decoded.data), source: 'qr' }
+    }
   }
 
   const barcodeText = detectBarcodeFromImageData(image)

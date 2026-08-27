@@ -55,10 +55,22 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     return { status: 'rejected', reason: `Chưa cấu hình đáp án mã đề ${examVersion}.`, studentId: code.payload.studentId, examVersion }
   }
 
+  const quality = assessScanQuality(image)
+  // `bad` luôn bị policy từ chối; chặn trước OMR để batch không tốn detector
+  // trên ảnh chắc chắn không thể ghi và vẫn trả cùng semantics fail-closed.
+  if (quality.status === 'bad') {
+    return {
+      status: 'rejected',
+      reason: `Chất lượng ảnh quá kém: ${quality.reasons.join(', ') || quality.status}.`,
+      studentId: code.payload.studentId,
+      examVersion,
+      quality,
+    }
+  }
+
   const omr = isMcGradedExamType(config.examType)
     ? detectAnswersFromImage(image, answerKey, config.questionCount, config.maxScore, templateMode)
     : detectScoreFromImage(image, config.maxScore)
-  const quality = assessScanQuality(image)
   const decision = decideScanAcceptance(omr, quality)
 
   if (decision.status === 'rejected') {
@@ -107,7 +119,7 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     answers = JSON.stringify(answerMap)
   }
   const scanMetadata = JSON.stringify({
-    engineVersion: 'omr-v3-batch',
+    engineVersion: 'omr-v4-batch',
     protocolVersion: code.payload.protocolVersion ?? 1,
     templateMode,
     questionCount: isMcGradedExamType(config.examType) ? config.questionCount : undefined,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectScoreFromImage, detectAnswersFromImage } from '../omr'
+import { clearOmrScratchBuffers, detectScoreFromImage, detectAnswersFromImage } from '../omr'
 import { CORNER_MARKERS, CORNER_SIZE, scoreToCell, mcOptionToCell } from '../answerSheetTemplate'
 
 /** Fake ImageData cho môi trường node (không có browser API). */
@@ -12,9 +12,9 @@ function FakeImageData(width: number, height: number): ImageData {
  * "tô đen" (opts.fill). Kích thước 800×1130 (tỷ lệ A4 dọc).
  * Trả về ImageData đủ cho detector.
  */
-function buildSheetImage(opts: { fill?: number } = {}): ImageData {
-  const W = 800
-  const H = 1130
+function buildSheetImage(opts: { fill?: number; width?: number } = {}): ImageData {
+  const W = opts.width ?? 800
+  const H = Math.round(W * 1130 / 800)
   const img = FakeImageData(W, H)
   const data = img.data
   for (let i = 0; i < W * H; i++) {
@@ -139,6 +139,13 @@ describe('OMR detector (Phase 2 POC)', () => {
     expect(res.score).toBe(10)
   })
 
+  it('giữ nguyên kết quả written score-grid ở frame 960px và 1280px', () => {
+    const verification = detectScoreFromImage(buildSheetImage({ fill: 8, width: 1280 }))
+    const fast = detectScoreFromImage(buildSheetImage({ fill: 8, width: 960 }))
+    expect(fast).toMatchObject({ ok: true, score: 8 })
+    expect(verification).toMatchObject({ ok: true, score: 8 })
+  })
+
   it('ảnh bị dịch/xoay nhẹ vẫn detect đúng (camera lệch)', () => {
     const warped = warpImage(buildSheetImage({ fill: 5 }), 12, -8, 0.06)
     const res = detectScoreFromImage(warped)
@@ -175,9 +182,13 @@ describe('OMR trắc nghiệm (Phase 4 — detectAnswersFromImage)', () => {
   const ANSWER_KEY: Record<number, 'A' | 'B' | 'C' | 'D'> = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' }
 
   /** Dựng phiếu MC: marker + các ô A/B/C/D, opts.fill = {question: option} */
-  function buildMcSheet(fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {}, totalQuestions = 4): ImageData {
-    const W = 800
-    const H = 1130
+  function buildMcSheet(
+    fill: Record<number, 'A' | 'B' | 'C' | 'D'> = {},
+    totalQuestions = 4,
+    width = 800,
+  ): ImageData {
+    const W = width
+    const H = Math.round(W * 1130 / 800)
     const img = FakeImageData(W, H)
     const data = img.data
     for (let i = 0; i < W * H; i++) {
@@ -209,6 +220,22 @@ describe('OMR trắc nghiệm (Phase 4 — detectAnswersFromImage)', () => {
     expect(res.rawCorrectCount).toBe(4)
     expect(res.score).toBe(10)
     expect(res.questions.every(q => q.isCorrect === true)).toBe(true)
+  })
+
+  it('giữ nguyên đáp án full-page ở frame 960px và 1280px', () => {
+    const fills = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' } as const
+    const verification = detectAnswersFromImage(buildMcSheet(fills, 4, 1280), ANSWER_KEY, 4, 10, 'full_page')
+    const fast = detectAnswersFromImage(buildMcSheet(fills, 4, 960), ANSWER_KEY, 4, 10, 'full_page')
+    const verificationAgain = detectAnswersFromImage(buildMcSheet(fills, 4, 1280), ANSWER_KEY, 4, 10, 'full_page')
+    expect(fast).toMatchObject({ ok: true, rawCorrectCount: 4, score: 10 })
+    expect(verification).toMatchObject({ ok: true, rawCorrectCount: 4, score: 10 })
+    expect(verificationAgain).toMatchObject({ ok: true, rawCorrectCount: 4, score: 10 })
+    expect(fast.questions.map(question => question.selectedAnswer))
+      .toEqual(verification.questions.map(question => question.selectedAnswer))
+
+    clearOmrScratchBuffers()
+    const afterClear = detectAnswersFromImage(buildMcSheet(fills, 4, 960), ANSWER_KEY, 4, 10, 'full_page')
+    expect(afterClear).toMatchObject({ ok: true, rawCorrectCount: 4, score: 10 })
   })
 
   it('tô sai 1 câu → score giảm theo tỷ lệ (3/4 → 7.5)', () => {
