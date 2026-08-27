@@ -211,7 +211,7 @@ export const DesktopCalendarView: React.FC = () => {
   const dayHeaders = ['Chúa Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy']
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Header Bar */}
       <PageHeader
         icon={<CalendarIcon size={24} />}
@@ -260,7 +260,7 @@ export const DesktopCalendarView: React.FC = () => {
       {/* Main Grid + Detail Sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Calendar Grid (8 cols) */}
-        <div className="lg:col-span-8 bg-surface-card rounded-2xl border border-surface-border shadow-card p-5 flex flex-col gap-3">
+        <div className="lg:col-span-8 app-panel p-5 flex flex-col gap-3">
           {/* Day of Week Headers */}
           <div className="grid grid-cols-7 gap-2 text-center pb-2 border-b border-surface-border">
             {dayHeaders.map((dh, idx) => (
@@ -370,7 +370,7 @@ export const DesktopCalendarView: React.FC = () => {
         {/* Selected Day Detail Sidebar (4 cols) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
           {/* Day Detail Card */}
-          <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-5 relative overflow-hidden flex flex-col gap-4">
+          <div className="app-panel p-5 relative overflow-hidden flex flex-col gap-4">
             <div
               className="absolute top-0 right-0 w-32 h-32 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none opacity-20"
               style={{ backgroundColor: selectedDayColorMeta.hex }}
@@ -524,7 +524,7 @@ export const DesktopCalendarView: React.FC = () => {
           </div>
 
           {/* Upcoming Solemnities Card */}
-          <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-5 flex flex-col gap-3">
+          <div className="app-panel p-5 flex flex-col gap-3">
             <h4 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
               <Church size={14} className="text-parish-primary" /> Các Lễ Trọng Sắp Tới
             </h4>

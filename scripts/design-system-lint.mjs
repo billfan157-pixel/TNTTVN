@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Design System Linter & Anti-Drift Guard (DS v3.1)
+ * Design System Linter & Anti-Drift Guard (DS v4.1)
  * Enforces token usage, WCAG contrast compliance, and prevents UI drift.
  * 
  * Rules:
@@ -21,7 +21,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const srcDir = path.resolve(__dirname, '../src')
 
-// Strict Exemptions List (Authorized in ADR-030 / Design System v3.1)
+// Strict Exemptions List (Authorized in ADR-030/063 / Design System v4.1)
 const EXEMPTIONS = [
   'components/common/Certificate.tsx',
   'components/exam/AnswerSheetModal.tsx',
@@ -33,7 +33,7 @@ const EXEMPTIONS = [
   '__tests__',
 ]
 
-// Rule 4: classes that do not exist in index.css / DS v3.1
+// Rule 4: classes that do not exist in index.css / DS v4.1
 const NONEXISTENT_CLASSES = [
   'badge-secondary',
   'btn-neutral',
@@ -125,7 +125,7 @@ for (const file of files) {
           file: relPath,
           line: lineNum,
           rule: 'NO_NONEXISTENT_CLASS',
-          message: `"${cls}" does not exist in DS v3.1 (index.css). Use the standard equivalent (e.g. badge-neutral, btn btn-secondary, table-scroll).`,
+          message: `"${cls}" does not exist in DS v4.1 (index.css). Use the standard equivalent (e.g. badge-neutral, btn btn-secondary, table-scroll).`,
           snippet: trimmed,
         })
         totalViolations++
@@ -168,12 +168,12 @@ for (const file of files) {
 }
 
 console.log('\n🎨 ============================================')
-console.log('🎨 Design System v3.1 Anti-Drift Linter')
+console.log('🎨 Design System v4.1 Anti-Drift Linter')
 console.log('🎨 ============================================\n')
 
 if (totalViolations === 0) {
   console.log(`✅ Passed: 0 violations found across ${files.length} UI components!`)
-  console.log('   All components comply with Design System v3.1 tokens and WCAG AA standards.\n')
+  console.log('   All components comply with Design System v4.1 tokens and WCAG AA standards.\n')
   process.exit(0)
 } else {
   console.error(`❌ Found ${totalViolations} Design System violations:\n`)

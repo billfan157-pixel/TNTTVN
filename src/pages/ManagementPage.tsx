@@ -24,7 +24,7 @@ export function ManagementPage() {
   const [activeTab, setActiveTab] = useState<ManagementTab>('academic-years')
 
   return (
-    <div className="space-y-6">
+    <div className="product-view space-y-6">
       {/* Header */}
       <PageHeader
         icon={<ShieldCheck className="w-5 h-5" />}
@@ -33,7 +33,7 @@ export function ManagementPage() {
       />
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-surface-border pb-0">
+      <div className="view-tabs" role="tablist" aria-label="Phân hệ quản lý">
         {TABS.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
@@ -41,11 +41,9 @@ export function ManagementPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-xl border-b-2 transition-colors ${
-                isActive
-                  ? 'text-parish-primary border-parish-primary bg-parish-primary/5'
-                  : 'text-text-muted border-transparent hover:text-text-main hover:bg-surface-hover'
-              }`}
+              className={`view-tab ${isActive ? 'is-active' : ''}`}
+              role="tab"
+              aria-selected={isActive}
             >
               <Icon className="w-4 h-4" />
               {tab.label}
@@ -56,10 +54,10 @@ export function ManagementPage() {
 
       {/* Tab content */}
       <div>
-        {activeTab === 'academic-years' && <AcademicYearPage />}
-        {activeTab === 'classes' && <ClassesPage />}
-        {activeTab === 'users-staff' && <UsersPage scope="staff" />}
-        {activeTab === 'users-parents' && <UsersPage scope="phuhuynh" />}
+        {activeTab === 'academic-years' && <AcademicYearPage embedded />}
+        {activeTab === 'classes' && <ClassesPage embedded />}
+        {activeTab === 'users-staff' && <UsersPage scope="staff" embedded />}
+        {activeTab === 'users-parents' && <UsersPage scope="phuhuynh" embedded />}
       </div>
     </div>
   )

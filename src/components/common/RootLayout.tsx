@@ -26,8 +26,9 @@ import type { MobileTab } from '../mobile/MobileBottomNav'
 export const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   <ErrorBoundary>
     <Suspense fallback={
-      <div className="flex items-center justify-center h-64 text-text-muted text-sm">
-        Đang tải...
+      <div className="app-page-loader" role="status" aria-live="polite">
+        <span className="app-page-loader__mark" aria-hidden="true" />
+        <span>Đang chuẩn bị nội dung…</span>
       </div>
     }>
       {children}
@@ -180,7 +181,7 @@ export function RootLayout() {
           setActiveTab={(tab) => navigate({ to: tab === 'home' ? '/dashboard' : (`/${tab}` as any) })}
         >
           <HeaderBar />
-          <div id="main-content">
+          <div>
             <PageSuspense>
               <Outlet />
             </PageSuspense>
@@ -243,7 +244,7 @@ export function RootLayout() {
           branches={BRANCHES}
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-          <main id="main-content" className="flex-1 overflow-y-auto p-6 scroll-smooth">
+          <main id="main-content" className="app-main-content">
             <PageSuspense>
               <Outlet />
             </PageSuspense>

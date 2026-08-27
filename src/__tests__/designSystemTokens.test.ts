@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 
-describe('Design System v3.1 Foundation Tokens & Classes', () => {
+describe('Design System v4.1 Foundation Tokens & Classes', () => {
   const cssPath = path.resolve(__dirname, '../index.css')
   const cssContent = fs.readFileSync(cssPath, 'utf8')
 
@@ -23,11 +23,55 @@ describe('Design System v3.1 Foundation Tokens & Classes', () => {
       '--color-cell-conflict',
       '--color-cell-conflict-border',
       '--color-cell-locked',
+      '--color-surface-raised',
+      '--color-surface-sunken',
+      '--color-parish-gold',
+      '--motion-standard',
     ]
 
     for (const token of requiredTokens) {
       expect(cssContent).toContain(token)
     }
+  })
+
+  it('declares the shared hierarchy and shell primitives', () => {
+    const classes = [
+      '.page-header--card',
+      '.section-card',
+      '.metric-card',
+      '.app-header',
+      '.app-main-content',
+      '.mobile-home-hero',
+      '.mobile-quick-action',
+      '.mobile-content-card',
+      '.product-view',
+      '.app-panel',
+      '.view-toolbar',
+      '.view-tabs',
+      '.view-tab',
+      '.mobile-page-header',
+      '.mobile-filter-panel',
+      '.entity-card',
+      '.auth-page',
+      '.auth-card',
+      '.auth-hero',
+      '.auth-option',
+      '.state-feedback',
+    ]
+
+    for (const cls of classes) {
+      expect(cssContent).toContain(cls)
+    }
+  })
+
+  it('keeps mobile focus stable and honors reduced-motion preferences', () => {
+    const mobileSection = cssContent.slice(cssContent.indexOf('@media (max-width: 767px)'))
+    expect(mobileSection).toMatch(/\.mobile-app-shell input,[\s\S]*?font-size:\s*16px/)
+    expect(mobileSection).toMatch(/\.modal-content[\s\S]*?border-radius:\s*20px 20px 0 0/)
+
+    const reducedMotionSection = cssContent.slice(cssContent.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(reducedMotionSection).toContain('animation-duration: 0.01ms !important')
+    expect(reducedMotionSection).toContain('transition-duration: 0.01ms !important')
   })
 
   it('declares dark mode equivalents for interaction and domain cell tokens', () => {

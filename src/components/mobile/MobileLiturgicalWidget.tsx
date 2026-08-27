@@ -23,12 +23,11 @@ export const MobileLiturgicalWidget: React.FC<MobileLiturgicalWidgetProps> = ({ 
   const weekdayLong = now.toLocaleDateString('vi-VN', { weekday: 'long' })
 
   return (
-    <div
+    <button
+      type="button"
       onClick={onOpenCalendar}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpenCalendar?.() }}
-      className="bg-surface-card rounded-2xl border border-surface-border shadow-card relative overflow-hidden flex items-stretch cursor-pointer active:scale-[0.99] transition-all"
+      className="entity-card app-panel--interactive w-full text-left relative overflow-hidden flex items-stretch cursor-pointer font-sans"
+      aria-label={`Mở lịch phụng vụ: ${today.title}`}
     >
       {/* Color spine — màu áo lễ của ngày */}
       <div
@@ -74,6 +73,6 @@ export const MobileLiturgicalWidget: React.FC<MobileLiturgicalWidgetProps> = ({ 
           </div>
         )}
       </div>
-    </div>
+    </button>
   )
 }

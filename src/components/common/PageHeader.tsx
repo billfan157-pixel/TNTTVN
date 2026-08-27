@@ -23,26 +23,26 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   className = '',
 }) => {
   const content = (
-    <div className={`flex items-center justify-between flex-wrap gap-4 ${card ? '' : 'w-full'}`}>
-      <div className="flex items-center gap-3.5 min-w-0">
+    <div className={`page-header ${card ? 'page-header--card' : 'w-full'} ${className}`}>
+      <div className="page-header__identity">
         {icon && (
-          <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center shrink-0 shadow-xs">
+          <div className="page-header__icon">
             {icon}
           </div>
         )}
         <div className="min-w-0">
-          <h1 className="text-lg font-extrabold text-text-main m-0 tracking-tight truncate">
+          <h1 className="page-header__title">
             {title}
           </h1>
           {description && (
-            <div className="text-xs text-text-muted mt-1 m-0 font-medium">
+            <div className="page-header__description">
               {description}
             </div>
           )}
         </div>
       </div>
       {actions && (
-        <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+        <div className="page-header__actions">
           {actions}
         </div>
       )}
@@ -50,14 +50,10 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   )
 
   if (card) {
-    return (
-      <div className={`bg-surface-card rounded-2xl p-5 md:p-6 border border-surface-border shadow-card ${className}`}>
-        {content}
-      </div>
-    )
+    return content
   }
 
-  return <div className={className}>{content}</div>
+  return content
 }
 
 export default PageHeader

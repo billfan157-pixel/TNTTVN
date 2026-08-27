@@ -107,7 +107,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-3 pb-8">
+    <div className="product-view flex flex-col gap-3 pb-8">
       {/* Modal xem lịch sử */}
       <AttendanceHistoryModal
         isOpen={isHistoryModalOpen}
@@ -116,7 +116,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
       />
 
       {/* Filter Header */}
-      <div className="bg-surface-card p-3 rounded-2xl border border-surface-border shadow-xs flex flex-col gap-2.5">
+      <div className="mobile-filter-panel flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-2">
           {/* Lọc Lớp */}
           <select
@@ -184,7 +184,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
             placeholder="Tìm theo tên hoặc mã..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="form-input pl-8 font-medium min-h-[44px] w-full"
+            className="form-input pl-8 text-xs font-medium min-h-[40px] w-full"
           />
         </div>
       </div>
@@ -256,7 +256,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
             <div
               key={item.student.id}
               onClick={() => openStudentHistory(item)}
-              className="bg-surface-card p-3.5 rounded-2xl border border-surface-border shadow-xs active:bg-surface-hover transition-colors flex flex-col gap-2.5 cursor-pointer"
+              className="entity-card p-3.5 active:bg-surface-hover flex flex-col gap-2.5 cursor-pointer"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>

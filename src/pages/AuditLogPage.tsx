@@ -486,18 +486,20 @@ export function AuditLogPage() {
         title="Nhật Ký Hệ Thống"
         description={mode === 'all' ? `${meta.total} bản ghi` : `${policyTotal} sự kiện chính sách`}
         actions={
-          <div className="flex items-center bg-surface-app rounded-xl border border-surface-border p-1 gap-1">
+          <div className="view-tabs">
             <button
               type="button"
               onClick={() => setMode('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'all' ? 'bg-parish-primary text-white shadow-xs' : 'text-text-secondary hover:bg-surface-hover'}`}
+              className={`view-tab ${mode === 'all' ? 'is-active' : ''}`}
+              aria-pressed={mode === 'all'}
             >
               Toàn Bộ Nhật Ký
             </button>
             <button
               type="button"
               onClick={() => setMode('policy')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${mode === 'policy' ? 'bg-parish-primary text-white shadow-xs' : 'text-text-secondary hover:bg-surface-hover'}`}
+              className={`view-tab ${mode === 'policy' ? 'is-active' : ''}`}
+              aria-pressed={mode === 'policy'}
             >
               <TrendingUp size={13} />
               Chính Sách & Tác Động
@@ -546,7 +548,7 @@ export function AuditLogPage() {
             </select>
           </div>
 
-          <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
+          <div className="app-panel overflow-hidden">
             {loading ? (
               <div className="p-4" role="status" aria-label="Đang tải dữ liệu">
                 <SkeletonTable rows={6} cols={4} />
@@ -649,7 +651,7 @@ export function AuditLogPage() {
               const Icon = card.icon
               const value = policySummary[card.key as keyof PolicySummary] ?? 0
               return (
-                <div key={card.key} className="border border-surface-border rounded-xl p-4 bg-surface-card flex items-start gap-3">
+                <div key={card.key} className="entity-card p-4 flex items-start gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${card.color}`}>
                     <Icon className="w-5 h-5" />
                   </div>

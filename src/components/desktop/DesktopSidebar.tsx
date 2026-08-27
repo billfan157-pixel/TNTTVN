@@ -121,7 +121,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     <aside className="sidebar-container">
       {/* Navigation Links — phân nhóm theo vai trò để giảm tải nhận biết */}
       <div className="sidebar-nav">
-        <nav className="sidebar-nav-list">
+        <nav className="sidebar-nav-list" aria-label="Điều hướng quản lý">
           {sections.map((section, idx) => (
             <React.Fragment key={section.label ?? `sec-${idx}`}>
               {section.label && <div className="sidebar-section-label">{section.label}</div>}

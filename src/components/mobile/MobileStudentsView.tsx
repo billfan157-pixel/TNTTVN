@@ -14,7 +14,6 @@ import {
   Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA
 } from 'lucide-react';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
-import { useDeferredSearch } from '../../hooks/useDeferredSearch';
 
 interface MobileStudentsViewProps {
   onOpenAddStudent: () => void;
@@ -52,8 +51,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
   const selectedBranchId = useFilterStore(s => s.selectedBranchId)
-  const { searchQuery, deferredSearchQuery } = useDeferredSearch()
-  const isSearchStale = searchQuery !== deferredSearchQuery
+  const searchQuery = useFilterStore(s => s.searchQuery)
   const setSearchQuery = useFilterStore(s => s.setSearchQuery)
   const selectedSemester = useFilterStore(s => s.selectedSemester)
 
@@ -78,8 +76,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
     return students.filter(s => {
       if (selectedBranchId !== 'all' && s.branch !== selectedBranchId) return false;
       if (selectedClassId !== 'all' && s.classId !== selectedClassId) return false;
-      const q = deferredSearchQuery.trim().toLowerCase();
-      if (q !== '') {
+      if (searchQuery.trim() !== '') {
+        const q = searchQuery.toLowerCase();
         const matchHoly = s.holyName.toLowerCase().includes(q);
         const matchFull = s.fullName.toLowerCase().includes(q);
         const matchCode = s.code.toLowerCase().includes(q);
@@ -87,7 +85,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       }
       return true;
     });
-  }, [students, selectedBranchId, selectedClassId, deferredSearchQuery]);
+  }, [students, selectedBranchId, selectedClassId, searchQuery]);
 
   const sortedStudents = React.useMemo(() => {
     if (!sortClassDirection) return filteredStudents
@@ -155,9 +153,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
   return (
     <>
-    <div className="mobile-screen mobile-screen--stack" aria-busy={isSearchStale} style={{ opacity: isSearchStale ? 0.7 : 1, transition: 'opacity 120ms var(--motion-ease-out)' }}>
+    <div className="mobile-screen mobile-screen--stack product-view">
       {/* View Switcher & Send Report Cards Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="view-toolbar">
         <div className="flex gap-2">
           <button
             onClick={() => setShowPromotions(false)}
@@ -261,7 +259,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       )}
 
       {/* Sắp Xếp Cấp Bậc Lớp (Mobile Sort Bar) */}
-      <div className="flex items-center justify-between bg-surface-card p-2 rounded-2xl border border-surface-border gap-1 text-xs">
+      <div className="view-toolbar text-xs">
         <span className="font-bold text-text-muted px-2">Sắp xếp:</span>
         <div className="flex gap-1">
           <button
@@ -306,14 +304,14 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             return (
               <div
                 key={s.id}
-                className="bg-surface-card rounded-2xl p-4 shadow-card flex flex-col gap-3"
+                className="entity-card p-4 flex flex-col gap-3"
                 style={{
                   position: 'relative',
                   border: selectedIds.has(s.id) ? '2px solid var(--color-parish-danger)' : '1px solid var(--color-surface-border)'
                 }}
               >
                 {selectionMode && (
-                  <div style={{ position: 'absolute', top: '4px', left: '4px' }} className="w-11 h-11 flex items-center justify-center">
+                  <div style={{ position: 'absolute', top: '12px', left: '12px' }}>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(s.id)}
@@ -332,14 +330,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                       {s.fullName}
                     </div>
                     <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5">
-                      <span
-                        className="badge branch-badge"
-                        style={{
-                          '--branch-accent': branch?.scarfColor,
-                          '--branch-bg': branch?.badgeBg,
-                          '--branch-text': branch?.textColor,
-                        } as React.CSSProperties}
-                      >
+                      <span className="badge" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
                         {branch?.name}
                       </span>
                       <span>• {cls?.name}</span>

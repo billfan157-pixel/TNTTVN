@@ -37,7 +37,7 @@ export default function VerificationPage() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-[var(--color-surface-app)] flex flex-col items-center justify-center p-4">
+    <div className="auth-page">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <div className="w-16 h-16 rounded-3xl bg-[var(--color-parish-primary)] text-white flex items-center justify-center mx-auto shadow-lg mb-3 font-black text-2xl">
@@ -47,7 +47,7 @@ export default function VerificationPage() {
           <p className="typography-caption">Brave Davinci Parish Management PWA</p>
         </div>
 
-        <div className="card overflow-hidden">
+        <div className="auth-card max-w-none">
           <div className="p-6 border-b border-[var(--color-surface-border)] bg-[var(--color-surface-hover)] text-center">
             <h2 className="typography-card-title">Kết quả Kiểm tra Nguyên vẹn</h2>
           </div>

@@ -99,38 +99,32 @@ export const MobileAttendanceView: React.FC = () => {
   Object.values(attendanceMap).forEach(v => { if (v.status === 'Present') presentCount++; });
 
   return (
-    <div className="mobile-screen mobile-screen--stack">
+    <div className="mobile-screen mobile-screen--stack product-view">
       {/* Segmented SubTab Bar */}
-      <div className="flex bg-surface-card p-1 rounded-xl border border-surface-border gap-1 mb-2">
+      <div className="view-tabs" role="tablist" aria-label="Chức năng điểm danh">
         <button
           onClick={() => setActiveSubTab('attendance')}
-          className={`flex-1 py-2 min-h-[44px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-            activeSubTab === 'attendance'
-              ? 'bg-parish-primary text-white shadow-sm'
-              : 'text-text-secondary hover:bg-surface-hover'
-          }`}
+          className={`view-tab ${activeSubTab === 'attendance' ? 'is-active' : ''}`}
+          role="tab"
+          aria-selected={activeSubTab === 'attendance'}
         >
           <CheckSquare size={14} />
           <span>Điểm Danh</span>
         </button>
         <button
           onClick={() => setActiveSubTab('summary')}
-          className={`flex-1 py-2 min-h-[44px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-            activeSubTab === 'summary'
-              ? 'bg-parish-primary text-white shadow-sm'
-              : 'text-text-secondary hover:bg-surface-hover'
-          }`}
+          className={`view-tab ${activeSubTab === 'summary' ? 'is-active' : ''}`}
+          role="tab"
+          aria-selected={activeSubTab === 'summary'}
         >
           <BarChart2 size={14} />
           <span>Tổng Hợp</span>
         </button>
         <button
           onClick={() => setActiveSubTab('leave-requests')}
-          className={`flex-1 py-2 min-h-[44px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 relative ${
-            activeSubTab === 'leave-requests'
-              ? 'bg-parish-primary text-white shadow-sm'
-              : 'text-text-secondary hover:bg-surface-hover'
-          }`}
+          className={`view-tab relative ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`}
+          role="tab"
+          aria-selected={activeSubTab === 'leave-requests'}
         >
           <CalendarClock size={14} />
           <span>Đơn Xin Nghỉ</span>
@@ -151,7 +145,7 @@ export const MobileAttendanceView: React.FC = () => {
       ) : (
         <>
           {/* Header controls */}
-          <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card">
+          <div className="mobile-filter-panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <h3 className="text-base font-extrabold text-parish-primary m-0">
                 Điểm Danh Chuyên Cần
@@ -228,7 +222,7 @@ export const MobileAttendanceView: React.FC = () => {
           return (
             <div
               key={student.id}
-              className="bg-surface-card border border-surface-border rounded-xl shadow-card p-3"
+              className="entity-card p-3"
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <div>

@@ -72,8 +72,8 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <section className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-4">
+    <div className="product-view flex flex-col gap-3">
+      <section className="mobile-page-header flex-col items-stretch">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-base font-extrabold text-parish-primary m-0">Nhập Điểm Hằng Ngày</h2>
@@ -110,7 +110,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
         const grade = getStudentGrade(student.id, selectedSemester)
         const isExpanded = expanded.has(student.id)
         return (
-          <article key={student.id} className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+          <article key={student.id} className="entity-card overflow-hidden">
             <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]">
               <span className="min-w-0">
                 <span className="block font-extrabold text-text-main truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</span>

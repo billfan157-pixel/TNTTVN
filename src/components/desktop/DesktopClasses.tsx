@@ -19,7 +19,7 @@ interface TeacherOption {
   username: string
 }
 
-export function DesktopClasses() {
+export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate()
   const { classes, branches, academicYears, loading, fetchClasses, fetchBranches, fetchAcademicYears, createClass, updateClass, deleteClass } = useClassStore()
   const { role } = useAuth()
@@ -143,8 +143,8 @@ export function DesktopClasses() {
   const colCount = canEdit ? 9 : 8
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
+    <div className="product-view flex flex-col gap-6">
+      {!embedded && <PageHeader
         icon={<BookOpen size={20} />}
         title="Quản Lý Lớp Học"
         description="Quản lý danh sách các lớp giáo lý, phân công huynh trưởng và sĩ số học sinh"
@@ -193,7 +193,7 @@ export function DesktopClasses() {
             )}
           </>
         }
-      />
+      />}
 
       {academicYears.length === 0 && (
         <div className="bg-parish-warning-bg border border-parish-warning/30 rounded-2xl p-4 flex items-start gap-3 shadow-card">
@@ -212,7 +212,7 @@ export function DesktopClasses() {
         </div>
       )}
 
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+      <div className="app-panel overflow-hidden">
         <div className="table-wrapper">
           <div className="table-scroll">
           <table className="w-full border-collapse text-sm text-left table-fixed min-w-0 bg-surface-card text-text-main">

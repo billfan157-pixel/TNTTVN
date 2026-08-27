@@ -138,17 +138,14 @@ export const DesktopAttendanceGrid: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="product-view flex flex-col gap-4">
       {/* Top Main Tab Navigation */}
-      <div className="flex items-center justify-between border-b border-surface-border pb-3">
-        <div className="flex items-center gap-2">
+      <div className="view-toolbar">
+        <div className="view-tabs">
           <button
             onClick={() => setActiveSubTab('summary')}
-            className={`px-4 py-2 text-sm font-extrabold rounded-xl flex items-center gap-2 transition-all border ${
-              activeSubTab === 'summary'
-                ? 'bg-parish-primary text-white border-parish-primary shadow-sm'
-                : 'bg-surface-card text-text-secondary hover:bg-surface-hover border-surface-border'
-            }`}
+            className={`view-tab ${activeSubTab === 'summary' ? 'is-active' : ''}`}
+            aria-pressed={activeSubTab === 'summary'}
           >
             <BarChart2 size={16} />
             <span>Tổng Hợp & Phân Tích</span>
@@ -156,11 +153,8 @@ export const DesktopAttendanceGrid: React.FC = () => {
 
           <button
             onClick={() => setActiveSubTab('attendance')}
-            className={`px-4 py-2 text-sm font-extrabold rounded-xl flex items-center gap-2 transition-all border ${
-              activeSubTab === 'attendance'
-                ? 'bg-parish-primary text-white border-parish-primary shadow-sm'
-                : 'bg-surface-card text-text-secondary hover:bg-surface-hover border-surface-border'
-            }`}
+            className={`view-tab ${activeSubTab === 'attendance' ? 'is-active' : ''}`}
+            aria-pressed={activeSubTab === 'attendance'}
           >
             <CheckSquare size={16} />
             <span>Sổ Điểm Danh</span>
@@ -168,11 +162,8 @@ export const DesktopAttendanceGrid: React.FC = () => {
 
           <button
             onClick={() => setActiveSubTab('leave-requests')}
-            className={`px-4 py-2 text-sm font-extrabold rounded-xl flex items-center gap-2 transition-all border relative ${
-              activeSubTab === 'leave-requests'
-                ? 'bg-parish-primary text-white border-parish-primary shadow-sm'
-                : 'bg-surface-card text-text-secondary hover:bg-surface-hover border-surface-border'
-            }`}
+            className={`view-tab relative ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`}
+            aria-pressed={activeSubTab === 'leave-requests'}
           >
             <CalendarClock size={16} />
             <span>Duyệt Nghỉ Phép</span>
@@ -291,7 +282,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
           />
 
       {/* Attendance Table */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+      <div className="app-panel overflow-hidden">
         <div className="overflow-x-auto min-w-0">
           <table className="w-full border-collapse text-sm text-left table-fixed min-w-0 bg-surface-card text-text-main">
             <colgroup>

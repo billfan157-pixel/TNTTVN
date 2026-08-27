@@ -63,7 +63,7 @@ export const DesktopGradeComparison: React.FC = () => {
   }, [comparisonData])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Header */}
       <PageHeader
         icon={<Columns3 size={20} />}

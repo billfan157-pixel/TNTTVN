@@ -83,7 +83,7 @@ export function DesktopLeaveRequests() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Header */}
       <PageHeader
         icon={<Calendar size={20} />}
@@ -109,9 +109,9 @@ export function DesktopLeaveRequests() {
       />
 
       {/* Controls & Filters */}
-      <div className="bg-surface-card p-4 rounded-2xl border border-surface-border shadow-card flex flex-wrap items-center justify-between gap-3">
+      <div className="view-toolbar">
         {/* Status Tabs */}
-        <div className="flex items-center gap-1.5 bg-surface-hover p-1 rounded-xl border border-surface-border">
+        <div className="view-tabs" role="tablist" aria-label="Trạng thái đơn xin nghỉ">
           <button
             onClick={() => setStatusFilter('ALL')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
@@ -188,7 +188,7 @@ export function DesktopLeaveRequests() {
       </div>
 
       {/* Table */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+      <div className="app-panel overflow-hidden">
         <div className="overflow-x-auto min-w-0">
           <table className="w-full border-collapse text-sm text-left table-fixed min-w-0 bg-surface-card text-text-main">
             <colgroup>

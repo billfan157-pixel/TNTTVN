@@ -1,11 +1,10 @@
 # 🎨 Design System — Brave Davinci (TNTT Parish Management PWA)
 
-**Phiên bản:** 3.2 (Calm 2026 — Phase 0 Foundation — Updated 2026-08-27)
-**Trạng thái:** ✅ **SSOT DUY NHẤT** — quyết định ADR-030 + Phase 0 Calm
+**Phiên bản:** 4.1 (App-wide Calm, Confident Parish Product — Updated 2026-08-27)
+**Trạng thái:** ✅ **SSOT DUY NHẤT** — quyết định ADR-030
 **Nguồn vận hành (code truth):** `src/index.css` — mọi class/token được khai báo tại đây, tài liệu này là tài liệu hóa của nó.
 
 > **Nguyên tắc bất biến:** Mọi thành phần UI MỚI phải dùng token/class trong tài liệu này. Không dùng hex màu cứng, không dùng class không tồn tại, không dùng màu ngoài bảng palette. Migration các module cũ theo bảng §10.
-> **Phase 0 (Calm 2026):** Glass chỉ shell (Header/BottomNav/Sheet) `blur 16-18px + saturate 140%`, card/table **solid** `surface-card`. Motion `160ms var(--motion-ease-out)`. Secondary toolbar sticky `52px` dưới header.
 
 ---
 
@@ -17,6 +16,8 @@
 4. **Accessibility (WCAG AA):** Chữ thường ≥ 4.5:1 trên nền. `text-text-muted #64748B` (4.76:1) là màu chữ phụ tối đa — cấm `text-slate-400 #94A3B8` (2.56:1 FAIL) làm chữ.
 5. **Mobile-First, Data-Dense:** Trải nghiệm desktop + mobile PWA đồng bộ qua primitives `mobile-*`; bảng dữ liệu thoáng, rõ, không cắt chữ.
 6. **Glassmorphism có kiểm soát:** Chỉ dùng cho header/hero/bottom-nav (có backdrop nền màu phù hợp), KHÔNG dùng cho card nội dung/bảng (cần nền đục để đọc).
+7. **Calm, Confident, Crafted:** Giữ brand navy–gold và tính trang nghiêm; content/data là lớp nổi bật nhất. Delight đến từ tốc độ, clarity và chi tiết hoàn thiện, không từ orb/blur/decorative animation.
+8. **Elevation có nghĩa:** `surface-sunken → surface-card → surface-raised → overlay`; card tĩnh ưu tiên border + shadow rất nhẹ, chỉ interactive/overlay mới nâng rõ.
 
 ---
 
@@ -76,18 +77,6 @@
 | `cell-state-saved` | Đã lưu cục bộ | Nền xanh lá nhạt, transition mượt |
 | `cell-state-conflict` | Xung đột phiên bản | Nền đỏ nhạt, viền đỏ cảnh báo |
 | `cell-state-locked` | Khóa sổ / Chỉ đọc | Nền xám, icon khóa, cursor not-allowed |
-
-### 2.5 Motion & Glass (Phase 0 — Calm 2026)
-
-| Token | Giá trị | Dùng cho |
-| --- | --- | --- |
-| `motion-ease-out` | `cubic-bezier(0.23,1,0.32,1)` | Mọi transition (header/bottomNav/sheet/table opacity) |
-| `motion-duration` | `160ms` | Duration chuẩn |
-| `glass-blur` | `16px` | Shell blur (BottomNav 18px, Sheet 14px) |
-| `glass-border` | `rgba(255,255,255,0.15)` | Shell border |
-| `z-secondary-toolbar` | `39` | Sticky toolbar dưới header (`--z-header 40`) |
-| `secondary-toolbar-height` | `52px` | Chiều cao toolbar filters |
-| `scroll-padding-top` | `calc(var(--app-bar-height)+16px)` | WCAG 2.4.11 Focus Not Obscured |
 
 ### 2.3 Radius & Shadow
 
@@ -223,10 +212,7 @@ Cấm: thead `bg-slate-800 text-white`, `bg-slate-50/*`, `bg-parish-primary text
 - Top bar: `.mobile-top-bar` (gradient brand cố định `#17347f→#2454bf`, ≤767px `#1d3f99→#2c58c7` — giữ nguyên, không phải token).
 - Bottom nav: `.mobile-bottom-nav` (token-based, tự dark-adapt); action: `.mobile-floating-action`, `.mobile-bottom-action-bar`.
 - Touch target tối thiểu: **44×44px** (`.mobile-touch-target`). Cấm button < 40px trên mobile.
-- Mọi `ModalShell` tự chuyển thành bottom-sheet ở ≤767px: header và `footer` cố định, `.modal-content__body` tự cuộn/contain overscroll, footer chừa `safe-area-inset-bottom`; từ 768px trở lên giữ centered dialog. Modal phải nằm **trên** bottom navigation (`--z-modal: 1100`) để nền aria-modal không còn vùng điều hướng có thể chạm.
-- Form trong `.mobile-app-shell` và `.modal-overlay` dùng input/select/textarea tối thiểu **44px**, `font-size: 16px` để tránh iOS Safari tự zoom khi focus. Không hạ cỡ chữ control bằng utility cục bộ.
-- Modal có hành động cần luôn nhìn thấy truyền prop `footer` của `ModalShell`; không tự dựng fixed overlay/focus trap/scroll-lock. `ExcelGradeImportModal` và `GradeFormulaConfigModal` là mẫu tham chiếu cho modal dài.
-- Badge phân ngành dùng `.branch-badge` + ba CSS variable `--branch-accent/--branch-bg/--branch-text`; dark mode được sinh bằng `color-mix`, không đặt trực tiếp `background/color` inline.
+- Modal tác vụ dài (ví dụ **Tạo Phiên Chấm**) dùng bottom-sheet ở mobile: tiêu đề/nút đóng và hành động chính sticky, phần nội dung tự cuộn, footer chừa `safe-area-inset-bottom`; từ `sm` trở lên quay về modal giữa màn hình.
 - **Cấm** `space-y-*` chồng lên `.mobile-screen--stack` (gap 14px đã có) — tránh double-spacing.
 - Không lạm dụng `backdrop-blur` cho nội dung cuộn (tốn GPU trên máy yếu).
 
@@ -393,6 +379,76 @@ flex h-screen flex-col
 3. Icon-button desktop chuẩn: `h-10 w-10 rounded-xl`; segment trong pill: `h-9 rounded-lg`.
 4. Header chia zone: Brand │ Data filters │ Utilities │ User identity (cùng phải).
 5. Z-index dùng token `--z-*` (xem `index.css :root`), không hard-code z mới.
+
+## §14. Visual Language v4.1 — Calm, Confident Parish Product (2026-08-27)
+
+> Quyết định và nghiên cứu đầy đủ: `docs/UI_UX_UPGRADE_PLAN_2026-08-27.md`;
+> ADR-063. Phạm vi là presentation layer, không đổi domain/API/schema/auth.
+
+### Triết lý
+
+1. **Calm** — bố cục có nhịp, content surface phẳng và yên; không dùng blur,
+   gradient hoặc shadow như trang trí mặc định.
+2. **Confident** — hierarchy, trạng thái, CTA và hành động nguy hiểm phải rõ;
+   navy–gold là tín hiệu nhận diện có kiểm soát, không lấn dữ liệu.
+3. **Crafted** — trạng thái focus/loading/empty/error, dark mode, mobile touch và
+   reduced motion đều là một phần của chất lượng hoàn thiện.
+
+### Surface và elevation
+
+| Level | Token / primitive | Dùng cho |
+|---|---|---|
+| App | `--color-surface-app` | Nền canvas toàn app |
+| Sunken | `--color-surface-sunken`, `.surface-sunken` | Filter well, nhóm control phụ |
+| Card | `--color-surface-card`, `.card`, `.section-card` | Nội dung thông thường; border là phân cách chính |
+| Raised | `--color-surface-raised`, `--shadow-raised` | Popover/modal/hover có quan hệ cao độ thật |
+
+### Primitive bắt buộc cho code mới
+
+- Page identity: `PageHeader` / `.page-header*`.
+- Nhóm nội dung: `.section-card` + `.section-heading*`.
+- KPI: `.metric-card*`; accent chỉ là một spine 3px và phải dùng semantic token.
+- Desktop shell: `.app-header*`, `.app-main-content`, `.app-page-loader*`.
+- Mobile home: `.mobile-home-hero`, `.mobile-quick-action*`,
+  `.mobile-stat-card*`, `.mobile-content-card`.
+- Motion: `--motion-fast|standard|slow` + `--motion-ease-out`; luôn tôn trọng
+  `prefers-reduced-motion`.
+- Mọi route/view: `.product-view`; `DesktopAppShell` tự gắn class này.
+- Generic content: `.app-panel`, `.app-panel--interactive`, `.entity-card`.
+- Filter/action cluster: `.view-toolbar`; switcher/tab: `.view-tabs` + `.view-tab.is-active`.
+- Mobile page identity/filter: `.mobile-page-header*`, `.mobile-filter-panel`.
+- Empty/no-result/error: `.state-feedback*`.
+- Public/auth: `.auth-page`, `.auth-card`, `.auth-hero*`, `.auth-option`.
+
+### App-wide coverage contract
+
+- Desktop: Dashboard, Students, Grade Cards/Daily/Matrix/Comparison, Attendance,
+  Attendance Summary, Leave Requests, Calendar, Reports, Notices, Classes,
+  Users và admin pages qua `DesktopAppShell`.
+- Mobile: Home, Students, Attendance/Summary/Leave, Grade Cards/Daily/Matrix/
+  Comparison, Calendar, Reports, Notices.
+- Public: portal chooser, staff/parent login, certificate verification.
+- `/management` chỉ có một page identity; child AcademicYear/Classes/Users dùng
+  `embedded` để không lặp PageHeader.
+- Anti-drift: `src/__tests__/appWideUiMigration.test.ts`.
+
+### Interaction contract
+
+- Icon-only button phải có accessible name; toggle/segment phải có
+  `aria-pressed` hoặc semantic state tương đương.
+- Mobile control chính tối thiểu 44×44px; input/select/textarea mobile dùng
+  font-size tối thiểu 16px để tránh auto-zoom.
+- Mobile modal chuẩn chuyển thành bottom sheet nhưng giữ focus trap, Escape,
+  `aria-modal` và scroll lock của `ModalShell`.
+- Chỉ một `#main-content`; owner mobile là `MobileAppShell`, owner desktop là
+  `RootLayout`.
+
+### Deliberate exceptions
+
+Gradient navy–gold ở brand shell, domain/status color, print/certificate layout,
+camera/OMR guide và medal visualization vẫn được phép khi có semantic purpose.
+Mọi exception mới phải được ghi tại đây hoặc ADR liên quan, không tạo visual
+dialect riêng ở từng page.
 
 
 

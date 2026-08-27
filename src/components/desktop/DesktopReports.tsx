@@ -84,7 +84,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Modals */}
       <PrintReportModal isOpen={isPrintModalOpen} onClose={() => setIsPrintModalOpen(false)} initialReportType={printReportType} />
       <ExcelImportModal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} />
@@ -118,7 +118,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
       />
 
       {/* Summary Stat Table */}
-      <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-6">
+      <div className="section-card">
         <h3 className="text-base font-extrabold text-parish-primary mb-4 flex items-center gap-2 h-6">
           <BarChart2 size={20} className="text-parish-primary" /> Bảng Thống Kê Học Lực Theo Phân Ngành (Học Kỳ {selectedSemester})
         </h3>
@@ -179,7 +179,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
 
       {/* Advanced Reports / Export */}
       {canPrint && (
-        <div className="bg-surface-card rounded-2xl p-5 border border-surface-border shadow-card">
+        <div className="app-panel p-5">
           <h3 className="text-base font-extrabold text-parish-primary mb-4 flex items-center gap-2 h-6">
             <Download size={20} className="text-emerald-600" /> Báo Cáo Nâng Cao & Xuất File (CSV / Excel)
           </h3>
@@ -215,7 +215,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
       )}
 
       {/* Quick Print Cards */}
-      <div className="bg-surface-card rounded-2xl p-5 border border-surface-border shadow-card">
+      <div className="app-panel p-5">
         <h3 className="text-base font-extrabold text-parish-primary mb-4 flex items-center gap-2 h-6">
           <FileText size={20} className="text-parish-secondary" /> In Trực Tiếp Kết Quả Học Tập Cá Nhân
         </h3>
@@ -254,7 +254,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
                     const cls = findClassById(s.classId);
                     const avg = calculateStudentAvg(s.id, selectedSemester);
                     return (
-                      <div key={s.id} className="border border-surface-border rounded-xl p-4 flex justify-between items-center bg-surface-hover transition-all hover:bg-surface-card hover:shadow-card hover:border-surface-border min-w-0">
+                      <div key={s.id} className="entity-card app-panel--interactive p-4 flex justify-between items-center min-w-0">
                         <div className="min-w-0 overflow-hidden">
                           <div className="font-bold text-parish-primary text-sm min-w-0 truncate">
                             <span className="text-parish-secondary font-bold mr-1.5">{s.holyName}</span>

@@ -1,14 +1,17 @@
 # AI Agent Context Map & Repository Entrypoint
 
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 2.5 | Last reviewed: 2026-08-14 | Status: ✅ Current | Prerequisites: none
+> Version: 2.6 | Last reviewed: 2026-08-27 | Status: ✅ Current | Prerequisites: none
 
-> **MOBILE-UX-2 (2026-08-27, ADR-063):** Mobile UI dùng một responsive contract tại `ModalShell`/`index.css`: ≤767px modal là bottom-sheet, header/footer cố định, body cuộn độc lập, safe-area và z-index trên bottom nav; form control trong mobile/modal ≥44px và font 16px chống iOS auto-zoom. `ExcelGradeImportModal` + `GradeFormulaConfigModal` đã bỏ custom shell; AttendanceHistory/Notice được reflow; MobileReports có tìm tên/mã + empty state + render theo lô 30 (QA data thật giảm initial print cards 566→30); badge phân ngành có dark palette qua `.branch-badge`. Targeted verification 28/28 tests + tsc/oxlint/design lint + Edge 390×844 console sạch; không thay đổi API/schema/scoring.
-> **UI-CALM-0 (2026-08-27, Phase 0 Foundation):** Design System v3.2 — `DESIGN_SYSTEM.md` đồng bộ code-truth (glass chỉ shell, card solid, table density, motion 160ms). Tokens mới trong `src/index.css` `@theme`: `--motion-ease-out`, `--motion-duration`, `--glass-blur/border`, `--z-secondary-toolbar` (39) + `html scroll-padding` cho WCAG 2.4.11 + `.secondary-toolbar` sticky glass. Search deferred: hook `src/hooks/useDeferredSearch.ts` (`useDeferredValue`) cho `DesktopStudentList`/`MobileStudentsView`/`FinancePage` (input urgent, list transition, opacity 0.7 + aria-busy). A11y scaffold `e2e/a11y.spec.ts` (skip-link, scope="col", 44px, deferred focus, scroll-padding) — chạy qua `loginAsAdmin`.
-# AI Agent Context Map & Repository Entrypoint
+---
 
-> Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 2.5 | Last reviewed: 2026-08-14 | Status: ✅ Current | Prerequisites: none
+### Module: UI System v4.1 — App-wide Calm, Confident Parish Product (2026-08-27)
+
+- **Decision**: ADR-063, D2/GENERAL, R1. Giữ DNA navy–gold và product-first hiện có; nâng cấp bằng surface/elevation/motion tokens cùng shared primitives, không thay brand bằng visual trend mới.
+- **Code truth**: `src/index.css`; shared shell/primitives tại `HeaderBar`, `RootLayout`, `PageHeader`, `DesktopAppShell`, toàn bộ desktop/mobile view inventory, auth/public surfaces và `StateFeedback`. `docs/03_DESIGN_SYSTEM.md` là documentation SSOT; root `DESIGN_SYSTEM.md` chỉ là legacy snapshot.
+- **Contracts**: mọi route/view dùng `product-view` hoặc shell sở hữu nó; content card phẳng + border; raised elevation chỉ có ý nghĩa; toolbar/tab/entity/auth/state dùng primitive chung; icon action có accessible name; toggle/tab có programmatic state; mobile target ≥44px và form font ≥16px; một `#main-content`; reduced motion được tôn trọng. `/management` dùng embedded child views để không lặp PageHeader. Coverage khóa bởi `appWideUiMigration.test.ts`.
+- **Scope**: presentation-only; không đổi route, API, schema, auth/RBAC, offline authority hoặc domain rules. Rollback bằng revert frontend/docs, không migration.
+- **Evidence/plan**: `docs/UI_UX_UPGRADE_PLAN_2026-08-27.md`; implementation/verification record trong ADR-063.
 
 ---
 

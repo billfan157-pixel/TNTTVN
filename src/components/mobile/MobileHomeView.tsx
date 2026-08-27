@@ -56,26 +56,25 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
   }, [students, attendance, grades, selectedSemester]);
 
   return (
-    <div className="mobile-screen mobile-screen--stack transition-all duration-300">
+    <div className="mobile-screen mobile-screen--stack product-view">
       {/* Welcome Hero Card */}
-      <div className="bg-gradient-to-br from-parish-primary to-parish-primary-hover text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
-        <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="w-6 h-6 rounded-lg bg-amber-400/20 flex items-center justify-center text-amber-300 border border-amber-300/30">
+      <div className="mobile-home-hero">
+        <div className="relative z-1 flex items-center gap-2 mb-2 flex-wrap">
+          <span className="w-6 h-6 rounded-lg bg-amber-300/15 flex items-center justify-center text-amber-200 border border-amber-200/25">
             <Sparkles size={14} />
           </span>
-          <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-amber-200">
             Giáo Xứ Gia Tôn
           </span>
-          <span className="text-amber-300/60">•</span>
-          <span className="text-[11px] font-black uppercase tracking-widest text-white">
+          <span className="text-white/35">•</span>
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-white/82">
             Xứ Đoàn Đức Mẹ Fatima
           </span>
         </div>
-        <h2 className="text-xl font-black m-0 tracking-tight text-white">
+        <h2 className="relative z-1 text-[22px] font-extrabold m-0 tracking-tight text-white">
           Thiếu Nhi Thánh Thể
         </h2>
-        <p className="text-xs text-white/90 mt-1 m-0 font-medium leading-relaxed">
+        <p className="relative z-1 text-xs text-white/78 mt-1.5 m-0 font-medium leading-relaxed">
           Sổ tay Giáo lý di động cho Huynh Trưởng & Giáo Lý Viên.
         </p>
       </div>
@@ -85,63 +84,63 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
 
       {/* Quick Actions Grid */}
       <div>
-        <div className="text-xs font-black text-text-main uppercase tracking-wider mb-2.5 px-1">
+        <div className="mobile-section-label">
           Thao Tác Nhanh
         </div>
         <div className="grid grid-cols-3 gap-3">
           <button
             onClick={() => onNavigateTab('attendance')}
-            className="bg-surface-card border border-surface-border rounded-2xl p-3.5 flex flex-col items-center gap-2 shadow-card hover:border-parish-primary/50 hover:shadow-md transition-all active:scale-95"
+            className="mobile-quick-action mobile-quick-action--success"
           >
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/60 shadow-inner">
+            <div className="mobile-quick-action__icon">
               <CheckSquare size={20} />
             </div>
-            <span className="text-xs font-extrabold text-text-main">Điểm Danh</span>
+            <span className="mobile-quick-action__label">Điểm Danh</span>
           </button>
 
           <button
             onClick={() => onNavigateTab('grades')}
-            className="bg-surface-card border border-surface-border rounded-2xl p-3.5 flex flex-col items-center gap-2 shadow-card hover:border-parish-primary/50 hover:shadow-md transition-all active:scale-95"
+            className="mobile-quick-action"
           >
-            <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center border border-parish-primary/10 shadow-inner">
+            <div className="mobile-quick-action__icon">
               <FileSpreadsheet size={20} />
             </div>
-            <span className="text-xs font-extrabold text-text-main">Bảng Điểm</span>
+            <span className="mobile-quick-action__label">Bảng Điểm</span>
           </button>
 
           <button
             onClick={onOpenAddStudent}
-            className="bg-surface-card border border-surface-border rounded-2xl p-3.5 flex flex-col items-center gap-2 shadow-card hover:border-parish-primary/50 hover:shadow-md transition-all active:scale-95"
+            className="mobile-quick-action mobile-quick-action--gold"
           >
-            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900/60 shadow-inner">
+            <div className="mobile-quick-action__icon">
               <UserPlus size={20} />
             </div>
-            <span className="text-xs font-extrabold text-text-main">Thêm Em</span>
+            <span className="mobile-quick-action__label">Thêm Em</span>
           </button>
         </div>
       </div>
 
       {/* Overview Stats Cards */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-card">
-          <div className="flex items-center gap-2 text-text-secondary text-xs font-bold mb-1">
+        <div className="mobile-stat-card">
+          <div className="mobile-stat-card__label">
             <Users size={14} className="text-parish-primary" />
             Tổng Thiếu Nhi
           </div>
-          <div className="text-2xl font-black text-text-main">
+          <div className="mobile-stat-card__value">
             {stats.total} <span className="text-xs font-normal text-text-secondary">em</span>
           </div>
-          <div className="text-[10px] font-bold text-emerald-600 mt-1">
+          <div className="text-[10px] font-bold text-parish-success mt-1">
             ● Đang học: {stats.active} em
           </div>
         </div>
 
-        <div className="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-card">
-          <div className="flex items-center gap-2 text-text-secondary text-xs font-bold mb-1">
-            <TrendingUp size={14} className="text-emerald-600" />
+        <div className="mobile-stat-card">
+          <div className="mobile-stat-card__label">
+            <TrendingUp size={14} className="text-parish-success" />
             Tỷ Lệ Chuyên Cần
           </div>
-          <div className="text-2xl font-black text-emerald-600">
+          <div className="mobile-stat-card__value text-parish-success">
             {stats.attRate}%
           </div>
           <div className="text-[10px] font-bold text-text-secondary mt-1">
@@ -151,7 +150,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       </div>
 
       {/* Academic Excellence Summary */}
-      <div className="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-card space-y-3">
+      <div className="mobile-content-card space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Award size={16} className="text-amber-500" />
@@ -181,7 +180,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       </div>
 
       {/* Parish Notices */}
-      <div className="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-card space-y-3">
+      <div className="mobile-content-card space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell size={16} className="text-rose-500" />

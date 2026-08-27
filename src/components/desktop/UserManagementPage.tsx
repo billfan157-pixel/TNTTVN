@@ -29,7 +29,7 @@ export interface UserAccount {
 // (route /users xem toàn bộ). Entry point chính là 2 tab trong /management.
 export type UserManagementScope = 'all' | 'staff' | 'phuhuynh'
 
-export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ scope = 'all' }) => {
+export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedded?: boolean }> = ({ scope = 'all', embedded = false }) => {
   const [users, setUsers] = useState<UserAccount[]>([])
   // REACT-185 (2026-08-14): pattern ổn định — selector trả hàm, gọi () ngoài
   // (tránh snapshot mảng mới mỗi render → loop, xem HeaderBar.tsx:34).
@@ -529,7 +529,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
 
   return (
     <DesktopAppShell width="wide" className="flex flex-col gap-6">
-      <PageHeader
+      {!embedded && <PageHeader
         icon={<ShieldCheck className="w-6 h-6 text-parish-primary" />}
         title={headerTitle}
         description={headerDescription}
@@ -549,9 +549,9 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
             </button>
           </>
         }
-      />
+      />}
 
-      <div className="flex items-center gap-4 bg-surface-card border border-surface-border p-4 rounded-2xl shadow-card">
+      <div className="view-toolbar">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-placeholder" />
           <input type="text" placeholder="Tìm theo Tên, Username, hoặc SĐT..." value={search}
@@ -565,7 +565,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope }> = ({ 
         <div className="alert-error">{error}</div>
       )}
 
-      <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-x-auto">
+      <div className="app-panel overflow-x-auto">
         <table className="w-full min-w-max text-left text-sm border-collapse bg-surface-card text-text-main">
           <thead>
             <tr className="bg-surface-app text-text-muted border-b-2 border-surface-border text-xs font-bold uppercase tracking-wider">

@@ -253,7 +253,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   }
 
   return (
-    <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+    <div className="app-panel overflow-hidden">
       <div className="p-5 border-b border-surface-border flex justify-between items-center">
         <div>
           <h3 className="text-base font-extrabold text-parish-primary m-0">

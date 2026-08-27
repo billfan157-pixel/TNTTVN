@@ -60,93 +60,105 @@ export const HeaderBar: React.FC = () => {
       {effectiveMode === 'mobile' ? (
         <MobileTopBar />
       ) : (
-        <header
-          className="sticky top-0 z-[var(--z-header)] transition-all duration-300 border-b border-white/15"
-          style={{
-            background: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #1D4ED8 100%)',
-            boxShadow: '0 8px 24px -4px rgba(15, 23, 42, 0.3), 0 4px 6px -2px rgba(15, 23, 42, 0.1)',
-          }}
-        >
-          <div
-            className={`flex items-center justify-between flex-wrap w-full gap-3 py-3.5 ${
-              effectiveMode === 'desktop' ? 'px-6' : 'px-4'
-            }`}
-          >
+        <header className="app-header">
+          <div className="app-header__inner">
             {/* Logo & Title Section */}
-            <div className="flex items-center gap-3.5">
-              <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-xl p-1 flex items-center justify-center border border-white/20 shadow-[0_8px_24px_rgba(15,23,42,0.35),inset_0_1px_0_rgba(255,255,255,0.35)] overflow-hidden">
-                <img src={logo} alt="Logo Xứ Đoàn Đức Mẹ Fatima" className="w-full h-full object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]" />
+            <div className="app-header__brand">
+              <div className="app-header__mark">
+                <img src={logo} alt="Logo Xứ Đoàn Đức Mẹ Fatima" className="app-header__logo" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="font-extrabold tracking-tight m-0 text-white text-lg drop-shadow-sm">
+                  <h1 className="app-header__title">
                     Xứ Đoàn Đức Mẹ Fatima
                   </h1>
-                  <span className="font-bold rounded-full text-[11px] px-2.5 py-0.5 bg-amber-300 text-slate-900 shadow-sm uppercase tracking-wide">
+                  <span className="app-header__parish-badge">
                     Giáo Xứ Gia Tôn
                   </span>
                 </div>
-                <div className="flex items-center gap-2 mt-1 text-xs text-white/85 font-medium">
-                  <span className="flex items-center gap-1.5 bg-white/10 px-2.5 py-0.5 rounded-md border border-white/10 backdrop-blur-xs">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <div className="app-header__meta">
+                  <span className="flex items-center gap-1.5">
+                    <span className="app-header__status-dot"></span>
                     Niên Học {academicYearDisplay}
                   </span>
-                  <span className="text-white/40">•</span>
-                  <span className="text-amber-200 font-semibold">{students.length} Thiếu Nhi</span>
+                  <span aria-hidden="true">•</span>
+                  <span>{students.length} Thiếu Nhi</span>
                 </div>
               </div>
             </div>
 
-            {/* Controls Section — Option A: filters lại trong header (mega-bar), đã fix xl->lg + contrast */}
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {/* Class & Search Group — Option A: giữ trong header, contrast 4.5:1 + clear */}
-              <div className="flex items-center gap-2 bg-black/30 border border-white/20 rounded-2xl p-1 shadow-inner backdrop-blur-md">
+            {/* Controls Section */}
+            <div className="app-header__controls">
+              {/* Class & Search Group */}
+              <div className="app-header__control-group app-header__search-group">
+                {/* Class Switcher (admin only — GLV only sees their assigned classes) */}
                 {currentUser?.role === 'admin' && (
-                  <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-white">
-                    <span className="text-white/70 font-medium hidden sm:inline">Lớp:</span>
+                  <div className="flex items-center gap-1.5 text-white">
+                    <span className="text-white/65 font-medium hidden sm:inline text-xs">Lớp:</span>
                     <select
                       value={selectedClassId}
                       onChange={(e) => setSelectedClassId(e.target.value)}
-                      className="bg-transparent text-white font-semibold outline-none cursor-pointer pr-1"
+                      className="app-header__select cursor-pointer pr-1"
+                      aria-label="Lớp đang xem"
                     >
-                      <option value="all" className="text-slate-900">Tất cả lớp học</option>
+                      <option value="all">
+                        Tất cả lớp học
+                      </option>
                       {classList.map((c) => (
-                        <option key={c.id} value={c.id} className="text-slate-900">{c.name}</option>
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
                       ))}
                     </select>
                   </div>
                 )}
-                <div className="flex items-center gap-1.5 px-3 py-1 text-xs text-white relative">
-                  <Search size={14} className="text-white/60 pointer-events-none" />
+
+                {/* Search Input */}
+                <div className="flex items-center gap-1.5 text-white">
+                  <Search size={14} className="text-white/60 shrink-0" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Tìm tên, mã..."
-                    aria-label="Tìm tên, mã thiếu nhi"
-                    className="bg-transparent text-white placeholder-white/70 text-xs font-medium outline-none w-28 sm:w-36 lg:w-44"
+                    className="app-header__search"
+                    aria-label="Tìm thiếu nhi theo tên hoặc mã"
                   />
-                  {searchQuery && (
-                    <button type="button" onClick={() => setSearchQuery('')} aria-label="Xóa tìm kiếm" className="absolute right-1 w-6 h-6 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/20 transition-colors">×</button>
-                  )}
                 </div>
               </div>
-              {/* Semester — Option A: giữ trong header */}
-              <div className="flex items-center gap-1 h-11 px-1 rounded-2xl bg-black/30 border border-white/20 shadow-inner backdrop-blur-md">
+
+              {/* Semester Selector */}
+              <div className="app-header__control-group">
                 {semesterRestricted ? (
-                  <span className="flex items-center px-3 h-9 text-sm font-bold rounded-lg text-white bg-white/15">Học Kỳ {openSemester === 2 ? 'II' : 'I'}</span>
+                  <span className="app-header__segment text-white">
+                    Học Kỳ {openSemester === 2 ? 'II' : 'I'}
+                  </span>
                 ) : (
                   <>
-                    <button type="button" onClick={() => setSelectedSemester(1)} aria-pressed={selectedSemester === 1} className="flex items-center px-3 h-9 text-sm font-bold rounded-lg transition-all" style={{ background: selectedSemester === 1 ? 'white' : 'transparent', color: selectedSemester === 1 ? '#1E3A8A' : 'white' }}>HK I</button>
-                    <button type="button" onClick={() => setSelectedSemester(2)} aria-pressed={selectedSemester === 2} className="flex items-center px-3 h-9 text-sm font-bold rounded-lg transition-all" style={{ background: selectedSemester === 2 ? 'white' : 'transparent', color: selectedSemester === 2 ? '#1E3A8A' : 'white' }}>HK II</button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSemester(1)}
+                      className={`app-header__segment ${selectedSemester === 1 ? 'is-active' : ''}`}
+                      aria-pressed={selectedSemester === 1}
+                    >
+                      HK I
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSemester(2)}
+                      className={`app-header__segment ${selectedSemester === 2 ? 'is-active' : ''}`}
+                      aria-pressed={selectedSemester === 2}
+                    >
+                      HK II
+                    </button>
                   </>
                 )}
               </div>
-              <div className="hidden lg:block h-8 w-px bg-white/15 shrink-0" aria-hidden="true" />
 
+              {/* ── Zone 2: App utilities (PHA 2 — tách khỏi data filters) ── */}
               <div className="flex items-center gap-1.5">
                 {/* View Mode Switcher */}
-                <div className="flex items-center h-11 px-1 rounded-2xl gap-0.5 bg-black/30 border border-white/20 shadow-inner backdrop-blur-md">
+                <div className="app-header__control-group">
                   <button
                     type="button"
                     onClick={() => setViewMode('desktop')}
@@ -154,11 +166,7 @@ export const HeaderBar: React.FC = () => {
                     title={isNarrowViewport ? 'Màn hình quá nhỏ — chế độ Desktop cần tối thiểu 768px' : 'Chuyển sang Giao diện Desktop'}
                     aria-label="Chuyển sang Giao diện Desktop"
                     aria-pressed={viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop')}
-                    className="flex items-center justify-center w-9 h-9 rounded-lg text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{
-                      background: viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? '#FDE047' : 'transparent',
-                      color: viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? '#1E293B' : 'white',
-                    }}
+                    className={`app-header__segment px-0 ${viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? 'is-accent' : ''} disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
                     <Monitor size={14} />
                   </button>
@@ -168,24 +176,20 @@ export const HeaderBar: React.FC = () => {
                     title="Chuyển sang Giao diện Mobile"
                     aria-label="Chuyển sang Giao diện Mobile"
                     aria-pressed={viewMode === 'mobile'}
-                    className="flex items-center justify-center w-9 h-9 rounded-lg text-xs font-bold transition-all"
-                    style={{
-                      background: viewMode === 'mobile' ? '#FDE047' : 'transparent',
-                      color: viewMode === 'mobile' ? '#1E293B' : 'white',
-                    }}
+                    className={`app-header__segment px-0 ${viewMode === 'mobile' ? 'is-accent' : ''}`}
                   >
                     <Smartphone size={14} />
                   </button>
                 </div>
 
-                {/* Theme Toggle — Phase 1 a11y: aria-pressed + double ring */}
+                {/* Theme Toggle */}
                 <button
                   type="button"
                   onClick={toggleTheme}
                   title="Đổi giao diện sáng/tối"
                   aria-label="Đổi giao diện sáng/tối"
                   aria-pressed={theme === 'dark'}
-                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-black/30 border border-white/20 text-white hover:bg-white/20 transition-all shadow-inner backdrop-blur-md focus:shadow-[0_0_0_2px_white,0_0_0_4px_var(--color-parish-primary)] focus:ring-0"
+                  className="app-header__icon-button"
                 >
                   {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
                 </button>
@@ -196,7 +200,7 @@ export const HeaderBar: React.FC = () => {
                   onClick={() => setShowDiagnostics(true)}
                   title="Bảng Chẩn Đoán System Telemetry"
                   aria-label="Bảng Chẩn Đoán Hệ Thống"
-                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-black/30 border border-white/20 text-amber-300 hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
+                  className="app-header__icon-button text-amber-200"
                 >
                   <Activity size={16} />
                 </button>
@@ -207,7 +211,7 @@ export const HeaderBar: React.FC = () => {
                   onClick={handleReset}
                   title="Khôi phục dữ liệu gốc"
                   aria-label="Khôi phục dữ liệu gốc"
-                  className="h-10 w-10 flex items-center justify-center rounded-xl bg-black/30 border border-white/20 text-white hover:text-rose-300 hover:bg-white/20 transition-all shadow-inner backdrop-blur-md"
+                  className="app-header__icon-button hover:text-rose-300"
                 >
                   <RefreshCw size={15} />
                 </button>
@@ -215,8 +219,8 @@ export const HeaderBar: React.FC = () => {
 
               {/* ── Zone 3: User identity (cùng phải) ── */}
               {currentUser ? (
-                <div className="flex items-center gap-2.5 bg-black/30 px-3 py-1 rounded-2xl border border-white/20 text-xs text-white shadow-inner backdrop-blur-md">
-                  <div className="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-300/40 flex items-center justify-center text-amber-300 font-bold shrink-0">
+                <div className="app-header__profile text-xs">
+                  <div className="w-8 h-8 rounded-[10px] bg-amber-300/15 border border-amber-200/30 flex items-center justify-center text-amber-200 font-bold shrink-0">
                     <UserCheck className="w-4 h-4" />
                   </div>
                   <div className="hidden lg:block text-left">
@@ -228,7 +232,7 @@ export const HeaderBar: React.FC = () => {
                     onClick={handleLogout}
                     title="Đăng xuất"
                     aria-label="Đăng xuất"
-                    className="p-1.5 text-white/70 hover:text-white hover:bg-white/20 rounded-lg transition-colors ml-1"
+                    className="p-1.5 text-white/70 hover:text-white hover:bg-white/12 rounded-lg transition-colors ml-1"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                   </button>

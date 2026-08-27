@@ -102,18 +102,18 @@ export const MobileLeaveRequests: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-3 pb-8">
+    <div className="product-view flex flex-col gap-3 pb-8">
       {/* Header */}
-      <div className="bg-surface-card p-4 rounded-2xl border border-surface-border shadow-card flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center shrink-0">
+      <div className="mobile-page-header">
+        <div className="mobile-page-header__identity">
+          <div className="mobile-page-header__icon">
             <CalendarClock className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-extrabold text-parish-primary m-0 tracking-tight truncate">
+            <h3 className="mobile-page-header__title truncate">
               Đơn Xin Nghỉ Phép
             </h3>
-            <p className="text-xs text-text-muted m-0 mt-0.5 truncate">
+            <p className="mobile-page-header__description truncate">
               {pendingCount > 0 ? (
                 <span className="inline-flex items-center gap-1 font-bold text-amber-600">
                   <Clock size={12} className="animate-pulse" /> {pendingCount} đơn chờ duyệt
@@ -135,16 +135,14 @@ export const MobileLeaveRequests: React.FC = () => {
       </div>
 
       {/* Status Tabs */}
-      <div className="bg-surface-card p-1 rounded-xl border border-surface-border flex gap-1">
+      <div className="view-tabs" role="tablist" aria-label="Trạng thái đơn xin nghỉ">
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setStatusFilter(tab.key)}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 min-h-[44px] ${
-              statusFilter === tab.key
-                ? 'bg-parish-primary text-white shadow-sm'
-                : 'text-text-secondary hover:bg-surface-hover'
-            }`}
+            className={`view-tab ${statusFilter === tab.key ? 'is-active' : ''}`}
+            role="tab"
+            aria-selected={statusFilter === tab.key}
           >
             {tab.label}
             {tab.key === 'PENDING' && pendingCount > 0 && (
@@ -174,7 +172,7 @@ export const MobileLeaveRequests: React.FC = () => {
       </button>
 
       {showFilters && (
-        <div className="bg-surface-card p-3.5 rounded-2xl border border-surface-border shadow-card flex flex-col gap-3">
+        <div className="mobile-filter-panel flex flex-col gap-3">
           {classList.length > 0 && (
             <select
               value={classFilter}
@@ -229,11 +227,11 @@ export const MobileLeaveRequests: React.FC = () => {
 
       {/* Request Cards */}
       {loading ? (
-        <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-3">
+        <div className="app-panel p-3">
           <SkeletonTable rows={4} cols={1} />
         </div>
       ) : filteredRequests.length === 0 ? (
-        <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card">
+        <div className="app-panel">
           {requests.length === 0 ? (
             <EmptyState
               icon={Calendar}
@@ -267,7 +265,7 @@ export const MobileLeaveRequests: React.FC = () => {
             return (
               <div
                 key={req.id}
-                className={`bg-surface-card border rounded-2xl shadow-card p-4 ${
+                className={`entity-card p-4 ${
                   req.status === 'PENDING' ? 'border-amber-300 dark:border-amber-700' : 'border-surface-border'
                 }`}
               >

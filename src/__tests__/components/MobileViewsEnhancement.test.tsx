@@ -164,5 +164,18 @@ describe('MobileViewsEnhancement Tests', () => {
       fireEvent.click(xemTatCaBtn)
       expect(handleNavigateTab).toHaveBeenCalledWith('notices')
     })
+
+    it('uses shared hero and touch-action primitives', () => {
+      const { container } = render(
+        <MobileHomeView
+          onNavigateTab={vi.fn()}
+          onOpenAddStudent={vi.fn()}
+        />
+      )
+
+      expect(container.querySelector('.mobile-home-hero')).toBeInTheDocument()
+      expect(container.querySelectorAll('.mobile-quick-action')).toHaveLength(3)
+      expect(screen.getByRole('button', { name: /mở lịch phụng vụ/i })).toBeInTheDocument()
+    })
   })
 })

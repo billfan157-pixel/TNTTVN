@@ -162,7 +162,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
   }, [kpis.trendTimeline])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Modal Lịch Sử Điểm Danh */}
       <AttendanceHistoryModal
         isOpen={isHistoryModalOpen}
@@ -250,7 +250,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
 
       {/* Khung nhập ngày tùy chọn */}
       {timeFilterType === 'custom' && (
-        <div className="bg-surface-card p-4 rounded-2xl border border-surface-border shadow-card flex items-center gap-3 text-xs flex-wrap">
+        <div className="view-toolbar text-xs">
           <span className="font-bold text-text-secondary flex items-center gap-1">
             <Calendar size={14} /> Khoảng ngày:
           </span>
@@ -278,7 +278,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
       {/* KPI Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Tổng thể */}
-        <div className="bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col justify-between">
+        <div className="app-panel p-5 flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Chuyên Cần Chung</p>
@@ -308,7 +308,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
         </div>
 
         {/* Card 2: Thánh Lễ */}
-        <div className="bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col justify-between">
+        <div className="app-panel p-5 flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Tham Dự Thánh Lễ</p>
@@ -327,7 +327,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
         </div>
 
         {/* Card 3: Giáo Lý */}
-        <div className="bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col justify-between">
+        <div className="app-panel p-5 flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Học Giáo Lý</p>
@@ -346,7 +346,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
         </div>
 
         {/* Card 4: Chầu Thánh Thể */}
-        <div className="bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col justify-between">
+        <div className="app-panel p-5 flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Chầu / Sinh Hoạt</p>
@@ -368,7 +368,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
       {/* Analytics Visualization & Early Warning Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Trend Chart (2 Columns on Desktop) */}
-        <div className="lg:col-span-2 bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col justify-between">
+        <div className="lg:col-span-2 app-panel p-5 flex flex-col justify-between">
           <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
             <div>
               <h3 className="text-sm font-extrabold text-text-main m-0 flex items-center gap-2">
@@ -447,7 +447,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
         </div>
 
         {/* Early Warning Widget (1 Column on Desktop) */}
-        <div className="bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col">
+        <div className="app-panel p-5 flex flex-col">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-extrabold text-parish-danger m-0 flex items-center gap-1.5">
               <ShieldAlert size={16} />
@@ -511,7 +511,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
       </div>
 
       {/* Attendance Matrix Table Section */}
-      <div className="bg-surface-card p-5 rounded-2xl border border-surface-border shadow-card flex flex-col gap-4">
+      <div className="app-panel p-5 flex flex-col gap-4">
         {/* Table Filter Bar */}
         <div className="flex justify-between items-center flex-wrap gap-3">
           {/* Search Box */}

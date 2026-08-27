@@ -30,7 +30,7 @@ export const DesktopAppShell: React.FC<DesktopAppShellProps> = ({
   className = '',
   children,
 }) => (
-  <div className={`${WIDTH_CLASSES[width]} ${className}`.trim()}>
+  <div className={`product-view ${WIDTH_CLASSES[width]} ${className}`.trim()}>
     {children}
   </div>
 )

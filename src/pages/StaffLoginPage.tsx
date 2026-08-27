@@ -61,7 +61,7 @@ export function StaffLoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Tên đăng nhập giáo lý viên..."
               autoComplete="username"
-              className="w-full pl-10 pr-4 py-2.5 bg-surface-hover/30 border border-surface-border rounded-xl text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
+              className="form-input w-full pl-10"
             />
           </div>
         </div>
@@ -77,7 +77,7 @@ export function StaffLoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu..."
               autoComplete="current-password"
-              className="w-full pl-10 pr-10 py-2.5 bg-surface-hover/30 border border-surface-border rounded-xl text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
+              className="form-input w-full pl-10 pr-10"
             />
             <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3 text-text-muted hover:text-text-main">
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -88,7 +88,7 @@ export function StaffLoginPage() {
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full py-3 bg-parish-primary hover:bg-parish-primary-hover text-white text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+          className="btn btn-primary btn-lg w-full disabled:opacity-50"
         >
           {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Đăng Nhập Ngay</span>}
         </button>

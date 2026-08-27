@@ -21,7 +21,7 @@ export const LiturgicalTodayWidget: React.FC = () => {
   const weekdayLong = now.toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
-    <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card relative overflow-hidden group hover:border-parish-primary/40 transition-all flex items-stretch">
+    <div className="app-panel app-panel--interactive relative overflow-hidden group flex items-stretch">
       {/* Color spine — màu áo lễ của ngày */}
       <div
         aria-hidden="true"

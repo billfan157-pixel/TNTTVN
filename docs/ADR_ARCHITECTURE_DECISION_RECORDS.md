@@ -1617,38 +1617,67 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 
 ---
 
-## ADR-063: Mobile responsive primitives + modal convergence (2026-08-27)
+## ADR-063: UI System v4.1 — App-wide Calm, Confident Parish Product (2026-08-27)
 
-**Status: APPROVED / IMPLEMENTED. Severity: D2 (cross-module UI contract). Profile: GENERAL.**
+**Status: APPROVED / IMPLEMENTED. Severity: D2. Profile: GENERAL. Reversibility: R1.**
 
-### Evidence và lựa chọn
+### Evidence và decision
 
-- Audit 16/16 mobile views và follow-up 2026-08-22 cho thấy `ExcelGradeImportModal`/`GradeFormulaConfigModal` vẫn tự dựng centered desktop overlay; `AttendanceHistoryModal` có filter dưới 44px; base form là 38px/14px và top-bar controls 42px, gây vùng chạm nhỏ và nguy cơ iOS auto-zoom.
-- `--z-modal: 50` thấp hơn `--z-mobile-nav: 1000`, khiến bottom navigation nằm trên dialog `aria-modal`; `MobileReportsView` render toàn bộ học sinh nhưng không có tìm kiếm/empty recovery; badge phân ngành dùng màu light-only inline.
+- Người dùng xác nhận hài lòng với triết lý/kiểu thiết kế hiện tại; vì vậy giữ DNA
+  navy–gold, product-first và data density thay vì rebrand hoặc áp một visual trend.
+- Audit code/runtime xác nhận `docs/03_DESIGN_SYSTEM.md` + `src/index.css` là SSOT,
+  nhưng elevation, page section, KPI, shell và mobile home còn có dialect cục bộ;
+  root `DESIGN_SYSTEM.md` v2 vẫn mô tả glassmorphism cũ và gây xung đột authority.
+- Nghiên cứu nguồn chính thức Apple HIG, Fluent 2, Shopify Polaris, Atlassian,
+  Stripe và WCAG 2.2 hội tụ ở purpose/focus/familiarity, token + reusable
+  component, elevation có ý nghĩa, efficiency/trust và accessibility.
 
-| Criterion | Weight | A: Shared primitives + targeted views (chọn) | B: Vá từng màn | C: Viết lại native UI |
-|---|---:|---:|---:|---:|
-| Business / UX Fit | 20% | 9 | 7 | 8 |
-| Reliability & Data Integrity | 15% | 9 | 8 | 6 |
-| Security & Privacy | 15% | 9 | 9 | 8 |
-| Maintainability | 15% | 9 | 5 | 6 |
-| Accessibility / Mobile Usability | 15% | 9 | 7 | 9 |
-| Testability | 10% | 8 | 6 | 5 |
-| Reversibility | 10% | 9 | 8 | 4 |
-| **Weighted** | **100%** | **8.85** | **7.15** | **6.80** |
+Matrix D2/GENERAL trong `docs/UI_UX_UPGRADE_PLAN_2026-08-27.md`: A giữ nguyên
+7.85; B warm editorial 7.55; **C Calm confident system 8.95 — SELECT**.
+Security/Privacy 9, Data Integrity 9, Testability 9: hard gates PASS.
 
-**Decision: A.** D2 hard gates đạt Security/Privacy 9, Data Integrity 9, Testability 8. B không xử lý drift và tạo nhiều focus/scroll implementations; C mở rộng platform/race/release surface khi chưa có bằng chứng cần viết lại.
+### Implementation contract
 
-### Contract và implementation
+1. Thêm surface `app/sunken/card/raised`, brand gold, shadow và motion token;
+   content card dùng border, raised shadow dành cho layer/interaction có ý nghĩa.
+2. Chuẩn hóa `PageHeader`, section heading/card, KPI card, desktop header/main,
+   loading state và mobile home primitives; polish table/modal/button qua foundation.
+3. Giữ shell navy–gold; giảm blur/orb/gradient trang trí trong content. Domain/status,
+   print, camera/OMR và medal visualization là deliberate semantic exceptions.
+4. Accessibility: semantic liturgical button, accessible names/pressed states,
+   một `#main-content`, mobile target và form typography, reduced-motion support.
+5. `docs/03_DESIGN_SYSTEM.md` là documentation SSOT; root `DESIGN_SYSTEM.md`
+   được đánh dấu legacy để chấm dứt dual authority.
+6. Sau feedback “mới điều chỉnh Dashboard”, rollout được mở rộng từ foundation
+   sang migration trực tiếp: 13 desktop workspace view, 12 mobile workflow view,
+   4 public/auth surface và 3 management embedded family.
+7. Thêm product-view/panel/toolbar/tab/mobile-page-header/filter/entity/state/auth
+   primitives; `DesktopAppShell` tự sở hữu product-view.
+8. `/management` truyền `embedded` cho AcademicYear/Classes/Users để loại bỏ
+   PageHeader lặp; tab dùng programmatic role/state.
+9. `appWideUiMigration.test.ts` là hard regression contract cho inventory, tránh
+   quay lại trạng thái chỉ Dashboard nhận visual migration.
 
-1. `ModalShell` là owner duy nhất của focus trap, Escape, scroll lock, responsive shell; bổ sung body/footer semantic. Ở ≤767px: bottom-sheet, header/footer không cuộn, body overscroll-contained, safe-area bottom và z-index 1100 phủ nav. Desktop giữ centered dialog.
-2. Mobile/modal form controls tối thiểu 44px và font 16px. Top-bar close/select/search/icons/actions đạt 44px. Không đổi desktop density.
-3. `ExcelGradeImportModal` và `GradeFormulaConfigModal` migrate về `ModalShell`; footer hành động giữ ngoài vùng nội dung cuộn. Notice/date actions, lịch, chuyên cần và AttendanceHistory reflow theo breakpoint.
-4. MobileReports tìm cục bộ theo tên thánh/họ tên/mã, có count + recoverable empty state; thống kê ngành được memo hóa và danh sách lớn render theo lô 30 (QA data thật: initial card/nút In 566→30). Branch badge dùng CSS variables và dark `color-mix`; không đổi dữ liệu báo cáo hay công thức tính điểm.
+### Gates, compatibility và rollback
 
-### Gates, compatibility, rollback
+- **ADR compatibility**: ADR-030/032/055 = PASS. Không đổi API/schema/route/auth,
+  offline sync hoặc domain behavior.
+- **Business Rule Gate**: protected behavior unchanged = CONFIRMED bằng diff và
+  regression tests; field usability = CONDITIONAL tới khi có task test với GLV/Huynh Trưởng.
+- **Rollback**: R1, revert presentation/docs; token mới backward-compatible, không migration.
 
-- **Business Rule Gate:** không đổi scoring, import, quyền, persistence hay API; chỉ presentation/filter client-side = `CONFIRMED` bằng source + targeted regression.
-- **ADR compatibility:** ADR-030/032/047 = `PASS`; contract này mở rộng DS primitive hiện hữu, không tạo shell song song. Security/privacy, tenant isolation, offline sync và data integrity không đổi.
-- **Rollback:** R1 — revert client/CSS/docs; không schema migration, không dữ liệu cần chuyển đổi.
-- **Verification:** TypeScript `PASS`; changed-file oxlint `PASS`; design-system lint `0/137`; ModalShell + ExcelGradeImport `25/25 PASS`; MobileReports `3/3 PASS`. Edge QA 390×844 với 566 học sinh: input 44px/16px, initial print cards 30, search 6/566, bottom-sheet/footer/dark badge đạt, console 0 warning/error. Full suite không chạy lại vì baseline ADR-062 đã pass và thay đổi chỉ có targeted UI coverage.
+### Verification
+
+Client/config TypeScript PASS; `npm run lint` 0 warning; design-system lint
+v4.1 đạt 0/136 violation; targeted regression 43/43 trên 5 file; full regression
+237/237 file và 1.719/1.719 test PASS với timeout chuẩn 15s; client/server/PWA
+production build PASS; `git diff --check` PASS. Desktop runtime 1592×868: header
+77px, không horizontal overflow, đúng một `#main-content`, accessible label/pressed
+state hiện diện. Public/auth runtime 1592×821 không horizontal overflow, auth card
+440px, lựa chọn cổng 88px và form control tối thiểu 44px. Protected-route visual
+smoke sau rollout v4.1 chưa chạy được do local seed credential không hợp lệ; mobile
+runtime chưa được tuyên bố do QA tool không hỗ trợ viewport emulation trong phiên.
+
+**Post-implementation D2:** Security/Privacy 9, Data Integrity 9, Testability 9
+— PASS; ADR-030/032/055 compatibility PASS; protected behavior CONFIRMED.
+Usability thực địa trên thiết bị/role thật vẫn CONDITIONAL và chưa được claim.

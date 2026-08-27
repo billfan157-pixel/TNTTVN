@@ -18,7 +18,7 @@ export function EmptyState({
   className = '',
 }: EmptyStateProps) {
   return (
-    <div className={`flex flex-col items-center justify-center p-8 md:p-12 text-center rounded-[var(--radius-lg)] border border-dashed border-[var(--color-surface-border)] bg-[var(--color-surface-card)] ${className}`} role="status">
+    <div className={`state-feedback state-feedback--empty flex flex-col items-center justify-center p-8 md:p-12 text-center ${className}`} role="status">
       <div className="w-12 h-12 mb-3.5 rounded-[var(--radius-full)] bg-[var(--color-surface-hover)] flex items-center justify-center text-[var(--color-text-muted)]">
         <Icon className="w-6 h-6" />
       </div>
@@ -49,7 +49,7 @@ export function NoResultState({
   className = '',
 }: NoResultStateProps) {
   return (
-    <div className={`flex flex-col items-center justify-center p-8 md:p-10 text-center rounded-[var(--radius-lg)] border border-[var(--color-surface-border)] bg-[var(--color-surface-card)] ${className}`} role="status">
+    <div className={`state-feedback flex flex-col items-center justify-center p-8 md:p-10 text-center ${className}`} role="status">
       <div className="w-12 h-12 mb-3 rounded-[var(--radius-full)] bg-[var(--color-parish-info-bg)] flex items-center justify-center text-[var(--color-parish-info)]">
         <SearchX className="w-6 h-6" />
       </div>
@@ -80,7 +80,7 @@ export function ErrorState({
   className = '',
 }: ErrorStateProps) {
   return (
-    <div className={`flex flex-col items-center justify-center p-8 md:p-10 text-center rounded-[var(--radius-lg)] border border-[var(--color-parish-danger-bg)] bg-[var(--color-surface-card)] ${className}`} role="alert">
+    <div className={`state-feedback state-feedback--error flex flex-col items-center justify-center p-8 md:p-10 text-center ${className}`} role="alert">
       <div className="w-12 h-12 mb-3 rounded-[var(--radius-full)] bg-[var(--color-parish-danger-bg)] flex items-center justify-center text-[var(--color-parish-danger)]">
         <AlertTriangle className="w-6 h-6" />
       </div>

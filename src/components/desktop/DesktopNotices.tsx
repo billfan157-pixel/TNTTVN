@@ -24,7 +24,7 @@ export function DesktopNotices() {
   const [editingNotice, setEditingNotice] = useState<import('../../types').ParishNotice | null>(null);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Header */}
       <PageHeader
         icon={<Bell size={20} />}
@@ -46,9 +46,8 @@ export function DesktopNotices() {
       />
 
       {/* Notices List */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
-        <div className="table-wrapper">
-          <div className="table-scroll">
+      <div className="table-wrapper">
+        <div className="table-scroll">
           <table className="w-full border-collapse text-sm text-left table-fixed min-w-0 bg-surface-card text-text-main">
             <colgroup>
               <col className="w-[55px]" />
@@ -89,10 +88,10 @@ export function DesktopNotices() {
                         {idx + 1}
                       </td>
                       <td className="py-2.5 px-3 overflow-hidden min-w-0">
-                        <div className={`font-bold truncate min-w-0 ${pc.split(' ')[1]}`}>
+                        <div className={`font-bold line-clamp-1 min-w-0 ${pc.split(' ')[1]}`}>
                           {notice.title}
                         </div>
-                        <div className="text-sm text-text-muted mt-1 truncate min-w-0">
+                        <div className="text-sm text-text-muted mt-1 line-clamp-2 min-w-0">
                           {notice.content}
                         </div>
                       </td>
@@ -125,9 +124,8 @@ export function DesktopNotices() {
               )}
             </tbody>
           </table>
-         </div>
-         </div>
-       </div>
+        </div>
+      </div>
 
       <NoticeModal
         isOpen={showModal}

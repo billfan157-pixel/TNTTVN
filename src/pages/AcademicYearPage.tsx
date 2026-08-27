@@ -54,7 +54,7 @@ interface ModalState {
   resultLines?: { icon: 'ok' | 'warn' | 'err' | 'info'; text: string }[]
 }
 
-export function AcademicYearPage() {
+export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { currentYear, setCurrentYear, fetchAcademicYears, createAcademicYear } = useAcademicYearStore()
   const { can } = useAuth()
   const isAdmin = can('admin')
@@ -279,7 +279,7 @@ export function AcademicYearPage() {
   return (
     <DesktopAppShell width="wide" className="flex flex-col gap-6">
       {/* Header */}
-      <PageHeader
+      {!embedded && <PageHeader
         icon={<Calendar className="w-5 h-5" />}
         title="Quản Lý Năm Học Giáo Lý"
         description={
@@ -313,10 +313,10 @@ export function AcademicYearPage() {
             )}
           </>
         }
-      />
+      />}
 
       {/* Wizard steps guide */}
-      <div className="bg-surface-card border border-surface-border p-5 rounded-2xl shadow-card">
+      <div className="app-panel p-5">
         <p className="text-[11px] font-bold text-text-muted uppercase tracking-wider mb-2">
           Quy Trình Năm Học (Wizard 5 bước)
         </p>
@@ -346,7 +346,7 @@ export function AcademicYearPage() {
           <SkeletonCardGrid count={3} />
         </div>
       ) : years.length === 0 ? (
-        <div className="bg-surface-card rounded-2xl border border-dashed border-surface-border p-10 text-center space-y-3">
+        <div className="app-panel border-dashed p-10 text-center space-y-3">
           <div className="mx-auto w-12 h-12 bg-parish-primary/10 rounded-2xl flex items-center justify-center">
             <Calendar className="w-6 h-6 text-parish-primary" />
           </div>

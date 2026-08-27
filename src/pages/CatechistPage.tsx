@@ -82,7 +82,7 @@ export function CatechistPage() {
       )}
 
       {/* Filter Bar */}
-      <div className="flex gap-3 flex-wrap items-center justify-between bg-surface-card border border-surface-border p-4 rounded-2xl shadow-card">
+      <div className="view-toolbar">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-placeholder" />
           <input
@@ -122,7 +122,7 @@ export function CatechistPage() {
               .join(', ') || 'Chưa phân công'
 
             return (
-              <div key={u.id} className="bg-surface-card border border-surface-border p-5 rounded-2xl space-y-3 shadow-card hover:shadow-md transition-all">
+              <div key={u.id} className="entity-card app-panel--interactive p-5 space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
                     <h3 className="font-bold text-base text-text-main">{u.fullName}</h3>

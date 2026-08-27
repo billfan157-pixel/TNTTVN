@@ -35,7 +35,7 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       <PageHeader
         icon={<FileSpreadsheet size={20} />}
         title="Thẻ Điểm Cá Nhân"
@@ -55,7 +55,7 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
             const rankClass = rankColors[avg.label?.trim().toLowerCase()] || 'bg-surface-hover text-text-secondary'
 
             return (
-              <div key={student.id} className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden hover:shadow-md transition-shadow">
+              <div key={student.id} className="entity-card app-panel--interactive overflow-hidden">
                 {/* Card Header */}
                 <div className="p-4 border-b border-surface-border">
                   <div className="flex justify-between items-start gap-2">

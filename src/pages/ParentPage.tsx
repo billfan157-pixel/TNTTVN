@@ -61,7 +61,7 @@ export const ParentPage: React.FC = () => {
   const latestClassification = latestGpa != null ? getClassificationLabel(latestGpa) : null
 
   return (
-    <div className="max-w-3xl mx-auto space-y-5">
+    <div className="product-view max-w-3xl mx-auto space-y-5">
       <PageHeader
         icon={<HeartHandshake className="w-5 h-5" />}
         title="Con Của Tôi"
@@ -113,7 +113,7 @@ export const ParentPage: React.FC = () => {
             })}
           </div>
 
-          <section className="bg-surface-card border border-surface-border rounded-2xl p-5 md:p-6 space-y-5 shadow-card">
+          <section className="section-card space-y-5">
             {reportLoading ? (
               <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-text-muted" /></div>
             ) : reportError ? (

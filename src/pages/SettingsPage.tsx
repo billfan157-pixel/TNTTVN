@@ -128,7 +128,7 @@ const SettingsPage: React.FC = () => {
       <div className="grid lg:grid-cols-12 gap-5 items-start">
         {/* ─── CỘT TRÁI: tài khoản & bảo mật ─── */}
         <div className="lg:col-span-7 space-y-5 min-w-0">
-          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
+          <section className="app-panel p-5 space-y-4">
             <SectionTitle icon={<UserCog className="w-4 h-4" />} text="Hồ Sơ Cá Nhân" />
             <div className="flex items-center gap-3.5">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-parish-primary to-parish-primary-hover flex items-center justify-center text-white font-extrabold text-lg shrink-0 shadow-xs">
@@ -172,7 +172,7 @@ const SettingsPage: React.FC = () => {
             </form>
           </section>
 
-          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
+          <section className="app-panel p-5 space-y-4">
             <SectionTitle icon={<Key className="w-4 h-4" />} text="Đổi Mật Khẩu" />
             {cpSuccess ? (
               <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 rounded-lg border border-emerald-200 text-sm">
@@ -214,7 +214,7 @@ const SettingsPage: React.FC = () => {
 
         {/* ─── CỘT PHẢI: giao diện & tiện ích ─── */}
         <div className="lg:col-span-5 space-y-5 min-w-0">
-          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-4">
+          <section className="app-panel p-5 space-y-4">
             <SectionTitle icon={<Palette className="w-4 h-4" />} text="Giao Diện" />
             <div>
               <label className="block text-xs font-semibold text-text-muted mb-2">Chế Độ Hiển Thị</label>
@@ -271,7 +271,7 @@ const SettingsPage: React.FC = () => {
           </section>
 
           {role === 'admin' && (
-            <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card p-5 space-y-1">
+            <section className="app-panel p-5 space-y-1">
               <div className="mb-2"><SectionTitle icon={<ShieldCheck className="w-4 h-4" />} text="Quản Trị Nhanh" /></div>
               {[
                 { to: '/users' as const, icon: Users, title: 'Tài Khoản', desc: 'GLV, phân công, mật khẩu' },
@@ -296,7 +296,7 @@ const SettingsPage: React.FC = () => {
             </section>
           )}
 
-          <section className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
+          <section className="app-panel overflow-hidden">
             <div className="px-5 pt-5 pb-2"><SectionTitle icon={<Database className="w-4 h-4" />} text="Dữ Liệu & Hệ Thống" /></div>
             <div className="divide-y divide-surface-border/70 pb-1">
               <button onClick={() => setShowBackup(true)} className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-surface-hover transition-colors group">

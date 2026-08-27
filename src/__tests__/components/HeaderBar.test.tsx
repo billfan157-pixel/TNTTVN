@@ -95,12 +95,12 @@ describe('HeaderBar Component', () => {
 
   it('renders search input', () => {
     render(<HeaderBar />)
-    expect(screen.getByRole('textbox', { name: 'Tìm tên, mã thiếu nhi' })).toBeDefined()
+    expect(screen.getByRole('textbox', { name: 'Tìm thiếu nhi theo tên hoặc mã' })).toBeDefined()
   })
 
   it('renders semester toggle buttons', () => {
     render(<HeaderBar />)
-    expect(screen.getByText('HK I')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'HK I' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('HK II')).toBeDefined()
   })
 
@@ -117,7 +117,7 @@ describe('HeaderBar Component', () => {
 
   it('renders class switcher dropdown for admin', () => {
     render(<HeaderBar />)
-    expect(screen.getByText('Tất cả lớp học')).toBeDefined()
+    expect(screen.getByRole('combobox', { name: 'Lớp đang xem' })).toBeDefined()
   })
 
   it('hides class switcher dropdown for non-admin users', () => {

@@ -42,8 +42,8 @@ export const MobileGradeComparison: React.FC = () => {
   const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
 
   return (
-    <div className="flex flex-col gap-3">
-      <section className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-4">
+    <div className="product-view flex flex-col gap-3">
+      <section className="mobile-page-header">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center shrink-0"><Columns3 size={19} /></div>
           <div>
@@ -70,7 +70,7 @@ export const MobileGradeComparison: React.FC = () => {
       {comparisonData.length === 0 ? (
         <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Chưa có dữ liệu điểm để so sánh.</div>
       ) : comparisonData.map(item => (
-        <article key={item.student.id} className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-4">
+        <article key={item.student.id} className="entity-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="font-extrabold text-text-main truncate"><span className="text-parish-secondary mr-1">{item.student.holyName}</span>{item.student.fullName}</div>

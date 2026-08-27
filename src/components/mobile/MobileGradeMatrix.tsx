@@ -166,8 +166,8 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-4">
+    <div className="product-view flex flex-col gap-3">
+      <div className="mobile-page-header flex-col items-stretch">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center shrink-0">
             <Grid3X3 size={19} />
@@ -216,7 +216,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
         const isExpanded = expanded.has(student.id)
         const commentValue = commentDrafts[student.id] ?? grade?.comments ?? ''
         return (
-          <article key={student.id} className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+          <article key={student.id} className="entity-card overflow-hidden">
             <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]">
               <span className="min-w-0">
                 <span className="block font-extrabold text-parish-primary truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</span>

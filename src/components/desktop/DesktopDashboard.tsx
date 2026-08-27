@@ -90,70 +90,71 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
   const _maxBranchCount = Math.max(...Object.values(branchStats), 1);
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="product-view space-y-6 pb-10">
       {/* Liturgical Day Widget */}
       <LiturgicalTodayWidget />
 
       {/* Top Banner Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Total Students */}
-        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
-          <div className="w-14 h-14 rounded-2xl bg-parish-primary-light flex items-center justify-center text-parish-primary shrink-0 shadow-inner">
-            <Users size={26} />
+        <div className="metric-card">
+          <div className="metric-card__icon">
+            <Users size={23} />
           </div>
-          <div>
-            <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Tổng Thiếu Nhi</p>
-            <h3 className="text-3xl font-black text-text-main m-0 mt-1">{totalStudents} <span className="text-xs font-normal text-text-muted">em</span></h3>
-            <p className="text-[11px] font-semibold text-emerald-600 m-0 mt-1 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <div className="metric-card__body">
+            <p className="metric-card__label">Tổng Thiếu Nhi</p>
+            <h3 className="metric-card__value">{totalStudents} <span className="metric-card__unit">em</span></h3>
+            <p className="metric-card__meta text-parish-success">
+              <span className="w-1.5 h-1.5 rounded-full bg-parish-success"></span>
               Đang học: {activeStudents} em
             </p>
           </div>
         </div>
 
         {/* Attendance Rate */}
-        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 shrink-0 border border-emerald-500/20 shadow-inner">
-            <CheckCircle2 size={26} />
+        <div className="metric-card metric-card--success">
+          <div className="metric-card__icon">
+            <CheckCircle2 size={23} />
           </div>
-          <div>
-            <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Tỷ Lệ Chuyên Cần</p>
-            <h3 className="text-3xl font-black text-text-main m-0 mt-1">{overallAttendanceRate}%</h3>
-            <p className="text-[11px] font-semibold text-text-muted m-0 mt-1">Toàn Xứ Đoàn Niên Học</p>
+          <div className="metric-card__body">
+            <p className="metric-card__label">Tỷ Lệ Chuyên Cần</p>
+            <h3 className="metric-card__value">{overallAttendanceRate}%</h3>
+            <p className="metric-card__meta">Toàn Xứ Đoàn Niên Học</p>
           </div>
         </div>
 
         {/* Academic Excellent */}
-        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-sm flex items-center gap-4 transition-all hover:shadow-md">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0 border border-amber-500/20 shadow-inner">
-            <Award size={26} />
+        <div className="metric-card metric-card--gold">
+          <div className="metric-card__icon">
+            <Award size={23} />
           </div>
-          <div>
-            <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Học Lực Khá/Giỏi+</p>
-            <h3 className="text-3xl font-black text-text-main m-0 mt-1">{xuatSacCount + gioiCount + khaCount} <span className="text-xs font-normal text-text-muted">em</span></h3>
-            <p className="text-[11px] font-semibold text-amber-600 m-0 mt-1">HK {selectedSemester}: {xuatSacCount} Xuất Sắc</p>
+          <div className="metric-card__body">
+            <p className="metric-card__label">Học Lực Khá/Giỏi+</p>
+            <h3 className="metric-card__value">{xuatSacCount + gioiCount + khaCount} <span className="metric-card__unit">em</span></h3>
+            <p className="metric-card__meta text-parish-gold">HK {selectedSemester}: {xuatSacCount} Xuất Sắc</p>
           </div>
         </div>
 
         {/* Class Overview */}
-        <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-sm flex items-center justify-between transition-all hover:shadow-md">
-          <div>
-            <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Lớp Học Giáo Lý</p>
-            <h3 className="text-3xl font-black text-text-main m-0 mt-1">{classes.length} <span className="text-xs font-normal text-text-muted">lớp</span></h3>
-            <p className="text-[11px] font-semibold text-parish-primary m-0 mt-1">5 Ngành TNTT hoạt động</p>
+        <div className="metric-card metric-card--info justify-between">
+          <div className="metric-card__body">
+            <p className="metric-card__label">Lớp Học Giáo Lý</p>
+            <h3 className="metric-card__value">{classes.length} <span className="metric-card__unit">lớp</span></h3>
+            <p className="metric-card__meta text-parish-primary">5 Ngành TNTT hoạt động</p>
           </div>
           {hasClasses ? (
             <button
               onClick={onOpenAddStudent}
-              className="w-11 h-11 rounded-2xl bg-parish-primary hover:bg-parish-primary-hover text-white flex items-center justify-center transition-all shadow-md hover:scale-105 active:scale-95"
+              className="btn btn-primary btn-icon btn-lg shrink-0"
               title="Thêm Thiếu Nhi Mới"
+              aria-label="Thêm Thiếu Nhi Mới"
             >
               <Plus size={22} />
             </button>
           ) : (
             <button
               onClick={() => navigate({ to: '/classes' })}
-              className="px-4 py-2 bg-parish-primary hover:bg-parish-primary-hover text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+              className="btn btn-primary btn-sm"
             >
               <School size={16} /> Tạo Lớp
             </button>
@@ -166,18 +167,18 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         {/* Left Column: Top Academic Performers & Analytics Distribution */}
         <div className="lg:col-span-2 space-y-6">
           {/* Top Students */}
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500">
+          <div className="section-card">
+            <div className="section-heading">
+              <div className="section-heading__identity">
+                <div className="section-heading__icon text-parish-gold bg-parish-gold-light">
                   <Sparkles size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-text-main m-0">Top 5 Thiếu Nhi Tiêu Biểu</h3>
-                  <p className="text-xs text-text-muted m-0">Xếp hạng học lực Học Kỳ {selectedSemester}</p>
+                  <h3 className="section-heading__title">Top 5 Thiếu Nhi Tiêu Biểu</h3>
+                  <p className="section-heading__description">Xếp hạng học lực Học Kỳ {selectedSemester}</p>
                 </div>
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full bg-amber-500/15 text-amber-700 border border-amber-500/30">
+              <span className="badge badge-warning">
                 Bảng Vàng Xứ Đoàn
               </span>
             </div>
@@ -217,15 +218,15 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           </div>
 
           {/* Academic Rank Analytics Distribution Bar Chart */}
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-parish-primary-light flex items-center justify-center text-parish-primary">
+          <div className="section-card">
+            <div className="section-heading">
+              <div className="section-heading__identity">
+                <div className="section-heading__icon">
                   <BarChart3 size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-text-main m-0">Phân Phối Học Lực Xứ Đoàn</h3>
-                  <p className="text-xs text-text-muted m-0">Thống kê chi tiết kết quả Học Kỳ {selectedSemester}</p>
+                  <h3 className="section-heading__title">Phân Phối Học Lực Xứ Đoàn</h3>
+                  <p className="section-heading__description">Thống kê chi tiết kết quả Học Kỳ {selectedSemester}</p>
                 </div>
               </div>
             </div>
@@ -258,14 +259,16 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         {/* Right Column: Branch Stats & Recent Notices */}
         <div className="space-y-6">
           {/* Branch Distribution */}
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center gap-2.5 mb-5">
-              <div className="w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-600">
-                <PieChart size={20} />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-text-main m-0">Cơ Cấu Ngành TNTT</h3>
-                <p className="text-xs text-text-muted m-0">Phân bố thiếu nhi theo phân ngành</p>
+          <div className="section-card">
+            <div className="section-heading">
+              <div className="section-heading__identity">
+                <div className="section-heading__icon text-parish-purple bg-parish-purple-bg">
+                  <PieChart size={20} />
+                </div>
+                <div>
+                  <h3 className="section-heading__title">Cơ Cấu Ngành TNTT</h3>
+                  <p className="section-heading__description">Phân bố thiếu nhi theo phân ngành</p>
+                </div>
               </div>
             </div>
 
@@ -295,15 +298,15 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           </div>
 
           {/* Recent Parish Notices */}
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-600">
+          <div className="section-card">
+            <div className="section-heading">
+              <div className="section-heading__identity">
+                <div className="section-heading__icon text-parish-danger bg-parish-danger-bg">
                   <AlertCircle size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-text-main m-0">Thông Báo Giáo Xứ</h3>
-                  <p className="text-xs text-text-muted m-0">Cập nhật tin tức mới nhất</p>
+                  <h3 className="section-heading__title">Thông Báo Giáo Xứ</h3>
+                  <p className="section-heading__description">Cập nhật tin tức mới nhất</p>
                 </div>
               </div>
             </div>

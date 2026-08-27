@@ -56,9 +56,9 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
   }), [calculateStudentAvg, selectedSemester, students]);
 
   return (
-    <div className="mobile-screen mobile-screen--stack" style={{ gap: '16px' }}>
+    <div className="mobile-screen mobile-screen--stack product-view" style={{ gap: '16px' }}>
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-parish-primary to-parish-primary-hover text-white rounded-2xl p-5 shadow-card">
+      <div className="mobile-page-header mobile-page-header--brand flex-col items-stretch">
         <div className="flex items-center gap-2 mb-1">
           <BarChart2 size={20} className="text-yellow-300" />
           <h2 className="text-base font-extrabold m-0">Báo Cáo & Kết Quả Học Tập</h2>
@@ -97,7 +97,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
       </div>
 
       {/* Branch Stats Summary Cards */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border p-4 shadow-card">
+      <div className="app-panel p-4">
         <h3 className="text-sm font-extrabold text-parish-primary mb-3 flex items-center gap-2">
           <Award size={16} className="text-parish-secondary" />
           Thống Kê Phân Ngành (HK{selectedSemester})
@@ -150,7 +150,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
       </div>
 
       {/* Student List for Print */}
-      <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card">
+      <div className="app-panel p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="text-sm font-extrabold text-parish-primary m-0 flex items-center gap-2">
             <FileText size={16} className="text-parish-secondary" />
@@ -181,7 +181,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
           ) : visibleStudents.map(s => {
             const avg = calculateStudentAvg(s.id, selectedSemester);
             return (
-              <div key={s.id} className="p-3 rounded-xl border border-surface-border bg-surface-hover flex justify-between items-center">
+              <div key={s.id} className="entity-card p-3 flex justify-between items-center">
                 <div className="min-w-0 pr-2">
                   <div className="font-bold text-sm text-text-main truncate">
                     <span className="text-parish-secondary font-bold mr-1">{s.holyName}</span>

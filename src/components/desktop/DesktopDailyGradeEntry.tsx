@@ -120,7 +120,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
   }, [entries, activeScoreType, selectedSemester, filteredStudents])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Header with Explicit Semester Selector */}
       <PageHeader
         icon={<Calculator size={20} />}
@@ -166,7 +166,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
       />
 
       {/* Score Type Tabs */}
-      <div className="bg-surface-card rounded-2xl p-2 border border-surface-border shadow-card flex flex-wrap gap-1.5">
+      <div className="view-tabs">
         {SCORE_TYPES.map(t => (
           <button
             key={t.id}
@@ -205,7 +205,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
 
       {/* Stats Bar */}
       {stats && (
-        <div className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card grid grid-cols-5 gap-4">
+        <div className="app-panel p-4 grid grid-cols-5 gap-4">
           <div className="text-center">
             <div className="text-xs font-semibold text-text-muted">Tổng lượt nhập</div>
             <div className="text-xl font-black text-parish-primary">{stats.count}</div>

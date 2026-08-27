@@ -49,8 +49,8 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
     : classes.find(item => item.id === selectedClassId)?.name || 'Lớp hiện tại'
 
   return (
-    <div className="mobile-screen mobile-screen--stack" style={{ gap: '12px' }}>
-      <section className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-3 mobile-sticky-under-topbar">
+    <div className="mobile-screen mobile-screen--stack product-view">
+      <section className="mobile-filter-panel mobile-sticky-under-topbar">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="min-w-0">
             <div className="text-sm font-extrabold text-parish-primary truncate">Bảng Điểm Giáo Lý</div>
@@ -75,9 +75,9 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
         </div>
       </section>
 
-      <nav aria-label="Các chế độ bảng điểm" className="bg-surface-card rounded-2xl border border-surface-border shadow-card p-1.5 flex gap-1 overflow-x-auto snap-x">
+      <nav aria-label="Các chế độ bảng điểm" className="view-tabs">
         {tabs.map(tab => (
-          <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} className={`shrink-0 snap-start min-h-[44px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-[11px] font-extrabold transition-colors ${activeTab === tab.id ? 'bg-parish-primary text-white' : 'text-text-secondary hover:bg-surface-hover'}`}>
+          <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} className={`view-tab ${activeTab === tab.id ? 'is-active' : ''}`}>
             {tab.icon}{tab.label}
           </button>
         ))}
@@ -92,7 +92,7 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
             const avg = calculateStudentAvg(student.id, effectiveSemester)
             const className = classes.find(item => item.id === student.classId)?.name || '—'
             return (
-              <article key={student.id} className="bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden">
+              <article key={student.id} className="entity-card overflow-hidden">
                 <div className="p-4 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-extrabold text-parish-primary truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</div>

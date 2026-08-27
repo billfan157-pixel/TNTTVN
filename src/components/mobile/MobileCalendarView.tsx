@@ -67,9 +67,9 @@ export const MobileCalendarView: React.FC = () => {
   const dayHeaders = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 
   return (
-    <div className="mobile-screen mobile-screen--stack">
+    <div className="mobile-screen mobile-screen--stack product-view">
       {/* Top Header & Month Switcher */}
-      <div className="bg-surface-card p-3 rounded-2xl border border-surface-border shadow-xs flex items-center justify-between gap-2">
+      <div className="mobile-page-header mobile-page-header--compact">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center font-bold">
             <CalendarIcon size={16} />
@@ -125,7 +125,7 @@ export const MobileCalendarView: React.FC = () => {
       </div>
 
       {/* Calendar Month Grid */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-xs p-3 flex flex-col gap-2">
+      <div className="app-panel p-3 flex flex-col gap-2">
         {/* Day of Week Headers */}
         <div className="grid grid-cols-7 gap-1 text-center pb-1 border-b border-surface-border text-[11px] font-extrabold text-text-muted">
           {dayHeaders.map((dh, idx) => (
@@ -138,7 +138,7 @@ export const MobileCalendarView: React.FC = () => {
         {/* Days Grid */}
         <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-            <div key={`empty-${i}`} className="h-11 rounded-lg bg-surface-app/30 opacity-30" />
+            <div key={`empty-${i}`} className="h-10 rounded-lg bg-surface-app/30 opacity-30" />
           ))}
 
           {monthDays.map((dayItem) => {
@@ -181,7 +181,7 @@ export const MobileCalendarView: React.FC = () => {
       </div>
 
       {/* Selected Day Detail Card */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-xs p-4 flex flex-col gap-3 relative overflow-hidden">
+      <div className="app-panel p-4 flex flex-col gap-3 relative overflow-hidden">
         <div
           className="absolute top-0 right-0 w-28 h-28 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none opacity-20"
           style={{ backgroundColor: selectedDayColorMeta.hex }}
@@ -265,7 +265,7 @@ export const MobileCalendarView: React.FC = () => {
 
       {/* Parish events for the selected day — chỉ render khi có dữ liệu (events API chưa wire) */}
       {selectedDayParishEvents.length > 0 && (
-        <div className="bg-surface-card rounded-2xl border border-surface-border shadow-xs p-4 flex flex-col gap-2">
+        <div className="app-panel p-4 flex flex-col gap-2">
           <h5 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
             <CalendarIcon size={13} className="text-parish-primary" /> Sự Kiện Xứ Đoàn
           </h5>
@@ -290,7 +290,7 @@ export const MobileCalendarView: React.FC = () => {
       )}
 
       {/* Upcoming Solemnities Quick List */}
-      <div className="bg-surface-card rounded-2xl border border-surface-border shadow-xs p-4 flex flex-col gap-2">
+      <div className="app-panel p-4 flex flex-col gap-2">
         <h5 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
           <Church size={13} className="text-parish-primary" /> Lễ Trọng Sắp Tới
         </h5>

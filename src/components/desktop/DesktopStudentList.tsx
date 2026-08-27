@@ -11,7 +11,7 @@ import {
   UserPlus, Search,   Edit2, Trash2,
   FileText, Camera, Upload, CheckCircle2,  ChevronLeft,
   ChevronRight,  School,   CheckSquare, Square,
-  Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA, Info
+  Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA
 } from 'lucide-react';
 import { useClassStore } from '../../stores/classStore';
 import { useStudentStore } from '../../stores/studentStore';
@@ -23,7 +23,6 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
 import { compareClassHierarchy } from '../../utils/classSort';
-import { useDeferredSearch } from '../../hooks/useDeferredSearch';
 import type { Student } from '../../types';
 
 interface DesktopStudentListProps {
@@ -53,9 +52,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const setSelectedClassId = useFilterStore((s) => s.setSelectedClassId);
   const selectedBranchId = useFilterStore((s) => s.selectedBranchId);
   const setSelectedBranchId = useFilterStore((s) => s.setSelectedBranchId);
-  const { searchQuery, deferredSearchQuery } = useDeferredSearch();
+  const searchQuery = useFilterStore((s) => s.searchQuery);
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery);
-  const isSearchStale = searchQuery !== deferredSearchQuery;
   const classes = useClassStore((s) => s.classes);
   const hasClasses = classes.length > 0;
 
@@ -67,25 +65,21 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   // không tồn tại trong options khiến select hiển thị giá trị trống/misleading.
   const [pageSize, setPageSize] = useState(50);
   const [pageIndex, setPageIndex] = useState(0);
-  const [density, setDensity] = useState<'comfortable' | 'dense'>(() => {
-    try { return (localStorage.getItem('parish_table_density') as 'comfortable' | 'dense') || 'comfortable'; } catch { return 'comfortable'; }
-  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
 
-  // Filter logic — Phase 0: deferred search keeps input 60fps (urgent) while list is transition (deferred)
+  // Filter logic
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
       const matchClass = selectedClassId === 'all' || s.classId === selectedClassId;
       const matchBranch = selectedBranchId === 'all' || s.branch === selectedBranchId;
-      const q = deferredSearchQuery.trim().toLowerCase();
-      const matchSearch = !q ||
-        s.fullName.toLowerCase().includes(q) ||
-        s.code.toLowerCase().includes(q) ||
-        s.holyName.toLowerCase().includes(q);
+      const matchSearch = !searchQuery ||
+        s.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.holyName.toLowerCase().includes(searchQuery.toLowerCase());
       return matchClass && matchBranch && matchSearch;
     });
-  }, [students, selectedClassId, selectedBranchId, deferredSearchQuery]);
+  }, [students, selectedClassId, selectedBranchId, searchQuery]);
 
   const totalFiltered = filteredStudents.length;
   const totalPages = Math.ceil(totalFiltered / pageSize);
@@ -95,11 +89,6 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
     setPageIndex(0);
-  };
-
-  const handleDensityChange = (d: 'comfortable' | 'dense') => {
-    setDensity(d);
-    try { localStorage.setItem('parish_table_density', d); } catch {}
   };
 
   const toggleSelect = (id: string) => {
@@ -138,7 +127,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       header: ({ table }) => {
         const meta = table.options.meta as any;
         return (
-          <button onClick={meta.toggleSelectPage} aria-label="Chọn tất cả học viên trên trang" className="w-11 h-11 -m-2 p-2 flex items-center justify-center text-text-muted hover:text-parish-primary transition-colors">
+          <button onClick={meta.toggleSelectPage} aria-label="Chọn tất cả học viên trên trang" className="p-1 text-text-muted hover:text-parish-primary transition-colors">
             {meta.pagedStudents.length > 0 && meta.pagedStudents.every((s: Student) => meta.selectedIds.has(s.id)) ? 
               <CheckSquare size={18} className="text-parish-primary" /> : <Square size={18} />
             }
@@ -147,16 +136,15 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       },
       cell: (info) => {
         const meta = info.table.options.meta as any;
-        const s = info.row.original as Student;
         return (
-          <button onClick={() => meta.toggleSelect(s.id)} aria-label={`Chọn ${s.holyName} ${s.fullName}`} className="w-11 h-11 -m-2 p-2 flex items-center justify-center text-text-muted hover:text-parish-primary transition-colors">
-            {meta.selectedIds.has(s.id) ? 
+          <button onClick={() => meta.toggleSelect(info.row.original.id)} aria-label="Chọn học viên" className="p-1 text-text-muted hover:text-parish-primary transition-colors">
+            {meta.selectedIds.has(info.row.original.id) ? 
               <CheckSquare size={18} className="text-parish-primary" /> : <Square size={18} />
             }
           </button>
         );
       },
-      size: 44,
+      size: 40,
     }),
     columnHelper.accessor('code', {
       header: 'Mã',
@@ -275,7 +263,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   });
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-6">
       {/* Header card */}
       <PageHeader
         icon={<Users className="text-parish-primary" size={24} />}
@@ -323,12 +311,6 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                 <option value="200">200 / trang</option>
                 <option value="all">Tất cả</option>
               </select>
-            </div>
-
-            {/* Density toggle — Phase 1 */}
-            <div className="pill-group" role="group" aria-label="Mật độ bảng">
-              <button type="button" onClick={() => handleDensityChange('comfortable')} aria-pressed={density === 'comfortable'} className={`pill-group-item ${density === 'comfortable' ? 'active' : ''}`}>Thoáng</button>
-              <button type="button" onClick={() => handleDensityChange('dense')} aria-pressed={density === 'dense'} className={`pill-group-item ${density === 'dense' ? 'active' : ''}`}>Gọn</button>
             </div>
 
             {/* Nút Sắp Xếp Cấp Bậc Lớp */}
@@ -411,14 +393,6 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Filter hint for non-admin — Phase 1: explain silent reset */}
-      {!isAdmin && hasClasses && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-xl text-xs font-medium text-sky-700 dark:text-sky-300">
-          <Info size={16} className="shrink-0" />
-          Bạn đang xem tất cả lớp được phân công — bộ lọc đã được tự động đặt về “Tất cả”.
-        </div>
-      )}
-
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl px-6 py-3.5 flex items-center justify-between gap-4 shadow-xl sticky top-4 z-20 animate-in slide-in-from-top-4 duration-300">
@@ -446,28 +420,24 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Table Section — Phase 1: sticky header + deferred stale + density */}
-      <div className={`bg-surface-card rounded-2xl border border-surface-border shadow-card overflow-hidden ${density === 'dense' ? 'density-dense' : 'density-comfortable'}`} aria-busy={isSearchStale} style={{ opacity: isSearchStale ? 0.7 : 1, transition: 'opacity 120ms var(--motion-ease-out)' }}>
-        <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
+      {/* Table Section */}
+      <div className="app-panel overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full text-base text-left border-collapse bg-surface-card text-text-main">
-            <thead className="sticky top-0 z-10">
+            <thead>
               <tr className="bg-surface-app border-b-2 border-surface-border">
                 {table.getHeaderGroups().map(headerGroup => (
-                  headerGroup.headers.map(header => {
-                    const sorted = (header.column.getIsSorted() as string) || false;
-                    const ariaSort = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined;
-                    return (
-                    <th key={header.id} aria-sort={ariaSort as any} className="px-6 py-4.5 font-bold text-text-muted text-xs uppercase tracking-wider bg-surface-app" style={{ width: header.getSize() }} scope="col">
+                  headerGroup.headers.map(header => (
+                    <th key={header.id} className="px-6 py-4.5 font-bold text-text-muted text-xs uppercase tracking-wider" style={{ width: header.getSize() }} scope="col">
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </th>
-                    );
-                  })
+                  ))
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-hover bg-surface-card">
               {table.getRowModel().rows.map(row => (
-                <tr key={row.id} className={`bg-surface-card hover:bg-surface-app transition-colors group ${density === 'dense' ? '[&>td]:py-2 [&>td]:px-4' : ''}`}>
+                <tr key={row.id} className="bg-surface-card hover:bg-surface-app transition-colors group">
                   {row.getVisibleCells().map(cell => (
                     <td key={cell.id} className="px-6 py-4 align-middle">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

@@ -20,19 +20,17 @@ export const MobileNoticesView: React.FC = () => {
   };
 
   return (
-    <div className="mobile-screen mobile-screen--stack" style={{ gap: '16px' }}>
+    <div className="mobile-screen mobile-screen--stack product-view">
       {/* Banner Header */}
-      <div className="bg-gradient-to-r from-parish-primary to-parish-primary-hover text-white rounded-2xl p-5 shadow-card flex justify-between items-center gap-2">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Bell size={20} className="text-yellow-300" />
-            <h2 className="text-base font-extrabold m-0">Thông Báo Giáo Xứ</h2>
+      <div className="mobile-page-header mobile-page-header--brand">
+        <div className="mobile-page-header__identity">
+          <div className="mobile-page-header__icon"><Bell size={20} /></div>
+          <div>
+            <h2 className="mobile-page-header__title">Thông Báo Giáo Xứ</h2>
+            <p className="mobile-page-header__description">Tin tức & thông báo mới nhất từ Xứ Đoàn</p>
           </div>
-          <p className="text-xs opacity-90 m-0">
-            Tin tức & thông báo mới nhất từ Xứ Đoàn
-          </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="mobile-page-header__actions">
           <span className="bg-white/20 text-white px-2.5 py-1 rounded-full text-xs font-bold">
             {notices.length} tin
           </span>
@@ -57,7 +55,7 @@ export const MobileNoticesView: React.FC = () => {
           notices.map(n => {
             const colors = priorityColors[n.priority as keyof typeof priorityColors] || priorityColors.normal;
             return (
-              <div key={n.id} className="bg-surface-card rounded-2xl p-4 border border-surface-border shadow-card flex flex-col gap-2">
+              <article key={n.id} className="entity-card p-4 flex flex-col gap-2">
                 <div className="flex justify-between items-start gap-2">
                   <h3 className="text-sm font-bold text-text-main m-0 leading-snug" style={{ color: colors.text }}>
                     {n.title}
@@ -96,7 +94,7 @@ export const MobileNoticesView: React.FC = () => {
                     )}
                   </div>
                 </div>
-              </div>
+              </article>
             );
           })
         )}

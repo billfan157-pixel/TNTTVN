@@ -47,10 +47,6 @@ export const DesktopGradeMatrix: React.FC = () => {
   const { restricted: _semesterRestricted, openSemester: _openSemester } = useSemesterAccess();
 
   const [matrixData, setMatrixData] = useState<Record<string, Partial<GradeRecord>>>({});
-  // Phase 1 (G-01): editingValues holds raw string while typing (allows "8," interim) — matrixData only holds parsed numbers
-  const [editingValues, setEditingValues] = useState<Record<string, string>>({});
-  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
-  const getCellKey = useCallback((studentId: string, field: string) => `${studentId}:${field}`, []);
   const [isOverrideModeEnabled, setIsOverrideModeEnabled] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -110,8 +106,6 @@ export const DesktopGradeMatrix: React.FC = () => {
   useEffect(() => {
     void saveDirtyRef.current()
     dirtyIdsRef.current.clear()
-    setEditingValues({})
-    inputRefs.current.clear()
     const normAY = matrixAcademicYear;
     const initialData: Record<string, Partial<GradeRecord>> = {};
     
@@ -167,70 +161,33 @@ export const DesktopGradeMatrix: React.FC = () => {
     setIsSaved(false);
   }, [selectedSemester, matrixAcademicYear]);
 
-  const handleScoreChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
-    const key = getCellKey(studentId, field as string);
-    const raw = e.target.value;
-    // Allow digits, comma, dot, empty — keep raw for typing experience
-    setEditingValues(prev => ({ ...prev, [key]: raw }));
-  }, [getCellKey]);
-
   const handleScoreBlur = useCallback((e: React.FocusEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
-    const key = getCellKey(studentId, field as string);
-    const raw = (editingValues[key] ?? e.target.value).trim();
-    setEditingValues(prev => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
+    const raw = e.target.value;
     if (raw === '') {
       updateField(studentId, field, null);
       return;
     }
     const val = parseFloat(raw.replace(',', '.'));
-    if (!isNaN(val) && val >= 0 && val <= 10) {
-      updateField(studentId, field, val);
-    } else if (!isNaN(val)) {
-      // Out of range 0-10 — keep previous and show error via toast? Keep raw as is for user to fix
+    if (!isNaN(val)) {
       updateField(studentId, field, val);
     } else {
-      // Invalid — revert display to previous value (remove editing)
+      const prev = matrixDataRef.current[studentId]?.[field];
+      e.target.value = prev === null || prev === undefined ? '' : String(prev);
     }
-  }, [updateField, editingValues, getCellKey]);
+  }, [updateField]);
 
-  const handleScoreFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-    e.target.select();
-  }, []);
-
-  const handleScoreKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
+  const handleScoreKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, _studentId: string, _field: keyof GradeRecord) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       e.currentTarget.blur();
-      const key = getCellKey(studentId, field as string);
-      // Focus next cell via ref map (stable, not DOM query)
-      const keys = Array.from(inputRefs.current.keys());
-      // Order is insertion order (row-major: student loop outer, field inner) — matches visual order
-      const idx = keys.indexOf(key);
-      if (idx !== -1 && idx + 1 < keys.length) {
-        const next = inputRefs.current.get(keys[idx + 1]);
-        next?.focus();
-        next?.select();
+      const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-matrix-cell="true"]'));
+      const idx = inputs.indexOf(e.currentTarget);
+      if (idx !== -1 && idx + 1 < inputs.length) {
+        inputs[idx + 1].focus();
+        inputs[idx + 1].select();
       }
     }
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const cols = 6; // scoreOral..scoreDaoDuc
-      const key = getCellKey(studentId, field as string);
-      const keys = Array.from(inputRefs.current.keys());
-      const idx = keys.indexOf(key);
-      if (idx === -1) return;
-      const nextIdx = e.key === 'ArrowDown' ? idx + cols : idx - cols;
-      if (nextIdx >= 0 && nextIdx < keys.length) {
-        const next = inputRefs.current.get(keys[nextIdx]);
-        next?.focus();
-        next?.select();
-      }
-    }
-  }, [getCellKey]);
+  }, []);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -293,27 +250,20 @@ export const DesktopGradeMatrix: React.FC = () => {
         cell: info => {
           const val = info.getValue();
           const { student } = info.row.original;
-          const isDisabled = !canEditGrades || (!isOverrideModeEnabled && field !== 'scoreDaoDuc' && field !== 'scoreOral');
-          const cellKey = getCellKey(student.id, field as string);
-          const displayValue = cellKey in editingValues ? editingValues[cellKey] : (val === null || val === undefined ? '' : String(val));
           return (
             <input
               type="text"
-              inputMode="decimal"
-              aria-label={`${field} của ${student.fullName}`}
               data-matrix-cell="true"
-              ref={el => {
-                if (el) inputRefs.current.set(cellKey, el);
-                else inputRefs.current.delete(cellKey);
-              }}
-              disabled={isDisabled}
-              title={isDisabled && canEditGrades ? 'Bật Chế Độ Điều Chỉnh để sửa điểm này' : undefined}
-              value={displayValue}
-              onChange={e => handleScoreChange(e, student.id, field)}
-              onFocus={handleScoreFocus}
+              disabled={!canEditGrades || (!isOverrideModeEnabled && field !== 'scoreDaoDuc' && field !== 'scoreOral')}
+              // P0.7 (audit desktop 2026-08-22): key theo giá trị → khi server-sync/import
+              // merge điểm mới vào matrixData (record KHÔNG dirty), input remount và hiển thị
+              // đúng giá trị mới thay vì giữ defaultValue stale đến khi remount trang.
+              // Trong lúc đang gõ record là dirty nên không bị merge → key ổn định, focus giữ nguyên.
+              key={`${student.id}:${field}:${val === null || val === undefined ? '' : String(val)}`}
+              defaultValue={val === null || val === undefined ? '' : String(val)}
               onBlur={e => handleScoreBlur(e, student.id, field)}
-              onKeyDown={e => handleScoreKeyDown(e, student.id, field as keyof GradeRecord)}
-              className="form-input w-14 h-9 text-center text-base font-black bg-surface-card text-text-main border border-surface-border rounded-xl outline-none transition-all disabled:bg-surface-app disabled:text-text-placeholder shadow-xs focus:border-parish-primary focus:shadow-[0_0_0_2px_white,0_0_0_4px_var(--color-parish-primary)] focus:ring-0"
+              onKeyDown={e => handleScoreKeyDown(e, student.id, field)}
+              className="form-input w-14 h-9 text-center text-base font-black bg-surface-card text-text-main border border-surface-border rounded-xl focus:border-parish-primary focus:ring-2 focus:ring-parish-primary/20 outline-none transition-all disabled:bg-surface-app disabled:text-text-placeholder shadow-xs"
             />
           );
         },
@@ -363,7 +313,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       ),
       size: 170,
     }),
-  ], [columnHelper, canEditGrades, isOverrideModeEnabled, handleScoreBlur, handleScoreKeyDown, handleScoreChange, handleScoreFocus, editingValues, getCellKey, formulaWeights, updateField]);
+  ], [columnHelper, canEditGrades, isOverrideModeEnabled, handleScoreBlur, handleScoreKeyDown, formulaWeights, updateField]);
 
   const table = useReactTable({
     data: tableData,
@@ -377,7 +327,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const currentClassName = classList.find(c => c.id === selectedClassId)?.name || 'Tất cả lớp';
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="product-view space-y-6 pb-10">
       {/* Modern Header */}
       <PageHeader
         icon={<FileSpreadsheet size={22} />}
@@ -441,7 +391,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       />
 
       {/* Sync Status Banner — PHA 5.6: card chuẩn DS thay strip near-black */}
-      <div className="flex items-center justify-between px-5 py-2.5 bg-surface-card rounded-2xl border border-surface-border shadow-card animate-in fade-in duration-500">
+      <div className="view-toolbar animate-in fade-in duration-500">
         <div className="flex items-center gap-3">
           {isDirty ? (
             <div className="flex items-center gap-2 text-[var(--color-parish-warning)] text-[11px] font-black uppercase tracking-wider">

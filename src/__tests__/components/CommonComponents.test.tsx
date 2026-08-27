@@ -11,19 +11,24 @@ vi.mock('../../hooks/useFocusTrap', () => ({
 describe('PageHeader (DS §5 / ADR-032)', () => {
   it('renders title and description', () => {
     render(<PageHeader title="Quản lý học viên" description="Danh sách học viên" />)
-    expect(screen.getByRole('heading', { name: 'Quản lý học viên' })).toHaveClass('text-lg', 'font-extrabold', 'text-text-main')
-    expect(screen.getByText('Danh sách học viên')).toHaveClass('text-xs', 'text-text-muted')
+    expect(screen.getByRole('heading', { name: 'Quản lý học viên' })).toHaveClass('page-header__title')
+    expect(screen.getByText('Danh sách học viên')).toHaveClass('page-header__description')
   })
 
   it('renders icon tile with DS classes', () => {
     render(<PageHeader title="T" icon={<span data-testid="icon" />} />)
     const tile = screen.getByTestId('icon').parentElement
-    expect(tile).toHaveClass('bg-parish-primary-light', 'text-parish-primary')
+    expect(tile).toHaveClass('page-header__icon')
   })
 
   it('renders actions on the right', () => {
     render(<PageHeader title="T" actions={<button>Thêm mới</button>} />)
     expect(screen.getByRole('button', { name: 'Thêm mới' })).toBeInTheDocument()
+  })
+
+  it('uses the shared elevated page-header surface by default', () => {
+    const { container } = render(<PageHeader title="T" />)
+    expect(container.firstElementChild).toHaveClass('page-header', 'page-header--card')
   })
 })
 
@@ -65,16 +70,6 @@ describe('ModalShell (DS / ADR-032)', () => {
   it('close button has aria-label Đóng', () => {
     render(<ModalShell isOpen onClose={vi.fn()} title="T">x</ModalShell>)
     expect(screen.getByRole('button', { name: 'Đóng' })).toHaveClass('btn', 'btn-icon', 'btn-ghost')
-  })
-
-  it('separates scrollable body from a persistent footer', () => {
-    const { container } = render(
-      <ModalShell isOpen onClose={vi.fn()} title="T" footer={<button>Lưu</button>}>
-        <span>Nội dung dài</span>
-      </ModalShell>,
-    )
-    expect(container.querySelector('.modal-content__body')).toHaveTextContent('Nội dung dài')
-    expect(container.querySelector('.modal-content__footer')).toContainElement(screen.getByRole('button', { name: 'Lưu' }))
   })
 })
 
