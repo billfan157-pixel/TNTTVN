@@ -77,14 +77,6 @@ interface ImportRollbackSnapshot {
   previousServiceAssigned?: boolean
 }
 
-interface ImportRollbackSnapshot {
-  version: 1
-  kind: 'created' | 'updated'
-  appliedUpdatedAt: string
-  previousStudent?: typeof students.$inferSelect
-  previousServiceAssigned?: boolean
-}
-
 async function mapConcurrent<T, R>(items: T[], fn: (item: T) => Promise<R>, concurrency: number): Promise<R[]> {
   const results: R[] = []
   for (let i = 0; i < items.length; i += concurrency) {
@@ -970,6 +962,7 @@ export async function importStudents(
   userAgent: string,
   allowedClassIds?: string[] | null,
 ): Promise<ImportResult> {
+  await clearExpiredImportRollbackSnapshots(parishId)
   // import_batches.user_id references users.id. Auth normally guarantees this,
   // but a stale token or a database restored without its user row otherwise
   // surfaces as an opaque SQLITE_CONSTRAINT during the INSERT below.
@@ -1089,7 +1082,9 @@ export async function importStudents(
   })
 
   try {
-    const dupMap = await detectDuplicates(normalizedRows, parishId, allowedClassIds)
+    // Commit-time duplicate guard scans the parish. Rows that collide outside a
+    // class-scoped user's assignments fail generically without exposing identity.
+    const dupMap = await detectDuplicates(normalizedRows, parishId)
     const ayCache = new Map<string, string>()
 
   async function resolveClassId(tx: DbTransaction, rowClassName: string, rowBranch: string): Promise<string | null> {
@@ -1160,6 +1155,7 @@ export async function importStudents(
 
       let rowResult: 'created' | 'updated' | 'skipped' | 'class_error' = 'class_error'
       let studentId = ''
+      let rowFailureMessage = ''
 
       await db.transaction(async (tx) => {
         const classId = await resolveClassId(tx, row.className || '', row.branch || '')
@@ -1173,6 +1169,18 @@ export async function importStudents(
         // Server-authoritative fail-closed policy: a missing/tampered duplicate
         // decision can never silently create or overwrite a student.
         const dupAction = dup ? (duplicateActions[String(row.rowIndex)] || 'skip') : 'create'
+
+        if (dup && dup.studentId !== 'intra-file' && allowedClassSet != null) {
+          const [duplicateStudent] = await tx.select({ classId: students.classId }).from(students).where(and(
+            eq(students.id, dup.studentId), eq(students.parishId, parishId), isNull(students.deletedAt),
+          )).limit(1)
+          if (!duplicateStudent || !allowedClassSet.has(duplicateStudent.classId)) {
+            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+            rowFailureMessage = 'Có hồ sơ tương tự ngoài phạm vi lớp được phân công; vui lòng nhờ quản trị viên kiểm tra'
+            rowResult = 'class_error'
+            return
+          }
+        }
 
         if (dup && dupAction === 'skip') {
           await tx.insert(importBatchStudents).values({
@@ -1188,6 +1196,7 @@ export async function importStudents(
           if (dup.studentId === 'intra-file') {
             await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
             rowResult = 'class_error'
+            rowFailureMessage = 'Không thể cập nhật từ dòng trùng trong cùng file; hãy chọn Bỏ qua hoặc Tạo mới'
             return
           }
           studentId = dup.studentId
@@ -1294,7 +1303,7 @@ export async function importStudents(
         rowResult = 'created'
       })
 
-      if (rowResult === 'class_error') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [`Không xác định được lớp: ${row.className}`] }
+      if (rowResult === 'class_error') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [rowFailureMessage || `Không xác định được lớp: ${row.className}`] }
       if (rowResult === 'skipped') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'skipped' as const, errors: [] as string[] }
       // created / updated đều là imported
       return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported' as const, errors: [] as string[] }
@@ -1497,6 +1506,7 @@ async function hasStudentActivityAfterImport(tx: DbTransaction, studentId: strin
 }
 
 export async function undoImport(batchId: string, parishId: string): Promise<{ undone: number; errors: string[] }> {
+  await clearExpiredImportRollbackSnapshots(parishId)
   const [batch] = await db
     .select()
     .from(importBatches)
@@ -1506,7 +1516,7 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
   if (!batch) throw new Error('Không tìm thấy batch import')
   if (!['completed', 'partial'].includes(batch.status)) throw new Error('Batch này đã được hoàn tác hoặc đang xử lý')
 
-  const undoWindow = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const undoWindow = new Date(Date.now() - ROSTER_UNDO_WINDOW_MS).toISOString()
   if (batch.createdAt < undoWindow) throw new Error('Chỉ có thể hoàn tác trong vòng 24 giờ sau khi import')
 
   const result = { undone: 0, errors: [] as string[] }
@@ -1518,55 +1528,91 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
       .where(and(eq(importBatchStudents.batchId, batchId)))
 
     for (const bs of batchStudents) {
-      if (bs.action === 'created' && bs.studentId) {
-        await tx.update(students)
-          .set({ deletedAt: new Date().toISOString() })
-          .where(and(eq(students.id, bs.studentId), eq(students.parishId, parishId)))
-        result.undone++
+      if (!bs.studentId || !['created', 'updated'].includes(bs.action)) continue
+      const snapshot = parseRollbackSnapshot(bs.rollbackSnapshot)
+      if (!snapshot || snapshot.kind !== bs.action) {
+        result.errors.push(`Dòng ${bs.rowIndex}: thiếu snapshot hoàn tác an toàn; không thay đổi dữ liệu`)
+        continue
       }
-      if (bs.action === 'updated' && bs.studentId) {
-        const audit = await tx
-          .select({ oldValue: auditLogs.oldValue })
-          .from(auditLogs)
-          .where(and(
-            eq(auditLogs.entityId, bs.studentId),
-            eq(auditLogs.action, 'IMPORT_UPDATE'),
-            eq(auditLogs.userId, batch.userId),
-            eq(auditLogs.parishId, parishId),
+
+      const [current] = await tx.select().from(students).where(and(
+        eq(students.id, bs.studentId), eq(students.parishId, parishId),
+      )).limit(1)
+      if (!current || current.deletedAt || current.updatedAt !== snapshot.appliedUpdatedAt) {
+        result.errors.push(`Dòng ${bs.rowIndex}: học viên đã thay đổi sau import; từ chối hoàn tác để tránh mất dữ liệu`)
+        continue
+      }
+
+      const now = new Date().toISOString()
+      if (snapshot.kind === 'created') {
+        if (await hasStudentActivityAfterImport(tx, bs.studentId, parishId)) {
+          result.errors.push(`Dòng ${bs.rowIndex}: học viên đã có dữ liệu liên quan; không thể hoàn tác tự động`)
+          continue
+        }
+        await tx.delete(serviceAssignments).where(and(
+          eq(serviceAssignments.studentId, bs.studentId), eq(serviceAssignments.parishId, parishId),
+        ))
+        await tx.update(students).set({ deletedAt: now, updatedAt: now, updatedBy: batch.userId }).where(and(
+          eq(students.id, bs.studentId), eq(students.parishId, parishId),
+        ))
+      } else {
+        const previous = snapshot.previousStudent
+        if (!previous) {
+          result.errors.push(`Dòng ${bs.rowIndex}: snapshot cập nhật không đầy đủ; không thay đổi dữ liệu`)
+          continue
+        }
+        await tx.update(students).set({
+          code: previous.code, holyName: previous.holyName, fullName: previous.fullName,
+          gender: previous.gender, dateOfBirth: previous.dateOfBirth,
+          baptismDate: previous.baptismDate, firstCommunionDate: previous.firstCommunionDate,
+          confirmationDate: previous.confirmationDate, parentName: previous.parentName,
+          parentPhone: previous.parentPhone, address: previous.address, branch: previous.branch,
+          classId: previous.classId, avatarUrl: previous.avatarUrl, status: previous.status,
+          notes: previous.notes, deletedAt: previous.deletedAt, idempotencyKey: previous.idempotencyKey,
+          updatedAt: now, updatedBy: batch.userId,
+        }).where(and(eq(students.id, bs.studentId), eq(students.parishId, parishId)))
+
+        if (snapshot.previousServiceAssigned) {
+          await tx.insert(serviceAssignments).values({
+            id: generateId('SA'), studentId: bs.studentId, serviceType: 'le_phuc_vu', parishId, createdBy: batch.userId,
+          }).onConflictDoNothing()
+        } else {
+          await tx.delete(serviceAssignments).where(and(
+            eq(serviceAssignments.studentId, bs.studentId), eq(serviceAssignments.serviceType, 'le_phuc_vu'),
+            eq(serviceAssignments.parishId, parishId),
           ))
-          .orderBy(desc(auditLogs.createdAt))
-          .limit(1)
-        if (audit.length > 0 && audit[0].oldValue) {
-          const oldData = JSON.parse(audit[0].oldValue)
-          const { id: _id, parishId: _pId, createdAt: _cA, ...restorableFields } = oldData
-          await tx.update(students)
-            .set({ ...restorableFields, updatedAt: new Date().toISOString(), updatedBy: batch.userId })
-            .where(and(eq(students.id, bs.studentId), eq(students.parishId, parishId)))
-          result.undone++
         }
       }
+
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'), userId: batch.userId, action: 'UNDO_IMPORT', entityType: 'student', entityId: bs.studentId,
+        oldValue: JSON.stringify(redactStudentForAudit(current)),
+        newValue: JSON.stringify({ batchId, rowIndex: bs.rowIndex, restored: snapshot.kind }), parishId,
+      })
+      await tx.update(importBatchStudents).set({ rollbackSnapshot: null }).where(and(
+        eq(importBatchStudents.id, bs.id), eq(importBatchStudents.parishId, parishId),
+      ))
+      result.undone++
     }
 
-    // Delete newly created classes
-    const createdClasses: string[] = JSON.parse(batch.classesCreated || '[]')
-    if (createdClasses.length > 0) {
-      const clsToDelete = await tx
-        .select({ id: classes.id })
-        .from(classes)
-        .where(and(
-          inArray(classes.name, createdClasses),
-          eq(classes.parishId, parishId),
-        ))
-      for (const cls of clsToDelete) {
+    let createdClassIds: string[] = []
+    try { createdClassIds = JSON.parse(batch.createdClassIds || '[]') } catch {}
+    for (const classId of createdClassIds) {
+      const [activeStudent] = await tx.select({ id: students.id }).from(students).where(and(
+        eq(students.classId, classId), eq(students.parishId, parishId), isNull(students.deletedAt),
+      )).limit(1)
+      if (!activeStudent) {
         await tx.update(classes)
           .set({ deletedAt: new Date().toISOString() })
-          .where(and(eq(classes.id, cls.id), eq(classes.parishId, parishId)))
+          .where(and(eq(classes.id, classId), eq(classes.parishId, parishId)))
       }
     }
 
-    await tx.update(importBatches)
-      .set({ status: 'undone' })
-      .where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
+    if (result.undone > 0) {
+      await tx.update(importBatches)
+        .set({ status: result.errors.length > 0 ? 'partial_undone' : 'undone' })
+        .where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
+    }
   })
 
   return result
@@ -1596,6 +1642,7 @@ export async function detectOrphanClasses(parishId: string): Promise<string[]> {
 }
 
 export async function getImportHistory(parishId: string, limit = 20, offset = 0, userId?: string) {
+  await clearExpiredImportRollbackSnapshots(parishId)
   const conditions = [eq(importBatches.parishId, parishId)]
   if (userId) {
     conditions.push(eq(importBatches.userId, userId))

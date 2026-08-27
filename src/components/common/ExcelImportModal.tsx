@@ -7,6 +7,7 @@ import { api } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useToastStore } from '../../stores/toastStore'
+import { rowsToSafeCsv } from '../../utils/csv'
 
 interface Props {
   isOpen: boolean
@@ -14,6 +15,11 @@ interface Props {
 }
 
 type Step = 'upload' | 'review' | 'report' | 'history'
+type DuplicateAction = 'skip' | 'update' | 'create'
+
+const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024
+const MAX_IMPORT_ROWS = 2000
+const MAX_IMPORT_TEXT_CHARS = 10 * 1024 * 1024
 
 const FIELD_LABELS: Record<string, string> = {
   holyName: 'Tên Thánh',
@@ -37,7 +43,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [validationRows, setValidationRows] = useState<any[]>([])
   const [classMappings, setClassMappings] = useState<Record<string, string | null>>({})
   const [newClasses, setNewClasses] = useState<{ name: string; branch: string; academicYearId: string }[]>([])
-  const [duplicateActions, setDuplicateActions] = useState<Record<string, 'skip' | 'update'>>({})
+  const [duplicateActions, setDuplicateActions] = useState<Record<string, DuplicateAction>>({})
   const [importResult, setImportResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -96,7 +102,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   const readFile = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
+      const extension = file.name.toLowerCase().split('.').pop() || ''
+      if (!['xlsx', 'xls', 'csv', 'txt'].includes(extension)) return reject(new Error('Chỉ hỗ trợ file .xlsx, .xls, .csv hoặc .txt'))
+      if (file.size > MAX_IMPORT_FILE_BYTES) return reject(new Error('File vượt quá giới hạn 10 MB'))
+      const isExcel = extension === 'xlsx' || extension === 'xls'
       const reader = new FileReader()
       reader.onload = (e) => {
         if (isExcel) {
@@ -104,9 +113,12 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
           void (async () => {
             const XLSX = await loadXlsx()
             const data = new Uint8Array(e.target?.result as ArrayBuffer)
-            const workbook = XLSX.read(data, { type: 'array' })
+            const workbook = XLSX.read(data, {
+              type: 'array', dense: true, sheetRows: MAX_IMPORT_ROWS + 12,
+              cellFormula: false, cellHTML: false, bookVBA: false,
+            })
             const sheet = workbook.Sheets[workbook.SheetNames[0]]
-            const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 })
+            const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '' })
             const text = rows.map(r => r.map((c: any) => c ?? '').join('\t')).join('\n')
             resolve(text)
           })().catch(reject)
@@ -121,6 +133,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   const parseText = (text: string) => {
+    if (text.length > MAX_IMPORT_TEXT_CHARS) {
+      setError('Nội dung vượt quá giới hạn 10 MB')
+      setRawRows([])
+      return
+    }
     const lines = text.split(/\r?\n/).filter(l => l.trim())
     const parsed = lines.map(line => {
       const delim = line.includes('\t') ? '\t' : line.includes(',') ? ',' : ';'
@@ -133,6 +150,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
     setError('')
     const dataRows = parsed.slice(headerIndex + 1).filter(r => r.some(c => c))
+    if (dataRows.length > MAX_IMPORT_ROWS) {
+      setError(`File có ${dataRows.length} dòng dữ liệu; giới hạn tối đa là ${MAX_IMPORT_ROWS} dòng mỗi lượt import`)
+      setRawRows([])
+      return
+    }
     setRawRows(dataRows)
     setColMap(detected)
     const headerRow = parsed[headerIndex]
@@ -146,8 +168,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     try {
       const text = await readFile(file)
       parseText(text)
-    } catch {
-      setError('Không thể đọc file. Vui lòng thử lại.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đọc file. Vui lòng thử lại.')
     }
   }
 
@@ -205,7 +227,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       setClassMappings(mappings)
       setNewClasses(newCls)
 
-      const dupActions: Record<string, 'skip' | 'update'> = {}
+      const dupActions: Record<string, DuplicateAction> = {}
       for (const r of result.rows) {
         if (r.duplicateOf) dupActions[String(r.rowIndex)] = 'skip'
       }
@@ -303,6 +325,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const validRows = validationRows.filter((r: any) => r.isValid)
   const invalidRows = validationRows.filter((r: any) => !r.isValid && !r.duplicateOf)
   const dupRows = validationRows.filter((r: any) => r.duplicateOf)
+  const plannedImportCount = validRows.length + dupRows.filter((r: any) => {
+    const action = duplicateActions[String(r.rowIndex)] || 'skip'
+    return action === 'update' || action === 'create'
+  }).length
 
   const BRANCH_KEYWORDS: Record<string, string[]> = {
     ChienCon: ['chien con', 'chiên con', 'cc', 'chien'],
@@ -345,8 +371,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const missingPhoneCount = countErrorType('điện thoại')
 
   const exportCsv = (data: any[], filename: string) => {
-    const headers = Object.keys(data[0] || {})
-    const csv = [headers.join(','), ...data.map(r => headers.map(h => `"${String(r[h] || '').replace(/"/g, '""')}"`).join(','))].join('\n')
+    const csv = rowsToSafeCsv(data)
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -571,7 +596,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200">
                   <div className="text-2xl font-bold text-blue-600">{dupRows.length}</div>
                   <div className="text-xs text-blue-700 font-medium">Trùng lặp</div>
-                  <div className="text-[10px] text-blue-500 mt-1">{dupRows.filter(r => duplicateActions[String(r.rowIndex)] === 'skip').length} bỏ qua, {dupRows.filter(r => duplicateActions[String(r.rowIndex)] === 'update').length} cập nhật</div>
+                  <div className="text-[10px] text-blue-500 mt-1">
+                    {dupRows.filter(r => duplicateActions[String(r.rowIndex)] === 'skip').length} bỏ qua,{' '}
+                    {dupRows.filter(r => duplicateActions[String(r.rowIndex)] === 'update').length} cập nhật,{' '}
+                    {dupRows.filter(r => duplicateActions[String(r.rowIndex)] === 'create').length} tạo mới
+                  </div>
                 </div>
                 <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg border border-purple-200">
                   <div className="text-2xl font-bold text-purple-600">{unmatchedClassNames.length}</div>
@@ -654,10 +683,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                           <select
                             className="text-xs px-2 py-1 border border-surface-border rounded bg-surface-card"
                             value={duplicateActions[String(r.rowIndex)] || 'skip'}
-                            onChange={e => setDuplicateActions(prev => ({ ...prev, [String(r.rowIndex)]: e.target.value as 'skip' | 'update' }))}
+                            onChange={e => setDuplicateActions(prev => ({ ...prev, [String(r.rowIndex)]: e.target.value as DuplicateAction }))}
                           >
                             <option value="skip">Giữ nguyên lớp cũ</option>
                             <option value="update">Chuyển sang lớp mới</option>
+                            <option value="create">Đây là người khác — tạo mới</option>
                           </select>
                         </div>
                       </div>
@@ -712,10 +742,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         <select
                           className="text-xs px-2 py-1 border border-surface-border rounded bg-surface-card"
                           value={duplicateActions[String(r.rowIndex)] || 'skip'}
-                          onChange={e => setDuplicateActions(prev => ({ ...prev, [String(r.rowIndex)]: e.target.value as 'skip' | 'update' }))}
+                          onChange={e => setDuplicateActions(prev => ({ ...prev, [String(r.rowIndex)]: e.target.value as DuplicateAction }))}
                         >
                           <option value="skip">Bỏ qua</option>
-                          <option value="update">Cập nhật</option>
+                          {r.duplicateOf?.studentId !== 'intra-file' && <option value="update">Cập nhật hồ sơ hiện có</option>}
+                          <option value="create">Đây là người khác — tạo mới</option>
                         </select>
                       </div>
                     ))}
@@ -1191,11 +1222,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
             {step === 'review' && (
               <button
                 onClick={handleImport}
-                disabled={loading || validRows.length === 0}
+                disabled={loading || plannedImportCount === 0}
                 className="btn btn-primary text-sm font-semibold flex items-center gap-2"
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>Import Dữ Liệu ({validRows.length} học viên)</span>
+                <span>Import Dữ Liệu ({plannedImportCount} học viên)</span>
               </button>
             )}
 

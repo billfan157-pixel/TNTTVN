@@ -181,7 +181,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
           fileName: 'test_new_class.xlsx',
         }),
       })
-      expect(res.status).toBe(500)
+      expect(res.status).toBe(403)
       const json = (await res.json()) as any
       expect(json.error.message).toContain('không có quyền tạo mới lớp')
     })
