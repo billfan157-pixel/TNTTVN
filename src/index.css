@@ -2336,10 +2336,10 @@ table td {
 .page-header__title {
   margin: 0;
   color: var(--color-text-main);
-  font-size: 21px;
-  font-weight: 780;
-  letter-spacing: -0.025em;
-  line-height: 1.25;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 
 .page-header__description {

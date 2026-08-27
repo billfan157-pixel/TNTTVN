@@ -6,6 +6,7 @@ import { useClassStore } from '../../stores/classStore'
 import { api } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useToastStore } from '../../stores/toastStore'
 
 interface Props {
   isOpen: boolean
@@ -52,6 +53,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const academicYears = useClassStore((s) => s.academicYears)
   const activeAcademicYears = academicYears.filter(a => !a.isLocked)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
+  const addToast = useToastStore((s) => s.addToast)
   // PHA 1 (audit A19): focus trap
   const trapRef = useFocusTrap(isOpen)
 
@@ -212,14 +214,15 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       setStep('review')
     } catch (err: any) {
       const msg = err?.message || 'Lỗi kết nối server. Vui lòng thử lại.'
+      let display = msg
       // 500 từ validate đã được server log (VALIDATE_IMPORT_FAILED) — hiển thị chi tiết để user báo admin
       if (err?.status === 500) {
-        setError(`${msg} (mã lỗi 500 — vui lòng báo quản trị viên kiểm tra log server)`)
+        display = `${msg} (mã lỗi 500 — vui lòng báo quản trị viên kiểm tra log server)`
       } else if (err?.status === 400) {
-        setError(`Dữ liệu không hợp lệ: ${msg}`)
-      } else {
-        setError(msg)
+        display = `Dữ liệu không hợp lệ: ${msg}`
       }
+      setError(display)
+      addToast(display, 'error', 6000)
     } finally {
       setLoading(false)
     }
@@ -239,9 +242,18 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       })
       setImportResult(result)
       setStep('report')
+      // Toast rõ ràng cho cả thành công và thất bại từng phần — user thấy ngay cả khi không nhìn report
+      if (result.errors > 0 && result.imported === 0 && result.skipped === 0) {
+        addToast(`Import thất bại: ${result.errors} lỗi — kiểm tra bảng chi tiết`, 'error', 6000)
+      } else if (result.errors > 0) {
+        addToast(`Import hoàn tất: ${result.imported} thành công, ${result.errors} lỗi, ${result.skipped} bỏ qua`, 'info', 6000)
+      } else {
+        addToast(`Import thành công: ${result.imported} học viên đã được thêm${result.classesCreated?.length ? `, ${result.classesCreated.length} lớp mới` : ''}`, 'success', 5000)
+      }
     } catch (err: any) {
       const msg = err?.message || 'Lỗi khi import. Vui lòng thử lại.'
       setError(msg)
+      addToast(msg, 'error', 6000)
     } finally {
       setLoading(false)
     }
@@ -252,6 +264,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setUndoing(true)
     try {
       await api.undoImport(importResult.batchId)
+      addToast(`Đã hoàn tác ${importResult.imported} học viên`, 'success', 4000)
       await askConfirm({
         title: 'Hoàn tác thành công',
         message: `Đã hoàn tác import. ${importResult.imported} học viên đã được xóa (soft-delete).`,
@@ -260,9 +273,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
         showCancel: false,
       })
     } catch (err: any) {
+      const msg = err?.message || 'Không thể hoàn tác. Batch có thể đã hết hạn 10 phút.'
+      addToast(msg, 'error', 5000)
       await askConfirm({
         title: 'Không thể hoàn tác',
-        message: err?.message || 'Không thể hoàn tác. Batch có thể đã hết hạn 10 phút.',
+        message: msg,
         confirmText: 'OK',
         variant: 'warning',
         showCancel: false,
@@ -876,6 +891,24 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {step === 'report' && importResult && (
             <div className="p-6 space-y-6">
+              {/* Banner rõ ràng thành công/thất bại */}
+              <div className={`flex items-start gap-3 p-4 rounded-xl border ${importResult.errors > 0 && importResult.imported === 0 ? 'bg-rose-50 dark:bg-rose-950 border-rose-200 text-rose-700' : importResult.errors > 0 ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 text-amber-800' : 'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 text-emerald-700'}`}>
+                <div className={`p-2 rounded-full shrink-0 ${importResult.errors > 0 && importResult.imported === 0 ? 'bg-rose-100 text-rose-600' : importResult.errors > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                  {importResult.errors > 0 && importResult.imported === 0 ? <AlertTriangle className="w-5 h-5" /> : importResult.errors > 0 ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">
+                    {importResult.errors > 0 && importResult.imported === 0 ? 'Import thất bại' : importResult.errors > 0 ? 'Import hoàn tất — có lỗi' : 'Import thành công'}
+                  </h3>
+                  <p className="text-xs mt-1 opacity-90">
+                    {importResult.errors > 0 && importResult.imported === 0
+                      ? `Không có học viên nào được import. ${importResult.errors} dòng lỗi — xem bảng chi tiết bên dưới.`
+                      : importResult.errors > 0
+                        ? `${importResult.imported} học viên đã import, ${importResult.errors} lỗi, ${importResult.skipped} bỏ qua.`
+                        : `${importResult.imported} học viên đã được thêm vào hệ thống${importResult.classesCreated?.length ? `, ${importResult.classesCreated.length} lớp mới đã tạo` : ''}.`}
+                  </p>
+                </div>
+              </div>
               <div className="p-3 bg-surface-app rounded-lg border border-surface-border text-sm">
                 <span className="font-semibold text-text-main">
                   {importResult.report?.length || 0} dòng

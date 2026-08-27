@@ -269,16 +269,16 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         icon={<Users className="text-parish-primary" size={24} />}
         title="Danh Sách Thiếu Nhi"
         description={
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
-            Hiển thị <span className="text-parish-primary font-bold">{start + 1}-{Math.min(start + pageSize, totalFiltered)}</span> trên tổng số <span className="text-parish-primary font-bold">{totalFiltered}</span> em
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0"></span>
+            <span>Hiển thị <span className="text-parish-primary font-bold">{start + 1}-{Math.min(start + pageSize, totalFiltered)}</span> trên tổng số <span className="text-parish-primary font-bold">{totalFiltered}</span> em</span>
           </span>
         }
         actions={
-          <>
-            {/* Quick Search */}
-            <div className="relative w-full max-w-[224px]">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder" />
+          <div className="flex flex-wrap items-center gap-2 justify-end w-full lg:w-auto">
+            {/* Quick Search — flex-1 để co giãn, không đẩy vỡ layout */}
+            <div className="relative flex-1 min-w-[180px] max-w-[260px]">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
               <input
                 type="text"
                 placeholder="Tìm theo tên, mã thiếu nhi..."
@@ -289,15 +289,16 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-text-secondary text-xs font-bold"
+                  aria-label="Xóa tìm kiếm"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-text-secondary text-xs font-bold p-1"
                 >
                   ×
                 </button>
               )}
             </div>
 
-            <div className="flex items-center gap-2 bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner">
-              <span className="text-[10px] font-black text-text-secondary uppercase px-2">Xem:</span>
+            <div className="flex items-center gap-2 bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner shrink-0">
+              <span className="text-[10px] font-black text-text-secondary uppercase px-2 whitespace-nowrap">Xem:</span>
               <select
                 value={pageSize}
                 onChange={(e) => {
@@ -313,8 +314,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               </select>
             </div>
 
-            {/* Nút Sắp Xếp Cấp Bậc Lớp */}
-            <div className="flex items-center bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner gap-1">
+            {/* Nút Sắp Xếp Cấp Bậc Lớp — gọn hơn trên desktop hẹp */}
+            <div className="flex items-center bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -324,7 +325,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                     setSorting([{ id: 'classId', desc: false }])
                   }
                 }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
                   sorting[0]?.id === 'classId' && !sorting[0]?.desc
                     ? 'bg-parish-primary text-white shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
@@ -332,7 +333,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                 title="Sắp xếp danh sách học sinh theo lớp từ thấp đến cao (Chiên -> Ấu 1A -> Ấu 1B...)"
               >
                 <ArrowDownAZ size={14} />
-                <span>Lớp: Thấp → Cao</span>
+                <span className="hidden xl:inline">Lớp: Thấp → Cao</span>
+                <span className="xl:hidden">Thấp → Cao</span>
               </button>
               <button
                 type="button"
@@ -343,7 +345,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                     setSorting([{ id: 'classId', desc: true }])
                   }
                 }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
                   sorting[0]?.id === 'classId' && sorting[0]?.desc
                     ? 'bg-parish-primary text-white shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
@@ -351,27 +353,28 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                 title="Sắp xếp danh sách học sinh theo lớp từ cao đến thấp (Hiệp 2 -> ... -> Chiên)"
               >
                 <ArrowDownZA size={14} />
-                <span>Lớp: Cao → Thấp</span>
+                <span className="hidden xl:inline">Lớp: Cao → Thấp</span>
+                <span className="xl:hidden">Cao → Thấp</span>
               </button>
             </div>
             
             {canEdit && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0">
                 <button 
                   onClick={onImportStudents} 
-                  className="flex items-center gap-1.5 px-4 py-2 bg-surface-card border border-surface-border text-text-main font-bold text-xs rounded-xl shadow-sm hover:bg-surface-hover transition-all active:scale-95"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-surface-card border border-surface-border text-text-main font-bold text-xs rounded-xl shadow-sm hover:bg-surface-hover transition-all active:scale-95 whitespace-nowrap"
                 >
                   <Upload size={14} /> Import Excel
                 </button>
                 <button 
                   onClick={onOpenAddStudent} 
-                  className="flex items-center gap-1.5 px-4 py-2 bg-parish-primary text-white font-bold text-xs rounded-xl shadow-md hover:bg-parish-primary-hover transition-all active:scale-95"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-parish-primary text-white font-bold text-xs rounded-xl shadow-md hover:bg-parish-primary-hover transition-all active:scale-95 whitespace-nowrap"
                 >
                   <UserPlus size={14} /> Thêm Mới
                 </button>
               </div>
             )}
-          </>
+          </div>
         }
       />
 
