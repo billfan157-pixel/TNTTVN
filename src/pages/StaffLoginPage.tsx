@@ -53,7 +53,7 @@ export function StaffLoginPage() {
         <div>
           <label className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Tên Đăng Nhập</label>
           <div className="relative">
-            <User className="w-4 h-4 absolute left-3.5 top-3.5 text-text-muted" />
+            <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               type="text"
               required
@@ -61,7 +61,7 @@ export function StaffLoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Tên đăng nhập giáo lý viên..."
               autoComplete="username"
-              className="form-input w-full pl-10"
+              className="form-input w-full !pl-10"
             />
           </div>
         </div>
@@ -69,7 +69,7 @@ export function StaffLoginPage() {
         <div>
           <label className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Mật Khẩu</label>
           <div className="relative">
-            <Lock className="w-4 h-4 absolute left-3.5 top-3.5 text-text-muted" />
+            <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               type={showPassword ? 'text' : 'password'}
               required
@@ -77,9 +77,9 @@ export function StaffLoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu..."
               autoComplete="current-password"
-              className="form-input w-full pl-10 pr-10"
+              className="form-input w-full !pl-10 !pr-11"
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3 text-text-muted hover:text-text-main">
+            <button type="button" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>

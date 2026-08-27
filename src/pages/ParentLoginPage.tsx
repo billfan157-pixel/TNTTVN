@@ -56,15 +56,19 @@ export function ParentLoginPage() {
         <div>
           <label className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Số Điện Thoại Phụ Huynh</label>
           <div className="relative">
-            <Phone className="w-4 h-4 absolute left-3.5 top-3.5 text-text-muted" />
+            <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
-              type="text"
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              enterKeyHint="next"
               required
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="0901234567"
               autoComplete="username"
-              className="form-input w-full pl-10"
+              aria-label="Số điện thoại phụ huynh"
+              className="form-input w-full !pl-10"
             />
           </div>
         </div>
@@ -81,7 +85,7 @@ export function ParentLoginPage() {
             </button>
           </div>
           <div className="relative">
-            <Lock className="w-4 h-4 absolute left-3.5 top-3.5 text-text-muted" />
+            <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               ref={passwordInputRef}
               type={showPassword ? 'text' : 'password'}
@@ -90,9 +94,9 @@ export function ParentLoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu..."
               autoComplete="current-password"
-              className="form-input w-full pl-10 pr-10"
+              className="form-input w-full !pl-10 !pr-11"
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute right-3 top-3 text-text-muted hover:text-text-main">
+            <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
