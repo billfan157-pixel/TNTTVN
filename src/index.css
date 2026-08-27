@@ -2556,6 +2556,64 @@ table td {
   scrollbar-gutter: stable;
 }
 
+/* Route motion lives at the shared router boundary so every page uses one
+   restrained transition while the desktop/mobile navigation shell stays put. */
+.route-transition-frame {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  view-transition-name: app-page;
+}
+
+@keyframes routePageEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes routePageExit {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-2px); }
+}
+
+/* Browsers without document.startViewTransition still receive a lightweight
+   enter. Runtime detection is required because CSS support may exist while the
+   JavaScript API is disabled or unavailable. */
+.route-transition-frame--fallback {
+  animation: routePageEnter var(--motion-standard) var(--motion-ease-out) both;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(app-page) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--motion-ease-out);
+}
+
+::view-transition-old(app-page) {
+  animation: routePageExit var(--motion-fast) ease-in both;
+}
+
+::view-transition-new(app-page) {
+  animation: routePageEnter var(--motion-standard) var(--motion-ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-main-content {
+    scroll-behavior: auto;
+  }
+
+  .route-transition-frame,
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(app-page),
+  ::view-transition-new(app-page) {
+    animation: none !important;
+  }
+}
+
 .app-page-loader {
   display: flex;
   min-height: 280px;
@@ -2583,12 +2641,6 @@ table td {
 .product-view {
   width: 100%;
   min-width: 0;
-  animation: viewEnter var(--motion-slow) var(--motion-ease-out);
-}
-
-@keyframes viewEnter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .app-panel {
@@ -2916,7 +2968,7 @@ table td {
 }
 
 @media (max-width: 767px) {
-  .product-view { animation-duration: var(--motion-standard); }
+  ::view-transition-group(app-page) { animation-duration: var(--motion-standard); }
   .view-toolbar { padding: 10px; }
   .view-tabs { width: 100%; }
   .view-tab { min-height: 44px; flex: 1 0 auto; }

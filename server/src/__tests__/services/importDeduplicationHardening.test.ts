@@ -395,6 +395,11 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
         classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: { '41': 'update' },
       }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
 
+      expect(result.studentChanges).toHaveLength(1)
+      expect(result.studentChanges[0]).toMatchObject({
+        action: 'updated',
+        student: { id: ST2_ID, parentName: 'Phụ huynh mới', parishId: PARISH },
+      })
       const updated = (await db.select().from(students).where(eq(students.id, ST2_ID)))[0]
       expect(updated.parentName).toBe('Phụ huynh mới')
       expect(updated.address).toBe(before.address)

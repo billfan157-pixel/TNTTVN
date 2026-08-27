@@ -154,6 +154,19 @@
 
 ---
 
+## Audit 2026-08-28 — Roster import performance, committed projection & tenant cache — FIXED
+
+**Classification:** D3 / ARCHITECTURE · **Decision:** ADR-066 · **Status:** FIXED.
+
+- **CONFIRMED performance finding:** create row lặp hai SELECT (năm học + collision code) và 3–4 write statement/transaction; 120 row create path khoảng 600 statement trước phần chung. Đã cache/reserve scoped giáo xứ và chunk multi-row 40.
+- **CONFIRMED UX finding:** modal chỉ cập nhật roster sau khi đóng rồi GET tối đa 10.000 học viên. Response giờ trả subset `studentChanges` đã commit; store merge ngay và close không refetch.
+- **Data-integrity control:** chunk transaction là atomic; lỗi/race rollback rồi fallback per-row. UNIQUE `(parish_id, code)`, audit, batch item, rollback snapshot và final counts giữ nguyên. Auto-create class được serialize trước row writes; skip không tạo orphan class.
+- **Tenant/privacy control:** server changes phát sinh từ request RBAC/scoped hiện tại; client còn fail-closed theo active tenant scope để loại stale response sau tenant switch. PII không thêm vào log/audit; response không rộng hơn student records mà role đã được phép import/xem.
+- **Residual:** import request idempotency vẫn là ADR-015 `CONDITIONAL`; production Turso latency chưa có telemetry, nên chỉ local candidate benchmark được `CONFIRMED`.
+- **Verification:** oxlint + production client/server/PWA build PASS; targeted import/tenant/store 8 files, 73 case logic PASS (benchmark cô lập sau combined-run timeout); 120-row local 113,4ms ở lần cuối; forced chunk rollback/fallback PASS.
+
+---
+
 ## Audit A01 — Refresh Token trong localStorage — 🔴 P1
 
 > **Trạng thái**: BẢN CHUẨN HỢP NHẤT (SSOT) — 2026-08-09 · Severity: **🔴 P1** (không phải P0)

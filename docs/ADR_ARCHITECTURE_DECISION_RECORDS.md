@@ -1725,3 +1725,114 @@ Usability thực địa trên thiết bị/role thật vẫn CONDITIONAL và ch�
 - **Targeted verification**: 8 test files / 76 tests PASS (dedup, exact rollback/TTL, tenant/class authorization, parish isolation, schema health, parser, safe CSV).
 - **Build**: server TypeScript PASS; frontend TypeScript + Vite/PWA production build PASS.
 
+---
+
+## ADR-065: App-wide Pathname Route Motion with Native View Transition + CSS Fallback (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Context & evidence
+
+ADR-063 đã có motion token và reduced-motion nhưng entrance animation nằm ở
+`.product-view`, nên không phải router-aware, không có exit phase và dễ double-run
+khi page tự remount. Audit xác nhận TanStack Router hiện tại hỗ trợ
+`defaultViewTransition`; app không có motion dependency. Nguồn chính thức Apple,
+Material, MDN, TanStack và W3C thống nhất motion cần ngắn, có mục đích, giữ ngữ
+cảnh và có đường tắt reduced-motion.
+
+### Options & matrix
+
+| Criterion | Weight | Giữ `.product-view` | Framer Motion route stack | Native + fallback (chọn) |
+|---|---:|---:|---:|---:|
+| Product fit | 15% | 6 | 9 | 9 |
+| Reliability/data integrity | 20% | 9 | 8 | 9 |
+| Security/privacy | 20% | 9 | 9 | 9 |
+| Maintainability | 15% | 7 | 7 | 9 |
+| Performance | 10% | 9 | 7 | 9 |
+| Testability | 10% | 7 | 8 | 9 |
+| Reversibility | 5% | 10 | 8 | 10 |
+| Observability | 5% | 6 | 7 | 8 |
+| **Weighted** | **100%** | **7.95** | **8.05** | **9.00** |
+
+### Decision & contract
+
+1. `PageTransition` là shared boundary ở cả public/auth, mobile và desktop;
+   transition chỉ tác động route content, không snapshot/animate navigation shell.
+2. Router bật native transition khi `document.startViewTransition` tồn tại,
+   `prefers-reduced-motion` không phải `reduce`, và pathname thực sự thay đổi.
+3. Search/filter-only changes không remount boundary và không chạy motion.
+4. Unsupported runtime dùng CSS entrance fallback; fade-through/translate tối đa
+   6px và 120–260ms. Không thêm dependency.
+5. Reduced motion vô hiệu route animation + smooth scroll. Bỏ entrance animation
+   phân tán ở `.product-view` để tránh double motion.
+
+### Gates, compatibility, risk và rollback
+
+- D2 gates: Security/Privacy 9, Data Integrity 9, Testability 9 — PASS.
+- ADR-030/032/055/063: PASS. Business/domain/API/auth/offline behavior unchanged:
+  CONFIRMED qua phạm vi diff presentation/router config.
+- Material risks: vestibular discomfort → reduced-motion hard override; browser
+  API fragmentation → runtime detection + fallback; performance → transform/opacity
+  only và shell đứng yên. Residual risk LOW.
+- R1: revert `PageTransition`, router option và CSS/docs; không migration/data work.
+
+### Verification
+
+TypeScript + frontend/PWA production build PASS; targeted DS/app-wide/page-motion
+regression 3 files / 15 tests PASS; oxlint 0 warning; design-system lint 0/139
+violation. Browser smoke public navigation `/login` → `/login/nhan-su` PASS và
+giữ đúng một boundary. Cảm nhận motion trên thiết bị/role thật vẫn CONDITIONAL.
+
+---
+
+## ADR-066: Student Roster Import — Chunked Fast Commit & Immediate Server Projection (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profile: ARCHITECTURE. Reversibility: R1.**
+
+### Evidence và target
+
+- Audit end-to-end xác nhận create row trước đây chạy một transaction riêng gồm 3–4 write, đồng thời gọi thêm `getAcademicYearStart` và `generateUniqueStudentCode`; 120 row vì vậy phát sinh khoảng 600 statement riêng ở create path trước các query/batch chung.
+- `StudentsPage` chỉ gọi lại `fetchStudents()`/`fetchClasses()` khi đóng modal; `fetchStudents` mặc định lấy tối đa 10.000 record. `ExcelImportModal` không reconcile response, nên roster không đổi ngay khi server commit.
+- Baseline local 120 row: phần test/hook 2,48s. Candidate sau fast path: request import đo trực tiếp 113–198ms qua các lần chạy cô lập; đây là evidence E4 local, không phải production SLO.
+- **Candidate target:** 120 create row <2s trong regression local và không full roster GET sau success. **Production Turso target:** CONDITIONAL đến khi có telemetry theo region/dataset thật.
+- External primary evidence: Turso TypeScript SDK mô tả batch là nhiều statement trong implicit transaction và write transaction trên primary không chạy song song; Drizzle hỗ trợ multi-row `.values([...])`; Zustand yêu cầu immutable/new-reference update để subscriber render lại. Nguồn: `https://docs.turso.tech/sdk/ts/reference`, `https://orm.drizzle.team/docs/insert`, `https://zustand.docs.pmnd.rs/reference/apis/create.html`.
+
+### Options và Decision Matrix (ARCHITECTURE)
+
+| Criterion | Weight | A: per-row + refetch | B: one transaction/file | C: chunk + fallback + projection |
+| :--- | ---: | ---: | ---: | ---: |
+| Maintainability | 20% | 8 | 6 | 8 |
+| Reliability | 15% | 9 | 7 | 9 |
+| Security | 15% | 9 | 9 | 9 |
+| Data Integrity | 15% | 9 | 9 | 9 |
+| Reversibility | 15% | 10 | 7 | 9 |
+| Performance | 10% | 3 | 10 | 9 |
+| Observability | 5% | 6 | 6 | 7 |
+| Operational Fit | 5% | 6 | 5 | 9 |
+| **Weighted** | **100%** | **8.05** | **7.55** | **8.70 — SELECT** |
+
+B bị loại dù nhanh vì một row lỗi sẽ rollback toàn file, xung đột ADR-008. C giữ transaction nguyên tử theo chunk ở happy path nhưng bắt buộc rollback và fallback per-row khi chunk lỗi.
+
+### Decision contract
+
+1. Cache năm học theo class và reserve code từ một snapshot `students.code` scoped `parishId`; UNIQUE `(parish_id, code)` tiếp tục là final guard.
+2. Resolve auto-created class một lần trước concurrent writes để loại same-class race. Dòng chắc chắn `skip` không được tạo orphan class.
+3. Create row đã validate, không duplicate và có class hợp lệ được chia chunk 40. Mỗi chunk ghi multi-row `students`, `audit_logs`, `import_batch_students` và optional `service_assignments` trong cùng transaction.
+4. Constraint/race rollback toàn chunk rồi retry từng row qua đường cũ. Update/skip/error vẫn dùng isolated path; exact rollback snapshot, redacted audit và final batch counts không đổi.
+5. Response thêm `studentChanges` gồm action + student record chỉ sau commit. Client kiểm `getTenantScope().parishId`, merge immutable vào `studentStore`/Dexie và cập nhật total theo created action; không enqueue sync write.
+6. Đóng modal không full-refetch roster. Lớp mới refresh nền; undo import/history refetch students/classes authoritative sau server success.
+
+### Hard gates, compatibility và rollback
+
+- **D3 gates:** Security 9, Privacy 8, Data Integrity 9 — PASS. Privacy được đánh giá riêng: payload có PII như endpoint roster hiện hữu nhưng chỉ trả subset đã commit trong tenant/request được RBAC; không ghi payload mới vào audit/log và stale cross-tenant response bị client loại.
+- **Testability:** 9 — performance/fallback integration + server change projection + tenant-filtered store tests.
+- **ADR gate:** ADR-008 partial success PASS; ADR-015 idempotency CONDITIONAL (import endpoint hiện chưa có request idempotency, không bị mở rộng trong quyết định này); ADR-016 authorization/tenant cache PASS; ADR-031 composite tenant binding PASS; ADR-064 exact rollback/dedup PASS.
+- **Business Rule Gate:** partial success, exact rollback, server-issued ID/code và immediate committed projection = CONFIRMED bằng integration/store tests. Production latency = CONDITIONAL.
+- **Rollback R1:** revert service/API/store/modal/page/docs; không schema/migration, dữ liệu đã ghi vẫn tương thích.
+
+### Verification
+
+- Targeted import/tenant/store: 8 files, toàn bộ 73 case logic PASS (benchmark cô lập 2/2 sau một combined-run timeout của test runner); server TypeScript PASS.
+- `importPerformance`: 120/120 imported, unique code + tenant projection, 113,4ms local ở lần verify cuối; forced chunk failure chứng minh fallback giữ 1 success/1 error.
+- `npm run lint` và production client/server/PWA build PASS. Full suite không chạy lại theo yêu cầu tránh lặp các suite đã pass; không dùng local benchmark để claim Turso production latency.
+

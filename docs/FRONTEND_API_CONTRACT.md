@@ -568,9 +568,11 @@ Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/khô
 | Endpoint | Contract chính |
 | :--- | :--- |
 | `POST /api/students/validate` | `rows[0..2000]`; field có max length; trả preview, class suggestions, duplicate reason và previous batch hash. Duplicate ngoài class scope của chủ nhiệm không lộ metadata. |
-| `POST /api/students/import` | `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip` tại server. `fileName ≤255`, mapping/newClasses/serviceExclusions đều có cap 2000. Partial-success itemized. |
+| `POST /api/students/import` | `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip` tại server. `fileName ≤255`, mapping/newClasses/serviceExclusions đều có cap 2000. Partial-success itemized. Response thêm `studentChanges: [{ action: 'created'|'updated', student }]` chỉ chứa record cùng giáo xứ đã commit; report/count/batchId cũ giữ nguyên. Client phải tenant-check rồi merge ngay vào roster projection, không tạo offline sync command và không full-refetch sau import. |
 | `POST /api/students/undo/:batchId` | Admin-only, 24h; trả `{ undone, errors[] }`. Exact snapshot + post-import mutation/dependency gate; batch có thể thành `partial_undone` và retry idempotently trong cửa sổ còn lại. |
 
 Lỗi 500 từ validate/import trả message chung kèm mã tham chiếu; chi tiết DB/stack chỉ nằm trong server log. Client chặn file >10 MB hoặc >2000 data rows trước request.
+
+Fast path ADR-066 xử lý các row create hợp lệ theo chunk 40 trong transaction multi-row. Bất kỳ lỗi constraint/race nào rollback nguyên chunk rồi retry từng row, vì vậy response chỉ công bố `studentChanges` sau commit và vẫn giữ chính xác partial-success/undo của ADR-008/064. `studentChanges` không phải optimistic payload: nó là projection của server response; stale response khác tenant bị client bỏ qua. Undo roster tiếp tục refetch authoritative vì có thể delete record mới và restore record cũ.
 
 

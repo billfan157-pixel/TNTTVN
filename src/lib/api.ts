@@ -7,6 +7,7 @@ import type {
   FinanceSummary,
   CreateTransactionInput,
   CreateFundInput,
+  Student,
 } from '../types'
 import { clearAuthSnapshot } from './db'
 
@@ -574,7 +575,7 @@ export const api = {
   deleteStudent: (id: string) => request<{ success: boolean }>('DELETE', `/students/${id}`),
   validateStudents: (rows: any[]) => request<{ rows: any[]; classesNotFound: string[]; suggestedNewClasses?: { name: string; branch: string; academicYearId: string }[]; contentHash?: string; previousImport?: { batchId: string; fileName: string | null; createdAt: string; totalRows: number } | null }>('POST', '/students/validate', { rows }),
   importStudents: (payload: { rows: any[]; classMappings: Record<string, string | null>; newClasses: { name: string; branch: string; academicYearId: string }[]; duplicateActions: Record<string, 'skip' | 'update' | 'create'>; fileName?: string; serviceExclusions?: number[] }) =>
-    request<{ imported: number; skipped: number; errors: number; classesCreated: string[]; batchId: string; report: any[] }>('POST', '/students/import', payload),
+    request<{ imported: number; skipped: number; errors: number; classesCreated: string[]; batchId: string; studentChanges: Array<{ action: 'created' | 'updated'; student: Student }>; report: any[] }>('POST', '/students/import', payload),
   undoImport: (batchId: string) => request<{ undone: number; errors: string[] }>('POST', `/students/undo/${batchId}`),
   getImportHistory: (params?: { limit?: number; offset?: number }) => {
     const qs = new URLSearchParams()

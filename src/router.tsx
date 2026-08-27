@@ -26,6 +26,13 @@ const LeaveRequestsPage = lazyWithRetry(() => import('./pages/LeaveRequestsPage'
 const CalendarPage = lazyWithRetry(() => import('./pages/CalendarPage'))
 const FinancePage = lazyWithRetry(() => import('./pages/FinancePage'))
 
+const userPrefersReducedMotion = typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const nativeRouteMotionEnabled = typeof document !== 'undefined'
+  && 'startViewTransition' in document
+  && !userPrefersReducedMotion
+
 // SECURITY (2026-08-11) — A-NEW-10 hardening: access token memory-only.
 // Router guard KHÔNG còn dựa vào access token (sau reload memory rỗng) — dựa vào
 // `parish_current_user` (auth state persist). Access token được bootstrap lại qua
@@ -323,6 +330,11 @@ const routeTree = rootRoute.addChildren([
 export const router = createRouter({
   routeTree,
   defaultPreload: 'intent',
+  // Native View Transition when supported; CSS fallback owns older browsers.
+  // Search/filter-only updates stay motionless to preserve workspace continuity.
+  defaultViewTransition: nativeRouteMotionEnabled
+    ? { types: ({ pathChanged }) => pathChanged ? ['app-page-change'] : false }
+    : false,
 })
 
 declare module '@tanstack/react-router' {

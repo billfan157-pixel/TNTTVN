@@ -4,7 +4,7 @@ import { classes, academicYears, students, branches, users, auditLogs, importBat
 import { eq, and, isNull, or, sql, desc, inArray } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
-import { generateUniqueStudentCode } from './studentService.js'
+import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
 import { getClasses } from './classService.js'
 
 interface ImportRow {
@@ -66,7 +66,21 @@ interface ImportResult {
   batchId: string
   contentHash?: string
   orphanClasses?: string[]
+  studentChanges: ImportStudentChange[]
   report: { rowIndex: number; studentName: string; status: string; errors: string[] }[]
+}
+
+interface ImportStudentChange {
+  action: 'created' | 'updated'
+  student: typeof students.$inferSelect
+}
+
+interface ImportRowOutcome {
+  rowIndex: number
+  studentName: string
+  status: 'imported' | 'skipped' | 'error'
+  errors: string[]
+  change?: ImportStudentChange
 }
 
 interface ImportRollbackSnapshot {
@@ -1001,7 +1015,16 @@ export async function importStudents(
   const batchId = generateId('IMP')
   const contentHash = computeContentHash(normalizedRows)
   const serviceExclusions = new Set(input.serviceExclusions || [])
-  const result: ImportResult = { imported: 0, skipped: 0, errors: 0, classesCreated: [], batchId, contentHash, report: [] }
+  const result: ImportResult = {
+    imported: 0,
+    skipped: 0,
+    errors: 0,
+    classesCreated: [],
+    batchId,
+    contentHash,
+    studentChanges: [],
+    report: [],
+  }
   const createdClassIds: string[] = []
   // classIdMap canonical -> id, dedup case/diacritic variants. Keep original name for display via canonicalToOriginal.
   const classIdMap = new Map<string, string>()
@@ -1086,15 +1109,51 @@ export async function importStudents(
     // class-scoped user's assignments fail generically without exposing identity.
     const dupMap = await detectDuplicates(normalizedRows, parishId)
     const ayCache = new Map<string, string>()
+    const academicYearByClassId = new Map<string, string>()
+    for (const cls of allClasses) {
+      const year = cls.academicYear?.substring(0, 4)
+      if (year) academicYearByClassId.set(cls.id, year)
+    }
+    if (createdClassIds.length > 0) {
+      const createdClassYears = await db
+        .select({ classId: classes.id, startDate: academicYears.startDate })
+        .from(classes)
+        .leftJoin(academicYears, and(
+          eq(classes.academicYearId, academicYears.id),
+          eq(classes.parishId, academicYears.parishId),
+        ))
+        .where(and(eq(classes.parishId, parishId), inArray(classes.id, createdClassIds)))
+      for (const cls of createdClassYears) {
+        const year = cls.startDate?.substring(0, 4)
+        if (year) academicYearByClassId.set(cls.classId, year)
+      }
+    }
 
-  async function resolveClassId(tx: DbTransaction, rowClassName: string, rowBranch: string): Promise<string | null> {
+    // PERF-IMPORT-2: one parish-scoped snapshot replaces one code lookup per
+    // created row. The database UNIQUE(parish_id, code) remains the final guard.
+    const existingCodes = await db
+      .select({ code: students.code })
+      .from(students)
+      .where(eq(students.parishId, parishId))
+    const reservedCodes = new Set(existingCodes.map(row => row.code))
+    const codeFallbackCursors = new Map<string, number>()
+    const academicYearLookupCache = new Map<string, Promise<string | null>>()
+    const getCachedAcademicYear = (classId: string): Promise<string | null> => {
+      const known = academicYearByClassId.get(classId)
+      if (known) return Promise.resolve(known)
+      let pending = academicYearLookupCache.get(classId)
+      if (!pending) {
+        pending = getAcademicYearStart(classId, parishId)
+        academicYearLookupCache.set(classId, pending)
+      }
+      return pending
+    }
+
+  function findKnownClassId(rowClassName: string): string | null {
     const trimmed = rowClassName.trim()
     if (!trimmed) return null
     const canon = canonicalClassKey(trimmed)
-
-    // Check canonical mapping first (case/diacritic-insensitive), fallback raw for compat
     const mapped = normClassMappings.get(canon) ?? classMappings[trimmed]
-    // A-NEW-22 (2026-08-11): validate classId từ classMappings thuộc parish hiện tại + thuộc allowedClassSet nếu có
     if (mapped && allClasses.some(c => c.id === mapped)) {
       if (allowedClassSet != null && !allowedClassSet.has(mapped)) return null
       return mapped
@@ -1107,12 +1166,20 @@ export async function importStudents(
     }
 
     const existed = allClasses.find(c => canonicalClassKey(c.name) === canon || canonicalClassKey(c.code) === canon)
-    if (existed) {
-      if (allowedClassSet != null && !allowedClassSet.has(existed.id)) return null
-      classIdMap.set(canon, existed.id)
-      if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
-      return existed.id
-    }
+    if (!existed) return null
+    if (allowedClassSet != null && !allowedClassSet.has(existed.id)) return null
+    classIdMap.set(canon, existed.id)
+    if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
+    return existed.id
+  }
+
+  async function resolveClassId(tx: DbTransaction, rowClassName: string, rowBranch: string): Promise<string | null> {
+    const trimmed = rowClassName.trim()
+    if (!trimmed) return null
+    const canon = canonicalClassKey(trimmed)
+
+    const known = findKnownClassId(trimmed)
+    if (known) return known
 
     if (allowedClassSet != null) {
       // Non-admin cannot auto-create classes outside assigned scope
@@ -1140,12 +1207,131 @@ export async function importStudents(
     return newId
   }
 
-  // PERF-IMPORT-1 (2026-08-28): xử lý song song có kiểm soát thay vì tuần tự từng dòng.
-  // 120 dòng × 3-4 query/tx qua Turso remote (80-120ms) = 30-40s tuần tự → còn 4-6s với concurrency 8.
-  // classIdMap / ayCache dùng chung (Map) — JS đơn luồng nên an toàn khi đọc/ghi xen kẽ trong Promise.all;
-  // fallback tạo lớp xử lý ON CONFLICT để tránh race khi 2 dòng cùng tạo "Lớp mới".
+  // Resolve auto-created classes once, before concurrent row writes. This
+  // removes the same-class creation race and lets ordinary new-class imports
+  // use the chunked create path. Rows that are guaranteed to be skipped do not
+  // create orphan classes as a side effect.
+  const unresolvedClasses = new Map<string, ImportRow>()
+  if (allowedClassSet == null) {
+    for (const row of normalizedRows) {
+      if (validateRow(row).length > 0 || findKnownClassId(row.className || '')) continue
+      const duplicate = dupMap.get(row.rowIndex)
+      const duplicateAction = duplicate ? (duplicateActions[String(row.rowIndex)] || 'skip') : 'create'
+      if (duplicate && duplicateAction === 'skip') continue
+      const canonical = canonicalClassKey(row.className || '')
+      if (canonical && !unresolvedClasses.has(canonical)) unresolvedClasses.set(canonical, row)
+    }
+  }
+  if (unresolvedClasses.size > 0) {
+    await db.transaction(async (tx) => {
+      for (const row of unresolvedClasses.values()) {
+        await resolveClassId(tx, row.className || '', row.branch || '')
+      }
+    })
+  }
+
+  type PreparedCreate = {
+    row: ImportRow
+    student: typeof students.$inferSelect
+    audit: typeof auditLogs.$inferInsert
+    batchStudent: typeof importBatchStudents.$inferInsert
+    serviceAssignment?: typeof serviceAssignments.$inferInsert
+  }
+
+  const fastCreateCandidates: PreparedCreate[] = []
+  const remainingRows: ImportRow[] = []
+  for (const row of normalizedRows) {
+    const validationErrors = validateRow(row)
+    const classId = validationErrors.length === 0 ? findKnownClassId(row.className || '') : null
+    if (validationErrors.length > 0 || dupMap.has(row.rowIndex) || !classId) {
+      remainingRows.push(row)
+      continue
+    }
+
+    const year = await getCachedAcademicYear(classId) || String(new Date().getFullYear())
+    const now = new Date().toISOString()
+    const studentId = generateId('ST')
+    const student: typeof students.$inferSelect = {
+      id: studentId,
+      code: reserveStudentCode(year, reservedCodes, codeFallbackCursors),
+      holyName: row.holyName,
+      fullName: row.fullName,
+      gender: row.gender as (typeof students.$inferSelect)['gender'],
+      dateOfBirth: row.dateOfBirth,
+      baptismDate: null,
+      firstCommunionDate: null,
+      confirmationDate: null,
+      parentName: row.parentName,
+      parentPhone: row.parentPhone,
+      address: row.address || '',
+      branch: row.branch as (typeof students.$inferSelect)['branch'],
+      classId,
+      avatarUrl: null,
+      status: 'Đang học',
+      notes: null,
+      deletedAt: null,
+      idempotencyKey: null,
+      parishId,
+      updatedBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const rollbackSnapshot: ImportRollbackSnapshot = { version: 1, kind: 'created', appliedUpdatedAt: now }
+    fastCreateCandidates.push({
+      row,
+      student,
+      audit: {
+        id: generateId('AUD'), userId, action: 'IMPORT_CREATE', entityType: 'student',
+        entityId: studentId,
+        newValue: JSON.stringify({ ...(redactStudentForAudit(row) as Record<string, unknown>), importBatchId: batchId, importRowIndex: row.rowIndex }),
+        ip, userAgent, parishId,
+      },
+      batchStudent: {
+        id: generateId('IBS'), batchId, studentId, action: 'created', rowIndex: row.rowIndex, parishId,
+        rollbackSnapshot: JSON.stringify(rollbackSnapshot),
+      },
+      serviceAssignment: detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)
+        ? { id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }
+        : undefined,
+    })
+  }
+
+  const rowOutcomes: ImportRowOutcome[] = []
+  const FAST_CREATE_CHUNK_SIZE = 40
+  for (let index = 0; index < fastCreateCandidates.length; index += FAST_CREATE_CHUNK_SIZE) {
+    const chunk = fastCreateCandidates.slice(index, index + FAST_CREATE_CHUNK_SIZE)
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(students).values(chunk.map(item => item.student))
+        await tx.insert(auditLogs).values(chunk.map(item => item.audit))
+        await tx.insert(importBatchStudents).values(chunk.map(item => item.batchStudent))
+        const assignmentValues = chunk.flatMap(item => item.serviceAssignment ? [item.serviceAssignment] : [])
+        if (assignmentValues.length > 0) {
+          await tx.insert(serviceAssignments).values(assignmentValues).onConflictDoNothing()
+        }
+      })
+      for (const item of chunk) {
+        rowOutcomes.push({
+          rowIndex: item.row.rowIndex,
+          studentName: item.row.fullName,
+          status: 'imported',
+          errors: [],
+          change: { action: 'created', student: item.student },
+        })
+      }
+    } catch {
+      // Preserve ADR-008 partial-success semantics: an unexpected constraint or
+      // concurrent race rolls back the whole chunk, then each row is retried via
+      // the existing isolated transaction path for an exact per-row outcome.
+      remainingRows.push(...chunk.map(item => item.row))
+    }
+  }
+
+  // PERF-IMPORT-1: bounded concurrency hides remote latency while preserving
+  // per-row transactions, partial success, audit records, and exact rollback.
+  // Shared maps are only synchronously reserved/mutated on the JS event loop.
   const CONCURRENCY = process.env.NODE_ENV === 'test' || process.env.VITEST ? 1 : 8
-  const rowOutcomes = await mapConcurrent(normalizedRows, async (row) => {
+  const fallbackOutcomes = await mapConcurrent<ImportRow, ImportRowOutcome>(remainingRows, async (row) => {
     try {
       const errors = validateRow(row)
       if (errors.length > 0) {
@@ -1156,15 +1342,9 @@ export async function importStudents(
       let rowResult: 'created' | 'updated' | 'skipped' | 'class_error' = 'class_error'
       let studentId = ''
       let rowFailureMessage = ''
+      let committedChange: ImportStudentChange | undefined
 
       await db.transaction(async (tx) => {
-        const classId = await resolveClassId(tx, row.className || '', row.branch || '')
-        if (!classId) {
-          await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
-          rowResult = 'class_error'
-          return
-        }
-
         const dup = dupMap.get(row.rowIndex)
         // Server-authoritative fail-closed policy: a missing/tampered duplicate
         // decision can never silently create or overwrite a student.
@@ -1189,6 +1369,13 @@ export async function importStudents(
             action: 'skipped', rowIndex: row.rowIndex, parishId,
           })
           rowResult = 'skipped'
+          return
+        }
+
+        const classId = await resolveClassId(tx, row.className || '', row.branch || '')
+        if (!classId) {
+          await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+          rowResult = 'class_error'
           return
         }
 
@@ -1244,9 +1431,11 @@ export async function importStudents(
             updatedAt: now,
           }
 
-          await tx.update(students)
+          const [updatedStudent] = await tx.update(students)
             .set(updateData)
             .where(and(eq(students.id, studentId), eq(students.parishId, parishId)))
+            .returning()
+          if (!updatedStudent) throw new Error(`Không thể cập nhật học viên ở dòng ${row.rowIndex}`)
           await tx.insert(auditLogs).values({
             id: generateId('AUD'), userId, action: 'IMPORT_UPDATE', entityType: 'student',
             entityId: studentId,
@@ -1270,22 +1459,24 @@ export async function importStudents(
           } else {
             await tx.delete(serviceAssignments).where(and(eq(serviceAssignments.studentId, studentId), eq(serviceAssignments.serviceType, 'le_phuc_vu')))
           }
+          committedChange = { action: 'updated', student: updatedStudent }
           rowResult = 'updated'
           return
         }
 
         studentId = generateId('ST')
-        const year = await getAcademicYearStart(classId, parishId)
-        const code = await generateUniqueStudentCode(year || String(new Date().getFullYear()), parishId)
+        const year = await getCachedAcademicYear(classId) || String(new Date().getFullYear())
+        const code = reserveStudentCode(year, reservedCodes, codeFallbackCursors)
         const now = new Date().toISOString()
 
-        await tx.insert(students).values({
+        const [createdStudent] = await tx.insert(students).values({
           id: studentId, code, holyName: row.holyName, fullName: row.fullName,
           gender: row.gender as any, dateOfBirth: row.dateOfBirth,
           parentName: row.parentName, parentPhone: row.parentPhone,
           address: row.address || '', branch: row.branch as any, classId,
           parishId, updatedBy: userId, createdAt: now, updatedAt: now,
-        })
+        }).returning()
+        if (!createdStudent) throw new Error(`Không thể tạo học viên ở dòng ${row.rowIndex}`)
         await tx.insert(auditLogs).values({
           id: generateId('AUD'), userId, action: 'IMPORT_CREATE', entityType: 'student',
           entityId: studentId,
@@ -1300,13 +1491,14 @@ export async function importStudents(
         if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
           await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
         }
+        committedChange = { action: 'created', student: createdStudent }
         rowResult = 'created'
       })
 
       if (rowResult === 'class_error') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [rowFailureMessage || `Không xác định được lớp: ${row.className}`] }
       if (rowResult === 'skipped') return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'skipped' as const, errors: [] as string[] }
       // created / updated đều là imported
-      return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported' as const, errors: [] as string[] }
+      return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported' as const, errors: [] as string[], change: committedChange }
     } catch (err: any) {
       try {
         await db.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
@@ -1314,6 +1506,7 @@ export async function importStudents(
       return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [err?.message || 'Lỗi không xác định'] }
     }
   }, CONCURRENCY)
+  rowOutcomes.push(...fallbackOutcomes)
 
   // Aggregate kết quả theo rowIndex để report có thứ tự
   rowOutcomes.sort((a, b) => a.rowIndex - b.rowIndex)
@@ -1321,7 +1514,10 @@ export async function importStudents(
     result.report.push({ rowIndex: o.rowIndex, studentName: o.studentName, status: o.status, errors: o.errors })
     if (o.status === 'error') result.errors++
     else if (o.status === 'skipped') result.skipped++
-    else if (o.status === 'imported') result.imported++
+    else if (o.status === 'imported') {
+      result.imported++
+      if (o.change) result.studentChanges.push(o.change)
+    }
   }
 
   // Update import_batches with final counts and status
@@ -1461,6 +1657,33 @@ export async function deleteMappingMemory(id: string, parishId: string): Promise
   await db.update(mappingMemory)
     .set({ isActive: 0 })
     .where(and(eq(mappingMemory.id, id), eq(mappingMemory.parishId, parishId)))
+}
+
+function reserveStudentCode(
+  year: string,
+  reservedCodes: Set<string>,
+  fallbackCursors: Map<string, number>,
+): string {
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const code = `TN${year}${generateStudentCodeSuffix()}`
+    if (!reservedCodes.has(code)) {
+      reservedCodes.add(code)
+      return code
+    }
+  }
+
+  let cursor = fallbackCursors.get(year) ?? (Date.now() % 1_000_000)
+  for (let attempt = 0; attempt < 1_000_000; attempt++) {
+    const code = `TN${year}${String(cursor).padStart(6, '0')}`
+    cursor = (cursor + 1) % 1_000_000
+    if (!reservedCodes.has(code)) {
+      fallbackCursors.set(year, cursor)
+      reservedCodes.add(code)
+      return code
+    }
+  }
+
+  throw new Error(`Đã hết mã học viên khả dụng cho năm ${year}`)
 }
 
 const ROSTER_UNDO_WINDOW_MS = 24 * 60 * 60 * 1000

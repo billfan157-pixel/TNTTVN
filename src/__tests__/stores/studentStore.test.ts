@@ -3,6 +3,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import * as syncService from '../../lib/syncService'
 import { api } from '../../lib/api'
 import type { Student } from '../../types'
+import { setTenantScope } from '../../lib/tenantScope'
 
 vi.mock('../../lib/api', () => ({
   api: {
@@ -42,6 +43,7 @@ const makeStudent = (overrides: Partial<Student> = {}): Student => ({
 })
 
 beforeEach(() => {
+  setTenantScope({ parishId: 'PARISH-TEST', userId: 'U-TEST' })
   useStudentStore.setState({ students: [], isLoading: false, error: null, pagination: { total: 0, page: 1, limit: 50 } })
   vi.clearAllMocks()
 })
@@ -168,6 +170,34 @@ describe('studentStore', () => {
   it('setStudents replaces all students', () => {
     useStudentStore.getState().setStudents([makeStudent()])
     expect(useStudentStore.getState().students).toHaveLength(1)
+  })
+
+  it('reconciles committed import records immediately without a refetch', () => {
+    const existing = makeStudent({ parishId: 'PARISH-TEST' })
+    const created = makeStudent({ id: 'ST-002', code: 'TN-2002', fullName: 'Trần Thị B', parishId: 'PARISH-TEST' })
+    const updated = makeStudent({ ...existing, fullName: 'Nguyễn Văn A đã cập nhật', parishId: 'PARISH-TEST' })
+    useStudentStore.setState({ students: [existing], pagination: { total: 1, page: 1, limit: 50 } })
+
+    useStudentStore.getState().reconcileImportedStudents([
+      { action: 'created', student: created },
+      { action: 'updated', student: updated },
+    ])
+
+    expect(useStudentStore.getState().students).toEqual([updated, created])
+    expect(useStudentStore.getState().pagination.total).toBe(2)
+    expect(api.getStudents).not.toHaveBeenCalled()
+  })
+
+  it('rejects an import response that belongs to another tenant', () => {
+    const existing = makeStudent({ parishId: 'PARISH-TEST' })
+    useStudentStore.setState({ students: [existing], pagination: { total: 1, page: 1, limit: 50 } })
+
+    useStudentStore.getState().reconcileImportedStudents([
+      { action: 'created', student: makeStudent({ id: 'ST-CROSS', parishId: 'OTHER-PARISH' }) },
+    ])
+
+    expect(useStudentStore.getState().students).toEqual([existing])
+    expect(useStudentStore.getState().pagination.total).toBe(1)
   })
 
   it('setPagination updates pagination state', () => {

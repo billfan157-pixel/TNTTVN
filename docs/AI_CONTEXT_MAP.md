@@ -1,15 +1,15 @@
 # AI Agent Context Map & Repository Entrypoint
 
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 2.6 | Last reviewed: 2026-08-27 | Status: ✅ Current | Prerequisites: none
+> Version: 2.7 | Last reviewed: 2026-08-28 | Status: ✅ Current | Prerequisites: none
 
 ---
 
-### Module: UI System v4.1 — App-wide Calm, Confident Parish Product (2026-08-27)
+### Module: UI System v4.2 — App-wide Calm, Confident Parish Product + Route Motion (2026-08-28)
 
-- **Decision**: ADR-063, D2/GENERAL, R1. Giữ DNA navy–gold và product-first hiện có; nâng cấp bằng surface/elevation/motion tokens cùng shared primitives, không thay brand bằng visual trend mới.
-- **Code truth**: `src/index.css`; shared shell/primitives tại `HeaderBar`, `RootLayout`, `PageHeader`, `DesktopAppShell`, toàn bộ desktop/mobile view inventory, auth/public surfaces và `StateFeedback`. `docs/03_DESIGN_SYSTEM.md` là documentation SSOT; root `DESIGN_SYSTEM.md` chỉ là legacy snapshot.
-- **Contracts**: mọi route/view dùng `product-view` hoặc shell sở hữu nó; content card phẳng + border; raised elevation chỉ có ý nghĩa; toolbar/tab/entity/auth/state dùng primitive chung; icon action có accessible name; toggle/tab có programmatic state; mobile target ≥44px và form font ≥16px; một `#main-content`; reduced motion được tôn trọng. `/management` dùng embedded child views để không lặp PageHeader. Coverage khóa bởi `appWideUiMigration.test.ts`.
+- **Decision**: ADR-063/065, D2/GENERAL, R1. Giữ DNA navy–gold và product-first hiện có; nâng cấp bằng surface/elevation/motion tokens, shared primitives và route motion có mục đích, không thay brand bằng visual trend mới.
+- **Code truth**: `src/index.css`; route motion boundary tại `PageTransition.tsx` + `router.tsx`; shared shell/primitives tại `HeaderBar`, `RootLayout`, `PageHeader`, `DesktopAppShell`, toàn bộ desktop/mobile view inventory, auth/public surfaces và `StateFeedback`. `docs/03_DESIGN_SYSTEM.md` là documentation SSOT; root `DESIGN_SYSTEM.md` chỉ là legacy snapshot.
+- **Contracts**: mọi route/view dùng `product-view` hoặc shell sở hữu nó; pathname change dùng một `app-page` fade-through 120–260ms, shell đứng yên; search/filter không replay motion; unsupported browser dùng fallback; reduced motion tắt animation + smooth scroll. Content card phẳng + border; raised elevation chỉ có ý nghĩa; toolbar/tab/entity/auth/state dùng primitive chung; icon action có accessible name; toggle/tab có programmatic state; mobile target ≥44px và form font ≥16px; một `#main-content`. `/management` dùng embedded child views để không lặp PageHeader. Coverage khóa bởi `appWideUiMigration.test.ts` + `pageTransition.test.tsx`.
 - **Scope**: presentation-only; không đổi route, API, schema, auth/RBAC, offline authority hoặc domain rules. Rollback bằng revert frontend/docs, không migration.
 - **Evidence/plan**: `docs/UI_UX_UPGRADE_PLAN_2026-08-27.md`; implementation/verification record trong ADR-063.
 
@@ -22,6 +22,14 @@
 - **Migrations**: `20260828-132` (`import_batches.created_class_ids`) và `20260828-133` (`import_batch_students.rollback_snapshot`); readiness gate fail-closed.
 - **Tests**: targeted import/tenant/schema/parser/CSV: 8 files / 76 tests PASS.
 - **Scope**: roster Excel/CSV/paste → validate → conflict review → partial import → history/undo. API envelope giữ tương thích; `duplicateActions` mở rộng thêm `create`.
+
+### Module: Student Roster Import Fast Commit & Immediate UI Projection (2026-08-28)
+
+- **Decision**: ADR-066, D3/ARCHITECTURE, R1. Chunked atomic fast path + per-row fallback được chọn; một transaction toàn file bị loại vì xung đột ADR-008 partial success.
+- **Code truth**: `server/src/services/importService.ts`, `src/lib/api.ts`, `src/stores/studentStore.ts`, `src/components/common/ExcelImportModal.tsx`, `src/pages/StudentsPage.tsx`.
+- **Contract**: `/api/students/import` trả thêm `studentChanges: [{ action: 'created'|'updated', student }]` cho đúng các row đã commit và cùng tenant. Client merge đồng bộ vào Zustand/Dexie; không enqueue offline write và không full-refetch sau import. Lớp mới refresh nền; undo refetch authoritative.
+- **Performance guard**: `importPerformance.test.ts` — 120 create rows, code unique/tenant-scoped, local candidate budget <2s và fallback chunk→per-row. Đo implementation cô lập: 113,4ms (các lần đo sau thay đổi 113–198ms); target production Turso vẫn `CONDITIONAL` đến khi đo telemetry thực tế.
+- **Schema/migration**: không đổi.
 
 ---
 

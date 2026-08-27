@@ -2,7 +2,7 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-08-07  
+Last Updated: 2026-08-28
 
 ---
 
@@ -62,6 +62,11 @@ Import Processing Route (server/src/routes/import.ts)
 - **Undo Roster Import**:
   - Cửa sổ 24 giờ; snapshot exact thuộc `import_batch_students.rollback_snapshot`, không dùng `audit_logs` đã che PII.
   - Undo fail-closed khi student đã được sửa hoặc phát sinh dữ liệu nghiệp vụ. Snapshot bị xóa sau undo hoặc hết hạn; lớp chỉ soft-delete theo exact `created_class_ids` và khi không còn học viên active.
+- **Fast Commit & Immediate Projection (ADR-066)**:
+  - Năm học được cache theo lớp; mã học viên được reserve từ một lần đọc code cùng giáo xứ, còn unique index `(parish_id, code)` là final integrity guard.
+  - Dòng create hợp lệ/không collision/đã resolve lớp được ghi theo chunk 40 bằng multi-row insert nguyên tử cho student + audit + batch item + service assignment. Nếu chunk gặp constraint hoặc race, toàn chunk rollback và retry từng dòng để không mất partial-success diagnostics.
+  - Server trả `studentChanges` cho đúng record đã commit. Client tenant-check rồi merge trực tiếp vào Zustand/Dexie, vì vậy danh sách đổi ngay khi request hoàn tất và không gọi lại GET tối đa 10.000 học viên khi đóng modal.
+  - Auto-created class được resolve một lần trước concurrent writes; lớp mới refresh nền. Undo vẫn refetch authoritative để phản ánh cả delete và restore.
 
 ---
 

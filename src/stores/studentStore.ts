@@ -6,11 +6,17 @@ import type { Student, BranchType } from '../types'
 import { syncCreateStudent, syncUpdateStudent, syncDeleteStudent } from '../lib/syncService'
 import { runSyncFlow } from '../hooks/useSyncEngine'
 import { api, isAuthenticated } from '../lib/api'
+import { getTenantScope } from '../lib/tenantScope'
 
 export interface PromotionAction {
   studentId: string
   newBranch: string
   newClassId: string
+}
+
+export interface ServerStudentChange {
+  action: 'created' | 'updated'
+  student: Student
 }
 
 interface StudentState {
@@ -21,6 +27,7 @@ interface StudentState {
 
   fetchStudents: (params?: { updatedAfter?: string; limit?: number; page?: number }) => Promise<void>
   setStudents: (students: Student[]) => void
+  reconcileImportedStudents: (changes: ServerStudentChange[]) => void
   addStudent: (student: Omit<Student, 'id' | 'code'>) => Promise<void>
   replaceStudentId: (oldId: string, serverStudent: Student) => void
   updateStudent: (id: string, changes: Partial<Omit<Student, 'id' | 'code'>>) => Promise<void>
@@ -90,6 +97,37 @@ export const useStudentStore = create<StudentState>()(
       },
 
       setStudents: (students) => set({ students }),
+
+      reconcileImportedStudents: (changes) => {
+        const scope = getTenantScope()
+        if (!scope || changes.length === 0) return
+
+        set((state) => {
+          const merged = new Map(state.students.map(student => [student.id, student]))
+          let createdCount = 0
+          let didChange = false
+
+          for (const change of changes) {
+            const student = change.student
+            // The response is server-authoritative, but the client still fails
+            // closed if a stale request resolves after the active tenant changes.
+            if (student.parishId !== scope.parishId || student.deletedAt) continue
+            if (change.action === 'created' && !merged.has(student.id)) createdCount++
+            if (merged.get(student.id) !== student) didChange = true
+            merged.set(student.id, student)
+          }
+
+          if (!didChange) return state
+
+          return {
+            students: Array.from(merged.values()),
+            pagination: {
+              ...state.pagination,
+              total: Math.max(state.pagination.total + createdCount, merged.size),
+            },
+          }
+        })
+      },
 
       addStudent: async (data) => {
         const submissionKey = `${data.fullName}_${data.dateOfBirth}_${data.classId}`

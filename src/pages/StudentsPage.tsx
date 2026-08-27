@@ -180,7 +180,7 @@ export function StudentsPage() {
         </Suspense>
       </div>
 
-      <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useStudentStore.getState().fetchStudents(); useClassStore.getState().fetchClasses(); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+      <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
       <ConfirmDialog
         isOpen={showConfirmSend}
         title="Gửi Kết Quả Học Tập"
@@ -206,7 +206,7 @@ export function StudentsPage() {
         onSendReportCards={handleSendReportCards}
         sendingCards={sendingCards}
       />
-      <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useStudentStore.getState().fetchStudents(); useClassStore.getState().fetchClasses(); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+      <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
       <ConfirmDialog
         isOpen={showConfirmSend}
         title="Gửi Kết Quả Học Tập"

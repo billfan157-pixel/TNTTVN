@@ -7,6 +7,7 @@ import { api } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { useToastStore } from '../../stores/toastStore'
+import { useStudentStore } from '../../stores/studentStore'
 import { rowsToSafeCsv } from '../../utils/csv'
 
 interface Props {
@@ -262,6 +263,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
         fileName: fileName || undefined,
         serviceExclusions: Array.from(serviceExclusions),
       })
+      useStudentStore.getState().reconcileImportedStudents(result.studentChanges || [])
+      if (result.classesCreated?.length) {
+        void useClassStore.getState().fetchClasses()
+      }
       setImportResult(result)
       setStep('report')
       // Toast rõ ràng cho cả thành công và thất bại từng phần — user thấy ngay cả khi không nhìn report
@@ -286,6 +291,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setUndoing(true)
     try {
       await api.undoImport(importResult.batchId)
+      await Promise.all([
+        useStudentStore.getState().fetchStudents(),
+        useClassStore.getState().fetchClasses(),
+      ])
       addToast(`Đã hoàn tác ${importResult.imported} học viên`, 'success', 4000)
       await askConfirm({
         title: 'Hoàn tác thành công',
@@ -1126,6 +1135,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                               onClick={async () => {
                                 try {
                                   await api.undoImport(b.id)
+                                  await Promise.all([
+                                    useStudentStore.getState().fetchStudents(),
+                                    useClassStore.getState().fetchClasses(),
+                                  ])
                                   await askConfirm({
                                     title: 'Hoàn tác thành công',
                                     message: 'Đã hoàn tác import batch này.',

@@ -680,6 +680,8 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
   - Chủ nhiệm chỉ xem collision trong lớp được phân công ở preview; lúc commit server vẫn chặn tạo trùng toàn giáo xứ nhưng trả thông báo chung cho collision ngoài phạm vi.
   - Undo danh sách chỉ trong 24 giờ, dùng snapshot exact gắn batch. Nếu học viên đã sửa hoặc có điểm, điểm danh, kỳ thi, xét lên lớp, snapshot năm, assessment hay đơn nghỉ thì item đó bị từ chối; kết quả có thể `partial_undone`. Audit redacted không phải nguồn restore.
   - Batch `partial_undone` có thể retry trong cửa sổ 24 giờ sau khi người dùng xử lý dependency; item đã undo bị bỏ qua idempotently.
+  - Tối ưu hiệu năng không được đổi kết quả nghiệp vụ: fast path chỉ nhận dòng tạo mới đã validate, không collision và đã resolve lớp; lỗi của chunk phải rollback rồi chuyển sang xử lý từng dòng. Chỉ học viên đã commit mới được trả trong `studentChanges` và hiển thị ngay trên roster.
+  - Màn hình phải cập nhật từ record server đã commit, không tự dựng mã/ID và không enqueue một lệnh sync thứ hai. Response đến sau khi người dùng đổi giáo xứ phải bị loại theo tenant scope. Hoàn tác là thao tác đảo ngược nên phải tải lại snapshot authoritative.
 
 ### 23.3 Quy Chuẩn Đánh Số Phiếu Thu / Chi Tuần Tự (Sequential Voucher Numbering)
 - Số phiếu thu (`PT-YYYY-XXXX`) và phiếu chi (`PC-YYYY-XXXX`) được sinh tuần tự tăng dần dựa trên dữ liệu thực tế của từng năm trong CSDL (bắt đầu từ `0001`), không sử dụng số ngẫu nhiên nhằm đảm bảo tính duy nhất và tính liên tục của sổ sách kế toán Xứ Đoàn.

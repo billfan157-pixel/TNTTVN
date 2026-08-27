@@ -413,6 +413,11 @@ flex h-screen flex-col
   `.mobile-stat-card*`, `.mobile-content-card`.
 - Motion: `--motion-fast|standard|slow` + `--motion-ease-out`; luôn tôn trọng
   `prefers-reduced-motion`.
+- Route motion: `PageTransition` là boundary duy nhất; `router.defaultViewTransition`
+  chỉ chạy khi **pathname thay đổi**, không chạy lại khi đổi search/filter. Shell
+  (header/sidebar/bottom nav) đứng yên; `app-page` fade-through + dịch dọc tối đa
+  6px, 120–260ms. Trình duyệt thiếu `document.startViewTransition` dùng
+  `.route-transition-frame--fallback`; reduced-motion tắt animation và smooth scroll.
 - Mọi route/view: `.product-view`; `DesktopAppShell` tự gắn class này.
 - Generic content: `.app-panel`, `.app-panel--interactive`, `.entity-card`.
 - Filter/action cluster: `.view-toolbar`; switcher/tab: `.view-tabs` + `.view-tab.is-active`.
@@ -442,6 +447,8 @@ flex h-screen flex-col
   `aria-modal` và scroll lock của `ModalShell`.
 - Chỉ một `#main-content`; owner mobile là `MobileAppShell`, owner desktop là
   `RootLayout`.
+- Không tự gắn entrance animation ở từng `.product-view`; page-level motion chỉ
+  thuộc `PageTransition` để tránh double animation và visual drift.
 
 ### Deliberate exceptions
 

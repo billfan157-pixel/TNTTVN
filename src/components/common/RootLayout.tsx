@@ -20,6 +20,7 @@ import { useStoreErrorWatcher } from '../../hooks/useStoreErrorWatcher'
 import { useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ErrorBoundary } from './ErrorBoundary'
+import { PageTransition } from './PageTransition'
 import { BRANCHES } from '../../constants/branches'
 import type { MobileTab } from '../mobile/MobileBottomNav'
 
@@ -164,9 +165,11 @@ export function RootLayout() {
   if (isAuthRoute) {
     return (
       <div className="min-h-screen bg-surface-app font-sans">
-        <PageSuspense>
-          <Outlet />
-        </PageSuspense>
+        <PageTransition routeKey={pathname}>
+          <PageSuspense>
+            <Outlet />
+          </PageSuspense>
+        </PageTransition>
         <InstallPrompt />
       </div>
     )
@@ -181,11 +184,11 @@ export function RootLayout() {
           setActiveTab={(tab) => navigate({ to: tab === 'home' ? '/dashboard' : (`/${tab}` as any) })}
         >
           <HeaderBar />
-          <div>
+          <PageTransition routeKey={pathname}>
             <PageSuspense>
               <Outlet />
             </PageSuspense>
-          </div>
+          </PageTransition>
           <InstallPrompt />
           <ForcePasswordChangeModal />
         </MobileAppShell>
@@ -245,9 +248,11 @@ export function RootLayout() {
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           <main id="main-content" className="app-main-content">
-            <PageSuspense>
-              <Outlet />
-            </PageSuspense>
+            <PageTransition routeKey={pathname}>
+              <PageSuspense>
+                <Outlet />
+              </PageSuspense>
+            </PageTransition>
           </main>
 
           {isStudentModalOpen && (

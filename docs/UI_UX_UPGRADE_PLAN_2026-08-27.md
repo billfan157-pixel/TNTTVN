@@ -194,3 +194,47 @@ Huynh Trưởng/GLV trên thiết bị thật vẫn là **CONDITIONAL follow-up*
 - ADR-030/032/055 compatibility — PASS.
 - Protected behavior unchanged — CONFIRMED.
 - Usability thực địa và mức tăng task efficiency — CONDITIONAL, chưa được claim.
+
+## 9. Route Motion Upgrade v4.2 — 2026-08-28
+
+### Research và decision
+
+- [Apple HIG Motion](https://developer.apple.com/design/human-interface-guidelines/motion):
+  motion phải truyền đạt trạng thái/phản hồi và dùng có tiết chế.
+- [Material Motion](https://m1.material.io/motion/material-motion.html): transition
+  giúp giữ ngữ cảnh và dẫn sự chú ý, nhưng nhiều chuyển động giao nhau gây khó hiểu.
+- [TanStack Router View Transitions](https://tanstack.com/router/latest/docs/framework/react/examples/view-transitions):
+  router hỗ trợ `defaultViewTransition` và phân biệt `pathChanged`.
+- [MDN View Transition API](https://developer.mozilla.org/en-US/docs/Web/API/View_Transition_API):
+  browser quản lý snapshot cũ/mới giúp tránh tự giữ hai page tương tác cùng lúc.
+- [W3C WCAG 2.3.3](https://www.w3.org/WAI/WCAG21/Understanding/animation-from-interactions.html):
+  animation do tương tác phải có thể bị vô hiệu hóa khi không thiết yếu.
+
+Ba phương án D2/GENERAL: giữ entrance animation rải ở `.product-view` (7.95),
+thêm Framer Motion/giữ hai route trong React (8.05), và native View Transition +
+CSS fallback tại shared boundary (9.00 — chọn). Hard gates: Security/Privacy 9,
+Data Integrity 9, Testability 9 — PASS. ADR-030/032/055/063 — PASS; không đổi
+route tree, auth, API, dữ liệu hay business rule. Rollback R1.
+
+### Implementation contract
+
+1. `PageTransition` bao quanh đúng vùng route content ở auth, mobile và desktop;
+   header/sidebar/bottom nav không di chuyển.
+2. TanStack `defaultViewTransition` chỉ bật khi runtime hỗ trợ, người dùng không
+   yêu cầu reduced motion và `pathChanged=true`; query/filter update không animate.
+3. Motion dùng fade-through + translate dọc 6px tối đa, duration 120–260ms;
+   mobile dùng duration chuẩn 180ms.
+4. Trình duyệt thiếu API dùng class fallback được phát hiện bằng JavaScript;
+   không dùng CSS `@supports` vì có runtime hỗ trợ property nhưng thiếu API.
+5. `prefers-reduced-motion: reduce` tắt route animation và smooth scrolling.
+6. Entrance animation cũ của từng `.product-view` bị loại để không double-motion.
+
+### Verification
+
+- `pageTransition.test.tsx` khóa pathname-only remount, fallback, native CSS và
+  reduced-motion contract.
+- Targeted UI contracts: 3 files / 15 tests PASS; oxlint 0 warning;
+  design-system lint 0/139 violation; TypeScript + frontend/PWA build PASS.
+- Browser smoke public flow `/login` → `/login/nhan-su`: đúng một motion boundary,
+  shell/page semantics không đổi, điều hướng thành công. Protected-route task
+  usability và cảm nhận motion trên thiết bị thật vẫn CONDITIONAL.
