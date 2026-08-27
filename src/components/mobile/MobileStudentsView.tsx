@@ -313,7 +313,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 }}
               >
                 {selectionMode && (
-                  <div style={{ position: 'absolute', top: '12px', left: '12px' }}>
+                  <div style={{ position: 'absolute', top: '4px', left: '4px' }} className="w-11 h-11 flex items-center justify-center">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(s.id)}

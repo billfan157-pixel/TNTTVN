@@ -95,7 +95,7 @@ describe('HeaderBar Component', () => {
 
   it('renders search input', () => {
     render(<HeaderBar />)
-    expect(screen.getByPlaceholderText('Tìm tên, mã...')).toBeDefined()
+    expect(screen.getByRole('textbox', { name: 'Tìm tên, mã thiếu nhi' })).toBeDefined()
   })
 
   it('renders semester toggle buttons', () => {
