@@ -1235,9 +1235,11 @@ export function buildBatchExamPapersHtml(
       .exam-paper-container { padding: 2mm 5.6mm !important; }
     }
     .batch-exam-page {
-      width: 210mm;
+      width: 100%;
+      max-width: 210mm;
       min-height: 297mm;
       /* QB-MARGIN 2026-08-27: padding 0 giữ nguyên — geometry OMR đã đồng bộ với single (container 4mm + @page 4mm). */
+      /* Fix preview ngang: 210mm cứng + body padding 12mm vượt khung 750px → scroll ngang ở In Cả Lớp, Mẫu Chung không bị. Dùng 100% + max-width để co theo iframe. */
       padding: 0;
       margin: 0 auto 10mm auto;
       background: #ffffff;
@@ -1245,6 +1247,7 @@ export function buildBatchExamPapersHtml(
       page-break-after: always;
       break-after: page;
       position: relative;
+      box-sizing: border-box;
     }
     @media print {
       body { background: #ffffff; }
