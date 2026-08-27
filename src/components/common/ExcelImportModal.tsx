@@ -187,7 +187,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       }
 
       for (const cn of classNotFound) {
-        if (!newCls.find(nc => nc.name === cn)) {
+        const canon = cn.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+        if (!newCls.find(nc => nc.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim() === canon)) {
           const branch = inferBranch(cn) || 'ThieuNhi'
           newCls.push({
             name: cn,
@@ -306,10 +307,21 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     return branchName?.name || null
   }
 
-  const unmatchedClassNames = [...new Set(validationRows.map((r: any) => r.className).filter((cn: string) => {
-    const row = validationRows.find((r: any) => r.className === cn)
-    return row && !row.classMatch
-  }))]
+  const canonicalKey = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+  const unmatchedClassNames = (() => {
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const r of validationRows as any[]) {
+      const cn = r.className?.trim()
+      if (!cn || r.classMatch) continue
+      const canon = canonicalKey(cn)
+      if (!seen.has(canon)) {
+        seen.add(canon)
+        result.push(cn)
+      }
+    }
+    return result
+  })()
 
   const countErrorType = (keyword: string): number =>
     invalidRows.filter((r: any) => (r.errors || []).some((e: string) => e.includes(keyword))).length
@@ -728,9 +740,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   <h4 className="text-sm font-bold text-parish-warning mb-3">Lớp Chưa Tồn Tại — Sẽ Tự Động Tạo Mới</h4>
                   <div className="space-y-2">
                     {unmatchedClassNames.map(cn => {
-                      const row = validationRows.find((r: any) => r.className === cn)
-                      const nc = newClasses.find(n => n.name === cn)
-                      const studentCount = validationRows.filter(r => r.className === cn && !r.duplicateOf).length
+                      const canon = canonicalKey(cn)
+                      const row = validationRows.find((r: any) => canonicalKey(r.className) === canon)
+                      const nc = newClasses.find(n => canonicalKey(n.name) === canon)
+                      const studentCount = validationRows.filter(r => canonicalKey(r.className) === canon && !r.duplicateOf).length
                       const ayName = activeAcademicYears.find(a => a.id === nc?.academicYearId)
                       return (
                         <div key={cn} className="p-3 bg-surface-card rounded border border-surface-border">
@@ -748,7 +761,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                               )}
                             </div>
                             {!classMappings[cn] && (() => {
-                              const studentsInClass = validationRows.filter(r => r.className === cn && !r.duplicateOf)
+                              const canonInner = canonicalKey(cn)
+                              const studentsInClass = validationRows.filter(r => canonicalKey(r.className) === canonInner && !r.duplicateOf)
                               const studentBranches = [...new Set(studentsInClass.map(r => r.branch).filter(Boolean))]
                               const inferredBranch = nc?.branch
                               const hasMismatch = inferredBranch && studentBranches.length > 0 && studentBranches.some(b => b !== inferredBranch)
@@ -795,14 +809,14 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                               <select
                                 className="text-xs px-2 py-1 border border-surface-border rounded bg-surface-card"
                                 value={nc?.branch || 'ThieuNhi'}
-                                onChange={e => setNewClasses(prev => prev.map(n => n.name === cn ? { ...n, branch: e.target.value } : n))}
+                                onChange={e => setNewClasses(prev => prev.map(n => canonicalKey(n.name) === canonicalKey(cn) ? { ...n, branch: e.target.value } : n))}
                               >
                                 {branches.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                               </select>
                               <select
                                 className="text-xs px-2 py-1 border border-surface-border rounded bg-surface-card"
                                 value={nc?.academicYearId || ''}
-                                onChange={e => setNewClasses(prev => prev.map(n => n.name === cn ? { ...n, academicYearId: e.target.value } : n))}
+                                onChange={e => setNewClasses(prev => prev.map(n => canonicalKey(n.name) === canonicalKey(cn) ? { ...n, academicYearId: e.target.value } : n))}
                               >
                                 {activeAcademicYears.map(a => <option key={a.id} value={a.id}>{a.startDate} - {a.endDate}</option>)}
                               </select>

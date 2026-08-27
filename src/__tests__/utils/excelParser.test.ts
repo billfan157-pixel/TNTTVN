@@ -169,8 +169,10 @@ describe('parseRosterText', () => {
   it('reports errors for missing fields', () => {
     const text = 'Tên Thánh\tHọ và Tên\n\tNguyễn Văn A'
     const result = parseRosterText(text)
-    expect(result[0].isValid).toBe(false)
-    expect(result[0].errors).toContain('Thiếu Tên Thánh')
+    // holyName optional 2026-08-28: thiếu vẫn valid, chỉ fullName bắt buộc
+    expect(result[0].isValid).toBe(true)
+    expect(result[0].errors).not.toContain('Thiếu Tên Thánh')
+    expect(result[0].holyName).toBe('')
   })
 })
 

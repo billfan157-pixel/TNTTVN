@@ -193,8 +193,14 @@ function isPlaceholder(value: string | undefined | null): boolean {
   return typeof value === 'string' && value.trim() === PLACEHOLDER
 }
 
+function canonicalClassKey(name: string): string {
+  return normalizeName(name)
+}
+
 function validateRow(row: ImportRow): string[] {
   const errors: string[] = []
+  // holyName optional 2026-08-28 per user: thiếu tên thánh vẫn cho import bình thường
+  // Không chặn import, để trống hoặc client điền sau. Vẫn lưu như rỗng.
   const holyName = toStr(row.holyName).trim()
   const fullName = toStr(row.fullName).trim()
   const gender = toStr(row.gender).trim()
@@ -202,7 +208,7 @@ function validateRow(row: ImportRow): string[] {
   const parentPhone = toStr(row.parentPhone).trim()
   const branch = toStr(row.branch).trim()
   const className = toStr(row.className).trim()
-  if (!holyName) errors.push('Thiếu Tên Thánh')
+  if (holyName && holyName.length > 100) errors.push('Tên Thánh quá dài (tối đa 100 ký tự)')
   if (!fullName) errors.push('Thiếu Họ và Tên')
   if (gender && !['Nam', 'Nữ'].includes(gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
   if (dateOfBirth && !isPlaceholder(dateOfBirth) && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
@@ -262,18 +268,18 @@ async function matchClass(
 ): Promise<ClassMatchResult> {
   const trimmed = className.trim()
   const stripped = stripForMatch(trimmed)
-  const normInput = normalizeName(trimmed)
+  const normInput = canonicalClassKey(trimmed)
 
-  // 1. Exact match (name or code)
-  const exact = allClasses.find(c => c.name.trim() === trimmed || c.code.trim() === trimmed)
-  if (exact) return { className: trimmed, matchedClass: { id: exact.id, name: exact.name, code: exact.code, branchName: exact.branchName }, suggestions: [], reason: ['Tên lớp hoặc mã lớp khớp chính xác'] }
+  // 1. Canonical exact match (case-insensitive, diacritic-insensitive) — 2026-08-28 fix: "LỚP 3A" vs "Lớp 3A" phải cùng lớp
+  const exact = allClasses.find(c => canonicalClassKey(c.name) === normInput || canonicalClassKey(c.code) === normInput)
+  if (exact) return { className: trimmed, matchedClass: { id: exact.id, name: exact.name, code: exact.code, branchName: exact.branchName }, suggestions: [], reason: ['Tên lớp khớp sau khi chuẩn hóa (không phân biệt hoa/thường, dấu)'] }
 
-  // 2. Stripped code match
+  // 2. Stripped code match (fallback, strip spaces)
   const byCode = allClasses.find(c => stripForMatch(c.code) === stripped)
   if (byCode) return { className: trimmed, matchedClass: { id: byCode.id, name: byCode.name, code: byCode.code, branchName: byCode.branchName }, suggestions: [], reason: ['Mã lớp khớp sau khi chuẩn hóa'] }
 
-  // 3. Normalized name match
-  const byName = allClasses.find(c => normalizeName(c.name) === normInput)
+  // 3. Normalized name match (kept for backward compat, same as canonical)
+  const byName = allClasses.find(c => canonicalClassKey(c.name) === normInput)
   if (byName) return { className: trimmed, matchedClass: { id: byName.id, name: byName.name, code: byName.code, branchName: byName.branchName }, suggestions: [], reason: ['Tên lớp khớp sau khi chuẩn hóa (bỏ dấu, viết thường)'] }
 
   // 4. Compute weighted scores using multiple signals
@@ -669,19 +675,24 @@ export async function validateImport(
   const academicYearId = await getCurrentAcademicYearId(parishId)
   const existingMappings = await getExistingMappings(parishId, academicYearId)
 
+  // canonical cache: key = canonicalClassKey, value = result. Deduplicate case/diacritic variants.
   const classCache = new Map<string, ClassMatchResult>()
-  const missingClassNames = new Set<string>()
+  const canonicalToOriginal = new Map<string, string>()
+  const missingCanonicalSet = new Set<string>()
 
   // Pre-populate cache with learned mappings
   for (const row of normalizedRows) {
     const cn = row.className?.trim()
-    if (!cn || classCache.has(cn)) continue
-    const normKey = cn.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+    if (!cn) continue
+    const canon = canonicalClassKey(cn)
+    if (classCache.has(canon)) continue
+    if (!canonicalToOriginal.has(canon)) canonicalToOriginal.set(canon, cn)
+    const normKey = canon
     const learned = existingMappings.get(normKey)
     if (learned) {
       const cls = allClasses.find(c => c.id === learned.classId)
       if (cls) {
-        classCache.set(cn, {
+        classCache.set(canon, {
           className: cn,
           matchedClass: { id: cls.id, name: cls.name, code: cls.code, branchName: cls.branchName },
           suggestions: [],
@@ -701,16 +712,19 @@ export async function validateImport(
 
     const cn = rowClone.className?.trim()
     if (cn) {
-      if (!classCache.has(cn)) {
-        classCache.set(cn, await matchClass(cn, rowClone.branch, allClasses))
+      const canon = canonicalClassKey(cn)
+      if (!canonicalToOriginal.has(canon)) canonicalToOriginal.set(canon, cn)
+      if (!classCache.has(canon)) {
+        classCache.set(canon, await matchClass(cn, rowClone.branch, allClasses))
       }
-      const result = classCache.get(cn)!
+      const result = classCache.get(canon)!
       classSuggestions = result.suggestions
       if (result.matchedClass) {
-        classMatch = { id: result.matchedClass.id, name: result.matchedClass.name, confidence: result.matchedClass.code === cn ? 'exact_code' : 'exact_name', reason: result.reason }
+        const isExactCode = canonicalClassKey(result.matchedClass.code) === canon
+        classMatch = { id: result.matchedClass.id, name: result.matchedClass.name, confidence: isExactCode ? 'exact_code' : 'exact_name', reason: result.reason }
       } else if (result.suggestions.length === 0) {
         classAutoCreate = true
-        missingClassNames.add(cn)
+        missingCanonicalSet.add(canon)
       }
     }
 
@@ -736,18 +750,33 @@ export async function validateImport(
   }, 10)
 
   const suggestedNewClasses: { name: string; branch: string; academicYearId: string }[] = []
-  if (missingClassNames.size > 0) {
-    for (const cn of missingClassNames) {
+  if (missingCanonicalSet.size > 0) {
+    for (const canon of missingCanonicalSet) {
+      const cn = canonicalToOriginal.get(canon) || canon
       const branch = inferBranch(cn) || 'ThieuNhi'
       suggestedNewClasses.push({ name: cn, branch, academicYearId })
     }
   }
 
-  const classNames = [...new Set(normalizedRows.map(r => r.className?.trim()).filter(Boolean))]
-  const classesNotFound = classNames.filter(cn => {
-    const result = classCache.get(cn)
-    return result && !result.matchedClass
-  })
+  // Dedup class names by canonical key for response
+  const canonicalSeen = new Set<string>()
+  const distinctCanonicals: string[] = []
+  for (const r of normalizedRows) {
+    const cn = r.className?.trim()
+    if (!cn) continue
+    const canon = canonicalClassKey(cn)
+    if (!canonicalSeen.has(canon)) {
+      canonicalSeen.add(canon)
+      distinctCanonicals.push(canon)
+    }
+  }
+  const classesNotFound: string[] = []
+  for (const canon of distinctCanonicals) {
+    const result = classCache.get(canon)
+    if (result && !result.matchedClass) {
+      classesNotFound.push(canonicalToOriginal.get(canon) || canon)
+    }
+  }
 
   const contentHash = computeContentHash(normalizedRows)
   const [prev] = await db
@@ -798,11 +827,32 @@ export async function importStudents(
   const contentHash = computeContentHash(normalizedRows)
   const serviceExclusions = new Set(input.serviceExclusions || [])
   const result: ImportResult = { imported: 0, skipped: 0, errors: 0, classesCreated: [], batchId, contentHash, report: [] }
+  // classIdMap canonical -> id, dedup case/diacritic variants. Keep original name for display via canonicalToOriginal.
   const classIdMap = new Map<string, string>()
+  const canonicalToOriginalImport = new Map<string, string>()
+  // Build canonical map for classMappings (raw keys may differ in case/diacritics)
+  const normClassMappings = new Map<string, string | null>()
+  for (const [k, v] of Object.entries(classMappings)) {
+    normClassMappings.set(canonicalClassKey(k), v)
+    if (!canonicalToOriginalImport.has(canonicalClassKey(k))) canonicalToOriginalImport.set(canonicalClassKey(k), k)
+  }
+
+  // Deduplicate classesToCreate by canonical key to avoid creating "LỚP 3A" and "Lop 3A" as 2 rows
+  const dedupedClassesToCreate: typeof classesToCreate = []
+  const seenCanonCreate = new Set<string>()
+  for (const nc of classesToCreate) {
+    const canon = canonicalClassKey(nc.name)
+    if (seenCanonCreate.has(canon)) continue
+    // Also skip if canonical already exists in DB (case-insensitive)
+    if (allClasses.some(c => canonicalClassKey(c.name) === canon || canonicalClassKey(c.code) === canon)) continue
+    seenCanonCreate.add(canon)
+    dedupedClassesToCreate.push(nc)
+    if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, nc.name)
+  }
 
   // Atomic class creation
   await db.transaction(async (tx) => {
-    for (const nc of classesToCreate) {
+    for (const nc of dedupedClassesToCreate) {
       const id = generateId('CLS')
       const now = new Date().toISOString()
       const [branch] = await tx
@@ -837,7 +887,9 @@ export async function importStudents(
         id: generateId('AUD'), userId, action: 'CREATE', entityType: 'class',
         entityId: id, newValue: JSON.stringify(nc), ip, userAgent, parishId,
       })
-      classIdMap.set(nc.name, id)
+      const canon = canonicalClassKey(nc.name)
+      classIdMap.set(canon, id)
+      if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, nc.name)
       result.classesCreated.push(nc.name)
     }
   })
@@ -858,24 +910,27 @@ export async function importStudents(
   async function resolveClassId(tx: DbTransaction, rowClassName: string, rowBranch: string): Promise<string | null> {
     const trimmed = rowClassName.trim()
     if (!trimmed) return null
+    const canon = canonicalClassKey(trimmed)
 
-    const mapped = classMappings[trimmed]
+    // Check canonical mapping first (case/diacritic-insensitive), fallback raw for compat
+    const mapped = normClassMappings.get(canon) ?? classMappings[trimmed]
     // A-NEW-22 (2026-08-11): validate classId từ classMappings thuộc parish hiện tại + thuộc allowedClassSet nếu có
     if (mapped && allClasses.some(c => c.id === mapped)) {
       if (allowedClassSet != null && !allowedClassSet.has(mapped)) return null
       return mapped
     }
 
-    const cached = classIdMap.get(trimmed)
+    const cached = classIdMap.get(canon)
     if (cached) {
       if (allowedClassSet != null && !allowedClassSet.has(cached)) return null
       return cached
     }
 
-    const existed = allClasses.find(c => c.name.trim() === trimmed || c.code.trim() === trimmed)
+    const existed = allClasses.find(c => canonicalClassKey(c.name) === canon || canonicalClassKey(c.code) === canon)
     if (existed) {
       if (allowedClassSet != null && !allowedClassSet.has(existed.id)) return null
-      classIdMap.set(trimmed, existed.id)
+      classIdMap.set(canon, existed.id)
+      if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
       return existed.id
     }
 
@@ -898,7 +953,8 @@ export async function importStudents(
     const now = new Date().toISOString()
     await tx.insert(classes).values({ id: newId, code: trimmed, name: trimmed, branchId: branch.id, academicYearId: ayId, parishId, updatedBy: userId, createdAt: now, updatedAt: now })
     await tx.insert(auditLogs).values({ id: generateId('AUD'), userId, action: 'IMPORT_AUTO_CREATE_CLASS', entityType: 'class', entityId: newId, newValue: JSON.stringify({ name: trimmed, branch: branchCode, academicYearId: ayId }), ip, userAgent, parishId })
-    classIdMap.set(trimmed, newId)
+    classIdMap.set(canon, newId)
+    if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
     result.classesCreated.push(trimmed)
     return newId
   }
@@ -1041,23 +1097,24 @@ export async function importStudents(
   const ayId = await getCurrentAcademicYearId(parishId)
   const mappingValues: (typeof mappingMemory.$inferInsert)[] = []
 
-  // Save user-confirmed class mappings
+  // Save user-confirmed class mappings — alias canonical for case/diacritic-insensitive learning
   for (const [rawName, classId] of Object.entries(classMappings)) {
     if (!classId) continue
-    const normKey = rawName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+    const alias = canonicalClassKey(rawName)
     mappingValues.push({
       id: generateId('MM'), parishId, scope: 'class' as const,
-      alias: normKey, entityId: classId, entityName: rawName,
+      alias, entityId: classId, entityName: rawName,
       academicYearId: ayId, isActive: 1, createdBy: userId,
     })
   }
 
-  // Save mappings for newly created classes
-  for (const [rawName, classId] of classIdMap) {
-    const normKey = rawName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  // Save mappings for newly created classes — use canonical alias, original display name
+  for (const [canon, classId] of classIdMap) {
+    const alias = canon // already canonical
+    const entityName = canonicalToOriginalImport.get(canon) || canon
     mappingValues.push({
       id: generateId('MM'), parishId, scope: 'class' as const,
-      alias: normKey, entityId: classId, entityName: rawName,
+      alias, entityId: classId, entityName,
       academicYearId: ayId, isActive: 1, createdBy: userId,
     })
   }

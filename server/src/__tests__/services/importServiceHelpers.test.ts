@@ -54,7 +54,8 @@ const PHONE_RE = /^(\+84|0)\d{9,10}$/
 
 function validateRow(row: { holyName?: string; fullName?: string; gender?: string; dateOfBirth?: string; parentPhone?: string; branch?: string; className?: string }): string[] {
   const errors: string[] = []
-  if (!row.holyName?.trim()) errors.push('Thiếu Tên Thánh')
+  // holyName optional 2026-08-28: thiếu tên thánh vẫn cho import bình thường
+  if (row.holyName?.trim() && row.holyName.trim().length > 100) errors.push('Tên Thánh quá dài (tối đa 100 ký tự)')
   if (!row.fullName?.trim()) errors.push('Thiếu Họ và Tên')
   if (row.gender && !['Nam', 'Nữ'].includes(row.gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
   if (row.dateOfBirth && !isPlaceholder(row.dateOfBirth) && !/^\d{4}-\d{2}-\d{2}$/.test(row.dateOfBirth)) errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
@@ -168,7 +169,8 @@ describe('detectService', () => {
 describe('validateRow', () => {
   it('returns errors for missing required fields', () => {
     const errs = validateRow({})
-    expect(errs).toContain('Thiếu Tên Thánh')
+    // holyName optional 2026-08-28: không còn bắt buộc
+    expect(errs).not.toContain('Thiếu Tên Thánh')
     expect(errs).toContain('Thiếu Họ và Tên')
     expect(errs).toContain('Thiếu Tên Lớp')
   })

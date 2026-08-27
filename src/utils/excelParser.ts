@@ -311,7 +311,8 @@ export function parseRosterText(rawText: string, defaultClassId: string = 'AU1')
       : 'AuNhi'
 
     const errors: string[] = []
-    if (!holyName) errors.push('Thiếu Tên Thánh')
+    // holyName optional 2026-08-28: thiếu vẫn cho import bình thường (để trống)
+    if (holyName && holyName.length > 100) errors.push('Tên Thánh quá dài (tối đa 100 ký tự)')
     if (!fullName) errors.push('Thiếu Họ và Tên')
 
     results.push({
