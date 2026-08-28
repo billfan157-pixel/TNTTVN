@@ -5,7 +5,6 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useNoticeStore } from '../../stores/noticeStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useAuth } from '../../hooks/useAuth';
 import { calculateGradeAverage, calculateAttendanceRate } from '../../utils/grades';
 import { 
   CheckSquare, FileSpreadsheet, UserPlus, 
@@ -21,12 +20,9 @@ interface MobileHomeViewProps {
 
 export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, onOpenAddStudent }) => {
   const navigate = useNavigate();
-  const { role: _role } = useAuth();
   const students = useStudentStore(s => s.students);
   const attendance = useAttendanceStore(s => s.attendance);
   const grades = useGradeStore(s => s.grades);
-  const _selectedClassId = useFilterStore(s => s.selectedClassId);
-  const _setSelectedClassId = useFilterStore(s => s.setSelectedClassId);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
   const notices = useNoticeStore(s => s.notices);
 
@@ -89,8 +85,8 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
         </div>
         <div className="grid grid-cols-3 gap-3">
           <button
-            onClick={() => onNavigateTab('attendance')}
-            className="mobile-quick-action mobile-quick-action--success"
+            onClick={() => { if ('vibrate' in navigator) try { navigator.vibrate(6) } catch {}; onNavigateTab('attendance') }}
+            className="mobile-quick-action mobile-quick-action--success touch-manipulation"
           >
             <div className="mobile-quick-action__icon">
               <CheckSquare size={20} />
@@ -99,8 +95,8 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
           </button>
 
           <button
-            onClick={() => onNavigateTab('grades')}
-            className="mobile-quick-action"
+            onClick={() => { if ('vibrate' in navigator) try { navigator.vibrate(6) } catch {}; onNavigateTab('grades') }}
+            className="mobile-quick-action touch-manipulation"
           >
             <div className="mobile-quick-action__icon">
               <FileSpreadsheet size={20} />
@@ -109,8 +105,8 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
           </button>
 
           <button
-            onClick={onOpenAddStudent}
-            className="mobile-quick-action mobile-quick-action--gold"
+            onClick={() => { if ('vibrate' in navigator) try { navigator.vibrate(6) } catch {}; onOpenAddStudent() }}
+            className="mobile-quick-action mobile-quick-action--gold touch-manipulation"
           >
             <div className="mobile-quick-action__icon">
               <UserPlus size={20} />

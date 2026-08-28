@@ -58,6 +58,29 @@ describe('A12 — method-aware retry (api request)', () => {
     expect(key1).toBe(key2)
   })
 
+  it('EXAM-CONTINUOUS-P0: save result retry giữ nguyên header và per-item mutation', async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('response lost'))
+      .mockResolvedValueOnce(fakeResponse(200, {
+        success: true,
+        data: { saved: 1, upserted: 0, total: 1, items: [] },
+      }))
+
+    const promise = api.saveExamResults('EXS-1', [{
+      studentId: 'ST-1', score: 8, source: 'qr_scan',
+      clientMutationId: 'MUT-CONT-API-1', capturedAt: '2026-08-28T03:00:00.000Z',
+    }])
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(promise).resolves.toMatchObject({ saved: 1, total: 1 })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const firstOptions = fetchMock.mock.calls[0][1]
+    const secondOptions = fetchMock.mock.calls[1][1]
+    expect(firstOptions.headers['Idempotency-Key']).toBe('MUT-CONT-API-1')
+    expect(secondOptions.headers['Idempotency-Key']).toBe('MUT-CONT-API-1')
+    expect(JSON.parse(firstOptions.body)).toEqual(JSON.parse(secondOptions.body))
+  })
+
   it('POST createUser: 5xx → KHÔNG retry', async () => {
     fetchMock.mockResolvedValue(fakeResponse(500, { success: false, error: { code: 'INTERNAL_ERROR' } }))
     const p = api.createUser({ username: 'hoc-sinh-test', fullName: 'Test User', role: 'admin' })

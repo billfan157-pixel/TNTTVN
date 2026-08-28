@@ -20,6 +20,7 @@ const INDEXES: Record<string, string[]> = {
   idx_notices_idempotency: ['parish_id', 'idempotency_key'],
   idx_classes_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],
+  idx_exam_result_mutations_session: ['parish_id', 'exam_session_id', 'created_at'],
 }
 
 const TRIGGERS = [
@@ -43,6 +44,10 @@ const COMPOSITE_PK_TABLES = new Set([
   'student_fee_records',
 ])
 
+const SPECIAL_COMPOSITE_PRIMARY_KEYS: Record<string, string[]> = {
+  exam_result_mutations: ['parish_id', 'user_id', 'client_mutation_id'],
+}
+
 const REQUIRED_COLUMNS: Record<string, string[]> = {
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
@@ -51,6 +56,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   users: ['password_encrypted', 'holy_name'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
   promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
   grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
 }
@@ -93,6 +99,9 @@ function createHealthyClient(
         const rows: Array<{ name: string; pk: number }> = []
         if (COMPOSITE_PK_TABLES.has(tableName)) {
           rows.push({ name: 'parish_id', pk: 1 }, { name: 'id', pk: 2 })
+        }
+        for (const [index, column] of (SPECIAL_COMPOSITE_PRIMARY_KEYS[tableName] || []).entries()) {
+          rows.push({ name: column, pk: index + 1 })
         }
         for (const column of REQUIRED_COLUMNS[tableName] || []) {
           if (options.omitColumn === `${tableName}.${column}`) continue

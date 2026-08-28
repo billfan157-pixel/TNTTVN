@@ -153,6 +153,9 @@ export async function remapStudentIdInPendingOps(oldId: string, newId: string) {
       if (item.entityId === oldId) {
         updates.entityId = newId
       }
+      if (item.entity === 'exam_result' && item.entityId.endsWith(`::result::${oldId}`)) {
+        updates.entityId = `${item.entityId.slice(0, -oldId.length)}${newId}`
+      }
       if (payload.studentId === oldId) {
         payload.studentId = newId
         updates.payload = await encryptQueueValue(JSON.stringify(payload))
@@ -173,6 +176,10 @@ export async function remapStudentIdInPendingOps(oldId: string, newId: string) {
         if (modified) {
           updates.payload = await encryptQueueValue(JSON.stringify(payload))
         }
+      }
+      if (payload.score && typeof payload.score === 'object' && (payload.score as Record<string, unknown>).studentId === oldId) {
+        ;(payload.score as Record<string, unknown>).studentId = newId
+        updates.payload = await encryptQueueValue(JSON.stringify(payload))
       }
       if (updates.entityId || updates.payload) {
         updates.updatedAt = new Date().toISOString()
@@ -199,6 +206,9 @@ export async function remapExamSessionIdInPendingOps(oldId: string, newId: strin
       const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
       if (item.entityId === oldId) {
         updates.entityId = newId
+      }
+      if (item.entity === 'exam_result' && item.entityId.startsWith(`${oldId}::result::`)) {
+        updates.entityId = `${newId}${item.entityId.slice(oldId.length)}`
       }
       if (payload.sessionId === oldId) {
         payload.sessionId = newId

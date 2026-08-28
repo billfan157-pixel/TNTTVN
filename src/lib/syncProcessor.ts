@@ -184,6 +184,23 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
         }
         break
 
+      case 'exam_result':
+        if (action === 'update') {
+          const targetSessionId = data.sessionId
+          if (!targetSessionId) {
+            return { ok: false, recoverable: false, error: 'Exam result mutation thiếu sessionId' }
+          }
+          if (data.action === 'save_result' && data.score) {
+            const res = await api.saveExamResults(targetSessionId, [data.score])
+            return { ok: true, data: res }
+          }
+          if (data.action === 'remove_result' && data.studentId) {
+            await api.removeExamResult(targetSessionId, data.studentId)
+            return { ok: true, data: { removed: true, studentId: data.studentId, sessionId: targetSessionId } }
+          }
+        }
+        return { ok: false, recoverable: false, error: 'Exam result mutation không hợp lệ' }
+
       default:
         return { ok: false, recoverable: false, error: `Unknown entityType: ${entityType}` }
     }

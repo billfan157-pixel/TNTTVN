@@ -18,6 +18,7 @@ import {
   reopenExamSession,
   ExamNotFoundError,
   ExamStateError,
+  ExamMutationConflictError,
   ExamAccessError,
 } from '../services/examService.js'
 
@@ -244,12 +245,16 @@ const resultsSchema = z.object({
     answers: z.string().max(20_000).optional(),
     scanMetadata: z.string().max(10_000).optional(),
     examVersion: z.string().trim().toUpperCase().regex(/^[A-H]$/).optional().default('A'),
+    clientMutationId: z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9._:-]+$/).optional(),
+    attemptFingerprint: z.string().trim().min(1).max(256).optional(),
+    capturedAt: z.string().datetime({ offset: true }).optional(),
   })).min(1).max(1000),
 })
 
 function handleServiceError(c: any, err: any) {
   if (err instanceof ExamNotFoundError) return errorResponse(c, 'NOT_FOUND', err.message, 404)
   if (err instanceof ExamStateError) return errorResponse(c, 'STATE_TRANSITION_INVALID', err.message, 409)
+  if (err instanceof ExamMutationConflictError) return errorResponse(c, 'IDEMPOTENCY_CONFLICT', err.message, 409)
   if (err instanceof ExamAccessError) return errorResponse(c, 'FORBIDDEN', err.message, 403)
   const status = err.status || err.statusCode || 500
   const msg = err instanceof Error ? err.message : 'Lỗi không xác định khi xử lý phiên chấm'

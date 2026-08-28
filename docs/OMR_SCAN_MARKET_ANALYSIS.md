@@ -292,3 +292,22 @@ Gate hiện chỉ chứng nhận `workload=multiple_choice`; score-grid written 
 | 400-image privacy-safe MC corpus + exact release matrix | ⛔ CHƯA CÓ — field accuracy NOT CONFIRMED |
 
 **Kết luận v4:** pipeline đã giảm công việc trên live path và loại race/stale-configuration/lifecycle continuation mà không hạ một ngưỡng chấm nào; độ chính xác được bảo vệ bằng final high-resolution consensus và benchmark gate không còn tính sai/trộn mẫu số/template. Chỉ được báo kết quả của từng microbenchmark có profile rõ; chưa được tuyên bố đạt accuracy thực địa hoặc p95 mobile tới khi corpus/required target-device matrix ADR-060 chạy thật.
+
+---
+
+## VIII. SUPERVISED CONTINUOUS QUEUE — THROUGHPUT KHÔNG HẠ INTEGRITY (2026-08-28, ADR-067)
+
+Kiểm toán end-to-end xác nhận bottleneck chính của thao tác liên tiếp không nằm ở detector desktop synthetic mà ở chuỗi blocking `Save → POST/queue → refresh → reset`. Nghiêm trọng hơn, queue cũ shallow-merge mảng `scores[]` theo session và có thể làm mất bài offline. Phase 0–1 được triển khai theo mô hình hai pipeline:
+
+```text
+capture: identity → quality/OMR → consensus → human Save → durable local → rearm
+commit:  durable pending → send/retry → item ack → reconcile → synced/conflict/error
+```
+
+- Save/remove tách mutation theo student; complete là ordering barrier. Reload vẫn khôi phục queue và item ledger.
+- Receipt server theo parish+user+mutation ID giải quyết timeout-after-commit: same hash trả acknowledgement cũ, không ghi result/audit lần hai; hash khác fail 409.
+- Attempt fingerprint + rearm state chặn cùng phiếu; same-student/different-attempt được route conflict thay vì silent overwrite.
+- Camera không chờ network sau durable write, nhưng vẫn chờ người chấm xác nhận từng proposal. Không có raw image trong request/receipt/telemetry.
+- `VITE_CONTINUOUS_SCAN_V2` cho phép rollback về stable path; Worker, quality-ROI threshold change và unattended auto-save không nằm trong thay đổi này.
+
+KPI field cần đo là `sheet-visible→proposal`, `confirm→durable`, `durable→ack`, papers/minute 30/100 phiếu, duplicate/lost mutation, memory slope và thermal drift. Unit/integration tests chứng minh semantics phần mềm; chúng không thay thế sequence corpus hoặc target-device study. Vì corpus thật vẫn trống, field throughput/accuracy và unattended tiếp tục **NOT CONFIRMED**.

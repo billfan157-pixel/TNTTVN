@@ -9,7 +9,7 @@ interface StoreItem {
 
 export interface SyncQueueItem {
   id: string
-  entity: 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam'
+  entity: 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' | 'exam_result'
   entityId: string
   operation: 'CREATE' | 'UPDATE' | 'DELETE'
   payload: string

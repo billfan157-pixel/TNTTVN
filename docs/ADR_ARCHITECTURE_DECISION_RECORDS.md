@@ -1836,3 +1836,36 @@ B bị loại dù nhanh vì một row lỗi sẽ rollback toàn file, xung độ
 - `importPerformance`: 120/120 imported, unique code + tenant projection, 113,4ms local ở lần verify cuối; forced chunk failure chứng minh fallback giữ 1 success/1 error.
 - `npm run lint` và production client/server/PWA build PASS. Full suite không chạy lại theo yêu cầu tránh lặp các suite đã pass; không dùng local benchmark để claim Turso production latency.
 
+---
+
+## ADR-067: Supervised Continuous OMR Queue — Durable Capture, Item Idempotency & Rearm (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED PHASE 0–1; FIELD CONDITIONAL. Severity: D2. Profile: GENERAL + OFFLINE/SYNC. Reversibility: R2.**
+
+### Evidence và quyết định
+
+- Luồng cũ chờ `POST /results` và refresh trước khi mở phiếu tiếp theo; network nằm trong critical path.
+- Queue cũ gộp mọi `save_results` theo `exam + sessionId + UPDATE`; hai payload `scores[]` liên tiếp bị shallow-merge last-writer-wins và có thể mất bài offline. Finding được khóa bằng regression test trước/sau sửa.
+- Corpus camera thật vẫn chưa đủ ADR-060; vì vậy `accepted` chỉ là proposal và mọi bài vẫn cần người chấm xác nhận.
+- Ba phương án được chấm: blocking hiện hành 6,95; **Supervised Continuous Queue 8,80 — SELECT**; Worker/unattended 7,00 nhưng bị loại bởi Data Integrity/Testability gate.
+
+### Decision contract
+
+1. Mỗi save/remove là mutation bền vững riêng theo `sessionId + studentId`; `complete` là barrier và chỉ flush sau các mutation kết quả trước nó.
+2. `POST /api/exams/:id/results` nhận `clientMutationId`, `attemptFingerprint`, `capturedAt` tùy chọn. Receipt `exam_result_mutations` scope `(parish_id,user_id,client_mutation_id)` lưu request hash + acknowledgement trong cùng transaction với result; retry cùng hash trả `duplicate`, tái dùng key cho payload khác trả `409 IDEMPOTENCY_CONFLICT`. Audit chỉ ghi lần đầu.
+3. Sau explicit Save, client ghi encrypted queue + optimistic result + item ledger trước, rồi cho camera tiếp tục; network sync/reconcile không chặn capture.
+4. Attempt fingerprint chặn cùng bài/cùng đáp án; cùng học sinh khác fingerprint hoặc đã có result phải xác nhận conflict rõ ràng. Rearm chỉ mở khi thấy identity mới hoặc phiếu cũ vắng liên tục tối thiểu 3 observation và 900ms; dedupe vẫn là guard thứ hai.
+5. Ledger UI hiển thị `Chờ đồng bộ / Đã đồng bộ / Cần xử lý / Lỗi` và reconcile điểm server itemized. Không upload ảnh, không hạ threshold OMR/quality/identity/consensus.
+6. `VITE_CONTINUOUS_SCAN_V2=false|off|0` quay về stable blocking path; `Chấm Ổn Định` giữ nguyên.
+
+### Gates, compatibility và rollback
+
+- **D2 hard gates:** Security & Privacy 9, Data Integrity 9, Testability 9 — PASS bằng tenant/user-scoped receipt, server recompute, encrypted queue, ordering/idempotency/rearm tests.
+- **ADR gate:** ADR-023/048/049/050/062 PASS; ADR-060 PASS cho supervised proposal, CONFLICT với unattended/default auto-save nên nhánh đó vẫn BLOCKED.
+- **Business rules:** queue không mất multi-student, retry không lặp audit, same-sheet dedupe và server adjustment = CONFIRMED bằng test. Field accuracy, papers/minute, thermal/memory dài phiên = NOT CONFIRMED tới khi có corpus/thiết bị thật.
+- **Rollback R2:** tắt feature flag về stable path; migration `20260828-135` additive, giữ receipt rows khi rollback code và cascade theo exam session.
+
+### Verification
+
+Targeted client/server/state/queue/identity/acceptance: 11 files / 163 tests PASS; `npm run lint` PASS; production frontend + server TypeScript + Vite/PWA build PASS; synthetic `npm run benchmark:omr` PASS (live-path p95 dưới 150ms trên dev host, không phải field claim). Full serialized Vitest: **242/243 files, 1762/1763 tests PASS**; failure duy nhất là baseline `examPrintGeometry.test.ts` batch-print marker margin (tái hiện khi chạy cô lập), ngoài diff continuous-scan. Design-system lint cũng bị chặn bởi arbitrary hex có sẵn tại `MobileStudentsView.tsx:245`, không phải file trong feature. Sequence corpus/field rollout vẫn conditional.
+

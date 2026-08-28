@@ -10,7 +10,7 @@ export const PURGE_CONFIRM_KEY = 'XÓA TẤT CẢ'
 export const PURGE_VERSION_KEY = 'purge_version'
 export const DEFAULT_PURGE_VERSION = 1
 
-// ─── 23 bảng nghiệp vụ bị purge (mọi thứ trừ users/branches/permissions/rolePermissions/auditLogs/pushSubscriptions/systemSettings) ───
+// ─── Các bảng nghiệp vụ thuộc hợp đồng Purge v2.3 ───
 // Mọi bảng đều có cột parish_id → xóa theo parish (audit P4:
 // grade_overrides + outbox_messages đã add-column migration 096/097 — bỏ join-workaround v1.0).
 export const PURGE_TABLES = [
@@ -19,6 +19,7 @@ export const PURGE_TABLES = [
   'assessments',
   'promotion_records',
   'attendance_sessions',
+  'exam_result_mutations',
   'exam_results',
   'exam_sessions',
   'catechist_assignments',
@@ -48,6 +49,7 @@ const DELETE_ORDER: PurgeTableName[] = [
   'assessments',            // FK → academicYears
   'promotion_records',      // FK → students
   'attendance_sessions',    // FK → classes
+  'exam_result_mutations',  // FK → exam_sessions, students
   'exam_results',           // FK → exam_sessions, students
   'exam_sessions',          // FK → classes
   'catechist_assignments',  // FK → classes, users (giữ users)
@@ -78,12 +80,12 @@ interface PurgeSnapshotOptions {
 }
 
 /**
- * PURGE v2.3 — Xóa TOÀN BỘ dữ liệu giáo xứ (23 bảng nghiệp vụ) trong 1 transaction.
+ * PURGE v2.3 — Xóa 24 bảng nghiệp vụ thuộc hợp đồng purge trong 1 transaction.
  * Giữ nguyên: users, branches, permissions, rolePermissions, auditLogs, pushSubscriptions, systemSettings.
  * - Không DROP bảng / không xóa function / trigger / schema — chỉ DELETE rows.
- * - DELETE scope theo parish_id (toàn bộ 23 bảng — P4: grade_overrides/outbox_messages
+ * - DELETE scope theo parish_id (toàn bộ 24 bảng trong danh sách — P4: grade_overrides/outbox_messages
  *   đã có cột parish_id từ migration 096/097, không còn special-case join).
- * - Snapshot v3.0 (23 bảng, SHA256 checksum) ghi file trước khi xóa.
+ * - Snapshot v3.0 (24 bảng, SHA256 checksum) ghi file trước khi xóa.
  * - purge_version tăng 1 → client khác phát hiện ghost data và tự reset.
  * - auditLogs ghi 1 entry 'SYSTEM_PURGE' kèm counts trước-khi-xóa.
  */
@@ -95,7 +97,7 @@ export async function purgeParishData(
   const countsBefore: Record<string, number> = {}
   const snapshotData: Record<string, any[]> = {}
 
-  // 1. Đếm + snapshot toàn bộ dữ liệu trước khi xóa (v3.0: đủ 23 bảng, scope theo parish).
+  // 1. Đếm + snapshot toàn bộ dữ liệu trước khi xóa (v3.0: đủ 24 bảng, scope theo parish).
   for (const name of DELETE_ORDER) {
     const rows = (await client.execute(
       `SELECT * FROM ${name} WHERE parish_id = ?`,

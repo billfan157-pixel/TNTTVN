@@ -75,6 +75,56 @@ export interface ExamScoreItem {
   /** JSON chẩn đoán tổng hợp; tuyệt đối không chứa ảnh/base64. */
   scanMetadata?: string
   examVersion?: ExamVersionCode
+  clientMutationId?: string
+  attemptFingerprint?: string
+  capturedAt?: string
+}
+
+export type ExamResultMutationStatus = 'pending' | 'synced' | 'error' | 'conflict'
+
+export interface QueuedExamResultMutationState {
+  clientMutationId: string
+  queueOpId: string
+  sessionId: string
+  studentId: string
+  proposedScore: number
+  serverScore?: number
+  status: ExamResultMutationStatus
+  error?: string
+  createdAt: string
+  updatedAt: string
+}
+
+function mergeLocalExamResults(current: ExamResult[], sessionId: string, scores: ExamScoreItem[]): ExamResult[] {
+  const now = new Date().toISOString()
+  const byStudent = new Map(current.map(result => [result.studentId, result]))
+  for (const score of scores) {
+    const existing = byStudent.get(score.studentId)
+    byStudent.set(score.studentId, {
+      id: existing?.id || `EXR-local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      examSessionId: sessionId,
+      studentId: score.studentId,
+      score: score.score,
+      essayScore: score.essayScore ?? existing?.essayScore ?? null,
+      source: (score.source as ExamResult['source']) || 'qr_scan',
+      createdAt: existing?.createdAt || now,
+      answers: score.answers ? parseJsonObject<Record<number, MultipleChoiceOption | null>>(score.answers) : existing?.answers,
+      scanMetadata: score.scanMetadata ? parseJsonObject<ExamResult['scanMetadata']>(score.scanMetadata) : existing?.scanMetadata,
+      examVersion: score.examVersion ?? existing?.examVersion ?? 'A',
+    })
+  }
+  return Array.from(byStudent.values())
+}
+
+function pruneMutationLedger(
+  ledger: Record<string, QueuedExamResultMutationState>,
+  maxEntries = 200,
+): Record<string, QueuedExamResultMutationState> {
+  const entries = Object.entries(ledger)
+  if (entries.length <= maxEntries) return ledger
+  return Object.fromEntries(entries
+    .sort(([, a], [, b]) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, maxEntries))
 }
 
 export interface CreateExamInput {
@@ -100,6 +150,7 @@ interface ExamState {
   finalizing: boolean
   error: string | null
   lastFinalize: ExamFinalizeResult | null
+  queuedResultMutations: Record<string, QueuedExamResultMutationState>
 
   loadMySessions: () => Promise<void>
   loadClassSessions: (classId: string, filters?: { subject?: string; scoreType?: string; status?: string }) => Promise<void>
@@ -111,6 +162,12 @@ interface ExamState {
     upserted: number
     adjustments?: Array<{ studentId: string; clientScore: number; serverScore: number }>
   } | null>
+  queueScores: (scores: ExamScoreItem[]) => Promise<{
+    saved: number
+    upserted: number
+    queuedMutations: QueuedExamResultMutationState[]
+  } | null>
+  markResultMutation: (clientMutationId: string, status: ExamResultMutationStatus, details?: { serverScore?: number; error?: string }) => void
   removeResult: (studentId: string) => Promise<boolean>
   completeAndFinalize: () => Promise<ExamFinalizeResult | null>
   reopenSession: () => Promise<void>
@@ -138,6 +195,7 @@ export const useExamStore = create<ExamState>()(
   finalizing: false,
   error: null,
   lastFinalize: null,
+  queuedResultMutations: {},
 
   loadMySessions: async () => {
     set({ loading: true, error: null })
@@ -257,26 +315,7 @@ export const useExamStore = create<ExamState>()(
         // sửa sessionId trong payload sau khi CREATE hoàn tất.
         await syncSaveExamResults(id, scores)
         // Cập nhật local ngay để UI phản ánh.
-        set((state) => {
-          const now = new Date().toISOString()
-          const byStudent = new Map(state.results.map(r => [r.studentId, r]))
-          for (const s of scores) {
-            const existing = byStudent.get(s.studentId)
-            byStudent.set(s.studentId, {
-              id: existing?.id || `EXR-local-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`,
-              examSessionId: id,
-              studentId: s.studentId,
-              score: s.score,
-              essayScore: s.essayScore ?? existing?.essayScore ?? null,
-              source: (s.source as ExamResult['source']) || 'qr_scan',
-              createdAt: existing?.createdAt || now,
-              answers: s.answers ? (JSON.parse(s.answers) as Record<number, MultipleChoiceOption | null>) : existing?.answers,
-              scanMetadata: s.scanMetadata ? JSON.parse(s.scanMetadata) : existing?.scanMetadata,
-              examVersion: s.examVersion ?? existing?.examVersion ?? 'A',
-            })
-          }
-          return { results: Array.from(byStudent.values()) }
-        })
+        set((state) => ({ results: mergeLocalExamResults(state.results, id, scores) }))
         runSyncFlow()
         return { saved: scores.length, upserted: 0 }
       }
@@ -290,6 +329,62 @@ export const useExamStore = create<ExamState>()(
       set({ saving: false })
     }
   },
+
+  queueScores: async (scores) => {
+    const id = get().selectedSessionId
+    if (!id || scores.length === 0) return null
+    set({ saving: true, error: null })
+    try {
+      const queued = await syncSaveExamResults(id, scores)
+      const now = new Date().toISOString()
+      const mutations = queued.map((item, index): QueuedExamResultMutationState => ({
+        clientMutationId: item.clientMutationId,
+        queueOpId: item.queueOpId,
+        sessionId: id,
+        studentId: item.studentId,
+        proposedScore: scores[index]?.score ?? 0,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      }))
+      set((state) => {
+        const ledger = { ...state.queuedResultMutations }
+        for (const mutation of mutations) ledger[mutation.clientMutationId] = mutation
+        return {
+          results: mergeLocalExamResults(state.results, id, scores),
+          queuedResultMutations: pruneMutationLedger(ledger),
+        }
+      })
+      runSyncFlow()
+      return { saved: scores.length, upserted: 0, queuedMutations: mutations }
+    } catch (err) {
+      set({ error: (err as Error)?.message || 'Không thể ghi kết quả vào hàng đợi an toàn' })
+      return null
+    } finally {
+      set({ saving: false })
+    }
+  },
+
+  markResultMutation: (clientMutationId, status, details) => set((state) => {
+    const current = state.queuedResultMutations[clientMutationId]
+    if (!current) return state
+    const next = {
+      ...current,
+      status,
+      serverScore: details?.serverScore ?? current.serverScore,
+      error: details?.error,
+      updatedAt: new Date().toISOString(),
+    }
+    const results = details?.serverScore === undefined
+      ? state.results
+      : state.results.map(result => result.studentId === current.studentId && result.examSessionId === current.sessionId
+        ? { ...result, score: details.serverScore as number }
+        : result)
+    return {
+      queuedResultMutations: { ...state.queuedResultMutations, [clientMutationId]: next },
+      results,
+    }
+  }),
 
   removeResult: async (studentId) => {
     const id = get().selectedSessionId
@@ -319,11 +414,21 @@ export const useExamStore = create<ExamState>()(
     const session = get().sessions.find(s => s.id === id)
     if (!session) return null
 
+    const sessionMutations = Object.values(get().queuedResultMutations)
+      .filter(mutation => mutation.sessionId === id)
+    if (sessionMutations.some(mutation => mutation.status === 'error' || mutation.status === 'conflict')) {
+      set({ error: 'Không thể hoàn tất: còn bài quét lỗi hoặc xung đột cần xử lý.' })
+      return null
+    }
+    const hasPendingResultMutations = sessionMutations.some(mutation => mutation.status === 'pending')
+
     set({ finalizing: true, error: null })
     try {
       let completed: ExamSession
-      if (isOffline()) {
-        // Phase 3 offline: enqueue complete — server xác thực lock/class access khi online.
+      if (isOffline() || hasPendingResultMutations) {
+        // Complete is a session barrier queued strictly after every durable
+        // per-student result mutation. This path is used online too whenever
+        // continuous-scan acknowledgements are still pending.
         await syncCompleteExam(id)
         completed = { ...session, status: 'completed' }
         set({ sessions: get().sessions.map(s => s.id === id ? completed : s) })
@@ -388,6 +493,7 @@ export const useExamStore = create<ExamState>()(
         set((state) => ({
           sessions: state.sessions.filter(s => s.id !== id),
           results: state.results.filter(r => r.examSessionId !== id),
+          queuedResultMutations: Object.fromEntries(Object.entries(state.queuedResultMutations).filter(([, mutation]) => mutation.sessionId !== id)),
           selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
           lastFinalize: null,
         }))
@@ -398,6 +504,7 @@ export const useExamStore = create<ExamState>()(
       set((state) => ({
         sessions: state.sessions.filter(s => s.id !== id),
         results: state.results.filter(r => r.examSessionId !== id),
+        queuedResultMutations: Object.fromEntries(Object.entries(state.queuedResultMutations).filter(([, mutation]) => mutation.sessionId !== id)),
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
         lastFinalize: null,
       }))
@@ -434,6 +541,10 @@ export const useExamStore = create<ExamState>()(
       sessions: state.sessions.map(s => s.id === oldId ? { ...s, ...serverData } : s),
       selectedSessionId: state.selectedSessionId === oldId ? serverData.id : state.selectedSessionId,
       results: state.results.map(r => r.examSessionId === oldId ? { ...r, examSessionId: serverData.id } : r),
+      queuedResultMutations: Object.fromEntries(Object.entries(state.queuedResultMutations).map(([key, mutation]) => [
+        key,
+        mutation.sessionId === oldId ? { ...mutation, sessionId: serverData.id } : mutation,
+      ])),
     }))
   },
 
@@ -452,6 +563,7 @@ export const useExamStore = create<ExamState>()(
         sessions: state.sessions,
         selectedSessionId: state.selectedSessionId,
         results: state.results,
+        queuedResultMutations: state.queuedResultMutations,
       }),
     }
   )

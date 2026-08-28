@@ -41,7 +41,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260822', 128, 128),
   ...migrationRange('20260824', 129, 129),
   ...migrationRange('20260827', 130, 131),
-  ...migrationRange('20260828', 132, 133),
+  ...migrationRange('20260828', 132, 135),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -59,6 +59,7 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_notices_idempotency: ['parish_id', 'idempotency_key'],
   idx_classes_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],
+  idx_exam_result_mutations_session: ['parish_id', 'exam_session_id', 'created_at'],
 }
 
 const REQUIRED_TRIGGER_NAMES = [
@@ -78,6 +79,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   users: ['password_encrypted', 'holy_name'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
   // A-NEW-62 (2026-08-23): production từng thiếu promotion_records.is_latest
   // (di sản migration D-04/ADR-031) → mọi SELECT phiếu điểm/khuyến thăng 500 âm thầm.
   // Gate chặt cột cho bảng trong pipeline báo cáo + grade_overrides.phuhuynh-spec.
@@ -85,17 +87,18 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
 }
 
-const REQUIRED_TENANT_COMPOSITE_PRIMARY_KEYS = [
-  'users',
-  'students',
-  'classes',
-  'grades',
-  'attendance',
-  'audit_logs',
-  'funds',
-  'financial_transactions',
-  'student_fee_records',
-] as const
+const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
+  users: ['parish_id', 'id'],
+  students: ['parish_id', 'id'],
+  classes: ['parish_id', 'id'],
+  grades: ['parish_id', 'id'],
+  attendance: ['parish_id', 'id'],
+  audit_logs: ['parish_id', 'id'],
+  funds: ['parish_id', 'id'],
+  financial_transactions: ['parish_id', 'id'],
+  student_fee_records: ['parish_id', 'id'],
+  exam_result_mutations: ['parish_id', 'user_id', 'client_mutation_id'],
+}
 
 function rowValue(row: unknown, key: string, index: number): unknown {
   if (Array.isArray(row)) return row[index]
@@ -189,13 +192,13 @@ export async function assertDatabaseReady(client: SchemaHealthClient): Promise<v
     }
   }
 
-  for (const tableName of REQUIRED_TENANT_COMPOSITE_PRIMARY_KEYS) {
+  for (const [tableName, primaryKeyColumns] of Object.entries(REQUIRED_COMPOSITE_PRIMARY_KEYS)) {
     const tableInfo = await getTableInfo(client, tableName)
-    const parishPk = tableInfo.find((column) => column.name === 'parish_id')?.pk ?? 0
-    const idPk = tableInfo.find((column) => column.name === 'id')?.pk ?? 0
-    if (parishPk !== 1 || idPk !== 2) {
+    const actualOrdinals = primaryKeyColumns.map(column => tableInfo.find(item => item.name === column)?.pk ?? 0)
+    const valid = actualOrdinals.every((ordinal, index) => ordinal === index + 1)
+    if (!valid) {
       problems.push(
-        `table ${tableName} must use composite primary key (parish_id, id); got pk ordinals parish_id=${parishPk}, id=${idPk}`,
+        `table ${tableName} must use composite primary key (${primaryKeyColumns.join(', ')}); got pk ordinals ${primaryKeyColumns.map((column, index) => `${column}=${actualOrdinals[index]}`).join(', ')}`,
       )
     }
   }

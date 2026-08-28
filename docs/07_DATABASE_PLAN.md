@@ -1,11 +1,11 @@
 # Database Schema Specification & Plan
 
-> Canonical Single Source of Truth (SSOT) for all 32 SQLite production tables managed via Drizzle ORM.
-> Version: 2.5 | Last reviewed: 2026-08-14 | Status: ✅ Current | Prerequisites: 02
+> Canonical Single Source of Truth (SSOT) for all 41 SQLite production tables managed via Drizzle ORM.
+> Version: 2.6 | Last reviewed: 2026-08-28 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
-## All Production Tables (32)
+## All Production Tables (41)
 
 | # | Table Name | Purpose | Unique Indexes / Constraints |
 |---|------------|---------|------------------------------|
@@ -41,6 +41,15 @@
 | 30 | `exam_results` | Per-student score; `essay_score` REAL nullable = điểm phần tự luận nhập tay (mixed; `score` = điểm TN tự chấm + essay_score — migration `20260824-129`); `answers`, `scan_metadata` aggregate không ảnh, `exam_version` A–H default A. MC scan được server tính lại bằng key theo version | migrations cũ + `20260818-123` (`scan_metadata`) + `20260818-125` (`exam_version`) + `20260824-129` (`essay_score`); unique `(exam_session_id, student_id)`, lookup tenant/session |
 | 31 | `telegram_link_tokens` | One-time link tokens (sha256 hash) để bind tài khoản Telegram với user (`token_hash` — không plaintext), có expiry/consumed | `token_hash` UNIQUE, PK `(parish_id, id)`, `idx_telegram_link_tokens_user` `(parish_id, user_id)`, `idx_telegram_link_tokens_expiry` |
 | 32 | `telegram_links` | Chat liên kết Telegram ↔ user (trạng thái `ACTIVE`/`REVOKED`, bật/tắt thông báo, last_seen) | `chat_id` UNIQUE, PK `(parish_id, id)`, `idx_telegram_links_user` `(parish_id, user_id, status)`, `idx_telegram_links_chat_status` `(chat_id, status)` |
+| 33 | `exam_result_mutations` | Durable idempotency receipt cho từng mutation kết quả quét liên tiếp; lưu request hash + response acknowledgement, không lưu ảnh (ADR-067, migration `20260828-135`) | PK `(parish_id, user_id, client_mutation_id)`, `idx_exam_result_mutations_session` `(parish_id, exam_session_id, created_at)`; FK cascade session, restrict student |
+| 34 | `assessment_entries` | Server assessment ledger lưu attempt sinh grade projection | PK `(parish_id,id)`, `idx_assessment_entries_exam_student` UNIQUE, `idx_assessment_entries_lookup` |
+| 35 | `exam_finalizations` | Receipt finalize mỗi exam session | PK `(parish_id,id)`, `idx_exam_finalizations_session` UNIQUE |
+| 36 | `exam_finalization_items` | Itemized committed/conflict rows của finalization | PK `(parish_id,id)`, `idx_exam_finalization_items_result` UNIQUE, lookup index |
+| 37 | `leave_requests` | Đơn xin nghỉ theo student/class và quy trình duyệt | PK `(parish_id,id)`, parish/class/student/date/status indexes |
+| 38 | `funds` | Quỹ thu chi theo giáo xứ | PK `(parish_id,id)`, `(parish_id,code)` UNIQUE |
+| 39 | `financial_transactions` | Giao dịch thu/chi/chuyển quỹ | PK `(parish_id,id)`, fund/date/academic/class indexes |
+| 40 | `student_fee_records` | Nghĩa vụ và trạng thái đóng phí theo học sinh/năm | PK `(parish_id,id)`, `(parish_id,student_id,academic_year,fee_type)` UNIQUE |
+| 41 | `parish_events` | Lịch sự kiện giáo xứ persisted (soft delete) | PK `(parish_id,id)`, parish/date và parish/category indexes |
 
 ---
 
@@ -106,6 +115,18 @@
 | `replaced_by` | TEXT | NULL | id session mới (rotation chain — dùng debug) |
 | `created_at` | TEXT | | |
 
+### `exam_result_mutations` (migration `20260828-135`, ADR-067)
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `client_mutation_id` | TEXT | ID ổn định do client sinh và giữ nguyên qua retry |
+| `parish_id` / `user_id` | TEXT | Scope tenant + actor; cùng key ở user/parish khác không va chạm |
+| `exam_session_id` / `student_id` | TEXT | FK tới result target; session delete cascade receipt |
+| `request_hash` | TEXT | SHA-256 business payload; key reuse khác hash bị từ chối 409 |
+| `response_json` | TEXT | Item acknowledgement gốc để retry trả lại không rewrite/audit lại |
+| `created_at` | TEXT | Phục vụ tra soát và session index |
+| Primary key | | `(parish_id, user_id, client_mutation_id)` |
+
 ### `users` — cột `holy_name` (migration `20260812-104`, ADR-027)
 | Column | Type | Default | Notes |
 | :--- | :--- | :--- | :--- |
@@ -118,8 +139,8 @@
 - Key `purge_version` trong bảng `system_settings` (value = số nguyên, mặc định `1`, tăng +1 mỗi lần purge).
 - Mọi client lưu `purge_version` local (localStorage `parish_purge_version`); mỗi chu kỳ sync, `GET /api/system/purge-version` được gọi trước pull delta.
 - Nếu server version > local version → dữ liệu offline của thiết bị là **GHOST DATA** (đã bị xóa trên server) → client tự xóa sạch Dexie + localStorage + đăng xuất, không bao giờ push lại queue cũ.
-- Purge **không DROP bảng** — chỉ `DELETE rows` của 23 bảng nghiệp vụ. Mọi bảng đều có `parish_id` (P4: `grade_overrides`/`outbox_messages` add-column migration `20260808-096/097` — bỏ join-workaround v1.0; override cũ được backfill đúng tenant qua migration `100`). Giữ nguyên 7 bảng: `users`, `branches`, `permissions`, `role_permissions`, `audit_logs`, `push_subscriptions`, `system_settings`.
-- Trước khi xóa: snapshot v3.0 (23 bảng, SHA256 checksum) ghi tại `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (mặc định; override bằng env `SAFETY_BACKUP_DIR` — xem `server/src/utils/safetyDir.ts` và `docs/DEPLOYMENT_GUIDE.md` §3).
+- Purge **không DROP bảng** — chỉ `DELETE rows` của 24 bảng trong hợp đồng `PURGE_TABLES`. `exam_result_mutations` được xóa trước `exam_results`/`exam_sessions`; mọi bảng trong danh sách đều có `parish_id`.
+- Trước khi xóa: snapshot v3.0 (24 bảng, SHA256 checksum) ghi tại `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (mặc định; override bằng env `SAFETY_BACKUP_DIR` — xem `server/src/utils/safetyDir.ts` và `docs/DEPLOYMENT_GUIDE.md` §3).
 
 ---
 

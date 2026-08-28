@@ -219,10 +219,10 @@ export const MobileCalendarView: React.FC = () => {
                 key={dayItem.date}
                 type="button"
                 onClick={() => setSelectedDay(dayItem)}
-                className={`h-11 rounded-xl border flex flex-col items-center justify-between p-1 transition-all relative ${
+                className={`min-h-[44px] h-11 rounded-xl border flex flex-col items-center justify-between p-1 transition-all relative touch-manipulation active:scale-[0.97] ${
                   isSelected
                     ? 'border-parish-primary bg-parish-primary-light/60 ring-2 ring-parish-primary/30 font-black'
-                    : 'border-surface-border bg-surface-card'
+                    : 'border-surface-border bg-surface-card hover:bg-surface-hover'
                 } ${isToday ? 'ring-1 ring-parish-primary' : ''}`}
               >
                 <span

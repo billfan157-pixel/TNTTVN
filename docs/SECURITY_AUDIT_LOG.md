@@ -3339,3 +3339,31 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - VAPID 501 van dung khi thieu env — client sau fix chi 1 fetch debug.
 
 ---
+
+## Audit OMR-CONTINUOUS-1 — Continuous scan queue integrity + idempotency — 🟠 P0/P1 → ✅ CODE FIXED / FIELD CONDITIONAL (2026-08-28, ADR-067)
+
+### Findings evidence-first
+
+| Finding | Phân loại | Evidence / tác động | Xử lý |
+| :--- | :--- | :--- | :--- |
+| `OMR-CQ-1` | **CONFIRMED / P0** | `save_results` của nhiều học sinh dùng chung `exam + sessionId + UPDATE`; dedupe/compact shallow-merge `scores[]` last-writer-wins, có thể mất mutation offline | Entity `exam_result` theo `session::result::student`; parent delete dọn child ops; temp session/student remap cả composite key/payload; complete barrier sau result ops |
+| `OMR-CQ-2` | **CONFIRMED / P1** | POST result không có durable idempotency receipt; timeout sau commit không phân biệt được với chưa commit, retry có thể rewrite/audit lại | Migration `20260828-135`, receipt PK parish+user+mutation, SHA-256 request hash + response snapshot trong cùng transaction; duplicate không rewrite/audit; key reuse khác payload 409 |
+| `OMR-CQ-3` | **CONFIRMED implementation / field frequency NOT CONFIRMED** | Camera reset identity/consensus sau Save nhưng không có removal/rearm guard; cùng phiếu có thể được proposal lại | Attempt fingerprint + new-identity/3-observation/≥900ms absence rearm; same-student/different-attempt bắt buộc explicit conflict |
+| `OMR-CQ-4` | **CONFIRMED performance architecture** | Save/POST/refresh nằm trong camera critical path | Encrypted local queue + optimistic result + durable ledger trước; sync/reconcile itemized chạy nền, camera không chờ network |
+
+### Security, privacy và integrity gates
+
+- **D2 GENERAL + OFFLINE/SYNC:** Security & Privacy 9, Data Integrity 9, Testability 9 — PASS. Receipt và query giữ parish/user/class authorization; server tiếp tục recompute MC/mixed.
+- Queue vẫn tenant/user-scoped và encrypted; receipt chỉ lưu business hash/ack, không lưu raw frame, QR image hoặc base64. `scan_metadata` sanitizer giữ nguyên.
+- Human-confirm, T3/template/question-count/version, quality, marker/paper/geometry, confidence và 2-frame consensus không hạ. Unattended/default auto-save vẫn BLOCKED bởi ADR-060.
+- Feature rollback: `VITE_CONTINUOUS_SCAN_V2=false|off|0`; stable mode giữ nguyên. Migration additive R2, receipt cascade theo session.
+
+### Verification
+
+- Targeted queue/store/API/server/idempotency/rearm/identity/acceptance: **11 files / 163 tests PASS**.
+- Production frontend + server TypeScript + Vite/PWA build: **PASS**.
+- `npm run lint`, production frontend/server/PWA build và synthetic `npm run benchmark:omr`: **PASS**. Benchmark live path trên dev host: OMR integrated 1280 p95 26,9ms; QR negative `live_fast` 1280 p95 73,9ms; không dùng exhaustive n=3 hoặc desktop synthetic để claim field.
+- Full serialized Vitest: **242/243 files, 1762/1763 tests PASS**. Failure duy nhất `examPrintGeometry.test.ts` (batch print marker left margin 19,86px < 22,68px) tái hiện khi chạy cô lập; continuous-scan diff không chạm print renderer/CSS. Design-system lint bị chặn bởi arbitrary hex có sẵn trong `MobileStudentsView.tsx:245`, ngoài feature scope.
+- Không tuyên bố field accuracy/throughput khi sequence corpus và target-device evidence còn thiếu.
+
+---

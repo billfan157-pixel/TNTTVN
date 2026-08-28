@@ -366,6 +366,28 @@ describe('syncProcessor', () => {
       expect(api.saveExamResults).toHaveBeenCalledWith('EXS-SERVER-1', [{ studentId: 'ST-001', score: 8, source: 'qr_scan' }])
     })
 
+    it('EXAM-CONTINUOUS-P0: handles per-student exam_result save mutation', async () => {
+      vi.mocked(api.saveExamResults).mockResolvedValue({
+        saved: 1,
+        upserted: 0,
+        total: 1,
+        items: [{ clientMutationId: 'MUT-1', studentId: 'ST-001', status: 'created', serverScore: 8 }],
+      } as any)
+      const result = await processOperation({
+        entity: 'exam_result', operation: 'update', entityId: 'EXS-SERVER-1::result::ST-001',
+        payload: JSON.stringify({
+          action: 'save_result',
+          sessionId: 'EXS-SERVER-1',
+          score: { studentId: 'ST-001', score: 8, source: 'qr_scan', clientMutationId: 'MUT-1' },
+        }),
+      } as any)
+
+      expect(result.ok).toBe(true)
+      expect(api.saveExamResults).toHaveBeenCalledWith('EXS-SERVER-1', [
+        expect.objectContaining({ studentId: 'ST-001', clientMutationId: 'MUT-1' }),
+      ])
+    })
+
     it('handles exam UPDATE remove_result', async () => {
       vi.mocked(api.removeExamResult).mockResolvedValue({ deleted: true })
       const result = await processOperation({

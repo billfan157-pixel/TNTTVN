@@ -111,7 +111,7 @@ describe('Purge v2.3 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
     expect(json.error.code).toBe('INVALID_CONFIRM_KEY')
   })
 
-  it('200 — purge thành công: 23 bảng về 0, bảng hệ thống giữ nguyên, purge_version tăng', async () => {
+  it('200 — purge thành công: 24 bảng về 0, bảng hệ thống giữ nguyên, purge_version tăng', async () => {
     const res = await systemApp.request('/purge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken()}` },
@@ -124,7 +124,7 @@ describe('Purge v2.3 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
     expect(json.data.countsBefore.grades).toBe(1)
     expect(json.data.purgeVersion).toBeGreaterThanOrEqual(DEFAULT_PURGE_VERSION + 1)
 
-    // 23 bảng purge về 0 — mọi bảng đều scoped theo parish_id (P4: không còn
+    // 24 bảng purge về 0 — mọi bảng đều scoped theo parish_id (P4: không còn
     // special-case grade_overrides/outbox_messages)
     for (const table of PURGE_TABLES) {
       const r = await client.execute(`SELECT count(*) AS n FROM ${table} WHERE parish_id = ?`, [parishId])

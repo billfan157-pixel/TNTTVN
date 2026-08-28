@@ -65,3 +65,17 @@ Semantics KPI ADR-062:
 mode; không thay runner corpus ảnh thật. CI hiện chỉ kiểm tra logic detector/KPI/gate; chưa
 tuyên bố đạt độ chính xác thực địa cho tới khi real-camera corpus được bổ sung và
 runner ảnh thật được bật.
+
+## Continuous sequence corpus (ADR-067)
+
+Ảnh tĩnh không đủ để chứng nhận rearm và quét liên tiếp. Trước pilot thực địa phải bổ sung video/frame-sequence đã khử định danh và manifest thời gian cho các tình huống:
+
+- giữ nguyên phiếu trong khung sau Save; rút chậm/che một phần/đặt lại;
+- đổi phiếu ngay, QR mới mờ trong khi identity cũ còn TTL;
+- cùng học sinh cùng fingerprint và khác fingerprint;
+- sai session/class/template/questionCount/version, blank/multi/weak/glare/skew;
+- mất mạng trước request, trong request, và sau commit trước response;
+- reload/background/foreground, camera track ended, đổi orientation;
+- chuỗi 30 và 100 phiếu để đo memory slope, thermal drift và papers/minute.
+
+Gate sequence bắt buộc: false rearm = 0; stale identity association = 0; duplicate/lost durable mutation = 0; acknowledgement out-of-order không làm hỏng UI; reload recovery = 100%; mọi case chưa rõ vào review/conflict. Unit tests của `examContinuousScan.ts` chỉ chứng minh state semantics, không thay cho corpus này.

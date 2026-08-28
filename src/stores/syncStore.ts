@@ -263,15 +263,42 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
     const pending = pendingRaw.filter(isOwnOp).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
+    // EXAM-CONTINUOUS-P0: result mutations now use their own per-student entity
+    // key. If the parent session is queued for DELETE, every pending result
+    // mutation is obsolete because deleting the session cascades its results.
+    // Remove them explicitly so a CREATE+DELETE compaction cannot leave orphan
+    // exam_result ops that later fail or recreate stale work.
+    const deletedExamSessionIds = new Set(
+      pending
+        .filter(op => op.entity === 'exam' && op.operation === 'DELETE')
+        .map(op => op.entityId),
+    )
+    const discardedExamResultIds = new Set<string>()
+    if (deletedExamSessionIds.size > 0) {
+      for (const op of pending) {
+        if (op.entity !== 'exam_result') continue
+        try {
+          const raw = await decryptQueueValue(op.payload)
+          const payload = raw ? JSON.parse(raw) as Record<string, unknown> : null
+          if (payload && deletedExamSessionIds.has(String(payload.sessionId || ''))) {
+            discardedExamResultIds.add(op.id)
+          }
+        } catch {
+          // Corrupt payload remains visible for diagnostics; never guess a parent.
+        }
+      }
+    }
+
     // Group by (entity, entityId)
     const groups = new Map<string, SyncQueueItem[]>()
     for (const op of pending) {
+      if (discardedExamResultIds.has(op.id)) continue
       const key = `${op.entity}:${op.entityId}`
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(op)
     }
 
-    const toRemove: string[] = []
+    const toRemove: string[] = [...discardedExamResultIds]
     const toUpdate: Array<{ id: string; op: SyncQueueItem }> = []
 
     for (const [, ops] of groups) {

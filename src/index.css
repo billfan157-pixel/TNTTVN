@@ -110,6 +110,18 @@
   --radius-xl: 20px;
   --radius-full: 9999px;
 
+  /* ─── Radius — Semantic Tier 2 (Airbnb+Material semantic) ─── */
+  --radius-card: var(--radius-xl);      /* entity-card, mobile-content-card: 20px */
+  --radius-control: var(--radius-md);   /* inputs, selects, filter panels: 12px */
+  --radius-action: var(--radius-full);  /* pill FAB, bottom-nav items: pill */
+  --radius-sheet: 20px;                 /* bottom sheets on mobile */
+
+  /* ─── Density Ladder (Stripe+Linear) ─── */
+  --density-gap-comfort: 14px;
+  --density-gap-dense: 10px;
+  --density-card-pad-comfort: 16px;
+  --density-card-pad-dense: 12px;
+
   /* ─── Spacing (4px base) ─── */
   --space-3\.5: 14px;
 
@@ -542,7 +554,7 @@ body {
   border-radius: var(--radius-full);
   border: none;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color var(--motion-fast) var(--motion-ease-out);
   white-space: nowrap;
   font-family: inherit;
 }
@@ -585,7 +597,7 @@ body {
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out);
   background: transparent;
   color: var(--color-text-secondary);
   font-family: inherit;
@@ -626,7 +638,7 @@ body {
   background: var(--color-surface-card);
   color: var(--color-text-main);
   font-family: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 
 .form-input:focus,
@@ -1367,6 +1379,17 @@ table td {
   overscroll-behavior-y: contain;
 }
 
+/* When bulk-action bar is present (e.g., selectionMode), give content extra clearance.
+   Modern :has is supported on iOS 15.4+ / Chrome 105+ and is progressively enhanced. */
+.mobile-app-shell:has(.mobile-bottom-action-bar) .mobile-app-main {
+  padding-bottom: calc(var(--mobile-nav-total-height) + 72px);
+}
+
+.mobile-screen--stack:has(+ .mobile-bottom-action-bar),
+.mobile-screen--stack--with-action-bar {
+  padding-bottom: 16px;
+}
+
 .mobile-screen {
   width: 100%;
   max-width: 760px;
@@ -1621,12 +1644,12 @@ table td {
 .mobile-floating-action {
   position: fixed;
   right: max(16px, env(safe-area-inset-right, 0px));
-  bottom: calc(var(--mobile-nav-total-height) + 16px);
+  bottom: calc(var(--mobile-nav-total-height) + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 900;
   min-height: 48px;
   padding: 12px 18px;
   border: 0;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-action);
   background: var(--color-parish-primary);
   color: white;
   box-shadow: 0 8px 20px rgba(30, 58, 138, 0.28);
@@ -1635,7 +1658,11 @@ table td {
   font-weight: 800;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 160ms var(--mobile-ease-out), background-color 160ms var(--mobile-ease-out), box-shadow 160ms var(--mobile-ease-out);
+  transition: transform var(--motion-fast) var(--mobile-ease-out), background-color var(--motion-fast) var(--mobile-ease-out), box-shadow var(--motion-fast) var(--mobile-ease-out), bottom var(--motion-standard) var(--mobile-ease-out);
+}
+
+.mobile-app-shell:has(.mobile-bottom-action-bar) .mobile-floating-action {
+  bottom: calc(var(--mobile-nav-total-height) + 72px + 16px + env(safe-area-inset-bottom, 0px));
 }
 
 .mobile-floating-action:active {
@@ -1647,7 +1674,7 @@ table td {
   inset-inline: 0;
   bottom: var(--mobile-nav-total-height);
   z-index: 850;
-  padding: 12px var(--mobile-content-gutter);
+  padding: 12px var(--mobile-content-gutter) calc(12px + env(safe-area-inset-bottom, 0px));
   background: color-mix(in srgb, var(--color-surface-card) 96%, transparent);
   border-top: 1px solid var(--color-surface-border);
   box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.08);
@@ -2116,10 +2143,18 @@ table td {
   }
 
   .mobile-top-bar {
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 950;
     padding: 13px var(--mobile-content-gutter) 15px;
+    padding-top: max(13px, env(safe-area-inset-top, 0px));
     background: linear-gradient(135deg, #1d3f99 0%, #2c58c7 100%);
     box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  }
+
+  /* Sticky filter panels sit directly under the sticky top-bar on mobile */
+  .mobile-sticky-under-topbar {
+    top: calc(60px + env(safe-area-inset-top, 0px));
   }
 
   .mobile-top-bar__content {
@@ -2680,13 +2715,27 @@ table td {
   gap: 4px;
   padding: 4px;
   overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--color-surface-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-sunken);
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-inline: contain;
+  /* subtle fade at edges to hint scrollability on mobile */
+  mask-image: linear-gradient(to right, transparent, black 12px, black calc(100% - 12px), transparent);
 }
 
 .view-tabs::-webkit-scrollbar { display: none; }
+
+.view-tabs > * { scroll-snap-align: start; }
+
+@media (max-width: 767px) {
+  .view-tabs {
+    mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+  }
+}
 
 .view-tab {
   display: inline-flex;
@@ -3106,7 +3155,7 @@ table td {
   border: none;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out);
   background: transparent;
   color: var(--color-text-secondary);
   outline: none;

@@ -489,6 +489,7 @@ const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_semester_locks_lookup ON semester_locks(parish_id, academic_year, semester)',
   'CREATE INDEX IF NOT EXISTS idx_promotion_records_lookup ON promotion_records(parish_id, student_id, academic_year)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key)',
+  'CREATE INDEX IF NOT EXISTS idx_exam_result_mutations_session ON exam_result_mutations(parish_id, exam_session_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_parish_events_parish_date ON parish_events(parish_id, date)',
   'CREATE INDEX IF NOT EXISTS idx_parish_events_parish_category ON parish_events(parish_id, category)',
   `CREATE TRIGGER IF NOT EXISTS check_grade_scores_insert BEFORE INSERT ON grades BEGIN SELECT CASE WHEN NEW.score_oral IS NOT NULL AND (NEW.score_oral < 0 OR NEW.score_oral > 10) THEN RAISE(ABORT, 'score_oral out of range 0-10') WHEN NEW.score_15m IS NOT NULL AND (NEW.score_15m < 0 OR NEW.score_15m > 10) THEN RAISE(ABORT, 'score_15m out of range 0-10') WHEN NEW.score_1_period IS NOT NULL AND (NEW.score_1_period < 0 OR NEW.score_1_period > 10) THEN RAISE(ABORT, 'score_1_period out of range 0-10') WHEN NEW.score_midterm IS NOT NULL AND (NEW.score_midterm < 0 OR NEW.score_midterm > 10) THEN RAISE(ABORT, 'score_midterm out of range 0-10') WHEN NEW.score_final IS NOT NULL AND (NEW.score_final < 0 OR NEW.score_final > 10) THEN RAISE(ABORT, 'score_final out of range 0-10') WHEN NEW.score_dao_duc IS NOT NULL AND (NEW.score_dao_duc < 0 OR NEW.score_dao_duc > 10) THEN RAISE(ABORT, 'score_dao_duc out of range 0-10') END; END`,
@@ -1558,6 +1559,22 @@ CREATE TABLE IF NOT EXISTS parish_events (
 );
 CREATE INDEX IF NOT EXISTS idx_parish_events_parish_date ON parish_events(parish_id, date);
 CREATE INDEX IF NOT EXISTS idx_parish_events_parish_category ON parish_events(parish_id, category);
+` },
+  { version: '20260828-135', sql: `
+CREATE TABLE IF NOT EXISTS exam_result_mutations (
+  client_mutation_id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  user_id TEXT NOT NULL,
+  exam_session_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  response_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id, user_id, client_mutation_id),
+  FOREIGN KEY (parish_id, exam_session_id) REFERENCES exam_sessions(parish_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (parish_id, student_id) REFERENCES students(parish_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_exam_result_mutations_session ON exam_result_mutations(parish_id, exam_session_id, created_at);
 ` },
 ]
 

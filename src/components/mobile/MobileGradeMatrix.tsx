@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Calculator, Check, Download, Edit3, Grid3X3, Save, Settings2, Upload } from 'lucide-react'
+import { Calculator, Check, Download, Edit3, Grid3X3, Rows3, Save, Settings2, Upload } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
@@ -59,6 +59,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
   const [savedKey, setSavedKey] = useState<string | null>(null)
   const [invalidKey, setInvalidKey] = useState<string | null>(null)
   const [isOverrideModeEnabled, setIsOverrideModeEnabled] = useState(false)
+  const [isDense, setIsDense] = useState(false)
   const [showFormulaModal, setShowFormulaModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
 
@@ -166,7 +167,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
   }
 
   return (
-    <div className="product-view flex flex-col gap-3">
+    <div className={`product-view flex flex-col ${isDense ? 'gap-2' : 'gap-3'}`}>
       <div className="mobile-page-header flex-col items-stretch">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center shrink-0">
@@ -183,18 +184,21 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
             type="button"
             onClick={() => setIsOverrideModeEnabled(previous => !previous)}
             disabled={!canEdit}
-            className={`min-h-[44px] rounded-xl px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-colors disabled:opacity-50 ${isOverrideModeEnabled ? 'bg-amber-500 text-white border-amber-500' : 'bg-surface-hover text-text-secondary border-surface-border'}`}
+            className={`min-h-[44px] rounded-[var(--radius-control)] px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-colors disabled:opacity-50 ${isOverrideModeEnabled ? 'bg-amber-500 text-white border-amber-500' : 'bg-surface-hover text-text-secondary border-surface-border'}`}
             aria-pressed={isOverrideModeEnabled}
           >
             <Edit3 size={14} /> {isOverrideModeEnabled ? 'Tắt chỉnh sửa' : 'Bật chỉnh sửa'}
           </button>
-          <button type="button" onClick={() => setShowFormulaModal(true)} className="min-h-[44px] rounded-xl px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 bg-surface-hover text-text-secondary border border-surface-border">
+          <button type="button" onClick={() => setIsDense(v => !v)} className={`min-h-[44px] rounded-[var(--radius-control)] px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-colors ${isDense ? 'bg-parish-primary text-white border-parish-primary' : 'bg-surface-hover text-text-secondary border-surface-border'}`} aria-pressed={isDense} title="Chuyển mật độ hiển thị">
+            <Rows3 size={14} /> {isDense ? 'Thoáng' : 'Gọn'}
+          </button>
+          <button type="button" onClick={() => setShowFormulaModal(true)} className="min-h-[44px] rounded-[var(--radius-control)] px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 bg-surface-hover text-text-secondary border border-surface-border">
             <Settings2 size={14} /> Hệ số
           </button>
-          <button type="button" onClick={handleExport} disabled={filteredStudents.length === 0} className="min-h-[44px] rounded-xl px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 bg-parish-primary text-white disabled:opacity-50">
+          <button type="button" onClick={handleExport} disabled={filteredStudents.length === 0} className="min-h-[44px] rounded-[var(--radius-control)] px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 bg-parish-primary text-white disabled:opacity-50">
             <Download size={14} /> Xuất Excel
           </button>
-          <button type="button" onClick={() => setShowImportModal(true)} disabled={!canEdit} className="min-h-[44px] rounded-xl px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 bg-parish-primary text-white disabled:opacity-50">
+          <button type="button" onClick={() => setShowImportModal(true)} disabled={!canEdit} className="min-h-[44px] rounded-[var(--radius-control)] px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 bg-parish-primary text-white disabled:opacity-50 col-span-2 sm:col-span-1">
             <Upload size={14} /> Nhập Excel
           </button>
         </div>
@@ -216,8 +220,8 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
         const isExpanded = expanded.has(student.id)
         const commentValue = commentDrafts[student.id] ?? grade?.comments ?? ''
         return (
-          <article key={student.id} className="entity-card overflow-hidden">
-            <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]">
+          <article key={student.id} className={`entity-card overflow-hidden ${isDense ? 'rounded-[var(--radius-card)]' : ''}`}>
+            <button type="button" onClick={() => toggleExpanded(student.id)} className={`w-full text-left flex items-center justify-between gap-3 ${isDense ? 'p-3 min-h-[60px]' : 'p-4 min-h-[76px]'}`}>
               <span className="min-w-0">
                 <span className="block font-extrabold text-parish-primary truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</span>
                 <span className="block text-xs text-text-muted mt-1 truncate">{student.code} • {classNameById.get(student.classId) || '—'}</span>
@@ -232,9 +236,9 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
               {SCORE_FIELDS.map(field => {
                 const source = field.key === 'scoreDaoDuc' ? undefined : (grade as Record<string, unknown> | undefined)?.[`${field.key}_source`]
                 return (
-                  <div key={field.key} className={`p-2.5 text-center ${field.highlight ? 'bg-parish-secondary-light/20' : 'bg-surface-card'}`}>
+                  <div key={field.key} className={`${isDense ? 'p-2' : 'p-2.5'} text-center ${field.highlight ? 'bg-parish-secondary-light/20' : 'bg-surface-card'}`}>
                     <div className="text-[10px] font-semibold text-text-muted truncate">{field.label}</div>
-                    <div className={`text-sm font-black mt-1 ${field.highlight ? 'text-parish-secondary' : 'text-text-main'}`}>{grade?.[field.key] ?? '—'}</div>
+                    <div className={`${isDense ? 'text-xs' : 'text-sm'} font-black mt-1 ${field.highlight ? 'text-parish-secondary' : 'text-text-main'}`}>{grade?.[field.key] ?? '—'}</div>
                     {source === 'manual' && <div className="text-[9px] text-amber-700 font-bold mt-0.5">Thủ công</div>}
                     {source === 'daily_avg' && <div className="text-[9px] text-sky-700 font-bold mt-0.5">Từ hằng ngày</div>}
                   </div>

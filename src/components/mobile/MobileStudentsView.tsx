@@ -194,35 +194,36 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
       ) : (
         <>
-          {/* Search & Add */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search size={16} className="text-text-placeholder absolute left-3 top-1/2 -translate-y-1/2" />
+          {/* Search & Actions — responsive: search full width + actions row */}
+      <div className="flex flex-col gap-2.5">
+        <label className="relative flex-1 block" aria-label="Tìm thiếu nhi">
+          <Search size={16} className="text-text-placeholder absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
-            type="text"
-            placeholder="Tìm thiếu nhi..."
+            type="search"
+            placeholder="Tìm tên thánh, họ tên hoặc mã..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="form-input-sm w-full"
+            className="form-input w-full pl-10 pr-3 min-h-[44px] rounded-xl text-sm"
           />
-        </div>
-
-        {canDelete && (
-          <button
-            onClick={toggleSelectionMode}
-            className="btn btn-secondary mobile-btn rounded-full px-3 text-xs whitespace-nowrap"
-            aria-label={selectionMode ? 'Kết thúc chọn nhiều' : 'Chọn nhiều thiếu nhi'}
-          >
-            <CheckSquare size={14} /> {selectionMode ? 'Xong' : 'Chọn nhiều'}
+        </label>
+        <div className="flex gap-2 overflow-x-auto pb-0.5 -mx-0.5 px-0.5 snap-x" style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+          {canDelete && (
+            <button
+              onClick={toggleSelectionMode}
+              className={`btn mobile-btn rounded-full px-4 text-xs whitespace-nowrap shrink-0 snap-start ${selectionMode ? 'btn-primary' : 'btn-secondary'}`}
+              aria-label={selectionMode ? 'Kết thúc chọn nhiều' : 'Chọn nhiều thiếu nhi'}
+              aria-pressed={selectionMode}
+            >
+              <CheckSquare size={14} /> {selectionMode ? 'Xong' : 'Chọn nhiều'}
+            </button>
+          )}
+          <button onClick={onImportStudents} className="btn btn-secondary mobile-btn rounded-full px-4 text-xs shrink-0 snap-start">
+            <Upload size={14} /> Nhập Excel
           </button>
-        )}
-
-        <button onClick={onImportStudents} className="btn btn-secondary mobile-btn rounded-full px-3 text-xs">
-          <Upload size={14} /> Excel
-        </button>
-        <button onClick={onOpenAddStudent} className="btn btn-primary mobile-btn rounded-full px-4">
-          <UserPlus size={16} /> Thêm
-        </button>
+          <button onClick={onOpenAddStudent} className="btn btn-primary mobile-btn rounded-full px-5 shrink-0 snap-start shadow-sm">
+            <UserPlus size={16} /> Thêm em
+          </button>
+        </div>
       </div>
 
       {!hasClasses && (
@@ -242,7 +243,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setSelectedClassId('all')}
-            className="text-left rounded-2xl p-3 bg-gradient-to-br from-parish-primary to-[#1E40AF] text-white flex flex-col gap-2 border border-parish-primary"
+            className="text-left rounded-2xl p-3 bg-gradient-to-br from-parish-primary to-parish-primary-hover text-white flex flex-col gap-2 border border-parish-primary"
           >
             <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center"><Users size={16} /></span>
             <span className="font-black text-sm">Tất cả</span>
@@ -339,24 +340,21 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             return (
               <div
                 key={s.id}
-                className="entity-card p-4 flex flex-col gap-3"
-                style={{
-                  position: 'relative',
-                  border: selectedIds.has(s.id) ? '2px solid var(--color-parish-danger)' : '1px solid var(--color-surface-border)'
-                }}
+                className={`entity-card p-4 flex flex-col gap-3 relative overflow-hidden ${selectedIds.has(s.id) ? 'ring-2 ring-[var(--color-parish-danger)] ring-offset-0 border-[var(--color-parish-danger)]' : ''}`}
               >
                 {selectionMode && (
-                  <div style={{ position: 'absolute', top: '12px', left: '12px' }}>
+                  <label className="absolute top-3 left-3 flex items-center justify-center w-6 h-6 rounded-md border bg-surface-card cursor-pointer has-[input:checked]:bg-[var(--color-parish-danger)] has-[input:checked]:border-[var(--color-parish-danger)] has-[input:checked]:text-white transition-colors">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(s.id)}
                       onChange={() => toggleSelect(s.id)}
-                      className="w-5 h-5 accent-[var(--color-parish-danger)] cursor-pointer"
+                      className="sr-only"
                       aria-label={`Chọn ${s.holyName} ${s.fullName}`}
                     />
-                  </div>
+                    {selectedIds.has(s.id) ? <CheckSquare size={14} className="text-white" /> : <span className="w-3.5 h-3.5 rounded-sm border-2 border-surface-border block" />}
+                  </label>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingLeft: selectionMode ? '32px' : 0 }}>
+                <div className={`flex justify-between items-start ${selectionMode ? 'pl-8' : ''}`}>
                   <div className="min-w-0 overflow-hidden">
                     <div className="text-parish-secondary text-sm font-extrabold truncate">
                       {s.holyName || '-'}
@@ -364,50 +362,50 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                     <div className="text-parish-primary text-sm font-bold truncate">
                       {s.fullName}
                     </div>
-                    <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5">
-                      <span className="badge" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
+                    <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="badge shrink-0" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
                         {branch?.name}
                       </span>
-                      <span>• {cls?.name}</span>
+                      <span className="truncate">• {cls?.name}</span>
                     </div>
                   </div>
 
                   <div className="text-right shrink-0 ml-2">
-                    <div className="text-parish-primary text-[15px] font-extrabold">
+                    <div className="text-parish-primary text-[15px] font-extrabold tabular-nums">
                       {avg.score !== null ? avg.score : '-'}
                     </div>
-                    <span className="badge badge-primary" style={{ fontSize: '10px' }}>
+                    <span className="badge badge-primary text-[10px] mt-0.5 inline-flex">
                       {avg.label}
                     </span>
                   </div>
                 </div>
 
                 {/* Info row */}
-                <div className="bg-surface-app text-text-secondary flex items-center justify-between text-xs p-2 rounded-md">
-                  <div className="min-w-0 truncate">
-                    Phụ huynh: <strong>{s.parentName}</strong>
+                <div className="bg-surface-app text-text-secondary flex items-center justify-between text-xs px-2.5 py-2 rounded-xl border border-surface-border/60">
+                  <div className="min-w-0 truncate flex items-center gap-1">
+                    <span className="text-[11px]">PH:</span> <strong className="truncate">{s.parentName || '—'}</strong>
                   </div>
                   {s.parentPhone && (
-                      <a 
-                      href={`tel:${s.parentPhone}`} 
-                      className="text-parish-primary no-underline font-bold flex items-center gap-1 shrink-0 ml-2"
+                      <a
+                      href={`tel:${s.parentPhone}`}
+                      className="text-parish-primary no-underline font-bold flex items-center gap-1 shrink-0 ml-2 min-h-[32px] px-2 rounded-lg bg-parish-primary-light/50 hover:bg-parish-primary-light transition-colors"
                     >
-                      <Phone size={12} /> Gọi PH
+                      <Phone size={12} /> Gọi
                     </a>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div className="flex justify-end gap-1.5 border-t border-surface-hover pt-2">
-                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary mobile-btn">
-                    <Printer size={12} /> In Phiếu
+                <div className="flex justify-end gap-2 border-t border-surface-border/60 pt-3">
+                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary min-h-[40px] px-3.5 text-xs font-bold rounded-xl">
+                    <Printer size={13} /> In Phiếu
                   </button>
-                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary mobile-btn">
-                    <Edit3 size={12} /> Sửa
+                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[40px] px-3.5 text-xs font-bold rounded-xl">
+                    <Edit3 size={13} /> Sửa
                   </button>
                   {!selectionMode && canDelete && (
-                    <button onClick={() => handleDelete(s)} className="btn btn-secondary mobile-btn">
-                      <Trash2 size={12} className="text-parish-danger" />
+                    <button onClick={() => handleDelete(s)} className="btn btn-secondary min-h-[40px] w-10 p-0 rounded-xl" aria-label={`Xóa ${s.fullName}`}>
+                      <Trash2 size={14} className="text-parish-danger" />
                     </button>
                   )}
                 </div>
@@ -418,35 +416,36 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       </div>
 
       {totalFiltered > 0 && (
-        <div className="bg-surface-card rounded-2xl border border-surface-border p-3 flex items-center justify-between gap-3">
+        <div className="bg-surface-card rounded-2xl border border-surface-border p-3 flex items-center justify-between gap-2">
             <select
             value={pageSize}
             onChange={(e) => {
               const val = e.target.value
               handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
             }}
-            className="form-select text-xs"
+            className="form-select text-xs min-h-[40px] rounded-xl"
+            aria-label="Số lượng mỗi trang"
           >
             <option value="50">50 / trang</option>
             <option value="100">100 / trang</option>
             <option value="200">200 / trang</option>
             <option value="all">Tất cả</option>
           </select>
-          <div className="text-text-muted text-xs font-semibold">Trang {safePage}/{totalPages}</div>
-          <div className="flex gap-2">
+          <div className="text-text-muted text-xs font-semibold tabular-nums whitespace-nowrap">Trang {safePage}/{totalPages}</div>
+          <div className="flex gap-1.5">
             <button
               onClick={() => handlePageChange(safePage - 1)}
               disabled={safePage <= 1}
-              className="min-h-[44px] min-w-[44px] p-2 rounded-[10px] border border-[var(--color-border-input)] bg-[var(--color-surface-card)] flex items-center justify-center"
-              style={{ opacity: safePage <= 1 ? 0.4 : 1 }}
+              className="min-h-[44px] min-w-[44px] p-2 rounded-xl border border-surface-border bg-surface-card flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-hover transition-colors"
+              aria-label="Trang trước"
             >
               <ChevronLeft size={16} />
             </button>
             <button
               onClick={() => handlePageChange(safePage + 1)}
               disabled={safePage >= totalPages}
-              className="min-h-[44px] min-w-[44px] p-2 rounded-[10px] border border-[var(--color-border-input)] bg-[var(--color-surface-card)] flex items-center justify-center"
-              style={{ opacity: safePage >= totalPages ? 0.4 : 1 }}
+              className="min-h-[44px] min-w-[44px] p-2 rounded-xl border border-surface-border bg-surface-card flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-hover transition-colors"
+              aria-label="Trang sau"
             >
               <ChevronRight size={16} />
             </button>

@@ -145,34 +145,32 @@ export const MobileAttendanceView: React.FC = () => {
       ) : (
         <>
           {/* Header controls */}
-          <div className="mobile-filter-panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h3 className="text-base font-extrabold text-parish-primary m-0">
+          <div className="mobile-filter-panel mobile-sticky-under-topbar flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-extrabold text-parish-primary m-0 leading-tight">
                 Điểm Danh Chuyên Cần
               </h3>
-              <span className="badge badge-success">
-                {presentCount} / {filteredStudents.length} Có mặt
+              <span className="badge badge-success shrink-0 tabular-nums">
+                {presentCount}/{filteredStudents.length} Có mặt
               </span>
             </div>
 
         {/* Date & Type Selection */}
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+        <div className="grid grid-cols-[1fr_1.2fr] gap-2">
           <input
             type="date"
             value={date}
             onChange={e => setDate(e.target.value)}
-            className="form-input"
-            style={{ flex: 1, fontSize: '12.5px', fontWeight: 600 }}
+            className="form-input min-h-[44px] rounded-xl text-xs font-semibold"
           />
 
           <select
             value={type}
             onChange={e => setType(e.target.value as AttendanceType)}
-            className="form-select"
-            style={{ flex: 1.2, fontSize: '12.5px', fontWeight: 600 }}
+            className="form-select min-h-[44px] rounded-xl text-xs font-semibold"
           >
-            <option value="SundayMass">Thánh Lễ Chủ Nhật</option>
-            <option value="CatechismClass">Giờ Học Giáo Lý</option>
+            <option value="SundayMass">Thánh Lễ CN</option>
+            <option value="CatechismClass">Giờ Giáo Lý</option>
             <option value="EucharisticAdoration">Chầu Thánh Thể</option>
           </select>
         </div>
@@ -182,24 +180,23 @@ export const MobileAttendanceView: React.FC = () => {
           const ld = getLiturgicalDay(date);
           const cm = LITURGICAL_COLORS[ld.color] || LITURGICAL_COLORS.GREEN;
           return (
-            <div className={`mb-3 p-2 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 ${cm.bgClass} ${cm.textClass} ${cm.borderClass}`}>
-              <div className="flex items-center gap-1.5 truncate">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cm.hex }} />
+            <div className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 ${cm.bgClass} ${cm.textClass} ${cm.borderClass}`}>
+              <div className="flex items-center gap-1.5 truncate min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/10" style={{ backgroundColor: cm.hex }} />
                 <span className="truncate">{ld.title}</span>
               </div>
-              <span className="text-[10px] font-black uppercase shrink-0">{ld.colorName}</span>
+              <span className="text-[10px] font-black uppercase shrink-0 tracking-wide">{ld.colorName}</span>
             </div>
           );
         })()}
 
         {/* Class Selection (admin only — GLV only sees their assigned classes) */}
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="flex gap-2">
           {role === 'admin' && (
           <select
             value={selectedClassId}
             onChange={e => setSelectedClassId(e.target.value)}
-            className="form-select"
-            style={{ flex: 1, fontSize: '12.5px', fontWeight: 600 }}
+            className="form-select flex-1 min-h-[44px] rounded-xl text-xs font-semibold"
           >
             <option value="all">Tất cả các lớp</option>
             {classList.map(c => (
@@ -208,97 +205,66 @@ export const MobileAttendanceView: React.FC = () => {
           </select>
           )}
 
-          <button onClick={handleMarkAllPresent} className="btn btn-secondary mobile-btn" style={{ borderRadius: '12px', ...(role !== 'admin' ? { width: '100%' } : {}) }}>
+          <button onClick={handleMarkAllPresent} className={`btn btn-secondary rounded-xl min-h-[44px] px-4 text-xs font-bold gap-1.5 ${role !== 'admin' ? 'flex-1' : 'shrink-0'}`}>
             <Check size={14} /> Có mặt tất cả
           </button>
         </div>
       </div>
 
       {/* Student Cards Touch List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {filteredStudents.map(student => {
+      <div className="flex flex-col gap-2.5">
+        {filteredStudents.length === 0 ? (
+          <div className="state-feedback state-feedback--empty p-8 text-center text-sm text-text-muted">
+            Không có thiếu nhi trong bộ lọc hiện tại.
+          </div>
+        ) : filteredStudents.map(student => {
           const item = attendanceMap[student.id] || { status: 'Present', note: '' };
 
           return (
             <div
               key={student.id}
-              className="entity-card p-3"
+              className="entity-card p-3.5 flex flex-col gap-3"
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div>
-                  <div className="text-parish-primary flex items-center gap-1.5" style={{ fontSize: '15px', fontWeight: 700 }}>
+              <div className="flex justify-between items-start gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap text-[15px] font-bold leading-tight">
                     <span className="text-parish-secondary">{student.holyName}</span>
-                    <span>{student.fullName}</span>
+                    <span className="text-parish-primary">{student.fullName}</span>
                     {item.status === 'AbsentExcused' && item.note?.includes('[Đơn') && (
-                      <span className="badge badge-warning text-[10px] px-1.5 py-0.2 font-bold shrink-0">
+                      <span className="badge badge-warning text-[10px] px-1.5 py-0.5 font-bold shrink-0">
                         Có phép online
                       </span>
                     )}
                   </div>
-                  <div className="text-text-muted" style={{ fontSize: '12px' }}>
-                    {student.code} • {findClassById(student.classId)?.name}
+                  <div className="text-text-muted text-xs mt-1">
+                    {student.code} • {findClassById(student.classId)?.name || '—'}
                   </div>
                 </div>
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ring-1 ring-black/5 ${item.status === 'Present' ? 'bg-parish-success' : item.status === 'AbsentExcused' ? 'bg-parish-warning' : 'bg-parish-danger'}`} aria-hidden="true" />
               </div>
 
               {/* 3 Touch Status Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => handleToggle(student.id, 'Present')}
-                  className={item.status === 'Present' ? 'bg-parish-success text-white' : 'bg-surface-hover text-text-secondary'}
-                  style={{
-                    padding: '8px 4px',
-                    minHeight: '44px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px'
-                  }}
+                  className={`min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${item.status === 'Present' ? 'bg-parish-success text-white border-parish-success shadow-sm' : 'bg-surface-hover text-text-secondary border-surface-border hover:bg-surface-card'}`}
+                  aria-pressed={item.status === 'Present'}
                 >
                   <CheckCircle2 size={14} /> Có mặt
                 </button>
 
                 <button
                   onClick={() => handleToggle(student.id, 'AbsentExcused')}
-                  className={item.status === 'AbsentExcused' ? 'bg-parish-warning text-white' : 'bg-surface-hover text-text-secondary'}
-                  style={{
-                    padding: '8px 4px',
-                    minHeight: '44px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px'
-                  }}
+                  className={`min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${item.status === 'AbsentExcused' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-surface-hover text-text-secondary border-surface-border hover:bg-surface-card'}`}
+                  aria-pressed={item.status === 'AbsentExcused'}
                 >
                   <AlertTriangle size={14} /> Có phép
                 </button>
 
                 <button
                   onClick={() => handleToggle(student.id, 'AbsentUnexcused')}
-                  className={item.status === 'AbsentUnexcused' ? 'bg-parish-danger text-white' : 'bg-surface-hover text-text-secondary'}
-                  style={{
-                    padding: '8px 4px',
-                    minHeight: '44px',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px'
-                  }}
+                  className={`min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${item.status === 'AbsentUnexcused' ? 'bg-parish-danger text-white border-parish-danger shadow-sm' : 'bg-surface-hover text-text-secondary border-surface-border hover:bg-surface-card'}`}
+                  aria-pressed={item.status === 'AbsentUnexcused'}
                 >
                   <XCircle size={14} /> Vắng
                 </button>
@@ -311,24 +277,11 @@ export const MobileAttendanceView: React.FC = () => {
       {/* Floating Save Button */}
       <button
         onClick={handleSave}
-        className="mobile-floating-action"
-        style={{
-          background: isSaved ? 'var(--color-parish-success)' : 'var(--color-parish-primary)',
-          color: 'white',
-          border: 'none',
-          borderRadius: '30px',
-          padding: '12px 20px',
-          fontSize: '14px',
-          fontWeight: 700,
-          boxShadow: '0 4px 15px rgba(30, 58, 138, 0.35)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          cursor: 'pointer'
-        }}
+        className={`mobile-floating-action inline-flex items-center gap-2 min-h-[48px] px-5 rounded-full text-sm font-extrabold shadow-lg transition-colors ${isSaved ? 'bg-parish-success text-white' : 'bg-parish-primary text-white hover:bg-parish-primary-hover'}`}
+        aria-live="polite"
       >
         <Save size={18} />
-        {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
+        {isSaved ? 'Đã Lưu!' : `Lưu Điểm Danh (${filteredStudents.length})`}
       </button>
         </>
       )}

@@ -734,6 +734,31 @@ export const examResults = sqliteTable('exam_results', {
   index('idx_exam_results_lookup').on(table.parishId, table.examSessionId),
 ])
 
+// EXAM-CONTINUOUS-P0: durable per-item idempotency receipt. A retry after the
+// result transaction committed but before its response arrived returns the
+// original acknowledgement without rewriting the result or audit log.
+export const examResultMutations = sqliteTable('exam_result_mutations', {
+  clientMutationId: text('client_mutation_id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  userId: text('user_id').notNull(),
+  examSessionId: text('exam_session_id').notNull(),
+  studentId: text('student_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  responseJson: text('response_json').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.userId, table.clientMutationId] }),
+  foreignKey({
+    columns: [table.parishId, table.examSessionId],
+    foreignColumns: [examSessions.parishId, examSessions.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    columns: [table.parishId, table.studentId],
+    foreignColumns: [students.parishId, students.id],
+  }).onDelete('restrict'),
+  index('idx_exam_result_mutations_session').on(table.parishId, table.examSessionId, table.createdAt),
+])
+
 // Server-side assessment ledger.  A grade row remains the fast projection used by
 // existing reports, while this table preserves the individual source attempt that
 // produced it.  `legacy_baseline` is only used when a pre-ledger daily average

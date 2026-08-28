@@ -69,6 +69,7 @@ beforeEach(() => {
     finalizing: false,
     error: null,
     lastFinalize: null,
+    queuedResultMutations: {},
   })
   useGradeStore.setState({ grades: [] })
   useDailyGradeStore.setState({ entries: [] })
@@ -200,6 +201,67 @@ describe('examStore — saveScores & session management', () => {
     expect(refreshSpy).toHaveBeenCalled()
     expect(res).toEqual({ saved: 1, upserted: 0, total: 1 })
     expect(useExamStore.getState().results).toHaveLength(1)
+  })
+
+  it('EXAM-CONTINUOUS-P1: queueScores ghi durable queue và cập nhật local mà không chờ API', async () => {
+    const apiSpy = vi.spyOn(api, 'saveExamResults')
+    vi.spyOn(syncService, 'syncSaveExamResults').mockResolvedValue([
+      { queueOpId: 'OP-CONT-1', clientMutationId: 'MUT-CONT-1', studentId: 'ST-1' },
+    ])
+    useExamStore.setState({ selectedSessionId: 'EXS-test-1' })
+
+    const result = await useExamStore.getState().queueScores([{
+      studentId: 'ST-1', score: 8, source: 'qr_scan', attemptFingerprint: 'FP-1',
+    }])
+
+    expect(apiSpy).not.toHaveBeenCalled()
+    expect(result?.queuedMutations[0]).toMatchObject({
+      queueOpId: 'OP-CONT-1', clientMutationId: 'MUT-CONT-1', status: 'pending',
+    })
+    expect(useExamStore.getState().results[0]).toMatchObject({ studentId: 'ST-1', score: 8 })
+    expect(useExamStore.getState().queuedResultMutations['MUT-CONT-1'].status).toBe('pending')
+  })
+
+  it('EXAM-CONTINUOUS-P1: acknowledgement cập nhật trạng thái và điểm server-authoritative', () => {
+    useExamStore.setState({
+      results: [mkResult('ST-1', 8)],
+      queuedResultMutations: {
+        'MUT-CONT-1': {
+          queueOpId: 'OP-CONT-1', clientMutationId: 'MUT-CONT-1', sessionId: 'EXS-test-1',
+          studentId: 'ST-1', proposedScore: 8, status: 'pending',
+          createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
+        },
+      },
+    })
+
+    useExamStore.getState().markResultMutation('MUT-CONT-1', 'synced', { serverScore: 7.5 })
+
+    expect(useExamStore.getState().queuedResultMutations['MUT-CONT-1']).toMatchObject({ status: 'synced', serverScore: 7.5 })
+    expect(useExamStore.getState().results[0].score).toBe(7.5)
+  })
+
+  it('EXAM-CONTINUOUS-P1: complete online vẫn xếp sau durable result đang pending', async () => {
+    const apiSpy = vi.spyOn(api, 'completeExam')
+    const queueCompleteSpy = vi.spyOn(syncService, 'syncCompleteExam').mockResolvedValue('OP-COMPLETE')
+    useExamStore.setState({
+      sessions: [mkSession()],
+      selectedSessionId: 'EXS-test-1',
+      results: [mkResult('ST-1', 8)],
+      queuedResultMutations: {
+        'MUT-CONT-1': {
+          queueOpId: 'OP-CONT-1', clientMutationId: 'MUT-CONT-1', sessionId: 'EXS-test-1',
+          studentId: 'ST-1', proposedScore: 8, status: 'pending',
+          createdAt: '2026-08-28T00:00:00.000Z', updatedAt: '2026-08-28T00:00:00.000Z',
+        },
+      },
+    })
+
+    const result = await useExamStore.getState().completeAndFinalize()
+
+    expect(result).not.toBeNull()
+    expect(apiSpy).not.toHaveBeenCalled()
+    expect(queueCompleteSpy).toHaveBeenCalledWith('EXS-test-1')
+    expect(useExamStore.getState().sessions[0].status).toBe('completed')
   })
 
   it('createSession thêm session vào đầu danh sách', async () => {

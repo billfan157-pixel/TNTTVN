@@ -69,6 +69,26 @@ export async function revertFailedExamCompleteOp(op: SyncQueueItem): Promise<voi
   if (sessionId) useExamStore.getState().revertLocalComplete(String(sessionId))
 }
 
+/** Mark a durable continuous-scan item as terminally failed without discarding it. */
+export async function markFailedExamResultOp(op: SyncQueueItem, error?: string): Promise<void> {
+  if (String(op.entity || '').toLowerCase() !== 'exam_result') return
+  let raw: unknown = op.payload
+  if (typeof raw === 'string') {
+    raw = await decryptQueueValue(raw)
+    if (raw === null) return
+  }
+  try {
+    const payload = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const mutationId = payload?.score?.clientMutationId
+    if (mutationId) {
+      const status = /xung đột|idempotency/i.test(error || '') ? 'conflict' : 'error'
+      useExamStore.getState().markResultMutation(String(mutationId), status, { error })
+    }
+  } catch {
+    // Corrupt payload remains in diagnostics; no mutation id can be trusted.
+  }
+}
+
 export function useSyncEngine() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isAuthed = useAuthStore(s => s.isAuthenticated)
@@ -354,6 +374,7 @@ export async function runSyncFlow() {
           store.setLastError(`Thao tác ${op.entity}/${op.entityId} đã thất bại sau ${retryCount} lần thử`)
           // FE-F1: op chuyển failed vĩnh viễn → revert optimistic complete nếu có
           await revertFailedExamCompleteOp(op)
+          await markFailedExamResultOp(op, result.error)
         } else {
           store.setStatus('retrying')
           store.setLastError(result.error || null)
@@ -366,6 +387,7 @@ export async function runSyncFlow() {
         // FE-F1: permanent fail (4xx — vd 403 học kỳ đã khóa) → revert optimistic
         // complete để UI không tiếp tục hiển thị phiên "đã hoàn tất" sai.
         await revertFailedExamCompleteOp(op)
+        await markFailedExamResultOp(op, result.error)
       }
 
       ops = (await store.getPendingOps()).filter(o => o.entity !== 'grade' && o.entity !== 'attendance')

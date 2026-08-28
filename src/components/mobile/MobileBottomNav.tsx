@@ -50,12 +50,15 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
           const Icon = tab.icon
           const isActive = activeTab === tab.id
 
-          return (
+            return (
             <button
               key={tab.id}
               type="button"
-              className={`mobile-bottom-nav__item${isActive ? ' is-active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              className={`mobile-bottom-nav__item touch-manipulation${isActive ? ' is-active' : ''}`}
+              onClick={() => {
+                if ('vibrate' in navigator) try { navigator.vibrate(8) } catch {}
+                setActiveTab(tab.id)
+              }}
               aria-current={isActive ? 'page' : undefined}
               aria-label={tab.label}
             >

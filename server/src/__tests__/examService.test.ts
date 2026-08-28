@@ -203,6 +203,52 @@ describe('Smart Exam Grading — exam routes & service', () => {
     expect(res.data.saved).toBe(0)
   })
 
+  it('EXAM-CONTINUOUS-P0: retry cùng clientMutationId trả duplicate, không audit/ghi lại', async () => {
+    const created = await jsonReq('/', {
+      method: 'POST',
+      token: adminToken,
+      body: { classId: 'cl-exam-01', subject: 'Continuous idempotency', scoreType: '15m', semester: 1, academicYear: '2025-2026' },
+    })
+    const sessionId = created.data.id
+    const mutation = {
+      studentId: 'st-exam-01',
+      score: 6.5,
+      source: 'quick_entry',
+      clientMutationId: 'MUT-CONT-0001',
+      capturedAt: '2026-08-28T03:00:00.000Z',
+    }
+
+    const first = await jsonReq(`/${sessionId}/results`, {
+      method: 'POST', token: adminToken, body: { results: [mutation] },
+    })
+    const retry = await jsonReq(`/${sessionId}/results`, {
+      method: 'POST', token: adminToken, body: { results: [mutation] },
+    })
+
+    expect(first.status).toBe(200)
+    expect(first.data.items).toEqual([
+      expect.objectContaining({ clientMutationId: mutation.clientMutationId, studentId: mutation.studentId, status: 'created', serverScore: 6.5 }),
+    ])
+    expect(retry.status).toBe(200)
+    expect(retry.data).toMatchObject({ saved: 0, upserted: 0, total: 1 })
+    expect(retry.data.items).toEqual([
+      expect.objectContaining({ clientMutationId: mutation.clientMutationId, status: 'duplicate', serverScore: 6.5 }),
+    ])
+
+    const auditRows = await db.select({ newValue: auditLogs.newValue }).from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishId),
+      eq(auditLogs.entityId, sessionId),
+      eq(auditLogs.action, 'EXAM_SAVE_RESULTS'),
+    ))
+    expect(auditRows.filter(row => row.newValue?.includes(mutation.clientMutationId))).toHaveLength(1)
+
+    const reusedWithDifferentPayload = await jsonReq(`/${sessionId}/results`, {
+      method: 'POST', token: adminToken, body: { results: [{ ...mutation, score: 7 }] },
+    })
+    expect(reusedWithDifferentPayload.status).toBe(409)
+    expect(reusedWithDifferentPayload.body?.error?.code).toBe('IDEMPOTENCY_CONFLICT')
+  })
+
   it('GET results returns student names and latest scores', async () => {
     const sessionId = sharedSessionId
     const res = await jsonReq(`/${sessionId}/results`, { token: adminToken })

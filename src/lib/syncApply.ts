@@ -119,6 +119,23 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
       if (examStore.selectedSessionId) await examStore.refreshResults()
     }
 
+    if (entity === 'exam_result') {
+      const payload = await parseQueuePayload(op.payload)
+      const score = payload.score && typeof payload.score === 'object'
+        ? payload.score as Record<string, unknown>
+        : null
+      const clientMutationId = score?.clientMutationId ? String(score.clientMutationId) : ''
+      if (clientMutationId) {
+        const acknowledgement = Array.isArray(serverData?.items)
+          ? serverData.items.find((item: any) => item?.clientMutationId === clientMutationId)
+          : null
+        const serverScore = typeof acknowledgement?.serverScore === 'number'
+          ? acknowledgement.serverScore
+          : undefined
+        useExamStore.getState().markResultMutation(clientMutationId, 'synced', { serverScore })
+      }
+    }
+
     if (entity === 'grade' && serverData?.id) {
       const gradeStore = useGradeStore.getState()
       gradeStore.upsertGrade(serverData, true)

@@ -1,7 +1,40 @@
 import { useSyncStore } from '../stores/syncStore'
 
-type Entity = 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam'
+type Entity = 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' | 'exam_result'
 type Operation = 'CREATE' | 'UPDATE' | 'DELETE'
+
+export interface ExamResultSyncScore {
+  studentId: string
+  score: number
+  essayScore?: number
+  source?: string
+  answers?: string
+  scanMetadata?: string
+  examVersion?: string
+  clientMutationId?: string
+  attemptFingerprint?: string
+  capturedAt?: string
+}
+
+export interface QueuedExamResultMutation {
+  queueOpId: string
+  clientMutationId: string
+  studentId: string
+}
+
+function newMutationId(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `EXM-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+}
+
+/**
+ * Exam result mutations intentionally have a per-student queue identity.
+ * Using only the session id makes syncStore dedupe/compaction replace the whole
+ * scores[] payload and silently lose previously scanned students.
+ */
+export function examResultQueueEntityId(sessionId: string, studentId: string): string {
+  return `${sessionId}::result::${studentId}`
+}
 
 function enqueue(entity: Entity, operation: Operation, entityId: string, payload: any): Promise<string> {
   return useSyncStore.getState().addOp({
@@ -80,12 +113,34 @@ export function syncCreateExam(data: any): Promise<string> {
   return enqueue('exam', 'CREATE', data.id as string, data)
 }
 
-export function syncSaveExamResults(sessionId: string, scores: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string }[]): Promise<string> {
-  return enqueue('exam', 'UPDATE', sessionId, { action: 'save_results', sessionId, scores })
+export async function syncSaveExamResults(
+  sessionId: string,
+  scores: ExamResultSyncScore[],
+): Promise<QueuedExamResultMutation[]> {
+  const queued: QueuedExamResultMutation[] = []
+  // Sequential enqueue preserves input order even when multiple items share the
+  // same millisecond timestamp; complete/reopen barriers are queued afterwards.
+  for (const input of scores) {
+    const clientMutationId = input.clientMutationId || newMutationId()
+    const score = { ...input, clientMutationId, capturedAt: input.capturedAt || new Date().toISOString() }
+    const queueOpId = await enqueue(
+      'exam_result',
+      'UPDATE',
+      examResultQueueEntityId(sessionId, input.studentId),
+      { action: 'save_result', sessionId, score },
+    )
+    queued.push({ queueOpId, clientMutationId, studentId: input.studentId })
+  }
+  return queued
 }
 
 export function syncRemoveExamResult(sessionId: string, studentId: string): Promise<string> {
-  return enqueue('exam', 'UPDATE', sessionId, { action: 'remove_result', sessionId, studentId })
+  return enqueue(
+    'exam_result',
+    'UPDATE',
+    examResultQueueEntityId(sessionId, studentId),
+    { action: 'remove_result', sessionId, studentId },
+  )
 }
 
 export function syncCompleteExam(sessionId: string): Promise<string> {

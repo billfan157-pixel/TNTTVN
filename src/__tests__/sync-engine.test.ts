@@ -94,6 +94,55 @@ describe('Sync Engine — Queue Operations', () => {
     expect(pending).toHaveLength(2)
   })
 
+  it('EXAM-CONTINUOUS-P0: hai học sinh cùng session giữ hai mutation độc lập sau compact', async () => {
+    const queued = await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 8, source: 'qr_scan', clientMutationId: 'MUT-A' },
+      { studentId: 'ST-B', score: 9, source: 'qr_scan', clientMutationId: 'MUT-B' },
+    ])
+
+    expect(queued).toEqual([
+      expect.objectContaining({ studentId: 'ST-A', clientMutationId: 'MUT-A' }),
+      expect.objectContaining({ studentId: 'ST-B', clientMutationId: 'MUT-B' }),
+    ])
+
+    await useSyncStore.getState().compactQueue()
+    const pending = await useSyncStore.getState().getPendingOps()
+    expect(pending).toHaveLength(2)
+    expect(pending.map(op => op.entity)).toEqual(['exam_result', 'exam_result'])
+    expect(new Set(pending.map(op => op.entityId))).toEqual(new Set([
+      'EXS-CONT-1::result::ST-A',
+      'EXS-CONT-1::result::ST-B',
+    ]))
+    const payloads = await Promise.all(pending.map(readPayload))
+    expect(payloads.map(payload => payload.score.studentId).sort()).toEqual(['ST-A', 'ST-B'])
+  })
+
+  it('EXAM-CONTINUOUS-P0: cùng học sinh trước khi sync giữ explicit mutation cuối', async () => {
+    await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 7, source: 'qr_scan', clientMutationId: 'MUT-OLD' },
+    ])
+    await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 8.5, source: 'qr_scan', clientMutationId: 'MUT-NEW' },
+    ])
+
+    const pending = await useSyncStore.getState().getPendingOps()
+    expect(pending).toHaveLength(1)
+    const payload = await readPayload(pending[0])
+    expect(payload.score).toMatchObject({ studentId: 'ST-A', score: 8.5, clientMutationId: 'MUT-NEW' })
+  })
+
+  it('EXAM-CONTINUOUS-P0: save của từng học sinh đứng trước complete barrier', async () => {
+    await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 8, clientMutationId: 'MUT-A' },
+      { studentId: 'ST-B', score: 9, clientMutationId: 'MUT-B' },
+    ])
+    await syncService.syncCompleteExam('EXS-CONT-1')
+
+    const pending = await useSyncStore.getState().getPendingOps()
+    expect(pending.map(op => op.entity)).toEqual(['exam_result', 'exam_result', 'exam'])
+    expect((await readPayload(pending[2])).action).toBe('complete')
+  })
+
   it('syncSaveAttendance adds UPDATE op with composite entityId', async () => {
     await syncService.syncSaveAttendance({ studentId: 'ST-001', date: '2026-07-26', type: 'SundayMass', status: 'Present' } as any)
 

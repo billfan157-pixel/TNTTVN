@@ -24,12 +24,25 @@ import { PageTransition } from './PageTransition'
 import { BRANCHES } from '../../constants/branches'
 import type { MobileTab } from '../mobile/MobileBottomNav'
 
+const PageSkeleton = () => (
+  <div className="animate-pulse space-y-4 p-1" aria-hidden="true">
+    <div className="h-6 w-48 rounded-lg bg-surface-hover" />
+    <div className="h-4 w-72 rounded bg-surface-hover" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+      <div className="h-24 rounded-xl bg-surface-hover" />
+      <div className="h-24 rounded-xl bg-surface-hover" />
+      <div className="h-24 rounded-xl bg-surface-hover hidden sm:block" />
+    </div>
+    <div className="h-64 rounded-xl bg-surface-hover" />
+  </div>
+)
+
 export const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   <ErrorBoundary>
     <Suspense fallback={
-      <div className="app-page-loader" role="status" aria-live="polite">
-        <span className="app-page-loader__mark" aria-hidden="true" />
-        <span>Đang chuẩn bị nội dung…</span>
+      <div className="min-h-[50vh] flex flex-col gap-4 p-2" role="status" aria-live="polite" aria-busy="true">
+        <span className="sr-only">Đang chuẩn bị nội dung…</span>
+        <PageSkeleton />
       </div>
     }>
       {children}

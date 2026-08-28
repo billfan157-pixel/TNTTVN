@@ -144,7 +144,8 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
     }))
     const saved = await saveScores(payload)
     if (!saved) return
-    setMessage(`Đã ghi ${payload.length} kết quả (${saved.saved} mới, ${saved.upserted} cập nhật). ${reviews.length + rejected.length} ảnh ngoại lệ không được ghi.`)
+    const adjusted = saved.adjustments?.length ?? 0
+    setMessage(`Đã ghi ${payload.length} kết quả (${saved.saved} mới, ${saved.upserted} cập nhật${adjusted > 0 ? `, ${adjusted} điểm được server tính lại` : ''}). ${reviews.length + rejected.length} ảnh ngoại lệ không được ghi.`)
     setItems(current => current.filter(item => item.status !== 'accepted'))
   }
 

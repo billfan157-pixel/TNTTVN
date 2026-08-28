@@ -511,13 +511,32 @@ export const api = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
   updateAnswerVariants: (id: string, answerVariants: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string }[]) =>
-    request<{
+  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string }[]) => {
+    const capturedAt = new Date().toISOString()
+    const withMutationIds = results.map(result => ({
+      ...result,
+      clientMutationId: result.clientMutationId || newIdempotencyKey(),
+      capturedAt: result.capturedAt || capturedAt,
+    }))
+    // Request header enables method-aware retry; durable dedup is enforced per
+    // item by clientMutationId on the server, so a lost response is safe to replay.
+    const requestId = withMutationIds.length === 1
+      ? withMutationIds[0].clientMutationId
+      : newIdempotencyKey()
+    return request<{
       saved: number
       upserted: number
       total: number
       adjustments?: Array<{ studentId: string; clientScore: number; serverScore: number }>
-    }>('POST', `/exams/${id}/results`, { results }),
+      items?: Array<{
+        clientMutationId?: string
+        studentId: string
+        status: 'created' | 'updated' | 'duplicate'
+        clientScore: number
+        serverScore: number
+      }>
+    }>('POST', `/exams/${id}/results`, { results: withMutationIds }, 0, { 'Idempotency-Key': requestId })
+  },
   removeExamResult: (id: string, studentId: string) => request<{ deleted: boolean }>('DELETE', `/exams/${id}/results/${encodeURIComponent(studentId)}`),
   getExamResults: (id: string) => request<{ session: any; results: any[] }>('GET', `/exams/${id}/results`),
   completeExam: (id: string) => request<any>('POST', `/exams/${id}/complete`),

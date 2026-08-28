@@ -41,6 +41,15 @@ import { useStudentStore } from '../../stores/studentStore'
 import { isMcGradedExamType } from '../../types'
 import type { ExamAnswerVariants, ExamType, ExamVersionCode } from '../../types'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import {
+  EXISTING_RESULT_FINGERPRINT,
+  advanceContinuousRearm,
+  beginContinuousRearm,
+  classifyContinuousAttempt,
+  createContinuousAttemptFingerprint,
+  isContinuousScanV2Enabled,
+  type ContinuousRearmState,
+} from '../../lib/examContinuousScan'
 
 interface ExamScanModalProps {
   sessionId: string
@@ -56,7 +65,7 @@ interface ExamScanModalProps {
 
 type ScanState =
   | { kind: 'scanning' }
-  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode }
+  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode; attemptFingerprint: string; attemptDecision: 'new' | 'conflict' }
   | { kind: 'error'; message: string }
 
 interface ScannedEntry {
@@ -64,6 +73,7 @@ interface ScannedEntry {
   studentName: string
   score: number
   timestamp: number
+  mutationId?: string
 }
 
 const OMR_CAMERA_NOT_READY_RETRY_MS = 100
@@ -104,6 +114,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const omrConsensusRef = useRef<OmrConsensusState | null>(null)
   const lastDiagnosticReasonRef = useRef('')
   const processImageFrameRef = useRef<(frame: ImageData, explicitCapture?: boolean) => boolean>(() => false)
+  const rearmRef = useRef<ContinuousRearmState | null>(null)
+  const seenAttemptByStudentRef = useRef(new Map<string, string>())
   const lastScanFailureRef = useRef(fixedStudent
     ? 'Chưa nhận diện được khung OMR trên phiếu.'
     : 'Không nhận diện được mã QR / Barcode trên phiếu.')
@@ -114,7 +126,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const [selectedExamVersion, setSelectedExamVersion] = useState<ExamVersionCode>(configuredVersions[0] ?? 'A')
 
   const [phase, setPhase] = useState<ScanState>({ kind: 'scanning' })
-  const { saveScores, error, results } = useExamStore()
+  const { saveScores, queueScores, error, results, queuedResultMutations } = useExamStore()
   const students = useStudentStore(s => s.students)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -129,8 +141,38 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const [torchOn, setTorchOn] = useState(false)
   const [hasTorch, setHasTorch] = useState(false)
   const [keepReviewImage, setKeepReviewImage] = useState(false)
+  const [conflictConfirmed, setConflictConfirmed] = useState(false)
+  const continuousV2Enabled = batchMode && isContinuousScanV2Enabled()
 
   useEffect(() => { void purgeExpiredScanReviewSnapshots() }, [])
+
+  useEffect(() => {
+    for (const result of results) {
+      if (result.examSessionId !== sessionId) continue
+      if (!seenAttemptByStudentRef.current.has(result.studentId)) {
+        seenAttemptByStudentRef.current.set(result.studentId, EXISTING_RESULT_FINGERPRINT)
+      }
+    }
+  }, [results, sessionId])
+
+  useEffect(() => {
+    const durable = Object.values(queuedResultMutations)
+      .filter(mutation => mutation.sessionId === sessionId)
+    if (durable.length === 0) return
+    setScannedList(current => {
+      const known = new Set(current.map(entry => entry.mutationId).filter(Boolean))
+      const restored = durable
+        .filter(mutation => !known.has(mutation.clientMutationId))
+        .map(mutation => ({
+          studentId: mutation.studentId,
+          studentName: students.find(student => student.id === mutation.studentId)?.fullName ?? mutation.studentId,
+          score: mutation.serverScore ?? mutation.proposedScore,
+          timestamp: Date.parse(mutation.createdAt) || Date.now(),
+          mutationId: mutation.clientMutationId,
+        }))
+      return restored.length > 0 ? [...current, ...restored] : current
+    })
+  }, [queuedResultMutations, sessionId, students])
 
   const resetIdentity = useCallback(() => {
     codeLockRef.current = fixedStudent
@@ -261,6 +303,25 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     const identity = resolveExamIdentity(activeLock, codeResult, sessionId, now)
     codeLockRef.current = identity.lock
 
+    if (identity.kind !== 'wrong_session' && continuousV2Enabled && rearmRef.current) {
+      const observedStudentId = identity.lock?.studentId ?? null
+      const rearm = advanceContinuousRearm(rearmRef.current, observedStudentId, now)
+      rearmRef.current = rearm.state
+      if (!rearm.rearmed) {
+        omrConsensusRef.current = null
+        setCodeLocked(Boolean(identity.lock))
+        setScanHint(rearm.reason === 'same_sheet'
+          ? 'Phiếu vừa ghi vẫn còn trong khung — hãy rút phiếu ra trước khi quét tiếp.'
+          : 'Đang xác nhận phiếu cũ đã rời camera…')
+        return false
+      }
+      // A distinct identity may be processed in the same frame. Sustained
+      // absence simply unlocks the next normal identity-acquisition cycle.
+      setScanHint(rearm.reason === 'new_identity'
+        ? 'Đã nhận phiếu mới — đang kiểm tra danh tính và đáp án.'
+        : 'Sẵn sàng cho phiếu tiếp theo.')
+    }
+
     const identityChanged = identity.kind === 'acquired' && !isSameExamIdentity(previousLock, identity.lock)
     if (identityChanged) {
       omrConsensusRef.current = null
@@ -371,6 +432,22 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             return false
           }
 
+          const attemptFingerprint = createContinuousAttemptFingerprint({
+            sessionId,
+            studentId: identity.lock.studentId,
+            examVersion: effectiveExamVersion,
+            templateMode: effectiveTemplateMode,
+            omr,
+          })
+          const attemptDecision = continuousV2Enabled
+            ? classifyContinuousAttempt(seenAttemptByStudentRef.current, identity.lock.studentId, attemptFingerprint)
+            : { kind: 'new' as const }
+          if (attemptDecision.kind === 'duplicate') {
+            omrConsensusRef.current = null
+            setScanHint('Phiếu này đã được ghi trong lượt quét hiện tại — hãy chuyển sang phiếu khác.')
+            return false
+          }
+
           resolveRef.current = true
           if (batchMode) pauseCameraAnalysis()
           else stopCamera()
@@ -390,7 +467,10 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             acceptance,
             templateMode: effectiveTemplateMode,
             examVersion: effectiveExamVersion,
+            attemptFingerprint,
+            attemptDecision: attemptDecision.kind === 'conflict' ? 'conflict' : 'new',
           })
+          setConflictConfirmed(false)
           return true
         }
         omrConsensusRef.current = null
@@ -423,7 +503,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
 
     return false
-  }, [sessionId, maxScore, examType, questionCount, fixedStudent, mcTemplateMode, selectedExamVersion, normalizedVariants, batchMode, pauseCameraAnalysis, stopCamera])
+  }, [sessionId, maxScore, examType, questionCount, fixedStudent, mcTemplateMode, selectedExamVersion, normalizedVariants, batchMode, continuousV2Enabled, pauseCameraAnalysis, stopCamera])
 
   // RAF sống lâu hơn một render. Luôn gọi callback mới nhất để mã đề/template/
   // batch mode vừa đổi không bị đóng kín trong closure lúc camera khởi động.
@@ -656,10 +736,12 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
   const retake = async () => {
     resolveRef.current = false
+    rearmRef.current = null
     resetIdentity()
     setSaved(false)
     setServerAdjustment(null)
     setSaving(false)
+    setConflictConfirmed(false)
     consecutiveNoCodeFramesRef.current = 0
     setScanHint(fixedStudent
       ? `Đã chọn ${fixedStudent.name} — căn khung OMR rồi bấm “Chụp & chấm”.`
@@ -737,6 +819,10 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
   const handleSave = async () => {
     if (phase.kind !== 'detected') return
+    if (phase.attemptDecision === 'conflict' && !conflictConfirmed) {
+      setScanHint('Học sinh này đã có kết quả khác. Hãy xác nhận rõ việc cập nhật trước khi ghi.')
+      return
+    }
     const unresolvedQuestions = 'questions' in phase.omr
       ? phase.omr.questions.filter(question => question.needsReview)
       : []
@@ -778,14 +864,19 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         correctedQuestions,
         quality: phase.quality,
       })
-      const saveResult = await saveScores([{
+      const scoreItem = {
         studentId: phase.studentId,
         score,
         source: fixedStudent ? 'omr' : 'qr_scan',
         answers,
         scanMetadata,
         examVersion: phase.examVersion,
-      }])
+        attemptFingerprint: phase.attemptFingerprint,
+        capturedAt: new Date().toISOString(),
+      } as const
+      const saveResult = continuousV2Enabled
+        ? await queueScores([scoreItem])
+        : await saveScores([scoreItem])
       // Không được báo “Đã lưu” hoặc đóng modal khi API/offline queue từ chối.
       if (!saveResult) return
 
@@ -794,22 +885,37 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         if (!retained) setScanHint('Điểm đã lưu nhưng thiết bị không thể lưu ảnh rà soát.')
       }
 
-      const adjustment = saveResult.adjustments?.find(item => item.studentId === phase.studentId) ?? null
+      const adjustment = 'adjustments' in saveResult
+        ? saveResult.adjustments?.find(item => item.studentId === phase.studentId) ?? null
+        : null
       if (adjustment) setServerAdjustment({ clientScore: adjustment.clientScore, serverScore: adjustment.serverScore })
 
       const studentName = students.find(s => s.id === phase.studentId)?.fullName ?? phase.studentId
       const storedScore = adjustment?.serverScore ?? score
-      setScannedList(prev => [...prev, { studentId: phase.studentId, studentName, score: storedScore, timestamp: Date.now() }])
+      const queuedMutation = 'queuedMutations' in saveResult ? saveResult.queuedMutations[0] : undefined
+      seenAttemptByStudentRef.current.set(phase.studentId, phase.attemptFingerprint)
+      setScannedList(prev => [...prev, {
+        studentId: phase.studentId,
+        studentName,
+        score: storedScore,
+        timestamp: Date.now(),
+        mutationId: queuedMutation?.clientMutationId,
+      }])
       setSaved(true)
 
       if (adjustment) {
         // Version drift/tampering là ngoại lệ cần người chấm nhìn thấy; không tự
         // đóng hoặc nhảy sang phiếu kế tiếp dù server đã lưu an toàn.
       } else if (batchMode) {
+        rearmRef.current = continuousV2Enabled
+          ? beginContinuousRearm(phase.studentId, phase.attemptFingerprint)
+          : null
         resolveRef.current = false
         resetIdentity()
         setSaved(false)
-        setScanHint('Bước 1/2 — đưa riêng mã QR lại gần camera.')
+        setScanHint(continuousV2Enabled
+          ? 'Đã ghi an toàn trên thiết bị — rút phiếu cũ ra để quét phiếu tiếp theo.'
+          : 'Bước 1/2 — đưa riêng mã QR lại gần camera.')
         setPhase({ kind: 'scanning' })
         // Batch camera chỉ pause phần phân tích khi rà soát; giữ nguyên stream
         // để bỏ 600ms chờ + một vòng getUserMedia/re-focus cho mỗi phiếu.
@@ -1043,7 +1149,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                       <div className="flex items-center justify-between border-t border-surface-border pt-2 text-xs">
                         <span className="font-bold text-text-muted">Điểm cũ:</span>
                         <span className="font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
-                          {existing.score} (sẽ ghi đè)
+                          {existing.score} (cần xác nhận cập nhật)
                         </span>
                       </div>
                     )
@@ -1148,6 +1254,17 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 Chưa thể ghi điểm: phiếu không còn đáp án nào được chọn.
               </div>
             )}
+            {phase.attemptDecision === 'conflict' && (
+              <label className="flex items-start gap-2 rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800">
+                <input
+                  type="checkbox"
+                  checked={conflictConfirmed}
+                  onChange={event => setConflictConfirmed(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-amber-600"
+                />
+                <span>Học sinh này đã có kết quả hoặc đáp án khác. Tôi đã đối chiếu phiếu và xác nhận cập nhật kết quả hiện có.</span>
+              </label>
+            )}
             <label className="flex items-start gap-2 rounded-xl border border-surface-border bg-surface-app px-3 py-2 text-xs font-semibold text-text-main">
               <input type="checkbox" checked={keepReviewImage} onChange={event => setKeepReviewImage(event.target.checked)} className="mt-0.5 h-4 w-4 accent-parish-primary" />
               <span>Giữ ảnh để rà soát trên thiết bị này trong 24 giờ. Ảnh được mã hóa cục bộ và không tải lên máy chủ.</span>
@@ -1234,7 +1351,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                 <button className="btn btn-secondary btn-sm" onClick={retake} disabled={saving}>
                   <RefreshCw size={14} /> Quét Lại
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => void handleSave()} disabled={saving || saved || unresolvedReviewCount > 0 || noDetectedAnswers}>
+                <button className="btn btn-primary btn-sm" onClick={() => void handleSave()} disabled={saving || saved || unresolvedReviewCount > 0 || noDetectedAnswers || (phase.attemptDecision === 'conflict' && !conflictConfirmed)}>
                   {saving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
                   {saved ? 'Đã Lưu' : batchMode ? 'Ghi & Quét Tiếp' : 'Ghi Điểm'}
                 </button>
@@ -1252,7 +1369,30 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             {scannedList.map((entry, i) => (
               <div key={`${entry.studentId}-${entry.timestamp}`} className="flex items-center justify-between text-[11px]">
                 <span className="font-semibold text-text-main">{i + 1}. {entry.studentName}</span>
-                <span className="font-black text-emerald-500">{entry.score}/{maxScore}</span>
+                <span className="flex items-center gap-2">
+                  {entry.mutationId && (() => {
+                    const mutation = queuedResultMutations[entry.mutationId]
+                    const status = mutation?.status ?? 'pending'
+                    const label = status === 'synced'
+                      ? 'Đã đồng bộ'
+                      : status === 'error'
+                        ? 'Lỗi đồng bộ'
+                        : status === 'conflict'
+                          ? 'Cần xử lý'
+                          : 'Chờ đồng bộ'
+                    const cls = status === 'synced'
+                      ? 'text-emerald-600'
+                      : status === 'error' || status === 'conflict'
+                        ? 'text-red-600'
+                        : 'text-amber-600'
+                    return <span className={`font-bold ${cls}`}>{label}</span>
+                  })()}
+                  <span className="font-black text-emerald-500">
+                    {entry.mutationId && queuedResultMutations[entry.mutationId]?.serverScore !== undefined
+                      ? queuedResultMutations[entry.mutationId].serverScore
+                      : entry.score}/{maxScore}
+                  </span>
+                </span>
               </div>
             ))}
           </div>

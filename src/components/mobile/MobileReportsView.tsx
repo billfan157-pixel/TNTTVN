@@ -121,27 +121,19 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
                     Sĩ số: <strong className="text-text-main">{studentCount}</strong> em
                   </span>
                 </div>
-                <div className="grid grid-cols-5 gap-1 text-center text-xs mt-1">
-                  <div className="bg-emerald-50 dark:bg-emerald-950/40 p-1 rounded border border-emerald-200 dark:border-emerald-800">
-                    <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">XS</div>
-                    <div className="font-bold text-emerald-600 dark:text-emerald-400">{excellent}</div>
-                  </div>
-                  <div className="bg-sky-50 dark:bg-sky-950/40 p-1 rounded border border-sky-200 dark:border-sky-800">
-                    <div className="text-[10px] text-sky-700 dark:text-sky-400 font-medium">Giỏi</div>
-                    <div className="font-bold text-sky-600 dark:text-sky-400">{good}</div>
-                  </div>
-                  <div className="bg-amber-50 dark:bg-amber-950/40 p-1 rounded border border-amber-200 dark:border-amber-800">
-                    <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">Khá</div>
-                    <div className="font-bold text-amber-600 dark:text-amber-400">{fair}</div>
-                  </div>
-                  <div className="bg-surface-hover dark:bg-surface-card p-1 rounded border border-surface-border dark:border-surface-hover">
-                    <div className="text-[10px] text-text-muted font-medium">TB</div>
-                    <div className="font-bold text-text-main">{average}</div>
-                  </div>
-                  <div className="bg-rose-50 dark:bg-rose-950/40 p-1 rounded border border-rose-200 dark:border-rose-800">
-                    <div className="text-[10px] text-rose-700 dark:text-rose-400 font-medium">Yếu</div>
-                    <div className="font-bold text-rose-600 dark:text-rose-400">{weak}</div>
-                  </div>
+                <div className="grid grid-cols-5 gap-1.5 text-center text-xs mt-2">
+                  {[
+                    ['XS', excellent, 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400'],
+                    ['Giỏi', good, 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400'],
+                    ['Khá', fair, 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'],
+                    ['TB', average, 'bg-surface-hover dark:bg-surface-card border-surface-border text-text-muted'],
+                    ['Yếu', weak, 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400'],
+                  ].map(([label, val, cls]) => (
+                    <div key={String(label)} className={`rounded-lg p-1.5 border ${cls} flex flex-col items-center`}>
+                      <div className="text-[10px] font-bold leading-none">{label as string}</div>
+                      <div className="font-black text-[13px] mt-1 tabular-nums">{val as number}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             );

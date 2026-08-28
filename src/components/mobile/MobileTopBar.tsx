@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useId } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   Activity,
@@ -26,6 +26,7 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useSyncStore } from '../../stores/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import logo from '../../assets/logo-gia-ton.png'
@@ -60,6 +61,14 @@ export const MobileTopBar: React.FC = () => {
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
+  // E1-E3: sync/online hooks must be unconditional (Rules of Hooks). Previously inside IIFE in JSX.
+  const isOnline = useOnlineStatus()
+  const syncStatus = useSyncStore(s => s.status)
+  const pendingCount = useSyncStore(s => s.pendingCount)
+  const isSyncing = syncStatus === 'syncing'
+  const sheetId = useId()
+  const focusTrapRef = useFocusTrap(isOpen)
+
   const title = pageTitles[location.pathname] || 'Sổ điểm giáo lý'
   const isParent = currentUser?.role === 'phuhuynh'
   const eyebrow = isParent ? `CỔNG PHỤ HUYNH · ${academicYearDisplay}` : `GIÁO XỨ GIA TÔN · XỨ ĐOÀN ĐỨC MẸ FATIMA · ${academicYearDisplay}`
@@ -68,6 +77,27 @@ export const MobileTopBar: React.FC = () => {
   useEffect(() => {
     setIsOpen(false)
   }, [location.pathname])
+
+  // Body scroll lock + Escape handling for control sheet (iOS safe)
+  useEffect(() => {
+    if (!isOpen) return
+    const prevOverflow = document.body.style.overflow
+    const prevPaddingRight = document.body.style.paddingRight
+    // Prevent background scroll without layout shift
+    const scrollbarW = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.overflow = 'hidden'
+    if (scrollbarW > 0) document.body.style.paddingRight = `${scrollbarW}px`
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.body.style.paddingRight = prevPaddingRight
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [isOpen])
 
   const handleLogout = () => {
     useAuthStore.getState().logout()
@@ -91,40 +121,24 @@ export const MobileTopBar: React.FC = () => {
             </div>
           </div>
 
-          <div className="mobile-top-bar__actions flex items-center gap-2">
-            {/* Mini Sync/Offline Badge */}
-            {(() => {
-              const isOnline = useOnlineStatus();
-              const status = useSyncStore(s => s.status);
-              const pendingCount = useSyncStore(s => s.pendingCount);
-              const isSyncing = status === 'syncing';
-
-              if (!isOnline) {
-                return (
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400" title="Đang offline">
-                    <WifiOff size={16} />
-                  </div>
-                );
-              }
-              if (isSyncing) {
-                return (
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-sky-500/20 text-sky-400" title="Đang đồng bộ...">
-                    <RefreshCw size={16} className="animate-spin" />
-                  </div>
-                );
-              }
-              if (pendingCount > 0) {
-                return (
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 relative" title={`${pendingCount} thay đổi chưa đồng bộ`}>
-                    <WifiOff size={16} />
-                    <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-                      {pendingCount}
-                    </span>
-                  </div>
-                );
-              }
-              return null; // Fully online & synced -> show nothing
-            })()}
+          <div className="mobile-top-bar__actions flex items-center gap-1.5">
+            {/* Mini Sync/Offline Badge — hooks lifted to component top */}
+            {!isOnline ? (
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400" title="Đang offline" aria-label="Đang offline">
+                <WifiOff size={16} />
+              </div>
+            ) : isSyncing ? (
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-sky-500/20 text-sky-400" title="Đang đồng bộ..." aria-label="Đang đồng bộ">
+                <RefreshCw size={16} className="animate-spin" />
+              </div>
+            ) : pendingCount > 0 ? (
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 relative" title={`${pendingCount} thay đổi chưa đồng bộ`} aria-label={`${pendingCount} thay đổi chưa đồng bộ`}>
+                <WifiOff size={16} />
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
+                  {pendingCount}
+                </span>
+              </div>
+            ) : null}
 
             {/* Notices Bell (Chunhiem/Admin/Phuta) */}
             {currentUser?.role !== 'phuhuynh' && (
@@ -140,10 +154,10 @@ export const MobileTopBar: React.FC = () => {
 
             <button
               type="button"
-              className="mobile-sheet-trigger w-11 h-11 flex items-center justify-center"
+              className="mobile-sheet-trigger w-11 h-11 flex items-center justify-center shrink-0"
               onClick={() => setIsOpen(value => !value)}
               aria-expanded={isOpen}
-              aria-controls="mobile-control-sheet"
+              aria-controls={sheetId}
               aria-label={isOpen ? 'Đóng bảng điều khiển' : 'Mở bảng điều khiển'}
             >
               {isOpen ? <X size={21} /> : <Menu size={21} />}
@@ -158,8 +172,9 @@ export const MobileTopBar: React.FC = () => {
               className="mobile-control-sheet__scrim"
               onClick={closeMenu}
               aria-label="Đóng bảng điều khiển"
+              tabIndex={-1}
             />
-            <div id="mobile-control-sheet" className="mobile-control-sheet">
+            <div id={sheetId} ref={focusTrapRef as any} role="dialog" aria-modal="true" aria-label="Bảng điều khiển" className="mobile-control-sheet">
             <div className="mobile-control-sheet__profile">
               <span className="mobile-control-sheet__avatar"><UserCheck size={17} /></span>
               <div className="min-w-0">

@@ -1,6 +1,7 @@
 import { db, runDbTransaction, type DbExecutor, type DbTransaction } from '../db/index.js'
-import { examSessions, examResults, examFinalizations, examFinalizationItems, assessmentEntries, auditLogs, students, classes, grades, gradeOverrides } from '../db/schema.js'
+import { examSessions, examResults, examResultMutations, examFinalizations, examFinalizationItems, assessmentEntries, auditLogs, students, classes, grades, gradeOverrides } from '../db/schema.js'
 import { eq, and, inArray, isNull, notInArray } from 'drizzle-orm'
+import { createHash } from 'node:crypto'
 import { generateId } from '../utils/id.js'
 import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
@@ -10,6 +11,41 @@ import { getActiveAcademicYearId } from './academicYearService.js'
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
 export type ExamResultSource = 'qr_scan' | 'omr' | 'quick_entry'
+
+export interface ExamResultMutationInput {
+  studentId: string
+  score: number
+  essayScore?: number
+  source?: ExamResultSource
+  answers?: string
+  scanMetadata?: string
+  examVersion?: string
+  clientMutationId?: string
+  attemptFingerprint?: string
+  capturedAt?: string
+}
+
+export interface ExamResultMutationAck {
+  clientMutationId?: string
+  studentId: string
+  status: 'created' | 'updated' | 'duplicate'
+  clientScore: number
+  serverScore: number
+}
+
+function hashExamResultMutation(sessionId: string, input: ExamResultMutationInput): string {
+  return createHash('sha256').update(JSON.stringify({
+    sessionId,
+    studentId: input.studentId,
+    score: input.score,
+    essayScore: input.essayScore ?? null,
+    source: input.source ?? 'qr_scan',
+    answers: input.answers ?? null,
+    scanMetadata: input.scanMetadata ?? null,
+    examVersion: normalizeExamVersion(input.examVersion),
+    attemptFingerprint: input.attemptFingerprint ?? null,
+  })).digest('hex')
+}
 
 type MultipleChoiceAnswer = 'A' | 'B' | 'C' | 'D' | null
 type ExamVersionCode = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H'
@@ -222,6 +258,14 @@ export class ExamStateError extends Error {
   }
 }
 
+export class ExamMutationConflictError extends Error {
+  public statusCode = 409
+  constructor(message: string) {
+    super(message)
+    this.name = 'ExamMutationConflictError'
+  }
+}
+
 export class ExamAccessError extends Error {
   public statusCode = 403
   constructor(message: string) {
@@ -412,7 +456,7 @@ async function assertSessionAccess(sessionId: string, parishId: string, allowedC
 
 export async function upsertExamResults(
   sessionId: string,
-  results: { studentId: string; score: number; essayScore?: number; source?: ExamResultSource; answers?: string; scanMetadata?: string; examVersion?: string }[],
+  results: ExamResultMutationInput[],
   userId: string,
   parishId: string,
   ip: string,
@@ -476,6 +520,8 @@ export async function upsertExamResults(
     let saved = 0
     let upserted = 0
     const adjustments: Array<{ studentId: string; clientScore: number; serverScore: number }> = []
+    const items: ExamResultMutationAck[] = []
+    const processedMutationIds: string[] = []
     const now = new Date().toISOString()
 
     // EXAM-MIXED: meta câu hỏi + trần điểm tự luận được parse MỘT lần trước loop.
@@ -487,6 +533,30 @@ export async function upsertExamResults(
     const mcQuestionCount = session.questionCount ?? 0
 
     for (const r of results) {
+      const requestHash = r.clientMutationId ? hashExamResultMutation(sessionId, r) : null
+      if (r.clientMutationId && requestHash) {
+        const [receipt] = await tx
+          .select({ requestHash: examResultMutations.requestHash, responseJson: examResultMutations.responseJson })
+          .from(examResultMutations)
+          .where(and(
+            eq(examResultMutations.parishId, parishId),
+            eq(examResultMutations.userId, userId),
+            eq(examResultMutations.clientMutationId, r.clientMutationId),
+          ))
+          .limit(1)
+        if (receipt) {
+          if (receipt.requestHash !== requestHash) {
+            throw new ExamMutationConflictError('clientMutationId đã được dùng cho một payload khác.')
+          }
+          const original = JSON.parse(receipt.responseJson) as ExamResultMutationAck
+          items.push({ ...original, status: 'duplicate' })
+          if (Math.abs(original.clientScore - original.serverScore) > 0.0001) {
+            adjustments.push({ studentId: original.studentId, clientScore: original.clientScore, serverScore: original.serverScore })
+          }
+          continue
+        }
+      }
+
       const source = r.source ?? 'qr_scan'
       const examVersion = normalizeExamVersion(r.examVersion)
       const scanMetadata = sanitizeScanMetadata(r.scanMetadata)
@@ -588,17 +658,50 @@ export async function upsertExamResults(
 
       if (persisted?.id === candidateId) saved++
       else upserted++
+
+      const ack: ExamResultMutationAck = {
+        clientMutationId: r.clientMutationId,
+        studentId: r.studentId,
+        status: persisted?.id === candidateId ? 'created' : 'updated',
+        clientScore: r.score,
+        serverScore: authoritativeScore,
+      }
+      items.push(ack)
+
+      if (r.clientMutationId && requestHash) {
+        await tx.insert(examResultMutations).values({
+          clientMutationId: r.clientMutationId,
+          parishId,
+          userId,
+          examSessionId: sessionId,
+          studentId: r.studentId,
+          requestHash,
+          responseJson: JSON.stringify(ack),
+          createdAt: now,
+        })
+        processedMutationIds.push(r.clientMutationId)
+      }
     }
 
-    await audit(tx, {
-      userId, parishId, ip, userAgent,
-      action: 'EXAM_SAVE_RESULTS',
-      entityType: 'exam_session',
-      entityId: sessionId,
-      newValue: JSON.stringify({ saved, upserted, students: studentIds.length, versions: [...new Set(results.map(result => normalizeExamVersion(result.examVersion)))], serverScoreAdjustments: adjustments }),
-    })
+    // A pure retry (all receipts already exist) must not append a second audit.
+    if (saved + upserted > 0) {
+      await audit(tx, {
+        userId, parishId, ip, userAgent,
+        action: 'EXAM_SAVE_RESULTS',
+        entityType: 'exam_session',
+        entityId: sessionId,
+        newValue: JSON.stringify({
+          saved,
+          upserted,
+          students: saved + upserted,
+          versions: [...new Set(results.map(result => normalizeExamVersion(result.examVersion)))],
+          clientMutationIds: processedMutationIds,
+          serverScoreAdjustments: adjustments,
+        }),
+      })
+    }
 
-    return { session, saved, upserted, total: results.length, adjustments }
+    return { session, saved, upserted, total: results.length, adjustments, items }
   }))
 }
 
