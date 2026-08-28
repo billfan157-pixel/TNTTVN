@@ -50,6 +50,16 @@ import {
   isContinuousScanV2Enabled,
   type ContinuousRearmState,
 } from '../../lib/examContinuousScan'
+import { getConfiguredContinuousScanRolloutDecision } from '../../lib/examContinuousRollout'
+import { getTenantScope } from '../../lib/tenantScope'
+import { recordContinuousDuration, recordContinuousEvent, startContinuousRuntimeMonitor } from '../../lib/continuousScanDiagnostics'
+import {
+  recordOmrSequenceProposal,
+  recordOmrSequenceDurableWrite,
+  recordOmrSequenceReloadRecovery,
+  recordOmrSequenceSafetyCounter,
+  sampleOmrSequenceMemory,
+} from '../../lib/omrSequenceEvidence'
 
 interface ExamScanModalProps {
   sessionId: string
@@ -115,6 +125,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const lastDiagnosticReasonRef = useRef('')
   const processImageFrameRef = useRef<(frame: ImageData, explicitCapture?: boolean) => boolean>(() => false)
   const rearmRef = useRef<ContinuousRearmState | null>(null)
+  const identityAcquiredAtRef = useRef<number | null>(null)
   const seenAttemptByStudentRef = useRef(new Map<string, string>())
   const lastScanFailureRef = useRef(fixedStudent
     ? 'Chưa nhận diện được khung OMR trên phiếu.'
@@ -142,7 +153,15 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const [hasTorch, setHasTorch] = useState(false)
   const [keepReviewImage, setKeepReviewImage] = useState(false)
   const [conflictConfirmed, setConflictConfirmed] = useState(false)
-  const continuousV2Enabled = batchMode && isContinuousScanV2Enabled()
+  const continuousRollout = getConfiguredContinuousScanRolloutDecision(getTenantScope())
+  const continuousV2Enabled = batchMode && isContinuousScanV2Enabled() && continuousRollout.enabled
+
+  useEffect(() => {
+    if (!continuousV2Enabled) return undefined
+    const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    recordOmrSequenceReloadRecovery(navigation?.type, performance.timeOrigin)
+    return startContinuousRuntimeMonitor()
+  }, [continuousV2Enabled])
 
   useEffect(() => { void purgeExpiredScanReviewSnapshots() }, [])
 
@@ -308,6 +327,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       const rearm = advanceContinuousRearm(rearmRef.current, observedStudentId, now)
       rearmRef.current = rearm.state
       if (!rearm.rearmed) {
+        recordContinuousEvent('rearm_blocked')
         omrConsensusRef.current = null
         setCodeLocked(Boolean(identity.lock))
         setScanHint(rearm.reason === 'same_sheet'
@@ -324,6 +344,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
 
     const identityChanged = identity.kind === 'acquired' && !isSameExamIdentity(previousLock, identity.lock)
     if (identityChanged) {
+      identityAcquiredAtRef.current = performance.now()
       omrConsensusRef.current = null
       codeScanAttemptCountRef.current = 0
     }
@@ -418,6 +439,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             reason: acceptance.reason,
             templateMode: effectiveTemplateMode,
             qualityStatus: quality.status,
+            paperQualityStatus: omr.paperQuality?.status,
             durationMs: performance.now() - analysisStartedAt,
           })
 
@@ -443,12 +465,29 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             ? classifyContinuousAttempt(seenAttemptByStudentRef.current, identity.lock.studentId, attemptFingerprint)
             : { kind: 'new' as const }
           if (attemptDecision.kind === 'duplicate') {
+            recordContinuousEvent('duplicate_proposal')
+            recordOmrSequenceSafetyCounter('duplicateProposalCount')
+            recordOmrSequenceSafetyCounter('falseRearmCount')
             omrConsensusRef.current = null
             setScanHint('Phiếu này đã được ghi trong lượt quét hiện tại — hãy chuyển sang phiếu khác.')
             return false
           }
 
           resolveRef.current = true
+          if (continuousV2Enabled && identityAcquiredAtRef.current !== null) {
+            const proposalDurationMs = performance.now() - identityAcquiredAtRef.current
+            recordContinuousDuration('identity_to_proposal', proposalDurationMs)
+            recordOmrSequenceProposal({
+              engineVersion: 'omr-v4-live',
+              frameWidth: frame.width,
+              frameHeight: frame.height,
+              templateMode: effectiveTemplateMode,
+              questionCount: isMcGradedExamType(examType) ? questionCount : 1,
+            }, proposalDurationMs, acceptance.status === 'review_required' || attemptDecision.kind === 'conflict', true)
+            void sampleOmrSequenceMemory()
+            identityAcquiredAtRef.current = null
+          }
+          if (attemptDecision.kind === 'conflict') recordContinuousEvent('attempt_conflict')
           if (batchMode) pauseCameraAnalysis()
           else stopCamera()
           playFeedback()
@@ -484,6 +523,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             outcome: 'rejected',
             reason: omr.reason,
             templateMode: effectiveTemplateMode,
+            qualityStatus: quality.status,
+            paperQualityStatus: omr.paperQuality?.status,
             durationMs: performance.now() - analysisStartedAt,
           })
         }
@@ -863,6 +904,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         correctionCount: correctedQuestions.length,
         correctedQuestions,
         quality: phase.quality,
+        paperQuality: phase.omr.paperQuality,
       })
       const scoreItem = {
         studentId: phase.studentId,
@@ -874,11 +916,14 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         attemptFingerprint: phase.attemptFingerprint,
         capturedAt: new Date().toISOString(),
       } as const
+      const durableStartedAt = performance.now()
       const saveResult = continuousV2Enabled
         ? await queueScores([scoreItem])
         : await saveScores([scoreItem])
       // Không được báo “Đã lưu” hoặc đóng modal khi API/offline queue từ chối.
       if (!saveResult) return
+      const durableDurationMs = performance.now() - durableStartedAt
+      if (continuousV2Enabled) recordContinuousDuration('confirm_to_durable', durableDurationMs)
 
       if (keepReviewImage) {
         const retained = await saveScanReviewSnapshot(sessionId, phase.studentId, phase.frame)
@@ -893,6 +938,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
       const studentName = students.find(s => s.id === phase.studentId)?.fullName ?? phase.studentId
       const storedScore = adjustment?.serverScore ?? score
       const queuedMutation = 'queuedMutations' in saveResult ? saveResult.queuedMutations[0] : undefined
+      if (continuousV2Enabled) {
+        recordOmrSequenceDurableWrite(queuedMutation?.clientMutationId, durableDurationMs)
+      }
       seenAttemptByStudentRef.current.set(phase.studentId, phase.attemptFingerprint)
       setScannedList(prev => [...prev, {
         studentId: phase.studentId,
@@ -1299,6 +1347,12 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
               Server đã tính lại điểm từ đáp án: đề xuất {serverAdjustment.clientScore} → lưu {serverAdjustment.serverScore}.
               Hãy kiểm tra đáp án/phiên bản mẫu trước khi quét tiếp.
             </span>
+          </div>
+        )}
+
+        {batchMode && !continuousRollout.enabled && (
+          <div className="rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3.5 py-2.5 text-xs text-parish-warning">
+            Đang dùng chế độ quét ổn định. Hàng đợi liên tiếp nhanh chỉ mở cho pilot được duyệt và sẽ tự khóa khi phát hiện lỗi ghi/đồng bộ.
           </div>
         )}
 

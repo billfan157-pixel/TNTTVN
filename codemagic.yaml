@@ -30,7 +30,7 @@ workflows:
       - name: Install dependencies
         script: npm ci
       - name: Build web assets (tsc + vite, mode production → .env.production)
-        script: npm run build:frontend
+        script: VITE_APP_RELEASE_ID="$CM_COMMIT" npm run build:frontend
       - name: Sync Capacitor iOS
         script: |
           npx cap sync ios
@@ -72,7 +72,7 @@ workflows:
       - name: Install dependencies
         script: npm ci
       - name: Build web assets (tsc + vite, mode production → .env.production)
-        script: npm run build:frontend
+        script: VITE_APP_RELEASE_ID="$CM_COMMIT" npm run build:frontend
       - name: Sync Capacitor Android
         script: |
           npx cap sync android

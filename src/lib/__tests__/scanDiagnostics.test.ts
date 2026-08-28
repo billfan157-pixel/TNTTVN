@@ -13,6 +13,7 @@ describe('privacy-safe scan diagnostics', () => {
       reason: 'MULTIPLE_MARKS',
       templateMode: 'integrated',
       qualityStatus: 'review',
+      paperQualityStatus: 'good',
       durationMs: 123.4,
     }, storage)
     const result = readScanDiagnostics(storage)
@@ -20,6 +21,8 @@ describe('privacy-safe scan diagnostics', () => {
     expect(result.reasons.MULTIPLE_MARKS).toBe(1)
     expect(result.durationTotalMs).toBe(123)
     expect(result.durationBuckets.lte150).toBe(1)
+    expect(result.paperQuality.good).toBe(1)
+    expect(result.qualityAgreement.frameStricter).toBe(1)
     expect(JSON.stringify(result)).not.toMatch(/student|session|image|base64/i)
   })
 
@@ -39,7 +42,7 @@ describe('privacy-safe scan diagnostics', () => {
       getItem: (key: string) => key.endsWith('.v1') ? JSON.stringify(legacy) : null,
     }
     const result = readScanDiagnostics(storage)
-    expect(result.version).toBe(2)
+    expect(result.version).toBe(3)
     expect(result.total).toBe(2)
     expect(Object.values(result.durationBuckets).reduce((sum, count) => sum + count, 0)).toBe(0)
   })

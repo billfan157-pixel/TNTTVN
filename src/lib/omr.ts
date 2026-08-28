@@ -9,6 +9,7 @@
  */
 
 import { computeHomography, applyHomography, type Mat3 } from './homography'
+import { assessPaperScanQuality, type ScanQualityAssessment } from './scanQuality'
 import {
   CORNER_MARKERS,
   CORNER_SIZE,
@@ -35,6 +36,8 @@ export interface OmrResult {
   confidence: number
   cells: OmrCell[]
   reason: string
+  /** Phase 2 shadow metric; chưa tham gia acceptance gate. */
+  paperQuality?: ScanQualityAssessment
 }
 
 export interface GrayImage {
@@ -643,7 +646,8 @@ export function hasLikelyPaperSurface(img: ImageData, markers: MarkerHit[]): boo
 }
 
 export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
-  const fail = (reason: string): OmrResult => ({ ok: false, score: null, confidence: 0, cells: [], reason })
+  let paperQuality: ScanQualityAssessment | undefined
+  const fail = (reason: string): OmrResult => ({ ok: false, score: null, confidence: 0, cells: [], reason, paperQuality })
 
   if (!img || img.width < 100 || img.height < 100) return fail('IMAGE_TOO_SMALL')
   const prepared = prepareOmrImage(img)
@@ -654,6 +658,7 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
 
   const { markers, sizePx } = located
   if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
+  paperQuality = assessPaperScanQuality(img, markers.map(marker => ({ x: marker.x / gray.width, y: marker.y / gray.height })))
   const markerInkSizePx = estimateMarkerInkSize(gray, markers, sizePx)
 
   const src = CORNER_MARKERS.map(m => ({ x: m.x, y: m.y }))
@@ -678,11 +683,11 @@ export function detectScoreFromImage(img: ImageData, maxScore = 10): OmrResult {
   const sorted = [...readings].sort((a, b) => b.coverage - a.coverage)
   const top = sorted[0]
   const second = sorted[1] ?? { coverage: 0 }
-  if (!top || top.coverage < MIN_FILL) return { ok: false, score: null, confidence: 0, cells: readings, reason: 'NO_CELL_FILLED' }
+  if (!top || top.coverage < MIN_FILL) return { ok: false, score: null, confidence: 0, cells: readings, reason: 'NO_CELL_FILLED', paperQuality }
   const gap = top.coverage - second.coverage
   const score = top.score
-  if (gap < MIN_GAP) return { ok: false, score, confidence: gap, cells: readings, reason: 'AMBIGUOUS' }
-  return { ok: true, score, confidence: gap, cells: readings, reason: 'OK' }
+  if (gap < MIN_GAP) return { ok: false, score, confidence: gap, cells: readings, reason: 'AMBIGUOUS', paperQuality }
+  return { ok: true, score, confidence: gap, cells: readings, reason: 'OK', paperQuality }
 }
 
 export interface OmrOptionReading {
@@ -715,6 +720,8 @@ export interface OmrMultipleChoiceResult {
   confidence: number
   questions: OmrQuestionResult[]
   reason: string
+  /** Phase 2 shadow metric; chưa tham gia acceptance gate. */
+  paperQuality?: ScanQualityAssessment
 }
 
 export type OmrTemplateMode = 'auto' | 'integrated' | 'full_page'
@@ -726,6 +733,7 @@ export function detectAnswersFromImage(
   maxScore = 10,
   templateMode: OmrTemplateMode = 'auto',
 ): OmrMultipleChoiceResult {
+  let paperQuality: ScanQualityAssessment | undefined
   const fail = (reason: string): OmrMultipleChoiceResult => ({
     ok: false,
     status: 'rejected',
@@ -735,6 +743,7 @@ export function detectAnswersFromImage(
     confidence: 0,
     questions: [],
     reason,
+    paperQuality,
   })
 
   if (!img || img.width < 100 || img.height < 100) return fail('IMAGE_TOO_SMALL')
@@ -756,6 +765,7 @@ export function detectAnswersFromImage(
 
   const { markers, sizePx } = located
   if (!hasLikelyPaperSurface(img, markers)) return fail('NO_PAPER_SURFACE')
+  paperQuality = assessPaperScanQuality(img, markers.map(marker => ({ x: marker.x / gray.width, y: marker.y / gray.height })))
   const markerInkSizePx = estimateMarkerInkSize(gray, markers, sizePx)
 
   const src = frameRect
@@ -848,6 +858,7 @@ export function detectAnswersFromImage(
         confidence: reviewConfidence,
         questions,
         reason: 'REVIEW_REQUIRED',
+        paperQuality,
       }
     }
     return {
@@ -859,6 +870,7 @@ export function detectAnswersFromImage(
       confidence: 0,
       questions,
       reason: 'ALL_BLANK',
+      paperQuality,
     }
   }
 
@@ -874,6 +886,7 @@ export function detectAnswersFromImage(
       confidence: answeredConfidence,
       questions,
       reason: 'LOW_CONFIDENCE',
+      paperQuality,
     }
   }
 
@@ -886,6 +899,7 @@ export function detectAnswersFromImage(
     confidence: answeredConfidence,
     questions,
     reason: reviewQuestions.length > 0 ? 'REVIEW_REQUIRED' : 'OK',
+    paperQuality,
   }
 }
 

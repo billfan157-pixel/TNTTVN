@@ -23,6 +23,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "benchmark:omr": "tsx scripts/benchmark-omr.ts",
+    "benchmark:omr:sequence": "tsx scripts/evaluate-omr-sequence.ts",
     "build:analyze": "ANALYZE=true vite build",
     "preview": "vite preview",
     "capacitor:sync": "vite build && npx cap sync",

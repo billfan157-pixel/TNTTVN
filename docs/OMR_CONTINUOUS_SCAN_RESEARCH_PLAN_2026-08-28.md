@@ -452,7 +452,7 @@ Business rule classification:
 
 **Exit gate:** sequence tests, offline reload, duplicate/conflict, tenant/auth và accessibility PASS.
 
-### Phase 2 — quality ROI, corpus và target devices — ⏸ CONDITIONAL / CHƯA CÓ FIELD EVIDENCE
+### Phase 2 — quality ROI, corpus và target devices — 🟠 ENGINEERING GATE IMPLEMENTED / CHƯA CÓ FIELD EVIDENCE
 
 1. Thêm paper-ROI quality mà không hạ global safety gate.
 2. Thu corpus normal/stress/negative và continuous sequences theo manifest privacy-safe.
@@ -460,18 +460,58 @@ Business rule classification:
 4. Benchmark chuỗi 30/100 phiếu; đo cả capture, durable write, acknowledgement, memory và nhiệt.
 5. Tune cadence/re-arm bằng evidence, không bằng cảm giác.
 
-### Phase 3 — pilot và rollout — ⏸ CHƯA BẬT
+Đã triển khai ngày 2026-08-28: `paper_roi` quality chạy **shadow-only** sau paper/marker gate; acceptance vẫn dùng global frame quality. ROI grid giới hạn 120 mẫu theo trục ngắn để không nhân đôi hot path; synthetic integrated 1280×1808 n=100 đạt p95 33,62ms trên dev host sau tối ưu, không phải target-device claim. Diagnostics v3 chỉ lưu counter so sánh `frame`/`paper_roi`, không ảnh/ID. `omrSequenceBenchmark.ts` + `npm run benchmark:omr:sequence -- <manifest> <targets>` fail-closed nếu thiếu exact profile, target, timing từng bài, responsiveness/memory evidence, một run 30 riêng và một run 100 riêng; mọi integrity failure, unresolved không route hoặc reload không recover đều chặn release.
+
+ADR-069 bổ sung collector chính thức trong **Chẩn đoán hệ thống → Bằng Chứng OMR Thiết Bị Thật**. Operator nhập nhãn không PII, chọn 30/100 và chủ động chuẩn bị; recorder chỉ bắt đầu ở proposal đầu, khóa exact engine/device/browser/frame/template/questionCount, nối timing proposal → durable → terminal acknowledgement và chỉ export completed run. Raw mutation ID chỉ được đối chiếu bằng token băm per-run và không đi vào JSON; ảnh/QR/đáp án/student/session/parish/user/timestamp đều không được lưu. Responsiveness ưu tiên Long Animation Frame, fallback Long Task; memory ưu tiên Measure Memory, fallback Chromium heap, thiếu capability ghi `unsupported` để gate fail. Corpus/target-device artifact thật vẫn chưa có nên Phase 2 **chưa đạt exit gate**.
+
+Quy trình vận hành tối thiểu cho mỗi required profile:
+
+1. Trên đúng thiết bị/browser/release cần chứng nhận, mở Chẩn đoán hệ thống và đặt nhãn ổn định như `iphone-13` + `safari-18`.
+2. Chạy riêng 30 phiếu; trong profile phải có ít nhất một proposal vào review/conflict và một lần reload đã recover. Chờ mọi item hết pending, export JSON. Sau đó chạy riêng 100 phiếu và export lần nữa. Không dùng run 100 để thay run 30; ghi ngay stale identity/mutation trùng nếu operator quan sát thấy.
+3. Gộp các completed runs privacy-safe vào một manifest, khai báo exact `requiredProfiles` và target số trong targets JSON, rồi chạy `npm run benchmark:omr:sequence -- <manifest> <targets>`.
+4. Chỉ mở pilot khi sequence gate PASS **và** corpus accuracy ADR-060 PASS. Nếu capability memory/responsiveness thiếu, chọn phương pháp đo external có kiểm soát hoặc giữ gate đóng; không gán số 0.
+
+#### Phase 2.5 — qualification v2 — ✅ ENGINEERING IMPLEMENTED / PRODUCT TARGETS PENDING
+
+- Exact profile bind immutable release Git SHA; build `dev/local/unknown` không được arm field run.
+- `runElapsedMs` đo toàn khoảng proposal đầu → ack cuối, không export timestamp; gate tính minimum papers/minute.
+- Sustained drift lấy proposal p95 quarter cuối / quarter đầu trên từng run và dùng trường hợp xấu nhất.
+- CLI nhận nhiều export **cùng release**: `npm run benchmark:omr:sequence -- run30.json run100.json targets.json`; unexpected profile, mixed release và duplicate run đều fail.
+- Scaffold: `npm run benchmark:omr:sequence -- --scaffold-targets run30.json run100.json`; tất cả target null và không thể PASS trước khi product owner đặt số.
+- Manifest/targets/storage v2; legacy v1 không tự migrate vì thiếu release/elapsed provenance.
+
+#### Phase 2.6 — operator preflight và release-safe export — ✅ ENGINEERING IMPLEMENTED / FIELD RUN PENDING
+
+- Active run hiển thị trực tiếp unresolved routed, reload recovered, observer responsiveness, nguồn memory và safety failures; trạng thái này chỉ là evidence completeness, không phải qualification PASS.
+- Responsiveness source chỉ được ghi sau khi `PerformanceObserver.observe()` attach thành công. Chỉ nhìn thấy entry type được browser quảng bá không còn được coi là evidence.
+- Completed runs được đếm theo release. Nút manifest và target scaffold chỉ xuất run của release hiện tại, vì vậy artifact không bị mixed-build khi local storage còn run lịch sử.
+- Target scaffold trong UI vẫn cố ý để toàn bộ target `null`; product owner phải đặt ngưỡng và CLI evaluator vẫn là release gate cuối.
+- Summary/preflight không chứa mutation token, ID nghiệp vụ, ảnh, đáp án hoặc timestamp; không API/schema/upload mới.
+
+Các ngưỡng `papersPerMinuteMin` và `proposalLatencyDriftRatioMax` chưa có authority nên vẫn **NOT CONFIRMED**. Browser không có thermal API ổn định; phép đo nhiệt trực tiếp phải là external protocol riêng. Không được suy luận nhiệt độ từ throughput/drift.
+
+### Phase 3 — pilot và rollout — 🟠 ROLLOUT CONTROLS IMPLEMENTED / PILOT CHƯA BẬT
 
 1. Internal pilot có feature flag, một nhóm vận hành được đào tạo.
 2. So sánh với stable mode bằng throughput, review rate, conflict, duplicate và lost mutation.
 3. Canary theo parish/user, không bật global một lần.
 4. Tự động tắt flag nếu có false accept, identity mismatch, lost mutation, queue growth không thoát hoặc crash/memory regression.
 
+Đã triển khai readiness: pilot mặc định fail-closed, chỉ mở theo parish/user allowlist; thiếu/không đọc được circuit storage cũng không bật fast queue và stable batch vẫn là fallback. Durable-write failure, idempotency conflict hoặc terminal result-sync failure mở circuit local theo scope đã hash. Circuit chỉ reset bằng revision mới sau khi phát hành fix. Không có allowlist production/corpus đạt gate trong repo, vì vậy đây **không phải tuyên bố pilot đã chạy**.
+
 ### Phase 4 — đánh giá Worker hoặc deferred review — ⏸ BLOCKED BY EVIDENCE
 
 - Worker chỉ khi target-device profile không đạt do main thread.
 - Deferred review chỉ khi supervised per-paper mode đạt accuracy/data-integrity gate và operator study chứng minh lợi ích.
 - Unattended/default auto-save là quyết định D3 riêng; phải chạy lại SECURITY/OFFLINE matrix và ADR-060 corpus gate.
+
+Post-review ADR-068 giữ Worker/deferred review ở trạng thái `NOT SELECTED`: build/dev benchmark không chứng minh main-thread bottleneck trên thiết bị mục tiêu. OffscreenCanvas/Worker là capability kỹ thuật, không phải bằng chứng cải thiện end-to-end; chỉ mở lại lựa chọn này nếu sequence report chỉ ra p95/Long Tasks không đạt trong khi accuracy/integrity đã PASS.
+
+Reassessment ADR-069 không thay kết luận trên. Standards xác định Long Task/Long Animation Frame trên 50ms và cung cấp OffscreenCanvas transferable, nhưng timer có thể bị throttle/freeze khi page nền, unload không đáng tin trên mobile, còn memory API là estimate và không phổ quát. Vì vậy artifact phải ghi rõ observer/measurement source; capability browser không đủ để chọn Worker. Nguồn: `https://www.w3.org/TR/longtasks-1/`, `https://www.w3.org/TR/long-animation-frames/`, `https://www.w3.org/TR/hr-time-3/`, `https://wicg.github.io/performance-measure-memory/`, `https://www.w3.org/TR/beacon/`, `https://html.spec.whatwg.org/multipage/canvas.html`.
+
+Reassessment ADR-070 tiếp tục giữ Phase 4 đóng. Chỉ khi v2 field artifact vượt accuracy/integrity nhưng hụt proposal p95/drift hoặc Long Frames mới đủ evidence để chấm lại Worker. Hụt acknowledgement/throughput do mạng hoặc thao tác vận hành không phải bằng chứng cho Worker.
+
+Reassessment ADR-071 không thay trạng thái Phase 4/pilot. Preflight giảm rủi ro thu một run không dùng được và sửa capability-only false evidence, nhưng chưa tạo bất kỳ measurement thiết bị thật nào. Accuracy, target số, thermal, Worker benefit và pilot result vẫn `NOT CONFIRMED`.
 
 ## 13. File impact dự kiến
 
@@ -503,7 +543,7 @@ Không phải danh sách commit cứng; cần xác nhận lại sau Phase 0 desi
 | Performance | exact device profiles, 30/100-sheet sustained run, memory/thermal drift |
 | Privacy | no image/QR leakage in request, queue, diagnostics, log hoặc audit |
 
-Baseline nghiên cứu đã PASS **17 test files / 182 tests**. Sau Phase 0–1: targeted queue/store/API/server/idempotency/rearm/identity/acceptance PASS **11 files / 163 tests**; `npm run lint`, production frontend + server TypeScript + Vite/PWA build và `npm run benchmark:omr` PASS. Full serialized Vitest PASS **242/243 files, 1762/1763 tests**; failure duy nhất là baseline print-geometry margin tái hiện cô lập, ngoài diff feature. Design-system lint cũng còn một arbitrary hex có sẵn trong `MobileStudentsView.tsx:245`. Các số synthetic/test không chứng nhận field accuracy.
+Baseline nghiên cứu đã PASS **17 test files / 182 tests**. Sau Phase 0–1: targeted queue/store/API/server/idempotency/rearm/identity/acceptance PASS **11 files / 163 tests**; `npm run lint`, production frontend + server TypeScript + Vite/PWA build và `npm run benchmark:omr` PASS. Phase 2–3 readiness targeted PASS **8 files / 86 tests**, lint/design-system lint và production client/server/PWA build PASS. Full serialized Phase 2–3 run **INCONCLUSIVE**: tái hiện lỗi baseline `examPrintGeometry.test.ts` rồi runner không xuất summary/progress và được dừng; isolated print PASS 12/13, cùng left margin 19,86px < 22,68px, ngoài diff feature. Full serialized gần nhất hoàn tất ở Phase 0–1 là 242/243 files, 1762/1763 tests. Các số synthetic/test không chứng nhận field accuracy.
 
 ## 15. Rollback
 

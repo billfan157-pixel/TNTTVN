@@ -307,7 +307,26 @@ commit:  durable pending → send/retry → item ack → reconcile → synced/co
 - Save/remove tách mutation theo student; complete là ordering barrier. Reload vẫn khôi phục queue và item ledger.
 - Receipt server theo parish+user+mutation ID giải quyết timeout-after-commit: same hash trả acknowledgement cũ, không ghi result/audit lần hai; hash khác fail 409.
 - Attempt fingerprint + rearm state chặn cùng phiếu; same-student/different-attempt được route conflict thay vì silent overwrite.
+
+### Phase 2–4 reassessment (ADR-068)
+
+- Paper-ROI quality có tiềm năng giảm nhiễu nền nhưng hiện chỉ chạy shadow; chưa đủ corpus để thay global quality gate.
+- Sequence benchmark được tách khỏi static-image benchmark: exact device/browser/profile, run 30/100 bài, end-to-end proposal/durable/ack latency, Long Tasks, heap và các lỗi integrity. Thiếu dữ liệu/target luôn fail.
+- Pilot canary theo parish/user allowlist và circuit breaker local; stable mode vẫn hoạt động khi fast queue bị khóa.
+- Worker/OffscreenCanvas và deferred review chưa được chọn. Capability browser không chứng minh speedup; chỉ đánh giá lại sau khi target-device report chỉ ra main-thread là bottleneck thực.
 - Camera không chờ network sau durable write, nhưng vẫn chờ người chấm xác nhận từng proposal. Không có raw image trong request/receipt/telemetry.
 - `VITE_CONTINUOUS_SCAN_V2` cho phép rollback về stable path; Worker, quality-ROI threshold change và unattended auto-save không nằm trong thay đổi này.
 
 KPI field cần đo là `sheet-visible→proposal`, `confirm→durable`, `durable→ack`, papers/minute 30/100 phiếu, duplicate/lost mutation, memory slope và thermal drift. Unit/integration tests chứng minh semantics phần mềm; chúng không thay thế sequence corpus hoặc target-device study. Vì corpus thật vẫn trống, field throughput/accuracy và unattended tiếp tục **NOT CONFIRMED**.
+
+### Field evidence capture (ADR-069)
+
+Khoảng trống giữa evaluator và vận hành đã được đóng ở code bằng recorder explicit-arm, local-only. Run khóa exact engine/device/browser/frame/template/questionCount; ghi timing proposal/durable/ack, unresolved routing, reload recovery, Long Animation Frame/Long Task và memory; chỉ run đủ acknowledgement mới được xuất. Mutation ID chỉ tồn tại dưới token băm per-run trong storage nội bộ, còn JSON export không chứa token, ảnh, QR, đáp án hoặc định danh nghiệp vụ.
+
+Gate nay phân biệt run 30 (`30..99`) và run ≥100, chặn profile required malformed/trùng, observer/memory `unsupported`, safety failure và thiếu target. Đây là **measurement readiness**, chưa phải field result. OffscreenCanvas/Worker vẫn không được chọn: HTML Standard chứng minh khả năng transfer canvas, còn W3C performance APIs chỉ cung cấp tín hiệu; chưa có artifact nào chứng minh main thread là nguyên nhân làm hụt KPI trên target device.
+
+### Qualification v2 (ADR-070)
+
+Đánh giá tiếp theo phát hiện hai aggregate blind spot: không bind release và không đo tốc độ toàn phiên/suy giảm cuối chuỗi. V2 thêm immutable release SHA vào exact profile, operational elapsed vào run, minimum papers/minute và worst proposal p95 drift quarter cuối/đầu vào gate. Multi-manifest CLI gộp run 30/100 nhưng không tự xóa duplicate; target scaffold để null thay vì sáng tác SLO.
+
+Web app không có thermal sensor API ổn định để kết luận nhiệt độ. Compute pressure, nếu có, cũng chỉ là coarse system state và bị ảnh hưởng bởi workload khác. Vì vậy proposal drift/throughput là sustained-performance signal, không được đổi tên thành thermal measurement. Worker chỉ được mở lại nếu field v2 report xác định proposal/main-thread là bottleneck trong khi accuracy và integrity đã PASS.

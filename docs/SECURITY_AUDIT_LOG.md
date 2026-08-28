@@ -3367,3 +3367,73 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - Không tuyên bố field accuracy/throughput khi sequence corpus và target-device evidence còn thiếu.
 
 ---
+
+## Audit OMR-CONTINUOUS-2 — ROI shadow, sequence evidence & pilot circuit — ✅ READINESS FIXED / FIELD CONDITIONAL (2026-08-28, ADR-068)
+
+| Finding | Phân loại | Control |
+| :--- | :--- | :--- |
+| `OMR-P2-1` | **CONFIRMED** global quality gồm nền ngoài giấy; thay gate ngay chưa có corpus sẽ tạo regression risk | Paper ROI chỉ shadow sau marker/paper gate; acceptance vẫn dùng global frame quality; diagnostics v3 đếm agreement, không ID/ảnh |
+| `OMR-P2-2` | **CONFIRMED** static/synthetic benchmark không chứng minh rearm, reload, queue/ack hoặc sustained memory | Exact-profile sequence gate yêu cầu đủ timing mỗi bài, run ≥30/≥100, zero integrity failures, routing/reload 100%, target + heap evidence |
+| `OMR-P3-1` | **CONFIRMED** feature flag đơn không đủ canary/automatic containment | Pilot mặc định fail-closed theo parish/user allowlist; thiếu/unreadable circuit storage cũng khóa fast queue; hashed local circuit mở trên durable/idempotency/terminal-sync failure; stable batch fallback |
+| `OMR-P4-1` | **NOT CONFIRMED** main thread là bottleneck trên target devices | Không bật Worker/OffscreenCanvas/deferred review; chỉ tái đánh giá bằng sequence report |
+
+- D2 GENERAL + OFFLINE/SYNC: Security 9, Privacy 9, Data Integrity 9, Testability 9 — PASS. Không đổi API/schema/auth/tenant; không upload telemetry mới.
+- ADR-060/062/067 consistency: PASS. Paper ROI không hạ gate; pilot không tự bật global; unattended/default auto-save vẫn BLOCKED.
+- Targeted Phase 2–3 readiness: **8 files / 86 tests PASS**; lint + design-system lint PASS; production frontend/server/PWA build PASS. Full serialized run INCONCLUSIVE sau khi tái hiện baseline print failure và runner treo; isolated print 12/13. Field accuracy/thermal/throughput/pilot outcome vẫn **NOT CONFIRMED**.
+- Rollback: tắt `VITE_CONTINUOUS_SCAN_V2`, bỏ allowlist hoặc giữ circuit open; revision chỉ tăng sau khi có release fix. Không rollback DB.
+
+---
+
+## Audit OMR-CONTINUOUS-3 — Field evidence recorder privacy & integrity — ✅ COLLECTOR FIXED / FIELD PENDING (2026-08-28, ADR-069)
+
+| Finding | Phân loại | Control |
+| :--- | :--- | :--- |
+| `OMR-EV-1` | **CONFIRMED** evaluator tồn tại nhưng chưa có trusted capture path trên target device | Operator explicit-arm trong System Diagnostics; exact profile khóa từ proposal đầu; proposal/durable/ack nối tự động |
+| `OMR-EV-2` | **CONFIRMED** server telemetry sẽ mở thêm privacy/tenant/retention surface | Chọn local-only; không API/upload; export allowlist không image/QR/answers/student/session/parish/user/timestamp |
+| `OMR-EV-3` | **CONFIRMED** raw mutation ID có thể liên kết dữ liệu vận hành | Chỉ lưu token FNV từ runId + mutationId để match ack; token nội bộ cũng không xuất |
+| `OMR-EV-4` | **CONFIRMED** browser capability không đồng nhất, missing metric có thể bị hiểu sai thành zero | Gắn source `long-animation-frame|longtask|external|unsupported` và `measure-memory|performance-memory|external|unsupported`; `unsupported` chặn gate |
+| `OMR-EV-5` | **CONFIRMED** một run 100 trước đây cũng thỏa predicate ≥30 | Gate mới yêu cầu run `30..99` và run `≥100` riêng; required profile malformed/trùng cũng fail |
+| `OMR-P4-2` | **NOT CONFIRMED** Worker cải thiện sustained end-to-end latency | Không triển khai Worker; đợi artifact thiết bị thật chứng minh p95/Long Frames là bottleneck sau accuracy/integrity PASS |
+
+- D2 GENERAL + OFFLINE/SYNC: Security 9, Privacy 9, Data Integrity 9, Testability 9 — PASS; ADR-060/062/067/068 PASS; API/schema/auth/tenant không đổi.
+- Targeted regression: **9 files / 95 tests PASS**; oxlint PASS; design-system lint 0/139; TypeScript client/server + Vite/PWA build PASS; authenticated mobile DOM smoke chỉ xác nhận control render, không arm recorder và không thay đổi dữ liệu chấm.
+- Business classification: collector/privacy/exact gate = `CONFIRMED`; target-device throughput/accuracy/memory/thermal/pilot = `NOT CONFIRMED`; Worker/unattended = `NOT SELECTED/BLOCKED`.
+- Rollback R1: bỏ hooks/UI/module và localStorage key; không có server data/migration cần đảo.
+
+---
+
+## Audit OMR-CONTINUOUS-4 — Release provenance, throughput và sustained drift — ✅ ENGINEERING FIXED / TARGETS PENDING (2026-08-28, ADR-070)
+
+| Finding | Phân loại | Control |
+| :--- | :--- | :--- |
+| `OMR-QV2-1` | **CONFIRMED** v1 có thể pool cùng profile từ hai build | Exact profile v2 bắt buộc immutable `releaseId`; placeholder build không được arm/evaluate |
+| `OMR-QV2-2` | **CONFIRMED** stage p95 không chứng minh operational throughput | Run export elapsed không timestamp; gate dùng papers/minute thấp nhất và target bắt buộc |
+| `OMR-QV2-3` | **CONFIRMED** aggregate p95 che degradation cuối chuỗi | Gate đo p95 proposal quarter cuối/đầu từng run, lấy drift xấu nhất |
+| `OMR-QV2-4` | **CONFIRMED** run 30/100 phải merge thủ công, dễ duplicate/drop | CLI multi-manifest; merge không silent-dedupe; duplicate run ID vẫn fail |
+| `OMR-QV2-5` | **NOT CONFIRMED** nhiệt thiết bị từ browser JS | Không dùng discontinued/experimental sensor làm field claim; thermal để external, sustained drift chỉ là proxy |
+| `OMR-P4-3` | **NOT CONFIRMED** Worker là remediation đúng | Worker vẫn NOT SELECTED tới khi v2 artifact cho thấy proposal drift/Long Frames là bottleneck sau safety + accuracy PASS |
+
+- D2 GENERAL + OFFLINE/SYNC: Security/Privacy 9, Data Integrity 9, Testability 9 — PASS. Release ID public/non-PII; không API/schema/tenant/auth change.
+- Product thresholds `papersPerMinuteMin` và `proposalLatencyDriftRatioMax` vẫn `NOT CONFIRMED`; scaffold để null và evaluator fail-closed.
+- Verification: targeted **11 files / 106 tests PASS**; scoped oxlint PASS; DS lint 0/139; client/server/PWA build, final typecheck và diff check PASS. Explicit-release build smoke xác nhận SHA được embed vào bundle. Full lint chỉ fail do 3 warning ngoài phạm vi trong untracked `scripts/mobile-audit-auth.mjs`, không chỉnh file đó.
+- Rollback R1, không DB/data server. Legacy v1 không được tự migrate.
+
+---
+
+## Audit OMR-CONTINUOUS-5 — Operator preflight và evidence truth — ✅ ENGINEERING FIXED / FIELD PENDING (2026-08-28, ADR-071)
+
+| Finding | Phân loại | Control |
+| :--- | :--- | :--- |
+| `OMR-PF-1` | **CONFIRMED** operator không thấy thiếu unresolved/reload/memory/responsiveness hoặc safety failure trước khi kết thúc run | Active readiness allowlist-only hiển thị 5 check `pass/pending/fail`; ghi rõ không phải release PASS |
+| `OMR-PF-2` | **CONFIRMED** `supportedEntryTypes` có thể tạo false evidence khi `observe()` throw | Run mặc định `unsupported`; chỉ nâng source sau khi observer attach thật; regression test khóa failure/success |
+| `OMR-PF-3` | **CONFIRMED** completed local storage có thể chứa nhiều release và export cũ trộn artifact | Group theo release; UI chỉ export manifest/scaffold của build hiện tại, giữ/cảnh báo lịch sử |
+| `OMR-PF-4` | **CONFIRMED** tạo scaffold chỉ qua CLI tăng lỗi vận hành | UI dùng cùng v2 builder; mọi target vẫn `null`, không thể tự PASS |
+| `OMR-PF-5` | **NOT CONFIRMED** preflight chứng minh field accuracy/performance | UI ghi rõ chỉ evidence completeness; corpus/targets/evaluator vẫn là hard gate riêng |
+
+- D2 GENERAL + OFFLINE/SYNC: Security 9, Privacy 9, Data Integrity 9, Testability 9 — PASS. Không API/schema/auth/tenant/upload; summary không token/ID/timestamp/image/answer.
+- ADR-060/062/067/068/069/070 consistency: PASS. Human-confirm, score authority, pilot circuit, Worker/unattended status không đổi.
+- Targeted OMR/offline regression: **11 files / 86 tests PASS**; scoped oxlint PASS; DS lint 0/139; client/server/PWA production build và diff check PASS. Full lint bị chặn bởi 3 unused warnings trong untracked `scripts/mobile-audit-auth.mjs`. Full serialized coverage: **244/249 files, 1788/1794 tests PASS**, 4 failure ngoài staged diff (`examPrintGeometry`, `HeaderBarReact185`, `MobileReportsView`, `MobileViewsEnhancement`) và 2 worker-exit errors; full gate không được coi là PASS.
+- Business: preflight/attach-truth/release filter/scaffold = `CONFIRMED`; real-camera accuracy, target-device speed, thermal, product targets và pilot = `NOT CONFIRMED`.
+- Rollback R1; không server data/migration.
+
+---

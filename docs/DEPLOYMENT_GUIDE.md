@@ -134,7 +134,9 @@ Browser/PWA (https://tnttvn.vercel.app)
    - Tuỳ chọn: `OPS_TOKEN`, `TELEGRAM_*`, `SENTRY_DSN`.
    - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `BACKUP_ENCRYPTION_KEY` dùng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 3. **GitHub Environment `production`**: set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `RENDER_API_KEY`, `RENDER_SERVICE_ID`; có thể bật required reviewers. Vercel Git auto-deploy và Render auto-deploy đều tắt. Chỉ `deploy-production.yml` sau toàn bộ CI xanh mới deploy đúng SHA, đợi ready và smoke-check.
+   - OMR field evidence ADR-070 bind exact frontend release. `vite.config.ts` ưu tiên `VITE_APP_RELEASE_ID`, sau đó Vercel `VERCEL_GIT_COMMIT_SHA`; Vercel project phải bật **Automatically expose System Environment Variables**. Với build thủ công/host khác, đặt `VITE_APP_RELEASE_ID` thành full immutable Git SHA. Đây là public build metadata, không phải secret. Nếu runtime hiển thị `Release: dev`, System Diagnostics sẽ từ chối chuẩn bị field run.
 4. **Mobile build**: `codemagic.yaml` + `.github/workflows/ios-ipa.yml` đã trỏ `VITE_API_BASE` sang Render domain.
+   - Cả iOS/Android Codemagic truyền built-in `$CM_COMMIT` vào `VITE_APP_RELEASE_ID`; workflow IPA sideload truyền `${{ github.sha }}`. Không thay các giá trị này bằng số build tái sử dụng được, vì sequence qualification phải bind đúng source commit.
 
 ### 7.2 Đặc tính gói Render free — cần biết
 

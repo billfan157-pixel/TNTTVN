@@ -18,6 +18,10 @@ import { useStudentStore } from './studentStore'
 import { useAcademicYearStore } from './academicYearStore'
 import { runSyncFlow } from '../hooks/useSyncEngine'
 import { evaluateExamFinalizeConflictsAndRoute } from '../services/examFinalizeService'
+import { getTenantScope } from '../lib/tenantScope'
+import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'
+import { recordContinuousDuration } from '../lib/continuousScanDiagnostics'
+import { recordOmrSequenceAcknowledgement } from '../lib/omrSequenceEvidence'
 
 // Re-export constants đã chuyển sang examFinalizeService để giữ API cũ cho component/test.
 export { SCORE_FIELD_MAP, DAILY_TYPES } from '../services/examFinalizeService'
@@ -358,6 +362,7 @@ export const useExamStore = create<ExamState>()(
       runSyncFlow()
       return { saved: scores.length, upserted: 0, queuedMutations: mutations }
     } catch (err) {
+      tripContinuousScanCircuit(getTenantScope(), 'durable_write_failure')
       set({ error: (err as Error)?.message || 'Không thể ghi kết quả vào hàng đợi an toàn' })
       return null
     } finally {
@@ -368,6 +373,18 @@ export const useExamStore = create<ExamState>()(
   markResultMutation: (clientMutationId, status, details) => set((state) => {
     const current = state.queuedResultMutations[clientMutationId]
     if (!current) return state
+    if (status !== current.status && (status === 'synced' || status === 'error' || status === 'conflict')) {
+      const durableAt = Date.parse(current.createdAt)
+      if (Number.isFinite(durableAt)) {
+        const acknowledgementDurationMs = Date.now() - durableAt
+        if (status === 'synced') recordContinuousDuration('durable_to_ack', acknowledgementDurationMs)
+        recordOmrSequenceAcknowledgement(
+          clientMutationId,
+          acknowledgementDurationMs,
+          status === 'synced' ? 'synced' : status === 'conflict' ? 'corrupt' : 'lost',
+        )
+      }
+    }
     const next = {
       ...current,
       status,

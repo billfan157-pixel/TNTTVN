@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Activity, Database, HardDrive, ShieldCheck, RefreshCw, X, Zap, Cpu, AlertTriangle, AlertCircle, Trash2, History, Server, CheckCircle2, XCircle } from 'lucide-react'
+import { Activity, Database, HardDrive, ShieldCheck, RefreshCw, X, Zap, Cpu, AlertTriangle, AlertCircle, Trash2, History, Server, CheckCircle2, XCircle, Download, Play } from 'lucide-react'
 import { getDB, type SyncQueueItem, type SyncConflict } from '../../lib/db'
 import { useSyncStore } from '../../stores/syncStore'
 import { runSyncFlow } from '../../hooks/useSyncEngine'
@@ -11,6 +11,18 @@ import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useNoticeStore } from '../../stores/noticeStore'
 import { api } from '../../lib/api'
+import {
+  armOmrSequenceEvidence,
+  buildOmrSequenceEvidenceManifest,
+  clearCompletedOmrSequenceEvidence,
+  discardActiveOmrSequenceEvidence,
+  downloadOmrSequenceEvidenceManifest,
+  getOmrSequenceReleaseId,
+  readOmrSequenceEvidenceSummary,
+  recordOmrSequenceSafetyCounter,
+  type OmrSequenceRunTarget,
+} from '../../lib/omrSequenceEvidence'
+import { downloadOmrSequenceTargetsScaffold } from '../../lib/omrSequenceQualification'
 
 interface SystemDiagnosticsModalProps {
   isOpen: boolean
@@ -44,6 +56,12 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   const [serverCounts, setServerCounts] = useState<{ notices: number | null; students: number | null }>({ notices: null, students: null })
   const [queueByEntity, setQueueByEntity] = useState<Record<string, number>>({})
   const [schemaCheck, setSchemaCheck] = useState<'ok' | 'fail' | 'checking'>('checking')
+  const [sequenceSummary, setSequenceSummary] = useState(() => readOmrSequenceEvidenceSummary())
+  const [sequenceDeviceProfile, setSequenceDeviceProfile] = useState('')
+  const [sequenceBrowserProfile, setSequenceBrowserProfile] = useState('')
+  const [sequenceTarget, setSequenceTarget] = useState<OmrSequenceRunTarget>(30)
+  const [sequenceMessage, setSequenceMessage] = useState<string | null>(null)
+  const sequenceReleaseId = getOmrSequenceReleaseId()
   const cancelledRef = useRef(false)
 
   const runDiagnostics = useCallback(async () => {
@@ -138,6 +156,13 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   useEffect(() => {
     if (isOpen) {
       cancelledRef.current = false
+      const summary = readOmrSequenceEvidenceSummary()
+      setSequenceSummary(summary)
+      if (summary.plan) {
+        setSequenceDeviceProfile(summary.plan.deviceProfile)
+        setSequenceBrowserProfile(summary.plan.browser)
+        setSequenceTarget(summary.plan.targetSheets)
+      }
       runDiagnostics()
     }
     return () => { cancelledRef.current = true }
@@ -152,7 +177,38 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
     return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
   }, [isOpen, onClose])
 
-if (!isOpen) return null
+  if (!isOpen) return null
+
+  const currentReleaseCompletion = sequenceSummary.completedReleases.find(item => item.releaseId === sequenceReleaseId)
+    ?? { releaseId: sequenceReleaseId, runs: 0, sheets: 0 }
+  const historicalReleaseRuns = sequenceSummary.completedRuns - currentReleaseCompletion.runs
+  const activeReadinessChecks = sequenceSummary.active ? [
+    {
+      label: 'Case chưa rõ đã vào review/conflict',
+      detail: `${sequenceSummary.active.readiness.routedUnresolved}/${sequenceSummary.active.readiness.unresolvedSamples}`,
+      status: sequenceSummary.active.readiness.unresolved,
+    },
+    {
+      label: 'Reload đã khôi phục run',
+      detail: `${sequenceSummary.active.readiness.reloadRecovered}/${sequenceSummary.active.readiness.reloadAttempts}`,
+      status: sequenceSummary.active.readiness.reload,
+    },
+    {
+      label: 'Observer responsiveness đã attach',
+      detail: sequenceSummary.active.readiness.responsivenessObserver,
+      status: sequenceSummary.active.readiness.responsiveness,
+    },
+    {
+      label: 'Nguồn memory đã lấy mẫu',
+      detail: sequenceSummary.active.readiness.memoryMeasurement,
+      status: sequenceSummary.active.readiness.memory,
+    },
+    {
+      label: 'Không có lỗi toàn vẹn',
+      detail: `${sequenceSummary.active.readiness.safetyFailures} lỗi`,
+      status: sequenceSummary.active.readiness.safety,
+    },
+  ] : []
 
   const statusInfo = {
     healthy: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-600', label: 'Hoạt Động Tốt', Icon: ShieldCheck },
@@ -257,6 +313,225 @@ if (!isOpen) return null
                 <div className="text-[11px] text-text-muted font-semibold">Thông Báo</div>
               </div>
             </div>
+          </div>
+
+          <div className="p-4 bg-parish-info/10 border border-parish-info/30 rounded-xl space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-bold uppercase text-parish-info flex items-center gap-2">
+                  <Activity className="w-4 h-4" /> Bằng Chứng OMR Thiết Bị Thật
+                </h3>
+                <p className="text-[11px] text-text-muted mt-1">
+                  Chỉ lưu timing/counter/memory cục bộ; không lưu ảnh, đáp án, học sinh, phiên hay giáo xứ.
+                </p>
+                <p className="text-[11px] text-text-muted mt-1 font-mono">
+                  Release: {sequenceReleaseId}
+                  {['dev', 'local', 'unknown'].includes(sequenceReleaseId.toLowerCase()) && ' — chưa cấu hình, không thể chuẩn bị field run'}
+                </p>
+              </div>
+              <span className="badge badge-info shrink-0">
+                {sequenceSummary.active
+                  ? `${sequenceSummary.active.sheets}/${sequenceSummary.active.targetSheets}`
+                  : sequenceSummary.plan ? 'Đã chuẩn bị' : `${currentReleaseCompletion.runs} run release này`}
+              </span>
+            </div>
+
+            {sequenceSummary.active ? (
+              <div className="rounded-lg border border-parish-info/30 bg-surface-card p-3 text-xs space-y-1">
+                <div className="font-bold text-parish-info">Run đang hoạt động</div>
+                <div className="text-text-muted font-mono break-all">
+                  {sequenceSummary.active.profile.releaseId} · {sequenceSummary.active.profile.deviceProfile} · {sequenceSummary.active.profile.browser} · {sequenceSummary.active.profile.frameWidth}×{sequenceSummary.active.profile.frameHeight} · {sequenceSummary.active.profile.templateMode}
+                </div>
+                <div className="flex justify-between"><span>Đã ghi bền vững</span><strong>{sequenceSummary.active.sheets}/{sequenceSummary.active.targetSheets}</strong></div>
+                <div className="flex justify-between"><span>Chờ acknowledgement</span><strong>{sequenceSummary.active.pendingAcknowledgements}</strong></div>
+                <div className="mt-2 border-t border-surface-border pt-2 space-y-1.5">
+                  <div className="font-bold text-text-main">Preflight bằng chứng trong run</div>
+                  {activeReadinessChecks.map(check => (
+                    <div key={check.label} className="flex items-start justify-between gap-3">
+                      <span className="flex items-start gap-1.5">
+                        {check.status === 'pass'
+                          ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                          : check.status === 'fail'
+                            ? <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-parish-danger" />
+                            : <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />}
+                        <span>{check.label}</span>
+                      </span>
+                      <strong className="font-mono text-right">{check.detail}</strong>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-text-muted">
+                    Đây là kiểm tra độ đầy đủ tại chỗ, chưa phải PASS qualification; target hiệu năng và corpus accuracy vẫn được đánh giá riêng.
+                  </p>
+                </div>
+                {sequenceSummary.lastIssue && <div className="text-parish-danger font-bold">Gate: {sequenceSummary.lastIssue}</div>}
+              </div>
+            ) : sequenceSummary.plan ? (
+              <div className="rounded-lg border border-parish-info/30 bg-surface-card p-3 text-xs">
+                Đã chuẩn bị run <strong>{sequenceSummary.plan.targetSheets} phiếu</strong> cho{' '}
+                <span className="font-mono">{sequenceSummary.plan.releaseId} · {sequenceSummary.plan.deviceProfile} · {sequenceSummary.plan.browser}</span>.
+                Recorder sẽ khóa kích thước frame/template ở proposal đầu tiên.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+                <input
+                  value={sequenceDeviceProfile}
+                  onChange={event => setSequenceDeviceProfile(event.target.value)}
+                  className="form-input text-xs"
+                  placeholder="Thiết bị: iphone-13"
+                  aria-label="Nhãn profile thiết bị OMR"
+                />
+                <input
+                  value={sequenceBrowserProfile}
+                  onChange={event => setSequenceBrowserProfile(event.target.value)}
+                  className="form-input text-xs"
+                  placeholder="Browser: safari-18"
+                  aria-label="Nhãn profile trình duyệt OMR"
+                />
+                <select
+                  value={sequenceTarget}
+                  onChange={event => setSequenceTarget(Number(event.target.value) as OmrSequenceRunTarget)}
+                  className="form-input text-xs"
+                  aria-label="Số phiếu mục tiêu cho run OMR"
+                >
+                  <option value={30}>30 phiếu</option>
+                  <option value={100}>100 phiếu</option>
+                </select>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {!sequenceSummary.active && !sequenceSummary.plan && (
+                <button
+                  className="btn btn-primary btn-sm flex items-center gap-1.5"
+                  onClick={() => {
+                    const result = armOmrSequenceEvidence({
+                      releaseId: sequenceReleaseId,
+                      deviceProfile: sequenceDeviceProfile.trim(),
+                      browser: sequenceBrowserProfile.trim(),
+                      targetSheets: sequenceTarget,
+                    })
+                    setSequenceMessage(result.ok
+                      ? 'Đã chuẩn bị run. Mở quét liên tiếp; recorder bắt đầu ở proposal hợp lệ đầu tiên.'
+                      : `Không thể chuẩn bị run: ${result.reason}.`)
+                    setSequenceSummary(readOmrSequenceEvidenceSummary())
+                  }}
+                >
+                  <Play className="w-3.5 h-3.5" /> Chuẩn Bị Run
+                </button>
+              )}
+              <button
+                className="btn btn-secondary btn-sm flex items-center gap-1.5"
+                disabled={currentReleaseCompletion.runs === 0}
+                onClick={() => {
+                  const count = downloadOmrSequenceEvidenceManifest(sequenceReleaseId)
+                  setSequenceMessage(count > 0
+                    ? `Đã xuất ${count} run không PII của đúng release ${sequenceReleaseId}.`
+                    : 'Chưa có run hoàn tất của release hiện tại để xuất.')
+                }}
+              >
+                <Download className="w-3.5 h-3.5" /> Xuất Manifest ({currentReleaseCompletion.runs})
+              </button>
+              <button
+                className="btn btn-secondary btn-sm flex items-center gap-1.5"
+                disabled={currentReleaseCompletion.runs === 0}
+                onClick={() => {
+                  try {
+                    const profiles = downloadOmrSequenceTargetsScaffold(
+                      buildOmrSequenceEvidenceManifest(undefined, sequenceReleaseId),
+                    )
+                    setSequenceMessage(profiles > 0
+                      ? `Đã xuất target scaffold cho ${profiles} exact profile; chủ sản phẩm phải điền toàn bộ target null.`
+                      : 'Chưa có run hoàn tất của release hiện tại để tạo target scaffold.')
+                  } catch (error) {
+                    setSequenceMessage(`Không thể tạo target scaffold: ${error instanceof Error ? error.message : 'invalid_manifest'}.`)
+                  }
+                }}
+              >
+                <Download className="w-3.5 h-3.5" /> Xuất Target Mẫu
+              </button>
+              {(sequenceSummary.active || sequenceSummary.plan) && (
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      title: 'Hủy run OMR',
+                      message: 'Hủy run đang thu hoặc đang chờ? Dữ liệu chưa hoàn tất của run này sẽ bị xóa.',
+                      confirmText: 'Hủy Run',
+                      variant: 'danger',
+                    })
+                    if (!ok) return
+                    discardActiveOmrSequenceEvidence()
+                    setSequenceSummary(readOmrSequenceEvidenceSummary())
+                    setSequenceMessage('Đã hủy run chưa hoàn tất.')
+                  }}
+                >
+                  Hủy Run
+                </button>
+              )}
+              {sequenceSummary.active && (
+                <>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: 'Ghi lỗi sai danh tính',
+                        message: 'Chỉ xác nhận khi proposal vừa gắn nhầm phiếu với học sinh. Run này sẽ không thể PASS safety gate.',
+                        confirmText: 'Ghi Lỗi',
+                        variant: 'danger',
+                      })
+                      if (!ok) return
+                      recordOmrSequenceSafetyCounter('staleIdentityCount')
+                      setSequenceSummary(readOmrSequenceEvidenceSummary())
+                      setSequenceMessage('Đã ghi một lỗi sai danh tính vào run; gate sẽ fail-closed.')
+                    }}
+                  >
+                    Ghi Sai Danh Tính
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: 'Ghi lỗi mutation trùng',
+                        message: 'Chỉ xác nhận khi cùng một durable mutation bị tạo hai lần. Run này sẽ không thể PASS safety gate.',
+                        confirmText: 'Ghi Lỗi',
+                        variant: 'danger',
+                      })
+                      if (!ok) return
+                      recordOmrSequenceSafetyCounter('duplicateDurableMutationCount')
+                      setSequenceSummary(readOmrSequenceEvidenceSummary())
+                      setSequenceMessage('Đã ghi một lỗi durable mutation trùng; gate sẽ fail-closed.')
+                    }}
+                  >
+                    Ghi Mutation Trùng
+                  </button>
+                </>
+              )}
+              {sequenceSummary.completedRuns > 0 && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      title: 'Xóa manifest OMR',
+                      message: 'Chỉ xóa các run đã hoàn tất trên thiết bị này. Hãy xuất JSON trước nếu cần lưu bằng chứng.',
+                      confirmText: 'Xóa Run Đã Xuất',
+                      variant: 'danger',
+                    })
+                    if (!ok) return
+                    clearCompletedOmrSequenceEvidence()
+                    setSequenceSummary(readOmrSequenceEvidenceSummary())
+                    setSequenceMessage('Đã xóa các run hoàn tất khỏi thiết bị.')
+                  }}
+                >
+                  Xóa Run Đã Xuất
+                </button>
+              )}
+            </div>
+            {historicalReleaseRuns > 0 && (
+              <div className="text-[11px] text-amber-700">
+                Có {historicalReleaseRuns} run thuộc release cũ đang được giữ riêng; export hiện tại không trộn chúng vào artifact {sequenceReleaseId}.
+              </div>
+            )}
+            {sequenceMessage && <div className="text-[11px] text-text-muted">{sequenceMessage}</div>}
           </div>
 
           <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">

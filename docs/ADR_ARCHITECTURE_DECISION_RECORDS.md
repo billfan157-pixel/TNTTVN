@@ -1869,3 +1869,181 @@ B bị loại dù nhanh vì một row lỗi sẽ rollback toàn file, xung độ
 
 Targeted client/server/state/queue/identity/acceptance: 11 files / 163 tests PASS; `npm run lint` PASS; production frontend + server TypeScript + Vite/PWA build PASS; synthetic `npm run benchmark:omr` PASS (live-path p95 dưới 150ms trên dev host, không phải field claim). Full serialized Vitest: **242/243 files, 1762/1763 tests PASS**; failure duy nhất là baseline `examPrintGeometry.test.ts` batch-print marker margin (tái hiện khi chạy cô lập), ngoài diff continuous-scan. Design-system lint cũng bị chặn bởi arbitrary hex có sẵn tại `MobileStudentsView.tsx:245`, không phải file trong feature. Sequence corpus/field rollout vẫn conditional.
 
+---
+
+## ADR-068: Continuous OMR Phase 2–4 — Shadow ROI, Sequence Gate & Fail-Closed Pilot (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED READINESS; FIELD GATE OPEN. Severity: D2. Profile: GENERAL + OFFLINE/SYNC. Reversibility: R1.**
+
+### Evidence và lựa chọn
+
+- E3 code: global quality chạy trước detector và đang là hard acceptance input; marker/paper/homography đã xác định tứ giác giấy. Thay global quality ngay sẽ thay safety semantics khi chưa có corpus.
+- E3 corpus: thư mục camera mới có contract/README, chưa có real sequence profile hoặc target-device artifact. Benchmark dev không chứng minh Safari/Android long-run hay main-thread bottleneck.
+- A — bật paper ROI authoritative + Worker ngay: 7,15; **REJECT**, Testability 5 và bằng chứng performance thiếu.
+- B — paper ROI shadow + exact sequence gate + local aggregate diagnostics + allowlist/circuit: **8,90 SELECT** (Security 9, Privacy 9, Data Integrity 9, Offline 9, Testability 9, Performance 8, Maintainability 8, UX 8).
+- C — chỉ giữ Phase 1: 6,80; không tạo được evidence/rollout control cho bước kế tiếp.
+
+### Decision contract
+
+1. `paperQuality` chỉ được tính sau marker + paper-surface gate, lưu aggregate/metadata, **không** tham gia `decideScanAcceptance` cho đến khi real corpus chứng minh không tăng false accept.
+2. Sequence release gate bind exact engine/device/browser/frame/template/question profile; mỗi run có timing đủ từng bài. Mỗi required profile cần run ≥30 và ≥100 bài, zero false rearm/stale identity/duplicate proposal/duplicate durable/lost mutation/ack corruption, unresolved routing và reload recovery 100%. Thiếu target hoặc heap evidence fail-closed.
+3. Diagnostics local chỉ gồm counter/histogram/Long Tasks/heap aggregate; không nhận student/session/parish/user ID, answers, QR hoặc image. Không upload telemetry mới.
+4. Pilot mặc định yêu cầu allowlist parish/user. Thiếu hoặc không đọc được circuit storage thì fast queue fail-closed. Circuit local scope bằng hash và mở khi durable write fail, idempotency conflict hoặc terminal result sync fail. Stable batch không bị xóa.
+5. Worker/deferred review **NOT SELECTED**. Chỉ tái đánh giá khi exact target-device sequence report chứng minh main-thread p95/Long Tasks là nút thắt sau khi accuracy/integrity đã PASS. Unattended vẫn là D3 riêng.
+
+### Gates và trạng thái business rule
+
+- D2 hard gates: Security/Privacy 9, Data Integrity 9, Testability 9 — PASS. ADR-060/062/067: **PASS** vì không hạ acceptance, không bật unattended và gate mới chặt hơn. API/schema/tenant authorization: không đổi.
+- `paper_roi` emitted, sequence evaluator fail-closed, pilot allowlist/circuit: **CONFIRMED** bằng code/test. Field accuracy, throughput, thermal/memory và pilot outcome: **NOT CONFIRMED** vì chưa có corpus/thiết bị/allowlist production.
+- Rollback R1: tắt `VITE_CONTINUOUS_SCAN_V2` hoặc bỏ pilot allowlist; tăng circuit revision chỉ sau fix. Không cần rollback DB.
+
+### Verification
+
+Targeted Phase 2–3 readiness: **8 files / 86 tests PASS**; lint + design-system lint PASS; TypeScript client/server + Vite/PWA production build PASS. Shadow ROI grid được giới hạn 120 mẫu theo trục ngắn; synthetic integrated 1280×1808 n=100 đạt p95 33,62ms trên dev host sau tối ưu, chỉ là regression signal. Full serialized run INCONCLUSIVE: in lại lỗi baseline print geometry rồi treo không có summary; isolated print 12/13, left margin 19,86px < 22,68px, ngoài diff. Không dùng kết quả này để claim field accuracy.
+
+---
+
+## ADR-069: Privacy-Safe Field Evidence Recorder & Pilot Qualification (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED COLLECTOR; FIELD RUN PENDING. Severity: D2. Profile: GENERAL + OFFLINE/SYNC. Reversibility: R1.**
+
+### Evidence và phạm vi quyết định
+
+- E3 trace xác nhận evaluator ADR-068 đã có contract nhưng repo chưa có đường chính thức để lấy `proposal → durable → acknowledgement`, reload, responsiveness và memory từ đúng phiên quét trên thiết bị mục tiêu. Ghi tay không chứng minh item acknowledgement hoặc giữ exact profile.
+- Browser standards đặt Long Task/Long Animation Frame ở ngưỡng trên 50ms; `performance.now()` là monotonic nhưng browser có thể throttle/freeze context nền; `measureUserAgentSpecificMemory()` là estimate bất đồng bộ và không phổ quát. `pagehide`/unload không đáng tin khi mobile OS kết thúc trang, nên recovery được đối chiếu qua navigation entry sau reload thay vì coi unload event là bằng chứng. Nguồn chính: `https://www.w3.org/TR/longtasks-1/`, `https://www.w3.org/TR/long-animation-frames/`, `https://www.w3.org/TR/hr-time-3/`, `https://wicg.github.io/performance-measure-memory/`, `https://www.w3.org/TR/beacon/`.
+- OffscreenCanvas có thể transfer sang Worker theo HTML Standard, nhưng capability không chứng minh end-to-end speedup hoặc integrity trên device mục tiêu. Vì chưa có artifact field, Worker tiếp tục ngoài phạm vi: `https://html.spec.whatwg.org/multipage/canvas.html`.
+
+### Options và Decision Matrix (GENERAL + OFFLINE/SYNC)
+
+| Criterion | Weight | A: ghi tay | B: server telemetry | C: local explicit recorder |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 20% | 9 | 6 | 9 |
+| Data Integrity | 20% | 5 | 8 | 9 |
+| Offline Reliability | 15% | 4 | 5 | 9 |
+| Business/Operational Fit | 15% | 5 | 8 | 9 |
+| Testability | 10% | 4 | 8 | 9 |
+| Performance/Observability | 10% | 4 | 9 | 9 |
+| Maintainability | 5% | 8 | 6 | 8 |
+| Reversibility | 5% | 10 | 6 | 10 |
+| **Weighted** | **100%** | **5.85** | **7.05** | **9.00 — SELECT** |
+
+B bị loại vì tạo thêm privacy/tenant/server-retention boundary không cần thiết cho một evidence artifact operator-controlled. A không đủ integrity. C giữ dữ liệu tại thiết bị và fail-closed khi capability thiếu.
+
+### Decision contract
+
+1. Recorder mặc định tắt và không ghi storage. Operator phải mở System Diagnostics, nhập nhãn device/browser không PII theo format chặt, chọn run 30 hoặc 100 và bấm chuẩn bị. Proposal đầu tiên tạo run và khóa exact engine/frame/template/questionCount; profile lệch đặt issue và không trộn mẫu.
+2. Mỗi phiếu chỉ tăng khi proposal đã có durable local mutation. Terminal item transition ghi acknowledgement duration; error/conflict được giữ thành lost/corruption safety failure. Raw mutation ID không lưu: chỉ token FNV theo `runId + mutationId` phục vụ đối chiếu nội bộ, và token này cũng bị loại khỏi export.
+3. Runtime ưu tiên `long-animation-frame`, fallback `longtask`; memory ưu tiên `measureUserAgentSpecificMemory`, fallback `performance.memory`. Không có capability được ghi `unsupported`; evaluator bắt buộc fail, không biến missing evidence thành zero.
+4. Reload recovery chỉ ghi một lần theo `PerformanceNavigationTiming.type='reload'` + `timeOrigin` khi modal quét liên tiếp khôi phục active run. Run chỉ hoàn tất khi số proposal/durable/ack bằng target và pending acknowledgement bằng 0.
+5. JSON export chỉ chứa completed runs với exact profile, timing/counter/responsiveness/memory. Cấm image, QR, answers, student/session/parish/user ID và timestamp. Không upload/API/schema mới.
+6. Release evaluator yêu cầu profile required hợp lệ/unique, một run `30..99` riêng và một run `≥100` riêng cho mỗi profile, performance targets cụ thể, responsiveness/memory evidence, ít nhất một unresolved case và một reload case, zero safety failure, routing/reload 100%. UI cho operator ghi rõ stale-identity hoặc duplicate-durable quan sát được; duplicate proposal/mutation còn được detector tự đếm.
+
+### Gates, compatibility, business status và rollback
+
+- **D2 hard gates:** Security/Privacy 9, Data Integrity 9, Testability 9 — PASS. Privacy evidence riêng: schema export allowlist và regression kiểm raw mutation ID không xuất; không có server transport hoặc tenant data.
+- **ADR gate:** ADR-060/062/067/068 PASS. Acceptance, score authority, durable queue, pilot allowlist/circuit và stable rollback không đổi. Worker/unattended vẫn `NOT SELECTED/BLOCKED`.
+- **Business Rule Gate:** explicit arming, exact-profile lock, completed-only privacy-safe export và evaluator fail-closed = `CONFIRMED` bằng source/test. Target-device throughput, memory/thermal, field accuracy và pilot result = `NOT CONFIRMED` tới khi operator tạo artifact thật. Worker benefit = `NOT CONFIRMED`.
+- **Rollback R1:** bỏ UI/recorder hooks và localStorage key `tntt.omr.sequence-evidence.v2`; không migration, không dữ liệu server cần đảo.
+
+### Verification
+
+Targeted continuous/OMR/offline regression sau recorder: **9 files / 95 tests PASS**. Authenticated mobile DOM smoke xác nhận card, profile controls, target 30/100 và export-disabled khi chưa có completed run; không arm run hoặc thay đổi dữ liệu chấm. Oxlint PASS; design-system lint 0/139 violation; TypeScript client/server + Vite/PWA production build PASS; `git diff --check` PASS. Field run/corpus vẫn pending và không được suy diễn từ test local.
+
+---
+
+## ADR-070: Release-Bound OMR Qualification v2 — Throughput, Drift & Multi-Manifest Workflow (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED ENGINEERING GATE; PRODUCT TARGETS + FIELD RUN PENDING. Severity: D2. Profile: GENERAL + OFFLINE/SYNC. Reversibility: R1.**
+
+### Evidence và vấn đề
+
+- E3 audit ADR-069 cho thấy exact profile chưa chứa release/build identity; export từ hai commit có thể bị pool nếu device/browser/frame/template/count giống nhau. CLI chỉ nhận một manifest, trong khi run 30 và 100 được export riêng.
+- Gate có stage p95 nhưng chưa đo `papers/minute` toàn phiên hoặc sustained degradation. Một run có detector nhanh nhưng operator/queue end-to-end chậm vẫn có thể pass.
+- Performance Timeline/High Resolution Time cung cấp clock monotonic và observer, nhưng buffer không vô hạn. Vite thay env ở build time; Vercel/Render có Git SHA system env. Browser thermal API tổng quát đã bị discontinued; Compute Pressure chỉ là coarse pressure/capability và không phổ quát, không được giả thành nhiệt độ. Nguồn: `https://www.w3.org/TR/performance-timeline/`, `https://www.w3.org/TR/hr-time-3/`, `https://vite.dev/guide/env-and-mode`, `https://vercel.com/docs/environment-variables/system-environment-variables`, `https://render.com/docs/environment-variables`, `https://www.w3.org/TR/system-info-api/`.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ v1/checklist | B: Worker + runtime adaptation | C: qualification artifact v2 |
+| :--- | ---: | ---: | ---: | ---: |
+| Business / Operational Fit | 15% | 5 | 6 | 9 |
+| Reliability & Data Integrity | 20% | 5 | 6 | 9 |
+| Security & Privacy | 20% | 9 | 8 | 9 |
+| Maintainability | 15% | 7 | 5 | 8 |
+| Performance | 10% | 4 | 8 | 8 |
+| Testability | 10% | 5 | 5 | 9 |
+| Reversibility | 5% | 10 | 7 | 9 |
+| Observability | 5% | 5 | 7 | 9 |
+| **Weighted** | **100%** | **6.15** | **6.35 — REJECT GATE** | **8.70 — SELECT** |
+
+B không qua Testability 6 và chưa có field evidence main-thread bottleneck. A không giải quyết provenance/throughput. C tăng integrity/observability mà không đổi acceptance/API/schema.
+
+### Decision contract
+
+1. `vite.config.ts` inject `__APP_RELEASE_ID__`: explicit public `VITE_APP_RELEASE_ID` → Vercel Git SHA → Render Git SHA → `dev`. Release field phải đúng format, tối thiểu 6 ký tự; `dev/local/unknown` bị recorder/evaluator reject. Codemagic iOS/Android truyền `$CM_COMMIT`; GitHub IPA truyền `${{ github.sha }}` để native bundle không bị khóa nhầm thành dev.
+2. Manifest, targets và local storage nâng lên v2. Exact profile thêm `releaseId`; run thêm `runElapsedMs` từ proposal đầu đến terminal ack cuối bằng `performance.timeOrigin + performance.now()` fallback Date. Không export start/end timestamp.
+3. Gate thêm `papersPerMinuteMin` và `proposalLatencyDriftRatioMax`. Report dùng throughput thấp nhất trong các run; drift là p95 proposal quarter cuối / quarter đầu của từng run và lấy trường hợp xấu nhất. Throughput target phải >0, drift ceiling phải ≥1, các target còn lại phải không âm và tất cả đều non-null; scaffold không tự đặt target.
+4. `mergeOmrSequenceManifests` chỉ nối completed runs, không silent-dedupe; evaluator tiếp tục reject duplicate run ID, unexpected profile và target trộn release. Một qualification chỉ chứng nhận một `releaseId`. CLI nhận nhiều manifest trước targets. `--scaffold-targets` lấy exact unique profiles cùng release và để toàn bộ target null.
+5. Legacy v1 không tự migrate vì không có release provenance/elapsed time. Storage v2 dùng key mới; v1 local artifact không được coi là qualification evidence.
+6. Không dùng JS để claim thermal. Direct thermal là external evidence riêng; sustained proposal drift/throughput chỉ là proxy vận hành. Worker, adaptive threshold, unattended và pilot activation không nằm trong quyết định.
+
+### Gates, compatibility, risk và rollback
+
+- D2: Security/Privacy 9, Data Integrity 9, Testability 9 — PASS. Manifest vẫn allowlist local-only, release SHA là public build metadata, không PII/tenant ID.
+- ADR-060/062/067/068/069: PASS; gate chặt hơn, acceptance/scoring/offline ordering/circuit không đổi. API/schema/authorization không đổi.
+- Business: release binding, single-release/unexpected-profile guard, merge semantics, throughput/drift computation và fail-null targets = `CONFIRMED` qua source/tests. Product target values, field throughput/thermal/accuracy/pilot và Worker benefit = `NOT CONFIRMED`.
+- Risks: missing platform system env → recorder fail-closed với `dev`; legacy evidence stranded → accepted vì chưa có field artifact và không an toàn để migrate; wall-clock skew → High Resolution Time primary; operator pause làm throughput thấp → có chủ đích vì KPI là operational elapsed.
+- R1: revert config/types/CLI/UI/docs và quay storage contract; không server data/migration. Không được dùng v2 artifact như v1 sau rollback.
+
+### Verification
+
+Targeted qualification/OMR/offline + release-config regression **11 files / 106 tests PASS**; scoped oxlint PASS; design-system lint 0/139; TypeScript client/server + Vite/PWA production build và final typecheck PASS; diff check PASS. Build smoke với explicit `sha-qualification-test-abcdef123456` tìm thấy đúng release trong generated bundle. Full repo lint hiện bị chặn ngoài phạm vi bởi 3 unused warnings trong untracked `scripts/mobile-audit-auth.mjs`; file đó không được sửa hoặc tính là regression feature. Field report vẫn pending; không target value nào được ADR này phê duyệt.
+
+---
+
+## ADR-071: OMR Field-Run Preflight, Attached-Observer Evidence & Release-Safe Export (2026-08-28)
+
+**Status: APPROVED / IMPLEMENTED OPERATOR READINESS; FIELD RUN PENDING. Severity: D2. Profile: GENERAL + OFFLINE/SYNC. Reversibility: R1.**
+
+### Evidence và vấn đề
+
+- E3 trace từ `SystemDiagnosticsModal` → `omrSequenceEvidence` → evaluator cho thấy operator chỉ thấy số phiếu/pending acknowledgement; thiếu unresolved, reload, memory, responsiveness và safety chỉ lộ ra sau khi mất cả run 30/100 rồi chạy CLI.
+- E3 code phát hiện `createRun()` dùng `PerformanceObserver.supportedEntryTypes` để gắn source. Đây chỉ là capability quảng bá; `observer.observe()` trong runtime monitor có thể throw, nhưng artifact cũ vẫn trông như có responsiveness evidence.
+- Completed storage có thể giữ nhiều release sau deploy, trong khi nút export cũ tải toàn bộ run và đặt tên theo release đầu. Evaluator sẽ reject mixed release, nhưng operator chỉ biết sau khi tải/chạy gate. Target scaffold lại chỉ có CLI.
+- Không có corpus camera, product target hay field manifest mới trong repo; do đó giải pháp chỉ được cải thiện integrity/operability, không được claim accuracy hoặc speed thực địa.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ hậu kiểm CLI | B: chỉ thêm checklist UI | C: attach-truth + preflight + release-safe export |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 20% | 9 | 9 | 9 |
+| Data Integrity | 20% | 5 | 7 | 9 |
+| Offline Reliability | 15% | 6 | 8 | 9 |
+| Business / Operational Fit | 15% | 4 | 8 | 9 |
+| Testability | 10% | 5 | 8 | 9 |
+| Observability | 10% | 5 | 8 | 9 |
+| Maintainability | 5% | 8 | 8 | 8 |
+| Reversibility | 5% | 10 | 10 | 9 |
+| **Weighted** | **100%** | **6.10** | **8.05** | **8.95 — SELECT** |
+
+A tiếp tục cho phép false evidence và lãng phí field run. B không sửa nguồn observer/mixed release nên chưa qua Data Integrity mong muốn. C giữ local-only, thu hẹp export theo release và có regression seam rõ ràng.
+
+### Decision contract
+
+1. Active summary chỉ expose allowlist readiness: unresolved/routed, reload/recovered, responsiveness source, memory source/sample và tổng safety failures. Không expose acknowledgement token, mutation ID, entity ID, timestamp, answer hoặc image.
+2. Run khởi tạo responsiveness là `unsupported`. Runtime monitor reset về `unsupported` khi bắt đầu và chỉ ghi `long-animation-frame|longtask` sau khi `PerformanceObserver.observe()` thành công. Capability detection không phải evidence.
+3. Card hiển thị 5 check với `pass|pending|fail`, nhưng ghi rõ đây là preflight completeness, không phải qualification PASS. Mọi performance target và corpus accuracy vẫn do gate riêng quyết định.
+4. Completed summary nhóm theo `releaseId`. UI export manifest và target scaffold chỉ lọc đúng `__APP_RELEASE_ID__`; run release cũ được giữ/cảnh báo, không silent-mix hoặc silent-delete. Generic download không nhận release chỉ chạy khi artifact có đúng một release.
+5. Target scaffold tải trong UI dùng cùng builder v2 và vẫn để toàn bộ metric target `null`. Product owner phải đặt target trước khi evaluator có thể PASS.
+6. Không đổi acceptance, scoring, queue ordering, API, schema, authentication, tenant boundary, telemetry upload, pilot allowlist/circuit, Worker hoặc unattended.
+
+### Gates, compatibility và business status
+
+- **D2 hard gates:** Security 9, Privacy 9, Data Integrity 9, Testability 9 — PASS. Privacy evidence riêng: summary mới chỉ chứa aggregate/source; tests khóa không lộ raw mutation ID.
+- **ADR consistency:** ADR-060/062/067/068/069/070 PASS; thay đổi làm evidence gate chặt hơn và giữ nguyên human-confirm/server authority. Không conflict ADR hiện hữu.
+- **Business Rule Gate:** observer attach-truth, active readiness, release-filtered manifest và non-runnable scaffold = `CONFIRMED` bằng source/test. Field accuracy, sustained speed, target values, thermal, pilot outcome và Worker benefit = `NOT CONFIRMED`.
+- **Rollback R1:** bỏ readiness UI/helper/filter; storage v2 và completed runs vẫn đọc được. Không DB/API/data migration cần đảo.
+
+### Verification
+
+Targeted OMR/offline regression gồm recorder, runtime observer, qualification/evaluator, release provenance, detector/quality, rollout, exam store và sync flow: **11 files / 86 tests PASS**. Scoped oxlint PASS; design-system lint **0/139**; TypeScript client/server + Vite/PWA production build PASS; diff check PASS. Full repo lint bị chặn bởi đúng 3 unused warnings trong untracked `scripts/mobile-audit-auth.mjs` ngoài phạm vi. Full serialized coverage kết thúc **244/249 files, 1788/1794 tests PASS**, 4 failure ngoài staged diff (`examPrintGeometry`, `HeaderBarReact185`, `MobileReportsView`, `MobileViewsEnhancement`) và 2 worker-exit unhandled errors; vì vậy không được mô tả là full gate xanh. Không dùng verification local để claim thiết bị thật.
+

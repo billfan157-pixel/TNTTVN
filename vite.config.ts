@@ -5,7 +5,15 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { tailwindHmrFix } from './src/lib/tailwind-hmr-fix.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 
+const appReleaseId = process.env.VITE_APP_RELEASE_ID
+  || process.env.VERCEL_GIT_COMMIT_SHA
+  || process.env.RENDER_GIT_COMMIT
+  || 'dev'
+
 export default defineConfig({
+  define: {
+    __APP_RELEASE_ID__: JSON.stringify(appReleaseId),
+  },
   server: {
     host: '0.0.0.0',
     port: 3000,

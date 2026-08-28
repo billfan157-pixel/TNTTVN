@@ -14,6 +14,8 @@ import { useExamStore } from '../stores/examStore'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { acquireSyncLease, releaseSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
+import { getTenantScope } from '../lib/tenantScope'
+import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'
 import * as Sentry from '@sentry/react'
 import {
   pruneStaleQueueItems,
@@ -83,6 +85,10 @@ export async function markFailedExamResultOp(op: SyncQueueItem, error?: string):
     if (mutationId) {
       const status = /xung đột|idempotency/i.test(error || '') ? 'conflict' : 'error'
       useExamStore.getState().markResultMutation(String(mutationId), status, { error })
+      tripContinuousScanCircuit(
+        getTenantScope(),
+        status === 'conflict' ? 'idempotency_conflict' : 'result_sync_terminal_failure',
+      )
     }
   } catch {
     // Corrupt payload remains in diagnostics; no mutation id can be trusted.
