@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { Suspense, useMemo, useState } from 'react'
 import { Calculator, ClipboardList, Columns3, FileSpreadsheet, Grid3X3 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
@@ -7,10 +7,14 @@ import { useClassStore } from '../../stores/classStore'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { useAuth } from '../../hooks/useAuth'
 import type { Student } from '../../types'
-import { ExamSessionView } from '../exam/ExamSessionView'
-import { MobileDailyGradeEntry } from './MobileDailyGradeEntry'
-import { MobileGradeComparison } from './MobileGradeComparison'
-import { MobileGradeMatrix } from './MobileGradeMatrix'
+import { lazyWithRetry } from '../../utils/lazyWithRetry'
+import { SkeletonCardGrid } from '../common/StateFeedback'
+import { StudentName } from '../common/StudentName'
+
+const ExamSessionView = lazyWithRetry(() => import('../exam/ExamSessionView'), 'ExamSessionView')
+const MobileDailyGradeEntry = lazyWithRetry(() => import('./MobileDailyGradeEntry'), 'MobileDailyGradeEntry')
+const MobileGradeComparison = lazyWithRetry(() => import('./MobileGradeComparison'), 'MobileGradeComparison')
+const MobileGradeMatrix = lazyWithRetry(() => import('./MobileGradeMatrix'), 'MobileGradeMatrix')
 
  type MobileGradeTab = 'cards' | 'matrix' | 'daily' | 'comparison' | 'exam'
 
@@ -21,8 +25,8 @@ interface MobileGradeViewProps {
 const tabs: Array<{ id: MobileGradeTab; label: string; icon: React.ReactNode }> = [
   { id: 'cards', label: 'Thẻ điểm', icon: <FileSpreadsheet size={14} /> },
   { id: 'matrix', label: 'Ma trận', icon: <Grid3X3 size={14} /> },
-  { id: 'daily', label: 'Nhập Hằng Ngày', icon: <Calculator size={14} /> },
-  { id: 'comparison', label: 'So Sánh HK', icon: <Columns3 size={14} /> },
+  { id: 'daily', label: 'Hằng ngày', icon: <Calculator size={14} /> },
+  { id: 'comparison', label: 'So sánh', icon: <Columns3 size={14} /> },
   { id: 'exam', label: 'Chấm bài', icon: <ClipboardList size={14} /> },
 ]
 
@@ -95,7 +99,7 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
               <article key={student.id} className="entity-card overflow-hidden">
                 <div className="p-4 flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-extrabold text-parish-primary truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</div>
+                    <StudentName holyName={student.holyName} fullName={student.fullName} size="base" />
                     <div className="text-xs text-text-muted mt-1 truncate">{student.code} • {className}</div>
                   </div>
                   <div className="text-right shrink-0">
@@ -116,10 +120,28 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
           })}
         </div>
       )}
-      {activeTab === 'matrix' && <MobileGradeMatrix onViewReport={onViewReport} />}
-      {activeTab === 'daily' && <MobileDailyGradeEntry onViewReport={onViewReport} />}
-      {activeTab === 'comparison' && <MobileGradeComparison />}
-      {activeTab === 'exam' && <div className="mobile-exam-content"><ExamSessionView /></div>}
+      {activeTab === 'matrix' && (
+        <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
+          <MobileGradeMatrix onViewReport={onViewReport} />
+        </Suspense>
+      )}
+      {activeTab === 'daily' && (
+        <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
+          <MobileDailyGradeEntry onViewReport={onViewReport} />
+        </Suspense>
+      )}
+      {activeTab === 'comparison' && (
+        <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
+          <MobileGradeComparison />
+        </Suspense>
+      )}
+      {activeTab === 'exam' && (
+        <div className="mobile-exam-content">
+          <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
+            <ExamSessionView />
+          </Suspense>
+        </div>
+      )}
     </div>
   )
 }

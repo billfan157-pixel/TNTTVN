@@ -24,7 +24,11 @@ const srcDir = path.resolve(__dirname, '../src')
 // Strict Exemptions List (Authorized in ADR-030/063 / Design System v4.1)
 const EXEMPTIONS = [
   'components/common/Certificate.tsx',
+  // Print-document renderers intentionally embed self-contained colors because
+  // their HTML must work outside the application token scope.
+  'components/common/StudentReportModal.tsx',
   'components/exam/AnswerSheetModal.tsx',
+  'components/exam/ExamPaperModal.tsx',
   'components/exam/ExamScanModal.tsx',
   'constants/branches.ts',
   'utils/pdfGenerator.ts',
@@ -90,6 +94,20 @@ for (const file of files) {
 
     // Skip comments
     if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) return
+
+    // Rule 1: NO_HARDCODED_HEX. Print/OMR/constants exceptions are explicitly
+    // listed above; application UI must resolve color through DS tokens.
+    const rawHexMatch = trimmed.match(/#[0-9a-fA-F]{3,8}\b/)
+    if (rawHexMatch) {
+      violations.push({
+        file: relPath,
+        line: lineNum,
+        rule: 'NO_HARDCODED_HEX',
+        message: `Raw color ${rawHexMatch[0]} is banned in application UI. Use a design token or an authorized print/OMR exemption.`,
+        snippet: trimmed,
+      })
+      totalViolations++
+    }
 
     // Rule 2: NO_WCAG_FAIL_SLATE_TEXT (text-slate-400 as readable text)
     if (line.includes('text-slate-400') && !line.includes('placeholder:text-slate-400')) {

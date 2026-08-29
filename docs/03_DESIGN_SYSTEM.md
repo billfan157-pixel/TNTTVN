@@ -332,13 +332,13 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 
 ## §13. Desktop Layout Contract (2026-08-22)
 
-> Nguồn: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` PHA 2/4. Áp dụng cho desktop mode (viewport ≥ 768px).
+> Nguồn: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` và audit ADR-072. Áp dụng cho desktop mode (viewport ≥ 1024px).
 
 ### Breakpoints
 | Mốc | Ý nghĩa |
 |---|---|
-| `md` (768px) | Ranh giới shell mobile↔desktop (`useEffectiveMode` + CSS guard `.mobile-app-shell`). Force-desktop bị chặn dưới mốc này. |
-| `lg` (1024px) | Content density — header user name hiện, calendar side-rail xuất hiện |
+| `md` (768px) | Tablet bắt đầu; vẫn dùng mobile shell và touch contract, modal có thể dùng layout giữa màn hình. |
+| `lg` (1024px) | Ranh giới shell mobile/tablet↔desktop (`useEffectiveMode` + CSS guard `.mobile-app-shell`); force-desktop bị chặn dưới mốc này. |
 | `xl` (1280px) | Side content — **cấm `hidden xl:` giấu thông tin duy nhất**, phải degrade |
 
 ### Container tiers (`DesktopAppShell`)
@@ -441,10 +441,9 @@ flex h-screen flex-col
 
 - Icon-only button phải có accessible name; toggle/segment phải có
   `aria-pressed` hoặc semantic state tương đương.
-- Mobile control chính tối thiểu 44×44px; input/select/textarea mobile dùng
+- Mobile/tablet shell (<1024px) có control chính tối thiểu 44×44px; input/select/textarea dùng
   font-size tối thiểu 16px để tránh auto-zoom.
-- Mobile modal chuẩn chuyển thành bottom sheet nhưng giữ focus trap, Escape,
-  `aria-modal` và scroll lock của `ModalShell`.
+- Phone modal (≤767px) chuẩn chuyển thành bottom sheet; tablet giữ bề rộng dialog phù hợp. Mọi custom dialog dùng `ModalShell` hoặc `useAccessibleDialog` để giữ focus trap/restore, top-most Escape, `aria-modal` và scroll lock.
 - Chỉ một `#main-content`; owner mobile là `MobileAppShell`, owner desktop là
   `RootLayout`.
 - Không tự gắn entrance animation ở từng `.product-view`; page-level motion chỉ
@@ -457,6 +456,75 @@ camera/OMR guide và medal visualization vẫn được phép khi có semantic p
 Mọi exception mới phải được ghi tại đây hoặc ADR liên quan, không tạo visual
 dialect riêng ở từng page.
 
+---
 
+## 15. Mobile Product UX/UI System (Cập nhật 2026-08-29)
 
+### 15.1 Tokens Mở Rộng
+- **Radius**: `--radius-nav: 14px` (bottom-nav items, sheet triggers), `--radius-sheet-lg: 18px` (control sheets, brand page headers), `--radius-hero: 22px` (hero cards).
+- **Z-Index Ladder**:
+  `--z-install-prompt: 30` < `--z-sticky-filter: 30` < `--z-header: 40` < `--z-modal: 50` < `--z-bottom-action: 850` < `--z-floating-action: 900` < `--z-top-bar: 950` < `--z-mobile-nav: 1000` < `--z-toast: 9999`.
+- **Motion**: Thống nhất dùng `--motion-standard: 180ms` và `--motion-fast: 120ms` cho toàn bộ micro-interactions mobile.
 
+### 15.2 Mobile Component Primitives
+- `.sheet-grabber`: Visual drag handle (Apple HIG & Material Design 3) cho tất cả bottom sheets (`width: 36px; height: 5px; border-radius: var(--radius-full); margin: 0 auto 12px;`).
+- `.mobile-top-bar`: Khai báo duy nhất với `z-index: var(--z-top-bar)`, dynamic clearance token `--mobile-topbar-clearance`, loại bỏ xung đột giữa desktop và mobile media queries.
+- `.mobile-filter-panel`: Tối ưu hiệu năng cuộn trên mobile bằng việc loại bỏ `backdrop-filter: blur(12px)` trên sticky panel trong scroll area, sử dụng 97% surface-card background.
+
+### 15.3 Dark Mode Overrides cho Mobile Brand Components
+- `.dark .mobile-home-hero`: Gradient xanh navy trầm + shadow tối phù hợp dark background.
+- `.dark .mobile-top-bar`: Gradient navy-dark thích ứng, tăng độ tương phản của brand mark và sheet trigger.
+- `.dark .mobile-page-header--brand`: Gradient tối đồng bộ với hệ thống.
+- Dark shadows: `.mobile-floating-action`, `.mobile-bottom-nav`, `.mobile-bottom-action-bar` chuyển sang shadow tối (`rgba(0, 0, 0, 0.3-0.5)`).
+
+### 15.4 Mobile Ergonomics & Accessibility
+- Universal Touch Targets: Tất cả search inputs, action buttons, filter pills trong mobile/tablet shell đều đạt tối thiểu `min-height: 44px`.
+- Keyboard Ergonomics: Toàn bộ search inputs trên mobile khai báo tường minh `inputMode="search"`. Numeric inputs (điểm số) khai báo `inputMode="decimal"`.
+- Asynchronous Loading Perception: Thay thế toàn bộ raw text fallback ("Đang tải...") trong Suspense boundaries bằng `<SkeletonCardGrid>` và `<SkeletonTable>` từ `StateFeedback`.
+- Accessible Semantics: Quick action buttons và icon actions đều có `aria-label` chi tiết; modal forms có `role="dialog"` và `aria-modal="true"`; calendar tiles có `aria-label` và `aria-pressed`.
+
+---
+
+## 16. Home Dashboard Version 2.1 Standards ("Less, but better")
+
+### 16.1 Phân Cấp Thông Tin (Information Architecture)
+1. **Header / Identity**: Route `/dashboard` mang tên "Tổng quan xứ đoàn" (thay vì cấp giáo xứ); hiển thị số lượng thiếu nhi đang quản lý; trạng thái kết nối hoàn toàn tĩnh lặng khi hoạt động bình thường, chỉ hiển thị cảnh báo khi offline hoặc có dữ liệu chờ đồng bộ.
+2. **Hero Section (Single Focal Point)**:
+   - Eyebrow: `GIÁO XỨ GIA TÔN`
+   - Lời chào thời gian thực cá nhân hóa 2 tầng: `{greeting},` trên dòng 1, `{displayName}` lớn và nổi bật ở dòng 2.
+   - Context: `[Vai trò] · Học kỳ [I/II] · Niên học [YYYY-YYYY]`
+3. **Thẻ Lịch Phụng Vụ (`MobileLiturgicalWidget`)**: Entry point duy nhất dẫn đến `/calendar`, hiển thị trực tiếp màu áo lễ và câu Lời Chúa trong ngày.
+4. **Thao Tác Nhanh (Primary Actions)**: Lưới 2×2 thẻ thao tác sản phẩm: *Điểm danh (Sổ chuyên cần), Bảng điểm (Sổ điểm giáo lý), Duyệt nghỉ ({X} đơn chờ / Đơn vắng phép), Thêm thiếu nhi (Tạo hồ sơ mới)* với touch target ≥54px, phản hồi rung haptic và badge số đơn chờ duyệt.
+5. **Việc Cần Xử Lý (Action Required)**: Khối điều hành có điều kiện — CHỈ hiển thị khi có đơn/công việc chờ duyệt (`pendingCount > 0`); hoàn toàn ẩn khi không có việc tồn đọng.
+6. **Tổng Quan Xứ Đoàn (KPI Cards)**: 2 cột đối xứng trả lời câu hỏi cốt lõi: Sĩ số (`Tổng thiếu nhi`) và Chuyên cần (`Tỷ lệ chuyên cần`).
+7. **Học Lực Giáo Lý (Academic Summary)**: Đọc số liệu trực tiếp (`Xuất sắc`, `Giỏi`, `Khá`), thanh phân bổ mini hỗ trợ trực quan phân bổ của tập học viên đã có điểm, không gây nhầm lẫn với tổng sĩ số.
+8. **Quy Chuẩn Chính Tả Tiếng Việt (Sentence Case)**: Toàn bộ nhãn chức năng, tiêu đề khối dùng Sentence case (*Điểm danh, Bảng điểm, Duyệt nghỉ, Thêm thiếu nhi, Tổng thiếu nhi, Tỷ lệ chuyên cần, Thông báo giáo xứ*).
+
+---
+
+## 17. Chuẩn Định Dạng Tên Thánh & Họ Và Tên Học Viên (Student Identity Typography Standard)
+
+Nhằm đảm bảo tính tôn nghiêm Công Giáo (Catholic Spiritual Identity) kết hợp sự chuẩn mực trong quản lý học vụ học đường, toàn bộ hệ thống áp dụng bộ quy chuẩn bất biến cho việc hiển thị **Tên Thánh** và **Họ và Tên**:
+
+### 17.1 Quy Tắc Phân Cấp Thị Giác & Màu Sắc
+
+| Thành phần | Ý nghĩa nghiệp vụ | Token màu & Phông chữ | CSS Class | Ví dụ hiển thị |
+|:---|:---|:---|:---|:---|
+| **Tên Thánh (Holy Name)** | Tôn nghiêm Kitô giáo, Tên quan thầy bảo trợ | `text-amber-900 dark:text-amber-400` (`#78350F` / Amber 900 — nâu đậm trang nghiêm), `font-semibold` (weight 600) | `.student-holy-name` | *Phêrô*, *Maria*, *Giuse*, *Têrêsa* |
+| **Họ và Tên (Full Legal Name)** | Định danh pháp lý & học vụ chính | `text-text-main` (`var(--color-text-main)`: Slate 900 `#0F172A` / Dark `#F1F5F9`), `font-extrabold` (weight 800) | `.student-full-name` | **Phan Bảo**, **Nguyễn Văn An** |
+
+### 17.2 Quy Tắc Hiển Thị Bất Biến:
+1. **Không dùng màu xanh Brand cho Họ và Tên**: Cấm tuyệt đối render `fullName` bằng `text-parish-primary` (màu xanh dương). Màu xanh dương là màu của interactive links/buttons/branding, việc tô xanh họ tên học sinh làm sai lệch affordance và giảm độ tương phản đọc.
+2. **Tên Thánh đi liền trước Họ và Tên**: Luôn đặt Tên Thánh đứng trước Họ và Tên (khoảng cách `mr-1.5` hoặc `gap-1.5`).
+3. **Trường hợp khuyết Tên Thánh**: Khi học viên chưa có Tên Thánh, hiển thị dấu gạch ngang thanh nhã `—` (`text-text-muted`) trong bảng ma trận/danh sách, hoặc bỏ qua trong thẻ tóm tắt.
+4. **Thành phần dùng chung (Reusable Component)**:
+   - `<StudentName holyName={student.holyName} fullName={student.fullName} layout="inline" | "stacked" size="xs" | "sm" | "base" | "lg" />` từ `src/components/common/StudentName.tsx`.
+   - Component chèn khoảng trắng văn bản thật giữa Tên Thánh và Họ Tên (không chỉ dựa vào CSS `gap`) để copy, text extraction và assistive technology đọc đúng.
+   - Đã áp dụng cho dashboard/parent portal, grade cards/daily/comparison, reports, leave requests và attendance summary trên desktop/mobile; bảng tách cột vẫn dùng `StudentHolyName`/`StudentFullName` hoặc typography classes tương ứng.
+
+### 17.3 Anti-drift và accessibility audit (ADR-072)
+
+- `scripts/design-system-lint.mjs` thực thi thật `NO_HARDCODED_HEX`; exemption chỉ dành cho print/OMR document tự chứa màu và phải liệt kê rõ.
+- Custom dialog không được tự quản lý một phần lifecycle. Dùng `ModalShell`, `ConfirmDialog` hoặc `useAccessibleDialog`.
+- Input điểm phải có accessible name chứa loại điểm và tên thiếu nhi; form auth phải dùng `main`, `htmlFor`/`id`, `role="alert"` và control ≥44px.
+- Action “Làm mới dữ liệu trên thiết bị” chỉ hiện cho admin và mô tả đúng: xóa cache client, giữ mutation đang chờ đồng bộ, không xóa dữ liệu server.

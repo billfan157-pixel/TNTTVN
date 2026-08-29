@@ -1,20 +1,7 @@
-import { useInstallPrompt } from '../../hooks/useInstallPrompt'
-import { Download } from 'lucide-react'
-
+/**
+ * PWA Install Prompt is integrated directly into MobileTopBar's control sheet and Settings.
+ * Floating widget is intentionally hidden to preserve pristine layout polish.
+ */
 export function InstallPrompt() {
-  const { canInstall, install } = useInstallPrompt()
-
-  if (!canInstall) return null
-
-  return (
-    <div className="fixed bottom-6 right-6 z-[var(--z-install-prompt)] animate-in slide-in-from-bottom-4 duration-300">
-      <button
-        onClick={install}
-        className="flex items-center gap-2 bg-parish-primary text-white px-4 py-3 rounded-xl shadow-lg border-none cursor-pointer text-sm font-bold hover:bg-parish-primary-hover transition-colors"
-      >
-        <Download size={18} />
-        Cài đặt ứng dụng
-      </button>
-    </div>
-  )
+  return null
 }

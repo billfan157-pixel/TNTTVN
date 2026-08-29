@@ -61,9 +61,9 @@ describe('MobileReportsView', () => {
   it('renders large lists in incremental batches', () => {
     render(<MobileReportsView onPrintReport={vi.fn()} />)
 
-    expect(screen.getAllByRole('button', { name: 'In' })).toHaveLength(30)
+    expect(screen.getAllByRole('button', { name: /In kết quả học tập cho/ })).toHaveLength(30)
     fireEvent.click(screen.getByRole('button', { name: 'Xem thêm 5 em' }))
-    expect(screen.getAllByRole('button', { name: 'In' })).toHaveLength(35)
+    expect(screen.getAllByRole('button', { name: /In kết quả học tập cho/ })).toHaveLength(35)
     expect(screen.queryByRole('button', { name: /Xem thêm/ })).not.toBeInTheDocument()
   })
 })

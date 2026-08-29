@@ -7,6 +7,7 @@ import {
   HeartHandshake,
 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
+import { canRoleAccessRoute } from '../../constants/routePolicy'
 
 export type MobileTab =
   | 'home'
@@ -19,7 +20,7 @@ export type MobileTab =
   | 'notices'
 
 interface MobileBottomNavProps {
-  activeTab: MobileTab
+  activeTab: MobileTab | null
   setActiveTab: (tab: MobileTab) => void
 }
 
@@ -33,14 +34,14 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
   const { role } = useAuth()
   const tabs: MobileNavItem[] = [
     { id: 'home', label: 'Trang chủ', icon: Home },
-    ...(role === 'phuhuynh' ? [] : [{ id: 'attendance' as const, label: 'Điểm danh', icon: CheckSquare }]),
-    ...(role === 'phuhuynh' ? [] : [{ id: 'grades' as const, label: 'Bảng điểm', icon: FileSpreadsheet }]),
-    ...(role === 'phuhuynh'
+    ...(canRoleAccessRoute('/attendance', role) ? [{ id: 'attendance' as const, label: 'Điểm danh', icon: CheckSquare }] : []),
+    ...(canRoleAccessRoute('/grades', role) ? [{ id: 'grades' as const, label: 'Bảng điểm', icon: FileSpreadsheet }] : []),
+    ...(canRoleAccessRoute('/parent', role)
       ? [{ id: 'parent' as const, label: 'Con tôi', icon: HeartHandshake }]
-      : [{ id: 'students' as const, label: 'Thiếu nhi', icon: Users }]),
-    ...(role === 'phuhuynh' || role === 'phuta'
-      ? []
-      : [{ id: 'reports' as const, label: 'Báo cáo', icon: PieChart }]),
+      : canRoleAccessRoute('/students', role)
+        ? [{ id: 'students' as const, label: 'Thiếu nhi', icon: Users }]
+        : []),
+    ...(canRoleAccessRoute('/reports', role) ? [{ id: 'reports' as const, label: 'Báo cáo', icon: PieChart }] : []),
   ]
 
   return (
@@ -50,7 +51,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
           const Icon = tab.icon
           const isActive = activeTab === tab.id
 
-            return (
+          return (
             <button
               key={tab.id}
               type="button"

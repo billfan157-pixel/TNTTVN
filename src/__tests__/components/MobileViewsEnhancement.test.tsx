@@ -60,10 +60,20 @@ describe('MobileViewsEnhancement Tests', () => {
       expect(screen.queryByRole('button', { name: 'Điểm danh' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Thiếu nhi' })).not.toBeInTheDocument()
     })
+
+    it('keeps the reports workspace available to phuta', () => {
+      useAuthStore.setState({
+        user: { id: 'assistant-1', username: 'assistant', fullName: 'Phụ tá', role: 'phuta', status: 'ACTIVE', parishId: 'test-parish' }
+      })
+      render(<MobileBottomNav activeTab={null} setActiveTab={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: 'Báo cáo' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { current: 'page' })).not.toBeInTheDocument()
+    })
   })
 
   describe('MobileGradeView', () => {
-    it('switches between Cards, Daily Entry, and Comparison tabs', () => {
+    it('switches between Cards, Daily Entry, and Comparison tabs', async () => {
       const handleViewReport = vi.fn()
       render(<MobileGradeView onViewReport={handleViewReport} />)
 
@@ -71,14 +81,14 @@ describe('MobileViewsEnhancement Tests', () => {
       expect(screen.getByText('Bảng Điểm Giáo Lý')).toBeInTheDocument()
 
       // Click Daily Entry tab
-      const dailyBtn = screen.getByText('Nhập Hằng Ngày')
+      const dailyBtn = screen.getByText('Hằng ngày')
       fireEvent.click(dailyBtn)
-      expect(screen.getByText('Nhập Điểm Hằng Ngày')).toBeInTheDocument()
+      expect(await screen.findByText('Nhập Điểm Hằng Ngày')).toBeInTheDocument()
 
       // Click Comparison tab
-      const compBtn = screen.getByText('So Sánh HK')
+      const compBtn = screen.getByText('So sánh')
       fireEvent.click(compBtn)
-      expect(screen.getByText(/So Sánh Học Kỳ I vs Học Kỳ II/i)).toBeInTheDocument()
+      expect(await screen.findByText(/So Sánh Học Kỳ I vs Học Kỳ II/i)).toBeInTheDocument()
     })
   })
 
@@ -174,7 +184,7 @@ describe('MobileViewsEnhancement Tests', () => {
       )
 
       expect(container.querySelector('.mobile-home-hero')).toBeInTheDocument()
-      expect(container.querySelectorAll('.mobile-quick-action')).toHaveLength(3)
+      expect(container.querySelectorAll('.mobile-quick-action')).toHaveLength(4)
       expect(screen.getByRole('button', { name: /mở lịch phụng vụ/i })).toBeInTheDocument()
     })
   })

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, Suspense } from 'react'
 import { Calculator, Check, Download, Edit3, Grid3X3, Rows3, Save, Settings2, Upload } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
@@ -9,8 +9,11 @@ import { useSyncStore } from '../../stores/syncStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { exportGradebookToExcel } from '../../utils/excelExporter'
-import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal'
-import { GradeFormulaConfigModal } from '../desktop/GradeFormulaConfigModal'
+import { lazyWithRetry } from '../../utils/lazyWithRetry'
+import { StudentName } from '../common/StudentName'
+
+const ExcelGradeImportModal = lazyWithRetry(() => import('../common/ExcelGradeImportModal'), 'ExcelGradeImportModal')
+const GradeFormulaConfigModal = lazyWithRetry(() => import('../desktop/GradeFormulaConfigModal'), 'GradeFormulaConfigModal')
 import type { GradeRecord, Student } from '../../types'
 
 const SCORE_FIELDS: Array<{
@@ -223,7 +226,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
           <article key={student.id} className={`entity-card overflow-hidden ${isDense ? 'rounded-[var(--radius-card)]' : ''}`}>
             <button type="button" onClick={() => toggleExpanded(student.id)} className={`w-full text-left flex items-center justify-between gap-3 ${isDense ? 'p-3 min-h-[60px]' : 'p-4 min-h-[76px]'}`}>
               <span className="min-w-0">
-                <span className="block font-extrabold text-parish-primary truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</span>
+                <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="flex" />
                 <span className="block text-xs text-text-muted mt-1 truncate">{student.code} • {classNameById.get(student.classId) || '—'}</span>
               </span>
               <span className="shrink-0 text-right">
@@ -299,8 +302,16 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
         )
       })}
 
-      <GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} />
-      <ExcelGradeImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} semester={effectiveSemester} />
+      {showFormulaModal && (
+        <Suspense fallback={null}>
+          <GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} />
+        </Suspense>
+      )}
+      {showImportModal && (
+        <Suspense fallback={null}>
+          <ExcelGradeImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} semester={effectiveSemester} />
+        </Suspense>
+      )}
     </div>
   )
 }

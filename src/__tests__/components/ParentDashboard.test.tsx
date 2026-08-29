@@ -74,7 +74,7 @@ describe('ParentDashboard', () => {
     await act(async () => { render(<ParentDashboard />) })
 
     expect(screen.getByText(/Chào, Nguyễn Văn Ba/)).toBeDefined()
-    expect(screen.getAllByText('Anna Nguyễn Thị Lan').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('tab', { name: 'Anna Nguyễn Thị Lan' }).length).toBeGreaterThan(0)
     expect(screen.getByText('9.1')).toBeDefined()
     expect(screen.getByText('92.5%')).toBeDefined()
     expect(screen.getByText(/Được lên lớp/)).toBeDefined()
@@ -99,7 +99,7 @@ describe('ParentDashboard', () => {
     expect(api.getStudentReportCard).toHaveBeenCalledWith('child-1', '2025-2026')
 
     await act(async () => {
-      screen.getByText('Gioan Nguyễn Văn Minh').click()
+      screen.getByRole('tab', { name: 'Gioan Nguyễn Văn Minh' }).click()
     })
 
     expect(api.getStudentReportCard).toHaveBeenCalledWith('child-2', '2025-2026')

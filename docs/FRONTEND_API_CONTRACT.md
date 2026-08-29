@@ -270,7 +270,7 @@ Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ 
 
 ## 9. PARENT PORTAL API (`/api/parents`)
 
-Client: `src/lib/api.ts` (`getMyChildren`, `getStudentReportCard`) · Page: `src/pages/ParentPage.tsx` (route `/parent`, guard `requireRole('admin', 'phuhuynh')` — admin xem trước giao diện phụ huynh; dữ liệu vẫn khóa theo `CanAccessStudentSpecification` phía server) · Service: `server/src/services/parentService.ts` · Matching: `server/src/utils/phone.ts` (SSOT `CanAccessStudentSpecification`)
+Client: `src/lib/api.ts` (`getMyChildren`, `getStudentReportCard`) · Page: `src/pages/ParentPage.tsx` (route `/parent`, frontend policy và backend endpoint đều chỉ role `phuhuynh`; không có admin-preview vì `GET /api/parents/my-children` từ chối admin) · Service: `server/src/services/parentService.ts` · Matching: `server/src/utils/phone.ts` (SSOT `CanAccessStudentSpecification`)
 
 | Method & Path | Purpose | Auth | Success `data` | Errors |
 | :--- | :--- | :--- | :--- | :--- |
@@ -283,6 +283,7 @@ Client: `src/lib/api.ts` (`getMyChildren`, `getStudentReportCard`) · Page: `src
 
 - Phone khớp linh hoạt: bỏ khoảng trắng/`-`/`(`/`)`/`.`, đổi đầu `+84` → `0`; `users.phone` có thể lệch định dạng so với `students.parentPhone` mà vẫn khớp.
 - Phụ huynh **không** thấy tab Thiếu Nhi/Điểm Danh/Bảng Điểm/Báo Cáo; `GET /api/students`, `/api/grades`, `/api/attendance` trả rỗng cho role `phuhuynh` (guard an toàn hiện có).
+- Frontend route-policy SSOT: `src/constants/routePolicy.ts`. Router guard, desktop/mobile navigation state và mobile title cùng dẫn xuất từ policy này. `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` chỉ `admin|chunhiem|phuta`; `/parent` chỉ `phuhuynh`; governance routes chỉ `admin`; `/dashboard|notices|calendar|settings` dùng chung cho mọi role đã xác thực. Đây là fail-closed UX boundary; server middleware vẫn là authorization authority.
 - Telegram UI (ADR-022 hoàn thiện, 2026-08-15): `src/components/common/TelegramLinkCard.tsx` + `src/hooks/useTelegramLink.ts` (mount trong `ParentPage` mục "Thông Báo Telegram") — tạo mã (10 phút), sao chép, bật/tắt thông báo, hủy liên kết; bot nhận `/link <mã>`, `/status`, `/optout`, `/optin`, `/unlink` (`server/src/services/telegram.ts`). Hướng dẫn bot trỏ tới "Con Của Tôi" → "Thông Báo Telegram".
 
 ## 9A. USER ACCOUNT PROVISIONING API (`/api/users/parent-*`) — ADR-026

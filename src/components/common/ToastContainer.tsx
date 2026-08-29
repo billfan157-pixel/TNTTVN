@@ -51,7 +51,7 @@ export function ToastContainer() {
             <p className={`flex-1 text-sm font-medium leading-snug ${config.text}`}>{toast.message}</p>
             <button
               onClick={() => removeToast(toast.id)}
-              className={`shrink-0 mt-0.5 ${config.text} opacity-60 hover:opacity-100 transition-opacity`}
+              className={`toast-close-button shrink-0 ${config.text} opacity-60 hover:opacity-100 transition-opacity`}
               aria-label="Đóng thông báo"
             >
               <X size={14} />

@@ -358,6 +358,21 @@ Enforcement:
 ### 11.1 Quyền theo ROL (code-enforced) — SSOT
 Quyền được kiểm tra **trong code** qua `roleMiddleware` + `checkUserClassAccess` (4 vai trò `admin` / `chunhiem` / `phuta` / `phuhuynh`). KHÔNG có bảng permission điều khiển tại runtime.
 
+#### 11.1.1 Frontend route boundary (ADR-072)
+
+`src/constants/routePolicy.ts` là SSOT trình bày/điều hướng phía client; server middleware vẫn là SSOT cấp quyền thật.
+
+| Nhóm route | Vai trò được vào |
+| :--- | :--- |
+| `/dashboard`, `/notices`, `/calendar`, `/settings` | mọi role đã xác thực |
+| `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` | `admin`, `chunhiem`, `phuta` |
+| `/parent` | chỉ `phuhuynh` |
+| `/users`, `/classes`, `/academic-years`, `/catechists`, `/audit-logs`, `/management`, `/finances` | chỉ `admin` |
+
+- Ẩn menu không thay thế route guard. Deep-link sai vai trò phải bị chuyển về `/dashboard` trước khi render workspace.
+- Phụ huynh không vào workspace nhân sự; admin/GLV/phụ tá không dùng `/parent` để “xem trước”, vì endpoint `my-children` là parent-only và quan hệ con dựa trên identity phụ huynh.
+- Khi thêm route bảo vệ mới, bắt buộc thêm policy, title và tab mapping (nếu có) trong cùng thay đổi; regression `routePolicy.test.ts` khóa role set và mapping.
+
 ### 11.2 `permissions` / `role_permissions` — DEPRECATED
 Bảng `permissions` và `role_permissions` tồn tại vật lý trong DB (giữ để tương thích purge + tài liệu schema) nhưng **KHÔNG được đọc bởi code nghiệp vụ** tại thời điểm hiện tại — mọi phân quyền phải implement trong middleware/route (SSOT), không dùng `role_permissions` để phân quyền runtime.
 

@@ -5,6 +5,7 @@ import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 import type { GradeRecord } from '../../types'
+import { StudentName } from '../common/StudentName'
 
 const SCORE_FIELDS: Array<{ key: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal'>; label: string }> = [
   { key: 'scoreOral', label: 'M' },
@@ -73,7 +74,7 @@ export const MobileGradeComparison: React.FC = () => {
         <article key={item.student.id} className="entity-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-extrabold text-text-main truncate"><span className="text-parish-secondary mr-1">{item.student.holyName}</span>{item.student.fullName}</div>
+              <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="base" />
               <div className="text-xs text-text-muted mt-1 truncate">{item.student.code} • {classNameById.get(item.student.classId) || '—'}</div>
             </div>
             <div className={`shrink-0 flex items-center gap-1 text-sm font-black ${item.trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' : item.trend === 'down' ? 'text-rose-600 dark:text-rose-400' : 'text-text-muted'}`}>

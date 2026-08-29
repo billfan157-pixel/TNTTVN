@@ -13,6 +13,7 @@ import { useClassStore } from '../../stores/classStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useFilterStore } from '../../stores/filterStore'
+import { StudentName } from '../common/StudentName'
 import {
   calculateClassAttendanceAnalytics,
   exportAttendanceSummaryReport,
@@ -260,10 +261,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="font-extrabold text-xs text-text-main">
-                    {item.student.holyName ? `${item.student.holyName} ` : ''}
-                    {item.student.fullName}
-                  </div>
+                  <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="xs" />
                   <div className="text-[10px] text-text-muted font-mono">{item.student.code}</div>
                 </div>
 

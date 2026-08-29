@@ -3,12 +3,15 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { HeaderBar } from './HeaderBar'
 import { DesktopSidebar, type DesktopTab } from '../desktop/DesktopSidebar'
 import { MobileAppShell } from '../mobile/MobileAppShell'
-import { StudentModal } from './StudentModal'
-import { StudentReportModal } from './StudentReportModal'
 import { InstallPrompt } from './InstallPrompt'
-import { PhotoCard } from './PhotoCard'
-import { Certificate } from './Certificate'
-import { ForcePasswordChangeModal } from './ForcePasswordChangeModal'
+import { lazyWithRetry } from '../../utils/lazyWithRetry'
+
+const StudentModal = lazyWithRetry(() => import('./StudentModal'), 'StudentModal')
+const StudentReportModal = lazyWithRetry(() => import('./StudentReportModal'), 'StudentReportModal')
+const PhotoCard = lazyWithRetry(() => import('./PhotoCard'), 'PhotoCard')
+const Certificate = lazyWithRetry(() => import('./Certificate'), 'Certificate')
+const ForcePasswordChangeModal = lazyWithRetry(() => import('./ForcePasswordChangeModal'), 'ForcePasswordChangeModal')
+
 import { useSundayReminder } from '../../hooks/useSundayReminder'
 import { useUIStore } from '../../stores/uiStore'
 import { useFilterStore } from '../../stores/filterStore'
@@ -17,12 +20,14 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import { useSyncEngine } from '../../hooks/useSyncEngine'
 import { useStoreErrorWatcher } from '../../hooks/useStoreErrorWatcher'
+import { useScrollRestoration } from '../../hooks/useScrollRestoration'
 import { useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ErrorBoundary } from './ErrorBoundary'
 import { PageTransition } from './PageTransition'
 import { BRANCHES } from '../../constants/branches'
 import type { MobileTab } from '../mobile/MobileBottomNav'
+import { DESKTOP_TAB_PATHS, MOBILE_TAB_PATHS, getRoutePolicy } from '../../constants/routePolicy'
 
 const PageSkeleton = () => (
   <div className="animate-pulse space-y-4 p-1" aria-hidden="true">
@@ -50,61 +55,6 @@ export const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   </ErrorBoundary>
 )
 
-// PHA 2 (audit A15): SSOT tab→path cho desktop — sidebar setActiveTab và
-// routeToTab cùng dẫn xuất từ đây, không còn `as any` lệch route.
-const DESKTOP_TAB_PATHS = {
-  dashboard: '/dashboard',
-  students: '/students',
-  grades: '/grades',
-  attendance: '/attendance',
-  reports: '/reports',
-  calendar: '/calendar',
-  notices: '/notices',
-  users: '/users',
-  classes: '/classes',
-  'academic-years': '/academic-years',
-  catechists: '/catechists',
-  'audit-logs': '/audit-logs',
-  settings: '/settings',
-  management: '/management',
-  parent: '/parent',
-  finances: '/finances',
-} as const satisfies Record<DesktopTab, `/${string}`>
-
-// PHA 2 (audit A12): /users, /classes, /academic-years là deep-link của các tab
-// trong /management (không có item riêng trên sidebar) → highlight "Quản Lý Hệ Thống"
-// thay vì không highlight gì.
-const routeToTab: Record<string, DesktopTab> = {
-  '/dashboard': 'dashboard',
-  '/students': 'students',
-  '/grades': 'grades',
-  '/attendance': 'attendance',
-  '/reports': 'reports',
-  '/calendar': 'calendar',
-  '/notices': 'notices',
-  '/users': 'management',
-  '/classes': 'management',
-  '/audit-logs': 'audit-logs',
-  '/academic-years': 'management',
-  '/catechists': 'catechists',
-  '/settings': 'settings',
-  '/management': 'management',
-  '/parent': 'parent',
-  '/leave-requests': 'attendance',
-  '/finances': 'finances',
-}
-
-const mobileRouteToTab = {
-  '/dashboard': 'home',
-  '/students': 'students',
-  '/grades': 'grades',
-  '/attendance': 'attendance',
-  '/reports': 'reports',
-  '/notices': 'notices',
-  '/settings': 'settings',
-  '/parent': 'parent',
-} as const satisfies Record<string, string>
-
 export function RootLayout() {
   const navigate = useNavigate()
   const routerState = useRouterState()
@@ -115,8 +65,9 @@ export function RootLayout() {
   useSundayReminder()
   useStoreErrorWatcher()
 
-  const activeTab: DesktopTab = routeToTab[pathname] || 'dashboard'
-  const activeMobileTab: MobileTab = ((mobileRouteToTab as Record<string, string>)[pathname] as MobileTab) || 'home'
+  const routePolicy = getRoutePolicy(pathname)
+  const activeTab: DesktopTab = routePolicy?.desktopTab || 'dashboard'
+  const activeMobileTab: MobileTab | null = routePolicy?.mobileTab || null
 
   const selectedBranchId = useFilterStore(s => s.selectedBranchId)
   const setSelectedBranchId = useFilterStore(s => s.setSelectedBranchId)
@@ -163,6 +114,7 @@ export function RootLayout() {
   } = useUIStore()
 
   const mode = useEffectiveMode()
+  useScrollRestoration(pathname, mode)
   const classList = useClassStore(s => s.getClassList)()
 
   if (!authReady) {
@@ -173,7 +125,7 @@ export function RootLayout() {
     )
   }
 
-  const isAuthRoute = pathname === '/login' || pathname.startsWith('/login/') || !currentUser
+  const isAuthRoute = pathname === '/login' || pathname.startsWith('/login/') || pathname === '/verify' || !currentUser
 
   if (isAuthRoute) {
     return (
@@ -194,7 +146,7 @@ export function RootLayout() {
         <a href="#main-content" className="skip-link">Bỏ qua đến nội dung chính</a>
         <MobileAppShell
           activeTab={activeMobileTab}
-          setActiveTab={(tab) => navigate({ to: tab === 'home' ? '/dashboard' : (`/${tab}` as any) })}
+          setActiveTab={(tab) => navigate({ to: MOBILE_TAB_PATHS[tab] })}
         >
           <HeaderBar />
           <PageTransition routeKey={pathname}>
@@ -203,37 +155,45 @@ export function RootLayout() {
             </PageSuspense>
           </PageTransition>
           <InstallPrompt />
-          <ForcePasswordChangeModal />
+          <Suspense fallback={null}><ForcePasswordChangeModal /></Suspense>
         </MobileAppShell>
         {isStudentModalOpen && (
-          <StudentModal
-            isOpen={isStudentModalOpen}
-            onClose={closeStudentModal}
-            studentToEdit={studentToEdit}
-          />
+          <Suspense fallback={null}>
+            <StudentModal
+              isOpen={isStudentModalOpen}
+              onClose={closeStudentModal}
+              studentToEdit={studentToEdit}
+            />
+          </Suspense>
         )}
         {isReportModalOpen && studentForReport && (
-          <StudentReportModal
-            isOpen={isReportModalOpen}
-            onClose={closeReport}
-            student={studentForReport}
-            autoPrint={reportPrintRequested}
-          />
+          <Suspense fallback={null}>
+            <StudentReportModal
+              isOpen={isReportModalOpen}
+              onClose={closeReport}
+              student={studentForReport}
+              autoPrint={reportPrintRequested}
+            />
+          </Suspense>
         )}
         {isPhotoCardOpen && photoCardStudent && (
-          <PhotoCard
-            isOpen={isPhotoCardOpen}
-            onClose={closePhotoCard}
-            student={photoCardStudent}
-          />
+          <Suspense fallback={null}>
+            <PhotoCard
+              isOpen={isPhotoCardOpen}
+              onClose={closePhotoCard}
+              student={photoCardStudent}
+            />
+          </Suspense>
         )}
         {isCertificateOpen && certificateStudent && (
-          <Certificate
-            isOpen={isCertificateOpen}
-            onClose={closeCertificate}
-            student={certificateStudent}
-            type={certificateType}
-          />
+          <Suspense fallback={null}>
+            <Certificate
+              isOpen={isCertificateOpen}
+              onClose={closeCertificate}
+              student={certificateStudent}
+              type={certificateType}
+            />
+          </Suspense>
         )}
       </>
     )
@@ -269,37 +229,45 @@ export function RootLayout() {
           </main>
 
           {isStudentModalOpen && (
-            <StudentModal
-              isOpen={isStudentModalOpen}
-              onClose={closeStudentModal}
-              studentToEdit={studentToEdit}
-            />
+            <Suspense fallback={null}>
+              <StudentModal
+                isOpen={isStudentModalOpen}
+                onClose={closeStudentModal}
+                studentToEdit={studentToEdit}
+              />
+            </Suspense>
           )}
           {isReportModalOpen && studentForReport && (
-            <StudentReportModal
-              isOpen={isReportModalOpen}
-              onClose={closeReport}
-              student={studentForReport}
-              autoPrint={reportPrintRequested}
-            />
+            <Suspense fallback={null}>
+              <StudentReportModal
+                isOpen={isReportModalOpen}
+                onClose={closeReport}
+                student={studentForReport}
+                autoPrint={reportPrintRequested}
+              />
+            </Suspense>
           )}
           {isPhotoCardOpen && photoCardStudent && (
-            <PhotoCard
-              isOpen={isPhotoCardOpen}
-              onClose={closePhotoCard}
-              student={photoCardStudent}
-            />
+            <Suspense fallback={null}>
+              <PhotoCard
+                isOpen={isPhotoCardOpen}
+                onClose={closePhotoCard}
+                student={photoCardStudent}
+              />
+            </Suspense>
           )}
           {isCertificateOpen && certificateStudent && (
-            <Certificate
-              isOpen={isCertificateOpen}
-              onClose={closeCertificate}
-              student={certificateStudent}
-              type={certificateType}
-            />
+            <Suspense fallback={null}>
+              <Certificate
+                isOpen={isCertificateOpen}
+                onClose={closeCertificate}
+                student={certificateStudent}
+                type={certificateType}
+              />
+            </Suspense>
           )}
           <InstallPrompt />
-          <ForcePasswordChangeModal />
+          <Suspense fallback={null}><ForcePasswordChangeModal /></Suspense>
         </div>
       </div>
     </div>

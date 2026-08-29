@@ -331,10 +331,10 @@ export const DesktopAttendanceGrid: React.FC = () => {
                     <tr key={s.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-text-muted">{idx + 1}</td>
 
-                      <td className="py-3.5 px-4 font-bold text-parish-secondary text-sm truncate min-w-0">{s.holyName || '-'}</td>
+                      <td className="py-3.5 px-4 font-semibold text-amber-900 dark:text-amber-400 text-sm truncate min-w-0">{s.holyName || '—'}</td>
 
                       <td className="py-3.5 px-4 overflow-hidden min-w-0">
-                        <div className="font-bold text-base text-text-main truncate min-w-0 flex items-center gap-1.5" title={s.fullName}>
+                        <div className="font-extrabold text-base text-text-main truncate min-w-0 flex items-center gap-1.5" title={s.fullName}>
                           <span>{s.fullName}</span>
                           {state.status === 'AbsentExcused' && state.note?.includes('[Đơn') && (
                             <span className="badge badge-warning text-[10px] px-1.5 py-0.2 font-bold shrink-0">

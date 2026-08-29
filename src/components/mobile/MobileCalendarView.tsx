@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -29,6 +29,8 @@ import {
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import type { LiturgicalDay } from '../../types/liturgical'
 import type { ParishEvent } from '../../stores/parishEventStore'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 
 export const MobileCalendarView: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
@@ -41,6 +43,9 @@ export const MobileCalendarView: React.FC = () => {
   const [formCategory, setFormCategory] = useState<ParishEvent['category']>('FEAST_DAY')
   const [formTime, setFormTime] = useState('')
   const [formLocation, setFormLocation] = useState('')
+  const closeEventModal = useCallback(() => setShowAddModal(false), [])
+  const { dialogRef, titleId } = useAccessibleDialog(showAddModal, closeEventModal)
+  const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     fetchEvents()
@@ -126,7 +131,13 @@ export const MobileCalendarView: React.FC = () => {
   }
 
   const handleDelete = async (ev: ParishEvent) => {
-    if (!confirm(`Xóa "${ev.title}"?`)) return
+    const confirmed = await askConfirm({
+      title: 'Xóa sự kiện',
+      message: `Xóa “${ev.title}”? Thao tác này không thể hoàn tác.`,
+      confirmText: 'Xóa sự kiện',
+      variant: 'danger',
+    })
+    if (!confirmed) return
     await deleteEvent(ev.id)
     useToastStore.getState().addToast('Đã xóa', 'success')
   }
@@ -219,6 +230,8 @@ export const MobileCalendarView: React.FC = () => {
                 key={dayItem.date}
                 type="button"
                 onClick={() => setSelectedDay(dayItem)}
+                aria-label={`Ngày ${dayNum}${dayItem.title ? `, ${dayItem.title}` : ''}${isToday ? ' (Hôm nay)' : ''}`}
+                aria-pressed={isSelected}
                 className={`min-h-[44px] h-11 rounded-xl border flex flex-col items-center justify-between p-1 transition-all relative touch-manipulation active:scale-[0.97] ${
                   isSelected
                     ? 'border-parish-primary bg-parish-primary-light/60 ring-2 ring-parish-primary/30 font-black'
@@ -403,15 +416,24 @@ export const MobileCalendarView: React.FC = () => {
 
       {/* Bottom-sheet thêm/sửa sự kiện — mobile Calm */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-0" onClick={() => setShowAddModal(false)}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-0" onClick={closeEventModal}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-          <form onSubmit={handleSubmit} onClick={e => e.stopPropagation()} className="relative w-full max-w-lg bg-surface-card rounded-t-3xl shadow-xl max-h-[92dvh] overflow-y-auto flex flex-col">
-            <div className="sticky top-0 bg-surface-card border-b border-surface-border px-4 pt-3 pb-3 flex items-center justify-between">
+          <form
+            ref={dialogRef as React.Ref<HTMLFormElement>}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            onSubmit={handleSubmit}
+            onClick={e => e.stopPropagation()}
+            className="relative w-full max-w-lg bg-surface-card rounded-t-3xl shadow-xl max-h-[92dvh] overflow-y-auto flex flex-col pt-3"
+          >
+            <div className="sheet-grabber" aria-hidden="true" />
+            <div className="sticky top-0 bg-surface-card border-b border-surface-border px-4 pt-1 pb-3 flex items-center justify-between">
               <div>
-                <h4 className="font-extrabold text-parish-primary m-0 text-sm">{editingEvent ? 'Sửa Sự Kiện' : 'Thêm Sự Kiện'} — {formDate}</h4>
+                <h4 id={titleId} className="font-extrabold text-parish-primary m-0 text-sm">{editingEvent ? 'Sửa Sự Kiện' : 'Thêm Sự Kiện'} — {formDate}</h4>
                 <p className="text-xs text-text-muted m-0">Lưu server + offline, đồng bộ lịch</p>
               </div>
-              <button type="button" onClick={() => setShowAddModal(false)} className="w-9 h-9 rounded-xl bg-surface-hover flex items-center justify-center"><X size={16} /></button>
+              <button type="button" onClick={closeEventModal} className="w-11 h-11 rounded-xl bg-surface-hover flex items-center justify-center" aria-label="Đóng"><X size={16} /></button>
             </div>
             <div className="p-4 flex flex-col gap-3">
               <label className="text-xs font-bold text-text-secondary">Ngày <span className="text-red-500">*</span>
@@ -441,12 +463,13 @@ export const MobileCalendarView: React.FC = () => {
               </div>
             </div>
             <div className="sticky bottom-0 bg-surface-card border-t border-surface-border p-3 flex gap-2 pb-[max(12px,env(safe-area-inset-bottom))]">
-              <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-secondary flex-1 min-h-[44px]">Hủy</button>
+              <button type="button" onClick={closeEventModal} className="btn btn-secondary flex-1 min-h-[44px]">Hủy</button>
               <button type="submit" className="btn btn-primary flex-1 min-h-[44px]">{editingEvent ? 'Cập nhật' : 'Lưu'}</button>
             </div>
           </form>
         </div>
       )}
+      {confirmDialog}
     </div>
   )
 }

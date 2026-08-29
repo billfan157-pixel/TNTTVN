@@ -234,8 +234,8 @@ export const DesktopGradeMatrix: React.FC = () => {
     columnHelper.accessor(row => row.student.holyName || '', {
       id: 'holyName',
       header: 'Tên Thánh',
-      cell: info => <span className="font-bold text-parish-primary bg-parish-primary-light px-2.5 py-1 rounded-lg border border-parish-primary/10">{info.getValue() || '-'}</span>,
-      size: 175,
+      cell: info => <span className="font-semibold text-amber-900 dark:text-amber-400 text-sm">{info.getValue() || '—'}</span>,
+      size: 140,
     }),
     columnHelper.accessor(row => row.student.fullName, {
       id: 'fullName',
@@ -250,9 +250,13 @@ export const DesktopGradeMatrix: React.FC = () => {
         cell: info => {
           const val = info.getValue();
           const { student } = info.row.original;
+          const scoreLabel = field === 'scoreOral' ? 'điểm miệng' : field === 'score15m' ? 'điểm 15 phút' : field === 'score1Period' ? 'điểm một tiết' : field === 'scoreMidterm' ? 'điểm giữa kỳ' : field === 'scoreFinal' ? 'điểm cuối kỳ' : 'điểm đạo đức';
+          const studentLabel = `${student.holyName ? `${student.holyName} ` : ''}${student.fullName}`;
           return (
             <input
               type="text"
+              inputMode="decimal"
+              aria-label={`Nhập ${scoreLabel} cho ${studentLabel}`}
               data-matrix-cell="true"
               disabled={!canEditGrades || (!isOverrideModeEnabled && field !== 'scoreDaoDuc' && field !== 'scoreOral')}
               // P0.7 (audit desktop 2026-08-22): key theo giá trị → khi server-sync/import
@@ -306,6 +310,7 @@ export const DesktopGradeMatrix: React.FC = () => {
         <input
           type="text"
           placeholder="Nhập ghi chú..."
+          aria-label={`Nhận xét cho ${info.row.original.student.holyName ? `${info.row.original.student.holyName} ` : ''}${info.row.original.student.fullName}`}
           value={info.getValue() || ''}
           onChange={e => updateField(info.row.original.student.id, 'comments', e.target.value)}
           className="form-input w-full h-9 px-3 text-sm font-medium bg-surface-card text-text-main border border-surface-border rounded-xl focus:border-parish-primary outline-none shadow-xs"
@@ -343,6 +348,7 @@ export const DesktopGradeMatrix: React.FC = () => {
             <div className="flex items-center gap-2 bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner">
               <span className="text-[10px] font-black text-text-secondary uppercase px-2">Lớp:</span>
               <select
+                aria-label="Chọn lớp cho ma trận điểm"
                 value={selectedClassId}
                 onChange={e => setSelectedClassId(e.target.value)}
                 className="text-xs font-bold border-none bg-transparent outline-none cursor-pointer pr-2"
@@ -356,12 +362,14 @@ export const DesktopGradeMatrix: React.FC = () => {
             <div className="flex bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner">
               <button
                 onClick={() => setSelectedSemester(1)}
+                aria-pressed={selectedSemester === 1}
                 className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${selectedSemester === 1 ? 'bg-surface-card text-parish-primary shadow-sm' : 'text-text-secondary'}`}
               >
                 HK I
               </button>
               <button
                 onClick={() => setSelectedSemester(2)}
+                aria-pressed={selectedSemester === 2}
                 className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${selectedSemester === 2 ? 'bg-surface-card text-parish-primary shadow-sm' : 'text-text-secondary'}`}
               >
                 HK II
@@ -370,7 +378,7 @@ export const DesktopGradeMatrix: React.FC = () => {
 
             {/* Action Buttons */}
             <div className="flex gap-2">
-              <button onClick={() => setShowFormulaModal(true)} className="p-2 rounded-xl bg-surface-card border border-surface-border text-text-secondary hover:bg-surface-hover transition-all shadow-sm active:scale-95" title="Cấu hình hệ số">
+              <button onClick={() => setShowFormulaModal(true)} aria-label="Cấu hình hệ số điểm" className="p-2 rounded-xl bg-surface-card border border-surface-border text-text-secondary hover:bg-surface-hover transition-all shadow-sm active:scale-95" title="Cấu hình hệ số">
                 <Settings2 size={18} />
               </button>
               <button 

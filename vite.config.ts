@@ -35,6 +35,22 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      '@tanstack/react-table',
+      '@tanstack/react-router',
+      'lucide-react',
+      'zustand',
+      'idb',
+      'clsx',
+      'tailwind-merge',
+      'jspdf',
+      'xlsx',
+    ],
+  },
   plugins: [
     react(),
     tailwindHmrFix(),

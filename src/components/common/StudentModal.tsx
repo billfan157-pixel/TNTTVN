@@ -156,7 +156,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         <div ref={modalRef} className="modal-content max-w-[480px]" onClick={e => e.stopPropagation()}>
           <div className="flex justify-between items-center mb-5 border-b border-surface-border pb-3">
             <div className="flex items-center gap-2">
-              <UserPlus size={20} color="#1E3A8A" />
+              <UserPlus size={20} className="text-parish-primary" />
               <h3 id="add-student-title" className="text-lg font-bold m-0 text-parish-primary">Thêm Hồ Sơ Thiếu Nhi Mới</h3>
             </div>
             <button onClick={onClose} aria-label="Đóng" className="bg-transparent border-0 cursor-pointer text-text-muted">
@@ -229,7 +229,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
       <div ref={modalRef} className="modal-content max-w-[600px]" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-5 border-b border-surface-border pb-3">
           <div className="flex items-center gap-2">
-            <UserPlus size={20} color="#1E3A8A" />
+              <UserPlus size={20} className="text-parish-primary" />
             <h3 id={titleId} className="text-lg font-bold m-0 text-parish-primary">
               {studentToEdit ? 'Chỉnh Sửa Thông Tin Thiếu Nhi' : 'Thêm Hồ Sơ Thiếu Nhi Mới'}
             </h3>

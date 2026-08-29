@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import { Calendar, X, AlertCircle, Send, CheckSquare, Square, Church, BookOpen, Flame } from 'lucide-react'
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore'
 import { getDefaultDate } from '../../utils/getDefaultDate'
 import type { LeaveRequestSessionType } from '../../types'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 
 interface LeaveRequestModalProps {
   isOpen: boolean
@@ -29,6 +30,9 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { dialogRef, titleId } = useAccessibleDialog(isOpen, onClose)
+  const dateId = useId()
+  const reasonId = useId()
 
   if (!isOpen) return null
 
@@ -76,8 +80,16 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-surface-card border border-surface-border rounded-2xl w-full max-w-lg shadow-xl overflow-hidden animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-busy={submitting}
+        className="bg-surface-card border border-surface-border rounded-2xl w-full max-w-lg shadow-xl overflow-hidden animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-surface-border bg-surface-app">
           <div className="flex items-center gap-2.5">
@@ -85,7 +97,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
               <Calendar className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-text-main m-0">Đơn Xin Phép Nghỉ</h2>
+              <h2 id={titleId} className="text-base font-bold text-text-main m-0">Đơn Xin Phép Nghỉ</h2>
               <p className="text-xs text-text-muted m-0 mt-0.5">
                 Thiếu nhi: <span className="font-semibold text-text-main">{holyName} {studentName}</span> {className ? `(${className})` : ''}
               </p>
@@ -94,7 +106,8 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors"
+            className="min-w-11 min-h-11 p-2 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors"
+            aria-label="Đóng đơn xin phép nghỉ"
           >
             <X size={18} />
           </button>
@@ -103,7 +116,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {error && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-600 flex items-center gap-2">
+            <div role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-600 flex items-center gap-2">
               <AlertCircle size={15} className="shrink-0" />
               <span>{error}</span>
             </div>
@@ -111,11 +124,12 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
 
           {/* Date Picker */}
           <div>
-            <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
+            <label htmlFor={dateId} className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
               Ngày Xin Nghỉ <span className="text-rose-500">*</span>
             </label>
             <input
               type="date"
+              id={dateId}
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="form-input w-full text-sm font-medium"
@@ -124,14 +138,15 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
           </div>
 
           {/* Session Types Selection */}
-          <div>
-            <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
+          <fieldset>
+            <legend className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
               Buổi Xin Nghỉ Trong Ngày <span className="text-rose-500">*</span>
-            </label>
+            </legend>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 type="button"
                 onClick={() => toggleSession('SundayMass')}
+                aria-pressed={selectedSessions.includes('SundayMass')}
                 className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all text-left ${
                   selectedSessions.includes('SundayMass')
                     ? 'border-parish-primary bg-parish-primary-light text-parish-primary shadow-xs'
@@ -149,6 +164,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
               <button
                 type="button"
                 onClick={() => toggleSession('CatechismClass')}
+                aria-pressed={selectedSessions.includes('CatechismClass')}
                 className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all text-left ${
                   selectedSessions.includes('CatechismClass')
                     ? 'border-parish-primary bg-parish-primary-light text-parish-primary shadow-xs'
@@ -166,6 +182,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
               <button
                 type="button"
                 onClick={() => toggleSession('EucharisticAdoration')}
+                aria-pressed={selectedSessions.includes('EucharisticAdoration')}
                 className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all text-left ${
                   selectedSessions.includes('EucharisticAdoration')
                     ? 'border-parish-primary bg-parish-primary-light text-parish-primary shadow-xs'
@@ -180,14 +197,15 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
                 {selectedSessions.includes('EucharisticAdoration') ? <CheckSquare size={16} /> : <Square size={16} />}
               </button>
             </div>
-          </div>
+          </fieldset>
 
           {/* Reason */}
           <div>
-            <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
+            <label htmlFor={reasonId} className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
               Lý Do Xin Nghỉ <span className="text-rose-500">*</span>
             </label>
             <textarea
+              id={reasonId}
               rows={3}
               value={reason}
               onChange={(e) => setReason(e.target.value)}

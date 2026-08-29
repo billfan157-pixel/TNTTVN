@@ -74,7 +74,7 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
               <td className="py-2 pr-2 text-text-muted">{i + 1}</td>
               <td className="py-2 pr-2 font-mono text-sm">{r.studentCode}</td>
               <td className="py-2 pr-2 font-semibold text-base">
-                {r.holyName && <span className="text-amber-600 mr-1">{r.holyName}</span>}
+                {r.holyName && <span className="text-amber-900 dark:text-amber-400 mr-1">{r.holyName}</span>}
                 {r.studentName}
               </td>
               {essayMode && (

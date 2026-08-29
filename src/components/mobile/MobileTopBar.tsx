@@ -14,7 +14,8 @@ import {
   UserCheck,
   X,
   Bell,
-  WifiOff
+  WifiOff,
+  Download
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useFilterStore } from '../../stores/filterStore'
@@ -23,6 +24,7 @@ import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useTheme } from '../../hooks/useTheme'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
+import { useInstallPrompt } from '../../hooks/useInstallPrompt'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useSyncStore } from '../../stores/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
@@ -30,17 +32,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import logo from '../../assets/logo-gia-ton.png'
-
-const pageTitles: Record<string, string> = {
-  '/dashboard': 'Tổng quan giáo xứ',
-  '/students': 'Danh sách thiếu nhi',
-  '/grades': 'Bảng điểm giáo lý',
-  '/attendance': 'Điểm danh chuyên cần',
-  '/reports': 'Báo cáo & kết quả học tập',
-  '/notices': 'Thông báo giáo xứ',
-  '/parent': 'Con của tôi',
-  '/settings': 'Cài đặt',
-}
+import { getRoutePolicy } from '../../constants/routePolicy'
 
 export const MobileTopBar: React.FC = () => {
   const navigate = useNavigate()
@@ -60,6 +52,7 @@ export const MobileTopBar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const { canInstall, install } = useInstallPrompt()
 
   // E1-E3: sync/online hooks must be unconditional (Rules of Hooks). Previously inside IIFE in JSX.
   const isOnline = useOnlineStatus()
@@ -69,10 +62,10 @@ export const MobileTopBar: React.FC = () => {
   const sheetId = useId()
   const focusTrapRef = useFocusTrap(isOpen)
 
-  const title = pageTitles[location.pathname] || 'Sổ điểm giáo lý'
+  const title = getRoutePolicy(location.pathname)?.mobileTitle || 'Trang không xác định'
   const isParent = currentUser?.role === 'phuhuynh'
-  const eyebrow = isParent ? `CỔNG PHỤ HUYNH · ${academicYearDisplay}` : `GIÁO XỨ GIA TÔN · XỨ ĐOÀN ĐỨC MẸ FATIMA · ${academicYearDisplay}`
-  const summary = isParent ? 'Theo dõi việc học của gia đình' : `${students.length} thiếu nhi đang quản lý`
+  const eyebrow = isParent ? 'CỔNG PHỤ HUYNH' : 'XỨ ĐOÀN ĐỨC MẸ FATIMA'
+  const summary = isParent ? 'Theo dõi việc học của gia đình' : `Niên học ${academicYearDisplay} · ${students.length} thiếu nhi`
 
   useEffect(() => {
     setIsOpen(false)
@@ -175,45 +168,47 @@ export const MobileTopBar: React.FC = () => {
               tabIndex={-1}
             />
             <div id={sheetId} ref={focusTrapRef as any} role="dialog" aria-modal="true" aria-label="Bảng điều khiển" className="mobile-control-sheet">
-            <div className="mobile-control-sheet__profile">
-              <span className="mobile-control-sheet__avatar"><UserCheck size={17} /></span>
-              <div className="min-w-0">
-                <div className="truncate font-bold">{currentUser?.fullName || 'Người dùng'}</div>
-                <div className="text-[10px] uppercase tracking-wide text-text-muted">{currentUser?.role || 'guest'}</div>
+              <div className="sheet-grabber" aria-hidden="true" />
+              <div className="mobile-control-sheet__profile">
+                <span className="mobile-control-sheet__avatar"><UserCheck size={17} /></span>
+                <div className="min-w-0">
+                  <div className="truncate font-bold">{currentUser?.fullName || 'Người dùng'}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-text-muted">{currentUser?.role || 'guest'}</div>
+                </div>
+                <button type="button" className="mobile-control-sheet__close" onClick={closeMenu} aria-label="Đóng bảng điều khiển">
+                  <ChevronDown size={18} />
+                </button>
               </div>
-              <button type="button" className="mobile-control-sheet__close" onClick={closeMenu} aria-label="Đóng bảng điều khiển">
-                <ChevronDown size={18} />
-              </button>
-            </div>
 
-            <div className="mobile-control-sheet__grid">
-              {/* Class filter: admin only — GLV only sees their assigned classes */}
-              {currentUser?.role === 'admin' && (
-              <label className="mobile-control-field mobile-control-field--wide">
-                <span>Lớp đang xem</span>
-                <select value={selectedClassId} onChange={event => setSelectedClassId(event.target.value)}>
-                  <option value="all">Tất cả lớp học</option>
-                  {classList.map(item => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
-                  ))}
-                </select>
-              </label>
-              )}
+              <div className="mobile-control-sheet__grid">
+                {/* Class filter: admin only — GLV only sees their assigned classes */}
+                {currentUser?.role === 'admin' && (
+                <label className="mobile-control-field mobile-control-field--wide">
+                  <span>Lớp đang xem</span>
+                  <select value={selectedClassId} onChange={event => setSelectedClassId(event.target.value)}>
+                    <option value="all">Tất cả lớp học</option>
+                    {classList.map(item => (
+                      <option key={item.id} value={item.id}>{item.name}</option>
+                    ))}
+                  </select>
+                </label>
+                )}
 
-              <label className="mobile-control-field mobile-control-field--wide">
-                <span>Tìm nhanh</span>
-                <span className="mobile-control-search">
-                  <Search size={15} aria-hidden="true" />
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={event => setSearchQuery(event.target.value)}
-                    placeholder="Tên hoặc mã thiếu nhi"
-                    aria-label="Tìm tên hoặc mã thiếu nhi"
-                  />
-                </span>
-              </label>
-            </div>
+                <label className="mobile-control-field mobile-control-field--wide">
+                  <span>Tìm nhanh</span>
+                  <span className="mobile-control-search min-h-[44px]">
+                    <Search size={15} aria-hidden="true" />
+                    <input
+                      type="search"
+                      inputMode="search"
+                      value={searchQuery}
+                      onChange={event => setSearchQuery(event.target.value)}
+                      placeholder="Tên hoặc mã thiếu nhi"
+                      aria-label="Tìm tên hoặc mã thiếu nhi"
+                    />
+                  </span>
+                </label>
+              </div>
 
             <div className="mobile-control-sheet__row">
               <div className="mobile-semester-control" aria-label="Chọn học kỳ">
@@ -239,12 +234,17 @@ export const MobileTopBar: React.FC = () => {
               <button type="button" className="mobile-control-icon" onClick={() => setShowDiagnostics(true)} aria-label="Mở chẩn đoán hệ thống">
                 <Activity size={17} />
               </button>
-              <button type="button" className="mobile-control-icon" onClick={() => setShowResetConfirm(true)} aria-label="Khôi phục dữ liệu mặc định">
+              {currentUser?.role === 'admin' && <button type="button" className="mobile-control-icon" onClick={() => setShowResetConfirm(true)} aria-label="Làm mới dữ liệu trên thiết bị">
                 <RefreshCw size={17} />
-              </button>
+              </button>}
             </div>
 
             <div className="mobile-control-sheet__actions">
+              {canInstall && (
+                <button type="button" className="btn btn-primary mobile-control-action" onClick={() => { install(); closeMenu() }}>
+                  <Download size={16} /> Cài đặt ứng dụng (PWA)
+                </button>
+              )}
               <button type="button" className="btn btn-secondary mobile-control-action" onClick={() => { navigate({ to: '/settings' }); closeMenu() }}>
                 <Settings size={16} /> Cài đặt
               </button>
@@ -262,15 +262,16 @@ export const MobileTopBar: React.FC = () => {
 
       <ConfirmDialog
         isOpen={showResetConfirm}
-        title="Khôi phục dữ liệu gốc"
-        message="Bạn có chắc muốn khôi phục dữ liệu Giáo xứ mặc định? Thao tác này sẽ đặt lại dữ liệu mẫu gốc."
-        confirmText="Khôi phục"
+        title="Làm mới dữ liệu trên thiết bị"
+        message="Xóa dữ liệu đệm trên thiết bị này rồi tải lại từ máy chủ. Dữ liệu đã đồng bộ trên máy chủ không bị xóa; thao tác đang chờ đồng bộ vẫn được giữ."
+        confirmText="Xóa bộ nhớ đệm & tải lại"
         cancelText="Hủy"
         variant="warning"
-        onConfirm={() => {
-          resetAllStoresToDefault()
+        onConfirm={async () => {
+          await resetAllStoresToDefault()
           setShowResetConfirm(false)
           closeMenu()
+          window.location.reload()
         }}
         onCancel={() => setShowResetConfirm(false)}
       />

@@ -1,7 +1,7 @@
 import { MobileBottomNav, type MobileTab } from './MobileBottomNav'
 
 interface MobileAppShellProps {
-  activeTab: MobileTab
+  activeTab: MobileTab | null
   setActiveTab: (tab: MobileTab) => void
   children: React.ReactNode
 }

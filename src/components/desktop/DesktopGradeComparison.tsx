@@ -7,6 +7,7 @@ import { useClassStore } from '../../stores/classStore'
 import { Columns3, TrendingUp, TrendingDown, Minus, BarChart3, type LucideProps } from 'lucide-react'
 import { EmptyState } from '../common/StateFeedback'
 import { PageHeader } from '../common/PageHeader'
+import { StudentName } from '../common/StudentName'
 
 const TrendIcon = ({ trend }: { trend: string } & LucideProps) => {
   if (trend === 'up') return <TrendingUp size={16} className="text-[var(--color-parish-success)]" />
@@ -137,10 +138,7 @@ export const DesktopGradeComparison: React.FC = () => {
                   return (
                     <tr key={student.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                       <td className="py-3 px-4 sticky left-0 bg-surface-card z-10 shadow-xs">
-                        <div className="font-bold text-base text-text-main truncate">
-                          <span className="text-parish-secondary mr-1">{student.holyName}</span>
-                          {student.fullName}
-                        </div>
+                        <StudentName holyName={student.holyName} fullName={student.fullName} size="base" />
                         <div className="text-sm text-text-muted truncate">{cls?.name} • {student.code}</div>
                       </td>
 

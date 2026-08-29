@@ -30,6 +30,7 @@ import { PageHeader } from '../common/PageHeader'
 import { useParishEventStore } from '../../stores/parishEventStore'
 import { useToastStore } from '../../stores/toastStore'
 import { Trash2 } from 'lucide-react'
+import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 
 export const DesktopCalendarView: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
@@ -44,6 +45,7 @@ export const DesktopCalendarView: React.FC = () => {
   const [newEventLocation, setNewEventLocation] = useState('')
   const [showExportModal, setShowExportModal] = useState(false)
   const [exportScope, setExportScope] = useState<'year' | 'month' | 'solemnity_only'>('year')
+  const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     fetchEvents()
@@ -173,7 +175,13 @@ export const DesktopCalendarView: React.FC = () => {
   }
 
   const handleDeleteEvent = async (ev: ParishEvent) => {
-    if (!confirm(`Xóa sự kiện "${ev.title}" ngày ${ev.date}?`)) return
+    const confirmed = await askConfirm({
+      title: 'Xóa sự kiện',
+      message: `Xóa sự kiện “${ev.title}” ngày ${ev.date}? Thao tác này không thể hoàn tác.`,
+      confirmText: 'Xóa sự kiện',
+      variant: 'danger',
+    })
+    if (!confirmed) return
     await deleteEvent(ev.id)
     useToastStore.getState().addToast('Đã xóa sự kiện', 'success')
   }
@@ -210,6 +218,7 @@ export const DesktopCalendarView: React.FC = () => {
 
   return (
     <div className="product-view flex flex-col gap-6">
+      {confirmDialog}
       {/* Header Bar */}
       <PageHeader
         icon={<CalendarIcon size={24} />}

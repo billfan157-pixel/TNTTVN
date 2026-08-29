@@ -14,6 +14,7 @@ import {
   Users, Award, CheckCircle2,
   Sparkles, AlertCircle, Plus, School, BarChart3, PieChart
 } from 'lucide-react';
+import { StudentName } from '../common/StudentName';
 import { useNavigate } from '@tanstack/react-router';
 import { LiturgicalTodayWidget } from './LiturgicalTodayWidget';
 import { formatDateVi } from '../../utils/formatDate';
@@ -102,7 +103,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
             <Users size={23} />
           </div>
           <div className="metric-card__body">
-            <p className="metric-card__label">Tổng Thiếu Nhi</p>
+            <p className="metric-card__label">Tổng thiếu nhi</p>
             <h3 className="metric-card__value">{totalStudents} <span className="metric-card__unit">em</span></h3>
             <p className="metric-card__meta text-parish-success">
               <span className="w-1.5 h-1.5 rounded-full bg-parish-success"></span>
@@ -117,9 +118,9 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
             <CheckCircle2 size={23} />
           </div>
           <div className="metric-card__body">
-            <p className="metric-card__label">Tỷ Lệ Chuyên Cần</p>
+            <p className="metric-card__label">Tỷ lệ chuyên cần</p>
             <h3 className="metric-card__value">{overallAttendanceRate}%</h3>
-            <p className="metric-card__meta">Toàn Xứ Đoàn Niên Học</p>
+            <p className="metric-card__meta">Toàn xứ đoàn niên học</p>
           </div>
         </div>
 
@@ -129,16 +130,16 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
             <Award size={23} />
           </div>
           <div className="metric-card__body">
-            <p className="metric-card__label">Học Lực Khá/Giỏi+</p>
+            <p className="metric-card__label">Học lực khá/giỏi+</p>
             <h3 className="metric-card__value">{xuatSacCount + gioiCount + khaCount} <span className="metric-card__unit">em</span></h3>
-            <p className="metric-card__meta text-parish-gold">HK {selectedSemester}: {xuatSacCount} Xuất Sắc</p>
+            <p className="metric-card__meta text-parish-gold">HK {selectedSemester === 2 ? 'II' : 'I'}: {xuatSacCount} xuất sắc</p>
           </div>
         </div>
 
         {/* Class Overview */}
         <div className="metric-card metric-card--info justify-between">
           <div className="metric-card__body">
-            <p className="metric-card__label">Lớp Học Giáo Lý</p>
+            <p className="metric-card__label">Lớp học giáo lý</p>
             <h3 className="metric-card__value">{classes.length} <span className="metric-card__unit">lớp</span></h3>
             <p className="metric-card__meta text-parish-primary">5 Ngành TNTT hoạt động</p>
           </div>
@@ -146,8 +147,8 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
             <button
               onClick={onOpenAddStudent}
               className="btn btn-primary btn-icon btn-lg shrink-0"
-              title="Thêm Thiếu Nhi Mới"
-              aria-label="Thêm Thiếu Nhi Mới"
+              title="Thêm thiếu nhi"
+              aria-label="Thêm thiếu nhi"
             >
               <Plus size={22} />
             </button>
@@ -200,10 +201,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                         #{idx + 1}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-parish-primary">{item.student.holyName}</span>
-                          <span className="text-sm font-extrabold text-text-main">{item.student.fullName}</span>
-                        </div>
+                        <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="sm" />
                         <p className="text-xs text-text-muted m-0 mt-0.5">Mã: <span className="font-mono">{item.student.code}</span> • Lớp: <span className="font-semibold text-text-main">{item.student.classId}</span></p>
                       </div>
                     </div>

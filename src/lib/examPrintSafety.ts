@@ -21,11 +21,11 @@ const FULL_PAGE_SCORE_LABEL_PATTERN = /<text\s+x="([^"]+)"\s+y="([^"]+)"\s+font-
 const GUIDE_PATTERN = /\* Bút xanh\/đen hoặc chì đậm; tô kín 01 ô \(A, B, C, D\):/g
 const BATCH_PRINT_SAFE_MARGIN_STYLE = `<style data-omr-batch-safe-margin>
 @media print {
-  /* Batch HTML historically used @page margin:0, leaving integrated marker ink
-     only ~3.2mm from the physical A4 edge. Uniform 96% scaling around page center
-     adds ~4.2mm each side while preserving every marker↔bubble affine ratio. */
+  /* Batch HTML historically left integrated marker ink below the 6mm physical
+     edge gate. Uniform 95% scaling around page center adds the missing inset
+     while preserving every marker↔bubble affine ratio. */
   .batch-exam-page > .Section1 {
-    transform: scale(0.96);
+    transform: scale(0.95);
     transform-origin: top center;
   }
 }

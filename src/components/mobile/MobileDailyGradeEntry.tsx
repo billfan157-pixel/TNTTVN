@@ -8,6 +8,7 @@ import { useClassStore } from '../../stores/classStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import type { DailyScoreType, Student } from '../../types'
+import { StudentName } from '../common/StudentName'
 
 const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string; color: string }> = [
   { id: 'oral', label: 'Điểm miệng', short: 'Miệng', color: 'bg-[var(--color-parish-info)]' },
@@ -113,7 +114,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
           <article key={student.id} className="entity-card overflow-hidden">
             <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]">
               <span className="min-w-0">
-                <span className="block font-extrabold text-text-main truncate"><span className="text-parish-secondary mr-1">{student.holyName}</span>{student.fullName}</span>
+                <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="flex" />
                 <span className="block text-xs text-text-muted mt-1 truncate">{classNameById.get(student.classId) || '—'} • {student.code}</span>
               </span>
               <span className="shrink-0 text-right">

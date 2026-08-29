@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
@@ -6,6 +6,7 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { BRANCHES } from '../../constants/branches';
 import { Printer, FileText, BarChart2, Award, Search, Users } from 'lucide-react';
 import type { Student } from '../../types';
+import { StudentName } from '../common/StudentName';
 
 interface MobileReportsViewProps {
   onPrintReport: (student: Student) => void;
@@ -154,9 +155,10 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             type="search"
+            inputMode="search"
             value={searchQuery}
             onChange={event => setSearchQuery(event.target.value)}
-            className="form-input w-full pl-9"
+            className="form-input w-full pl-9 min-h-[44px]"
             placeholder="Tìm tên thánh, họ tên hoặc mã..."
             aria-label="Tìm học sinh để in kết quả"
           />
@@ -175,17 +177,16 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
             return (
               <div key={s.id} className="entity-card p-3 flex justify-between items-center">
                 <div className="min-w-0 pr-2">
-                  <div className="font-bold text-sm text-text-main truncate">
-                    <span className="text-parish-secondary font-bold mr-1">{s.holyName}</span>
-                    {s.fullName}
-                  </div>
+                  <StudentName holyName={s.holyName} fullName={s.fullName} size="sm" />
                   <div className="text-xs text-text-muted mt-0.5">
                     ĐTB: <strong className="text-parish-primary">{avg.score ?? '-'}</strong> • Xếp loại: <span className="font-semibold text-text-main">{avg.label}</span>
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => onPrintReport(s)}
                   className="btn btn-secondary mobile-btn shrink-0"
+                  aria-label={`In kết quả học tập cho ${s.holyName ? `${s.holyName} ` : ''}${s.fullName}`}
                 >
                   <Printer size={14} /> In
                 </button>

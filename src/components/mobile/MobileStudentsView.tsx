@@ -7,13 +7,19 @@ import { useClassStore } from '../../stores/classStore';
 import { BRANCHES } from '../../constants/branches';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { useAuth } from '../../hooks/useAuth';
-import { PromotionPanel } from '../desktop/PromotionPanel';
+import { Suspense } from 'react';
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
+const PromotionPanel = lazyWithRetry<React.FC<{
+  onViewPhotoCard?: (student: any) => void
+  onViewCertificate?: (student: any) => void
+}>>(() => import('../desktop/PromotionPanel'), 'PromotionPanel')
 import { 
   Phone, UserPlus, Search, Edit3, 
   Trash2, Printer, Upload, ChevronLeft, ChevronRight, School, CheckSquare,
   Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA
 } from 'lucide-react';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
+import { SkeletonTable } from '../common/StateFeedback';
 
 interface MobileStudentsViewProps {
   onOpenAddStudent: () => void;
@@ -191,7 +197,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       )}
 
       {showPromotions ? (
-        <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
+        <Suspense fallback={<div className="p-2"><SkeletonTable rows={6} cols={3} /></div>}>
+          <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
+        </Suspense>
       ) : (
         <>
           {/* Search & Actions — responsive: search full width + actions row */}
@@ -200,13 +208,15 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <Search size={16} className="text-text-placeholder absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="search"
+            inputMode="search"
             placeholder="Tìm tên thánh, họ tên hoặc mã..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="form-input w-full pl-10 pr-3 min-h-[44px] rounded-xl text-sm"
+            className="form-input w-full pr-3 min-h-[44px] rounded-xl text-sm"
+            style={{ paddingLeft: '40px' }}
           />
         </label>
-        <div className="flex gap-2 overflow-x-auto pb-0.5 -mx-0.5 px-0.5 snap-x" style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x scrollbar-none" style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', maskImage: 'linear-gradient(to right, black calc(100% - 12px), transparent)' }}>
           {canDelete && (
             <button
               onClick={toggleSelectionMode}
@@ -231,9 +241,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <School size={16} className="text-parish-secondary shrink-0 mt-0.5" />
           <p className="m-0 text-xs font-semibold text-[var(--color-parish-warning-hover)] leading-relaxed">
             Chưa có lớp học nào. Import Excel sẽ tự động tạo lớp mới từ cột "Lớp" trong file, hoặc bạn có thể tạo lớp thủ công.
-            <span role="button" onClick={onNavigateToClasses} className="text-parish-primary font-bold underline cursor-pointer">
+            <button type="button" onClick={onNavigateToClasses} className="text-parish-primary font-bold underline cursor-pointer inline p-0 bg-transparent border-0 font-inherit text-xs">
               {' '}Tạo lớp →
-            </span>
+            </button>
           </p>
         </div>
       )}
@@ -257,7 +267,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 onClick={() => setSelectedClassId(c.id)}
                 className="text-left rounded-2xl p-3 bg-surface-card border border-surface-border flex flex-col gap-2 active:scale-[0.98] transition-transform"
               >
-                <span className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: (BRANCHES as any)[c.branch]?.badgeBg || 'var(--color-parish-primary-light)', color: (BRANCHES as any)[c.branch]?.textColor || 'var(--color-parish-primary)', borderColor: ((BRANCHES as any)[c.branch]?.scarfColor || '#E2E8F0') + '40' }}>{c.name.slice(0,2).toUpperCase()}</span>
+                <span className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: (BRANCHES as any)[c.branch]?.badgeBg || 'var(--color-parish-primary-light)', color: (BRANCHES as any)[c.branch]?.textColor || 'var(--color-parish-primary)', borderColor: (BRANCHES as any)[c.branch]?.scarfColor ? `${(BRANCHES as any)[c.branch].scarfColor}40` : 'var(--color-surface-border)' }}>{c.name.slice(0,2).toUpperCase()}</span>
                 <span className="font-bold text-sm text-text-main truncate">{c.name}</span>
                 <span className="text-xs text-text-muted">{count} em • {(BRANCHES as any)[c.branch]?.name || c.branch}</span>
               </button>
@@ -356,10 +366,10 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 )}
                 <div className={`flex justify-between items-start ${selectionMode ? 'pl-8' : ''}`}>
                   <div className="min-w-0 overflow-hidden">
-                    <div className="text-parish-secondary text-sm font-extrabold truncate">
-                      {s.holyName || '-'}
+                    <div className="text-amber-900 dark:text-amber-400 text-xs font-semibold truncate">
+                      {s.holyName || '—'}
                     </div>
-                    <div className="text-parish-primary text-sm font-bold truncate">
+                    <div className="text-text-main text-[15px] font-extrabold truncate">
                       {s.fullName}
                     </div>
                     <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">

@@ -29,9 +29,9 @@ export const HeaderBar: React.FC = () => {
   const searchQuery = useFilterStore((s) => s.searchQuery)
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery)
   const effectiveMode = useEffectiveMode()
-  // PHA 4 (audit A5): chặn force-desktop trên màn < 768px — sidebar 260px +
-  // padding chỉ chừa ~65px nội dung ở 375px, không dùng được.
-  const isNarrowViewport = useMediaQuery('(max-width: 767.9px)')
+  // Tablet dùng mobile shell; desktop sidebar chỉ bật từ 1024px để giữ vùng
+  // chạm và bề rộng nội dung đủ dùng.
+  const isNarrowViewport = useMediaQuery('(max-width: 1023.9px)')
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
@@ -163,7 +163,7 @@ export const HeaderBar: React.FC = () => {
                     type="button"
                     onClick={() => setViewMode('desktop')}
                     disabled={isNarrowViewport}
-                    title={isNarrowViewport ? 'Màn hình quá nhỏ — chế độ Desktop cần tối thiểu 768px' : 'Chuyển sang Giao diện Desktop'}
+                    title={isNarrowViewport ? 'Màn hình quá nhỏ — chế độ Desktop cần tối thiểu 1024px' : 'Chuyển sang Giao diện Desktop'}
                     aria-label="Chuyển sang Giao diện Desktop"
                     aria-pressed={viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop')}
                     className={`app-header__segment px-0 ${viewMode === 'desktop' || (viewMode === 'auto' && effectiveMode === 'desktop') ? 'is-accent' : ''} disabled:opacity-40 disabled:cursor-not-allowed`}
@@ -205,16 +205,16 @@ export const HeaderBar: React.FC = () => {
                   <Activity size={16} />
                 </button>
 
-                {/* Reset — destructive hint qua rose tint */}
-                <button
+                {/* Reset client cache — admin-only technical recovery action */}
+                {currentUser?.role === 'admin' && <button
                   type="button"
                   onClick={handleReset}
-                  title="Khôi phục dữ liệu gốc"
-                  aria-label="Khôi phục dữ liệu gốc"
+                  title="Làm mới dữ liệu trên thiết bị"
+                  aria-label="Làm mới dữ liệu trên thiết bị"
                   className="app-header__icon-button hover:text-rose-300"
                 >
                   <RefreshCw size={15} />
-                </button>
+                </button>}
               </div>
 
               {/* ── Zone 3: User identity (cùng phải) ── */}
@@ -255,10 +255,10 @@ export const HeaderBar: React.FC = () => {
 
       <ConfirmDialog
         isOpen={showResetConfirm}
-        title="Khôi phục dữ liệu gốc"
-        message="Bạn có chắc chắn muốn khôi phục lại toàn bộ dữ liệu mẫu ban đầu? Thao tác này sẽ ghi đè các dữ liệu hiện tại."
-        confirmText="Đồng ý khôi phục"
-        variant="danger"
+        title="Làm mới dữ liệu trên thiết bị"
+        message="Xóa dữ liệu đệm trên thiết bị này rồi tải lại từ máy chủ. Dữ liệu đã đồng bộ trên máy chủ không bị xóa; thao tác đang chờ đồng bộ vẫn được giữ."
+        confirmText="Xóa bộ nhớ đệm & tải lại"
+        variant="warning"
         onConfirm={() => {
           setShowResetConfirm(false)
           resetAllStoresToDefault().then(() => {

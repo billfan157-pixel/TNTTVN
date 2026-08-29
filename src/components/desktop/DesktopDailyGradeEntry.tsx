@@ -14,6 +14,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { useToastStore } from '../../stores/toastStore'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { StudentName } from '../common/StudentName'
 import { EmptyState } from '../common/StateFeedback'
 
 const SCORE_TYPES: { id: DailyScoreType; label: string; color: string }[] = [
@@ -274,10 +275,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                     <React.Fragment key={student.id}>
                       <tr className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                         <td className="py-3 px-4 sticky left-0 bg-surface-card z-10 shadow-xs">
-                          <div className="font-bold text-base text-text-main whitespace-nowrap">
-                            <span className="text-parish-secondary mr-1">{student.holyName}</span>
-                            {student.fullName}
-                          </div>
+                          <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="whitespace-nowrap" />
                           <div className="text-sm text-text-muted truncate">{cls?.name} • {student.code}</div>
                         </td>
 
@@ -368,6 +366,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                               <input
                                 type="text"
                                 inputMode="decimal"
+                                aria-label={`Nhập điểm ${activeLabel} cho ${student.holyName ? `${student.holyName} ` : ''}${student.fullName}`}
                                 placeholder="0-10"
                                 value={inputValues[student.id] || ''}
                                 onChange={e => {

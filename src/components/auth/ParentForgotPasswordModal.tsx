@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useId, useState } from 'react'
 import { CheckCircle2, Copy, ExternalLink, MessageCircle, ShieldCheck, X } from 'lucide-react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 
 interface ParentForgotPasswordModalProps {
   isOpen: boolean
@@ -8,16 +8,10 @@ interface ParentForgotPasswordModalProps {
 }
 
 export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps> = ({ isOpen, onClose }) => {
-  const trapRef = useFocusTrap(isOpen)
+  const { dialogRef, titleId } = useAccessibleDialog(isOpen, onClose)
+  const phoneId = useId()
   const [phone, setPhone] = useState('')
   const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    if (!isOpen) return
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
-  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -34,25 +28,25 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-labelledby="parent-recovery-title">
-      <div ref={trapRef} className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-card shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={onClose}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={event => event.stopPropagation()} className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-card shadow-2xl">
         <div className="flex items-start justify-between border-b border-surface-border p-5">
           <div>
-            <h2 id="parent-recovery-title" className="flex items-center gap-2 text-lg font-bold text-text-main">
+            <h2 id={titleId} className="flex items-center gap-2 text-lg font-bold text-text-main">
               <ShieldCheck className="h-5 w-5 text-parish-primary" /> Khôi Phục Tài Khoản An Toàn
             </h2>
             <p className="mt-1 text-xs text-text-muted">Ban Giáo Lý sẽ xác minh danh tính trước khi cấp mật khẩu tạm.</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Đóng" className="rounded-lg p-2 text-text-muted hover:bg-surface-hover"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Đóng" className="min-h-11 min-w-11 rounded-lg p-2 text-text-muted hover:bg-surface-hover"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="space-y-4 p-5">
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-text-main">
             Hệ thống không còn dùng ngày sinh hoặc tên của trẻ để tự đặt lại mật khẩu vì những thông tin này có thể bị đoán hoặc biết bởi người khác.
           </div>
-          <label className="block text-xs font-semibold uppercase text-text-muted">
+          <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
             Số điện thoại phụ huynh
-            <input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg border border-surface-border bg-surface-card px-3 py-2.5 text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
+            <input id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="Ví dụ: 0901234567" className="mt-1.5 min-h-11 w-full rounded-lg border border-surface-border bg-surface-card px-3 py-2.5 text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
           </label>
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase text-text-muted">Tin nhắn mẫu</div>

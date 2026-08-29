@@ -26,6 +26,7 @@ import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../../lib/examPrintSafety'
 import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption } from '../../types'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 
 export type ExamDocType = 'exam_paper' | 'answer_sheet' | 'qr_sheet'
 
@@ -73,6 +74,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const [durationMinutes, setDurationMinutes] = useState(45)
   const [printMode, setPrintMode] = useState<'single' | 'batch'>('single')
   const [selectedVersion, setSelectedVersion] = useState<ExamVersionCode>('A')
+  const { dialogRef, titleId } = useAccessibleDialog(isOpen, onClose)
 
   const parishName = useSettingsStore(s => s.settings.parishName) || 'Giáo Xứ Mẫu Tâm'
   const dioceseName = useSettingsStore(s => s.settings.dioceseName) || 'Giáo Phận Sài Gòn'
@@ -205,15 +207,6 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     return prepareExamDocumentForOutput(rawHtml)
   }, [docType, printMode, students, sampleStudent, batchAnswerSheetParams, classLabel, subject, qrSvgs, effectiveQuestions, printOptions, questionIntegrityError])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
-
   if (!isOpen) return null
 
   const guardExamPaperIntegrity = (): boolean => {
@@ -334,8 +327,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="exam-paper-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-surface-card rounded-2xl p-4 sm:p-6 w-full max-w-6xl shadow-2xl h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="bg-surface-card rounded-2xl p-4 sm:p-6 w-full max-w-6xl shadow-2xl h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-surface-border pb-3 mb-2.5">
@@ -346,13 +339,13 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               {docType === 'qr_sheet' && <QrCode size={20} />}
             </div>
             <div>
-              <h3 id="exam-paper-title" className="font-black text-lg text-parish-primary m-0">In & Xuất Tài Liệu Kiểm Tra</h3>
+              <h3 id={titleId} className="font-black text-lg text-parish-primary m-0">In & Xuất Tài Liệu Kiểm Tra</h3>
               <p className="text-xs text-text-muted m-0 mt-0.5">
                 {subject} · Lớp {classLabel} · Niên khóa {academicYear}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Đóng cửa sổ in và xuất tài liệu" className="min-h-11 min-w-11 p-2 rounded-xl text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
             <X size={20} />
           </button>
         </div>

@@ -12,6 +12,7 @@ import { ModalShell } from '../common/ModalShell'
 import { formatDateVi } from '../../utils/formatDate'
 import { PageHeader } from '../common/PageHeader'
 import type { LeaveRequest, LeaveRequestStatus } from '../../types'
+import { StudentName } from '../common/StudentName'
 
 const SESSION_MAP: Record<string, { label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = {
   SundayMass: { label: 'Thánh Lễ', icon: Church },
@@ -255,10 +256,7 @@ export function DesktopLeaveRequests() {
                     </td>
 
                     <td className="py-2.5 px-3 overflow-hidden min-w-0">
-                      <div className="font-bold text-parish-primary truncate">
-                        <span className="text-parish-secondary mr-1">{req.holyName}</span>
-                        <span>{req.studentName}</span>
-                      </div>
+                      <StudentName holyName={req.holyName} fullName={req.studentName || '—'} size="sm" />
                       {req.studentCode && (
                         <div className="text-xs text-text-muted">{req.studentCode}</div>
                       )}
@@ -391,7 +389,7 @@ export function DesktopLeaveRequests() {
               <div className="p-3 rounded-xl bg-surface-hover border border-surface-border text-xs space-y-1">
                 <div>
                   <span className="text-text-muted">Thiếu nhi:</span>{' '}
-                  <strong className="text-text-main">{reviewingRequest.req.holyName} {reviewingRequest.req.studentName}</strong> ({reviewingRequest.req.className})
+                  <StudentName holyName={reviewingRequest.req.holyName} fullName={reviewingRequest.req.studentName || '—'} size="xs" /> ({reviewingRequest.req.className})
                 </div>
                 <div>
                   <span className="text-text-muted">Ngày nghỉ:</span>{' '}

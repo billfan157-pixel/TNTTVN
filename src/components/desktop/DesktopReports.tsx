@@ -13,6 +13,7 @@ import { BackupRestoreModal } from '../common/BackupRestoreModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { useAuth } from '../../hooks/useAuth';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
+import { StudentName } from '../common/StudentName';
 import {
   buildBranchSummaryRows,
   buildStudentDetailRows,
@@ -256,10 +257,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
                     return (
                       <div key={s.id} className="entity-card app-panel--interactive p-4 flex justify-between items-center min-w-0">
                         <div className="min-w-0 overflow-hidden">
-                          <div className="font-bold text-parish-primary text-sm min-w-0 truncate">
-                            <span className="text-parish-secondary font-bold mr-1.5">{s.holyName}</span>
-                            <span className="text-text-main font-semibold">{s.fullName}</span>
-                          </div>
+                          <StudentName holyName={s.holyName} fullName={s.fullName} size="sm" />
                           <div className="text-xs text-text-muted mt-1 truncate">
                             {cls?.name} • ĐTB: <strong className="text-parish-primary">{avg.score ?? '-'}</strong> ({avg.label})
                           </div>

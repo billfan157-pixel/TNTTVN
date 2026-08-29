@@ -65,9 +65,11 @@ describe('Design System v4.1 Foundation Tokens & Classes', () => {
   })
 
   it('keeps mobile focus stable and honors reduced-motion preferences', () => {
-    const mobileSection = cssContent.slice(cssContent.indexOf('@media (max-width: 767px)'))
-    expect(mobileSection).toMatch(/\.mobile-app-shell input,[\s\S]*?font-size:\s*16px/)
-    expect(mobileSection).toMatch(/\.modal-content[\s\S]*?border-radius:\s*20px 20px 0 0/)
+    const tabletShellSection = cssContent.slice(cssContent.indexOf('@media (max-width: 1023px)'))
+    const phoneSection = cssContent.slice(cssContent.indexOf('@media (max-width: 767px)'))
+    expect(tabletShellSection).toMatch(/\.mobile-app-shell input,[\s\S]*?font-size:\s*16px/)
+    expect(tabletShellSection).toMatch(/\.mobile-app-shell button,[\s\S]*?min-height:\s*44px/)
+    expect(phoneSection).toMatch(/\.modal-content[\s\S]*?border-radius:\s*20px 20px 0 0/)
 
     const reducedMotionSection = cssContent.slice(cssContent.indexOf('@media (prefers-reduced-motion: reduce)'))
     expect(reducedMotionSection).toContain('animation-duration: 0.01ms !important')

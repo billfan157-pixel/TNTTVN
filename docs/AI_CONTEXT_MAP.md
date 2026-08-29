@@ -1,10 +1,20 @@
 # AI Agent Context Map & Repository Entrypoint
 
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 2.7 | Last reviewed: 2026-08-28 | Status: ✅ Current | Prerequisites: none
+> Version: 2.8 | Last reviewed: 2026-08-29 | Status: ✅ Current | Prerequisites: none
 
 ---
 
+
+---
+
+### Module: Frontend Route Policy & UX/A11y Audit Remediation (2026-08-29)
+
+- **Decision**: ADR-072, D3/SECURITY, R1. Chọn route-policy SSOT fail-closed ở frontend; backend middleware vẫn là authorization authority. ADR-022 parent-only = PASS; bỏ giả định admin-preview `/parent`.
+- **Code truth**: `src/constants/routePolicy.ts`, `src/router.tsx`, `RootLayout`, `DesktopSidebar`, `MobileBottomNav`, `MobileTopBar`; `useAccessibleDialog.ts` cho custom dialog lifecycle; `useEffectiveMode.ts` + `src/index.css` cho mobile/tablet <1024; `StudentName.tsx`; auth/grade/calendar/leave/exam surfaces; `scripts/design-system-lint.mjs`.
+- **Contracts**: parent không deep-link vào staff workspace; admin/staff không vào `/parent`; titles/nav/guards cùng policy; phuta thấy Reports; custom dialog có focus trap/restore + top-most Escape + scroll lock; tablet dùng touch shell ≥44px; reset admin-only và chỉ xóa cache client; raw hex UI bị lint chặn.
+- **Tests**: `routePolicy.test.ts`, `StudentName.test.tsx`, design-system tokens, header/mobile-nav/calendar/leave regression; full `verify:ci` 251 files/1800 tests PASS, lint zero-warning, design-system 0/141, frontend/server/PWA build PASS. Browser build smoke khóa public login 320/375/768/1440 không overflow/target nhỏ, `/verify` có một `main`/`h1` và protected unauth redirect. Inherited OMR print-margin được khóa bằng Chromium geometry: output batch co đồng nhất 95%, giữ marker↔bubble affine ratio và đạt mực marker ≥6mm. Thiết bị thật/authenticated role smoke là acceptance riêng, không suy diễn từ local Chromium.
+- **Scope**: frontend + docs; không đổi server API/schema/data/offline authority. Sửa release-gate OMR chỉ ở output CSS, không đổi detector/template/scoring. Rollback R1 bằng revert policy/UI/docs và print scale.
 
 ---
 
@@ -24,6 +34,26 @@
 - **Code truth**: `MobileGradeView.tsx` (lazy ExamSessionView/MobileGradeMatrix/MobileDailyGradeEntry/MobileGradeComparison), `MobileStudentsView.tsx` (lazy PromotionPanel), `MobileGradeMatrix.tsx` (lazy ExcelGradeImportModal/GradeFormulaConfigModal), `RootLayout.tsx` (lazy 5 modals + scroll restoration), `MobileAttendanceView.tsx` (HashMap attendance index), `MobileHomeView.tsx` (grade Map index), `useEffectiveMode.ts` (matchMedia), `useScrollRestoration.ts` (new), `index.css` (will-change, content-visibility, tighter mobile transition timing).
 - **Contracts**: Không thay đổi API, route, schema, auth/RBAC, hay business logic. Giảm ~210KB+ initial mobile chunks qua lazy-loading, giảm O(N×M) → O(N) computation, snappier 120ms mobile transitions (from 180ms). Scroll position restored trên Back navigation.
 - **Scope**: presentation + performance only. Rollback bằng revert, không migration.
+
+---
+
+### Module: Mobile Product UX/UI Optimization (2026-08-28, audited 2026-08-29)
+
+- **Decision**: D1/GENERAL, R0. Mobile UX/UI upgrade theo hướng sản phẩm giáo xứ rõ ràng, ổn định và dễ thao tác, bao phủ tokens, ergonomics, loading states, accessibility và dark mode.
+- **Code truth**: `src/index.css` (semantic tokens `--radius-nav`, `--radius-sheet-lg`, `--radius-hero`, z-index ladder; unified `.mobile-top-bar`; `.sheet-grabber`; dark mobile brand overlays; backdrop-filter scroll optimization), `src/components/mobile/MobileAttendanceView.tsx` (attendance header panel, live KPI capsule, liturgical ribbon, haptic mark-all CTA), `src/components/mobile/MobileGradeView.tsx` (`SkeletonCardGrid` fallbacks), `src/components/mobile/MobileStudentsView.tsx` (`SkeletonTable` fallback, `inputMode="search"`, accessible class creation button), `src/components/mobile/MobileAttendanceSummaryView.tsx` (≥44px search target, `inputMode="search"`), `src/components/mobile/MobileReportsView.tsx` (≥44px search target, `inputMode="search"`, descriptive print `aria-label`), `src/components/mobile/MobileNoticesView.tsx` (≥44px edit button, descriptive `aria-label`), `src/components/mobile/MobileTopBar.tsx` (`.sheet-grabber`, `inputMode="search"`, ≥44px search target), `src/components/mobile/MobileCalendarView.tsx` (`.sheet-grabber`, accessible dialog lifecycle, day tile `aria-label` & `aria-pressed`), `src/components/mobile/MobileHomeView.tsx` (semantic `<nav>`, `<section>`, quick action `aria-label`s).
+- **Contracts**: Behavior-preserving presentation optimization. Zero breaking changes to routes, stores, APIs, schema, or RBAC. Universal ≥44px touch targets, mobile OS search keyboard optimization via `inputMode`, seamless dark mode elevation for brand components, and rich skeleton feedback during async chunk loading.
+- **Scope**: Presentation, ergonomics, accessibility, and CSS token normalization only.
+
+---
+
+### Module: Student Identity Typography & Name Formatting Standard (2026-08-29)
+
+- **Decision**: D1/GENERAL, R0. Comprehensive unification of Tên Thánh (Holy Name) & Họ và Tên (Full Name) across desktop and mobile views.
+- **Code truth**: `src/components/common/StudentName.tsx` (`<StudentName />`, `<StudentHolyName />`, `<StudentFullName />`), `src/index.css` (`.student-holy-name`, `.student-full-name`, `.student-name-group`), `src/components/desktop/DesktopStudentList.tsx`, `src/components/desktop/DesktopGradeMatrix.tsx`, `src/components/desktop/DesktopDailyGradeEntry.tsx`, `src/components/desktop/DesktopAttendanceGrid.tsx`, `src/components/desktop/DesktopGradeCards.tsx`, `src/components/desktop/DesktopReports.tsx`, `src/components/desktop/DesktopLeaveRequests.tsx`, `src/components/mobile/MobileStudentsView.tsx`, `src/components/mobile/MobileGradeView.tsx`, `src/components/mobile/MobileGradeMatrix.tsx`, `src/components/mobile/MobileDailyGradeEntry.tsx`, `src/components/mobile/MobileGradeComparison.tsx`, `src/components/mobile/MobileAttendanceSummaryView.tsx`, `src/components/mobile/MobileLeaveRequests.tsx`.
+- **Contracts**:
+  - `holyName`: `text-amber-900 dark:text-amber-400` / `#78350F` (Amber 900 — nâu đậm trang nghiêm), `font-semibold` (weight 600), sentence case.
+  - `fullName`: `text-text-main` (`var(--color-text-main)`), `font-extrabold` (weight 800), high contrast slate. Never blue (`text-parish-primary`).
+- **Scope**: Typography standardization, Catholic patron saint spiritual dignity, and design system synchronization (`docs/03_DESIGN_SYSTEM.md §17`).
 
 ---
 
@@ -395,7 +425,7 @@ server/src/                         ─ Backend Hono Application
   7. **GradeMatrix**: score input keyed theo giá trị → sync/import cập nhật UI đúng (record dirty giữ focus).
   8. **GradeCards**: rank so sánh lowercase — 'Xuất Sắc' không còn rơi badge xám.
   9. **DailyGradeEntry**: confirm xóa điểm/restore override; điểm invalid báo toast; fix phụ parse '7,5' (parseFloat cũ = 7).
-  10. **useEffectiveMode**: forced-mobile @≥768px fallback desktop — diệt màn trắng (đồng bộ CSS guard).
+  10. **useEffectiveMode (historical)**: forced-mobile @≥768px fallback desktop — breakpoint này đã được ADR-072 supersede thành mobile/tablet <1024px, desktop ≥1024px.
 - **Verify**: `tsc -b` exit 0 · oxlint 0 error (warnings còn lại pre-existing) · Vitest targeted 32/32 · **full suite 222 files / 1617 tests / 0 failed** · `build:frontend` pass. Nợ smoke thủ công: attendance offline→online, grade import refresh, toggle mobile @1280px.
 
 ### Module: Desktop UI Plan 2026-08-22 — PHA 1 (Modal Infrastructure, ✅ DONE batch 1)
@@ -433,7 +463,7 @@ server/src/                         ─ Backend Hono Application
 
 ### Module: Desktop UI Plan 2026-08-22 — PHA 4 Batch 1 (✅ DONE, có double-check)
 - **Files Created**: `src/hooks/useMediaQuery.ts` (NEW — jsdom-safe matchMedia hook).
-- **Files Modified**: `src/components/common/HeaderBar.tsx` (chặn force-desktop <768px: Monitor disabled + tooltip), `src/pages/{GradesPage,AcademicYearPage}.tsx` (tab strip flex-wrap; loader→SkeletonCardGrid), `src/components/desktop/{DesktopStudentList,DesktopAttendanceSummary,DesktopCalendarView,DesktopLeaveRequests}.tsx` (fixed-width→responsive), `docs/03_DESIGN_SYSTEM.md` (**§13 Desktop Layout Contract** mới: breakpoints/tier/quy tắc).
+- **Files Modified (historical; breakpoint superseded by ADR-072)**: `src/components/common/HeaderBar.tsx` (ban đầu chặn force-desktop <768px, hiện là <1024px), `src/pages/{GradesPage,AcademicYearPage}.tsx` (tab strip flex-wrap; loader→SkeletonCardGrid), `src/components/desktop/{DesktopStudentList,DesktopAttendanceSummary,DesktopCalendarView,DesktopLeaveRequests}.tsx` (fixed-width→responsive), `docs/03_DESIGN_SYSTEM.md` (§13 Desktop Layout Contract).
 - **Double-check bắt regression**: useMediaQuery làm 8 test HeaderBar fail (jsdom không có `window.matchMedia`) → sửa hook defensive → full suite **222/1618 ALL PASS**. Build + lint:ds pass.
 - **Deferred kỹ thuật**: sticky thead (wrapper overflow-x-auto phá vertical sticky — cần quyết bounded-pane); virtualization (cần dependency mới, phải qua decision riêng).
 

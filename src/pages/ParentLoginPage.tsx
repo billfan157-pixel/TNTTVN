@@ -40,25 +40,26 @@ export function ParentLoginPage() {
     <LoginShell title="Cổng Phụ Huynh" subtitle="Sổ Điểm Giáo Lý — Xem điểm & chuyên cần của con">
       <form onSubmit={handleLogin} className="p-8 space-y-5">
         {portalError && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
+          <div role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{portalError}</span>
           </div>
         )}
 
         {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
+          <div role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         <div>
-          <label className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Số Điện Thoại Phụ Huynh</label>
+          <label htmlFor="parent-phone" className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Số Điện Thoại Phụ Huynh</label>
           <div className="relative">
             <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               type="tel"
+              id="parent-phone"
               inputMode="numeric"
               pattern="[0-9]*"
               enterKeyHint="next"
@@ -67,7 +68,6 @@ export function ParentLoginPage() {
               onChange={(e) => setPhone(e.target.value)}
               placeholder="0901234567"
               autoComplete="username"
-              aria-label="Số điện thoại phụ huynh"
               className="form-input w-full !pl-10"
             />
           </div>
@@ -75,11 +75,11 @@ export function ParentLoginPage() {
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-xs font-semibold text-text-muted uppercase">Mật Khẩu</label>
+            <label htmlFor="parent-password" className="block text-xs font-semibold text-text-muted uppercase">Mật Khẩu</label>
             <button
               type="button"
               onClick={() => setIsForgotModalOpen(true)}
-              className="text-xs text-parish-primary hover:underline font-semibold transition-colors"
+              className="inline-flex min-h-11 items-center px-2 text-xs text-parish-primary hover:underline font-semibold transition-colors"
             >
               Quên mật khẩu?
             </button>
@@ -88,6 +88,7 @@ export function ParentLoginPage() {
             <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               ref={passwordInputRef}
+              id="parent-password"
               type={showPassword ? 'text' : 'password'}
               required
               value={password}
@@ -96,7 +97,7 @@ export function ParentLoginPage() {
               autoComplete="current-password"
               className="form-input w-full !pl-10 !pr-11"
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
+            <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute right-1 top-1/2 min-h-11 min-w-11 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
@@ -117,15 +118,15 @@ export function ParentLoginPage() {
           <button
             type="button"
             onClick={() => setIsForgotModalOpen(true)}
-            className="text-parish-primary font-semibold hover:underline"
+            className="inline-flex min-h-11 items-center px-1 text-parish-primary font-semibold hover:underline"
           >
-            Tự đổi hoặc nhắn Zalo hỗ trợ
+            Nhắn Zalo để được hỗ trợ
           </button>
         </p>
         <button
           type="button"
           onClick={() => navigate({ to: '/login' })}
-          className="inline-flex items-center gap-1.5 text-xs text-parish-primary font-semibold hover:underline transition-colors"
+          className="inline-flex min-h-11 items-center gap-1.5 px-2 text-xs text-parish-primary font-semibold hover:underline transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Chọn cổng đăng nhập khác</span>

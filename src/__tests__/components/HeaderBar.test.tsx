@@ -125,4 +125,13 @@ describe('HeaderBar Component', () => {
     render(<HeaderBar />)
     expect(screen.queryByText('Tất cả lớp học')).toBeNull()
   })
+
+  it('shows client-cache recovery only to admins with accurate wording', () => {
+    const { rerender } = render(<HeaderBar />)
+    expect(screen.getByRole('button', { name: 'Làm mới dữ liệu trên thiết bị' })).toBeDefined()
+
+    setMockAuthUser({ role: 'chunhiem', fullName: 'GLV' })
+    rerender(<HeaderBar />)
+    expect(screen.queryByRole('button', { name: 'Làm mới dữ liệu trên thiết bị' })).toBeNull()
+  })
 })

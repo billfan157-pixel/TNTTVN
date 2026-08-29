@@ -23,6 +23,7 @@
 | FE-04 | 🟠 P2 | DesktopSidebar menu catechists role mismatch (chunhiem/phuta thấy menu nhưng router 403) | ✅ CLOSED (2026-08-14) | `src/components/desktop/DesktopSidebar.tsx` |
 | FE-05 | 🟡 P3 | ErrorBoundary rò rỉ technical message ở production | ✅ CLOSED (2026-08-14) | `src/components/common/ErrorBoundary.tsx` |
 | FE-06 | 🟡 P3 | Thiếu accessible skip link ở RootLayout | ✅ CLOSED (2026-08-14) | `src/components/common/RootLayout.tsx` |
+| FE-08 | 🔴 P1/P2 | Hidden-nav thay route authorization: parent deep-link staff workspace; admin vào parent-only UI; route/title/nav drift | ✅ CLOSED (2026-08-29, ADR-072) | `src/constants/routePolicy.ts`, `src/router.tsx`, shell/nav regression |
 | FE-07 | 🔴 P1 | User report "dữ liệu mất sạch trên Vercel": stale build/SW cũ trong browser (tab mở nhiều ngày) → dashboard "0 thiếu nhi" + sync queue kẹt re-push mỗi 60s; server data AN TOÀN (566 students) | ✅ CLOSED (2026-08-16) | `src/sw.ts` (skipWaiting+clientsClaim+reload-on-activate), `src/lib/pushManager.ts` (updateViaCache none), `vercel.json` (no-store sw.js/index.html), `src/hooks/useSyncEngine.ts` (self-heal full pull) |
 | EXAM-02 | 🟠 P2 | Conflict matrix chia đôi client/server: client thiếu `override` trong PROTECTED sources (server: manual/override/excel_import) → lệch kết quả hiển thị local; docs re-score ghi `totalAnswered` trong khi code dùng `totalQuestions` | ✅ CLOSED (2026-08-17) | `src/services/examFinalizeService.ts` (thêm `override` vào conflict sources + khớp comment server `examService.ts:22`), `docs/BUSINESS_RULES.md` §11.5, `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` ADR-043, test mở rộng `examFinalizeService.test.ts` (3 nguồn) |
 | A01 | 🔴 P1 | Refresh token trong localStorage + XSS sinks trong popup in | ✅ CLOSED | 2026-08-10 |
@@ -139,6 +140,26 @@
 4. Nếu API thay đổi → cập nhật `docs/FRONTEND_API_CONTRACT.md`; nếu kiến trúc thay đổi →
    `docs/02_ARCHITECTURE.md`; nếu ảnh hưởng map → `docs/AI_CONTEXT_MAP.md` (dòng Security Audit — đã trỏ về file này).
 5. Commit kèm mã nguồn + tests — audit CHỈ được đóng khi tests pass + `tsc` sạch.
+
+---
+
+## Audit FE-08 — Frontend route boundary & UX/a11y consistency — ✅ CLOSED (2026-08-29, ADR-072)
+
+| Finding | Phân loại | Control |
+| :--- | :--- | :--- |
+| `FE-08-1` | **CONFIRMED** `/students`, `/grades`, `/attendance`, `/reports` từng dùng `requireAuth`; phụ huynh có thể deep-link dù menu bị ẩn | `ROUTE_POLICIES` gán staff roles và router dùng `requireRouteAccess` trước render |
+| `FE-08-2` | **CONFIRMED** `/parent` từng cho admin nhưng `GET /api/parents/my-children` chỉ nhận `phuhuynh`, tạo error/empty UI và làm mờ privacy boundary ADR-022 | `/parent` parent-only; frontend contract bỏ admin-preview |
+| `FE-08-3` | **CONFIRMED** title, desktop active tab và mobile tab được khai báo ở nhiều map nên route mới có thể rơi về title/home sai | Guard/title/tab/path cùng dẫn xuất từ `src/constants/routePolicy.ts`; unknown mobile tab = không active giả |
+| `FE-08-4` | **CONFIRMED** custom dialogs không đồng nhất focus trap/Escape/scroll lock; auth/grade inputs thiếu label ở các surface được audit | `useAccessibleDialog`, `htmlFor`/`id`, `role=alert`, grade `aria-label`, ≥44px controls |
+| `FE-08-5` | **CONFIRMED** action “Khôi phục dữ liệu gốc” mô tả sai client-cache reset và hiển thị cho mọi role | đổi thành admin-only “Làm mới dữ liệu trên thiết bị”; copy nêu rõ server data không bị xóa và pending queue được giữ |
+| `FE-08-6` | **NOT CONFIRMED** layout đã đạt chất lượng trên mọi tablet/thiết bị thật | code/test khóa breakpoint 1024 và touch target; authenticated real-device smoke vẫn là acceptance ngoài jsdom |
+
+- **D3 SECURITY gates:** Security 9, Privacy 9, Data Integrity 9, Testability 9 — PASS. Privacy evidence riêng đến từ ADR-022 + parent endpoint role middleware; frontend policy không thay server authority.
+- **ADR consistency:** ADR-022/030/055/063/065 PASS; stale admin-preview statement trong frontend contract bị sửa. Không API/schema/data migration.
+- **Business Rule Gate:** parent-only workspace, staff route set, route-title/nav derivation, dialog/reset semantics = `CONFIRMED` bằng source/tests; real-device visual quality = `NOT CONFIRMED`.
+- **Related release gate:** full verification tái hiện blocker OMR batch-print đã ghi ở ADR-067 (mực marker trái 19,86px < 6mm/22,68px). Safety output co đồng nhất 95% quanh tâm trang; 13/13 Chromium geometry tests PASS, giữ affine marker↔bubble. Field-printer variance vẫn `NOT CONFIRMED`.
+- **Verification:** `npm run verify:ci` PASS — oxlint zero-warning, design-system lint 0/141, frontend/server/PWA build, 251/251 files và 1800/1800 tests. Coverage statements/branches/functions/lines = 71,77/60,85/66,81/73,97%. Browser build smoke xác nhận public login 320/375/768/1440 không overflow/target nhỏ, `/verify` có một `main`/`h1`, protected unauth redirect. Authenticated real-device visual smoke vẫn `NOT CONFIRMED`.
+- **Rollback:** R1, revert frontend policy/UI/docs; backend authorization và dữ liệu không đổi.
 
 ---
 

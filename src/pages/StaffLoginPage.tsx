@@ -37,25 +37,26 @@ export function StaffLoginPage() {
     <LoginShell title="Giáo Lý Viên / Nhân Sự" subtitle="Đăng nhập Hệ Thống Quản Lý Giáo Lý & Chuyên Cần">
       <form onSubmit={handleLogin} className="p-8 space-y-5">
         {portalError && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
+          <div role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{portalError}</span>
           </div>
         )}
 
         {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
+          <div role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         <div>
-          <label className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Tên Đăng Nhập</label>
+          <label htmlFor="staff-username" className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Tên Đăng Nhập</label>
           <div className="relative">
             <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               type="text"
+              id="staff-username"
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -67,11 +68,12 @@ export function StaffLoginPage() {
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Mật Khẩu</label>
+          <label htmlFor="staff-password" className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Mật Khẩu</label>
           <div className="relative">
             <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               type={showPassword ? 'text' : 'password'}
+              id="staff-password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -79,7 +81,7 @@ export function StaffLoginPage() {
               autoComplete="current-password"
               className="form-input w-full !pl-10 !pr-11"
             />
-            <button type="button" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
+            <button type="button" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} onClick={() => setShowPassword(!showPassword)} className="absolute right-1 top-1/2 min-h-11 min-w-11 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
@@ -101,7 +103,7 @@ export function StaffLoginPage() {
         <button
           type="button"
           onClick={() => navigate({ to: '/login' })}
-          className="inline-flex items-center gap-1.5 text-xs text-parish-primary font-semibold hover:underline transition-colors"
+          className="inline-flex min-h-11 items-center gap-1.5 px-2 text-xs text-parish-primary font-semibold hover:underline transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Chọn cổng đăng nhập khác</span>

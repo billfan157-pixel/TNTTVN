@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useNoticeStore } from '../../stores/noticeStore';
 import { NoticeModal } from '../common/NoticeModal';
 import { useAuth } from '../../hooks/useAuth';
@@ -85,11 +85,12 @@ export const MobileNoticesView: React.FC = () => {
                     </span>
                     {canManageNotices && (
                       <button
+                        type="button"
                         onClick={() => { setEditingNotice(n); setShowModal(true); }}
-                        className="btn btn-secondary mobile-btn p-1 px-3 text-xs"
-                        title="Sửa thông báo"
+                        className="btn btn-secondary mobile-btn min-h-[44px] min-w-[44px] px-3 text-xs"
+                        aria-label={`Sửa thông báo: ${n.title}`}
                       >
-                        <Pencil size={11} /> Sửa
+                        <Pencil size={12} /> Sửa
                       </button>
                     )}
                   </div>

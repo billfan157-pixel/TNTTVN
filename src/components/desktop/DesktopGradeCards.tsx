@@ -5,6 +5,7 @@ import { useClassStore } from '../../stores/classStore'
 import type { Student } from '../../types'
 import { FileSpreadsheet, Eye, Printer } from 'lucide-react'
 import { PageHeader } from '../common/PageHeader'
+import { StudentName } from '../common/StudentName'
 
 interface DesktopGradeCardsProps {
   onViewReport: (student: Student) => void
@@ -60,10 +61,7 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
                 <div className="p-4 border-b border-surface-border">
                   <div className="flex justify-between items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="font-extrabold text-parish-primary truncate">
-                        <span className="text-parish-secondary mr-1">{student.holyName}</span>
-                        <span>{student.fullName}</span>
-                      </div>
+                      <StudentName holyName={student.holyName} fullName={student.fullName} size="base" />
                       <div className="text-xs text-text-muted mt-0.5 truncate">
                         {student.code} • {cls?.name || '—'}
                       </div>

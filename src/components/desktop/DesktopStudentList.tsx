@@ -154,7 +154,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     }),
     columnHelper.accessor('holyName', {
       header: 'Tên Thánh',
-      cell: (info) => <span className="text-sm font-bold text-parish-primary">{info.getValue()}</span>,
+      cell: (info) => <span className="text-sm font-semibold text-amber-900 dark:text-amber-400">{info.getValue() || '—'}</span>,
       size: 120,
     }),
     columnHelper.accessor('fullName', {
@@ -442,7 +442,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               >
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-parish-primary/0 via-parish-primary/40 to-parish-gold/40 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="flex items-center justify-between">
-                  <span className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: BRANCHES[c.branchId as keyof typeof BRANCHES]?.badgeBg || 'var(--color-parish-primary-light)', color: BRANCHES[c.branchId as keyof typeof BRANCHES]?.textColor || 'var(--color-parish-primary)', borderColor: (BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor || '#E2E8F0') + '40' }}>
+                        <span className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: BRANCHES[c.branchId as keyof typeof BRANCHES]?.badgeBg || 'var(--color-parish-primary-light)', color: BRANCHES[c.branchId as keyof typeof BRANCHES]?.textColor || 'var(--color-parish-primary)', borderColor: BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor ? `${BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor}40` : 'var(--color-surface-border)' }}>
                     {c.name.slice(0, 2).toUpperCase()}
                   </span>
                   <span className="px-2.5 py-1 rounded-full bg-surface-hover border border-surface-border text-xs font-black text-text-secondary group-hover:bg-parish-primary group-hover:text-white group-hover:border-parish-primary transition-colors">
@@ -452,7 +452,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                 <div>
                   <h4 className="font-extrabold text-text-main text-sm leading-tight truncate" title={c.name}>{c.name}</h4>
                   <p className="text-xs text-text-muted mt-1 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: (BRANCHES as any)[c.branchId]?.scarfColor || '#10B981' }}></span>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: (BRANCHES as any)[c.branchId]?.scarfColor || 'var(--color-parish-success)' }}></span>
                     {c.branchName || (BRANCHES as any)[c.branchId]?.name || c.branchId} {c.room ? `• ${c.room}` : ''}
                   </p>
                   {c.homeroomTeacher && (
@@ -600,3 +600,5 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     </div>
   );
 };
+
+export default DesktopStudentList;

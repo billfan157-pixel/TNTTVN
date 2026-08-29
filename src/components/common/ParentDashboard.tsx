@@ -12,6 +12,7 @@ import { getClassificationLabel } from '../../utils/grades'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 import { BRANCHES } from '../../constants/branches'
 import { DesktopAppShell } from '../desktop/DesktopAppShell'
+import { StudentName } from './StudentName'
 
 const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v))
 
@@ -127,9 +128,7 @@ export const ParentDashboard: React.FC = () => {
                       size={30}
                       className={active ? 'ring-2 ring-parish-primary/40' : 'opacity-80 group-hover:opacity-100 transition-opacity'}
                     />
-                    <span className={`text-sm transition-colors ${active ? 'font-bold text-parish-primary' : 'font-medium text-text-muted group-hover:text-text-main'}`}>
-                      {child.holyName} {child.fullName}
-                    </span>
+                    <StudentName holyName={child.holyName} fullName={child.fullName} size="sm" className={active ? 'text-parish-primary' : ''} />
                   </button>
                 )
               })}
@@ -149,9 +148,7 @@ export const ParentDashboard: React.FC = () => {
                   <div className="flex items-center gap-3 min-w-0">
                     <ChildAvatar id={selectedChild.id} holyName={selectedChild.holyName} fullName={selectedChild.fullName} size={46} />
                     <div className="min-w-0">
-                      <h2 className="font-bold text-text-main truncate m-0">
-                        {selectedChild.holyName} {selectedChild.fullName}
-                      </h2>
+                      <h2 className="font-bold text-text-main truncate m-0"><StudentName holyName={selectedChild.holyName} fullName={selectedChild.fullName} size="base" /></h2>
                       <p className="text-xs text-text-muted mt-0.5 mb-0 truncate">
                         {BRANCHES[selectedChild.branch as keyof typeof BRANCHES]?.name ?? selectedChild.branch}
                         {' · '}{selectedChild.className}

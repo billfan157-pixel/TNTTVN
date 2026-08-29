@@ -55,6 +55,7 @@ describe('App-wide UI System v4.1 migration contract', () => {
     expect(source('components/auth/LoginShell.tsx')).toContain('auth-hero')
     expect(source('pages/LoginPage.tsx')).toContain('auth-option')
     expect(source('pages/VerificationPage.tsx')).toContain('auth-card')
+    expect(source('pages/VerificationPage.tsx')).toContain('<main className="auth-page">')
   })
 
   it('removes duplicate page hierarchy when management pages are embedded', () => {

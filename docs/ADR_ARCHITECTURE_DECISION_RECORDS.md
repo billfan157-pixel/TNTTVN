@@ -2047,3 +2047,59 @@ A tiếp tục cho phép false evidence và lãng phí field run. B không sửa
 
 Targeted OMR/offline regression gồm recorder, runtime observer, qualification/evaluator, release provenance, detector/quality, rollout, exam store và sync flow: **11 files / 86 tests PASS**. Scoped oxlint PASS; design-system lint **0/139**; TypeScript client/server + Vite/PWA production build PASS; diff check PASS. Full repo lint bị chặn bởi đúng 3 unused warnings trong untracked `scripts/mobile-audit-auth.mjs` ngoài phạm vi. Full serialized coverage kết thúc **244/249 files, 1788/1794 tests PASS**, 4 failure ngoài staged diff (`examPrintGeometry`, `HeaderBarReact185`, `MobileReportsView`, `MobileViewsEnhancement`) và 2 worker-exit unhandled errors; vì vậy không được mô tả là full gate xanh. Không dùng verification local để claim thiết bị thật.
 
+---
+
+## ADR-072: Frontend Route Policy SSOT & UX/A11y Audit Remediation (2026-08-29)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profile: SECURITY. Reversibility: R1.**
+
+### Evidence và vấn đề
+
+- **E3 HIGH — route guard:** `/students`, `/grades`, `/attendance`, `/reports` từng chỉ dùng `requireAuth`; menu phụ huynh bị ẩn nhưng deep-link vẫn render staff workspace. `/parent` lại cho `admin|phuhuynh`, trong khi `server/src/routes/parents.ts` chỉ nhận `phuhuynh`, tạo error/empty UI.
+- **E4 HIGH — authority:** ADR-022 và `FRONTEND_API_CONTRACT` xác định parent portal là workspace riêng; `GET /api/parents/my-children` parent-only. Admin-preview là statement stale và xung đột privacy boundary.
+- **E3 HIGH — drift:** router guard, desktop path/tab, mobile path/tab và mobile title nằm ở các map khác nhau; route mới có thể rơi về home/title mặc định sai. `phuta` có reports API nhưng mobile/desktop nav từng ẩn Reports.
+- **E3 MED — UX/a11y:** custom dialogs thiếu focus lifecycle thống nhất; leave/auth/grade controls thiếu label; tablet 768–1023 bị ép vào desktop density; reset copy nói “dữ liệu gốc/mẫu” dù code chỉ xóa cache client và giữ pending queue; design-system linter công bố raw-hex rule nhưng chưa thực thi.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: `requireAuth` + ẩn menu | B: mở backend để admin preview parent | C: route-policy frontend SSOT, backend giữ authority |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 35% | 5 | 6 | 9 |
+| Data Integrity | 15% | 6 | 5 | 9 |
+| Privacy | 15% | 6 | 3 | 9 |
+| Tenant Isolation | 10% | 7 | 7 | 9 |
+| Business Rule Correctness | 10% | 5 | 4 | 9 |
+| Testability | 5% | 4 | 6 | 9 |
+| Maintainability | 5% | 6 | 5 | 8 |
+| Reversibility | 5% | 10 | 6 | 9 |
+| **Weighted** | **100%** | **5.75 — REJECT** | **5.25 — REJECT** | **8.95 — SELECT** |
+
+A không coi hidden nav là authorization. B xung đột parent identity/privacy và đòi mở rộng backend ngoài nhu cầu nghiệp vụ. C fail-closed ở UX, đồng thời không nhầm client guard là security authority.
+
+### Decision contract
+
+1. `src/constants/routePolicy.ts` là SSOT cho role set, mobile title, desktop/mobile active tab và tab destination. Mọi protected route dùng `requireRouteAccess(path)`; route mới thiếu policy là lỗi type/test.
+2. `/parent` chỉ `phuhuynh`. Staff workspace `/students|grades|attendance|reports|leave-requests` chỉ `admin|chunhiem|phuta`; governance routes chỉ admin; dashboard/notices/calendar/settings dùng chung cho role đã xác thực. Backend middleware/spec vẫn là authorization/tenant authority cuối cùng.
+3. Desktop/mobile nav dùng cùng policy; `phuta` thấy Reports. Route không thuộc bottom nav trả active tab `null`, không highlight Home giả. Mobile title không dùng fallback brand cho route hợp lệ.
+4. Mobile/tablet shell áp dụng dưới 1024px; desktop bắt đầu từ 1024px. Control trong touch shell tối thiểu 44px, form font 16px; phone ≤767px mới ép generic modal thành bottom sheet.
+5. Custom dialog dùng `ModalShell`, `ConfirmDialog` hoặc `useAccessibleDialog` (focus trap/restore, body scroll lock, top-most Escape). Native `confirm()` trong lịch được thay bằng `ConfirmDialog`.
+6. Auth và public verification dùng semantic `main`; auth có label association, live error và 44px controls. Grade input có accessible name gồm loại điểm + tên thiếu nhi. `StudentName` chứa khoảng trắng văn bản thật và được áp cho các surface tên kết hợp.
+7. “Làm mới dữ liệu trên thiết bị” là admin-only; copy nói đúng client-cache reset, server data không bị xóa và pending mutations được giữ. Mobile reload sau khi reset giống desktop.
+8. `NO_HARDCODED_HEX` được thực thi. Exemption chỉ cho print/OMR HTML tự chứa màu và được liệt kê; dead bento CSS/docs bị xóa.
+
+### Gates, compatibility, business status và rollback
+
+- **D3 hard gates:** Security 9, Privacy 9, Data Integrity 9 — PASS; Testability 9. Privacy evidence riêng: ADR-022 + parent route middleware + parent service identity matching. Client policy không mở dữ liệu và không thay server checks.
+- **ADR consistency:** ADR-022, ADR-030, ADR-055, ADR-063, ADR-065 = PASS. Stale admin-preview contract được sửa; không conflict còn lại.
+- **Business Rule Gate:** route-role matrix, parent-only portal, reports cho staff, cache reset semantics và dialog lifecycle = `CONFIRMED` bằng source/tests. Chất lượng visual trên thiết bị thật và authenticated-role smoke = `NOT CONFIRMED` cho tới khi chạy acceptance thực tế.
+- **Risk:** policy frontend và server có thể drift nếu server role đổi; mitigated bằng explicit route inventory/test và rule bắt buộc sync docs. Client marker có thể bị sửa, nên server vẫn fail-closed.
+- **Rollback R1:** revert route policy/UI/hooks/CSS/docs; không API/schema/migration và không dữ liệu server cần đảo.
+
+### Release-gate correction discovered during verification
+
+Full serialized verification tái hiện blocker kế thừa đã được ADR-067/SECURITY audit ghi nhận: mực marker OMR của batch print chỉ cách mép trái A4 19,86px, dưới gate 6mm tương đương 22,68px. Đây là D2/Data Integrity; chọn thay đổi cục bộ `scale(0.96)` → `scale(0.95)` quanh tâm trang trong output safety gate. Co đồng nhất giữ nguyên mọi tỉ lệ marker↔bubble/homography, không đổi template, detector, score, API hoặc schema. Security 9, Data Integrity 9, Testability 9; ADR-048/060/067 PASS; business rule khoảng cách mực marker ≥6mm = `CONFIRMED` bằng Chromium DOM geometry 13/13. Field-printer variance vẫn `NOT CONFIRMED`. Rollback R1.
+
+### Verification
+
+Targeted policy/StudentName/design-system/header/mobile-nav/calendar/leave regression: **7 files / 40 tests PASS**; các stale-contract regressions phát hiện ở full run được sửa và chạy lại **5 files / 14 tests PASS**; Chromium print geometry **13/13 PASS**. `npm run verify:ci` kết thúc xanh: oxlint zero-warning, design-system lint **0 violation / 141 UI components**, TypeScript frontend/server + Vite/PWA production build PASS, full serialized coverage **251/251 files, 1800/1800 tests PASS**. Coverage: statements 71,77%, branches 60,85%, functions 66,81%, lines 73,97%. Sau semantic fix cuối cho `/verify`: app-wide/policy 2 files/8 tests, lint, lint:ds, TypeScript và production build đều PASS. Browser build smoke: login public không overflow/control nhỏ ở 320×568, 375×667, 768×1024, 1440×900; `/verify` có đúng một `main`/`h1`, không app shell; protected unauthenticated `/students` redirect `/login`. `git diff --check` PASS. Chromium local không được dùng để claim authenticated real-device visual acceptance.
+

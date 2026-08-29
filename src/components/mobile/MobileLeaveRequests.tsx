@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useId } from 'react'
 import {
   Calendar, CheckCircle2, XCircle, Clock, Search, RefreshCw,
   Check, X, Phone, Church, BookOpen, Flame, Filter, CalendarClock
@@ -8,6 +8,8 @@ import { useClassStore } from '../../stores/classStore'
 import { useAuth } from '../../hooks/useAuth'
 import { EmptyState, NoResultState, SkeletonTable } from '../common/StateFeedback'
 import type { LeaveRequest, LeaveRequestStatus } from '../../types'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { StudentName } from '../common/StudentName'
 
 const SESSION_MAP: Record<string, { label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = {
   SundayMass: { label: 'Thánh Lễ', icon: Church },
@@ -42,15 +44,9 @@ export const MobileLeaveRequests: React.FC = () => {
   const [reviewingRequest, setReviewingRequest] = useState<{ req: LeaveRequest; action: 'APPROVED' | 'REJECTED' } | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [submittingReview, setSubmittingReview] = useState(false)
-
-  // 2026-08-22 mobile audit: bottom sheet xét duyệt phải khóa cuộn nền — trước đây
-  // danh sách đơn vẫn cuộn theo sau sheet trên iOS, mất ngữ cảnh form duyệt.
-  useEffect(() => {
-    if (!reviewingRequest) return
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
-  }, [reviewingRequest])
+  const closeReview = useCallback(() => setReviewingRequest(null), [])
+  const { dialogRef, titleId } = useAccessibleDialog(Boolean(reviewingRequest), closeReview)
+  const reviewNoteId = useId()
 
   useEffect(() => {
     fetchRequests()
@@ -272,10 +268,7 @@ export const MobileLeaveRequests: React.FC = () => {
                 {/* Student + Status */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-parish-primary text-[15px] font-bold leading-snug">
-                      <span className="text-parish-secondary mr-1">{req.holyName}</span>
-                      <span>{req.studentName}</span>
-                    </div>
+                    <StudentName holyName={req.holyName} fullName={req.studentName || '—'} size="base" />
                     <div className="text-xs text-text-muted mt-0.5 font-medium">
                       {req.studentCode}
                       {req.studentCode && req.className ? ' • ' : ''}
@@ -373,6 +366,11 @@ export const MobileLeaveRequests: React.FC = () => {
           role="presentation"
         >
           <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-busy={submittingReview}
             className="bg-surface-card border border-surface-border rounded-t-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 pb-[env(safe-area-inset-bottom)]"
             onClick={(e) => e.stopPropagation()}
           >
@@ -382,7 +380,7 @@ export const MobileLeaveRequests: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-surface-border">
-              <h3 className="text-base font-bold text-text-main m-0 flex items-center gap-2">
+              <h3 id={titleId} className="text-base font-bold text-text-main m-0 flex items-center gap-2">
                 {reviewingRequest.action === 'APPROVED' ? (
                   <>
                     <CheckCircle2 className="w-5 h-5 text-emerald-600" />
@@ -409,9 +407,7 @@ export const MobileLeaveRequests: React.FC = () => {
               <div className="p-3.5 rounded-xl bg-surface-hover border border-surface-border text-xs space-y-1.5">
                 <div>
                   <span className="text-text-muted">Thiếu nhi:</span>{' '}
-                  <strong className="text-text-main">
-                    {reviewingRequest.req.holyName} {reviewingRequest.req.studentName}
-                  </strong>{' '}
+                  <StudentName holyName={reviewingRequest.req.holyName} fullName={reviewingRequest.req.studentName || '—'} size="xs" />{' '}
                   <span className="text-text-muted">({reviewingRequest.req.className})</span>
                 </div>
                 <div>
@@ -444,10 +440,11 @@ export const MobileLeaveRequests: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
+                <label htmlFor={reviewNoteId} className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
                   Ghi chú phản hồi cho phụ huynh (Tùy chọn)
                 </label>
                 <input
+                  id={reviewNoteId}
                   type="text"
                   placeholder={reviewingRequest.action === 'APPROVED' ? 'VD: Đã ghi nhận em nghỉ có phép' : 'VD: Ngày thi kết khóa bắt buộc có mặt...'}
                   value={reviewNote}

@@ -7,6 +7,7 @@ import {
 import type { ClassInfo, BranchInfo } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
+import { canRoleAccessRoute } from '../../constants/routePolicy';
 
 export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'calendar' | 'notices' | 'users' | 'classes' | 'academic-years' | 'catechists' | 'audit-logs' | 'settings' | 'management' | 'parent' | 'finances';
 
@@ -58,16 +59,16 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     const overview: SidebarItem[] = [{ id: 'dashboard', label: 'Tổng Quan', icon: LayoutDashboard }];
 
     // Con Của Tôi — cổng riêng của phụ huynh, nhóm ngay dưới Tổng Quan
-    const parentHome: SidebarItem[] = role === 'phuhuynh'
+    const parentHome: SidebarItem[] = canRoleAccessRoute('/parent', role)
       ? [{ id: 'parent', label: 'Con Của Tôi', icon: HeartHandshake }]
       : [];
 
     // Dạy học & theo dõi — chỉ nhân sự (GLV/trợ tá/admin)
-    const teaching: SidebarItem[] = role === 'phuhuynh' ? [] : [
-      { id: 'students', label: 'Thiếu Nhi', icon: Users },
-      { id: 'grades', label: 'Bảng Điểm', icon: FileSpreadsheet },
-      { id: 'attendance', label: 'Điểm Danh', icon: CheckSquare, badge: pendingCount > 0 ? pendingCount : undefined },
-      ...((role === 'admin' || role === 'chunhiem') ? [{ id: 'reports', label: 'Báo Cáo', icon: Printer } as SidebarItem] : []),
+    const teaching: SidebarItem[] = [
+      ...(canRoleAccessRoute('/students', role) ? [{ id: 'students', label: 'Thiếu Nhi', icon: Users } as SidebarItem] : []),
+      ...(canRoleAccessRoute('/grades', role) ? [{ id: 'grades', label: 'Bảng Điểm', icon: FileSpreadsheet } as SidebarItem] : []),
+      ...(canRoleAccessRoute('/attendance', role) ? [{ id: 'attendance', label: 'Điểm Danh', icon: CheckSquare, badge: pendingCount > 0 ? pendingCount : undefined } as SidebarItem] : []),
+      ...(canRoleAccessRoute('/reports', role) ? [{ id: 'reports', label: 'Báo Cáo', icon: Printer } as SidebarItem] : []),
     ];
 
     const community: SidebarItem[] = [

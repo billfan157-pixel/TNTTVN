@@ -3,6 +3,7 @@ import { useAuthStore } from './stores/authStore'
 import { RootLayout, PageSuspense } from './components/common/RootLayout'
 import { setNavigateToLogin } from './lib/api'
 import { lazyWithRetry } from './utils/lazyWithRetry'
+import { ROUTE_POLICIES, type ProtectedRoutePath } from './constants/routePolicy'
 
 const DashboardPage = lazyWithRetry(() => import('./pages/DashboardPage'))
 const StudentsPage = lazyWithRetry(() => import('./pages/StudentsPage'))
@@ -63,6 +64,10 @@ function requireRole(...roles: string[]) {
   }
 }
 
+function requireRouteAccess(path: ProtectedRoutePath) {
+  return requireRole(...ROUTE_POLICIES[path].roles)
+}
+
 const rootRoute = createRootRoute({
   component: RootLayout,
 })
@@ -78,7 +83,7 @@ const indexRoute = createRoute({
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/dashboard'),
   component: () => (
     <PageSuspense>
       <DashboardPage />
@@ -89,7 +94,7 @@ const dashboardRoute = createRoute({
 const studentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/students',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/students'),
   component: () => (
     <PageSuspense>
       <StudentsPage />
@@ -100,7 +105,7 @@ const studentsRoute = createRoute({
 const gradesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/grades',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/grades'),
   component: () => (
     <PageSuspense>
       <GradesPage />
@@ -111,7 +116,7 @@ const gradesRoute = createRoute({
 const attendanceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/attendance',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/attendance'),
   component: () => (
     <PageSuspense>
       <AttendancePage />
@@ -122,7 +127,7 @@ const attendanceRoute = createRoute({
 const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/reports'),
   component: () => (
     <PageSuspense>
       <ReportsPage />
@@ -133,7 +138,7 @@ const reportsRoute = createRoute({
 const noticesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notices',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/notices'),
   component: () => (
     <PageSuspense>
       <NoticesPage />
@@ -144,7 +149,7 @@ const noticesRoute = createRoute({
 const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/users'),
   component: () => (
     <PageSuspense>
       <UsersPage />
@@ -155,7 +160,7 @@ const usersRoute = createRoute({
 const classesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/classes',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/classes'),
   component: () => (
     <PageSuspense>
       <ClassesPage />
@@ -166,7 +171,7 @@ const classesRoute = createRoute({
 const academicYearRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/academic-years',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/academic-years'),
   component: () => (
     <PageSuspense>
       <AcademicYearPage />
@@ -177,7 +182,7 @@ const academicYearRoute = createRoute({
 const catechistRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/catechists',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/catechists'),
   component: () => (
     <PageSuspense>
       <CatechistPage />
@@ -188,7 +193,7 @@ const catechistRoute = createRoute({
 const auditLogRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/audit-logs'),
   component: () => (
     <PageSuspense>
       <AuditLogPage />
@@ -199,7 +204,7 @@ const auditLogRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/settings'),
   component: () => (
     <PageSuspense>
       <SettingsPage />
@@ -210,7 +215,7 @@ const settingsRoute = createRoute({
 const managementRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/management',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/management'),
   component: () => (
     <PageSuspense>
       <ManagementPage />
@@ -221,7 +226,7 @@ const managementRoute = createRoute({
 const parentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/parent',
-  beforeLoad: requireRole('admin', 'phuhuynh'),
+  beforeLoad: requireRouteAccess('/parent'),
   component: () => (
     <PageSuspense>
       <ParentPage />
@@ -232,7 +237,7 @@ const parentRoute = createRoute({
 const leaveRequestsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/leave-requests',
-  beforeLoad: requireRole('admin', 'chunhiem', 'phuta'),
+  beforeLoad: requireRouteAccess('/leave-requests'),
   component: () => (
     <PageSuspense>
       <LeaveRequestsPage />
@@ -243,7 +248,7 @@ const leaveRequestsRoute = createRoute({
 const calendarRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/calendar',
-  beforeLoad: requireAuth,
+  beforeLoad: requireRouteAccess('/calendar'),
   component: () => (
     <PageSuspense>
       <CalendarPage />
@@ -294,7 +299,7 @@ const verifyRoute = createRoute({
 const financeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/finances',
-  beforeLoad: requireRole('admin'),
+  beforeLoad: requireRouteAccess('/finances'),
   component: () => (
     <PageSuspense>
       <FinancePage />

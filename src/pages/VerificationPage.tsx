@@ -37,7 +37,7 @@ export default function VerificationPage() {
   }, [])
 
   return (
-    <div className="auth-page">
+    <main className="auth-page">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <div className="w-16 h-16 rounded-3xl bg-[var(--color-parish-primary)] text-white flex items-center justify-center mx-auto shadow-lg mb-3 font-black text-2xl">
@@ -145,6 +145,6 @@ export default function VerificationPage() {
           © 2026 Brave Davinci Parish Management PWA. Secured with Server-Side HMAC-SHA256.
         </p>
       </div>
-    </div>
+    </main>
   )
 }

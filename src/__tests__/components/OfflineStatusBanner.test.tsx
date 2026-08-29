@@ -31,11 +31,11 @@ const mockOnline = (online: boolean) => {
 }
 
 describe('OfflineStatusBanner Component', () => {
-  it('renders connected banner when online, idle and no pending', () => {
+  it('stays visually silent when online, idle and fully synced', () => {
     mockStore()
     mockOnline(true)
-    render(<OfflineStatusBanner />)
-    expect(screen.getByText(/Đang kết nối:/)).toBeDefined()
+    const { container } = render(<OfflineStatusBanner />)
+    expect(container.innerHTML).toBe('')
   })
 
   it('renders syncing banner when status is syncing', () => {
@@ -51,7 +51,7 @@ describe('OfflineStatusBanner Component', () => {
     mockOnline(false)
     render(<OfflineStatusBanner />)
     expect(screen.getByText(/Mất kết nối Internet:/)).toBeDefined()
-    expect(screen.getByText(/3 thay đổi sẽ tự đồng bộ khi có mạng/)).toBeDefined()
+    expect(screen.getByText(/3 thay đổi chờ gửi/)).toBeDefined()
   })
 
   it('renders pending-online banner when online with pending changes', () => {

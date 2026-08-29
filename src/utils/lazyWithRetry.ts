@@ -7,8 +7,8 @@ import { lazy, type ComponentType } from 'react'
 export function lazyWithRetry<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T } | { [key: string]: any }>,
   exportName = 'default',
-  retries = 2,
-  interval = 400
+  retries = 3,
+  interval = 300
 ): React.LazyExoticComponent<T> {
   return lazy(() =>
     new Promise<{ default: T }>((resolve, reject) => {
@@ -22,6 +22,9 @@ export function lazyWithRetry<T extends ComponentType<any>>(
             const msg = String(error?.message || error || '')
             const isFetchOrChunkError =
               msg.includes('Failed to fetch dynamically imported module') ||
+              msg.includes('Outdated Optimize Dep') ||
+              msg.includes('504') ||
+              msg.includes('Failed to load resource') ||
               error?.name === 'ChunkLoadError' ||
               msg.includes('Loading chunk') ||
               msg.includes('Importing a module script failed') ||
