@@ -1,6 +1,6 @@
 # System Architecture & Layer Boundaries
 
-> Version: 2.6 | Last reviewed: 2026-08-21 | Status: ✅ Current | Prerequisites: none
+> Version: 2.7 | Last reviewed: 2026-08-29 | Status: ✅ Current | Prerequisites: none
 
 ---
 
@@ -12,7 +12,7 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 21 route pages (17 protected + 4 public/auth)              │
-│  Components: 57 (common: 22, desktop: 18, exam: 6, mobile: 12)     │
+│  Components: 58 (common: 22, desktop: 18, exam: 6, mobile: 13)     │
 │  Router: TanStack Router (21 page paths + root redirect, no 404)   │
 │  State: 18 Zustand stores (13 persist → Dexie, 5 in-memory)       │
 └────────────────────────────┬─────────────────────────────────────┘
@@ -69,6 +69,7 @@
 - **Khôi Phục Đợt Nhập Điểm (Undo Import, ADR-028, 2026-08-12)** — `POST /api/grades/undo-import` (admin/chunhiem theo class-access): đảo ngược lần ghi điểm gần nhất của từng bảng điểm trong đợt import dựa trên **audit_logs làm nguồn restore** (không bảng mới): entry mới nhất `entityType='grade'` — `CREATE` → xóa row, `UPDATE` → khôi phục `oldValue` (version +1). Cửa sổ **7 ngày** (`UNDO_GRADE_WINDOW_DAYS`); từ chối nếu entry mới nhất không phải CREATE/UPDATE (`not-clean` — chống undo lặp/mất sửa tay); semester lock + access check trong cùng tx (ADR-016 S24). Audit mỗi item `GRADE_UNDO`. UI: `ExcelGradeImportModal` snapshot localStorage → nút "Hoàn Tác Đợt Nhập Trước" → refetch. Service: `gradeService.undoGradeImport`; tests `gradeUndoImport.test.ts`.
 - **Student Roster Import Boundary (ADR-064, 2026-08-28)** — Excel/CSV/TXT được parse client-side có cap 10 MB/2000 dòng rồi gửi JSON tới `/api/students/validate|import`. Server là authority cho normalize, validation, parish-wide duplicate guard và quyết định fail-closed (`skip` mặc định; `update/create` phải explicit). Chủ nhiệm không nhận metadata collision ngoài lớp được phân công. Partial-success ADR-008 giữ nguyên. Undo roster 24h dùng `import_batch_students.rollback_snapshot` exact theo row/batch; audit vẫn redacted và không còn là restore source; snapshot TTL, post-import mutation/dependency gate và exact created-class IDs bảo vệ dữ liệu.
 - **Roster Import Fast Commit + Immediate Projection (ADR-066, 2026-08-28)** — create-only rows đã validate, không collision và resolve được lớp đi qua fast path chunk 40: multi-row `students` + `audit_logs` + `import_batch_students` (+ `service_assignments` khi có) trong cùng transaction; lỗi constraint/race rollback nguyên chunk rồi fallback transaction từng dòng, nên partial-success/rollback ADR-008/064 không đổi. Năm học cache theo lớp, mã `TN{year}{6}` được reserve từ một snapshot code scoped giáo xứ và UNIQUE DB vẫn là final guard. Response trả `studentChanges` chỉ gồm record đã commit; `studentStore.reconcileImportedStudents` kiểm tra tenant scope và merge ngay, không GET lại tối đa 10.000 học viên khi đóng modal. Lớp mới refresh nền; undo vẫn refetch authoritative.
+- **Mobile Unified Grade Board, Preview Partitioning & Portal Modal Isolation (ADR-074 / ADR-075 / ADR-076, 2026-08-29)** — Gộp 2 tabs mobile `Thẻ điểm` (read-only) + `Ma trận` thành 1 tab `Bảng điểm` duy nhất (`MobileGradeView.tsx` 4 tabs; desktop giữ `DesktopGradeCards`/`DesktopGradeMatrix` riêng). `MobileGradeBoard.tsx` là SSOT unified với Command Deck Header tích hợp `[Xuất]`/`[Nhập]` và `ChevronDown` mở rộng từng học sinh. Phân định RBAC & Device Workspace: Cấu hình hệ số (`GradeFormulaConfigModal`) và Ghi đè điểm (`isOverrideModeEnabled`) khóa cho **Admin Desktop**. Trung tâm Đề thi trên Mobile hiển thị `[Xem Đề Thi]` (`<Eye size={14} />`) với `ExamPaperModal` mount trực tiếp qua `React.createPortal(modalContent, document.body)` (Z-Index 1100) cách ly hoàn toàn khỏi Stacking Context con, che phủ hoàn toàn `MobileTopBar` và `MobileBottomNav`, cung cấp chế độ Đọc Đề di động (`question_reader`) và Xem bản in A4 Vector co giãn thông minh không vỡ dòng. Cấu hình pre-bundle `vite.config.ts` (`jsqr`, `qrcode-generator`, `dexie`) chống lỗi 504 Outdated Optimize Dep. Decision Matrix §13 hard gates PASS; verification `tsc -b` + `lint:ds` (0/143) + `lint` (0 err) + `vitest` PASS.
 
 ---
 

@@ -28,11 +28,12 @@ const SCORE_FIELDS: Array<{
   { key: 'scoreDaoDuc', label: 'Đạo đức' },
 ]
 
-interface MobileGradeMatrixProps {
+interface MobileGradeBoardProps {
   onViewReport: (student: Student) => void
 }
 
-export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewReport }) => {
+// C1 Unified Board: Bảng điểm tổng hợp trên mobile (View & Export/Import)
+export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport }) => {
   const { can } = useAuth()
   const canEdit = can('admin', 'chunhiem')
   const students = useStudentStore(s => s.students)
@@ -55,6 +56,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
       : students.filter(student => student.classId === selectedClassId)
   ), [selectedClassId, students])
 
+  const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
   const selectedClassLabel = selectedClassId === 'all'
     ? 'Tất cả các lớp'
     : classes.find(item => item.id === selectedClassId)?.name || 'Lớp hiện tại'
@@ -106,7 +108,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
               <Grid3X3 size={15} />
             </div>
             <div className="min-w-0">
-              <h2 className="grade-command-deck__title">Ma trận điểm</h2>
+              <h2 className="grade-command-deck__title">Bảng điểm</h2>
               <p className="grade-command-deck__meta truncate">HK {effectiveSemester === 1 ? 'I' : 'II'} · {selectedClassLabel} · {filteredStudents.length} em</p>
             </div>
           </div>
@@ -128,7 +130,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
                 onClick={handleExport}
                 disabled={filteredStudents.length === 0}
                 className="grade-action-btn disabled:opacity-40"
-                title="Xuất Excel"
+                title="Xuất bảng điểm ra file Excel"
               >
                 <Download size={12} /> Xuất
               </button>
@@ -137,7 +139,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
                   type="button"
                   onClick={() => setShowImportModal(true)}
                   className="grade-action-btn disabled:opacity-40"
-                  title="Nhập Excel"
+                  title="Nhập điểm từ file Excel"
                 >
                   <Upload size={12} /> Nhập
                 </button>
@@ -167,7 +169,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
             >
               <span className="min-w-0 flex-1">
                 <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="flex" />
-                <span className="block text-xs text-text-muted mt-0.5 truncate">{student.code}</span>
+                <span className="block text-xs text-text-muted mt-0.5 truncate">{student.code} • {classNameById.get(student.classId) || '—'}</span>
               </span>
               <div className="shrink-0 flex items-center gap-2.5">
                 <div className="text-right">
@@ -216,4 +218,4 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
   )
 }
 
-export default MobileGradeMatrix
+export default MobileGradeBoard

@@ -528,3 +528,43 @@ Nhằm đảm bảo tính tôn nghiêm Công Giáo (Catholic Spiritual Identity)
 - Custom dialog không được tự quản lý một phần lifecycle. Dùng `ModalShell`, `ConfirmDialog` hoặc `useAccessibleDialog`.
 - Input điểm phải có accessible name chứa loại điểm và tên thiếu nhi; form auth phải dùng `main`, `htmlFor`/`id`, `role="alert"` và control ≥44px.
 - Action “Làm mới dữ liệu trên thiết bị” chỉ hiện cho admin và mô tả đúng: xóa cache client, giữ mutation đang chờ đồng bộ, không xóa dữ liệu server.
+
+---
+
+## 18. Mobile Grade Workspace Primitives (v4.2 / ADR-074)
+
+Để giải quyết vấn đề chiếm dụng chiều dọc (vertical real estate) và phân tán nút thao tác trong các chế độ xem điểm ở mobile mode (`MobileGradeBoard`, `MobileDailyGradeEntry`, `MobileGradeComparison`, `ExamSessionView`), Design System cung cấp bộ primitive chuyên dụng:
+
+1. **Command Deck (`.grade-command-deck`):**
+   - Hộp điều khiển tích hợp 2 vùng (Header + Action Toolbar) gom nhóm tiêu đề, metadata lớp/năm học, cụm badge trạng thái đồng bộ (`☁ pending` / `✓ Đã lưu`) và chế độ sửa (`Sửa` / `Xem`).
+   - `.grade-command-deck__header`: Hàng đầu gồm `.grade-command-deck__title-group` (icon tile 32×32px, tiêu đề 14px font-black, subtitle 11px) và `.grade-command-deck__status-cluster`.
+2. **Action Toolbar (`.grade-toolbar-row` & `.grade-action-group`):**
+   - Phân cụm các nút thao tác thành 2 nhóm rõ ràng (Nhóm hiển thị bên trái & Tiện ích Excel bên phải), chống tràn ngang trên các thiết bị màn hình nhỏ (320px–390px).
+   - `.grade-action-btn`: Nút bấm thanh công cụ phụ siêu gọn (visual height **26px**, đệm ngang hẹp **`padding: 0 6px`**, khoảng cách `gap: 3px`, nhãn súc tích `Thu/Mở`, `Xuất`, `Nhập`), viền bo ôm khít chữ và icon 12px, đảm bảo vùng chạm $\ge 44\text{px}$ qua pseudo hit-area.
+3. **Segmented Control Group (`.grade-segmented-group` & `.grade-segmented-item`):**
+   - Thanh chọn tab/loại điểm dạng viên thuốc liền khối (pill bar) ôm sát màn hình mobile, chiều cao trực quan **36px** (thuộc dải 35px–38px), có counter badge `.count-badge` với `tabular-nums`.
+4. **Metric Strip (`.grade-metric-strip`):**
+   - Băng số liệu 1 hàng siêu gọn (`--3col` hoặc `--4col`) thay thế các card thống kê 2x2 đồ sộ, tiết kiệm >60% chiều cao màn hình trước khi hiển thị danh sách thiếu nhi.
+5. **Tiered Action Cluster (trong Exam Grading Session):**
+   - Phân tầng thao tác chấm điểm:
+     - Tier 1 (Primary CTAs): Nút chấm ổn định + Quét QR OMR chiếm vị trí nổi bật 2 cột.
+     - Tier 2 (Utility Actions): Các nút chức năng phụ (Mã đề, Chấm nhiều ảnh, Phân tích, In ấn) xếp gọn gàng trong lưới responsive.
+6. **Phân định Khả năng Thao tác Mobile vs Desktop (RBAC Partitioning - ADR-075):**
+   - Giao diện Mobile tối ưu hoàn toàn cho tra cứu và chấm điểm nhanh; không render nút Cấu hình hệ số (`GradeFormulaConfigModal`) hay Chế độ ghi đè điểm (`isOverrideModeEnabled`).
+   - Thao tác điều chỉnh hệ số điểm và ghi đè điểm thành phần học kỳ là đặc quyền cho vai trò **Admin** trên **Desktop Mode** (`DesktopGradeMatrix.tsx`).
+7. **Thu Gọn Thanh Thao Tác & Icon Mở Rộng Thẻ Cá Nhân (ADR-076):**
+   - Loại bỏ nút `[Thu/Mở]` toàn cục trên thanh công cụ; tích hợp trực tiếp `[Xuất]` và `[Nhập]` vào `.grade-command-deck__header`, giải phóng hoàn toàn hàng toolbar thứ hai.
+   - Mỗi thẻ học sinh (`MobileGradeBoard`, `MobileGradeMatrix`) trang bị icon `ChevronDown` 16px ở góc phải tiêu đề với animation xoay 180° mượt mà (`transition-transform duration-200`) để thu/mở độc lập từng học sinh.
+8. **Phân Định In Đề vs Xem Đề Thi Mobile (Exam Paper Preview Partitioning - ADR-076):**
+   - **Mobile Mode**: Thiết bị di động không kết nối máy in văn phòng; nút thao tác trên `ExamSessionView` hiển thị nhãn **`[Xem Đề Thi]`** (`<Eye size={14} />`). Modal `ExamPaperModal` mang tiêu đề *"Xem Đề Thi & Tài Liệu"*, ẩn các nút In trực tiếp (`handlePrint`) và xuất Word/Excel/HTML, trang bị chế độ Đọc Đề di động (`question_reader`) và chế độ Xem bản in A4 chuẩn với nút Tải PDF về máy.
+   - **Desktop Mode**: Đầy đủ trung tâm in ấn và xuất bản đa định dạng (**`[In Đề & Phiếu]`**, Word, Excel, PDF vector, HTML độc lập).
+9. **Chuẩn Hóa Portal Mounting & Z-Index Layering Cho Modal Mobile (ADR-076):**
+   - **React Portal Root Mount**: Toàn bộ các modal kích thước lớn hoặc toàn màn hình trên mobile (`ExamPaperModal`) bắt buộc phải mount trực tiếp ra `document.body` thông qua `React.createPortal(modalContent, document.body)` nhằm triệt tiêu hoàn toàn hiện tượng Stacking Context con bị giới hạn bởi `<main>` hoặc `<PageTransition>`.
+   - **Hệ thống Phân tầng Z-Index Bất Biến**:
+     $$\text{--z-header: 40} < \text{--z-bottom-action: 850} < \text{--z-floating-action: 900} < \text{--z-top-bar: 950} < \text{--z-mobile-nav: 1000} < \mathbf{\text{--z-modal: 1100}} < \text{--z-toast: 9999}$$
+     Bảo đảm khi mở Modal trên Mobile, `MobileTopBar` và `MobileBottomNav` sẽ bị che phủ 100% bên dưới backdrop, không bao giờ đè lên thanh tiêu đề hay các nút điều hướng của Modal.
+10. **Trải Nghiệm Xem Đề Đa Chế Độ Trên Mobile (Mobile Dual-Preview Engine - ADR-076):**
+    - **Tab `📖 Đọc Đề` (Native Mobile Reader)**: Trình đọc thẻ câu hỏi chuyên dụng cho điện thoại. Hiển thị điểm số, badge Tự luận/Trắc nghiệm, 4 thẻ phương án A/B/C/D rõ nét với khả năng highlight đáp án đúng (xanh lá) và hộp giải thích chi tiết (`💡 Lời giải`) khi bật Hiện Đáp Án.
+    - **Tab `📄 Đề A4` & `📋 Phiếu A4` (Vector Print Preview)**: Giữ nguyên tỷ lệ 210mm A4 chuẩn (`min-width: 210mm`), hỗ trợ 2 chế độ xem: 📱 *Vừa màn hình* (tự động tính toán scale factor để trang A4 khớp 100% chiều rộng điện thoại mà không bị vỡ cột/bẻ dòng chữ) và 🔍 *100% A4* (tỷ lệ gốc chuẩn pixel cho phép vuốt ngang/dọc kiểm tra chi tiết khung OMR).
+
+

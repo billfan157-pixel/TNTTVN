@@ -2103,3 +2103,101 @@ Full serialized verification tái hiện blocker kế thừa đã được ADR-0
 
 Targeted policy/StudentName/design-system/header/mobile-nav/calendar/leave regression: **7 files / 40 tests PASS**; các stale-contract regressions phát hiện ở full run được sửa và chạy lại **5 files / 14 tests PASS**; Chromium print geometry **13/13 PASS**. `npm run verify:ci` kết thúc xanh: oxlint zero-warning, design-system lint **0 violation / 141 UI components**, TypeScript frontend/server + Vite/PWA production build PASS, full serialized coverage **251/251 files, 1800/1800 tests PASS**. Coverage: statements 71,77%, branches 60,85%, functions 66,81%, lines 73,97%. Sau semantic fix cuối cho `/verify`: app-wide/policy 2 files/8 tests, lint, lint:ds, TypeScript và production build đều PASS. Browser build smoke: login public không overflow/control nhỏ ở 320×568, 375×667, 768×1024, 1440×900; `/verify` có đúng một `main`/`h1`, không app shell; protected unauthenticated `/students` redirect `/login`. `git diff --check` PASS. Chromium local không được dùng để claim authenticated real-device visual acceptance.
 
+---
+
+## ADR-074: Mobile Grade Workspace UI/UX Redesign (Command Deck, Segmented Controls, Compact Metric Strip)
+
+- **Status:** APPROVED / IMPLEMENTED
+- **Date:** 2026-08-29
+- **Decision Tier:** D2 (Cross-Module Presentation & Component Architecture)
+- **Profile:** GENERAL
+- **Reversibility:** R1
+
+### Context & Problem Statement
+On mobile viewports, the Grade Workspace views (`MobileGradeBoard`, `MobileDailyGradeEntry`, `MobileGradeComparison`, `ExamSessionView`) suffered from excessive vertical real estate consumption. Top headers, filters, full-sized cards, and loose action buttons pushed the primary student grade lists off-screen, forcing users to scroll extensively.
+
+### Decision
+1. **Integrated Command Deck (`.grade-command-deck`):**
+   - Consolidated class metadata, title, academic year, and status indicators into `.grade-command-deck__header`.
+2. **Compact Action Toolbar (`.grade-action-btn`):**
+   - Miniaturized action buttons with visual height 26px, padding `0 6px`, gap 3px, while ensuring touch target ≥44px via hit-area.
+3. **Segmented Control Group (`.grade-segmented-group`):**
+   - Standardized pill-bar tab switcher at visual height 36px (within 35–38px guideline) with tabular counter badges.
+4. **Single-Row Metric Strip (`.grade-metric-strip`):**
+   - Replaced multi-row stat cards with a clean, single-row 3/4-column statistical strip.
+
+### Consequences & Verification
+- Mobile Grade screens gained >50% vertical viewport space.
+- All 143 UI components pass `npm run lint:ds` with 0 violations.
+
+---
+
+## ADR-075: Score Overriding and Weight Formula Configuration RBAC & Mobile/Desktop Device Partitioning
+
+- **Status:** APPROVED / IMPLEMENTED
+- **Date:** 2026-08-29
+- **Decision Tier:** D2 (Cross-Module Presentation & Security Partitioning)
+- **Profile:** GENERAL + SECURITY
+- **Reversibility:** R1
+
+### Context & Problem Statement
+Formula configuration (`GradeFormulaConfigModal`) and granular score overriding (`isOverrideModeEnabled`) are complex, administrative operations meant exclusively for Administrator workstations. Rendering these actions on mobile clutter classroom scoring workflows and risk accidental parameter alterations.
+
+### Decision
+1. **Score Overriding & Weight Formula Config is Admin Desktop Only:**
+   - Hidden on mobile viewports; available exclusively on Desktop Mode (`DesktopGradeMatrix.tsx`) for `admin` role.
+2. **Classroom Mobile Mode Specialization:**
+   - Mobile mode focuses purely on fast attendance, daily/exam score entry, and OMR camera scanning.
+
+### Consequences & Verification
+- Protected administrative formula integrity while streamlining the mobile interface.
+
+---
+
+## ADR-076: Mobile Exam Paper Preview Partitioning, React Portal Isolation, and Vite Dependency Optimization
+
+- **Status:** APPROVED / IMPLEMENTED
+- **Date:** 2026-08-29
+- **Decision Tier:** D2 (Cross-Module Presentation & Workspace Device Partitioning)
+- **Profile:** GENERAL + ARCHITECTURE
+- **Reversibility:** R1
+
+### Context & Problem Statement
+1. **Device Partitioning in Exam Center:**
+   - Mobile devices do not directly connect to physical A4 printers. Displaying physical print actions on mobile creates cluttered toolbars and confusing affordances.
+   - Teachers require full ability to preview questions, answer keys, explanations, and variant codes on mobile.
+2. **Modal Overlay Stacking Context Clipping:**
+   - When modals (`ExamPaperModal`) were rendered inside `<Outlet />` / `<main>`, local stacking contexts caused sticky `MobileTopBar` (950) and fixed `MobileBottomNav` (1000) to render on top of the modal, clipping the modal header and buttons.
+3. **Vite Dynamic Import 504 Dependency Outdated Error:**
+   - Dynamically loaded vendor libraries (`jsqr`, `qrcode-generator`, `dexie`) triggered on-the-fly pre-bundling that caused HTTP 504 errors on runtime discovery.
+4. **Mobile A4 Print Squishing:**
+   - A4 pages (794px width) rendered inside a 340px mobile iframe caused responsive grid columns to collapse into 1-word vertical lines.
+
+### Decision
+1. **React Portal Root Mount & Z-Index Standardization:**
+   - `ExamPaperModal` mounts directly to `document.body` via `React.createPortal(modalContent, document.body)`.
+   - Updated Design System token `--z-modal: 1100;` to strictly enforce:
+     $$\text{--z-top-bar: 950} < \text{--z-mobile-nav: 1000} < \mathbf{\text{--z-modal: 1100}} < \text{--z-toast: 9999}$$
+   - Completely prevents background header and bottom navigation bars from overlapping or clipping modal dialogs.
+2. **Dual Mobile Exam Preview Engine:**
+   - **Tab `📖 Đọc Đề` (`question_reader`)**: Native mobile question card reader. Renders questions with A/B/C/D option cards, green highlighting for correct answers, and explanation tips when `showAnswerKey` is toggled.
+   - **Tab `📄 Đề A4` / `📋 Phiếu A4` (`exam_paper` / `answer_sheet`)**: Locked 210mm vector sheet (`width: 210mm; min-width: 210mm;`) with auto-scaling `📱 Vừa màn hình` (scale factor to fit phone width) and `🔍 100% A4` (pixel-perfect scroll/pan), preventing any line breaks or column squishing.
+3. **Exam Print vs Preview Partitioning:**
+   - Mobile displays `<Eye size={14} /> Xem Đề Thi`, hides direct print and desktop exports (Word, Excel, HTML), keeping only `[PDF]` download.
+   - Desktop displays `<Printer size={14} /> In Đề & Phiếu` with full batch printing and multi-format export center.
+4. **Vite Pre-Bundle Optimization & Default Export (`vite.config.ts`, `ExamSessionView.tsx`):**
+   - Added `export default ExamSessionView` and pre-bundled `'jsqr'`, `'qrcode-generator'`, `'dexie'` in `optimizeDeps.include`.
+5. **Mobile Grade Board Toolbar Consolidation & Per-Card Chevron:**
+   - Placed `[Xuất]` và `[Nhập]` into `.grade-command-deck__header`; added rotating `ChevronDown` 16px per student card.
+
+### Consequences & Verification
+- **Positive:**
+  - Zero overlay clipping: Modal is cleanly isolated at root level via React Portal.
+  - Zero 504 errors on dynamic module loading.
+  - Teachers on mobile enjoy both a high-readability native question reader and a true-to-print A4 sheet preview.
+- **Verification:**
+  - TypeScript `npx tsc -b`: PASS (Exit code 0).
+  - ESLint `npm run lint`: PASS (0 warnings, 0 errors).
+  - Design System Linter `npm run lint:ds`: PASS (0 violations across 143 UI components).
+  - Vitest suite: PASS (33/33 targeted tests passed).
+

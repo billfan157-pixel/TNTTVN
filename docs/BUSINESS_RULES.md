@@ -430,6 +430,20 @@ Quy chiếu: quyền `exam.create`/`exam.delete` cho `phuta`/`chunhiem` (ADR-025
 - **Audit**: mỗi bảng điểm được undo ghi 1 dòng `GRADE_UNDO` vào nhật ký hệ thống (trạng thái trước/sau).
 - **Offline**: undo cần kết nối mạng (thao tác server-side); sau undo client refetch lại điểm từ server.
 
+### 12.4 Phân Quyền Điều Chỉnh Hệ Số & Ghi Đè Điểm (Mobile vs Desktop RBAC - ADR-075)
+- **Cấu hình hệ số điểm (`GradeFormulaConfigModal`)**:
+  - Độc quyền cho vai trò **Admin** (`isAdmin = can('admin')`).
+  - Chỉ xuất hiện và thao tác trên giao diện **Desktop** (`DesktopGradeMatrix.tsx`). Hoàn toàn không hiển thị trên Mobile.
+- **Chế độ ghi đè điểm (`isOverrideModeEnabled`)**:
+  - Độc quyền cho vai trò **Admin** (`isAdmin = can('admin')`).
+  - Chỉ xuất hiện và thao tác trên giao diện **Desktop** (`DesktopGradeMatrix.tsx`). Hoàn toàn không hiển thị trên Mobile.
+- **Quy tắc nhập điểm trên Ma trận Desktop (`DesktopGradeMatrix.tsx`)**:
+  - Giáo lý viên chủ nhiệm (`chunhiem`): Chỉ được phép nhập/chỉnh sửa điểm Miệng (`scoreOral`) và điểm Đạo Đức (`scoreDaoDuc`).
+  - Các cột điểm khác (15 Phút, 1 Tiết, Giữa Kỳ, Cuối Kỳ): Bị khóa đối với giáo lý viên (được tính toán từ điểm hằng ngày hoặc nạp qua phiên chấm thi / Import Excel). Chỉ Admin khi bật "Chế độ điều chỉnh" mới có thể ghi đè trực tiếp trên ma trận.
+- **Giao diện Bảng điểm Mobile (`MobileGradeBoard.tsx`, `MobileGradeMatrix.tsx`)**:
+  - Đóng vai trò là bảng tra cứu, xem điểm tổng quan (read-only), thu mở thẻ (`Thu` / `Mở`), xem phiếu điểm cá nhân chi tiết và Xuất / Nhập Excel.
+  - Giáo lý viên thực hiện nhập điểm quá trình thông qua tab **Nhập Hằng Ngày** (`MobileDailyGradeEntry.tsx`) hoặc quét bài kiểm tra qua **Chấm Điểm** (`ExamSessionView.tsx`).
+
 ## 16. UI CHUẨN — KÍCH THƯỚC CHỮ TRONG BẢNG (A-NEW-49)
 
 - **SSOT chuẩn**: bảng danh sách thiếu nhi `src/components/desktop/DesktopStudentList.tsx`.
@@ -630,6 +644,12 @@ Hệ thống cung cấp tính năng xuất đề thi và bảng đáp án đa đ
 3. **Plain Text (.txt) & Markdown (.md)**: Định dạng phân đoạn rõ ràng, bảng Markdown GFM.
 4. **JSON (.json)**: Gói dữ liệu đầy đủ metadata, câu hỏi, điểm và đáp án. Phiên key-only (không có ngân hàng câu hỏi) đánh dấu `metadata.syntheticQuestions = true` — danh sách câu hỏi kèm theo là PLACEHOLDER, không phải dữ liệu thật (EP-F3).
 5. **Bảo mật**: Khử XSS toàn bộ nội dung HTML sinh ra bằng `escapeHtml`; tên file xuất qua `sanitizeFilename` (thay `[<>:"/\\|?*]`) và `<title>` PDF export được sanitize qua `applyPdfTitle` — chặn stored XSS từ `subject` của phiên chấm khi nạn nhân bấm "Tải PDF" (EP-F1/F2, AUDIT-EP-01 2026-08-21).
+6. **Phân Định In Đề vs Xem Đề Thi Trên Thiết Bị (ADR-076)**:
+   - **Mobile Mode**: Chế độ di động phục vụ đọc đề, đối chiếu đáp án và chấm điểm nhanh trong lớp; nút mở hiển thị `[Xem Đề Thi]` (`<Eye size={14} />`). Modal `ExamPaperModal` được mount độc lập ra `document.body` qua `React.createPortal` (Z-Index 1100), cung cấp 2 chế độ xem trước:
+     - `📖 Đọc Đề`: Danh sách thẻ câu hỏi tối ưu cho điện thoại (phương án A/B/C/D, highlight đáp án đúng màu xanh và lời giải chi tiết khi bật Hiện Đáp Án).
+     - `📄 Đề A4` & `📋 Phiếu A4`: Bản xem trước tờ A4 giữ nguyên tỷ lệ 210mm vector chuẩn (`Fit Width` co vừa màn hình không vỡ dòng và `100% A4` cuộn chi tiết).
+     - **Quy tắc bảo vệ**: Ẩn hoàn toàn 100% các chức năng in trực tiếp (`handlePrint`) và xuất file máy tính (Word, Excel, HTML) trên mobile để tránh sai sót thao tác; chỉ giữ nút tải file `[PDF]` về bộ nhớ điện thoại khi cần.
+   - **Desktop Mode**: Chế độ máy tính đóng vai trò trung tâm học vụ và in ấn đầy đủ; nút mở hiển thị `[In Đề & Phiếu]` (`<Printer size={14} />`), modal hỗ trợ toàn diện các tùy chọn in trực tiếp (`printBatchExamPapers`, `printBatchAnswerSheets`, `printQrSheet`) và xuất bản đa định dạng (Word .doc, Excel .xlsx, HTML độc lập, PDF vector).
 
 ### 21.5 Đề Kết Hợp Trắc Nghiệm + Tự Luận — EXAM-MIXED (ADR-053, 2026-08-24)
 

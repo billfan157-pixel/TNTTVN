@@ -43,29 +43,38 @@ export const MobileGradeComparison: React.FC = () => {
   const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
 
   return (
-    <div className="product-view flex flex-col gap-3">
-      <section className="mobile-page-header">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center shrink-0"><Columns3 size={19} /></div>
-          <div>
-            <h2 className="text-base font-extrabold text-parish-primary m-0">So Sánh Học Kỳ I vs Học Kỳ II</h2>
-            <p className="text-xs text-text-muted mt-1 mb-0">Học kỳ I và Học kỳ II · {comparisonData.length} thiếu nhi có dữ liệu</p>
+    <div className="product-view flex flex-col gap-2.5">
+      <section className="grade-command-deck" aria-label="Tổng quan so sánh điểm">
+        <div className="grade-command-deck__header">
+          <div className="grade-command-deck__title-group">
+            <div className="grade-command-deck__icon-tile">
+              <Columns3 size={16} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="grade-command-deck__title">So Sánh Học Kỳ I vs II</h2>
+              <p className="grade-command-deck__meta truncate">{comparisonData.length} thiếu nhi có dữ liệu điểm</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-2">
-        {[
-          ['Tiến bộ', stats.up, 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-900'],
-          ['Giảm', stats.down, 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-900'],
-          ['Giữ nguyên', stats.same, 'text-text-secondary bg-surface-hover border-surface-border'],
-          ['Thiếu dữ liệu', stats.none, 'text-text-muted bg-surface-hover border-surface-border'],
-        ].map(([label, value, style]) => (
-          <div key={String(label)} className={`rounded-xl border p-3 text-center ${style}`}>
-            <div className="text-xl font-black">{value}</div>
-            <div className="text-[11px] font-bold mt-1">{label}</div>
-          </div>
-        ))}
+      <section className="grade-metric-strip grade-metric-strip--4col" aria-label="Thống kê so sánh 2 học kỳ">
+        <div className="grade-metric-cell">
+          <span className="grade-metric-cell__label text-emerald-700 dark:text-emerald-300">Tiến bộ</span>
+          <strong className="grade-metric-cell__value text-emerald-600 dark:text-emerald-400">+{stats.up}</strong>
+        </div>
+        <div className="grade-metric-cell">
+          <span className="grade-metric-cell__label text-rose-700 dark:text-rose-300">Giảm</span>
+          <strong className="grade-metric-cell__value text-rose-600 dark:text-rose-400">-{stats.down}</strong>
+        </div>
+        <div className="grade-metric-cell">
+          <span className="grade-metric-cell__label">Giữ nguyên</span>
+          <strong className="grade-metric-cell__value text-text-secondary">{stats.same}</strong>
+        </div>
+        <div className="grade-metric-cell">
+          <span className="grade-metric-cell__label">Chưa đủ</span>
+          <strong className="grade-metric-cell__value text-text-muted">{stats.none}</strong>
+        </div>
       </section>
 
       {comparisonData.length === 0 ? (

@@ -1,7 +1,6 @@
 import React, { Suspense, useMemo, useState } from 'react'
-import { Calculator, ClipboardList, Columns3, FileSpreadsheet, Grid3X3 } from 'lucide-react'
+import { Calculator, ClipboardList, Columns3, Grid3X3 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
-import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
@@ -9,22 +8,21 @@ import { useAuth } from '../../hooks/useAuth'
 import type { Student } from '../../types'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { SkeletonCardGrid } from '../common/StateFeedback'
-import { StudentName } from '../common/StudentName'
 
 const ExamSessionView = lazyWithRetry(() => import('../exam/ExamSessionView'), 'ExamSessionView')
 const MobileDailyGradeEntry = lazyWithRetry(() => import('./MobileDailyGradeEntry'), 'MobileDailyGradeEntry')
 const MobileGradeComparison = lazyWithRetry(() => import('./MobileGradeComparison'), 'MobileGradeComparison')
-const MobileGradeMatrix = lazyWithRetry(() => import('./MobileGradeMatrix'), 'MobileGradeMatrix')
+const MobileGradeBoard = lazyWithRetry(() => import('./MobileGradeBoard'), 'MobileGradeBoard')
 
- type MobileGradeTab = 'cards' | 'matrix' | 'daily' | 'comparison' | 'exam'
+// C1 Unified: gộp Thẻ điểm + Ma trận → 1 tab Bảng điểm (4 tabs thay vì 5)
+ type MobileGradeTab = 'board' | 'daily' | 'comparison' | 'exam'
 
 interface MobileGradeViewProps {
   onViewReport: (student: Student) => void
 }
 
 const tabs: Array<{ id: MobileGradeTab; label: string; icon: React.ReactNode }> = [
-  { id: 'cards', label: 'Thẻ điểm', icon: <FileSpreadsheet size={14} /> },
-  { id: 'matrix', label: 'Ma trận', icon: <Grid3X3 size={14} /> },
+  { id: 'board', label: 'Bảng điểm', icon: <Grid3X3 size={14} /> },
   { id: 'daily', label: 'Hằng ngày', icon: <Calculator size={14} /> },
   { id: 'comparison', label: 'So sánh', icon: <Columns3 size={14} /> },
   { id: 'exam', label: 'Chấm bài', icon: <ClipboardList size={14} /> },
@@ -32,10 +30,8 @@ const tabs: Array<{ id: MobileGradeTab; label: string; icon: React.ReactNode }> 
 
 export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }) => {
   const { role } = useAuth()
-  const [activeTab, setActiveTab] = useState<MobileGradeTab>('cards')
+  const [activeTab, setActiveTab] = useState<MobileGradeTab>('board')
   const students = useStudentStore(s => s.students)
-  const getStudentGrade = useGradeStore(s => s.getStudentGrade)
-  const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
   const selectedSemester = useFilterStore(s => s.selectedSemester)
@@ -87,42 +83,9 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
         ))}
       </nav>
 
-      {activeTab === 'cards' && (
-        <div className="flex flex-col gap-3">
-          {filteredStudents.length === 0 ? (
-            <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Không có thiếu nhi trong bộ lọc hiện tại.</div>
-          ) : filteredStudents.map(student => {
-            const grade = getStudentGrade(student.id, effectiveSemester)
-            const avg = calculateStudentAvg(student.id, effectiveSemester)
-            const className = classes.find(item => item.id === student.classId)?.name || '—'
-            return (
-              <article key={student.id} className="entity-card overflow-hidden">
-                <div className="p-4 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <StudentName holyName={student.holyName} fullName={student.fullName} size="base" />
-                    <div className="text-xs text-text-muted mt-1 truncate">{student.code} • {className}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xl font-black text-parish-primary">{avg.score ?? '—'}</div>
-                    <span className="badge badge-primary text-[10px]">{avg.label || 'Chưa nhập'}</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-px bg-surface-border border-y border-surface-border">
-                  {[
-                    ['Miệng', grade?.scoreOral], ['15P', grade?.score15m], ['1 tiết', grade?.score1Period],
-                    ['Giữa kỳ', grade?.scoreMidterm], ['Cuối kỳ', grade?.scoreFinal], ['Đạo đức', grade?.scoreDaoDuc],
-                  ].map(([label, value]) => <div key={String(label)} className="bg-surface-card p-3 text-center"><div className="text-[10px] font-semibold text-text-muted">{label}</div><div className="text-sm font-black text-text-main mt-1">{value ?? '—'}</div></div>)}
-                </div>
-                {grade?.comments && <div className="px-4 py-2 text-xs italic text-text-muted bg-surface-app">“{grade.comments}”</div>}
-                <div className="p-3 bg-surface-app"><button type="button" onClick={() => onViewReport(student)} className="btn btn-secondary w-full min-h-[44px]">Xem kết quả học tập chi tiết</button></div>
-              </article>
-            )
-          })}
-        </div>
-      )}
-      {activeTab === 'matrix' && (
+      {activeTab === 'board' && (
         <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
-          <MobileGradeMatrix onViewReport={onViewReport} />
+          <MobileGradeBoard onViewReport={onViewReport} />
         </Suspense>
       )}
       {activeTab === 'daily' && (

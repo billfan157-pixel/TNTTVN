@@ -35,6 +35,7 @@ interface RowData {
 export const DesktopGradeMatrix: React.FC = () => {
   const { can } = useAuth();
   const canEditGrades = can('admin', 'chunhiem');
+  const isAdmin = can('admin');
   const academicYear = useAcademicYearStore(s => s.currentYear);
   const matrixAcademicYear = normalizeAcademicYear(academicYear) || getCurrentAcademicYear();
   const students = useStudentStore(s => s.students);
@@ -258,7 +259,7 @@ export const DesktopGradeMatrix: React.FC = () => {
               inputMode="decimal"
               aria-label={`Nhập ${scoreLabel} cho ${studentLabel}`}
               data-matrix-cell="true"
-              disabled={!canEditGrades || (!isOverrideModeEnabled && field !== 'scoreDaoDuc' && field !== 'scoreOral')}
+              disabled={!canEditGrades || ((!isAdmin || !isOverrideModeEnabled) && field !== 'scoreDaoDuc' && field !== 'scoreOral')}
               // P0.7 (audit desktop 2026-08-22): key theo giá trị → khi server-sync/import
               // merge điểm mới vào matrixData (record KHÔNG dirty), input remount và hiển thị
               // đúng giá trị mới thay vì giữ defaultValue stale đến khi remount trang.
@@ -318,7 +319,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       ),
       size: 170,
     }),
-  ], [columnHelper, canEditGrades, isOverrideModeEnabled, handleScoreBlur, handleScoreKeyDown, formulaWeights, updateField]);
+  ], [columnHelper, canEditGrades, isAdmin, isOverrideModeEnabled, handleScoreBlur, handleScoreKeyDown, formulaWeights, updateField]);
 
   const table = useReactTable({
     data: tableData,
@@ -378,15 +379,19 @@ export const DesktopGradeMatrix: React.FC = () => {
 
             {/* Action Buttons */}
             <div className="flex gap-2">
-              <button onClick={() => setShowFormulaModal(true)} aria-label="Cấu hình hệ số điểm" className="p-2 rounded-xl bg-surface-card border border-surface-border text-text-secondary hover:bg-surface-hover transition-all shadow-sm active:scale-95" title="Cấu hình hệ số">
-                <Settings2 size={18} />
-              </button>
-              <button 
-                onClick={() => setIsOverrideModeEnabled(!isOverrideModeEnabled)} 
-                className={`btn btn-sm flex items-center gap-1.5 px-4 py-2 font-bold text-xs rounded-xl shadow-sm transition-all active:scale-95 ${isOverrideModeEnabled ? 'bg-parish-warning text-white shadow-[var(--color-parish-warning)]/20' : 'bg-surface-card border border-surface-border text-text-main hover:bg-surface-hover'}`}
-              >
-                <Calculator size={14} /> {isOverrideModeEnabled ? 'Đang Điều Chỉnh' : 'Chế Độ Điều Chỉnh'}
-              </button>
+              {isAdmin && (
+                <button onClick={() => setShowFormulaModal(true)} aria-label="Cấu hình hệ số điểm" className="p-2 rounded-xl bg-surface-card border border-surface-border text-text-secondary hover:bg-surface-hover transition-all shadow-sm active:scale-95" title="Cấu hình hệ số">
+                  <Settings2 size={18} />
+                </button>
+              )}
+              {isAdmin && (
+                <button 
+                  onClick={() => setIsOverrideModeEnabled(!isOverrideModeEnabled)} 
+                  className={`btn btn-sm flex items-center gap-1.5 px-4 py-2 font-bold text-xs rounded-xl shadow-sm transition-all active:scale-95 ${isOverrideModeEnabled ? 'bg-parish-warning text-white shadow-[var(--color-parish-warning)]/20' : 'bg-surface-card border border-surface-border text-text-main hover:bg-surface-hover'}`}
+                >
+                  <Calculator size={14} /> {isOverrideModeEnabled ? 'Đang Điều Chỉnh' : 'Chế Độ Điều Chỉnh'}
+                </button>
+              )}
               <button onClick={() => setShowImportModal(true)} className="btn btn-primary btn-sm flex items-center gap-1.5 px-4 py-2 bg-parish-primary text-white font-bold text-xs rounded-xl shadow-md hover:bg-parish-primary-hover transition-all active:scale-95">
                 <Upload size={14} /> Import
               </button>
@@ -471,7 +476,7 @@ export const DesktopGradeMatrix: React.FC = () => {
         </div>
       </div>
 
-      <GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} />
+      {isAdmin && <GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} />}
       <ExcelGradeImportModal
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}

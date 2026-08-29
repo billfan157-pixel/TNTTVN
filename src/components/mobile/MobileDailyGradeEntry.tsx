@@ -10,10 +10,10 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import type { DailyScoreType, Student } from '../../types'
 import { StudentName } from '../common/StudentName'
 
-const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string; color: string }> = [
-  { id: 'oral', label: 'Điểm miệng', short: 'Miệng', color: 'bg-[var(--color-parish-info)]' },
-  { id: '15m', label: 'Điểm 15 phút', short: '15 phút', color: 'bg-[var(--color-parish-success)]' },
-  { id: '1period', label: 'Điểm 1 tiết', short: '1 tiết', color: 'bg-[var(--color-parish-warning)]' },
+const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string }> = [
+  { id: 'oral', label: 'Điểm miệng', short: 'Miệng' },
+  { id: '15m', label: 'Điểm 15 phút', short: '15 phút' },
+  { id: '1period', label: 'Điểm 1 tiết', short: '1 tiết' },
 ]
 
 interface MobileDailyGradeEntryProps {
@@ -46,6 +46,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
   const activeTypeLabel = SCORE_TYPES.find(item => item.id === activeType)?.label || ''
   const activeEntries = useMemo(() => entries.filter(entry => entry.scoreType === activeType && entry.semester === selectedSemester && filteredStudents.some(student => student.id === entry.studentId)), [entries, activeType, selectedSemester, filteredStudents])
+
   const stats = useMemo(() => {
     if (!activeEntries.length) return null
     const values = activeEntries.map(entry => entry.value).sort((a, b) => a - b)
@@ -53,6 +54,18 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
     const middle = values.length % 2 === 0 ? (values[values.length / 2 - 1] + values[values.length / 2]) / 2 : values[Math.floor(values.length / 2)]
     return { count: values.length, avg: Math.round((total / values.length) * 10) / 10, median: middle, min: values[0], max: values[values.length - 1] }
   }, [activeEntries])
+
+  const entryCountsByType = useMemo(() => {
+    const counts: Record<DailyScoreType, number> = { oral: 0, '15m': 0, '1period': 0 }
+    for (const entry of entries) {
+      if (entry.semester === selectedSemester && filteredStudents.some(s => s.id === entry.studentId)) {
+        if (entry.scoreType in counts) {
+          counts[entry.scoreType]++
+        }
+      }
+    }
+    return counts
+  }, [entries, filteredStudents, selectedSemester])
 
   const addScore = (student: Student) => {
     const key = student.id
@@ -73,33 +86,57 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   }
 
   return (
-    <div className="product-view flex flex-col gap-3">
-      <section className="mobile-page-header flex-col items-stretch">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-extrabold text-parish-primary m-0">Nhập Điểm Hằng Ngày</h2>
-            <p className="text-xs text-text-muted mt-1 mb-0">{activeTypeLabel} · Học kỳ {semesterRestricted ? (openSemester === 2 ? 'II' : 'I') : selectedSemester}</p>
+    <div className="product-view flex flex-col gap-2.5">
+      <section className="grade-command-deck" aria-label="Bảng chọn loại điểm hằng ngày">
+        <div className="grade-command-deck__header">
+          <div className="grade-command-deck__title-group">
+            <div className="grade-command-deck__icon-tile">
+              <BarChart3 size={16} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="grade-command-deck__title">Nhập Điểm Hằng Ngày</h2>
+              <p className="grade-command-deck__meta truncate">{activeTypeLabel} · HK {semesterRestricted ? (openSemester === 2 ? 'II' : 'I') : selectedSemester} · {filteredStudents.length} em</p>
+            </div>
           </div>
-          <BarChart3 size={20} className="text-parish-secondary shrink-0" />
         </div>
-        <div className="grid grid-cols-3 gap-1.5 mt-4">
-          {SCORE_TYPES.map(type => (
-            <button key={type.id} type="button" onClick={() => setActiveType(type.id)} className={`min-h-[44px] rounded-xl px-2 text-[11px] font-extrabold ${activeType === type.id ? `${type.color} text-white` : 'bg-surface-hover text-text-secondary'}`}>
-              {type.short}
-            </button>
-          ))}
+
+        <div className="grade-segmented-group" role="tablist" aria-label="Chọn loại điểm kiểm tra">
+          {SCORE_TYPES.map(type => {
+            const isActive = activeType === type.id
+            const count = entryCountsByType[type.id]
+            return (
+              <button
+                key={type.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveType(type.id)}
+                className={`grade-segmented-item ${isActive ? 'is-active' : ''}`}
+              >
+                <span>{type.short}</span>
+                {count > 0 && <span className="count-badge tabular-nums">{count}</span>}
+              </button>
+            )
+          })}
         </div>
-        {!canEdit && <div className="mt-3 rounded-xl bg-surface-hover border border-surface-border px-3 py-2 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
+
+        {!canEdit && <div className="rounded-xl bg-surface-hover border border-surface-border px-3 py-1.5 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
       </section>
 
       {stats && (
-        <section className="grid grid-cols-3 gap-2">
-          {[['Lượt nhập', stats.count], ['ĐTB', stats.avg], ['Khoảng', `${stats.min}–${stats.max}`]].map(([label, value]) => (
-            <div key={String(label)} className="bg-surface-card rounded-xl border border-surface-border p-3 text-center shadow-sm">
-              <div className="text-[10px] font-semibold text-text-muted">{label}</div>
-              <div className="text-base font-black text-parish-primary mt-1">{value}</div>
-            </div>
-          ))}
+        <section className="grade-metric-strip grade-metric-strip--3col" aria-label="Thống kê điểm số">
+          <div className="grade-metric-cell">
+            <span className="grade-metric-cell__label">Lượt nhập</span>
+            <strong className="grade-metric-cell__value text-parish-primary">{stats.count}</strong>
+          </div>
+          <div className="grade-metric-cell">
+            <span className="grade-metric-cell__label">Điểm TB</span>
+            <strong className="grade-metric-cell__value text-parish-primary">{stats.avg}</strong>
+          </div>
+          <div className="grade-metric-cell">
+            <span className="grade-metric-cell__label">Khoảng điểm</span>
+            <strong className="grade-metric-cell__value text-text-secondary">{stats.min}–{stats.max}</strong>
+          </div>
         </section>
       )}
 
@@ -110,9 +147,10 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
         const average = getAverageForStudent(student.id, selectedSemester, activeType)
         const grade = getStudentGrade(student.id, selectedSemester)
         const isExpanded = expanded.has(student.id)
+
         return (
           <article key={student.id} className="entity-card overflow-hidden">
-            <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]">
+            <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]" aria-expanded={isExpanded}>
               <span className="min-w-0">
                 <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="flex" />
                 <span className="block text-xs text-text-muted mt-1 truncate">{classNameById.get(student.classId) || '—'} • {student.code}</span>

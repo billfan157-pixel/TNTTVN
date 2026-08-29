@@ -18,11 +18,12 @@ import { ExamBatchScanModal } from './ExamBatchScanModal'
 import { ExamAnalyticsPanel } from './ExamAnalyticsPanel'
 import { ExamVariantsModal } from './ExamVariantsModal'
 import { getConfiguredExamVersions } from '../../lib/examVariants'
+import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-   Upload, School,
+  Upload, School, Eye,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import type { ExamImportScope } from '../../utils/examParser'
@@ -116,6 +117,7 @@ function parseQuestionsSafe(raw: unknown): ExamQuestion[] {
 }
 
 export const ExamSessionView: React.FC = () => {
+  const effectiveMode = useEffectiveMode()
   const { can } = useAuth()
   // A-NEW (2026-08-12): phuta (trợ tá) cũng tạo + xóa phiên chấm cho lớp mình phụ trách.
   const canManage = can('admin', 'chunhiem', 'phuta')
@@ -654,61 +656,76 @@ export const ExamSessionView: React.FC = () => {
                 {activeSession.academicYear}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
               {canScan && activeSession.status === 'draft' && (
-                <>
-                  <button className="btn btn-primary btn-sm min-h-11 col-span-2 justify-center sm:w-auto" onClick={() => setShowGuidedGrade(true)} disabled={classStudents.length === 0}>
-                    <ListChecks size={14} /> Chấm Ổn Định
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+                  <button className="btn btn-primary btn-sm min-h-11 justify-center" onClick={() => setShowGuidedGrade(true)} disabled={classStudents.length === 0}>
+                    <ListChecks size={15} /> Chấm Ổn Định
                   </button>
-                  <button className="btn btn-secondary btn-sm min-h-11 col-span-2 justify-center sm:w-auto" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
-                    <ScanLine size={14} /> Quét QR + OMR
+                  <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
+                    <ScanLine size={15} /> Quét QR + OMR
                   </button>
-                  {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
-                    <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowBatchScan(true)}>
-                      <Images size={14} /> Chấm Nhiều Ảnh
-                    </button>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
+                {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canScan && activeSession.status === 'draft' && (
+                  <button className="btn btn-secondary btn-sm min-h-10 text-xs justify-center" onClick={() => setShowBatchScan(true)} title="Chấm nhiều ảnh cùng lúc">
+                    <Images size={14} /> Chấm Nhiều Ảnh
+                  </button>
+                )}
+                {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canManage && activeSession.status === 'draft' && (
+                  <button className="btn btn-secondary btn-sm min-h-10 text-xs justify-center" onClick={() => setShowVariants(true)} title="Quản lý các mã đề">
+                    <Layers3 size={14} /> Mã Đề ({activeExamVersions.length})
+                  </button>
+                )}
+                <button className="btn btn-secondary btn-sm min-h-10 text-xs justify-center" onClick={() => setShowAnalytics(true)} disabled={results.length === 0} title="Xem phân tích phổ điểm">
+                  <BarChart3 size={14} /> Phân Tích
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm min-h-10 text-xs justify-center"
+                  onClick={() => setShowPaperModal(true)}
+                  title={
+                    effectiveMode === 'mobile'
+                      ? 'Xem trước nội dung đề thi, câu hỏi và đáp án'
+                      : 'Trung tâm In & Xuất tài liệu: Đề thi gộp OMR, Phiếu trả lời trắc nghiệm A4, Thẻ mã QR học sinh'
+                  }
+                >
+                  {effectiveMode === 'mobile' ? (
+                    <>
+                      <Eye size={14} /> Xem Đề Thi
+                    </>
+                  ) : (
+                    <>
+                      <Printer size={14} /> In Đề & Phiếu
+                    </>
                   )}
-                </>
-              )}
-              {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canManage && activeSession.status === 'draft' && (
-                <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowVariants(true)}>
-                  <Layers3 size={14} /> Mã Đề ({activeExamVersions.length})
                 </button>
-              )}
-              <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => setShowAnalytics(true)} disabled={results.length === 0}>
-                <BarChart3 size={14} /> Phân Tích
-              </button>
-              <button
-                className="btn btn-secondary btn-sm min-h-11 justify-center"
-                onClick={() => setShowPaperModal(true)}
-                title="Trung tâm In & Xuất tài liệu: Đề thi gộp OMR, Phiếu trả lời trắc nghiệm A4, Thẻ mã QR học sinh"
-              >
-                <Printer size={14} /> In Đề & Phiếu Gộp
-              </button>
-              {canManage && activeSession.status === 'completed' && can('admin') && (
-                <button
-                  className="btn btn-secondary btn-sm min-h-11 justify-center"
-                  onClick={async () => {
-                    const ok = await askConfirm({
-                      title: 'Mở lại phiên chấm',
-                      message: 'Mở lại phiên chấm? Điểm đã ghi vào bảng điểm sẽ giữ nguyên; kết quả mới sẽ ghi đè theo ma trận xung đột.',
-                      confirmText: 'Mở lại',
-                      variant: 'warning',
-                    })
-                    if (ok) await reopenSession()
-                  }}
-                >
-                  <RotateCcw size={14} /> Mở Lại
-                </button>
-              )}
-              {canManage && activeSession.status === 'draft' && (
-                <button
-                  className="btn btn-danger btn-sm min-h-11 justify-center"
-                  onClick={handleDeleteSession}
-                >
-                  <Trash2 size={14} /> Xóa Phiên
-                </button>
-              )}
+                {canManage && activeSession.status === 'completed' && can('admin') && (
+                  <button
+                    className="btn btn-secondary btn-sm min-h-10 text-xs justify-center"
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        title: 'Mở lại phiên chấm',
+                        message: 'Mở lại phiên chấm? Điểm đã ghi vào bảng điểm sẽ giữ nguyên; kết quả mới sẽ ghi đè theo ma trận xung đột.',
+                        confirmText: 'Mở lại',
+                        variant: 'warning',
+                      })
+                      if (ok) await reopenSession()
+                    }}
+                  >
+                    <RotateCcw size={14} /> Mở Lại
+                  </button>
+                )}
+                {canManage && activeSession.status === 'draft' && (
+                  <button
+                    className="btn btn-danger btn-sm min-h-10 text-xs justify-center"
+                    onClick={handleDeleteSession}
+                    title="Xóa phiên chấm này"
+                  >
+                    <Trash2 size={14} /> Xóa
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1352,3 +1369,5 @@ export const ExamSessionView: React.FC = () => {
     </div>
   )
 }
+
+export default ExamSessionView

@@ -1,26 +1,61 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
-import { useStudentStore } from '../../stores/studentStore';
-import { useAttendanceStore } from '../../stores/attendanceStore';
-import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
-import { useFilterStore } from '../../stores/filterStore';
-import { useClassStore } from '../../stores/classStore';
-import { useAuth } from '../../hooks/useAuth';
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  CheckCircle2, AlertTriangle, XCircle,
-  Check, Save, CalendarClock, CheckSquare, BarChart2
-} from 'lucide-react';
-import { getDefaultDate } from '../../utils/getDefaultDate';
-import { MobileLeaveRequests } from './MobileLeaveRequests';
-import { MobileAttendanceSummaryView } from './MobileAttendanceSummaryView';
-import { getLiturgicalDay } from '../../utils/liturgicalEngine';
-import { LITURGICAL_COLORS } from '../../constants/liturgical';
-import type { AttendanceType } from '../../types';
+  AlertCircle,
+  AlertTriangle,
+  BarChart2,
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  CheckSquare,
+  Clock3,
+  Save,
+  Users,
+  XCircle,
+} from 'lucide-react'
+import { useStudentStore } from '../../stores/studentStore'
+import { useAttendanceStore } from '../../stores/attendanceStore'
+import { useLeaveRequestStore } from '../../stores/leaveRequestStore'
+import { useFilterStore } from '../../stores/filterStore'
+import { useClassStore } from '../../stores/classStore'
+import { useAuth } from '../../hooks/useAuth'
+import { getDefaultDate } from '../../utils/getDefaultDate'
+import { getLiturgicalDay } from '../../utils/liturgicalEngine'
+import { LITURGICAL_COLORS } from '../../constants/liturgical'
+import { StudentName } from '../common/StudentName'
+import { MobileLeaveRequests } from './MobileLeaveRequests'
+import { MobileAttendanceSummaryView } from './MobileAttendanceSummaryView'
+import type { AttendanceType } from '../../types'
+
+type AttendanceStatus = 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
+type AttendanceDraft = { status: AttendanceStatus; note: string }
+type AttendanceSubTab = 'attendance' | 'summary' | 'leave-requests'
+
+const SESSION_LABELS: Record<AttendanceType, string> = {
+  SundayMass: 'Thánh Lễ Chúa Nhật',
+  CatechismClass: 'Giờ Giáo Lý',
+  EucharisticAdoration: 'Chầu Thánh Thể',
+}
+
+const STATUS_OPTIONS: Array<{
+  value: AttendanceStatus
+  shortLabel: string
+  label: string
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>
+}> = [
+  { value: 'Present', shortLabel: 'Có mặt', label: 'Có mặt', icon: CheckCircle2 },
+  { value: 'AbsentExcused', shortLabel: 'Có phép', label: 'Vắng có phép', icon: AlertTriangle },
+  { value: 'AbsentUnexcused', shortLabel: 'Vắng', label: 'Vắng không phép', icon: XCircle },
+]
 
 export const MobileAttendanceView: React.FC = () => {
   const { role } = useAuth()
   const students = useStudentStore(s => s.students)
   const attendance = useAttendanceStore(s => s.attendance)
   const batchSaveAttendance = useAttendanceStore(s => s.batchSaveAttendance)
+  const isSubmitting = useAttendanceStore(s => s.isSubmitting)
+  const error = useAttendanceStore(s => s.error)
+  const lockError = useAttendanceStore(s => s.lockError)
+  const clearErrors = useAttendanceStore(s => s.clearErrors)
   const pendingCount = useLeaveRequestStore(s => s.pendingCount)
   const fetchPendingCount = useLeaveRequestStore(s => s.fetchPendingCount)
   const classList = useClassStore(s => s.getClassList)()
@@ -28,263 +63,399 @@ export const MobileAttendanceView: React.FC = () => {
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
 
-  const [activeSubTab, setActiveSubTab] = useState<'attendance' | 'summary' | 'leave-requests'>('attendance')
-  const [date, setDate] = useState<string>(getDefaultDate);
-  const [type, setType] = useState<AttendanceType>('SundayMass');
-  const [attendanceMap, setAttendanceMap] = useState<Record<string, { status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note: string }>>({});
-  const [isSaved, setIsSaved] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<AttendanceSubTab>('attendance')
+  const [date, setDate] = useState<string>(getDefaultDate)
+  const [type, setType] = useState<AttendanceType>('SundayMass')
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceDraft>>({})
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const needsAdminClassSelection = role === 'admin' && selectedClassId === 'all'
 
   const filteredStudents = useMemo(
-    () => selectedClassId === 'all' ? students : students.filter(s => s.classId === selectedClassId),
+    () => selectedClassId === 'all' ? students : students.filter(student => student.classId === selectedClassId),
     [selectedClassId, students]
-  );
+  )
+
+  const classStudentCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const student of students) counts.set(student.classId, (counts.get(student.classId) || 0) + 1)
+    return counts
+  }, [students])
+
+  const attendanceIndex = useMemo(() => {
+    const index = new Map<string, AttendanceDraft>()
+    for (const record of attendance) {
+      if (record.date !== date || record.type !== type) continue
+      index.set(record.studentId, { status: record.status, note: record.note || '' })
+    }
+    return index
+  }, [attendance, date, type])
 
   useEffect(() => {
-    const map: Record<string, { status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note: string }> = {};
-    filteredStudents.forEach(s => {
-      const rec = attendance.find(a => a.studentId === s.id && a.date === date && a.type === type);
-      map[s.id] = {
-        status: rec ? rec.status : 'Present',
-        note: rec?.note || ''
-      };
-    });
-    setAttendanceMap(map);
-  }, [date, type, filteredStudents, attendance]);
-
-  const handleToggle = (studentId: string, status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused') => {
-    setAttendanceMap(prev => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        status
-      }
-    }));
-    setIsSaved(false);
-  };
-
-  const handleMarkAllPresent = () => {
-    setAttendanceMap(prev => {
-      const copy = { ...prev };
-      Object.keys(copy).forEach(k => copy[k].status = 'Present');
-      return copy;
-    });
-    setIsSaved(false);
-  };
-
-  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  React.useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  const handleSave = () => {
-    const list = Object.entries(attendanceMap).map(([studentId, d]) => ({
-      studentId,
-      status: d.status,
-      note: d.note
-    }));
-    batchSaveAttendance(list, date, type);
-    setIsSaved(true);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setIsSaved(false), 3000);
-  };
+    const nextMap: Record<string, AttendanceDraft> = {}
+    for (const student of filteredStudents) {
+      nextMap[student.id] = attendanceIndex.get(student.id) || { status: 'Present', note: '' }
+    }
+    setAttendanceMap(nextMap)
+    setSaveMessage(null)
+    clearErrors()
+  }, [attendanceIndex, clearErrors, filteredStudents])
 
   useEffect(() => {
-    fetchPendingCount()
+    void fetchPendingCount()
   }, [fetchPendingCount])
 
-  let presentCount = 0;
-  Object.values(attendanceMap).forEach(v => { if (v.status === 'Present') presentCount++; });
+  useEffect(() => () => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+  }, [])
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<AttendanceStatus, number> = {
+      Present: 0,
+      AbsentExcused: 0,
+      AbsentUnexcused: 0,
+    }
+    for (const draft of Object.values(attendanceMap)) counts[draft.status]++
+    return counts
+  }, [attendanceMap])
+
+  const unsavedCount = useMemo(() => filteredStudents.reduce((count, student) => {
+    const draft = attendanceMap[student.id]
+    const persisted = attendanceIndex.get(student.id)
+    if (!draft || !persisted) return count + 1
+    return count + (draft.status !== persisted.status || draft.note !== persisted.note ? 1 : 0)
+  }, 0), [attendanceIndex, attendanceMap, filteredStudents])
+
+  const liturgicalDay = useMemo(() => getLiturgicalDay(date), [date])
+  const liturgicalColor = LITURGICAL_COLORS[liturgicalDay.color] || LITURGICAL_COLORS.GREEN
+
+  const handleToggle = (studentId: string, status: AttendanceStatus) => {
+    setAttendanceMap(previous => ({
+      ...previous,
+      [studentId]: { ...previous[studentId], status },
+    }))
+    setSaveMessage(null)
+    clearErrors()
+  }
+
+  const handleMarkAllPresent = () => {
+    setAttendanceMap(previous => Object.fromEntries(
+      Object.entries(previous).map(([studentId, draft]) => [studentId, { ...draft, status: 'Present' }])
+    ))
+    setSaveMessage(null)
+    clearErrors()
+  }
+
+  const handleSave = async () => {
+    if (isSubmitting || filteredStudents.length === 0 || unsavedCount === 0) return
+
+    setSaveMessage(null)
+    clearErrors()
+    const records = Object.entries(attendanceMap).map(([studentId, draft]) => ({
+      studentId,
+      status: draft.status,
+      note: draft.note,
+    }))
+    const result = await batchSaveAttendance(records, date, type)
+    if (!result) return
+
+    const unresolvedCount = result.errorCount + result.conflictCount
+    setSaveMessage(unresolvedCount > 0
+      ? `Đã lưu ${result.successCount}/${result.total}. Còn ${unresolvedCount} mục cần kiểm tra.`
+      : `Đã lưu điểm danh cho ${result.successCount} thiếu nhi.`)
+
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    feedbackTimerRef.current = setTimeout(() => setSaveMessage(null), 5000)
+  }
+
+  const renderAttendanceWorkspace = () => (
+    <>
+      <section className="attendance-session-panel" aria-labelledby="attendance-session-title">
+        <div className="attendance-session-panel__heading">
+          <div>
+            <p className="attendance-eyebrow">Phiên điểm danh</p>
+            <h2 id="attendance-session-title">{SESSION_LABELS[type]}</h2>
+            <div className={`attendance-session-context ${liturgicalColor.textClass}`}>
+              <span className="attendance-liturgical-dot" style={{ backgroundColor: liturgicalColor.hex }} aria-hidden="true" />
+              <span className="truncate">{liturgicalDay.title}</span>
+              <span aria-hidden="true">·</span>
+              <strong>{liturgicalDay.colorName}</strong>
+            </div>
+          </div>
+          {!needsAdminClassSelection && (
+            <span className="attendance-total-badge tabular-nums">
+              <Users size={14} aria-hidden="true" /> {filteredStudents.length} em
+            </span>
+          )}
+        </div>
+
+        <div className="attendance-session-grid">
+          <label className="attendance-field">
+            <span><CalendarClock size={13} aria-hidden="true" /> Ngày</span>
+            <input
+              type="date"
+              value={date}
+              onChange={event => setDate(event.target.value)}
+              className="form-input"
+            />
+          </label>
+
+          <label className="attendance-field">
+            <span><Clock3 size={13} aria-hidden="true" /> Buổi sinh hoạt</span>
+            <select
+              value={type}
+              onChange={event => setType(event.target.value as AttendanceType)}
+              className="form-select"
+            >
+              <option value="SundayMass">Lễ CN</option>
+              <option value="CatechismClass">Giáo lý</option>
+              <option value="EucharisticAdoration">Chầu TT</option>
+            </select>
+          </label>
+
+          {role === 'admin' && (
+            <label className="attendance-field attendance-field--class">
+              <span><Users size={13} aria-hidden="true" /> Lớp điểm danh</span>
+              <select
+                value={selectedClassId}
+                onChange={event => setSelectedClassId(event.target.value)}
+                className="form-select"
+              >
+                <option value="all">Chọn một lớp</option>
+                {classList.map(classItem => (
+                  <option key={classItem.id} value={classItem.id}>{classItem.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+
+        {!needsAdminClassSelection && (
+          <div className="attendance-status-summary" aria-label="Tổng hợp trạng thái hiện tại">
+            <div className="attendance-summary-item attendance-summary-item--present">
+              <CheckCircle2 size={15} aria-hidden="true" />
+              <span>Có mặt</span>
+              <strong>{statusCounts.Present}</strong>
+            </div>
+            <div className="attendance-summary-item attendance-summary-item--excused">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>Có phép</span>
+              <strong>{statusCounts.AbsentExcused}</strong>
+            </div>
+            <div className="attendance-summary-item attendance-summary-item--absent">
+              <XCircle size={15} aria-hidden="true" />
+              <span>Vắng</span>
+              <strong>{statusCounts.AbsentUnexcused}</strong>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {(error || lockError) && (
+        <div className="attendance-feedback attendance-feedback--error" role="alert">
+          <AlertCircle size={18} aria-hidden="true" />
+          <span>{lockError || error}</span>
+        </div>
+      )}
+
+      {saveMessage && (
+        <div className="attendance-feedback attendance-feedback--success" role="status" aria-live="polite">
+          <CheckCircle2 size={18} aria-hidden="true" />
+          <span>{saveMessage}</span>
+        </div>
+      )}
+
+      {needsAdminClassSelection ? (
+        <section className="attendance-class-picker" aria-labelledby="attendance-class-picker-title">
+          <div className="attendance-class-picker__heading">
+            <div>
+              <p className="attendance-eyebrow">Bắt đầu nhanh</p>
+              <h2 id="attendance-class-picker-title">Chọn lớp cần điểm danh</h2>
+            </div>
+            <span>{classList.length} lớp</span>
+          </div>
+          <p className="attendance-class-picker__hint">
+            Mỗi phiên được lưu theo một lớp để dễ kiểm tra và tránh ghi nhầm toàn xứ đoàn.
+          </p>
+          <div className="attendance-class-grid">
+            {classList.map(classItem => (
+              <button
+                type="button"
+                key={classItem.id}
+                className="attendance-class-option"
+                onClick={() => setSelectedClassId(classItem.id)}
+                aria-label={`Chọn lớp ${classItem.name}, ${classStudentCounts.get(classItem.id) || 0} thiếu nhi`}
+              >
+                <span className="attendance-class-option__mark">{classItem.name.slice(0, 2).toUpperCase()}</span>
+                <span className="attendance-class-option__copy">
+                  <strong>{classItem.name}</strong>
+                  <span>{classStudentCounts.get(classItem.id) || 0} thiếu nhi</span>
+                </span>
+                <span className="attendance-class-option__arrow" aria-hidden="true">›</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="attendance-roster-section" aria-labelledby="attendance-roster-title">
+          <div className="attendance-roster-toolbar">
+            <div>
+              <p className="attendance-eyebrow">Danh sách lớp</p>
+              <h2 id="attendance-roster-title">Ghi nhận chuyên cần</h2>
+            </div>
+            <button type="button" onClick={handleMarkAllPresent} className="btn btn-secondary attendance-mark-all">
+              <Check size={15} aria-hidden="true" /> Có mặt tất cả
+            </button>
+          </div>
+
+          <div className="attendance-status-legend" aria-label="Chú giải trạng thái">
+            {STATUS_OPTIONS.map(option => {
+              const Icon = option.icon
+              return (
+                <span key={option.value} className={`attendance-legend-item attendance-legend-item--${option.value}`}>
+                  <Icon size={13} aria-hidden="true" /> {option.label}
+                </span>
+              )
+            })}
+          </div>
+
+          {filteredStudents.length === 0 ? (
+            <div className="state-feedback state-feedback--empty attendance-empty-state">
+              <Users size={24} aria-hidden="true" />
+              <strong>Chưa có thiếu nhi trong lớp này</strong>
+              <span>Hãy kiểm tra lại lớp đang chọn hoặc dữ liệu danh sách.</span>
+            </div>
+          ) : (
+            <ol className="attendance-roster" aria-label={`Danh sách điểm danh gồm ${filteredStudents.length} thiếu nhi`}>
+              {filteredStudents.map((student, index) => {
+                const item = attendanceMap[student.id] || { status: 'Present', note: '' }
+                const isOnlineLeave = item.status === 'AbsentExcused' && item.note.includes('[Đơn')
+                return (
+                  <li key={student.id} className={`attendance-roster-row attendance-roster-row--${item.status}`}>
+                    <span className="attendance-roster-row__index tabular-nums" aria-hidden="true">{index + 1}</span>
+                    <div className="attendance-roster-row__identity">
+                      <StudentName holyName={student.holyName} fullName={student.fullName} layout="stacked" size="sm" />
+                      <div className="attendance-roster-row__meta">
+                        <span>{student.code}</span>
+                        <span aria-hidden="true">•</span>
+                        <span className="truncate">{findClassById(student.classId)?.name || '—'}</span>
+                        {isOnlineLeave && <span className="attendance-online-leave">Phép online</span>}
+                      </div>
+                    </div>
+                    <div className="attendance-status-control" role="group" aria-label={`Trạng thái của ${student.holyName} ${student.fullName}`}>
+                      {STATUS_OPTIONS.map(option => {
+                        const Icon = option.icon
+                        const isActive = item.status === option.value
+                        return (
+                          <button
+                            type="button"
+                            key={option.value}
+                            onClick={() => handleToggle(student.id, option.value)}
+                            className={`attendance-status-button attendance-status-button--${option.value} ${isActive ? 'is-active' : ''}`}
+                            aria-label={`${option.label}: ${student.holyName} ${student.fullName}`}
+                            aria-pressed={isActive}
+                            title={option.label}
+                          >
+                            <Icon size={17} strokeWidth={2.25} aria-hidden="true" />
+                            <span>{option.shortLabel}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </section>
+      )}
+
+      {!needsAdminClassSelection && (
+        <div className="mobile-bottom-action-bar attendance-save-bar">
+          <div className="mobile-bottom-action-bar__inner attendance-save-bar__inner">
+            <div className="attendance-save-bar__status" aria-live="polite">
+              <span className={unsavedCount > 0 ? 'is-pending' : 'is-saved'} aria-hidden="true" />
+              <span>
+                <strong>{unsavedCount > 0 ? `${unsavedCount} chưa lưu` : 'Đã cập nhật'}</strong>
+                <small>{SESSION_LABELS[type]}</small>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={isSubmitting || filteredStudents.length === 0 || unsavedCount === 0}
+              className="btn btn-primary attendance-save-button"
+            >
+              {isSubmitting ? (
+                <><span className="attendance-save-spinner" aria-hidden="true" /> Đang lưu</>
+              ) : (
+                <><Save size={17} aria-hidden="true" /> Lưu điểm danh</>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  )
 
   return (
-    <div className="mobile-screen mobile-screen--stack product-view">
-      {/* Segmented SubTab Bar */}
+    <div className={`mobile-screen mobile-screen--stack product-view ${activeSubTab === 'attendance' && !needsAdminClassSelection ? 'mobile-screen--stack--with-action-bar' : ''}`}>
       <div className="view-tabs" role="tablist" aria-label="Chức năng điểm danh">
         <button
+          type="button"
           onClick={() => setActiveSubTab('attendance')}
           className={`view-tab ${activeSubTab === 'attendance' ? 'is-active' : ''}`}
           role="tab"
+          id="attendance-tab"
+          aria-controls="attendance-panel"
           aria-selected={activeSubTab === 'attendance'}
         >
-          <CheckSquare size={14} />
+          <CheckSquare size={14} aria-hidden="true" />
           <span>Điểm Danh</span>
         </button>
         <button
+          type="button"
           onClick={() => setActiveSubTab('summary')}
           className={`view-tab ${activeSubTab === 'summary' ? 'is-active' : ''}`}
           role="tab"
+          id="attendance-summary-tab"
+          aria-controls="attendance-summary-panel"
           aria-selected={activeSubTab === 'summary'}
         >
-          <BarChart2 size={14} />
+          <BarChart2 size={14} aria-hidden="true" />
           <span>Tổng Hợp</span>
         </button>
         <button
+          type="button"
           onClick={() => setActiveSubTab('leave-requests')}
           className={`view-tab relative ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`}
           role="tab"
+          id="attendance-leave-tab"
+          aria-controls="attendance-leave-panel"
           aria-selected={activeSubTab === 'leave-requests'}
         >
-          <CalendarClock size={14} />
+          <CalendarClock size={14} aria-hidden="true" />
           <span>Đơn Xin Nghỉ</span>
           {pendingCount > 0 && (
-            <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded-full ${
-              activeSubTab === 'leave-requests' ? 'bg-white text-parish-primary' : 'bg-parish-danger text-white'
-            }`}>
+            <span className={`attendance-pending-badge ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`} aria-label={`${pendingCount} đơn chờ duyệt`}>
               {pendingCount}
             </span>
           )}
         </button>
       </div>
 
-      {activeSubTab === 'leave-requests' ? (
-        <MobileLeaveRequests />
-      ) : activeSubTab === 'summary' ? (
-        <MobileAttendanceSummaryView />
-      ) : (
-        <>
-          {/* Header controls */}
-          <div className="mobile-filter-panel mobile-sticky-under-topbar flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-extrabold text-parish-primary m-0 leading-tight">
-                Điểm Danh Chuyên Cần
-              </h3>
-              <span className="badge badge-success shrink-0 tabular-nums">
-                {presentCount}/{filteredStudents.length} Có mặt
-              </span>
-            </div>
-
-        {/* Date & Type Selection */}
-        <div className="grid grid-cols-[1fr_1.2fr] gap-2">
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="form-input min-h-[44px] rounded-xl text-xs font-semibold"
-          />
-
-          <select
-            value={type}
-            onChange={e => setType(e.target.value as AttendanceType)}
-            className="form-select min-h-[44px] rounded-xl text-xs font-semibold"
-          >
-            <option value="SundayMass">Thánh Lễ CN</option>
-            <option value="CatechismClass">Giờ Giáo Lý</option>
-            <option value="EucharisticAdoration">Chầu Thánh Thể</option>
-          </select>
-        </div>
-
-        {/* Liturgical Day Strip */}
-        {(() => {
-          const ld = getLiturgicalDay(date);
-          const cm = LITURGICAL_COLORS[ld.color] || LITURGICAL_COLORS.GREEN;
-          return (
-            <div className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 ${cm.bgClass} ${cm.textClass} ${cm.borderClass}`}>
-              <div className="flex items-center gap-1.5 truncate min-w-0">
-                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/10" style={{ backgroundColor: cm.hex }} />
-                <span className="truncate">{ld.title}</span>
-              </div>
-              <span className="text-[10px] font-black uppercase shrink-0 tracking-wide">{ld.colorName}</span>
-            </div>
-          );
-        })()}
-
-        {/* Class Selection (admin only — GLV only sees their assigned classes) */}
-        <div className="flex gap-2">
-          {role === 'admin' && (
-          <select
-            value={selectedClassId}
-            onChange={e => setSelectedClassId(e.target.value)}
-            className="form-select flex-1 min-h-[44px] rounded-xl text-xs font-semibold"
-          >
-            <option value="all">Tất cả các lớp</option>
-            {classList.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          )}
-
-          <button onClick={handleMarkAllPresent} className={`btn btn-secondary rounded-xl min-h-[44px] px-4 text-xs font-bold gap-1.5 ${role !== 'admin' ? 'flex-1' : 'shrink-0'}`}>
-            <Check size={14} /> Có mặt tất cả
-          </button>
-        </div>
-      </div>
-
-      {/* Student Cards Touch List */}
-      <div className="flex flex-col gap-2.5">
-        {filteredStudents.length === 0 ? (
-          <div className="state-feedback state-feedback--empty p-8 text-center text-sm text-text-muted">
-            Không có thiếu nhi trong bộ lọc hiện tại.
-          </div>
-        ) : filteredStudents.map(student => {
-          const item = attendanceMap[student.id] || { status: 'Present', note: '' };
-
-          return (
-            <div
-              key={student.id}
-              className="entity-card p-3.5 flex flex-col gap-3"
-            >
-              <div className="flex justify-between items-start gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap text-[15px] font-bold leading-tight">
-                    <span className="text-parish-secondary">{student.holyName}</span>
-                    <span className="text-parish-primary">{student.fullName}</span>
-                    {item.status === 'AbsentExcused' && item.note?.includes('[Đơn') && (
-                      <span className="badge badge-warning text-[10px] px-1.5 py-0.5 font-bold shrink-0">
-                        Có phép online
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-text-muted text-xs mt-1">
-                    {student.code} • {findClassById(student.classId)?.name || '—'}
-                  </div>
-                </div>
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ring-1 ring-black/5 ${item.status === 'Present' ? 'bg-parish-success' : item.status === 'AbsentExcused' ? 'bg-parish-warning' : 'bg-parish-danger'}`} aria-hidden="true" />
-              </div>
-
-              {/* 3 Touch Status Buttons */}
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => handleToggle(student.id, 'Present')}
-                  className={`min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${item.status === 'Present' ? 'bg-parish-success text-white border-parish-success shadow-sm' : 'bg-surface-hover text-text-secondary border-surface-border hover:bg-surface-card'}`}
-                  aria-pressed={item.status === 'Present'}
-                >
-                  <CheckCircle2 size={14} /> Có mặt
-                </button>
-
-                <button
-                  onClick={() => handleToggle(student.id, 'AbsentExcused')}
-                  className={`min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${item.status === 'AbsentExcused' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-surface-hover text-text-secondary border-surface-border hover:bg-surface-card'}`}
-                  aria-pressed={item.status === 'AbsentExcused'}
-                >
-                  <AlertTriangle size={14} /> Có phép
-                </button>
-
-                <button
-                  onClick={() => handleToggle(student.id, 'AbsentUnexcused')}
-                  className={`min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${item.status === 'AbsentUnexcused' ? 'bg-parish-danger text-white border-parish-danger shadow-sm' : 'bg-surface-hover text-text-secondary border-surface-border hover:bg-surface-card'}`}
-                  aria-pressed={item.status === 'AbsentUnexcused'}
-                >
-                  <XCircle size={14} /> Vắng
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Floating Save Button */}
-      <button
-        onClick={handleSave}
-        className={`mobile-floating-action inline-flex items-center gap-2 min-h-[48px] px-5 rounded-full text-sm font-extrabold shadow-lg transition-colors ${isSaved ? 'bg-parish-success text-white' : 'bg-parish-primary text-white hover:bg-parish-primary-hover'}`}
-        aria-live="polite"
+      <div
+        id={activeSubTab === 'attendance' ? 'attendance-panel' : activeSubTab === 'summary' ? 'attendance-summary-panel' : 'attendance-leave-panel'}
+        role="tabpanel"
+        aria-labelledby={activeSubTab === 'attendance' ? 'attendance-tab' : activeSubTab === 'summary' ? 'attendance-summary-tab' : 'attendance-leave-tab'}
       >
-        <Save size={18} />
-        {isSaved ? 'Đã Lưu!' : `Lưu Điểm Danh (${filteredStudents.length})`}
-      </button>
-        </>
-      )}
+        {activeSubTab === 'leave-requests'
+          ? <MobileLeaveRequests />
+          : activeSubTab === 'summary'
+            ? <MobileAttendanceSummaryView />
+            : renderAttendanceWorkspace()}
+      </div>
     </div>
-  );
-};
+  )
+}

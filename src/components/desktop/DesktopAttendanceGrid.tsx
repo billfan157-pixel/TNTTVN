@@ -331,7 +331,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
                     <tr key={s.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-text-muted">{idx + 1}</td>
 
-                      <td className="py-3.5 px-4 font-semibold text-amber-900 dark:text-amber-400 text-sm truncate min-w-0">{s.holyName || '—'}</td>
+                      <td className="py-3.5 px-4 font-bold text-amber-900 dark:text-amber-400 text-sm truncate min-w-0">{s.holyName || '—'}</td>
 
                       <td className="py-3.5 px-4 overflow-hidden min-w-0">
                         <div className="font-extrabold text-base text-text-main truncate min-w-0 flex items-center gap-1.5" title={s.fullName}>

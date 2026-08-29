@@ -15,7 +15,7 @@ export interface StudentNameProps {
  * Standardized Student Name Component (Tên Thánh + Họ và Tên)
  * Design System SSOT: docs/03_DESIGN_SYSTEM.md §17
  *
- * - Tên Thánh: Spiritual patronal dignity, styled in deep rich brown (text-amber-900 dark:text-amber-400 / #78350F), font-semibold.
+ * - Tên Thánh: Spiritual patronal dignity, styled in deep rich brown (text-amber-900 dark:text-amber-400 / #78350F), font-bold.
  * - Họ và Tên: Primary legal/academic identity, styled in high-contrast text-text-main, font-extrabold / font-bold.
  */
 export const StudentName: React.FC<StudentNameProps> = React.memo(({
@@ -66,7 +66,7 @@ export const StudentName: React.FC<StudentNameProps> = React.memo(({
       <div className={`student-name-group student-name-group--stacked flex flex-col min-w-0 ${gap} ${className}`}>
         {(cleanHolyName || showEmptyHolyNameDash) && (
           <span
-            className={`student-holy-name ${holySize} font-semibold text-amber-900 dark:text-amber-400 leading-tight truncate ${holyNameClassName}`}
+            className={`student-holy-name ${holySize} font-bold text-amber-900 dark:text-amber-400 leading-tight truncate ${holyNameClassName}`}
           >
             {cleanHolyName || '—'}
           </span>
@@ -85,7 +85,7 @@ export const StudentName: React.FC<StudentNameProps> = React.memo(({
     <span className={`student-name-group student-name-group--inline inline-flex items-baseline min-w-0 max-w-full truncate ${gap} ${className}`}>
       {cleanHolyName ? (
         <span
-          className={`student-holy-name ${holySize} font-semibold text-amber-900 dark:text-amber-400 shrink-0 ${holyNameClassName}`}
+          className={`student-holy-name ${holySize} font-bold text-amber-900 dark:text-amber-400 shrink-0 ${holyNameClassName}`}
         >
           {cleanHolyName}
         </span>
@@ -114,7 +114,7 @@ export const StudentHolyName: React.FC<{ holyName?: string | null; size?: 'xs' |
     lg: 'text-base',
   }
   return (
-    <span className={`student-holy-name ${sizeClasses[size]} font-semibold text-amber-900 dark:text-amber-400 ${className}`}>
+    <span className={`student-holy-name ${sizeClasses[size]} font-bold text-amber-900 dark:text-amber-400 ${className}`}>
       {holyName?.trim() || '—'}
     </span>
   )

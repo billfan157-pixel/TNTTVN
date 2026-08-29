@@ -45,10 +45,13 @@ export default defineConfig({
       'lucide-react',
       'zustand',
       'idb',
+      'dexie',
       'clsx',
       'tailwind-merge',
       'jspdf',
       'xlsx',
+      'jsqr',
+      'qrcode-generator',
     ],
   },
   plugins: [

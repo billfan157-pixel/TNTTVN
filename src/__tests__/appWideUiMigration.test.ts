@@ -33,6 +33,7 @@ describe('App-wide UI System v4.1 migration contract', () => {
       'components/mobile/MobileAttendanceView.tsx',
       'components/mobile/MobileCalendarView.tsx',
       'components/mobile/MobileDailyGradeEntry.tsx',
+      'components/mobile/MobileGradeBoard.tsx',
       'components/mobile/MobileGradeComparison.tsx',
       'components/mobile/MobileGradeMatrix.tsx',
       'components/mobile/MobileGradeView.tsx',

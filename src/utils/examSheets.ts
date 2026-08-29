@@ -415,9 +415,10 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       .exam-paper-container { box-shadow: none; border-radius: 0; background: #fff; }
     }
     .exam-paper-container {
-      width: 100%;
+      width: 210mm;
       max-width: 210mm;
-      min-width: 0;
+      min-width: 210mm;
+      box-sizing: border-box;
       margin: 0 auto;
       position: relative;
       /* 5.6mm giữ toàn bộ mực marker cách mép A4 tối thiểu 6mm sau phần overhang. */
