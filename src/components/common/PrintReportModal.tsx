@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { Printer, FileText, Award, X, Download, Eye, Layers, User, Loader2, FileDown } from 'lucide-react'
 import {
   generateClassGradebookHTML,
@@ -15,6 +15,7 @@ import { ReportViewModelFactory } from '../../utils/reportViewModelFactory'
 import { ReportExportService } from '../../services/reportExportService'
 import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { api } from '../../lib/api'
+import { ModalPortal } from './ModalPortal'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
@@ -41,8 +42,7 @@ export const PrintReportModal: React.FC<Props> = ({
   initialStudentId,
 }) => {
   const [reportType, setReportType] = useState<ReportType>(initialReportType || 'CLASS_GRADEBOOK')
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
   const [selectedClassId, setSelectedClassId] = useState(initialClassId || 'AU1')
   const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId || '')
   const [meetingTime, setMeetingTime] = useState('')
@@ -243,7 +243,9 @@ export const PrintReportModal: React.FC<Props> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="In báo cáo">
+    <>
+    <ModalPortal>
+    <div className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="In báo cáo">
       <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
@@ -525,7 +527,9 @@ export const PrintReportModal: React.FC<Props> = ({
           </div>
         </div>
       </div>
-      {confirmDialog}
     </div>
+    </ModalPortal>
+    {confirmDialog}
+    </>
   )
 }

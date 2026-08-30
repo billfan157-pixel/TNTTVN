@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2, ArrowRight, Download, FileDown, History, RotateCcw, Layers, Info, Settings2, AlertTriangle } from 'lucide-react'
 import { loadXlsx } from '../../lib/xlsxLoader'
 import { findHeaderRow, detectColumnsWithConfidence, parseToImportRows, normalizeDate, type ImportRow, type ColumnDetectionResult } from '../../utils/excelParser'
 import { useClassStore } from '../../stores/classStore'
 import { api } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { useToastStore } from '../../stores/toastStore'
 import { useStudentStore } from '../../stores/studentStore'
 import { rowsToSafeCsv } from '../../utils/csv'
+import { ModalPortal } from './ModalPortal'
 
 interface Props {
   isOpen: boolean
@@ -61,9 +62,6 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const activeAcademicYears = academicYears.filter(a => !a.isLocked)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   const addToast = useToastStore((s) => s.addToast)
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
-
   const allFields = Object.keys(FIELD_LABELS)
 
   const reset = useCallback(() => {
@@ -90,14 +88,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     onClose()
   }, [onClose, reset])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, handleClose])
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, handleClose)
 
   if (!isOpen) return null
 
@@ -410,7 +401,9 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="excel-import-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" onClick={handleClose}>
+    <>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="excel-import-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" onClick={handleClose}>
       <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">
@@ -1255,7 +1248,9 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </div>
         </div>
       </div>
-      {confirmDialog}
     </div>
+    </ModalPortal>
+    {confirmDialog}
+    </>
   )
 }

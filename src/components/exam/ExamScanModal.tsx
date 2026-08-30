@@ -16,6 +16,7 @@ import {
   Edit3
 } from 'lucide-react'
 import { clearOmrScratchBuffers, detectScoreFromImage, detectAnswersFromImage, type OmrResult, type OmrMultipleChoiceResult, type OmrTemplateMode } from '../../lib/omr'
+import { ModalPortal } from '../common/ModalPortal'
 import { scanExamCode } from '../../lib/examCodeScanner'
 import {
   createManualExamIdentity,
@@ -40,7 +41,7 @@ import { useExamStore } from '../../stores/examStore'
 import { useStudentStore } from '../../stores/studentStore'
 import { isMcGradedExamType } from '../../types'
 import type { ExamAnswerVariants, ExamType, ExamVersionCode } from '../../types'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import {
   EXISTING_RESULT_FINGERPRINT,
   advanceContinuousRearm,
@@ -104,8 +105,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   onClose,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null)
-  // PHA 1 nợ (audit A19): focus trap
-  const trapRef = useFocusTrap(true)
+  const { dialogRef: trapRef } = useAccessibleDialog(true, onClose)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pendingUploadRef = useRef<{ image: HTMLImageElement; url: string } | null>(null)
@@ -761,14 +761,6 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
   }, [stopCamera])
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [onClose])
-
   const toggleCamera = () => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment'
     setFacingMode(nextMode)
@@ -993,7 +985,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   const detectedPreviewUrl = useMemo(() => detectedFrame ? frameToDataUrl(detectedFrame) : '', [detectedFrame])
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="exam-scan-title" className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="exam-scan-title" className="app-modal-layer fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <div ref={trapRef} className="bg-surface-card rounded-2xl p-4 w-full max-w-xl shadow-2xl flex flex-col gap-3 max-h-[94vh] border border-surface-border overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between pb-1 border-b border-surface-border">
@@ -1453,6 +1446,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         )}
       </div>
     </div>
+    </ModalPortal>
   )
 }
 

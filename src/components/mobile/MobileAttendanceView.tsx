@@ -25,6 +25,7 @@ import { StudentName } from '../common/StudentName'
 import { MobileLeaveRequests } from './MobileLeaveRequests'
 import { MobileAttendanceSummaryView } from './MobileAttendanceSummaryView'
 import type { AttendanceType } from '../../types'
+import { TabPanel, Tabs } from '../common/ui/SelectionControls'
 
 type AttendanceStatus = 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
 type AttendanceDraft = { status: AttendanceStatus; note: string }
@@ -401,61 +402,41 @@ export const MobileAttendanceView: React.FC = () => {
 
   return (
     <div className={`mobile-screen mobile-screen--stack product-view ${activeSubTab === 'attendance' && !needsAdminClassSelection ? 'mobile-screen--stack--with-action-bar' : ''}`}>
-      <div className="view-tabs" role="tablist" aria-label="Chức năng điểm danh">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('attendance')}
-          className={`view-tab ${activeSubTab === 'attendance' ? 'is-active' : ''}`}
-          role="tab"
-          id="attendance-tab"
-          aria-controls="attendance-panel"
-          aria-selected={activeSubTab === 'attendance'}
-        >
-          <CheckSquare size={14} aria-hidden="true" />
-          <span>Điểm Danh</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('summary')}
-          className={`view-tab ${activeSubTab === 'summary' ? 'is-active' : ''}`}
-          role="tab"
-          id="attendance-summary-tab"
-          aria-controls="attendance-summary-panel"
-          aria-selected={activeSubTab === 'summary'}
-        >
-          <BarChart2 size={14} aria-hidden="true" />
-          <span>Tổng Hợp</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('leave-requests')}
-          className={`view-tab relative ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`}
-          role="tab"
-          id="attendance-leave-tab"
-          aria-controls="attendance-leave-panel"
-          aria-selected={activeSubTab === 'leave-requests'}
-        >
-          <CalendarClock size={14} aria-hidden="true" />
-          <span>Đơn Xin Nghỉ</span>
-          {pendingCount > 0 && (
-            <span className={`attendance-pending-badge ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`} aria-label={`${pendingCount} đơn chờ duyệt`}>
-              {pendingCount}
-            </span>
-          )}
-        </button>
-      </div>
+      <Tabs
+        id="mobile-attendance-tabs"
+        ariaLabel="Chức năng điểm danh"
+        items={[
+          { value: 'attendance', label: 'Điểm Danh', icon: <CheckSquare aria-hidden="true" size={14} /> },
+          { value: 'summary', label: 'Tổng Hợp', icon: <BarChart2 aria-hidden="true" size={14} /> },
+          {
+            value: 'leave-requests',
+            icon: <CalendarClock aria-hidden="true" size={14} />,
+            label: (
+              <>
+                <span>Đơn Xin Nghỉ</span>
+                {pendingCount > 0 && (
+                  <span className={`attendance-pending-badge ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`}>
+                    {pendingCount}
+                  </span>
+                )}
+              </>
+            ),
+            ariaLabel: `Đơn xin nghỉ${pendingCount > 0 ? `, ${pendingCount} đơn chờ duyệt` : ''}`,
+          },
+        ] as const}
+        value={activeSubTab}
+        onValueChange={setActiveSubTab}
+      />
 
-      <div
-        id={activeSubTab === 'attendance' ? 'attendance-panel' : activeSubTab === 'summary' ? 'attendance-summary-panel' : 'attendance-leave-panel'}
-        role="tabpanel"
-        aria-labelledby={activeSubTab === 'attendance' ? 'attendance-tab' : activeSubTab === 'summary' ? 'attendance-summary-tab' : 'attendance-leave-tab'}
-      >
-        {activeSubTab === 'leave-requests'
-          ? <MobileLeaveRequests />
-          : activeSubTab === 'summary'
-            ? <MobileAttendanceSummaryView />
-            : renderAttendanceWorkspace()}
-      </div>
+      <TabPanel tabsId="mobile-attendance-tabs" value="attendance" activeValue={activeSubTab}>
+        {renderAttendanceWorkspace()}
+      </TabPanel>
+      <TabPanel tabsId="mobile-attendance-tabs" value="summary" activeValue={activeSubTab}>
+        <MobileAttendanceSummaryView />
+      </TabPanel>
+      <TabPanel tabsId="mobile-attendance-tabs" value="leave-requests" activeValue={activeSubTab}>
+        <MobileLeaveRequests />
+      </TabPanel>
     </div>
   )
 }

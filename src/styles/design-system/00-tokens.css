@@ -1,0 +1,140 @@
+/* ═══════════════════════════════════════════════════
+   DESIGN SYSTEM TOKENS
+   Reference: docs/03_DESIGN_SYSTEM.md
+   ═══════════════════════════════════════════════════ */
+
+@theme {
+  /* ─── Font ─── */
+  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+
+  /* ─── Primary (Brand) ─── */
+  --color-parish-primary: #1E3A8A;
+  --color-parish-primary-hover: #1E40AF;
+  --color-parish-primary-light: #EFF6FF;
+  --color-parish-gold: #B7791F;
+  --color-parish-gold-light: #FFF8E7;
+
+  /* ─── Secondary (Amber) ─── */
+  --color-parish-secondary: #D97706;
+  --color-parish-secondary-hover: #B45309;
+  --color-parish-secondary-light: #FEF3C7;
+
+  /* ─── Semantic Colors ─── */
+  --color-parish-success: #15803D;
+  --color-parish-success-hover: #166534;
+  --color-parish-success-bg: #DCFCE7;
+  --color-parish-warning: #EA580C;
+  --color-parish-warning-hover: #C2410C;
+  --color-parish-warning-bg: #FFEDD5;
+  --color-parish-danger: #DC2626;
+  --color-parish-danger-hover: #B91C1C;
+  --color-parish-danger-bg: #FEE2E2;
+  --color-parish-info: #0369A1;
+  --color-parish-info-bg: #E0F2FE;
+
+  /* ─── Branch Colors (TNTT) ─── */
+  --color-branch-chiencon: #EC4899;
+  --color-branch-aunhi: #16A34A;
+  --color-branch-thieunhi: #2563EB;
+  --color-branch-nghiasi: #EAB308;
+  --color-branch-hiepsi: #8B4513;
+
+  /* ─── Surface ─── */
+  --color-surface-card: #FFFFFF;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-sunken: #F1F4F8;
+  --color-surface-hover: #F1F4F8;
+  --color-surface-border: #DDE3EC;
+  --color-surface-app: #F7F8FB;
+
+  /* ─── Text ─── */
+  --color-text-main: #0F172A;
+  --color-text-muted: #5F6F82;
+  --color-text-inverse: #FFFFFF;
+  --color-text-secondary: #475569;
+  --color-border-input: #CBD5E1;
+  --color-text-placeholder: #5F6F82;
+  --color-text-placeholder-on-brand: #E2E8F0;
+  --color-parish-info-hover: #075985;
+
+  /* ─── Interaction States & Feedback ─── */
+  --color-focus-ring: rgba(30, 58, 138, 0.35);
+  --color-focus-ring-brand: #FFFFFF;
+  --color-surface-selected: #EFF6FF;
+  --color-surface-selected-border: #93C5FD;
+  --color-surface-disabled: #F1F5F9;
+  --color-text-disabled: #94A3B8;
+  --color-border-disabled: #E2E8F0;
+  --color-surface-overlay: rgba(15, 23, 42, 0.5);
+
+  /* ─── Domain Colors (Finance: Income / Expense / Transfer) ─── */
+  --color-finance-income: #15803D;
+  --color-finance-income-bg: #DCFCE7;
+  --color-finance-expense: #DC2626;
+  --color-finance-expense-bg: #FEE2E2;
+  --color-finance-transfer: #0369A1;
+  --color-finance-transfer-bg: #E0F2FE;
+
+  /* ─── Domain Badge Colors (Audit Log / Academic Year / Status) — AA với pastel bg ─── */
+  --color-parish-violet: #6D28D9;
+  --color-parish-violet-bg: #EDE9FE;
+  --color-parish-teal: #0F766E;
+  --color-parish-teal-bg: #CCFBF1;
+  --color-parish-orange: #C2410C;
+  --color-parish-orange-bg: #FFEDD5;
+  --color-parish-indigo: #4338CA;
+  --color-parish-indigo-bg: #E0E7FF;
+  --color-parish-purple: #7E22CE;
+  --color-parish-purple-bg: #F3E8FF;
+
+  /* ─── Domain Cell States (Grades / Matrix / Attendance) ─── */
+  --color-cell-clean: transparent;
+  --color-cell-edited: #FEF3C7;
+  --color-cell-edited-border: #F59E0B;
+  --color-cell-saving: #E0F2FE;
+  --color-cell-saved: #DCFCE7;
+  --color-cell-conflict: #FEE2E2;
+  --color-cell-conflict-border: #EF4444;
+  --color-cell-locked: #F1F5F9;
+  --color-cell-locked-border: #E2E8F0;
+
+  /* ─── Radius ─── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* ─── Radius — Semantic Tier 2 (Airbnb+Material semantic) ─── */
+  --radius-card: var(--radius-xl);      /* entity-card, mobile-content-card: 20px */
+  --radius-control: var(--radius-md);   /* inputs, selects, filter panels: 12px */
+  --radius-action: var(--radius-full);  /* pill FAB, bottom-nav items: pill */
+  --radius-sheet: 20px;                 /* bottom sheets on mobile */
+  --radius-nav: 14px;                   /* bottom-nav items, sheet triggers */
+  --radius-sheet-lg: 18px;              /* control sheet, page header brand */
+  --radius-hero: 22px;                  /* hero card accent */
+
+  /* ─── Density Ladder (Stripe+Linear) ─── */
+  --density-gap-comfort: 14px;
+  --density-gap-dense: 10px;
+  --density-card-pad-comfort: 16px;
+  --density-card-pad-dense: 12px;
+
+  /* ─── Spacing (4px base) ─── */
+  --space-3\.5: 14px;
+
+  /* ─── Shadows ─── */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.025);
+  --shadow-card-hover: 0 10px 24px -14px rgba(30, 58, 138, 0.28), 0 2px 6px rgba(15, 23, 42, 0.05);
+  --shadow-raised: 0 12px 32px -18px rgba(15, 23, 42, 0.24), 0 3px 10px rgba(15, 23, 42, 0.05);
+  --shadow-modal: 0 24px 60px -20px rgba(15, 23, 42, 0.38), 0 8px 20px -8px rgba(15, 23, 42, 0.16);
+  --shadow-dropdown: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-toast: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+
+  /* Motion communicates state; it never decorates content. */
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --motion-slow: 260ms;
+  --motion-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}

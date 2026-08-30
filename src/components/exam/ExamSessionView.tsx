@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
 import { normalizeExamSessionClassFilter } from '../../lib/examSessionScope'
 import { useFilterStore } from '../../stores/filterStore'
@@ -28,7 +28,8 @@ import {
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import type { ExamImportScope } from '../../utils/examParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 const SCORE_TYPES: { id: ExamScoreType; label: string; daily: boolean }[] = [
   { id: 'oral', label: 'Điểm Miệng', daily: true },
@@ -148,9 +149,10 @@ export const ExamSessionView: React.FC = () => {
   const [showGuidedGrade, setShowGuidedGrade] = useState(false)
   const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
   const [showAnswerKeyModal, setShowAnswerKeyModal] = useState(false)
-  // PHA 1 nợ (audit A19): focus trap cho 2 modal nội bộ (answer-key + create session)
-  const answerKeyTrapRef = useFocusTrap(showAnswerKeyModal)
-  const createTrapRef = useFocusTrap(showCreate)
+  const closeAnswerKeyModal = useCallback(() => setShowAnswerKeyModal(false), [])
+  const closeCreateModal = useCallback(() => setShowCreate(false), [])
+  const { dialogRef: answerKeyTrapRef, titleId: answerKeyTitleId } = useAccessibleDialog(showAnswerKeyModal, closeAnswerKeyModal)
+  const { dialogRef: createTrapRef, titleId: createTitleId } = useAccessibleDialog(showCreate, closeCreateModal)
   const [rescoreLoading, setRescoreLoading] = useState(false)
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -184,19 +186,6 @@ export const ExamSessionView: React.FC = () => {
   })
   const [conflictsConfirmed, setConflictsConfirmed] = useState(false)
   const [createError, setCreateError] = useState('')
-
-  useEffect(() => {
-    if (!showAnswerKeyModal && !showCreate) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      if (showAnswerKeyModal) setShowAnswerKeyModal(false)
-      if (showCreate) setShowCreate(false)
-    }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [showAnswerKeyModal, showCreate])
 
   useEffect(() => {
     // Non-admin: giữ null cho chế độ “Tất cả”; chỉ reset khi class đã chọn không
@@ -859,11 +848,12 @@ export const ExamSessionView: React.FC = () => {
 
       {/* Answer Key Viewer Modal for Active Session */}
       {showAnswerKeyModal && activeSession && (
-        <div role="dialog" aria-modal="true" aria-labelledby="answer-key-title" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowAnswerKeyModal(false)}>
+        <ModalPortal>
+        <div role="dialog" aria-modal="true" aria-labelledby={answerKeyTitleId} className="app-modal-layer fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeAnswerKeyModal}>
           <div ref={answerKeyTrapRef} className="bg-surface-card rounded-2xl p-5 w-full max-w-lg shadow-2xl flex flex-col gap-3 max-h-[90vh] border border-surface-border" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-surface-border pb-3">
               <div>
-                <h4 id="answer-key-title" className="font-extrabold text-parish-primary flex items-center gap-2 m-0">
+                <h4 id={answerKeyTitleId} className="font-extrabold text-parish-primary flex items-center gap-2 m-0">
                   <ListChecks className="text-parish-primary" size={18} />
                   Đáp Án Chuẩn — {activeSession.subject}
                 </h4>
@@ -871,7 +861,7 @@ export const ExamSessionView: React.FC = () => {
                   {activeSession.questionCount || 20} câu hỏi trắc nghiệm{activeIsMixed ? ` · ${activeEssayMaxPoints}đ tự luận` : ''} · Thang điểm {activeSession.maxScore}
                 </p>
               </div>
-              <button onClick={() => setShowAnswerKeyModal(false)} className="btn btn-secondary btn-sm rounded-xl">
+              <button onClick={closeAnswerKeyModal} className="btn btn-secondary btn-sm rounded-xl">
                 <X size={14} /> Đóng
               </button>
             </div>
@@ -939,11 +929,13 @@ export const ExamSessionView: React.FC = () => {
             )}
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* Create modal */}
       {showCreate && (
-        <div role="dialog" aria-modal="true" aria-labelledby="create-session-title" className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" onClick={() => setShowCreate(false)}>
+        <ModalPortal>
+        <div role="dialog" aria-modal="true" aria-labelledby={createTitleId} className="app-modal-layer fixed inset-0 bg-black/40 flex items-end justify-center p-0 sm:items-center sm:p-4" onClick={closeCreateModal}>
           <div ref={createTrapRef} className="bg-surface-card rounded-t-3xl sm:rounded-2xl w-full max-w-2xl shadow-xl max-h-[96dvh] sm:max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 z-10 bg-surface-card border-b border-surface-border px-4 pt-2 sm:px-5 sm:pt-0">
               <div className="flex justify-center py-1.5 sm:hidden" aria-hidden="true">
@@ -951,12 +943,12 @@ export const ExamSessionView: React.FC = () => {
               </div>
               <div className="flex items-start justify-between gap-3 pb-3 pt-1 sm:pt-4">
                 <div className="min-w-0">
-                  <h4 id="create-session-title" className="font-extrabold text-parish-primary mb-1">Tạo Phiên Chấm</h4>
+                  <h4 id={createTitleId} className="font-extrabold text-parish-primary mb-1">Tạo Phiên Chấm</h4>
                   <p className="text-xs text-text-muted m-0">
                     Năm học {normalizeActiveAY(activeAY)} · Học kỳ {selectedSemester}
                   </p>
                 </div>
-                <button type="button" onClick={() => setShowCreate(false)} className="mobile-touch-target shrink-0 rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-main flex items-center justify-center" aria-label="Đóng tạo phiên chấm">
+                <button type="button" onClick={closeCreateModal} className="mobile-touch-target shrink-0 rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-main flex items-center justify-center" aria-label="Đóng tạo phiên chấm">
                   <X size={20} />
                 </button>
               </div>
@@ -1320,7 +1312,7 @@ export const ExamSessionView: React.FC = () => {
                   <p className="m-0 text-xs text-text-muted">Sẵn sàng nhập điểm trực tiếp sau khi tạo phiên.</p>
                 )}
                 <div className="flex gap-2 sm:justify-end">
-                  <button className="btn btn-secondary flex-1 min-h-[44px] sm:flex-none" onClick={() => setShowCreate(false)}>Hủy</button>
+                  <button className="btn btn-secondary flex-1 min-h-[44px] sm:flex-none" onClick={closeCreateModal}>Hủy</button>
                   <button className="btn btn-primary flex-1 min-h-[44px] sm:flex-none" onClick={handleCreate} disabled={!createForm.subject.trim()}>
                     <Plus size={16} /> Tạo Phiên
                   </button>
@@ -1330,6 +1322,7 @@ export const ExamSessionView: React.FC = () => {
           </div>
         </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* Smart Exam Import Modal — scope theo ô import đang mở (TN / TL) */}

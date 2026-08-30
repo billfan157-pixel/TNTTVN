@@ -5,6 +5,7 @@ import { useEffectiveMode } from '../hooks/useEffectiveMode'
 import { Grid3X3, FileSpreadsheet, Columns3, Calculator, ClipboardList } from 'lucide-react'
 import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student } from '../types'
+import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
 
 const DesktopGradeMatrix = lazyWithRetry(() => import('../components/desktop/DesktopGradeMatrix'), 'DesktopGradeMatrix')
 const DesktopGradeCards = lazyWithRetry<React.FC<{
@@ -29,39 +30,49 @@ export function GradesPage() {
   const effectiveMode = useEffectiveMode()
   const { openReport, openReportForPrint } = useUIStore()
   const [viewMode, setViewMode] = useState<GradeViewMode>('matrix')
+  const viewItems = VIEW_TABS.map(tab => ({
+    value: tab.id,
+    icon: tab.icon,
+    label: (
+      <>
+        <span>{tab.label}</span>
+        <span className={`text-[10px] hidden sm:inline ${viewMode === tab.id ? 'text-white/80' : 'text-text-muted'}`}>
+          {tab.desc}
+        </span>
+      </>
+    ),
+    ariaLabel: `${tab.label}: ${tab.desc}`,
+  }))
 
   if (effectiveMode === 'desktop') {
     return (
       <div className="flex flex-col gap-4">
         {/* View Mode Tabs — PHA 4: flex-wrap để không tràn ngang @1024px */}
-        <div className="bg-surface-hover border border-surface-border rounded-2xl p-1.5 inline-flex self-start gap-1 flex-wrap">
-          {VIEW_TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setViewMode(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                viewMode === tab.id
-                  ? 'bg-parish-primary text-white shadow-sm'
-                  : 'text-text-secondary hover:bg-surface-hover'
-              }`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-              <span className={`text-[10px] hidden sm:inline ${viewMode === tab.id ? 'text-white/80' : 'text-text-muted'}`}>
-                {tab.desc}
-              </span>
-            </button>
-          ))}
-        </div>
+        <Tabs
+          id="desktop-grade-view-tabs"
+          ariaLabel="Chế độ quản lý điểm"
+          items={viewItems}
+          value={viewMode}
+          onValueChange={setViewMode}
+          className="self-start flex-wrap"
+        />
 
         {/* Active View with Suspense */}
-        <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}>
-          {viewMode === 'matrix' && <DesktopGradeMatrix />}
-          {viewMode === 'cards' && <DesktopGradeCards onViewReport={openReport} onPrintReport={openReportForPrint} />}
-          {viewMode === 'comparison' && <DesktopGradeComparison />}
-          {viewMode === 'daily' && <DesktopDailyGradeEntry />}
-          {viewMode === 'exam' && <ExamSessionView />}
-        </Suspense>
+        <TabPanel tabsId="desktop-grade-view-tabs" value="matrix" activeValue={viewMode}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopGradeMatrix /></Suspense>
+        </TabPanel>
+        <TabPanel tabsId="desktop-grade-view-tabs" value="cards" activeValue={viewMode}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopGradeCards onViewReport={openReport} onPrintReport={openReportForPrint} /></Suspense>
+        </TabPanel>
+        <TabPanel tabsId="desktop-grade-view-tabs" value="comparison" activeValue={viewMode}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopGradeComparison /></Suspense>
+        </TabPanel>
+        <TabPanel tabsId="desktop-grade-view-tabs" value="daily" activeValue={viewMode}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopDailyGradeEntry /></Suspense>
+        </TabPanel>
+        <TabPanel tabsId="desktop-grade-view-tabs" value="exam" activeValue={viewMode}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><ExamSessionView /></Suspense>
+        </TabPanel>
       </div>
     )
   }

@@ -7,64 +7,99 @@
  * đổi-mật-khẩu-bắt-buộc → không dùng được cho E2E, nên seed thẳng vào DB với
  * bcrypt hash của E2E_ROLE_PASSWORD. Idempotent (INSERT OR IGNORE).
  *
- * Chạy bởi scripts/e2e-dev.mjs SAU khi backend health sẵn sàng; hoặc chạy tay:
- *   node scripts/e2e-seed-users.mjs
+ * Chạy bởi scripts/e2e-dev.mjs SAU khi backend health sẵn sàng. Chạy tay chỉ
+ * được phép khi DB_PATH + E2E_RUN_ID trỏ đúng sandbox OS-temp có owner marker.
  */
 import { createClient } from '@libsql/client'
 import bcrypt from 'bcryptjs'
+import { assertE2EDatabasePath } from './e2e-sandbox.mjs'
 
-const dbPath = process.env.DB_PATH // khớp contract của server (getDbConfig)
-const url = process.env.DB_URL || (dbPath ? `file:${dbPath}` : 'file:server/data/parish.db')
-const c = createClient({ url })
-
-export async function seedE2EUsers() {
+export async function seedE2EUsers({
+  dbPath = process.env.DB_PATH,
+  runId = process.env.E2E_RUN_ID,
+} = {}) {
   const seedPassword = process.env.SEED_ADMIN_PASSWORD || process.env.E2E_SEED_PASSWORD
   if (!seedPassword) {
-    console.error('[e2e-seed-users] Thiếu SEED_ADMIN_PASSWORD/E2E_SEED_PASSWORD — bỏ qua seed user E2E.')
-    return
+    throw new Error('Thiếu SEED_ADMIN_PASSWORD/E2E_SEED_PASSWORD — không thể seed user E2E.')
   }
 
+  const isolatedDbPath = assertE2EDatabasePath(dbPath, runId)
+  const c = createClient({ url: `file:${isolatedDbPath}` })
   const rolePassword = process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!'
   const hashRole = bcrypt.hashSync(rolePassword, 10)
   const hashSeed = bcrypt.hashSync(seedPassword, 10)
   const now = new Date().toISOString()
 
-  // 1a. Admin trưởng seed (bill) — khớp global-setup của vitest + seed.ts production.
-  await c.execute(
-    `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role, parish_id, token_version, status, must_change_password, created_at)
-     VALUES ('USR-001', 'bill', ?, 'Super Admin', 'admin', 'gia-ton', 1, 'ACTIVE', 0, ?)`,
-    [hashSeed, now],
-  )
-
-  // 1b. FIN-E2E (audit 2026-08-21): admin DÀNH RIÊNG cho E2E — không phụ thuộc
-  // mật khẩu thật của bill trên DB dev/cục bộ (INSERT OR IGNORE không overwrite
-  // hash cũ khiến login-as-bill 401 cục bộ). Dedicated account = decoupled.
-  await c.execute(
-    `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role, parish_id, token_version, status, must_change_password, created_at)
-     VALUES ('usr-e2e-admin', 'e2e_admin', ?, 'E2E Admin', 'admin', 'gia-ton', 1, 'ACTIVE', 0, ?)`,
-    [hashRole, now],
-  )
-
-  // 2. Ba user vai trò cho spec phân quyền — ACTIVE + mustChangePassword=0.
-  const roleUsers = [
-    ['usr-e2e-chunhiem', 'e2e_chunhiem', 'chunhiem', 'E2E Chunhiem'],
-    ['usr-e2e-phuta', 'e2e_phuta', 'phuta', 'E2E Phuta'],
-    ['usr-e2e-phuhuynh', 'e2e_phuhuynh', 'phuhuynh', 'E2E Phuhuynh'],
-  ]
-  for (const [id, username, role, fullName] of roleUsers) {
+  try {
+    // 1a. Admin trưởng seed (bill) — khớp global-setup của vitest + seed.ts production.
     await c.execute(
       `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role, parish_id, token_version, status, must_change_password, created_at)
-       VALUES (?, ?, ?, ?, ?, 'gia-ton', 1, 'ACTIVE', 0, ?)`,
-      [id, username, hashRole, fullName, role, now],
+       VALUES ('USR-001', 'bill', ?, 'Super Admin', 'admin', 'gia-ton', 1, 'ACTIVE', 0, ?)`,
+      [hashSeed, now],
     )
-  }
 
-  console.log('[e2e-seed-users] OK — bill + e2e_admin + 3 user vai trò E2E sẵn sàng.')
+    // 1b. FIN-E2E (audit 2026-08-21): admin DÀNH RIÊNG cho E2E — không phụ thuộc
+    // mật khẩu thật của bill trên DB dev/cục bộ (INSERT OR IGNORE không overwrite
+    // hash cũ khiến login-as-bill 401 cục bộ). Dedicated account = decoupled.
+    await c.execute(
+      `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role, parish_id, token_version, status, must_change_password, created_at)
+       VALUES ('usr-e2e-admin', 'e2e_admin', ?, 'E2E Admin', 'admin', 'gia-ton', 1, 'ACTIVE', 0, ?)`,
+      [hashRole, now],
+    )
+
+    // 2. Ba user vai trò cho spec phân quyền — ACTIVE + mustChangePassword=0.
+    const roleUsers = [
+      ['usr-e2e-chunhiem', 'e2e_chunhiem', 'chunhiem', 'E2E Chunhiem'],
+      ['usr-e2e-phuta', 'e2e_phuta', 'phuta', 'E2E Phuta'],
+      ['usr-e2e-phuhuynh', 'e2e_phuhuynh', 'phuhuynh', 'E2E Phuhuynh'],
+    ]
+    for (const [id, username, role, fullName] of roleUsers) {
+      await c.execute(
+        `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role, parish_id, token_version, status, must_change_password, created_at)
+         VALUES (?, ?, ?, ?, ?, 'gia-ton', 1, 'ACTIVE', 0, ?)`,
+        [id, username, hashRole, fullName, role, now],
+      )
+    }
+
+    // 3. Fixture nghiệp vụ tối thiểu, deterministic: một thiếu nhi thuộc lớp
+    // Thiếu Nhi 1 và hai phân công giúp các role staff đọc đúng phạm vi lớp.
+    // Đây chỉ là dữ liệu của DB sandbox; production schema/policy không đổi.
+    await c.execute(
+      `INSERT OR IGNORE INTO students
+       (id, code, holy_name, full_name, gender, date_of_birth, parent_name, parent_phone,
+        address, branch, class_id, status, parish_id, created_at, updated_at, updated_by)
+       VALUES ('student-e2e-001', 'E2E-001', 'Maria', 'Thiếu Nhi E2E', 'Nữ',
+        '2015-01-01', 'Phụ Huynh E2E', '0900000000', 'Giáo Xứ Gia Tôn',
+        'ThieuNhi', 'CLS-TN-1', 'Đang học', 'gia-ton', ?, ?, 'e2e-seed')`,
+      [now, now],
+    )
+
+    const assignments = [
+      ['assignment-e2e-chunhiem', 'usr-e2e-chunhiem', 'chunhiem'],
+      ['assignment-e2e-phuta', 'usr-e2e-phuta', 'phuta'],
+    ]
+    for (const [id, userId, roleInClass] of assignments) {
+      await c.execute(
+        `INSERT OR IGNORE INTO catechist_assignments
+         (id, user_id, class_id, role_in_class, parish_id, created_at, updated_at, updated_by)
+         VALUES (?, ?, 'CLS-TN-1', ?, 'gia-ton', ?, ?, 'e2e-seed')`,
+        [id, userId, roleInClass, now, now],
+      )
+    }
+
+    console.log('[e2e-seed-users] OK — users + student-e2e-001 + 2 class assignments sẵn sàng.')
+  } finally {
+    c.close()
+  }
 }
 
 // Chạy trực tiếp CLI: node scripts/e2e-seed-users.mjs
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('scripts/e2e-seed-users.mjs')
 if (isMain) {
-  await seedE2EUsers()
-  process.exit(0)
+  try {
+    await seedE2EUsers()
+  } catch (err) {
+    console.error('[e2e-seed-users] Seed thất bại:', err?.message || err)
+    process.exitCode = 1
+  }
 }

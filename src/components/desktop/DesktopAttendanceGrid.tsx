@@ -18,6 +18,11 @@ import { PageHeader } from '../common/PageHeader';
 import { getLiturgicalDay } from '../../utils/liturgicalEngine';
 import { LITURGICAL_COLORS } from '../../constants/liturgical';
 import type { AttendanceType } from '../../types';
+import { Button } from '../common/ui/Button';
+import { Select, TextInput } from '../common/ui/FormControls';
+import { SegmentedControl, TabPanel, Tabs } from '../common/ui/SelectionControls';
+
+type AttendanceSubTab = 'summary' | 'attendance' | 'leave-requests';
 
 export const DesktopAttendanceGrid: React.FC = () => {
   const { can } = useAuth();
@@ -32,7 +37,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
   const selectedClassId = useFilterStore(s => s.selectedClassId);
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId);
 
-  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'attendance' | 'leave-requests'>('summary');
+  const [activeSubTab, setActiveSubTab] = useState<AttendanceSubTab>('summary');
   const [date, setDate] = useState<string>(getDefaultDate);
   const [type, setType] = useState<AttendanceType>('SundayMass');
   const [attendanceState, setAttendanceState] = useState<Record<string, { status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note: string }>>({});
@@ -106,6 +111,25 @@ export const DesktopAttendanceGrid: React.FC = () => {
     else if (val.status === 'AbsentExcused') excusedCount++;
     else if (val.status === 'AbsentUnexcused') unexcusedCount++;
   });
+  const subTabItems = [
+    { value: 'summary' as const, label: 'Tổng Hợp & Phân Tích', icon: <BarChart2 aria-hidden="true" size={16} /> },
+    { value: 'attendance' as const, label: 'Sổ Điểm Danh', icon: <CheckSquare aria-hidden="true" size={16} /> },
+    {
+      value: 'leave-requests' as const,
+      icon: <CalendarClock aria-hidden="true" size={16} />,
+      label: (
+        <>
+          <span>Duyệt Nghỉ Phép</span>
+          {pendingCount > 0 && (
+            <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${activeSubTab === 'leave-requests' ? 'bg-white text-parish-primary' : 'bg-parish-danger text-white'}`}>
+              {pendingCount}
+            </span>
+          )}
+        </>
+      ),
+      ariaLabel: `Duyệt nghỉ phép${pendingCount > 0 ? `, ${pendingCount} đơn chờ duyệt` : ''}`,
+    },
+  ];
 
   // PHA 5.1: điều hướng phím trong triad trạng thái (←/→ chọn & focus option kế)
   const ATTENDANCE_ORDER: Array<'Present' | 'AbsentExcused' | 'AbsentUnexcused'> = ['Present', 'AbsentExcused', 'AbsentUnexcused']
@@ -141,58 +165,33 @@ export const DesktopAttendanceGrid: React.FC = () => {
     <div className="product-view flex flex-col gap-4">
       {/* Top Main Tab Navigation */}
       <div className="view-toolbar">
-        <div className="view-tabs">
-          <button
-            onClick={() => setActiveSubTab('summary')}
-            className={`view-tab ${activeSubTab === 'summary' ? 'is-active' : ''}`}
-            aria-pressed={activeSubTab === 'summary'}
-          >
-            <BarChart2 size={16} />
-            <span>Tổng Hợp & Phân Tích</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('attendance')}
-            className={`view-tab ${activeSubTab === 'attendance' ? 'is-active' : ''}`}
-            aria-pressed={activeSubTab === 'attendance'}
-          >
-            <CheckSquare size={16} />
-            <span>Sổ Điểm Danh</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('leave-requests')}
-            className={`view-tab relative ${activeSubTab === 'leave-requests' ? 'is-active' : ''}`}
-            aria-pressed={activeSubTab === 'leave-requests'}
-          >
-            <CalendarClock size={16} />
-            <span>Duyệt Nghỉ Phép</span>
-            {pendingCount > 0 && (
-              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${
-                activeSubTab === 'leave-requests' ? 'bg-white text-parish-primary' : 'bg-parish-danger text-white'
-              }`}>
-                {pendingCount}
-              </span>
-            )}
-          </button>
-        </div>
+        <Tabs
+          id="desktop-attendance-tabs"
+          ariaLabel="Chức năng điểm danh"
+          items={subTabItems}
+          value={activeSubTab}
+          onValueChange={setActiveSubTab}
+        />
 
         {activeSubTab !== 'leave-requests' && pendingCount > 0 && (
-          <button
+          <Button
             onClick={() => setActiveSubTab('leave-requests')}
-            className="flex items-center gap-1.5 text-xs font-bold text-parish-primary hover:underline bg-parish-primary/10 px-3 py-1.5 rounded-lg transition-colors border border-parish-primary/20"
+            variant="plain"
+            trailingIcon={<ArrowRight aria-hidden="true" size={14} />}
+            className="gap-1.5 text-xs font-bold text-parish-primary hover:underline bg-parish-primary/10 px-3 py-1.5 rounded-lg border border-parish-primary/20"
           >
             <span>💡 Có <strong>{pendingCount}</strong> đơn xin nghỉ chờ duyệt</span>
-            <ArrowRight size={14} />
-          </button>
+          </Button>
         )}
       </div>
 
-      {activeSubTab === 'leave-requests' ? (
+      <TabPanel tabsId="desktop-attendance-tabs" value="leave-requests" activeValue={activeSubTab}>
         <DesktopLeaveRequests />
-      ) : activeSubTab === 'summary' ? (
+      </TabPanel>
+      <TabPanel tabsId="desktop-attendance-tabs" value="summary" activeValue={activeSubTab}>
         <DesktopAttendanceSummary />
-      ) : (
+      </TabPanel>
+      <TabPanel tabsId="desktop-attendance-tabs" value="attendance" activeValue={activeSubTab}>
         <>
           {/* Controls Bar */}
           <PageHeader
@@ -207,23 +206,23 @@ export const DesktopAttendanceGrid: React.FC = () => {
             }
             actions={
               <>
-                <select
+                <Select
                   value={selectedClassId}
                   onChange={e => setSelectedClassId(e.target.value)}
-                  className="form-select text-sm font-bold"
+                  className="text-sm font-bold"
                 >
                   <option value="all">Tất cả các lớp</option>
                   {classList.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
-                </select>
+                </Select>
 
                 <div className="flex items-center gap-2">
-                  <input
+                  <TextInput
                     type="date"
                     value={date}
                     onChange={e => setDate(e.target.value)}
-                    className="form-input text-sm font-bold h-10"
+                    className="text-sm font-bold h-10"
                   />
                   {(() => {
                     const ld = getLiturgicalDay(date);
@@ -240,42 +239,29 @@ export const DesktopAttendanceGrid: React.FC = () => {
                   })()}
                 </div>
 
-                <div className="flex bg-surface-hover p-1.5 rounded-xl border border-surface-border gap-1">
-                  <button
-                    onClick={() => setType('SundayMass')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                      type === 'SundayMass' ? 'bg-parish-primary text-white shadow-sm' : 'text-text-secondary hover:bg-surface-card'
-                    }`}
-                  >
-                    Thánh Lễ
-                  </button>
-                  <button
-                    onClick={() => setType('CatechismClass')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                      type === 'CatechismClass' ? 'bg-parish-primary text-white shadow-sm' : 'text-text-secondary hover:bg-surface-card'
-                    }`}
-                  >
-                    Giáo Lý
-                  </button>
-                  <button
-                    onClick={() => setType('EucharisticAdoration')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                      type === 'EucharisticAdoration' ? 'bg-parish-primary text-white shadow-sm' : 'text-text-secondary hover:bg-surface-card'
-                    }`}
-                  >
-                    Chầu
-                  </button>
-                </div>
+                <SegmentedControl
+                  id="desktop-attendance-session"
+                  ariaLabel="Loại buổi điểm danh"
+                  items={[
+                    { value: 'SundayMass', label: 'Thánh Lễ' },
+                    { value: 'CatechismClass', label: 'Giáo Lý' },
+                    { value: 'EucharisticAdoration', label: 'Chầu' },
+                  ]}
+                  value={type}
+                  onValueChange={setType}
+                />
 
                 {canEditAttendance && (
-                  <button
+                  <Button
                     onClick={handleSave}
-                    disabled={isSaving}
-                    className={`btn transition-colors duration-300 ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white disabled:opacity-60`}
+                    loading={isSaving}
+                    loadingLabel="Đang lưu..."
+                    leadingIcon={isSaved ? <CheckCircle2 aria-hidden="true" size={16} /> : <Save aria-hidden="true" size={16} />}
+                    variant="plain"
+                    className={`${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white disabled:opacity-60`}
                   >
-                    {isSaving ? <AlertTriangle size={16} className="animate-pulse" /> : isSaved ? <CheckCircle2 size={16} /> : <Save size={16} />}
-                    {isSaving ? 'Đang lưu...' : isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
-                  </button>
+                    {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
+                  </Button>
                 )}
               </>
             }
@@ -397,7 +383,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
         </div>
       </div>
         </>
-      )}
+      </TabPanel>
     </div>
   );
 };

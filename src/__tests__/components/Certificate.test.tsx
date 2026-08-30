@@ -99,9 +99,8 @@ describe('Certificate', () => {
 
   it('calls onClose when overlay is clicked', () => {
     const onClose = vi.fn()
-    const { container } = render(<Certificate isOpen={true} onClose={onClose} student={mockStudent} />)
-    const overlay = container.querySelector('.modal-overlay')
-    fireEvent.click(overlay!)
+    render(<Certificate isOpen={true} onClose={onClose} student={mockStudent} />)
+    fireEvent.click(screen.getByRole('dialog'))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

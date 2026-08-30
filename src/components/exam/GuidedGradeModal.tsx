@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronLeft, Loader2, Save, ScanLine, Search, X } from 'lucide-react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 export interface GuidedGradeStudent {
   id: string
@@ -36,8 +37,7 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
   totalScores,
 }) => {
   const [query, setQuery] = useState('')
-  // PHA 1 nợ (audit A19): focus trap
-  const trapRef = useFocusTrap(true)
+  const { dialogRef: trapRef } = useAccessibleDialog(true, onClose)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [scoreText, setScoreText] = useState('')
   const [saving, setSaving] = useState(false)
@@ -103,7 +103,8 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
     : []
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="guided-grade-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="guided-grade-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
       <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div>
@@ -239,5 +240,6 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
         )}
       </div>
     </div>
+    </ModalPortal>
   )
 }

@@ -1,9 +1,11 @@
 import React, { useState, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Lock, Phone, AlertCircle, Loader2, Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { Lock, Phone, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { ParentForgotPasswordModal } from '../components/auth/ParentForgotPasswordModal'
 import { LoginShell } from '../components/auth/LoginShell'
+import { Button, IconButton } from '../components/common/ui/Button'
+import { TextInput } from '../components/common/ui/FormControls'
 
 export function ParentLoginPage() {
   const [phone, setPhone] = useState('')
@@ -57,7 +59,7 @@ export function ParentLoginPage() {
           <label htmlFor="parent-phone" className="block text-xs font-semibold text-text-muted uppercase mb-1.5">Số Điện Thoại Phụ Huynh</label>
           <div className="relative">
             <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            <input
+            <TextInput
               type="tel"
               id="parent-phone"
               inputMode="numeric"
@@ -68,7 +70,7 @@ export function ParentLoginPage() {
               onChange={(e) => setPhone(e.target.value)}
               placeholder="0901234567"
               autoComplete="username"
-              className="form-input w-full !pl-10"
+              className="w-full !pl-10"
             />
           </div>
         </div>
@@ -76,17 +78,18 @@ export function ParentLoginPage() {
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label htmlFor="parent-password" className="block text-xs font-semibold text-text-muted uppercase">Mật Khẩu</label>
-            <button
-              type="button"
+            <Button
               onClick={() => setIsForgotModalOpen(true)}
-              className="inline-flex min-h-11 items-center px-2 text-xs text-parish-primary hover:underline font-semibold transition-colors"
+              variant="plain"
+              size="sm"
+              className="min-h-11 px-2 text-xs text-parish-primary hover:underline"
             >
               Quên mật khẩu?
-            </button>
+            </Button>
           </div>
           <div className="relative">
             <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            <input
+            <TextInput
               ref={passwordInputRef}
               id="parent-password"
               type={showPassword ? 'text' : 'password'}
@@ -95,42 +98,53 @@ export function ParentLoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Nhập mật khẩu..."
               autoComplete="current-password"
-              className="form-input w-full !pl-10 !pr-11"
+              className="w-full !pl-10 !pr-11"
             />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="absolute right-1 top-1/2 min-h-11 min-w-11 -translate-y-1/2 p-2 text-text-muted hover:text-text-main rounded-lg">
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
+            <IconButton
+              label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+              icon={showPassword ? <EyeOff aria-hidden="true" className="w-4 h-4" /> : <Eye aria-hidden="true" className="w-4 h-4" />}
+              onClick={() => setShowPassword(!showPassword)}
+              size="lg"
+              variant="plain"
+              className="absolute right-1 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main"
+            />
           </div>
         </div>
 
-        <button
+        <Button
           type="submit"
-          disabled={isLoading}
-          className="btn btn-primary btn-lg w-full disabled:opacity-50"
+          loading={isLoading}
+          loadingLabel="Đang đăng nhập..."
+          variant="primary"
+          size="lg"
+          fullWidth
+          className="disabled:opacity-50"
         >
-          {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Đăng Nhập Ngay</span>}
-        </button>
+          Đăng Nhập Ngay
+        </Button>
       </form>
 
       <div className="text-center pb-6 -mt-2 px-6 space-y-3">
         <p className="text-xs text-text-muted">
           Quý Phụ Huynh quên mật khẩu?{' '}
-          <button
-            type="button"
+          <Button
             onClick={() => setIsForgotModalOpen(true)}
-            className="inline-flex min-h-11 items-center px-1 text-parish-primary font-semibold hover:underline"
+            variant="plain"
+            size="sm"
+            className="min-h-11 px-1 text-parish-primary hover:underline"
           >
             Nhắn Zalo để được hỗ trợ
-          </button>
+          </Button>
         </p>
-        <button
-          type="button"
+        <Button
           onClick={() => navigate({ to: '/login' })}
-          className="inline-flex min-h-11 items-center gap-1.5 px-2 text-xs text-parish-primary font-semibold hover:underline transition-colors"
+          variant="plain"
+          size="sm"
+          leadingIcon={<ArrowLeft aria-hidden="true" className="w-3.5 h-3.5" />}
+          className="min-h-11 gap-1.5 px-2 text-xs text-parish-primary hover:underline"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Chọn cổng đăng nhập khác</span>
-        </button>
+          Chọn cổng đăng nhập khác
+        </Button>
       </div>
 
       {/* Parent Forgot Password Modal */}

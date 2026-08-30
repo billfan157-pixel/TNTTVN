@@ -1,6 +1,9 @@
 import React, { useId, useState } from 'react'
 import { CheckCircle2, Copy, ExternalLink, MessageCircle, ShieldCheck, X } from 'lucide-react'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
+import { Button, IconButton } from '../common/ui/Button'
+import { TextInput } from '../common/ui/FormControls'
 
 interface ParentForgotPasswordModalProps {
   isOpen: boolean
@@ -28,16 +31,24 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4" onClick={onClose}>
+    <ModalPortal>
+    <div className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/55 p-4" onClick={onClose}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={event => event.stopPropagation()} className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-card shadow-2xl">
         <div className="flex items-start justify-between border-b border-surface-border p-5">
           <div>
             <h2 id={titleId} className="flex items-center gap-2 text-lg font-bold text-text-main">
-              <ShieldCheck className="h-5 w-5 text-parish-primary" /> Khôi Phục Tài Khoản An Toàn
+              <ShieldCheck aria-hidden="true" className="h-5 w-5 text-parish-primary" /> Khôi Phục Tài Khoản An Toàn
             </h2>
             <p className="mt-1 text-xs text-text-muted">Ban Giáo Lý sẽ xác minh danh tính trước khi cấp mật khẩu tạm.</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Đóng" className="min-h-11 min-w-11 rounded-lg p-2 text-text-muted hover:bg-surface-hover"><X className="h-5 w-5" /></button>
+          <IconButton
+            onClick={onClose}
+            label="Đóng"
+            icon={<X aria-hidden="true" className="h-5 w-5" />}
+            variant="ghost"
+            mobile
+            className="rounded-lg text-text-muted"
+          />
         </div>
 
         <div className="space-y-4 p-5">
@@ -46,25 +57,26 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
           </div>
           <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
             Số điện thoại phụ huynh
-            <input id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="Ví dụ: 0901234567" className="mt-1.5 min-h-11 w-full rounded-lg border border-surface-border bg-surface-card px-3 py-2.5 text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary" />
+            <TextInput id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg" />
           </label>
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase text-text-muted">Tin nhắn mẫu</div>
             <div className="rounded-xl border border-surface-border bg-surface-hover/50 p-3 text-xs leading-relaxed text-text-main">{message}</div>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button type="button" onClick={copyMessage} className="btn btn-secondary flex items-center justify-center gap-2">
-              {copied ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+            <Button type="button" onClick={copyMessage} variant="secondary" mobile fullWidth>
+              {copied ? <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-parish-success" /> : <Copy aria-hidden="true" className="h-4 w-4" />}
               {copied ? 'Đã sao chép' : 'Sao chép tin nhắn'}
-            </button>
-            <button type="button" onClick={() => window.open('https://zalo.me', '_blank', 'noopener,noreferrer')} className="btn btn-primary flex items-center justify-center gap-2">
-              <MessageCircle className="h-4 w-4" /> Mở Zalo <ExternalLink className="h-3.5 w-3.5" />
-            </button>
+            </Button>
+            <Button type="button" onClick={() => window.open('https://zalo.me', '_blank', 'noopener,noreferrer')} variant="primary" mobile fullWidth>
+              <MessageCircle aria-hidden="true" className="h-4 w-4" /> Mở Zalo <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
           </div>
-          <button type="button" onClick={onClose} className="btn btn-ghost w-full">Quay lại đăng nhập</button>
+          <Button type="button" onClick={onClose} variant="ghost" mobile fullWidth>Quay lại đăng nhập</Button>
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }
 

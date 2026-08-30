@@ -88,7 +88,7 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
                     { label: 'Đạo Đức', value: grade?.scoreDaoDuc },
                   ].map(col => (
                     <div key={col.label} className={`p-3 text-center ${col.highlight ? 'bg-parish-secondary-light/20' : 'bg-surface-card'}`}>
-                      <div className="text-[10px] font-semibold text-text-muted uppercase">{col.label}</div>
+                      <div className={`text-[10px] font-semibold uppercase ${col.highlight ? 'text-text-primary' : 'text-text-muted'}`}>{col.label}</div>
                       <div className={`text-sm font-bold mt-0.5 ${col.highlight ? 'text-parish-secondary' : 'text-text-main'}`}>
                         {col.value !== null && col.value !== undefined ? col.value : '—'}
                       </div>

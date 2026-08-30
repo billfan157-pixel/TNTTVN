@@ -1,0 +1,203 @@
+/* ═══════════════════════════════════════════════════
+   SIDEBAR
+   Reference: docs/03_DESIGN_SYSTEM.md §13.1 (Desktop Layout Contract)
+   ═══════════════════════════════════════════════════ */
+
+.sidebar-container {
+  width: 260px;
+  flex-shrink: 0;
+  /* UI-POLISH 2026-08-25: HeaderBar chuyển lên full-width (RootLayout) — sidebar
+     là flex child của row dưới header, tự stretch đầy chiều cao còn lại
+     (A-NEW-63: nav cuộn riêng, footer Cài Đặt ghim đáy vẫn luôn nhìn thấy). */
+  min-height: 0;
+  /* Nền card + viền phải ở CẢ HAI mode — trước đây light mode trong suốt nên
+     sidebar hòa vào content, thiếu ranh giới cấu trúc. Token tự dark. */
+  background: var(--color-surface-card);
+  border-right: 1px solid var(--color-surface-border);
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.sidebar-nav {
+  flex: 1;
+  /* A-NEW-63: danh sách dài tự cuộn — filter + Cài Đặt luôn ghim dưới */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  padding-bottom: 4px;
+}
+
+/* UI-POLISH-2026-08-25: scrollbar webkit siêu mảnh, chỉ nổi khi hover nav —
+   giảm noise thị giác ở chế độ mặc định (Firefox dùng scrollbar-color trên). */
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav:hover {
+  scrollbar-color: var(--color-surface-border) transparent;
+}
+.sidebar-nav:hover::-webkit-scrollbar-thumb {
+  background: var(--color-surface-border);
+  border-radius: var(--radius-full);
+}
+
+/* A-NAV-01 (2026-08-23): hero gradient cho Dashboard Phụ Huynh — hex chỉ sống ở
+   layer token (CSS), TSX dùng class để tuân DS §1.1/§9 (cấm arbitrary hex). */
+.parent-hero {
+  background-image: linear-gradient(to bottom right, var(--color-parish-primary), var(--color-parish-primary-hover));
+}
+.dark .parent-hero {
+  background-image: linear-gradient(to bottom right, #16305e, #101c3f);
+}
+
+.sidebar-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--color-text-muted);
+  /* UI-POLISH-2026-08-25: padding-top tạo nhịp phân nhóm — trước đây 0 nên các
+     section dính vào item cuối của nhóm trước (chỉ cách nhau 6px gap). */
+  padding: 14px 12px 8px 12px;
+}
+
+.sidebar-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), box-shadow var(--motion-fast) var(--motion-ease-out);
+  background: transparent;
+  color: var(--color-text-secondary);
+  outline: none;
+}
+
+.sidebar-nav-item:hover {
+  background: var(--color-surface-hover);
+}
+
+/* A11y: focus-visible ring token (WCAG) — không hiện khi click chuột. */
+.sidebar-nav-item:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.sidebar-nav-item-active {
+  font-weight: 700;
+  background: var(--color-parish-primary-light);
+  color: var(--color-parish-primary);
+  /* UI-POLISH-2026-08-25: inset ring tinh tế giúp trạng thái active rõ hơn ở
+     cả light/dark mà không cần thêm màu ngoài token. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-parish-primary) 25%, transparent);
+}
+
+.sidebar-nav-item-active:hover {
+  background: var(--color-parish-primary-light);
+}
+
+.sidebar-nav-label {
+  flex: 1;
+}
+
+/* UI-POLISH-2026-08-25: footer ghim đáy gồm Bộ lọc (admin) + Cài Đặt — MỘT đường
+   kẻ phân cách duy nhất, khối dưới liền mạch thay vì 2 divider + gap 24px. */
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-surface-border);
+}
+
+.sidebar-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Label đầu footer không cần nhịp phân nhóm (đã có border-top của footer). */
+.sidebar-filter-section .sidebar-section-label {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.sidebar-filter-field {
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Bộ lọc sidebar là control phụ trợ — compact hơn form chuẩn (38px) để tiết kiệm
+   chiều cao, tránh đẩy nav vào trạng thái cuộn trên màn hình thấp. */
+.sidebar-filter-field .form-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-filter-field .form-select {
+  height: 32px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+
+/* Token dark-mode tự thích nghi qua .dark { --color-* } — không cần override riêng. */
+
+
+/* ─── Bottom Sheet Grabber Handle (Apple HIG / MD3) ─── */
+.sheet-grabber {
+  width: 36px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-border);
+  margin: 0 auto 12px;
+  flex-shrink: 0;
+}
+.dark .sheet-grabber {
+  background: var(--color-surface-hover);
+}
+
+/* ─── Mobile Dark Mode Enhancements ─── */
+.dark .mobile-home-hero {
+  background: linear-gradient(145deg, #0F1B3D 0%, #162D6A 58%, #1A3F9E 100%);
+  box-shadow: 0 16px 30px -20px rgba(0, 0, 0, 0.6);
+}
+
+.dark .mobile-top-bar {
+  background: linear-gradient(145deg, #0C1730 0%, #152B5C 58%, #1A3B8A 100%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.dark .mobile-page-header--brand {
+  background: linear-gradient(145deg, #0F1B3D 0%, #162D6A 64%, #1A3F9E 100%);
+  box-shadow: 0 14px 30px -22px rgba(0, 0, 0, 0.6);
+}
+
+.dark .mobile-floating-action {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+}
+
+.dark .mobile-bottom-nav {
+  box-shadow: 0 -8px 26px rgba(0, 0, 0, 0.3);
+}
+
+.dark .mobile-bottom-action-bar {
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.25);
+}

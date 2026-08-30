@@ -66,7 +66,7 @@ export function CatechistPage() {
   }
 
   return (
-    <DesktopAppShell width="wide" className="flex flex-col gap-6">
+    <DesktopAppShell width="wide">
       {/* Header */}
       <PageHeader
         icon={<Award className="w-5 h-5" />}
@@ -97,7 +97,7 @@ export function CatechistPage() {
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="form-select text-sm font-medium"
+          className="form-select text-sm font-medium min-h-[40px] w-full sm:w-auto"
         >
           <option value="all">Tất cả vai trò</option>
           <option value="chunhiem">Huynh Trưởng Chủ Nhiệm</option>

@@ -29,6 +29,7 @@ import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { formatVND } from '../utils/receiptGenerator'
 import { formatDateVi } from '../utils/formatDate'
 import type { FinancialTransaction, TransactionType } from '../types/finance'
+import { Button, FilterChips, Select, TextInput } from '../components/common/ui'
 
 export const FinancePage: React.FC = () => {
   const { user } = useAuthStore()
@@ -173,53 +174,63 @@ export const FinancePage: React.FC = () => {
   }
 
   return (
-    <DesktopAppShell width="wide" className="flex flex-col gap-6">
+    <DesktopAppShell width="wide">
       {/* Top Header Bar */}
       <PageHeader
         icon={<Wallet className="w-5 h-5" />}
         title="Quản Lý Quỹ & Thu Chi Xứ Đoàn"
         description="Hệ thống kế toán & quản trị ngân quỹ Thiếu Nhi Thánh Thể minh bạch, chuẩn mực"
         actions={
-          <>
-            <button
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 items-center">
+            <Button
               onClick={() => handleOpenTx('INCOME')}
-              className="btn btn-sm"
-              style={{ background: 'var(--color-finance-income)', color: 'white' }}
+              variant="plain"
+              size="sm"
+              leadingIcon={<ArrowDownRight aria-hidden="true" className="w-4 h-4" />}
+              className="min-h-[40px]"
+              style={{ background: 'var(--color-finance-income)', color: 'var(--color-text-inverse)' }}
             >
-              <ArrowDownRight className="w-4 h-4" />
               Tạo Phiếu Thu
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => handleOpenTx('EXPENSE')}
-              className="btn btn-sm"
-              style={{ background: 'var(--color-finance-expense)', color: 'white' }}
+              variant="plain"
+              size="sm"
+              leadingIcon={<ArrowUpRight aria-hidden="true" className="w-4 h-4" />}
+              className="min-h-[40px]"
+              style={{ background: 'var(--color-finance-expense)', color: 'var(--color-text-inverse)' }}
             >
-              <ArrowUpRight className="w-4 h-4" />
               Tạo Phiếu Chi
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => handleOpenTx('TRANSFER')}
-              className="btn btn-sm"
-              style={{ background: 'var(--color-finance-transfer)', color: 'white' }}
+              variant="plain"
+              size="sm"
+              leadingIcon={<ArrowRightLeft aria-hidden="true" className="w-4 h-4" />}
+              className="min-h-[40px]"
+              style={{ background: 'var(--color-finance-transfer)', color: 'var(--color-text-inverse)' }}
             >
-              <ArrowRightLeft className="w-4 h-4" />
               Chuyển Quỹ
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setIsFeeModalOpen(true)}
-              className="btn btn-sm btn-primary"
+              variant="primary"
+              size="sm"
+              leadingIcon={<Users aria-hidden="true" className="w-4 h-4" />}
+              className="min-h-[40px]"
             >
-              <Users className="w-4 h-4" />
               Thu Niên Liễm
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setIsFundModalOpen(true)}
-              className="btn btn-sm btn-secondary"
+              variant="secondary"
+              size="sm"
+              leadingIcon={<Layers aria-hidden="true" className="w-4 h-4" />}
+              className="min-h-[40px]"
             >
-              <Layers className="w-4 h-4" />
               Quản Lý Quỹ
-            </button>
-          </>
+            </Button>
+          </div>
         }
       />
 
@@ -296,55 +307,31 @@ export const FinancePage: React.FC = () => {
       )}
 
       {/* Funds Carousel / Filter Pills */}
-      <div
-        className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin"
-        role="tablist"
-        aria-label="Chọn quỹ"
-      >
-        <button
-          onClick={() => setSelectedFundId('ALL')}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowRight') {
-              const next = (e.currentTarget as HTMLElement).nextElementSibling as HTMLElement
-              next?.focus()
-            }
-          }}
-          className={`pill-btn ${
-            selectedFundId === 'ALL' ? 'pill-btn-primary' : 'pill-btn-secondary'
-          }`}
-          role="tab"
-          aria-selected={selectedFundId === 'ALL'}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          Tất Cả Quỹ ({formatVND(summary?.totalBalance || 0)})
-        </button>
-
-        {funds.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setSelectedFundId(f.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowRight') {
-                const next = (e.currentTarget as HTMLElement).nextElementSibling as HTMLElement
-                next?.focus()
-              } else if (e.key === 'ArrowLeft') {
-                const prev = (e.currentTarget as HTMLElement).previousElementSibling as HTMLElement
-                prev?.focus()
-              }
-            }}
-            className={`pill-btn ${
-              selectedFundId === f.id ? 'pill-btn-primary' : 'pill-btn-secondary'
-            }`}
-            role="tab"
-            aria-selected={selectedFundId === f.id}
-          >
-            <span>{f.name}</span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] ${selectedFundId === f.id ? 'bg-white/20 text-white' : 'bg-surface-hover text-parish-primary'}`}>
-              {formatVND(f.currentBalance)}
-            </span>
-          </button>
-        ))}
-      </div>
+      <FilterChips
+        ariaLabel="Chọn quỹ"
+        appearance="pills"
+        value={selectedFundId}
+        onValueChange={setSelectedFundId}
+        className="overflow-x-auto pb-2 scrollbar-thin"
+        items={[
+          {
+            value: 'ALL',
+            icon: <Layers aria-hidden="true" className="w-3.5 h-3.5" />,
+            label: `Tất Cả Quỹ (${formatVND(summary?.totalBalance || 0)})`,
+          },
+          ...funds.map((fund) => ({
+            value: fund.id,
+            label: (
+              <>
+                <span>{fund.name}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] ${selectedFundId === fund.id ? 'bg-black/10 text-text-inverse' : 'bg-surface-card text-text-main'}`}>
+                  {formatVND(fund.currentBalance)}
+                </span>
+              </>
+            ),
+          })),
+        ]}
+      />
 
       {/* Monthly SVG Income/Expense Chart */}
       <div className="card space-y-3" ref={chartRef}>
@@ -364,7 +351,13 @@ export const FinancePage: React.FC = () => {
         </div>
 
         {/* Pure SVG Bar Chart with Custom Tooltip */}
-        <div className="h-44 w-full pt-4 relative">
+        <div
+          className="h-44 w-full pt-4 relative overflow-x-auto scrollbar-none"
+          role="region"
+          aria-label="Biểu đồ thu chi cuộn ngang"
+          tabIndex={0}
+        >
+          <div className="min-w-[640px] h-full">
           <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 1200 160" role="img" aria-label="Biểu đồ thu chi theo tháng">
             <line x1="0" y1="0" x2="1200" y2="0" stroke="currentColor" strokeOpacity="0.08" />
             <line x1="0" y1="50" x2="1200" y2="50" stroke="currentColor" strokeOpacity="0.08" />
@@ -411,6 +404,7 @@ export const FinancePage: React.FC = () => {
               )
             })}
           </svg>
+          </div>
 
           {/* Custom Tooltip */}
           {tooltip && (
@@ -448,35 +442,38 @@ export const FinancePage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             {/* Search Input */}
             <div className="relative">
-              <input
+              <TextInput
+                aria-label="Tìm giao dịch"
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Tìm kiếm phiếu, tên, hạng mục..."
-                className="form-input-sm"
+                density="sm"
               />
               <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-2.5 pointer-events-none" />
             </div>
 
             {/* Date Range Filter */}
-            <div className="flex items-center gap-1">
-              <div className="relative">
-                <input
+            <div className="flex items-center gap-1 w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-initial">
+                <TextInput
+                  aria-label="Ngày giao dịch bắt đầu"
                   type="date"
                   value={ledgerFilters.startDate}
                   onChange={(e) => setLedgerFilters({ startDate: e.target.value })}
-                  className="form-input h-9 text-xs w-[130px]"
+                  className="h-9 text-xs w-full sm:w-[130px]"
                   style={{ paddingLeft: '32px' }}
                 />
                 <Calendar className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-2.5 pointer-events-none" />
               </div>
               <span className="text-text-muted text-xs">—</span>
-              <div className="relative">
-                <input
+              <div className="relative flex-1 sm:flex-initial">
+                <TextInput
+                  aria-label="Ngày giao dịch kết thúc"
                   type="date"
                   value={ledgerFilters.endDate}
                   onChange={(e) => setLedgerFilters({ endDate: e.target.value })}
-                  className="form-input h-9 text-xs w-[130px]"
+                  className="h-9 text-xs w-full sm:w-[130px]"
                   style={{ paddingLeft: '32px' }}
                 />
                 <Calendar className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-2.5 pointer-events-none" />
@@ -484,21 +481,22 @@ export const FinancePage: React.FC = () => {
             </div>
 
             {/* Type Filter */}
-            <select
+            <Select
+              aria-label="Loại giao dịch"
               value={ledgerFilters.type}
               onChange={(e) => setLedgerFilters({ type: e.target.value as LedgerFilters['type'] })}
-              className="form-select h-9 text-xs w-auto"
+              className="h-9 text-xs w-auto"
             >
               <option value="ALL">Tất cả loại</option>
               <option value="INCOME">Thu nhập</option>
               <option value="EXPENSE">Chi phí</option>
               <option value="TRANSFER">Chuyển quỹ</option>
-            </select>
+            </Select>
           </div>
         </div>
 
         {/* Desktop Table */}
-        <div className="table-scroll hidden sm:block">
+        <div className="table-scroll hidden md:block" role="region" aria-label="Sổ quỹ giao dịch" tabIndex={0}>
           {isInitialLoading ? (
             <SkeletonTable rows={5} cols={7} />
           ) : filteredTransactions.length === 0 ? (
@@ -577,7 +575,7 @@ export const FinancePage: React.FC = () => {
         </div>
 
         {/* Mobile Card View */}
-        <div className="sm:hidden">
+        <div className="md:hidden">
           {isInitialLoading ? (
             <SkeletonTable rows={3} cols={2} />
           ) : filteredTransactions.length === 0 ? (
@@ -605,10 +603,10 @@ export const FinancePage: React.FC = () => {
                         {isInc ? '+' : isExp ? '-' : ''}{formatVND(tx.amount)}
                       </span>
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setSelectedTxForPrint(tx)} className="btn btn-icon btn-sm btn-ghost">
+                        <button type="button" onClick={() => setSelectedTxForPrint(tx)} className="btn btn-icon btn-sm btn-ghost min-h-[44px] min-w-[44px] inline-flex items-center justify-center" aria-label={`Xem và in phiếu ${tx.receiptNumber || tx.title}`}>
                           <Printer className="w-4 h-4" />
                         </button>
-                        <button type="button" onClick={() => handleDeleteClick(tx)} className="btn btn-icon btn-sm btn-ghost" style={{ color: 'var(--color-text-muted)' }}>
+                        <button type="button" onClick={() => handleDeleteClick(tx)} className="btn btn-icon btn-sm btn-ghost min-h-[44px] min-w-[44px] inline-flex items-center justify-center" style={{ color: 'var(--color-text-muted)' }} aria-label={`Xóa giao dịch ${tx.title}`}>
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>

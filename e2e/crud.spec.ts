@@ -10,7 +10,8 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
 
   test('navigates to students page and sees student list', async ({ page }) => {
     await page.goto('/students')
-    await expect(page.getByText('Danh Sách Thiếu Nhi Giáo Xứ')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Danh Sách Thiếu Nhi' })).toBeVisible()
+    await expect(page.getByText('Thiếu Nhi E2E')).toBeVisible()
   })
 
   test('navigates to users management page', async ({ page }) => {
@@ -20,12 +21,15 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
 
   test('sidebar shows all menu items for admin role', async ({ page }) => {
     await page.goto('/dashboard')
-    await expect(page.getByText('Quản Lý Tài Khoản')).toBeVisible()
-    await expect(page.getByText('Báo Cáo & In Phiếu')).toBeVisible()
+    const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
+    await expect(navigation.getByRole('button', { name: 'Báo Cáo', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quản Lý Hệ Thống', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quỹ & Thu Chi', exact: true })).toBeVisible()
   })
 
-  test('student page shows add/edit/delete buttons for admin', async ({ page }) => {
+  test('student page shows import and create actions for admin', async ({ page }) => {
     await page.goto('/students')
-    await expect(page.getByText('Thêm Thiếu Nhi Mới')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Import Excel' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Thêm Mới' })).toBeVisible()
   })
 })

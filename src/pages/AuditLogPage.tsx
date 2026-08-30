@@ -381,7 +381,7 @@ export function AuditLogPage() {
     const old = parseJson(oldVal)
     const nw = parseJson(newVal)
     return (
-      <div className="grid grid-cols-2 gap-3 mt-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
         {old && (
           <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
             <p className="text-xs font-semibold text-rose-600 mb-1">Giá trị cũ</p>
@@ -480,7 +480,7 @@ export function AuditLogPage() {
     : policyData
 
   return (
-    <DesktopAppShell width="wide" className="flex flex-col gap-6">
+    <DesktopAppShell width="wide">
       <PageHeader
         icon={<ClipboardList className="w-5 h-5" />}
         title="Nhật Ký Hệ Thống"
@@ -518,11 +518,11 @@ export function AuditLogPage() {
 
       {mode === 'all' && (
         <>
-          <div className="flex gap-3 flex-wrap">
+          <div className="view-toolbar flex gap-3 flex-wrap">
             <select
               value={filterAction}
               onChange={(e) => setFilterAction(e.target.value)}
-              className="form-select text-sm font-medium"
+              className="form-select text-sm font-medium min-h-[44px] flex-1 sm:flex-initial"
             >
               <option value="">Tất cả hành động</option>
               {FILTER_ACTIONS.map(({ value, label }) => (
@@ -532,7 +532,7 @@ export function AuditLogPage() {
             <select
               value={filterEntity}
               onChange={(e) => setFilterEntity(e.target.value)}
-              className="form-select text-sm font-medium"
+              className="form-select text-sm font-medium min-h-[44px] flex-1 sm:flex-initial"
             >
               <option value="">Tất cả đối tượng</option>
               <option value="user">Tài khoản</option>
@@ -665,10 +665,10 @@ export function AuditLogPage() {
             })}
           </div>
 
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
             <button
               onClick={() => setSelectedPolicyType(null)}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${selectedPolicyType === null ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary hover:text-text-main'}`}
+              className={`min-h-[40px] px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${selectedPolicyType === null ? 'bg-parish-primary text-white shadow-xs' : 'bg-surface-hover text-text-secondary hover:text-text-main'}`}
             >
               Tất Cả ({policySummary.total || policyTotal})
             </button>
@@ -681,7 +681,7 @@ export function AuditLogPage() {
                 <button
                   key={type}
                   onClick={() => setSelectedPolicyType(type)}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${selectedPolicyType === type ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary hover:text-text-main'}`}
+                  className={`min-h-[40px] px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${selectedPolicyType === type ? 'bg-parish-primary text-white shadow-xs' : 'bg-surface-hover text-text-secondary hover:text-text-main'}`}
                 >
                   {label} ({count})
                 </button>

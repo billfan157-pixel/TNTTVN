@@ -27,12 +27,56 @@ const LeaveRequestsPage = lazyWithRetry(() => import('./pages/LeaveRequestsPage'
 const CalendarPage = lazyWithRetry(() => import('./pages/CalendarPage'))
 const FinancePage = lazyWithRetry(() => import('./pages/FinancePage'))
 
+const patchedViewTransitionDocuments = new WeakSet<Document>()
+const expectedViewTransitionInterruptions = new Set([
+  'AbortError',
+  'InvalidStateError',
+  'TimeoutError',
+])
+
+export function isExpectedViewTransitionInterruption(error: unknown) {
+  return typeof error === 'object'
+    && error !== null
+    && 'name' in error
+    && typeof error.name === 'string'
+    && expectedViewTransitionInterruptions.has(error.name)
+}
+
+/**
+ * TanStack Router intentionally does not await the ViewTransition object.
+ * Chromium may reject `ready`/`finished` when rapid SPA navigation supersedes
+ * an in-flight transition; observe those expected interruptions so they do not
+ * become global unhandled rejections. `updateCallbackDone` is deliberately left
+ * untouched so application/update errors remain visible to the error boundary.
+ */
+export function installSafeViewTransitionHandling(doc: Document) {
+  if (patchedViewTransitionDocuments.has(doc) || typeof doc.startViewTransition !== 'function') return
+
+  const nativeStartViewTransition = doc.startViewTransition.bind(doc)
+  doc.startViewTransition = (callbackOptions) => {
+    const transition = nativeStartViewTransition(callbackOptions)
+    const observeInterruption = (promise: Promise<void>) => {
+      void promise.catch(error => {
+        if (isExpectedViewTransitionInterruption(error)) return
+        queueMicrotask(() => { throw error })
+      })
+    }
+
+    observeInterruption(transition.ready)
+    observeInterruption(transition.finished)
+    return transition
+  }
+  patchedViewTransitionDocuments.add(doc)
+}
+
 const userPrefersReducedMotion = typeof window !== 'undefined'
   && typeof window.matchMedia === 'function'
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const nativeRouteMotionEnabled = typeof document !== 'undefined'
   && 'startViewTransition' in document
   && !userPrefersReducedMotion
+
+if (nativeRouteMotionEnabled) installSafeViewTransitionHandling(document)
 
 // SECURITY (2026-08-11) — A-NEW-10 hardening: access token memory-only.
 // Router guard KHÔNG còn dựa vào access token (sau reload memory rỗng) — dựa vào

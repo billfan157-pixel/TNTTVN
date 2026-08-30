@@ -3,6 +3,7 @@ import { Lock, Eye, EyeOff, ShieldCheck, AlertCircle, Loader2 } from 'lucide-rea
 import { useAuthStore } from '../../stores/authStore'
 import { validatePassword, SPECIAL_CHAR_REGEX } from '../../utils/passwordValidation'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { ModalPortal } from './ModalPortal'
 
 export function ForcePasswordChangeModal() {
   const { requiresPasswordChange, changePassword, isLoading, error, clearError, user } = useAuthStore()
@@ -63,7 +64,8 @@ export function ForcePasswordChangeModal() {
   ]
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="force-password-title" className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="force-password-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
         {/* Header */}
         <div className="bg-amber-500 p-6 text-white">
@@ -173,5 +175,6 @@ export function ForcePasswordChangeModal() {
         </form>
       </div>
     </div>
+    </ModalPortal>
   )
 }

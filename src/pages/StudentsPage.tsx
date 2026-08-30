@@ -15,6 +15,15 @@ import { TrendingUp, Users, Send, AlertCircle, CheckCircle } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student } from '../types'
+import { Button } from '../components/common/ui/Button'
+import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
+
+type StudentWorkspace = 'students' | 'promotions'
+
+const STUDENT_WORKSPACE_TABS = [
+  { value: 'students' as const, label: 'Danh Sách', icon: <Users aria-hidden="true" size={14} /> },
+  { value: 'promotions' as const, label: 'Thăng Tiến', icon: <TrendingUp aria-hidden="true" size={14} /> },
+]
 
 const DesktopStudentList = lazyWithRetry<React.FC<{
   onOpenAddStudent: () => void
@@ -39,6 +48,7 @@ export function StudentsPage() {
   const [cardError, setCardError] = useState<string | null>(null)
   const [cardSuccess, setCardSuccess] = useState<string | null>(null)
   const [showConfirmSend, setShowConfirmSend] = useState(false)
+  const activeWorkspace: StudentWorkspace = showPromotions ? 'promotions' : 'students'
   const students = useStudentStore(s => s.students)
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
   const getStudentAttendanceRate = useAttendanceStore(s => s.getStudentAttendanceRate)
@@ -124,32 +134,26 @@ export function StudentsPage() {
     return (
       <><div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowPromotions(false)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                !showPromotions ? 'bg-parish-primary text-white shadow-sm' : 'bg-surface-card text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              <Users size={14} /> Danh Sách
-            </button>
-            <button
-              onClick={() => setShowPromotions(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                showPromotions ? 'bg-parish-primary text-white shadow-sm' : 'bg-surface-card text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              <TrendingUp size={14} /> Thăng Tiến
-            </button>
-          </div>
-          <button
+          <Tabs
+            id="students-workspace-tabs"
+            ariaLabel="Không gian quản lý thiếu nhi"
+            items={STUDENT_WORKSPACE_TABS}
+            value={activeWorkspace}
+            onValueChange={(value) => setShowPromotions(value === 'promotions')}
+            className="w-fit"
+          />
+          <Button
             onClick={() => setShowConfirmSend(true)}
             disabled={sendingCards || filteredStudentsForSend.length === 0}
+            loading={sendingCards}
+            loadingLabel="Đang gửi..."
+            leadingIcon={<Send aria-hidden="true" size={14} />}
             title={filteredStudentsForSend.length === 0 ? 'Không có thiếu nhi để gửi' : `Gửi cho ${confirmSendInfo.count} em ${confirmSendInfo.label}`}
-            className="btn btn-primary text-xs font-bold flex items-center gap-2 disabled:opacity-50"
+            variant="primary"
+            className="text-xs font-bold disabled:opacity-50"
           >
-            <Send size={14} /> {sendingCards ? 'Đang gửi...' : `Gửi Kết Quả Học Tập${confirmSendInfo.count > 0 ? ` (${confirmSendInfo.count})` : ''}`}
-          </button>
+            {`Gửi Kết Quả Học Tập${confirmSendInfo.count > 0 ? ` (${confirmSendInfo.count})` : ''}`}
+          </Button>
         </div>
 
         {cardSuccess && (
@@ -165,10 +169,13 @@ export function StudentsPage() {
           </div>
         )}
 
-        <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải dữ liệu thiếu nhi...</div>}>
-          {showPromotions ? (
+        <TabPanel tabsId="students-workspace-tabs" value="promotions" activeValue={activeWorkspace}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải dữ liệu thiếu nhi...</div>}>
             <PromotionPanel onViewPhotoCard={openPhotoCard} onViewCertificate={(s) => openCertificate(s, 'promotion')} />
-          ) : (
+          </Suspense>
+        </TabPanel>
+        <TabPanel tabsId="students-workspace-tabs" value="students" activeValue={activeWorkspace}>
+          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải dữ liệu thiếu nhi...</div>}>
             <DesktopStudentList
               onOpenAddStudent={openAddStudent}
               onImportStudents={() => setShowImportModal(true)}
@@ -176,8 +183,8 @@ export function StudentsPage() {
               onViewReport={openReport}
               onViewPhotoCard={openPhotoCard}
             />
-          )}
-        </Suspense>
+          </Suspense>
+        </TabPanel>
       </div>
 
       <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />

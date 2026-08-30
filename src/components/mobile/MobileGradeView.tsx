@@ -8,6 +8,8 @@ import { useAuth } from '../../hooks/useAuth'
 import type { Student } from '../../types'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { SkeletonCardGrid } from '../common/StateFeedback'
+import { Badge } from '../common/ui/Badge'
+import { FilterChips, TabPanel, Tabs } from '../common/ui/SelectionControls'
 
 const ExamSessionView = lazyWithRetry(() => import('../exam/ExamSessionView'), 'ExamSessionView')
 const MobileDailyGradeEntry = lazyWithRetry(() => import('./MobileDailyGradeEntry'), 'MobileDailyGradeEntry')
@@ -47,6 +49,12 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
   const selectedClassLabel = selectedClassId === 'all'
     ? 'Tất cả lớp'
     : classes.find(item => item.id === selectedClassId)?.name || 'Lớp hiện tại'
+  const classItems = [
+    { value: 'all', label: 'Tất cả lớp' },
+    ...classes.map(item => ({ value: item.id, label: item.name })),
+  ]
+  const semesterValue = String(selectedSemester) as '1' | '2'
+  const tabItems = tabs.map(tab => ({ value: tab.id, label: tab.label, icon: tab.icon }))
 
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
@@ -56,55 +64,71 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
             <div className="text-sm font-extrabold text-parish-primary truncate">Bảng Điểm Giáo Lý</div>
             <div className="text-[11px] text-text-muted mt-0.5 truncate">{selectedClassLabel} · HK {effectiveSemester}</div>
           </div>
-          <span className="badge badge-neutral text-[10px] shrink-0">{filteredStudents.length} em</span>
+          <Badge tone="neutral" className="text-[10px] shrink-0">{filteredStudents.length} em</Badge>
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 snap-x" style={{ WebkitOverflowScrolling: 'touch' }}>
           {/* Class chips: admin only — GLV only sees their assigned classes */}
-          {role === 'admin' && (<>
-          <button type="button" onClick={() => setSelectedClassId('all')} className={`shrink-0 snap-start min-h-[44px] rounded-full px-4 text-xs font-extrabold ${selectedClassId === 'all' ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}>Tất cả lớp</button>
-          {classes.map(item => (
-            <button key={item.id} type="button" onClick={() => setSelectedClassId(item.id)} className={`shrink-0 snap-start min-h-[44px] rounded-full px-4 text-xs font-extrabold ${selectedClassId === item.id ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}>{item.name}</button>
-          ))}
-          <span className="w-px bg-surface-border shrink-0" />
-          </>)}
+          {role === 'admin' && (
+            <>
+              <FilterChips
+                ariaLabel="Lọc theo lớp"
+                items={classItems}
+                value={selectedClassId}
+                onValueChange={setSelectedClassId}
+                className="shrink-0"
+                appearance="pills"
+              />
+              <span aria-hidden="true" className="w-px bg-surface-border shrink-0" />
+            </>
+          )}
           {semesterRestricted ? (
-            <span className="shrink-0 min-h-[44px] rounded-full px-4 inline-flex items-center bg-parish-primary text-white text-xs font-extrabold">HK {openSemester === 2 ? 'II' : 'I'}</span>
-          ) : [1, 2].map(semester => (
-            <button key={semester} type="button" onClick={() => setSelectedSemester(semester as 1 | 2)} className={`shrink-0 min-h-[44px] rounded-full px-4 text-xs font-extrabold ${selectedSemester === semester ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}>HK {semester === 1 ? 'I' : 'II'}</button>
-          ))}
+            <span className="shrink-0 min-h-[44px] rounded-full px-4 inline-flex items-center bg-parish-primary text-text-inverse text-xs font-extrabold">HK {openSemester === 2 ? 'II' : 'I'}</span>
+          ) : (
+            <FilterChips
+              ariaLabel="Lọc theo học kỳ"
+              items={[
+                { value: '1', label: 'HK I' },
+                { value: '2', label: 'HK II' },
+              ]}
+              value={semesterValue}
+              onValueChange={(value) => setSelectedSemester(Number(value) as 1 | 2)}
+              className="shrink-0"
+              appearance="pills"
+            />
+          )}
         </div>
       </section>
 
-      <nav aria-label="Các chế độ bảng điểm" className="view-tabs">
-        {tabs.map(tab => (
-          <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} className={`view-tab ${activeTab === tab.id ? 'is-active' : ''}`}>
-            {tab.icon}{tab.label}
-          </button>
-        ))}
-      </nav>
+      <Tabs
+        id="mobile-grade-view-tabs"
+        ariaLabel="Các chế độ bảng điểm"
+        items={tabItems}
+        value={activeTab}
+        onValueChange={setActiveTab}
+      />
 
-      {activeTab === 'board' && (
+      <TabPanel tabsId="mobile-grade-view-tabs" value="board" activeValue={activeTab}>
         <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
           <MobileGradeBoard onViewReport={onViewReport} />
         </Suspense>
-      )}
-      {activeTab === 'daily' && (
+      </TabPanel>
+      <TabPanel tabsId="mobile-grade-view-tabs" value="daily" activeValue={activeTab}>
         <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
           <MobileDailyGradeEntry onViewReport={onViewReport} />
         </Suspense>
-      )}
-      {activeTab === 'comparison' && (
+      </TabPanel>
+      <TabPanel tabsId="mobile-grade-view-tabs" value="comparison" activeValue={activeTab}>
         <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
           <MobileGradeComparison />
         </Suspense>
-      )}
-      {activeTab === 'exam' && (
+      </TabPanel>
+      <TabPanel tabsId="mobile-grade-view-tabs" value="exam" activeValue={activeTab}>
         <div className="mobile-exam-content">
           <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
             <ExamSessionView />
           </Suspense>
         </div>
-      )}
+      </TabPanel>
     </div>
   )
 }

@@ -12,9 +12,9 @@ test.describe('E2E Authentication Flow', () => {
   test('parent portal shows phone login form', async ({ page }) => {
     await page.goto('/login/phuhuynh')
     await expect(page.getByText('Cổng Phụ Huynh')).toBeVisible()
-    await expect(page.locator('input[type="text"]')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Số Điện Thoại Phụ Huynh' })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.locator('button[type="submit"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Đăng Nhập Ngay' })).toBeVisible()
   })
 
   test('staff portal shows username login form', async ({ page }) => {

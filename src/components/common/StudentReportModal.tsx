@@ -10,7 +10,8 @@ import { ReportViewModelFactory } from '../../utils/reportViewModelFactory';
 import { ReportExportService } from '../../services/reportExportService';
 import { BRANCHES } from '../../constants/branches';
 import { X, Printer, Award, Church, BookOpen, HeartHandshake, CheckSquare } from 'lucide-react';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
+import { ModalPortal } from './ModalPortal';
 
 interface StudentReportModalProps {
   isOpen: boolean;
@@ -44,8 +45,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
   };
 
   const printedRef = React.useRef(false);
-  // PHA 1 hoàn tất (audit A19): focus trap — layout A4 print giữ nguyên, chỉ trap
-  const trapRef = useFocusTrap(isOpen && !!student);
+  const { dialogRef: trapRef, titleId } = useAccessibleDialog(isOpen && !!student, onClose);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -57,15 +57,6 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
     const timer = window.setTimeout(() => ReportExportService.print(buildPrintHtml(student)), 300);
     return () => window.clearTimeout(timer);
   }, [isOpen, autoPrint, student, buildPrintHtml]);
-
-  React.useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   if (!isOpen || !student) return null;
 
@@ -86,7 +77,8 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
   const avgHK2 = calculateStudentAvg(student.id, 2);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <ModalPortal>
+    <div className="modal-overlay app-modal-layer" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={onClose}>
       <div
         ref={trapRef}
         className="modal-content"
@@ -95,7 +87,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
       >
         {/* Header Control buttons (Hidden when printing) */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #E2E8F0', paddingBottom: '12px' }}>
-          <span style={{ fontSize: '14px', fontWeight: 700, color: '#1E3A8A' }}>Phiếu Kết Quả Học Tập Thiếu Nhi</span>
+          <span id={titleId} style={{ fontSize: '14px', fontWeight: 700, color: '#1E3A8A' }}>Phiếu Kết Quả Học Tập Thiếu Nhi</span>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={handlePrint} className="btn btn-primary btn-sm">
               <Printer size={14} /> In Kết Quả Học Tập
@@ -305,5 +297,6 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 };

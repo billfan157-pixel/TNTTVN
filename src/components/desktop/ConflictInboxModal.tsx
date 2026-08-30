@@ -3,8 +3,9 @@ import { X,  CheckCircle2, Trash2, History, ChevronRight } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { isEncryptedValue, decryptQueueValue } from '../../lib/offlineCipher'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import type { SyncConflict } from '../../lib/db'
+import { ModalPortal } from '../common/ModalPortal'
 
 interface ConflictInboxModalProps {
   isOpen: boolean
@@ -68,8 +69,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
   const [conflicts, setConflicts] = useState<SyncConflict[]>([])
   const [loading, setLoading] = useState(true)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
+  const { dialogRef: trapRef, titleId } = useAccessibleDialog(isOpen, onClose)
 
   const loadConflicts = useCallback(async () => {
     setLoading(true)
@@ -106,19 +106,12 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
     await loadConflicts()
   }
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
-
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby="conflict-inbox-title">
+    <>
+    <ModalPortal>
+    <div className="app-modal-layer--nested fixed inset-0 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div ref={trapRef} className="bg-surface-app w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-surface-border animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
         <div className="p-6 border-b border-surface-border flex items-center justify-between bg-parish-primary text-white">
           <div className="flex items-center gap-3">
@@ -126,7 +119,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
               <History className="w-6 h-6" />
             </div>
             <div>
-              <h2 id="conflict-inbox-title" className="text-lg font-black tracking-tight">Hộp Thư Xung Đột</h2>
+              <h2 id={titleId} className="text-lg font-black tracking-tight">Hộp Thư Xung Đột</h2>
               <p className="text-xs text-white/80 font-medium">Xem lại các thao tác bị ghi đè bởi dữ liệu Server</p>
             </div>
           </div>
@@ -217,7 +210,9 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
           </button>
         </div>
       </div>
-      {confirmDialog}
     </div>
+    </ModalPortal>
+    {confirmDialog}
+    </>
   )
 }

@@ -10,6 +10,7 @@ import { LeaveRequestModal } from '../components/common/LeaveRequestModal'
 import { useLeaveRequestStore } from '../stores/leaveRequestStore'
 import { TelegramLinkCard } from '../components/common/TelegramLinkCard'
 import { PageHeader } from '../components/common/PageHeader'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { ChildAvatar, AttendanceBar, StatCard, PromotionBanner } from '../components/common/ParentWidgets'
 import { classificationTextClass, classificationChipClass } from '../utils/parentDisplay'
 
@@ -61,7 +62,7 @@ export const ParentPage: React.FC = () => {
   const latestClassification = latestGpa != null ? getClassificationLabel(latestGpa) : null
 
   return (
-    <div className="product-view max-w-3xl mx-auto space-y-5">
+    <DesktopAppShell width="narrow">
       <PageHeader
         icon={<HeartHandshake className="w-5 h-5" />}
         title="Con Của Tôi"
@@ -321,7 +322,7 @@ export const ParentPage: React.FC = () => {
       )}
 
       <TelegramLinkCard />
-    </div>
+    </DesktopAppShell>
   )
 }
 

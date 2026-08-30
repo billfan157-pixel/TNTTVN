@@ -1,39 +1,23 @@
-import { test, expect, devices } from '@playwright/test';
+import { test, expect, devices } from '@playwright/test'
+import { loginAsRole } from './helpers'
 
 test.use({
   ...devices['iPhone 13'],
   viewport: { width: 390, height: 844 },
-});
+})
 
 test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
   test('Catechist can log in, navigate to attendance, and mark mobile attendance', async ({ page }) => {
-    // 1. Visit app login page
-    await page.goto('/login');
-    await expect(page.locator('text=Đăng Nhập')).toBeVisible();
+    await loginAsRole(page, 'chunhiem')
+    await page.goto('/attendance')
 
-    // 2. Perform login as catechist/admin
-    await page.fill('input[type="text"], input[name="username"]', 'admin');
-    await page.fill('input[type="password"]', 'Admin@123');
-    await page.click('button[type="submit"]');
-
-    // 3. Verify redirect to dashboard / home
-    await page.waitForURL('/');
-    
-    // 4. Navigate to attendance page
-    await page.goto('/attendance');
-    await expect(page.locator('text=Điểm Danh Chuyên Cần')).toBeVisible();
-
-    // 5. Test attendance marking action
-    const markPresentBtn = page.locator('button:has-text("Có mặt")').first();
-    if (await markPresentBtn.isVisible()) {
-      await markPresentBtn.click();
-    }
-
-    // 6. Save attendance
-    const saveBtn = page.locator('button:has-text("Lưu"), button:has-text("Cập nhật")').first();
-    if (await saveBtn.isVisible()) {
-      await saveBtn.click();
-      await expect(page.locator('text=Thành công, text=Đã lưu')).toBeVisible({ timeout: 5000 }).catch(() => {});
-    }
-  });
-});
+    await expect(page.getByRole('tab', { name: 'Điểm Danh' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('Thiếu Nhi E2E')).toBeVisible()
+    // Fresh sandbox records are unsaved; a previous attendance spec may have
+    // persisted a non-present state. This action is deterministic in both cases.
+    await page.getByRole('button', { name: 'Có mặt tất cả' }).click()
+    await expect(page.getByRole('button', { name: 'Lưu điểm danh' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Lưu điểm danh' }).click()
+    await expect(page.getByText('Đã lưu điểm danh cho 1 thiếu nhi.')).toBeVisible({ timeout: 5000 })
+  })
+})

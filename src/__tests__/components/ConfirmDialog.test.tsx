@@ -23,6 +23,20 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('Hủy')).toBeDefined()
   })
 
+  it('mounts the alert dialog at document.body and releases the shared body lock', () => {
+    const { container, unmount } = render(
+      <ConfirmDialog isOpen={true} message="Test" onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    )
+    const dialog = screen.getByRole('alertdialog')
+
+    expect(document.body).toContainElement(dialog)
+    expect(container).not.toContainElement(dialog)
+    expect(document.body.style.overflow).toBe('hidden')
+
+    unmount()
+    expect(document.body.style.overflow).toBe('')
+  })
+
   it('renders custom button text', () => {
     render(<ConfirmDialog isOpen={true} message="Test" confirmText="Xóa" cancelText="Không" onConfirm={vi.fn()} onCancel={vi.fn()} />)
     expect(screen.getByText('Xóa')).toBeDefined()
@@ -50,9 +64,8 @@ describe('ConfirmDialog', () => {
 
   it('calls onCancel when overlay is clicked', () => {
     const onCancel = vi.fn()
-    const { container } = render(<ConfirmDialog isOpen={true} message="Test" onConfirm={vi.fn()} onCancel={onCancel} />)
-    const overlay = container.querySelector('[role="alertdialog"]')
-    fireEvent.click(overlay!)
+    render(<ConfirmDialog isOpen={true} message="Test" onConfirm={vi.fn()} onCancel={onCancel} />)
+    fireEvent.click(screen.getByRole('alertdialog'))
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
@@ -63,6 +76,22 @@ describe('ConfirmDialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
+  it('routes Escape to the top-most portaled confirmation only', () => {
+    const onOuterCancel = vi.fn()
+    const onInnerCancel = vi.fn()
+    render(
+      <>
+        <ConfirmDialog isOpen={true} message="Outer" onConfirm={vi.fn()} onCancel={onOuterCancel} />
+        <ConfirmDialog isOpen={true} message="Inner" onConfirm={vi.fn()} onCancel={onInnerCancel} />
+      </>,
+    )
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(onInnerCancel).toHaveBeenCalledTimes(1)
+    expect(onOuterCancel).not.toHaveBeenCalled()
+  })
+
   it('does not call onCancel for non-Escape keys', () => {
     const onCancel = vi.fn()
     render(<ConfirmDialog isOpen={true} message="Test" onConfirm={vi.fn()} onCancel={onCancel} />)
@@ -71,11 +100,9 @@ describe('ConfirmDialog', () => {
   })
 
   it('uses danger variant colors', () => {
-    const { container } = render(<ConfirmDialog isOpen={true} message="Test" variant="danger" onConfirm={vi.fn()} onCancel={vi.fn()} />)
-    const overlay = container.querySelector('[role="alertdialog"]')
-    expect(overlay).toBeDefined()
-    const buttons = container.querySelectorAll('button')
-    const confirmBtn = buttons[buttons.length - 1]
+    render(<ConfirmDialog isOpen={true} message="Test" variant="danger" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    const confirmBtn = screen.getByRole('button', { name: 'Xác nhận' })
     expect(confirmBtn.style.background).toContain('var(--color-parish-danger)')
   })
 

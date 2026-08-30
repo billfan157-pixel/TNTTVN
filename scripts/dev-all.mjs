@@ -21,6 +21,7 @@ const isWin = process.platform === 'win32'
 const runCmd = (script) => (isWin ? ['cmd.exe', ['/d', '/s', '/c', `npm run ${script}`]] : ['npm', ['run', script]])
 const children = []
 let shuttingDown = false
+let requestedExitCode = 0
 
 function run(name, args, cwd) {
   const [cmd, cmdArgs] = runCmd(args.join(' '))
@@ -28,32 +29,53 @@ function run(name, args, cwd) {
     cwd,
     stdio: 'inherit',
     shell: false,
+    detached: !isWin,
     windowsHide: false,
   })
   children.push(child)
-  child.on('exit', (code) => {
+  child.on('exit', (code, signal) => {
     console.log(`\n[dev-all] ${name} exited with code ${code ?? 'null'}`)
-    shutdown()
+    if (!shuttingDown) void shutdown(code ?? (signal ? 1 : 0))
+  })
+  child.on('error', (error) => {
+    console.error(`[dev-all] Không thể chạy ${name}:`, error.message)
+    if (!shuttingDown) void shutdown(1)
   })
   return child
 }
 
-function shutdown() {
+function stopChildTree(child) {
+  if (!child.pid) return Promise.resolve()
+  if (isWin) {
+    return new Promise(resolve => {
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      killer.once('error', resolve)
+      killer.once('exit', resolve)
+    })
+  }
+  try { process.kill(-child.pid, 'SIGTERM') } catch {}
+  return Promise.resolve()
+}
+
+async function shutdown(exitCode = 0) {
+  if (exitCode !== 0) requestedExitCode = exitCode
   if (shuttingDown) return
   shuttingDown = true
   console.log('[dev-all] Stopping all processes...')
-  for (const child of children) {
-    try {
-      child.kill('SIGTERM')
-    } catch {}
-  }
-  // Windows: child.kill trên shell wrapper có thể không lan xuống node con —
-  // cho phép 1.5s để chúng tự thoát rồi ép thoát.
-  setTimeout(() => process.exit(0), 1500)
+  await Promise.race([
+    Promise.allSettled(children.map(stopChildTree)),
+    new Promise(resolve => setTimeout(resolve, 5000)),
+  ])
+  process.exit(requestedExitCode)
 }
 
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)
+process.on('SIGINT', () => { void shutdown(0) })
+process.on('SIGTERM', () => { void shutdown(0) })
+
+const serverScript = process.env.E2E_DISABLE_SERVER_ENV_FILE === 'true' ? 'dev:e2e' : 'dev'
 
 run('vite (client)', ['dev:client'], process.cwd())
-run('hono (server)', ['dev'], serverDir)
+run('hono (server)', [serverScript], serverDir)

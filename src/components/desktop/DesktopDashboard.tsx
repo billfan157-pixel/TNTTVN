@@ -18,6 +18,7 @@ import { StudentName } from '../common/StudentName';
 import { useNavigate } from '@tanstack/react-router';
 import { LiturgicalTodayWidget } from './LiturgicalTodayWidget';
 import { formatDateVi } from '../../utils/formatDate';
+import { Button, IconButton } from '../common/ui/Button';
 
 interface DesktopDashboardProps {
   onOpenAddStudent: () => void;
@@ -144,21 +145,24 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
             <p className="metric-card__meta text-parish-primary">5 Ngành TNTT hoạt động</p>
           </div>
           {hasClasses ? (
-            <button
+            <IconButton
               onClick={onOpenAddStudent}
-              className="btn btn-primary btn-icon btn-lg shrink-0"
+              label="Thêm thiếu nhi"
+              icon={<Plus aria-hidden="true" size={22} />}
+              variant="primary"
+              size="lg"
+              className="shrink-0"
               title="Thêm thiếu nhi"
-              aria-label="Thêm thiếu nhi"
-            >
-              <Plus size={22} />
-            </button>
+            />
           ) : (
-            <button
+            <Button
               onClick={() => navigate({ to: '/classes' })}
-              className="btn btn-primary btn-sm"
+              variant="primary"
+              size="sm"
+              leadingIcon={<School aria-hidden="true" size={16} />}
             >
-              <School size={16} /> Tạo Lớp
-            </button>
+              Tạo Lớp
+            </Button>
           )}
         </div>
       </div>
@@ -194,7 +198,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                   <div key={item.student.id} className="py-3.5 flex items-center justify-between first:pt-0 last:pb-0 hover:bg-surface-hover/40 px-3 rounded-xl transition-colors">
                     <div className="flex items-center gap-3.5">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shadow-sm ${
-                        idx === 0 ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-white' :
+                        idx === 0 ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950' :
                         idx === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-500 text-slate-900' :
                         idx === 2 ? 'bg-gradient-to-br from-amber-700 to-amber-900 text-white' : 'bg-surface-hover text-text-muted'
                       }`}>
@@ -206,8 +210,8 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-lg font-black text-emerald-600">{item.avg.toFixed(1)}</span>
-                      <span className="block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 mt-0.5">{item.label}</span>
+                      <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{item.avg.toFixed(1)}</span>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 mt-0.5">{item.label}</span>
                     </div>
                   </div>
                 ))}
@@ -231,24 +235,24 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center shadow-inner">
-                <div className="text-xs font-bold text-amber-800 uppercase tracking-wider">Xuất Sắc</div>
-                <div className="text-3xl font-black text-amber-600 mt-1.5">{xuatSacCount}</div>
-                <div className="text-[11px] font-medium text-amber-700/80 mt-1">{totalStudents > 0 ? Math.round((xuatSacCount / totalStudents) * 100) : 0}% tổng số</div>
+                <div className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider">Xuất Sắc</div>
+                <div className="text-3xl font-black text-amber-600 dark:text-amber-400 mt-1.5">{xuatSacCount}</div>
+                <div className="text-[11px] font-medium text-amber-700 dark:text-amber-300 mt-1">{totalStudents > 0 ? Math.round((xuatSacCount / totalStudents) * 100) : 0}% tổng số</div>
               </div>
               <div className="p-4 rounded-2xl bg-parish-primary-light border border-parish-primary/20 text-center shadow-inner">
-                <div className="text-xs font-bold text-sky-800 uppercase tracking-wider">Giỏi</div>
-                <div className="text-3xl font-black text-sky-600 mt-1.5">{gioiCount}</div>
-                <div className="text-[11px] font-medium text-sky-700/80 mt-1">{totalStudents > 0 ? Math.round((gioiCount / totalStudents) * 100) : 0}% tổng số</div>
+                <div className="text-xs font-bold text-sky-800 dark:text-sky-300 uppercase tracking-wider">Giỏi</div>
+                <div className="text-3xl font-black text-sky-600 dark:text-sky-400 mt-1.5">{gioiCount}</div>
+                <div className="text-[11px] font-medium text-sky-700 dark:text-sky-300 mt-1">{totalStudents > 0 ? Math.round((gioiCount / totalStudents) * 100) : 0}% tổng số</div>
               </div>
               <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center shadow-inner">
-                <div className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Khá</div>
-                <div className="text-3xl font-black text-emerald-600 mt-1.5">{khaCount}</div>
-                <div className="text-[11px] font-medium text-emerald-700/80 mt-1">{totalStudents > 0 ? Math.round((khaCount / totalStudents) * 100) : 0}% tổng số</div>
+                <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">Khá</div>
+                <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1.5">{khaCount}</div>
+                <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 mt-1">{totalStudents > 0 ? Math.round((khaCount / totalStudents) * 100) : 0}% tổng số</div>
               </div>
               <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center shadow-inner">
-                <div className="text-xs font-bold text-rose-800 uppercase tracking-wider">Cần Cố Gắng</div>
-                <div className="text-3xl font-black text-rose-600 mt-1.5">{yeuCount}</div>
-                <div className="text-[11px] font-medium text-rose-700/80 mt-1">{totalStudents > 0 ? Math.round((yeuCount / totalStudents) * 100) : 0}% tổng số</div>
+                <div className="text-xs font-bold text-rose-800 dark:text-rose-300 uppercase tracking-wider">Cần Cố Gắng</div>
+                <div className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1.5">{yeuCount}</div>
+                <div className="text-[11px] font-medium text-rose-700 dark:text-rose-300 mt-1">{totalStudents > 0 ? Math.round((yeuCount / totalStudents) * 100) : 0}% tổng số</div>
               </div>
             </div>
           </div>
@@ -279,13 +283,13 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                     <div className="flex justify-between text-xs font-bold">
                       <span className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full shadow-xs" style={{ backgroundColor: branchItem.scarfColor }}></span>
-                        <span style={{ color: branchItem.scarfColor }} className="font-extrabold">{branchItem.name}</span>
+                        <span className="font-extrabold text-text-main">{branchItem.name}</span>
                       </span>
                       <span className="text-text-main">{count} em <span className="text-text-muted font-normal">({percentage}%)</span></span>
                     </div>
                     <div className="w-full bg-surface-hover rounded-full h-2.5 overflow-hidden border border-surface-border">
                       <div
-                        className="h-full rounded-full transition-all duration-700 shadow-sm"
+                        className="h-full rounded-full transition-[width] duration-700 shadow-sm"
                         style={{ width: `${Math.max(percentage, 3)}%`, backgroundColor: branchItem.scarfColor }}
                       />
                     </div>
@@ -317,7 +321,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                   { cls: 'bg-surface-app text-parish-primary border-surface-border', label: 'Thường' };
 
                 return (
-                  <div key={notice.id} className="p-3.5 bg-surface-hover/50 border border-surface-border rounded-xl space-y-2 transition-all hover:border-parish-primary/30">
+                  <div key={notice.id} className="p-3.5 bg-surface-hover/50 border border-surface-border rounded-xl space-y-2 transition-colors hover:border-parish-primary/30">
                     <div className="flex items-center justify-between gap-2">
                       <span
                         className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border leading-tight uppercase tracking-wider ${priorityBadge.cls}`}

@@ -2201,3 +2201,241 @@ Formula configuration (`GradeFormulaConfigModal`) and granular score overriding 
   - Design System Linter `npm run lint:ds`: PASS (0 violations across 143 UI components).
   - Vitest suite: PASS (33/33 targeted tests passed).
 
+---
+
+## ADR-077: App-wide Mobile Layout Contract, Safe-area Ownership & Root Dialog Layering (2026-08-29)
+
+**Status: APPROVED / IMPLEMENTED — current local verification recorded below. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Problem, scope và bằng chứng
+
+Đợt rà soát toàn bộ presentation surface tìm thấy các drift xuyên route: shared page shell có thể bị cap theo mobile ở desktop; bottom action/FAB có nguy cơ cộng `safe-area` hai lần; CSS control sheet ở cuối file ghi đè contract 44px/16px; dialog render trong `PageTransition`/`main` **hoặc control sheet render dưới sticky top bar** có thể nằm dưới top bar/bottom nav; `LeaveRequestsPage` thiếu mobile screen wrapper; Finance dùng breakpoint bảng/card khác với các trang quản trị; header lịch không đủ chỗ trên phone; `/login` thiếu landmark `main`; `/verify` còn một CTA 38px.
+
+- **E3 — implementation, HIGH:** `src/router.tsx` có 22 route records (17 protected, 4 public/auth, root redirect), 21 route pages, 88 components. `src/index.css`, `DesktopAppShell.tsx`, `MobileAppShell.tsx`, `ModalPortal.tsx` và `useAccessibleDialog.ts` là code truth của contract.
+- **E3 — implementation, HIGH:** `PageTransition` tạo stacking context content; top bar/nav lần lượt `950/1000`, trong khi route dialog phải vượt hẳn lớp đó. `ModalPortal` đưa custom dialog tới `document.body`; nested dialog và confirm dùng layer `1101/1110`.
+- **E2 — regression, HIGH:** `useAccessibleDialog.test.tsx`, `appWideUiMigration.test.ts` và `mobileLayoutContract.test.ts` khóa lifecycle, shell, modal portal, safe-area/touch CSS và public-route semantics.
+- **E1 — local browser, MEDIUM:** smoke ở Chromium local dùng cho overflow/landmark/kích thước control; không phải bằng chứng thiết bị thật hay workflow đã đăng nhập.
+
+Phạm vi chỉ là presentation, focus/scroll lifecycle và responsive layout. Không thay API, schema, role policy, server authorization, offline queue, scoring hay dữ liệu.
+
+### Mục tiêu và ràng buộc
+
+| Loại | Mục tiêu | Cách đo | Trạng thái |
+| --- | --- | --- | --- |
+| Product target | touch control chính có effective hit-area >=44x44, form >=16px | CSS contract + runtime geometry tại viewport đại diện | local evidence; không thay thế QA thiết bị thật |
+| Product target | public/auth và shell không overflow ngang ở 320/375/768/1024 | `scrollWidth <= clientWidth` trong browser local | kiểm tra theo matrix audit |
+| Hard constraint | route dialog không bị top bar/nav hoặc route transition clip | root portal + z-index invariant + dialog lifecycle test | E3/E2 |
+| Hard constraint | không làm thay đổi security, privacy, RBAC, data/offline behavior | dependency/diff/source inspection | E3 |
+| Explicit exception | pinch/double-tap zoom lock giữ nguyên | `mobile-native-ui-audit-2026-08-12.md` | trade-off WCAG có chủ đích, không gọi là compliant |
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: vá từng page | B: CSS global đơn thuần | C: shared contract + route exceptions |
+| :--- | ---: | ---: | ---: | ---: |
+| Business / Operational Fit | 15% | 5 | 7 | 9 |
+| Reliability & Data Integrity | 20% | 9 | 9 | 9 |
+| Security & Privacy | 20% | 9 | 9 | 9 |
+| Maintainability | 15% | 4 | 6 | 9 |
+| Performance | 10% | 7 | 8 | 8 |
+| Testability | 10% | 5 | 6 | 9 |
+| Reversibility | 5% | 9 | 9 | 8 |
+| Observability | 5% | 4 | 5 | 8 |
+| **Weighted** | **100%** | **6.80 — REJECT** | **7.65 — REJECT** | **9.00 — SELECT** |
+
+Các điểm là so sánh định tính dựa trên E2/E3, không phải metric hiệu năng đã hiệu chuẩn. A giữ duplicate và không tạo guard chung; B không giải quyết ownership/portal hoặc override CSS muộn; C tập trung token/shell/lifecycle dùng chung nhưng giữ local exception có chủ đích (A4 print, calendar compact grid, force-password gate).
+
+### Decision contract
+
+1. Mobile-native workflow dùng `.mobile-app-shell → .mobile-app-main → .mobile-screen`; shared desktop/touch pages dùng `DesktopAppShell → .responsive-page-shell`. Hai shell không dùng chung node.
+2. Dưới `1024px`, responsive shared shell dùng max 760px, gutter 16px, gap 14px. Từ `1024px`, `full|wide|narrow` là tier CSS rõ ràng; `embedded-page-section` chỉ tạo column/gap, không tạo gutter hoặc cap lần hai.
+3. `--mobile-nav-total-height` là chủ sở hữu duy nhất của safe-bottom. FAB/action bar neo phía trên token này; top bar sở hữu safe-top trừ khi offline banner đã sở hữu nó.
+4. Control chính trong touch shell và dialog có effective target >=44px; input/select/textarea >=16px. Các control sheet không được dùng override 36/40/42px; public auth CTA cũng đạt 44px.
+5. Custom dialog thuộc route **và MobileTopBar control sheet** dùng `ModalPortal` tại `document.body`; `ModalShell`/`ConfirmDialog`/`useAccessibleDialog` giữ focus restore, scroll lock và Escape chỉ đóng dialog top-most. Modal lồng dùng `1101`, confirm `1110`; control sheet root dùng modal layer 1100 nên backdrop phủ được bottom nav 1000.
+6. Classes, Users và Finance dùng card dưới `md`/table từ `md`; Leave Requests có mobile wrapper; header lịch được stack dưới phone nhưng trở lại row từ `sm`.
+7. Top-bar control sheet đóng trước khi mở diagnostics/reset confirm để không chồng action surface. Không sửa UX/A4 print riêng của `ExamPaperModal` ngoài việc tôn trọng root-layer contract hiện có.
+
+### Gates, compatibility, business rule và rủi ro
+
+- **D2 hard gates:** Security & Privacy **9** (không thêm data/API/authority), Reliability & Data Integrity **9** (không có writer/schema/offline change), Testability **9** (unit/source contract + browser smoke) — PASS. Evidence là E3/E2; điểm phản ánh blast radius giới hạn, không phải claim mới về production security.
+- **ADR compatibility:** ADR-030 (DS SSOT), ADR-055 (shared primitives), ADR-063 (navy-gold/product-first), ADR-065 (route-content motion), ADR-072 (44px/tablet/dialog/public semantics), ADR-076 (portal exam) = **PASS**. Không supersede ADR nào.
+- **Architecture compatibility:** `pages → components/hooks/stores` không đổi chiều dependency, không import server vào presentation = **PASS**.
+- **Business Rule Gate:** không có business rule/domain transition mới = **CONFIRMED** bằng diff/source inspection. Requirement zoom lock là **CONDITIONAL** vì bằng chứng owner approval là historical audit, không phải proof of accessibility compliance. Authenticated real-device visual acceptance = **NOT CONFIRMED** cho đến khi role/device QA chạy.
+- **Residual risks:** CSS selector toàn cục vẫn có thể ảnh hưởng custom print/compact widgets (probability medium, impact medium); React portal có thể bubbling sang parent nếu confirm được render trong parent overlay (medium/high). Mitigation: scope CSS theo shell/layer, giữ compact calendar exception, và render nested confirmation ngoài parent portal when needed. Rollback R1 bằng revert frontend/docs, không có migration hay recovery data.
+
+### Source-of-truth synchronization và verification
+
+| Source | Expected | Action | Status |
+| --- | --- | --- | --- |
+| `docs/03_DESIGN_SYSTEM.md` | shell/safe-area/touch/modal ladder đúng code | cập nhật v4.3 contract | DONE |
+| `docs/02_ARCHITECTURE.md` | presentation boundary/route/component inventory đúng code | cập nhật responsive/portal description và counts | DONE |
+| `docs/AI_CONTEXT_MAP.md` | entrypoint nêu code truth, scope, exception | thêm module mobile contract và sửa inventory | DONE |
+| `docs/mobile-ui-audit-2026-08-29.md` | route-by-route findings/limitations/verification | tạo audit record | DONE |
+| API/schema/business/security docs | không có thay đổi authority | không sửa để tránh drift giả | NOT AFFECTED |
+
+### Verification result (current local run)
+
+- `npx tsc -b --pretty false`: **PASS**.
+- `npm run lint`: **PASS** — oxlint deny-warnings.
+- `npm run lint:ds`: **PASS** — 0 violations across 147 UI components.
+- Shared dialog/shell contract (`CommonComponents`, `ConfirmDialog`, `useAccessibleDialog`, `mobileLayoutContract`): **4 files / 33 tests PASS**.
+- Mobile/adaptive/modal regression (`Mobile*`, Finance, Student/print/security-dialog and create-exam contracts): **12 files / 75 tests PASS**.
+- `npm run build:frontend`: **PASS** — Vite/PWA production build generated; `git diff --check`: **PASS**.
+- Browser local public/auth matrix: **16/16 observations PASS** at 320x700, 375x812, 768x1024 and 1024x768 for `/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`: one `main`, `scrollWidth === clientWidth`, visible actions >=44x44 and login inputs 44px. The corrected `/verify` return CTA measured 238x44, 293x44, 390x44 and 390x44 respectively.
+- Final MobileTopBar/confirm portal-lifecycle run: **4 files / 19 tests PASS** (`MobileTopBarDialog`, `ConfirmDialog`, `mobileLayoutContract`, `useAccessibleDialog`), including body lock, Escape top-most routing and DOM-body portal assertions.
+
+The targeted suite still emits inherited React `act()`/Router warnings in existing tests, and Vite prints the existing `.env` `NODE_ENV=production` warning; neither is a failure or evidence of a mobile layout regression. Authenticated protected-route and physical-device acceptance remain **NOT CONFIRMED**.
+
+---
+
+## ADR-078: Design System v4.4 Accessibility Hard Gates & Audit Truthfulness (2026-08-29)
+
+**Status: APPROVED / IMPLEMENTED / VERIFIED. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Problem, evidence và mục tiêu
+
+Phase 0 của app-wide Design System audit xác nhận ba drift có bằng chứng trực tiếp:
+
+- **E3 / HIGH:** `--color-text-placeholder: #94A3B8` trên `surface-card` light chỉ 2.56:1; dark `#64748B` trên `#1E293B` chỉ 3.07:1. Custom placeholder trong desktop header/mobile control sheet cũng bypass token.
+- **E3 / HIGH:** global `:focus-visible` dùng `--color-parish-primary`, trong khi desktop/mobile brand shell chứa chính navy primary; `app-header` search/select còn có local `outline: 0`, nên token toàn cục không đủ bảo đảm chỉ báo focus nhìn thấy.
+- **E3 / HIGH:** `scripts/design-system-lint.mjs` chạy 6 source-regex rules nhưng log toàn bộ discovered TSX, gồm file test/exemption, dưới nhãn “UI components” và tuyên bố mọi component đạt WCAG AA. Static scan này không đo contrast, keyboard, runtime focus, reflow, dark mode hoặc visual output.
+
+Mục tiêu hard gate của phase: placeholder text ≥4.5:1 trên supported input surfaces; focus indicator trên navy brand surfaces ≥3:1 với nền kề; linter mô tả đúng phạm vi và không phát hành compliance claim vượt bằng chứng.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: đổi token đơn lẻ | B: chỉ sửa audit tooling | C: token + scoped focus + test + truthful lint |
+| :--- | ---: | ---: | ---: | ---: |
+| Business / Operational Fit | 15% | 6 | 5 | 9 |
+| Reliability & Data Integrity | 20% | 9 | 9 | 9 |
+| Security & Privacy | 20% | 9 | 9 | 9 |
+| Maintainability | 15% | 6 | 6 | 9 |
+| Performance | 10% | 9 | 8 | 8 |
+| Testability | 10% | 5 | 7 | 9 |
+| Reversibility | 5% | 10 | 9 | 9 |
+| Observability | 5% | 4 | 6 | 8 |
+| **Weighted** | **100%** | **7.50 — REJECT** | **7.50 — REJECT** | **8.85 — SELECT** |
+
+A fail D2 Testability gate và không xử lý local outline reset/custom brand placeholder. B không đóng confirmed contrast failure. C là thay đổi nhỏ nhất đóng đủ ba finding và tạo regression evidence.
+
+### Decision contract
+
+1. Content placeholder dùng `#5F6F82` light và `#A3B1C4` dark; `::placeholder` cố định `opacity: 1`. Unit test đo token trên `surface-card|raised|sunken|hover|app`; worst-case hiện tại 4.66:1 light và 4.75:1 dark.
+2. Brand placeholder dùng `--color-text-placeholder-on-brand: #E2E8F0`; desktop header search và mobile control search không dùng raw alpha-white. Mobile control sheet dùng navy `rgba(7, 24, 74, 0.92)` để contrast không phụ thuộc page phía sau.
+3. Brand focus dùng `--color-focus-ring-brand: #FFFFFF`, outline 3px/offset 2px, scope tại `.app-header`, `.mobile-top-bar`, `.mobile-control-sheet` và được khai báo sau local outline resets. Contrast thấp nhất trên gradient stops là 6.70:1.
+4. `lint:ds` version đồng bộ v4.4; đếm đúng non-exempt scanned TSX và luôn công bố: 6 static anti-drift rules, không chứng nhận full WCAG hoặc visual conformance. Các rule-specific contrast finding có thể nêu bằng chứng riêng, nhưng summary không suy rộng thành app-wide compliance.
+5. `designSystemTokens.test.ts` là source-level contrast/focus contract. Axe/runtime keyboard/viewport/dark/role/device verification vẫn là workstream riêng; zoom lock là accepted product trade-off, không phải compliance.
+
+### Gates, compatibility, risk và rollback
+
+- **D2 hard gates:** Security & Privacy 9, Data Integrity 9, Testability 9 — PASS. Đây là presentation/tooling-only change; không có API/schema/auth/offline/data writer.
+- **ADR compatibility:** ADR-030 (CSS SSOT), ADR-055 (shared primitives), ADR-063 (navy–gold), ADR-065 (motion), ADR-072/077 (a11y/mobile shell) = **PASS**. ADR-078 chỉ supersede claim cũ rằng `lint:ds` một mình “guarantees WCAG”; không supersede SSOT hoặc visual direction.
+- **Architecture:** presentation và repo tooling giữ nguyên dependency direction = **PASS**. **Business Rule Gate:** không đổi nghiệp vụ = **CONFIRMED**.
+- **Risks:** placeholder đậm hơn và control sheet ít trong suốt hơn có probability medium/impact low; scoped focus selector có probability low/impact medium. Mitigation bằng token test, source selector contract và visual smoke ở phase verification tiếp theo. Residual risk low.
+- **Rollback:** R1, revert CSS/linter/test/docs cùng batch; không có migration hoặc data recovery.
+
+### Source-of-truth synchronization
+
+| Source | Action | Status |
+| --- | --- | --- |
+| `src/index.css` | v4.4 placeholder/brand-focus/control-sheet contract | DONE |
+| `scripts/design-system-lint.mjs` | truthful scope, count và version | DONE |
+| `src/__tests__/designSystemTokens.test.ts` | contrast math + selector regression | DONE |
+| `src/__tests__/designSystemLintContract.test.ts` | CLI scope/claim regression | DONE |
+| `docs/03_DESIGN_SYSTEM.md` | token values, ratios và claim boundary | DONE |
+| `docs/02_ARCHITECTURE.md`, `docs/AI_CONTEXT_MAP.md` | current presentation/tooling truth | DONE |
+| API/schema/business/security docs | không đổi authority/contract | NOT AFFECTED |
+
+### Verification result
+
+- Token/linter contracts: **2 files / 12 tests PASS**, gồm light/dark surface, brand gradient, worst-case translucent-layer composition và CLI claim boundary.
+- `npm run lint:ds`: **PASS**, 0 anti-drift violation / 107 non-exempt application TSX files; output nêu rõ không chứng nhận full WCAG/visual conformance.
+- Relevant UI regression: **7 files / 37 tests PASS** (`designSystemTokens`, linter contract, app-wide/mobile layout, MobileTopBar dialog, shared components và accessible dialog lifecycle).
+- `npm run lint`: **PASS**; `npx tsc -b --pretty false`: **PASS**; `npm run build:frontend`: **PASS** (Vite/PWA production output; warning `.env NODE_ENV=production` là warning có sẵn, không phải failure).
+- Full serialized Vitest: **257/257 files, 1819/1819 tests PASS**. `git diff --check`: **PASS**.
+
+---
+
+## ADR-079: Design System v4.5 — Semantic Primitives, Ordered CSS Graph & Runtime Evidence (2026-08-30)
+
+**Status: APPROVED / IMPLEMENTED / VERIFIED. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Problem, scope và evidence
+
+Design System đã có visual language navy–gold và token SSOT, nhưng app-wide audit còn ba nguồn drift xuyên module:
+
+- **E3 / HIGH:** `src/index.css` là monolith 4,409 dòng; test cũ đọc một file vật lý, nên việc tách CSS có thể vô tình đổi cascade hoặc làm contract đọc thiếu declaration.
+- **E3 / HIGH:** shared/auth và các workflow Dashboard, Students, Management, Attendance, Grades, Finance lặp raw button/form/tab/filter markup. Finance fund filter từng mang tab semantics dù chỉ lọc dữ liệu; lazy fallback có thể làm `aria-controls` trỏ tới panel tạm biến mất.
+- **E3 / HIGH:** baseline lịch sử tại lúc ra quyết định gồm 289 `text-[Npx]` occurrences / 58 files và 76 `transition-all` occurrences / 25 files; global-ban ngay sẽ tạo rewrite rủi ro, còn không khóa sẽ tiếp tục tăng. Baseline này được giữ trong ADR như starting evidence, không phải current debt.
+- **E2 / HIGH:** source-level tests/linter không đo DOM ARIA runtime, contrast theo theme, viewport overflow hoặc ảnh route. Browser matrix đã bắt các lỗi thật ở active mobile bottom-nav dark, lifecycle panel/Suspense, `PageHeader` phone identity/action, dashboard/control contrast, Finance/Grade scroller, labels/statuses và public auth/forgot/verify contrast.
+
+Phạm vi chỉ gồm presentation, repo tooling, tests, docs, CI artifact và dev dependency `@axe-core/playwright`. Không thay route policy, API/schema, auth/RBAC, tenant isolation, offline/sync, scoring, business calculations, print/A4 hay OMR geometry.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ raw markup + source checks | B: thay UI framework / rewrite CSS | C: thin typed layer + graph + ratchets + runtime gates |
+| :--- | ---: | ---: | ---: | ---: |
+| Business / Operational Fit | 15% | 6 | 7 | 9 |
+| Reliability & Data Integrity | 20% | 9 | 8 | 9 |
+| Security & Privacy | 20% | 9 | 9 | 9 |
+| Maintainability | 15% | 5 | 7 | 9 |
+| Performance | 10% | 9 | 6 | 8 |
+| Testability | 10% | 4 | 7 | 9 |
+| Reversibility | 5% | 10 | 4 | 9 |
+| Observability | 5% | 4 | 6 | 8 |
+| **Weighted** | **100%** | **7.25 — REJECT** | **7.30 — REJECT** | **8.85 — SELECT** |
+
+A fail D2 Testability gate và giữ semantic drift. B có blast radius/reversibility không tương xứng với presentation problem, đồng thời xung đột yêu cầu giữ visual language hiện tại. C tái sử dụng class/token đã duyệt, cho phép migration tăng dần và rollback theo file.
+
+### Decision contract
+
+1. `src/components/common/ui/` là semantic layer mỏng: typed Button/IconButton, form controls, Tabs/TabPanel, SegmentedControl, FilterChips, Badge và Surface. Primitive chỉ map presentation/interaction; không chứa business-status mapping.
+2. Tab dùng `tablist → tab → tabpanel`, ID reference hợp lệ, roving keyboard focus và `aria-selected`; filter dùng `aria-pressed`, single-choice command dùng radio semantics. Lazy `Suspense` phải nằm trong active panel để panel node không biến mất.
+3. `src/index.css` là entrypoint duy nhất của ordered graph `00-tokens.css → 70-sidebar.css`. Không dùng `@layer`, không component-owned CSS import, không đảo cascade. CSS graph test khóa manifest, reachability, duplicate/cycle/orphan và directive ownership.
+4. Tại điểm split-only, production CSS phải giống trước/sau. Baseline đã xác nhận 212,171 bytes và SHA-256 `09AD1BB6179D178887D5E5E3502363FE1D57C45597BDA048D5B925EC4A561CEB`; accessibility fixes sau split được xem là intentional diff riêng.
+5. `lint:ds` v4.5 chạy 8 static rules trên 112 non-exempt application TSX. Hai debt chưa thể cấm toàn cục dùng per-file ceiling; file mới hoặc không có baseline có ceiling 0. Baseline chỉ được viết lại có chủ đích và không được dùng để hợp thức hóa debt tăng. Current ratchet đã giảm còn 287 arbitrary-pixel font sizes / 58 files và 55 `transition-all` / 23 files; current linter result là 0 violation.
+6. Browser hard gate dùng ba viewport 1440/390/320 và light/dark trên ba nhóm: 5 protected routes đại diện (`/dashboard`, `/students`, `/attendance`, `/grades`, `/finances`) = 30 observations; 4 public/auth routes (`/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`) = 24; `ParentForgotPasswordModal` = 6. Tổng cộng Axe = 60 observations; visual/layout full-page dùng cùng 60 scenarios, cộng một mobile-bottom-nav interaction test. Axe JSON, full-page screenshots và HTML report được CI giữ 7 ngày kể cả khi job fail; screenshot là evidence artifact, không phải portable pixel-diff baseline.
+7. Protected traversal dùng sidebar thật và giữ nguyên một SPA document để không tạo hard-refresh/refresh-token rotation ngoài ý muốn. Mỗi bước phải assert canonical URL, matching `aria-current`, `.product-view` và zero primary loading status trước scan/capture; canonical finance route là `/finances`. Mobile-bottom-nav test điều hướng thật qua Attendance, Grades, Students, Reports và Dashboard.
+8. Playwright harness tách khỏi developer runtime: Vite/API dùng 3100/3101; mỗi run có UUID + owner marker và SQLite tạm trong OS temp; `dev:e2e` không nạp server `.env`; remote/external DB env bị scrub; ports được preflight; stdout chỉ phát `READY` sau khi Vite, API và deterministic seed đều hoàn tất; reporter dọn sandbox sau teardown. E2E-only trusted-proxy + IP riêng theo browser context giữ login limiter production nguyên vẹn. Local evidence xác nhận SHA của development DB không đổi sau suite.
+9. Remediation giữ nguyên visual language: `PageHeader` có mobile identity/action flex-basis; dashboard/control và light/dark semantic tokens đạt runtime contrast gate; nhãn grade highlight dùng foreground primary; Finance/Grade scrollers có region/label/focus; control có label/status đúng; public auth, forgot modal và verify được sửa contrast. Native route motion chỉ consume ba browser lifecycle interruption dự kiến trên `ready`/`finished`, không bắt `updateCallbackDone`. `vite.config.ts` bỏ stale `optimizeDeps` entries `tailwind-merge` và `jspdf`.
+10. Axe chỉ là automated subset. `meta-viewport` là rule duy nhất bị disable theo zoom-lock exception đã chấp nhận ở ADR-072/077/078. Protected matrix là representative 5/17 routes, không bao phủ mọi role; không tuyên bố full WCAG, screen-reader, physical-device, field usability hoặc pixel-diff acceptance.
+
+### Gates, compatibility, business rule và risks
+
+- **D2 hard gates:** Security & Privacy **9**, Reliability & Data Integrity **9**, Testability **9** — PASS. Không có new writer/authority/network contract; source graph, semantic unit contracts, current linter và browser gates có evidence, còn final serialized repository gate sau remediation cuối được ghi riêng bên dưới.
+- **ADR consistency:** ADR-030 (DS SSOT), ADR-055 (shared primitives), ADR-063 (navy–gold/product-first), ADR-065 (route motion), ADR-072/077 (responsive/touch/dialog), ADR-078 (truthful accessibility claims) = **PASS**. ADR-079 mở rộng governance/runtime evidence, không supersede identity hoặc domain contract.
+- **Architecture compatibility:** dependency direction `pages → components/hooks/stores` giữ nguyên; CSS module graph vẫn có một entrypoint; CI chỉ lưu test artifact = **PASS**.
+- **Business Rule Gate:** không thêm hoặc đổi domain transition, calculation hay authority = **CONFIRMED** bằng diff/source inspection. All-17-protected-route/all-role coverage, full WCAG, screen-reader, physical-device và pixel-diff acceptance = **NOT CONFIRMED**, được giữ như manual/extended release evidence.
+
+| Risk | Probability | Impact | Mitigation | Residual |
+| --- | --- | --- | --- | --- |
+| CSS split đổi cascade | Low | High | exact-output hash tại split-only + ordered graph contract | Low |
+| Primitive migration đổi keyboard/DOM contract | Medium | Medium | role/state unit tests + Axe matrix; cập nhật legacy assertions theo semantic chuẩn | Low |
+| Ratchet baseline bị nới vô ý | Low | Medium | explicit write flag, per-file ceiling, missing baseline = 0 | Low |
+| Screenshot khác nhau theo platform | Medium | Low | dùng ảnh làm evidence artifact; không claim portable pixel baseline | Low |
+| E2E vô tình dùng dev/remote DB hoặc scan trước seed | Low | High | dedicated ports, temp DB, env scrub, preflight và readiness sau seed; kiểm SHA dev DB | Low |
+| Automated scan bỏ sót a11y thực địa | High | Medium | truthful claim boundary + manual screen-reader/device follow-up | Medium |
+
+Rollback R1: revert primitives/migrations, CSS graph/tooling/tests/docs/CI batch cùng nhau; không có migration dữ liệu hoặc recovery operation.
+
+### Source synchronization và verification
+
+| Source | Action | Status |
+| --- | --- | --- |
+| `docs/03_DESIGN_SYSTEM.md` | v4.5 primitive/graph/ratchet/runtime contract + measured verification | DONE |
+| `docs/02_ARCHITECTURE.md` | current presentation boundaries, inventory và runtime gates | DONE |
+| `docs/AI_CONTEXT_MAP.md` | code truth, evidence, scope và claim boundary | DONE |
+| `docs/UI_UX_UPGRADE_PLAN_2026-08-27.md` | phase closure và residual manual backlog | DONE |
+| `.github/workflows/ci.yml`, `playwright.config.ts`, `scripts/e2e-dev.mjs` | persist evidence 7 ngày + isolated deterministic browser harness | DONE |
+| API/schema/business/security docs | không đổi authority/data contract | NOT AFFECTED |
+
+Verification local được chạy tuần tự để tránh race `coverage/.tmp`:
+
+- `npm run lint:ds`: **PASS — 0 violations / 112 non-exempt application TSX files**; ratchet current = 287 arbitrary-pixel font sizes / 58 files và 55 `transition-all` / 23 files.
+- Full Playwright cuối: **61/61 tests chạy PASS**, **1 offline tenant-reload test skip có chủ đích**; bao phủ 60 Axe observations, 60 visual/layout captures, mobile-bottom-nav, auth/role, tenant switch và attendance save. Không còn unhandled View Transition lifecycle log.
+- E2E isolation evidence: dedicated 3100/3101 runtime, owner-marked OS-temp SQLite, deterministic fixture, seed-before-ready và cleanup reporter **PASS**; SHA-256 development DB trước/sau giữ nguyên `3D3CC908330207C951DA2D15B6C924FBE330E499E921F87E345EFBF668D1DA40`.
+- Split-only CSS proof: **212,171 bytes / identical SHA-256** before and after modularization. Accessibility/contrast fixes sau split là intentional diff, không làm mất graph contract.
+- Final serialized `npm run verify:ci` sau remediation cuối: **PASS** — lint zero-warning, `lint:ds` 0/112, client/server TypeScript, Vite/PWA build và **260/260 files, 1,836/1,836 tests PASS**. Coverage: statements **70.64%**, branches **59.94%**, functions **64.51%**, lines **72.88%**.
+- `npm audit --omit=dev`: **0 production vulnerabilities** ở lần kiểm gần nhất. Full toolchain audit còn 7 moderate trong các chain `@capacitor/cli`/`drizzle-kit`; không chain nào đi qua `@axe-core/playwright`, và suggested fixes là semver-major nên nằm ngoài batch presentation này.
+
+Post-implementation reassessment giữ option C ở **8.85**; hard gates và ADR consistency tiếp tục PASS. Residual manual acceptance không chặn code integration nhưng chặn mọi claim “WCAG compliant” hoặc field-validated.
+

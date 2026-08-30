@@ -1,0 +1,225 @@
+/* ═══════════════════════════════════════════════════
+   GLOBAL RESET & BASE
+   ═══════════════════════════════════════════════════ */
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--color-surface-app);
+  color: var(--color-text-main);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: auto;
+  overflow-wrap: break-word;
+  word-break: normal;
+  /* Khóa double-tap zoom trên mobile (pinch đã bị chặn ở viewport meta + zoomGuard) */
+  touch-action: manipulation;
+}
+::selection {
+  background: color-mix(in srgb, var(--color-parish-primary) 18%, transparent);
+  color: var(--color-text-main);
+}
+
+::placeholder {
+  opacity: 1;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-input); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-placeholder); }
+
+/* ─── Firefox ─── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-input) transparent;
+}
+.dark * {
+  scrollbar-color: var(--color-surface-border) transparent;
+}
+
+/* ─── Focus Visible: content surfaces; brand shells use an inverse ring below. ─── */
+:focus-visible {
+  outline: 2px solid var(--color-parish-primary);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ─── Skip link (a11y) ─── */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 8px;
+  background: var(--color-parish-primary);
+  color: white;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  z-index: var(--z-skip-link);
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+/* ═══════════════════════════════════════════════════
+   TYPOGRAPHY SYSTEM (DS v3.1)
+   Reference: docs/03_DESIGN_SYSTEM.md §3.1
+   ═══════════════════════════════════════════════════ */
+
+.typography-display {
+  font-size: 1.875rem; /* 30px */
+  line-height: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--color-text-main);
+}
+
+.typography-page-title {
+  font-size: 1.5rem; /* 24px */
+  line-height: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text-main);
+}
+
+.typography-section-title {
+  font-size: 1.125rem; /* 18px */
+  line-height: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text-main);
+}
+
+.typography-card-title {
+  font-size: 1rem; /* 16px */
+  line-height: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
+.typography-body {
+  font-size: 0.875rem; /* 14px */
+  line-height: 1.375rem;
+  font-weight: 400;
+  color: var(--color-text-main);
+}
+
+.typography-body-sm {
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.125rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.typography-caption {
+  font-size: 0.6875rem; /* 11px */
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.typography-label {
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.typography-metadata {
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.125rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.typography-numeric {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.typography-numeric-emphasis {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-parish-primary);
+}
+
+/* ─── Student Identity Typography (DS §17: Tên Thánh & Họ và Tên) ─── */
+.student-holy-name {
+  color: #78350F; /* Nâu đậm trang nghiêm / Deep Rich Brown (Amber 900) */
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-ligatures: contextual;
+}
+
+.dark .student-holy-name {
+  color: #FBBF24; /* Vàng hổ phách sáng trên nền tối */
+}
+
+.student-full-name {
+  color: var(--color-text-main);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.student-name-group {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.student-name-group--stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.typography-grade-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.typography-status-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ═══════════════════════════════════════════════════
+   DENSITY & SPACING SCALE (DS v3.1)
+   ═══════════════════════════════════════════════════ */
+
+.density-comfortable {
+  --density-pad-y: 12px;
+  --density-pad-x: 16px;
+  --density-gap: 16px;
+  --density-row-height: 48px;
+}
+
+.density-dense {
+  --density-pad-y: 8px;
+  --density-pad-x: 12px;
+  --density-gap: 12px;
+  --density-row-height: 40px;
+}
+
+.density-ultra-dense {
+  --density-pad-y: 4px;
+  --density-pad-x: 8px;
+  --density-gap: 6px;
+  --density-row-height: 32px;
+}

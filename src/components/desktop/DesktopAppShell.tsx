@@ -14,23 +14,26 @@
 export type DesktopPageWidth = 'full' | 'wide' | 'narrow'
 
 const WIDTH_CLASSES: Record<DesktopPageWidth, string> = {
-  full: 'w-full',
-  wide: 'w-full max-w-7xl mx-auto',
-  narrow: 'w-full max-w-3xl mx-auto',
+  full: 'responsive-page-shell--full',
+  wide: 'responsive-page-shell--wide',
+  narrow: 'responsive-page-shell--narrow',
 }
 
 interface DesktopAppShellProps {
   width?: DesktopPageWidth
+  /** Bỏ gutter/max-width khi render bên trong một page shell cha (ví dụ /management). */
+  embedded?: boolean
   className?: string
   children: React.ReactNode
 }
 
 export const DesktopAppShell: React.FC<DesktopAppShellProps> = ({
   width = 'full',
+  embedded = false,
   className = '',
   children,
 }) => (
-  <div className={`product-view ${WIDTH_CLASSES[width]} ${className}`.trim()}>
+  <div className={`${embedded ? 'embedded-page-section' : `responsive-page-shell ${WIDTH_CLASSES[width]}`} product-view ${className}`.trim()}>
     {children}
   </div>
 )

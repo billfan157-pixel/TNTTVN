@@ -111,8 +111,8 @@ describe('ForcePasswordChangeModal', () => {
 
   it('shows loading spinner during submission', () => {
     setMockState({ isLoading: true })
-    const { container } = render(<ForcePasswordChangeModal />)
-    const spinner = container.querySelector('.animate-spin')
+    render(<ForcePasswordChangeModal />)
+    const spinner = document.body.querySelector('.animate-spin')
     expect(spinner).toBeDefined()
   })
 

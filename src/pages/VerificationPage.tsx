@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {  ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Button } from '../components/common/ui/Button'
 
 export default function VerificationPage() {
   const [params, setParams] = useState<{ studentId?: string; academicYear?: string; certId?: string; sig?: string }>({})
@@ -40,7 +41,7 @@ export default function VerificationPage() {
     <main className="auth-page">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
-          <div className="w-16 h-16 rounded-3xl bg-[var(--color-parish-primary)] text-white flex items-center justify-center mx-auto shadow-lg mb-3 font-black text-2xl">
+          <div className="w-16 h-16 rounded-3xl bg-[var(--color-parish-primary)] text-text-inverse flex items-center justify-center mx-auto shadow-lg mb-3 font-black text-2xl">
             BD
           </div>
           <h1 className="typography-page-title">Cổng Xác Thực Kết Quả Học Tập</h1>
@@ -66,12 +67,14 @@ export default function VerificationPage() {
                   <h3 className="typography-card-title">Thiếu tham số quét QR</h3>
                   <p className="typography-body-sm mt-1">Đường dẫn xác thực không đầy đủ. Vui lòng quét lại mã QR trên kết quả học tập chính thức.</p>
                 </div>
-                <button
-                  className="btn btn-primary w-full"
+                <Button
+                  variant="primary"
+                  size="lg"
+                  fullWidth
                   onClick={() => window.location.href = '/'}
                 >
                   Quay lại Trang Chủ
-                </button>
+                </Button>
               </div>
             ) : error ? (
               <div className="text-center py-6 space-y-4">
@@ -114,12 +117,14 @@ export default function VerificationPage() {
                   </div>
                 )}
 
-                <button
-                  className="btn btn-primary w-full"
+                <Button
+                  variant="primary"
+                  size="lg"
+                  fullWidth
                   onClick={() => window.location.href = '/'}
                 >
                   Trở về Ứng Dụng Quản Lý
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="space-y-5">
@@ -130,12 +135,14 @@ export default function VerificationPage() {
                     <p className="typography-body-sm text-[var(--color-parish-danger)] mt-0.5">{result?.message || 'Mã QR không hợp lệ hoặc đã bị thay đổi.'}</p>
                   </div>
                 </div>
-                <button
-                  className="btn btn-primary w-full"
+                <Button
+                  variant="primary"
+                  size="lg"
+                  fullWidth
                   onClick={() => window.location.href = '/'}
                 >
                   Trở về Trang Chủ
-                </button>
+                </Button>
               </div>
             )}
           </div>

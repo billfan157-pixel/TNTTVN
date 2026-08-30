@@ -31,6 +31,7 @@ import type { LiturgicalDay } from '../../types/liturgical'
 import type { ParishEvent } from '../../stores/parishEventStore'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 export const MobileCalendarView: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
@@ -147,7 +148,7 @@ export const MobileCalendarView: React.FC = () => {
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
       {/* Top Header & Month Switcher */}
-      <div className="mobile-page-header mobile-page-header--compact">
+      <div className="mobile-page-header mobile-page-header--compact mobile-calendar-header">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center font-bold">
             <CalendarIcon size={16} />
@@ -158,7 +159,7 @@ export const MobileCalendarView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="mobile-calendar-header__toolbar flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => {
@@ -232,6 +233,7 @@ export const MobileCalendarView: React.FC = () => {
                 onClick={() => setSelectedDay(dayItem)}
                 aria-label={`Ngày ${dayNum}${dayItem.title ? `, ${dayItem.title}` : ''}${isToday ? ' (Hôm nay)' : ''}`}
                 aria-pressed={isSelected}
+                data-compact-touch
                 className={`min-h-[44px] h-11 rounded-xl border flex flex-col items-center justify-between p-1 transition-all relative touch-manipulation active:scale-[0.97] ${
                   isSelected
                     ? 'border-parish-primary bg-parish-primary-light/60 ring-2 ring-parish-primary/30 font-black'
@@ -349,7 +351,7 @@ export const MobileCalendarView: React.FC = () => {
           <h5 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
             <CalendarIcon size={13} className="text-parish-primary" /> Sự Kiện Xứ Đoàn ({selectedDayParishEvents.length})
           </h5>
-          <button onClick={handleOpenAdd} className="px-2.5 py-1 rounded-full bg-parish-primary text-white text-xs font-bold flex items-center gap-1 min-h-[32px]">
+          <button onClick={handleOpenAdd} className="px-2.5 py-1 rounded-full bg-parish-primary text-white text-xs font-bold flex items-center gap-1 min-h-[44px]">
             <Plus size={12} /> Thêm
           </button>
         </div>
@@ -416,7 +418,8 @@ export const MobileCalendarView: React.FC = () => {
 
       {/* Bottom-sheet thêm/sửa sự kiện — mobile Calm */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-0" onClick={closeEventModal}>
+        <ModalPortal>
+        <div className="app-modal-layer fixed inset-0 flex items-end justify-center p-0" onClick={closeEventModal}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <form
             ref={dialogRef as React.Ref<HTMLFormElement>}
@@ -468,6 +471,7 @@ export const MobileCalendarView: React.FC = () => {
             </div>
           </form>
         </div>
+        </ModalPortal>
       )}
       {confirmDialog}
     </div>

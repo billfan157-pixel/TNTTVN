@@ -4,13 +4,14 @@ import { getDB, type SyncQueueItem, type SyncConflict } from '../../lib/db'
 import { useSyncStore } from '../../stores/syncStore'
 import { runSyncFlow } from '../../hooks/useSyncEngine'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ConflictInboxModal } from './ConflictInboxModal'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useNoticeStore } from '../../stores/noticeStore'
 import { api } from '../../lib/api'
+import { ModalPortal } from '../common/ModalPortal'
 import {
   armOmrSequenceEvidence,
   buildOmrSequenceEvidenceManifest,
@@ -45,8 +46,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   const updateOp = useSyncStore((s) => s.updateOp)
   const removeOp = useSyncStore((s) => s.removeOp)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
-  // PHA 1 (audit A19): focus trap — trước đây Tab thoát ra nền phía sau overlay
-  const trapRef = useFocusTrap(isOpen)
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
   const syncNow = () => runSyncFlow()
   const [latencyLoading, setLatencyLoading] = useState(false)
   const [dbStatus, setDbStatus] = useState<'healthy' | 'error' | 'checking'>('checking')
@@ -168,15 +168,6 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
     return () => { cancelledRef.current = true }
   }, [isOpen, runDiagnostics])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
-
   if (!isOpen) return null
 
   const currentReleaseCompletion = sequenceSummary.completedReleases.find(item => item.releaseId === sequenceReleaseId)
@@ -218,7 +209,9 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
   const st = statusInfo[dbStatus]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="Bảng Chẩn Đoán Hệ Thống">
+    <>
+    <ModalPortal>
+    <div className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="Bảng Chẩn Đoán Hệ Thống">
       <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
         <div className="bg-parish-primary text-white p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -230,7 +223,7 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
               <p className="text-xs text-white/80">Giám sát thời gian thực cho Admin</p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Đóng bảng chẩn đoán" className="p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors">
+          <button onClick={onClose} aria-label="Đóng bảng chẩn đoán" className="mobile-touch-target p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -669,7 +662,9 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
           </button>
         </div>
       </div>
-      {confirmDialog}
     </div>
+    </ModalPortal>
+    {confirmDialog}
+    </>
   )
 }

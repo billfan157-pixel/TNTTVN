@@ -277,7 +277,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
   const activeYear = years.find((y) => y.id === currentYear)
 
   return (
-    <DesktopAppShell width="wide" className="flex flex-col gap-6">
+    <DesktopAppShell width="wide" embedded={embedded}>
       {/* Header */}
       {!embedded && <PageHeader
         icon={<Calendar className="w-5 h-5" />}
@@ -410,7 +410,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                   {!isActive && item.status !== 'ARCHIVED' && (
                     <button
                       onClick={() => setCurrentYear(item.id)}
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-primary btn-sm min-h-[40px]"
                     >
                       Chọn Làm Năm Học Hiện Tại
                     </button>
@@ -419,7 +419,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                     <>
                       <button
                         onClick={() => handleChecklist(item)}
-                        className="btn btn-secondary btn-sm"
+                        className="btn btn-secondary btn-sm min-h-[40px]"
                       >
                         <ClipboardCheck className="w-3.5 h-3.5" /> Check Dữ Liệu
                       </button>
@@ -427,7 +427,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                         <button
                           onClick={() => handleStartSemester2(item)}
                           disabled={busy}
-                          className="btn btn-primary text-xs font-bold flex items-center gap-1.5"
+                          className="btn btn-primary btn-sm min-h-[40px] text-xs font-bold flex items-center gap-1.5"
                         >
                           <ArrowRight className="w-3.5 h-3.5" /> Bắt Đầu HK2
                         </button>
@@ -436,7 +436,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                         <button
                           onClick={() => handleFinalize(item)}
                           disabled={busy}
-                          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                          className="btn btn-secondary btn-sm min-h-[40px] text-violet-700 dark:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40"
                         >
                           <Flag className="w-3.5 h-3.5" /> Chốt Năm Học
                         </button>
@@ -445,7 +445,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                         <button
                           onClick={() => openPromoteModal(item)}
                           disabled={busy}
-                          className="px-3 py-1.5 bg-parish-primary hover:bg-parish-primary-hover text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                          className="btn btn-primary btn-sm min-h-[40px] text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40"
                         >
                           <GraduationCap className="w-3.5 h-3.5" /> Xét Lên Lớp
                         </button>
@@ -454,7 +454,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                         <button
                           onClick={() => handleArchive(item)}
                           disabled={busy}
-                          className="px-3 py-1.5 bg-surface-hover hover:bg-surface-border text-text-main text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                          className="btn btn-secondary btn-sm min-h-[40px] text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40"
                         >
                           <Archive className="w-3.5 h-3.5" /> Lưu Trữ
                         </button>
@@ -463,7 +463,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                         <button
                           onClick={() => openCopyModal(item)}
                           disabled={busy}
-                          className="px-3 py-1.5 border border-surface-border text-xs font-bold rounded-lg flex items-center gap-1.5 hover:bg-surface-hover transition-colors"
+                          className="btn btn-secondary btn-sm min-h-[40px] text-xs font-bold flex items-center gap-1.5 transition-colors"
                         >
                           <Copy className="w-3.5 h-3.5" /> Tạo Năm Mới
                         </button>
@@ -485,10 +485,10 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                             key={sem}
                             disabled={busy || terminal}
                             onClick={() => handleToggleLock(item, sem, !isSemLocked)}
-                            className={`px-3 py-1.5 text-[11px] font-bold rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-40 ${
+                            className={`btn btn-sm min-h-[40px] flex-1 justify-center text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40 ${
                               isSemLocked
-                                ? 'bg-surface-hover text-text-secondary hover:bg-surface-border'
-                                : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+                                ? 'btn-secondary text-text-secondary'
+                                : 'btn-secondary text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20'
                             }`}
                           >
                             {isSemLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}

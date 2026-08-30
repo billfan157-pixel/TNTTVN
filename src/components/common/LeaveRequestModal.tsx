@@ -4,6 +4,7 @@ import { useLeaveRequestStore } from '../../stores/leaveRequestStore'
 import { getDefaultDate } from '../../utils/getDefaultDate'
 import type { LeaveRequestSessionType } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from './ModalPortal'
 
 interface LeaveRequestModalProps {
   isOpen: boolean
@@ -80,7 +81,8 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200" onClick={onClose}>
+    <ModalPortal>
+    <div className="app-modal-layer fixed inset-0 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"
@@ -240,5 +242,6 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
         </form>
       </div>
     </div>
+    </ModalPortal>
   )
 }

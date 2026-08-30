@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
-import { pushModal, popModal, isTopModal } from '../../lib/modalStack'
+import React from 'react'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from './ModalPortal'
+import { IconButton } from './ui/Button'
 
 interface ModalShellProps {
   isOpen: boolean
@@ -38,80 +39,60 @@ export const ModalShell: React.FC<ModalShellProps> = ({
   footer,
   children,
 }) => {
-  const modalRef = useFocusTrap(isOpen)
-  const titleId = React.useId()
-  // PHA 1 (audit A20): instance id cho stack arbitration — Escape chỉ đóng top-most
-  const instanceId = React.useId()
-
-  useEffect(() => {
-    if (!isOpen) return
-    pushModal(instanceId)
-    return () => popModal(instanceId)
-  }, [isOpen, instanceId])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isTopModal(instanceId)) onClose()
-    }
-    document.addEventListener('keydown', handleKey)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKey)
-      document.body.style.overflow = prevOverflow
-    }
-  }, [isOpen, onClose, instanceId])
+  const { dialogRef: modalRef, titleId } = useAccessibleDialog(isOpen, onClose)
 
   if (!isOpen) return null
 
   return (
-    <div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      onClick={closeOnOverlay ? onClose : undefined}
-    >
+    <ModalPortal>
       <div
-        ref={modalRef}
-        onClick={(e) => e.stopPropagation()}
-        className="modal-content"
-        style={{ maxWidth }}
+        className="modal-overlay app-modal-layer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={closeOnOverlay ? onClose : undefined}
       >
-        <div className="modal-content__header flex items-center justify-between gap-4 mb-4 border-b border-surface-border pb-4">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {icon && (
-              <div className="icon-container-lg rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                {icon}
-              </div>
-            )}
-            <div className="min-w-0">
-              <h3 id={titleId} className="modal-content__title typography-card-title m-0 truncate">
-                {title}
-              </h3>
-              {subtitle && (
-                <p className="typography-body-sm text-text-muted m-0">
-                  {subtitle}
-                </p>
+        <div
+          ref={modalRef}
+          onClick={(e) => e.stopPropagation()}
+          className="modal-content"
+          style={{ maxWidth }}
+        >
+          <div className="modal-content__header flex items-center justify-between gap-4 mb-4 border-b border-surface-border pb-4">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {icon && (
+                <div className="icon-container-lg rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
+                  {icon}
+                </div>
               )}
+              <div className="min-w-0">
+                <h3 id={titleId} className="modal-content__title typography-card-title m-0 truncate">
+                  {title}
+                </h3>
+                {subtitle && (
+                  <p className="typography-body-sm text-text-muted m-0">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="modal-content__header-actions flex items-center gap-2 shrink-0">
+              {headerActions}
+              <IconButton
+                onClick={onClose}
+                label="Đóng"
+                icon={<span aria-hidden="true">✕</span>}
+                size="sm"
+                variant="ghost"
+                className="mobile-touch-target shrink-0"
+              />
             </div>
           </div>
-          <div className="modal-content__header-actions flex items-center gap-2 shrink-0">
-            {headerActions}
-            <button
-              onClick={onClose}
-              className="btn btn-icon btn-sm btn-ghost shrink-0"
-              aria-label="Đóng"
-            >
-              ✕
-            </button>
-          </div>
+          <div className="modal-content__body">{children}</div>
+          {footer && <div className="modal-content__footer">{footer}</div>}
         </div>
-        <div className="modal-content__body">{children}</div>
-        {footer && <div className="modal-content__footer">{footer}</div>}
       </div>
-    </div>
+    </ModalPortal>
   )
 }
 

@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Eye, Trash2, X } from 'lucide-react'
 import { deleteScanReviewSnapshot, loadScanReviewSnapshot, purgeExpiredScanReviewSnapshots, type ScanReviewSnapshot } from '../../lib/scanReviewStorage'
 import type { ExamResult } from '../../types'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 interface ExamResultsTableProps {
   results: ExamResult[]
@@ -17,8 +18,8 @@ interface ExamResultsTableProps {
  */
 export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onRemove, sessionId, essayMode }) => {
   const [snapshot, setSnapshot] = useState<ScanReviewSnapshot | null>(null)
-  // PHA 1 nợ (audit A19): focus trap cho review overlay
-  const trapRef = useFocusTrap(Boolean(snapshot))
+  const closeSnapshot = useCallback(() => setSnapshot(null), [])
+  const { dialogRef: trapRef } = useAccessibleDialog(Boolean(snapshot), closeSnapshot)
   const [reviewMessage, setReviewMessage] = useState('')
 
   React.useEffect(() => { void purgeExpiredScanReviewSnapshots() }, [])
@@ -99,13 +100,15 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
       </table>
     </div>
     {snapshot && (
-      <div role="dialog" aria-modal="true" aria-label="Ảnh rà soát phiếu" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3" onClick={() => setSnapshot(null)}>
+      <ModalPortal>
+      <div role="dialog" aria-modal="true" aria-label="Ảnh rà soát phiếu" className="app-modal-layer--nested fixed inset-0 flex items-center justify-center bg-black/80 p-3" onClick={closeSnapshot}>
         <div ref={trapRef} className="flex max-h-[94vh] max-w-3xl flex-col overflow-hidden rounded-2xl bg-surface-card p-3" onClick={event => event.stopPropagation()}>
-          <div className="mb-2 flex items-center justify-between gap-3"><span className="text-xs font-semibold text-text-muted">Ảnh cục bộ · tự xóa lúc {new Date(snapshot.expiresAt).toLocaleString('vi-VN')}</span><button type="button" className="btn btn-secondary btn-sm" onClick={() => setSnapshot(null)}><X size={14} /> Đóng</button></div>
+          <div className="mb-2 flex items-center justify-between gap-3"><span className="text-xs font-semibold text-text-muted">Ảnh cục bộ · tự xóa lúc {new Date(snapshot.expiresAt).toLocaleString('vi-VN')}</span><button type="button" className="btn btn-secondary btn-sm" onClick={closeSnapshot}><X size={14} /> Đóng</button></div>
           <img src={snapshot.dataUrl} alt="Phiếu đã quét để rà soát" className="min-h-0 max-h-[78vh] w-auto rounded-xl object-contain" />
           <button type="button" className="btn btn-danger mt-2 self-end" onClick={() => void deleteReview()}><Trash2 size={14} /> Xóa ảnh ngay</button>
         </div>
       </div>
+      </ModalPortal>
     )}
     </>
   )

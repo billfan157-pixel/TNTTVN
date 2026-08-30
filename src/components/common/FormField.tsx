@@ -1,11 +1,14 @@
 
+import { cloneElement } from 'react'
+import type { ReactElement } from 'react'
+
 interface FormFieldProps {
   label: string
   htmlFor: string
   required?: boolean
   error?: string | null
   hint?: string
-  children: React.ReactNode
+  children: ReactElement<Record<string, unknown>>
 }
 
 /**
@@ -21,23 +24,27 @@ export const FormField: React.FC<FormFieldProps> = ({
   hint,
   children,
 }) => {
+  const existingDescribedBy = typeof children.props['aria-describedby'] === 'string'
+    ? children.props['aria-describedby']
+    : null
   const describedBy = [
+    existingDescribedBy,
     error ? `${htmlFor}-error` : null,
     hint ? `${htmlFor}-hint` : null,
   ].filter(Boolean).join(' ') || undefined
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={htmlFor} className="text-xs font-bold text-text-secondary">
+    <div className="form-group">
+      <label htmlFor={htmlFor} className="form-label">
         {label}
         {required && <span className="text-parish-danger ml-0.5" aria-hidden="true">*</span>}
       </label>
-      {React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
-        'aria-invalid': error ? true : undefined,
+      {cloneElement(children, {
+        'aria-invalid': error ? true : children.props['aria-invalid'],
         'aria-describedby': describedBy,
       })}
       {hint && !error && (
-        <p id={`${htmlFor}-hint`} className="text-[11px] text-text-muted m-0">
+        <p id={`${htmlFor}-hint`} className="form-help-text m-0">
           {hint}
         </p>
       )}

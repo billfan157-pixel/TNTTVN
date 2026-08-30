@@ -351,7 +351,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const a4Scale = Math.min(1, Math.max(0.35, (containerWidth - 12) / 794))
 
   const modalContent = (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-xs z-[1100] flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200" onClick={onClose}>
+    <div className="app-modal-layer fixed inset-0 bg-black/75 backdrop-blur-xs z-[1100] flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"

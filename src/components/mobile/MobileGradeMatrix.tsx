@@ -185,7 +185,7 @@ export const MobileGradeMatrix: React.FC<MobileGradeMatrixProps> = ({ onViewRepo
                 const source = field.key === 'scoreDaoDuc' ? undefined : (grade as Record<string, unknown> | undefined)?.[`${field.key}_source`]
                 return (
                   <div key={field.key} className={`p-2.5 text-center ${field.highlight ? 'bg-parish-secondary-light/20' : 'bg-surface-card'}`}>
-                    <div className="text-[10px] font-semibold text-text-muted truncate">{field.label}</div>
+                    <div className={`text-[10px] font-semibold truncate ${field.highlight ? 'text-text-primary' : 'text-text-muted'}`}>{field.label}</div>
                     <div className={`text-sm font-black mt-1 ${field.highlight ? 'text-parish-secondary' : 'text-text-main'}`}>{grade?.[field.key] ?? '—'}</div>
                     {source === 'manual' && <div className="text-[9px] text-amber-700 font-bold mt-0.5">Thủ công</div>}
                     {source === 'daily_avg' && <div className="text-[9px] text-sky-700 font-bold mt-0.5">Từ hằng ngày</div>}

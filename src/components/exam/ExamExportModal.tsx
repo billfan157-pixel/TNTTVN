@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   X, Download, FileText, FileSpreadsheet, Copy, Check,
   Printer, Sparkles, Settings2, Eye, LayoutGrid, Columns,
   Layers3, BookOpen,    Code, Globe
 } from 'lucide-react'
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../../types'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 import {
   exportExamToWord,
   exportExamToHtml,
@@ -57,8 +58,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
   maxScore = 10,
 }) => {
   const [activeFormat, setActiveFormat] = useState<ExportFormat>('word')
-  // PHA 1 nợ (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
   const [selectedVersion, setSelectedVersion] = useState<ExamVersionCode>('A')
   const [durationMinutes, setDurationMinutes] = useState(initialDuration)
   const [includeAnswerKey, setIncludeAnswerKey] = useState(true)
@@ -126,15 +126,6 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
     return ''
   }, [activeFormat, exportOptions])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
-
   if (!isOpen) return null
 
   const handleDownload = () => {
@@ -188,7 +179,8 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="exam-export-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="exam-export-title" className="app-modal-layer fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={onClose}>
       <div ref={trapRef} className="bg-surface-card rounded-2xl p-6 w-full max-w-5xl shadow-2xl max-h-[94vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
@@ -534,5 +526,6 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
 
       </div>
     </div>
+    </ModalPortal>
   )
 }

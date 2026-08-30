@@ -10,7 +10,8 @@ import { generateId } from '../../lib/id';
 import { generateSacramentCertificateHTML } from '../../utils/pdfGenerator';
 import { ReportExportService } from '../../services/reportExportService';
 import { Printer, X, Award } from 'lucide-react';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
+import { ModalPortal } from './ModalPortal';
 
 interface CertificateProps {
   isOpen: boolean;
@@ -29,8 +30,7 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
   const certId = React.useMemo(() => generateId('CERT'), [])
   const qrPayload = React.useMemo(() => (student ? buildCertificateQrPayload(certId, student.id, type) : ''), [certId, student, type])
   const qrSvg = React.useMemo(() => (qrPayload ? generateCertificateQrSvg(qrPayload, 4) : ''), [qrPayload])
-  // PHA 1 hoàn tất (audit A19): focus trap — hooks trước early-return
-  const trapRef = useFocusTrap(isOpen && !!student)
+  const { dialogRef: trapRef, titleId } = useAccessibleDialog(isOpen && !!student, onClose)
 
   if (!isOpen || !student) return null;
 
@@ -50,10 +50,11 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
   const isPromotion = type === 'promotion';
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <ModalPortal>
+    <div className="modal-overlay app-modal-layer" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={onClose}>
       <div ref={trapRef} className="modal-content max-w-[600px]" onClick={e => e.stopPropagation()}>
         <div className="no-print flex justify-between items-center mb-4 border-b border-surface-border pb-3">
-          <span className="text-sm font-bold text-parish-primary">
+          <span id={titleId} className="text-sm font-bold text-parish-primary">
             {isPromotion ? 'Chứng Nhận Thăng Tiến' : 'Chứng Nhận Hoàn Tất'}
           </span>
           <div className="flex gap-2">
@@ -144,5 +145,6 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 };

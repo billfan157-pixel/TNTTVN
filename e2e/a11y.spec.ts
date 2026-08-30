@@ -1,65 +1,110 @@
-import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers'
+import AxeBuilder from '@axe-core/playwright'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { getAdminSession, injectSession } from './helpers'
+import {
+  installUiBoot,
+  matrixViewports,
+  openPublicObservation,
+  openProtectedObservation,
+  publicDesignRoutes,
+  representativeProtectedRoutes,
+  setThemeThroughHeader,
+  type MatrixTheme,
+  type MatrixViewportName,
+} from './design-system-matrix'
 
-/**
- * Phase 0 — Calm 2026: axe-playwright scaffold.
- * Sprint 0 chỉ kiểm tra hạt nhân WCAG 2.2 AA không cần @axe-core (giữ R1).
- * Sprint 2 sẽ thay bằng `AxeBuilder` full (npm i -D @axe-core/playwright) khi CI ổn.
- */
+const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']
+type AxeResults = Awaited<ReturnType<AxeBuilder['analyze']>>
 
-test.describe('A11y — Phase 0 Gate (WCAG 2.2 AA scaffold)', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAsAdmin(page)
+const formatViolations = (violations: AxeResults['violations']) => (
+  violations.map(violation => {
+    const nodes = violation.nodes.map(node => {
+      const targets = node.target.map(target => String(target)).join(', ')
+      const messages = [...node.any, ...node.all, ...node.none].map(check => check.message).filter(Boolean).join('; ')
+      return `  ${targets}\n    ${node.html}${messages ? `\n    ${messages}` : ''}`
+    }).join('\n')
+    return `[${violation.impact ?? 'unknown'}] ${violation.id}: ${violation.help}\n${nodes}`
+  }).join('\n')
+)
+
+const runAxe = async (page: Page, testInfo: TestInfo, artifactName: string) => {
+  const results = await new AxeBuilder({ page })
+    .withTags(wcagTags)
+    // ADR-072/077/078: owner-accepted native-app zoom lock. This explicit
+    // exception remains a WCAG trade-off and must not be presented as compliance.
+    .disableRules(['meta-viewport'])
+    .analyze()
+  await testInfo.attach(`axe-${artifactName}.json`, {
+    body: Buffer.from(JSON.stringify(results, null, 2)),
+    contentType: 'application/json',
   })
+  return results
+}
 
-  test('skip link & focus ring tồn tại', async ({ page }) => {
+test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () => {
+  test.describe.configure({ timeout: 240_000 })
+
+  test('protected route viewport/theme matrix', async ({ page }, testInfo) => {
+    const failedObservations: string[] = []
+    await installUiBoot(page)
+    await injectSession(page, await getAdminSession(page.request))
     await page.goto('/dashboard')
-    // skip link is hidden until focus — check DOM
-    const skip = page.locator('a.skip-link')
-    await expect(skip).toHaveCount(1)
-    await expect(skip).toHaveAttribute('href', '#main-content')
-    // main has id
-    const main = page.locator('#main-content')
-    await expect(main).toHaveCount(1)
+
+    for (const viewportName of Object.keys(matrixViewports) as MatrixViewportName[]) {
+      for (const theme of ['light', 'dark'] as const) {
+        await setThemeThroughHeader(page, theme)
+        for (const route of representativeProtectedRoutes) {
+          await openProtectedObservation(page, route, viewportName, `${viewportName}/${theme}`)
+          await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+          const artifactName = `${route.slice(1)}-${viewportName}-${theme}`
+          const results = await runAxe(page, testInfo, artifactName)
+          if (results.violations.length > 0) {
+            failedObservations.push(`[${artifactName}]\n${formatViolations(results.violations)}`)
+          }
+
+          if (route === '/dashboard' && viewportName === 'desktop' && theme === 'light') {
+            await expect(page.locator('a.skip-link')).toHaveAttribute('href', '#main-content')
+          }
+          if (route === '/dashboard' && viewportName !== 'desktop' && theme === 'light') {
+            const activeItem = page.locator('.mobile-bottom-nav__item.is-active').first()
+            await expect(activeItem).toHaveAttribute('aria-current', 'page')
+            const box = await activeItem.boundingBox()
+            expect(box?.height).toBeGreaterThanOrEqual(44)
+            expect(box?.width).toBeGreaterThanOrEqual(44)
+          }
+          if (route === '/students' && viewportName === 'desktop' && theme === 'light') {
+            const input = page.getByPlaceholder('Tìm theo tên, mã thiếu nhi...')
+            await input.pressSequentially('Nguyen', { delay: 25 })
+            await expect(input).toBeFocused()
+            await expect(input).toHaveValue('Nguyen')
+          }
+        }
+      }
+    }
+
+    expect(failedObservations, failedObservations.join('\n\n')).toEqual([])
   })
 
-  test('tables có scope="col" (data-dense readability)', async ({ page }) => {
-    await page.goto('/students')
-    await page.waitForTimeout(800)
-    const ths = page.locator('th[scope="col"]')
-    // Students, Grades, Finance, Audit đều phải có
-    await expect(ths.first()).toBeVisible({ timeout: 5000 })
-  })
+  for (const publicRoute of publicDesignRoutes) {
+    for (const viewportName of Object.keys(matrixViewports) as MatrixViewportName[]) {
+      for (const theme of ['light', 'dark'] as const) {
+        test(`${publicRoute.route} · ${viewportName} · ${theme}`, async ({ page }, testInfo) => {
+          await page.setViewportSize(matrixViewports[viewportName])
+          await installUiBoot(page, theme as MatrixTheme)
+          await openPublicObservation(page, publicRoute, `${viewportName}/${theme}`)
+          const artifactName = `${publicRoute.artifact}-${viewportName}-${theme}`
+          const results = await runAxe(page, testInfo, artifactName)
+          expect(results.violations, formatViolations(results.violations)).toEqual([])
 
-  test('mobile bottom nav đủ 44px hit & aria-current', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 812 })
-    await page.goto('/dashboard')
-    const nav = page.locator('.mobile-bottom-nav')
-    // may be hidden on desktop preview, but check existence
-    await expect(nav).toBeVisible()
-    const active = nav.locator('.mobile-bottom-nav__item.is-active')
-    await expect(active.first()).toBeVisible()
-    await expect(active.first()).toHaveAttribute('aria-current', 'page')
-    // touch target 44px
-    const box = await active.first().boundingBox()
-    expect(box?.height).toBeGreaterThanOrEqual(44)
-    expect(box?.width).toBeGreaterThanOrEqual(44)
-  })
+          if (publicRoute.route === '/login/phuhuynh') {
+            await page.getByRole('button', { name: 'Quên mật khẩu?' }).click()
+            await expect(page.getByRole('dialog', { name: 'Khôi Phục Tài Khoản An Toàn' })).toBeVisible()
+            const modalResults = await runAxe(page, testInfo, `parent-forgot-password-${viewportName}-${theme}`)
+            expect(modalResults.violations, formatViolations(modalResults.violations)).toEqual([])
+          }
+        })
+      }
+    }
+  }
 
-  test('search input không làm mất focus khi gõ (deferred)', async ({ page }) => {
-    await page.goto('/students')
-    await page.waitForTimeout(800)
-    const input = page.getByPlaceholder('Tìm theo tên, mã thiếu nhi...')
-    await input.click()
-    await input.pressSequentially('Nguyen', { delay: 50 })
-    await expect(input).toBeFocused()
-    await expect(input).toHaveValue('Nguyen')
-  })
-
-  test('html scroll-padding cho Focus Not Obscured 2.4.11', async ({ page }) => {
-    await page.goto('/students')
-    const padding = await page.evaluate(() => getComputedStyle(document.documentElement).scrollPaddingTop)
-    // should be calc(var(--app-bar-height)+16px) => ~84px
-    expect(padding).not.toBe('0px')
-  })
 })

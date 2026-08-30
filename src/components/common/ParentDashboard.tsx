@@ -62,7 +62,7 @@ export const ParentDashboard: React.FC = () => {
     .slice(0, 3)
 
   return (
-    <DesktopAppShell width="wide" className="space-y-5">
+    <DesktopAppShell width="wide">
       <section className="parent-hero relative overflow-hidden rounded-2xl p-6 md:p-7 shadow-card">
         <div aria-hidden className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-12 -right-12 w-52 h-52 rounded-full bg-white/10 blur-2xl" />

@@ -8,7 +8,8 @@ import { getSacramentStatus, getAge } from '../../utils/sacraments';
 import { generatePhotoCardHTML } from '../../utils/pdfGenerator';
 import { ReportExportService } from '../../services/reportExportService';
 import { Printer, X } from 'lucide-react';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
+import { ModalPortal } from './ModalPortal';
 
 interface PhotoCardProps {
   isOpen: boolean;
@@ -20,8 +21,7 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
   const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
   const parishName = useSettingsStore((s) => s.settings.parishName) || 'Giáo Xứ Gia Tôn'
   const findClassById = useClassStore((s) => s.findClassById)
-  // PHA 1 hoàn tất (audit A19): focus trap — print modal vẫn tương tác (In/Đóng)
-  const trapRef = useFocusTrap(isOpen && !!student)
+  const { dialogRef: trapRef, titleId } = useAccessibleDialog(isOpen && !!student, onClose)
   if (!isOpen || !student) return null;
 
   const classInfo = findClassById(student.classId);
@@ -38,10 +38,11 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <ModalPortal>
+    <div className="modal-overlay app-modal-layer" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={onClose}>
       <div ref={trapRef} className="modal-content max-w-[400px]" onClick={e => e.stopPropagation()}>
         <div className="no-print flex justify-between items-center mb-4 border-b border-surface-border pb-3">
-          <span className="text-sm font-bold text-parish-primary">Thẻ Thiếu Nhi</span>
+          <span id={titleId} className="text-sm font-bold text-parish-primary">Thẻ Thiếu Nhi</span>
           <div className="flex gap-2">
             <button onClick={handlePrint} className="btn btn-primary btn-sm">
               <Printer size={14} /> In
@@ -107,5 +108,6 @@ export const PhotoCard: React.FC<PhotoCardProps> = ({ isOpen, onClose, student }
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 };

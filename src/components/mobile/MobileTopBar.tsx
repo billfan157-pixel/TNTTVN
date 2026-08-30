@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useId } from 'react'
+import React, { useCallback, useEffect, useState, useId } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   Activity,
@@ -28,8 +28,9 @@ import { useInstallPrompt } from '../../hooks/useInstallPrompt'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useSyncStore } from '../../stores/syncStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ConfirmDialog } from '../common/ConfirmDialog'
+import { ModalPortal } from '../common/ModalPortal'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import logo from '../../assets/logo-gia-ton.png'
 import { getRoutePolicy } from '../../constants/routePolicy'
@@ -60,7 +61,8 @@ export const MobileTopBar: React.FC = () => {
   const pendingCount = useSyncStore(s => s.pendingCount)
   const isSyncing = syncStatus === 'syncing'
   const sheetId = useId()
-  const focusTrapRef = useFocusTrap(isOpen)
+  const closeMenu = useCallback(() => setIsOpen(false), [])
+  const { dialogRef: sheetDialogRef } = useAccessibleDialog(isOpen, closeMenu)
 
   const title = getRoutePolicy(location.pathname)?.mobileTitle || 'Trang không xác định'
   const isParent = currentUser?.role === 'phuhuynh'
@@ -71,33 +73,10 @@ export const MobileTopBar: React.FC = () => {
     setIsOpen(false)
   }, [location.pathname])
 
-  // Body scroll lock + Escape handling for control sheet (iOS safe)
-  useEffect(() => {
-    if (!isOpen) return
-    const prevOverflow = document.body.style.overflow
-    const prevPaddingRight = document.body.style.paddingRight
-    // Prevent background scroll without layout shift
-    const scrollbarW = window.innerWidth - document.documentElement.clientWidth
-    document.body.style.overflow = 'hidden'
-    if (scrollbarW > 0) document.body.style.paddingRight = `${scrollbarW}px`
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.body.style.overflow = prevOverflow
-      document.body.style.paddingRight = prevPaddingRight
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [isOpen])
-
   const handleLogout = () => {
     useAuthStore.getState().logout()
     navigate({ to: '/login' })
   }
-
-  const closeMenu = () => setIsOpen(false)
 
   return (
     <>
@@ -117,17 +96,17 @@ export const MobileTopBar: React.FC = () => {
           <div className="mobile-top-bar__actions flex items-center gap-1.5">
             {/* Mini Sync/Offline Badge — hooks lifted to component top */}
             {!isOnline ? (
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400" title="Đang offline" aria-label="Đang offline">
-                <WifiOff size={16} />
+              <div role="status" className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400" title="Đang offline" aria-label="Đang offline">
+                <WifiOff aria-hidden="true" size={16} />
               </div>
             ) : isSyncing ? (
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-sky-500/20 text-sky-400" title="Đang đồng bộ..." aria-label="Đang đồng bộ">
-                <RefreshCw size={16} className="animate-spin" />
+              <div role="status" className="flex items-center justify-center w-8 h-8 rounded-full bg-sky-500/20 text-sky-400" title="Đang đồng bộ..." aria-label="Đang đồng bộ">
+                <RefreshCw aria-hidden="true" size={16} className="animate-spin" />
               </div>
             ) : pendingCount > 0 ? (
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 relative" title={`${pendingCount} thay đổi chưa đồng bộ`} aria-label={`${pendingCount} thay đổi chưa đồng bộ`}>
-                <WifiOff size={16} />
-                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
+              <div role="status" className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 relative" title={`${pendingCount} thay đổi chưa đồng bộ`} aria-label={`${pendingCount} thay đổi chưa đồng bộ`}>
+                <WifiOff aria-hidden="true" size={16} />
+                <span aria-hidden="true" className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-slate-950 rounded-full text-[9px] font-bold flex items-center justify-center">
                   {pendingCount}
                 </span>
               </div>
@@ -158,8 +137,11 @@ export const MobileTopBar: React.FC = () => {
           </div>
         </div>
 
-        {isOpen && (
-          <>
+      </header>
+
+      {isOpen && (
+        <ModalPortal>
+          <div className="app-modal-layer mobile-control-sheet-layer">
             <button
               type="button"
               className="mobile-control-sheet__scrim"
@@ -167,7 +149,7 @@ export const MobileTopBar: React.FC = () => {
               aria-label="Đóng bảng điều khiển"
               tabIndex={-1}
             />
-            <div id={sheetId} ref={focusTrapRef as any} role="dialog" aria-modal="true" aria-label="Bảng điều khiển" className="mobile-control-sheet">
+            <div id={sheetId} ref={sheetDialogRef} role="dialog" aria-modal="true" aria-label="Bảng điều khiển" className="mobile-control-sheet">
               <div className="sheet-grabber" aria-hidden="true" />
               <div className="mobile-control-sheet__profile">
                 <span className="mobile-control-sheet__avatar"><UserCheck size={17} /></span>
@@ -231,10 +213,10 @@ export const MobileTopBar: React.FC = () => {
               <button type="button" className="mobile-control-icon" onClick={toggleTheme} aria-label="Đổi giao diện sáng tối">
                 {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
               </button>
-              <button type="button" className="mobile-control-icon" onClick={() => setShowDiagnostics(true)} aria-label="Mở chẩn đoán hệ thống">
+              <button type="button" className="mobile-control-icon" onClick={() => { closeMenu(); setShowDiagnostics(true) }} aria-label="Mở chẩn đoán hệ thống">
                 <Activity size={17} />
               </button>
-              {currentUser?.role === 'admin' && <button type="button" className="mobile-control-icon" onClick={() => setShowResetConfirm(true)} aria-label="Làm mới dữ liệu trên thiết bị">
+              {currentUser?.role === 'admin' && <button type="button" className="mobile-control-icon" onClick={() => { closeMenu(); setShowResetConfirm(true) }} aria-label="Làm mới dữ liệu trên thiết bị">
                 <RefreshCw size={17} />
               </button>}
             </div>
@@ -256,9 +238,9 @@ export const MobileTopBar: React.FC = () => {
               </button>
             </div>
             </div>
-          </>
-        )}
-      </header>
+          </div>
+        </ModalPortal>
+      )}
 
       <ConfirmDialog
         isOpen={showResetConfirm}

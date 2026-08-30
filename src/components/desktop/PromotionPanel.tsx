@@ -254,7 +254,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
 
   return (
     <div className="app-panel overflow-hidden">
-      <div className="p-5 border-b border-surface-border flex justify-between items-center">
+      <div className="p-5 border-b border-surface-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-extrabold text-parish-primary m-0">
             Đánh Giá Thăng Tiến — {ACADEMIC_YEAR}
@@ -266,7 +266,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
         {canPromoteAction && canPromote.length > 0 && (
           <button
             onClick={() => setConfirmOpen(true)}
-            className="btn btn-primary"
+            className="btn btn-primary w-full sm:w-auto min-h-[44px] justify-center text-xs font-bold flex items-center gap-1.5"
           >
             <Upload size={16} />
             Thực Hiện Thăng Tiến ({canPromote.length} em)

@@ -1,4 +1,4 @@
-import React, { useState,  useEffect } from 'react'
+import React, { useState } from 'react'
 import {
   X, Upload, FileText,  AlertTriangle,
   Download, Eye, Sparkles, HelpCircle, Check, ListChecks
@@ -13,7 +13,8 @@ import {
   type ExamImportScope,
 } from '../../utils/examParser'
 import type { ExamQuestion, MultipleChoiceOption } from '../../types'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 interface ExamImportModalProps {
   isOpen: boolean
@@ -51,22 +52,12 @@ const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> =
 }
 
 export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport, scope = 'both' }) => {
-  // PHA 1 nợ (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
   const [activeTab, setActiveTab] = useState<'text' | 'excel'>('text')
   const [rawText, setRawText] = useState('')
   const [previewResult, setPreviewResult] = useState<ExamParseResult | null>(null)
   const [detectedSubject, setDetectedSubject] = useState('')
   const [, setIsProcessing] = useState(false)
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
@@ -145,7 +136,8 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="exam-import-title" className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="exam-import-title" className="app-modal-layer--nested fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={onClose}>
       <div ref={trapRef} className="bg-surface-card rounded-2xl p-6 w-full max-w-4xl shadow-2xl max-h-[92vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
@@ -384,5 +376,6 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
 
       </div>
     </div>
+    </ModalPortal>
   )
 }

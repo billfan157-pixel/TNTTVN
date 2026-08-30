@@ -6,7 +6,8 @@ import { imageFileToImageData } from '../../lib/imageFile'
 import { normalizeAnswerVariants } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
 import type { ExamSession, ExamVersionCode } from '../../types'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 interface BatchItem extends BatchScanAnalysis {
   id: string
@@ -30,8 +31,7 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
   const processingGenerationRef = useRef(0)
   const { results, saveScores, saving, error } = useExamStore()
   const [items, setItems] = useState<BatchItem[]>([])
-  // PHA 1 nợ (audit A19): focus trap
-  const trapRef = useFocusTrap(true)
+  const { dialogRef: trapRef } = useAccessibleDialog(true, onClose)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [message, setMessage] = useState('')
@@ -150,7 +150,8 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="batch-scan-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={closeModal}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="batch-scan-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={closeModal}>
       <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div>
@@ -203,5 +204,6 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

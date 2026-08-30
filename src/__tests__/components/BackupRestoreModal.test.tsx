@@ -61,9 +61,12 @@ const mockRevokeObjectURL = vi.fn()
 
 const ADMIN_PASSWORD = 'AdminXacNhan@123'
 
-function typeAdminPassword(container: HTMLElement, value: string = ADMIN_PASSWORD) {
-  const input = container.querySelector('#admin-password-confirm') as HTMLInputElement
-  fireEvent.change(input, { target: { value } })
+function typeAdminPassword(value: string = ADMIN_PASSWORD) {
+  fireEvent.change(screen.getByLabelText('Mật Khẩu Admin (xác nhận)'), { target: { value } })
+}
+
+function getRestoreInput() {
+  return screen.getByLabelText(/Khôi phục dữ liệu \(Chọn file\)/i)
 }
 
 describe('BackupRestoreModal', () => {
@@ -105,8 +108,8 @@ describe('BackupRestoreModal', () => {
   })
 
   it('shows success message after export', async () => {
-    const { container } = render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
-    typeAdminPassword(container)
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword()
     const exportBtn = screen.getByRole('button', { name: /Sao lưu dữ liệu/i })
     fireEvent.click(exportBtn)
     await vi.waitFor(() => {
@@ -115,8 +118,8 @@ describe('BackupRestoreModal', () => {
   })
 
   it('calls URL.createObjectURL during export', async () => {
-    const { container } = render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
-    typeAdminPassword(container)
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword()
     const exportBtn = screen.getByRole('button', { name: /Sao lưu dữ liệu/i })
     fireEvent.click(exportBtn)
     await vi.waitFor(() => {
@@ -127,8 +130,8 @@ describe('BackupRestoreModal', () => {
   // A-NEW-28 (2026-08-11): export gửi adminPassword trong BODY (POST) — không còn
   // trong query param (credential trong URL bị rò qua nginx access log / cache proxy).
   it('sends adminPassword in export POST body', async () => {
-    const { container } = render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
-    typeAdminPassword(container, 'AdminXacNhan@123')
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword('AdminXacNhan@123')
     fireEvent.click(screen.getByRole('button', { name: /Sao lưu dữ liệu/i }))
     await vi.waitFor(() => {
       expect(httpFetch.post).toHaveBeenCalledWith('/backup/export', { adminPassword: 'AdminXacNhan@123' })
@@ -151,9 +154,9 @@ describe('BackupRestoreModal', () => {
     })
     const file = new File([fileContent], 'backup.json', { type: 'application/json' })
 
-    const { container } = render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
-    typeAdminPassword(container)
-    const input = container.querySelector('input[type="file"]')!
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword()
+    const input = getRestoreInput()
     fireEvent.change(input, { target: { files: [file] } })
 
     await vi.waitFor(() => {
@@ -168,9 +171,9 @@ describe('BackupRestoreModal', () => {
     })
     const file = new File([fileContent], 'backup.json', { type: 'application/json' })
 
-    const { container } = render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
-    typeAdminPassword(container, ADMIN_PASSWORD)
-    const input = container.querySelector('input[type="file"]')!
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword(ADMIN_PASSWORD)
+    const input = getRestoreInput()
     fireEvent.change(input, { target: { files: [file] } })
 
     await vi.waitFor(() => {
@@ -191,8 +194,8 @@ describe('BackupRestoreModal', () => {
     })
     const file = new File([fileContent], 'backup.json', { type: 'application/json' })
 
-    const { container } = render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
-    const input = container.querySelector('input[type="file"]')!
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    const input = getRestoreInput()
     fireEvent.change(input, { target: { files: [file] } })
 
     await vi.waitFor(() => {

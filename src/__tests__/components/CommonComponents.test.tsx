@@ -44,6 +44,13 @@ describe('ModalShell (DS / ADR-032)', () => {
     expect(screen.getByRole('heading', { name: 'Nhập điểm' })).toBeInTheDocument()
   })
 
+  it('mounts the dialog at document.body so route transitions cannot clip it', () => {
+    const { container } = render(<ModalShell isOpen onClose={vi.fn()} title="T">x</ModalShell>)
+    const dialog = screen.getByRole('dialog')
+    expect(document.body).toContainElement(dialog)
+    expect(container).not.toContainElement(dialog)
+  })
+
   it('calls onClose on Escape', () => {
     const onClose = vi.fn()
     render(<ModalShell isOpen onClose={onClose} title="T">x</ModalShell>)
@@ -53,17 +60,17 @@ describe('ModalShell (DS / ADR-032)', () => {
 
   it('calls onClose on overlay click but not inner click', () => {
     const onClose = vi.fn()
-    const { container } = render(<ModalShell isOpen onClose={onClose} title="T">x</ModalShell>)
-    fireEvent.click(container.querySelector('.modal-overlay')!)
+    render(<ModalShell isOpen onClose={onClose} title="T">x</ModalShell>)
+    fireEvent.click(screen.getByRole('dialog'))
     expect(onClose).toHaveBeenCalledTimes(1)
-    fireEvent.click(container.querySelector('.modal-content')!)
+    fireEvent.click(screen.getByText('x'))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('does not close on overlay click when closeOnOverlay=false', () => {
     const onClose = vi.fn()
-    const { container } = render(<ModalShell isOpen onClose={onClose} title="T" closeOnOverlay={false}>x</ModalShell>)
-    fireEvent.click(container.querySelector('.modal-overlay')!)
+    render(<ModalShell isOpen onClose={onClose} title="T" closeOnOverlay={false}>x</ModalShell>)
+    fireEvent.click(screen.getByRole('dialog'))
     expect(onClose).not.toHaveBeenCalled()
   })
 
@@ -76,7 +83,7 @@ describe('ModalShell (DS / ADR-032)', () => {
 describe('FormField (DS §3.2 / ADR-032)', () => {
   it('renders label with required marker', () => {
     render(<FormField label="Họ tên" htmlFor="name" required><input id="name" /></FormField>)
-    expect(screen.getByText('Họ tên')).toHaveClass('text-xs', 'font-bold')
+    expect(screen.getByText('Họ tên')).toHaveClass('form-label')
     expect(screen.getByText('*')).toBeInTheDocument()
   })
 
@@ -99,5 +106,14 @@ describe('FormField (DS §3.2 / ADR-032)', () => {
   it('does not render hint when error present', () => {
     render(<FormField label="Họ tên" htmlFor="name" hint="Nhập đầy đủ" error="Sai"><input id="name" /></FormField>)
     expect(screen.queryByText('Nhập đầy đủ')).not.toBeInTheDocument()
+  })
+
+  it('merges caller aria-describedby with hint and error ids', () => {
+    render(
+      <FormField label="Họ tên" htmlFor="name" hint="Nhập đầy đủ">
+        <input id="name" aria-describedby="external-help" />
+      </FormField>,
+    )
+    expect(screen.getByRole('textbox')).toHaveAttribute('aria-describedby', 'external-help name-hint')
   })
 })

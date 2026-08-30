@@ -9,7 +9,11 @@ export function LeaveRequestsPage() {
     return <DesktopLeaveRequests />
   }
 
-  return <MobileLeaveRequests />
+  return (
+    <div className="mobile-screen">
+      <MobileLeaveRequests />
+    </div>
+  )
 }
 
 export default LeaveRequestsPage

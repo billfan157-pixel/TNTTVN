@@ -9,6 +9,7 @@ import { useToastStore } from '../../stores/toastStore'
 import { EmptyState, SkeletonTable } from '../common/StateFeedback'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalShell } from '../common/ModalShell'
+import { DesktopAppShell } from './DesktopAppShell'
 import { FormField } from '../common/FormField'
 import { PageHeader } from '../common/PageHeader'
 import { sortClassesByHierarchy } from '../../utils/classSort'
@@ -143,7 +144,7 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
   const colCount = canEdit ? 9 : 8
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <DesktopAppShell width="wide" embedded={embedded}>
       {!embedded && <PageHeader
         icon={<BookOpen size={20} />}
         title="Quản Lý Lớp Học"
@@ -151,11 +152,11 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
         actions={
           <>
             {/* Nút Sắp Xếp Cấp Bậc Lớp */}
-            <div className="flex items-center bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner gap-1">
+            <div className="flex items-center bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner gap-1 flex-wrap">
               <button
                 type="button"
                 onClick={() => setSortDirection('asc')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
                   sortDirection === 'asc'
                     ? 'bg-parish-primary text-white shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
@@ -168,7 +169,7 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
               <button
                 type="button"
                 onClick={() => setSortDirection('desc')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
                   sortDirection === 'desc'
                     ? 'bg-parish-primary text-white shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
@@ -182,11 +183,11 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
 
             {canEdit && (
               academicYears.length === 0 ? (
-                <button className="btn btn-primary btn-sm flex items-center gap-1.5" onClick={() => navigate({ to: '/academic-years' })}>
+                <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5" onClick={() => navigate({ to: '/academic-years' })}>
                   <Calendar size={16} /> Tạo Năm Học Trước
                 </button>
               ) : (
-                <button className="btn btn-primary btn-sm flex items-center gap-1.5" onClick={openCreate}>
+                <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5" onClick={openCreate}>
                   <Plus size={16} /> Thêm Lớp
                 </button>
               )
@@ -212,7 +213,107 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
         </div>
       )}
 
-      <div className="app-panel overflow-hidden">
+      {/* Mobile Card List View (< md) */}
+      <div className="block md:hidden space-y-3">
+        {loading ? (
+          <SkeletonTable rows={4} cols={2} />
+        ) : sortedClasses.length === 0 ? (
+          <EmptyState
+            icon={School}
+            title="Chưa có lớp học nào"
+            description="Hãy tạo lớp học đầu tiên cho niên khóa hiện tại để bắt đầu xếp danh sách thiếu nhi."
+            actionLabel={canEdit ? "Thêm lớp học" : undefined}
+            onAction={canEdit ? openCreate : undefined}
+          />
+        ) : (
+          sortedClasses.map((c) => {
+            const branchName = c.branchName || getBranchName(c.branchId)
+            return (
+              <div
+                key={c.id}
+                className="entity-card p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-parish-primary-light text-parish-primary text-xs font-bold">
+                        <Hash size={11} /> {c.code}
+                      </span>
+                      <span className="badge badge-neutral text-[11px]">
+                        {branchName}
+                      </span>
+                    </div>
+                    <h3 className="font-extrabold text-base text-text-main leading-tight truncate">
+                      {c.name}
+                    </h3>
+                  </div>
+                  <span className="badge badge-primary font-bold text-xs shrink-0 tabular-nums">
+                    {c.studentCount} thiếu nhi
+                  </span>
+                </div>
+
+                <div className="bg-surface-hover/70 dark:bg-surface-card p-3 rounded-xl border border-surface-border text-xs space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-text-muted font-medium">Chủ nhiệm:</span>
+                    <span className="font-semibold text-text-main truncate">
+                      {c.homeroomTeacher?.fullName || '—'}
+                    </span>
+                  </div>
+                  {c.assistants && c.assistants.length > 0 && (
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-text-muted font-medium shrink-0">Phụ tá:</span>
+                      <span className="font-medium text-text-secondary text-right">
+                        {c.assistants.map(a => a.fullName).join(', ')}
+                      </span>
+                    </div>
+                  )}
+                  {c.room && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-text-muted font-medium">Phòng học:</span>
+                      <span className="font-medium text-text-main">{c.room}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-surface-border">
+                  <button
+                    type="button"
+                    onClick={() => viewClassStudents(c.id)}
+                    className="btn btn-secondary btn-sm flex-1 min-h-[44px] text-xs font-bold justify-center"
+                  >
+                    <Eye size={14} /> Xem Danh Sách
+                  </button>
+                  {canEdit && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openEdit(c)}
+                        className="btn btn-secondary btn-sm min-h-[44px] min-w-[44px] px-3 justify-center"
+                        title="Sửa lớp"
+                        aria-label={`Sửa lớp ${c.name}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(c.id)}
+                        className="btn btn-ghost btn-sm min-h-[44px] min-w-[44px] px-3 justify-center text-parish-danger hover:bg-parish-danger-bg"
+                        title="Xóa lớp"
+                        aria-label={`Xóa lớp ${c.name}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Desktop Table View (>= md) */}
+      <div className="hidden md:block app-panel overflow-hidden">
         <div className="table-wrapper">
           <div className="table-scroll">
           <table className="w-full border-collapse text-sm text-left table-fixed min-w-0 bg-surface-card text-text-main">
@@ -403,6 +504,6 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
           onCancel={() => setConfirmDelete(null)}
         />
       )}
-    </div>
+    </DesktopAppShell>
   )
 }

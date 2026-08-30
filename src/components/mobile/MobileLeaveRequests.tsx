@@ -10,6 +10,7 @@ import { EmptyState, NoResultState, SkeletonTable } from '../common/StateFeedbac
 import type { LeaveRequest, LeaveRequestStatus } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { StudentName } from '../common/StudentName'
+import { ModalPortal } from '../common/ModalPortal'
 
 const SESSION_MAP: Record<string, { label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = {
   SundayMass: { label: 'Thánh Lễ', icon: Church },
@@ -360,8 +361,9 @@ export const MobileLeaveRequests: React.FC = () => {
 
       {/* Review Bottom Sheet */}
       {reviewingRequest && (
+        <ModalPortal>
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs animate-in fade-in duration-200"
+          className="app-modal-layer fixed inset-0 flex items-end justify-center bg-black/50 backdrop-blur-xs animate-in fade-in duration-200"
           onClick={() => setReviewingRequest(null)}
           role="presentation"
         >
@@ -476,6 +478,7 @@ export const MobileLeaveRequests: React.FC = () => {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </div>
   )

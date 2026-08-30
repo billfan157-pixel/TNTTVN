@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
 
 /**
  * TQ-F2 (audit 2026-08-21): E2E chạy với BACKEND THẬT nên fake-token fixture
@@ -12,29 +12,46 @@ import type { Page } from '@playwright/test'
 export const PARISH_ID = 'gia-ton'
 const E2E_ADMIN = 'e2e_admin'
 const ROLE_PASSWORD = process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!'
+let loginClientSequence = 0
+
+function nextLoginClientIp() {
+  // Every Playwright context models a separate client. Include the worker PID
+  // so a restarted worker never reuses the previous worker's limiter bucket.
+  loginClientSequence += 1
+  return `198.18.${process.pid % 250}.${(loginClientSequence % 249) + 1}`
+}
+
+export interface E2ESession {
+  accessToken: string
+  user: Record<string, unknown>
+  cookies: Awaited<ReturnType<APIRequestContext['storageState']>>['cookies']
+}
 
 async function apiLogin(
-  page: Page,
+  request: APIRequestContext,
   username: string,
   password: string,
-): Promise<{ accessToken: string; user: Record<string, unknown> }> {
-  const res = await page.request.post('/api/auth/login', {
+): Promise<E2ESession> {
+  const res = await request.post('/api/auth/login', {
     data: { username, password, parishId: PARISH_ID },
+    headers: { 'x-real-ip': nextLoginClientIp() },
   })
   if (!res.ok()) {
     throw new Error(
-      `E2E login thất bại cho "${username}": HTTP ${res.status()} — chạy 'node scripts/e2e-seed-users.mjs' với SEED_ADMIN_PASSWORD+E2E_ROLE_PASSWORD trước`,
+      `E2E login thất bại cho "${username}": HTTP ${res.status()} — kiểm tra log seed-before-ready của isolated Playwright harness`,
     )
   }
   const json = (await res.json()) as any
-  return { accessToken: json.data.accessToken, user: json.data.user }
+  const { cookies } = await request.storageState()
+  return { accessToken: json.data.accessToken, user: json.data.user, cookies }
 }
 
-async function injectSession(
+export async function injectSession(
   page: Page,
-  accessToken: string,
-  user: Record<string, unknown>,
+  session: E2ESession,
 ): Promise<void> {
+  const { accessToken, user, cookies } = session
+  await page.context().addCookies(cookies)
   await page.addInitScript(
     ([access, currentUser]) => {
       localStorage.setItem('parish_access_token', access)
@@ -46,8 +63,12 @@ async function injectSession(
 
 /** Đăng nhập admin E2E riêng (e2e_admin). */
 export async function loginAsAdmin(page: Page): Promise<void> {
-  const { accessToken, user } = await apiLogin(page, E2E_ADMIN, ROLE_PASSWORD)
-  await injectSession(page, accessToken, user)
+  await injectSession(page, await apiLogin(page.request, E2E_ADMIN, ROLE_PASSWORD))
+}
+
+/** Login once per worker for route matrices so the security rate limiter stays meaningful. */
+export async function getAdminSession(request: APIRequestContext): Promise<E2ESession> {
+  return apiLogin(request, E2E_ADMIN, ROLE_PASSWORD)
 }
 
 /** Đăng nhập user vai trò được seed bởi e2e-seed-users.mjs. */
@@ -55,6 +76,5 @@ export async function loginAsRole(
   page: Page,
   role: 'chunhiem' | 'phuta' | 'phuhuynh',
 ): Promise<void> {
-  const { accessToken, user } = await apiLogin(page, `e2e_${role}`, ROLE_PASSWORD)
-  await injectSession(page, accessToken, user)
+  await injectSession(page, await apiLogin(page.request, `e2e_${role}`, ROLE_PASSWORD))
 }

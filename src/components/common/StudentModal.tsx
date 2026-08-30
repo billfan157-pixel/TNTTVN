@@ -4,11 +4,12 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useClassStore, getFilteredClassList } from '../../stores/classStore';
 import { BRANCHES } from '../../constants/branches';
 import { X, Save, UserPlus, KeyRound, Copy, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
 import { SacramentSection } from './SacramentSection';
 import { useToastStore } from '../../stores/toastStore';
 import { api } from '../../lib/api';
 import { useAuth } from '../../hooks/useAuth';
+import { ModalPortal } from './ModalPortal';
 
 // ADR-026 tiện ích (2026-08-22): admin tạo nhanh tài khoản phụ huynh ngay trong
 // modal học sinh khi đã nhập đủ Tên PH + SĐT (10 số) — dùng chung POST /users
@@ -135,31 +136,23 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     }
   }, [studentToEdit, isOpen, rawClasses]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
 
-  const modalRef = useFocusTrap(isOpen)
+  const { dialogRef: modalRef } = useAccessibleDialog(isOpen, onClose)
 
   if (!isOpen) return null;
 
   if (!studentToEdit && classList.length === 0) {
     return (
-      <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="add-student-title" onClick={onClose}>
+      <ModalPortal>
+      <div className="modal-overlay app-modal-layer" role="dialog" aria-modal="true" aria-labelledby="add-student-title" onClick={onClose}>
         <div ref={modalRef} className="modal-content max-w-[480px]" onClick={e => e.stopPropagation()}>
           <div className="flex justify-between items-center mb-5 border-b border-surface-border pb-3">
             <div className="flex items-center gap-2">
               <UserPlus size={20} className="text-parish-primary" />
               <h3 id="add-student-title" className="text-lg font-bold m-0 text-parish-primary">Thêm Hồ Sơ Thiếu Nhi Mới</h3>
             </div>
-            <button onClick={onClose} aria-label="Đóng" className="bg-transparent border-0 cursor-pointer text-text-muted">
+            <button onClick={onClose} aria-label="Đóng" className="mobile-touch-target bg-transparent border-0 cursor-pointer text-text-muted">
               <X size={20} />
             </button>
           </div>
@@ -181,6 +174,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
           </div>
         </div>
       </div>
+      </ModalPortal>
     );
   }
 
@@ -225,7 +219,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   const titleId = studentToEdit ? 'edit-student-title' : 'add-student-title'
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={onClose}>
+    <ModalPortal>
+    <div className="modal-overlay app-modal-layer" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={onClose}>
       <div ref={modalRef} className="modal-content max-w-[600px]" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-5 border-b border-surface-border pb-3">
           <div className="flex items-center gap-2">
@@ -234,7 +229,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               {studentToEdit ? 'Chỉnh Sửa Thông Tin Thiếu Nhi' : 'Thêm Hồ Sơ Thiếu Nhi Mới'}
             </h3>
           </div>
-          <button onClick={onClose} aria-label="Đóng" className="bg-transparent border-0 cursor-pointer text-text-muted">
+          <button onClick={onClose} aria-label="Đóng" className="mobile-touch-target bg-transparent border-0 cursor-pointer text-text-muted">
             <X size={20} />
           </button>
         </div>
@@ -495,5 +490,6 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         </form>
       </div>
     </div>
+    </ModalPortal>
   );
 };

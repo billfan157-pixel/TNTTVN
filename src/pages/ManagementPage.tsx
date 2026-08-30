@@ -4,14 +4,16 @@ import AcademicYearPage from './AcademicYearPage'
 import ClassesPage from './ClassesPage'
 import UsersPage from './UsersPage'
 import { PageHeader } from '../components/common/PageHeader'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
+import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
 
 type ManagementTab = 'academic-years' | 'classes' | 'users-staff' | 'users-parents'
 
-const TABS: { id: ManagementTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'academic-years', label: 'Quản Lý Năm Học', icon: Calendar },
-  { id: 'classes', label: 'Quản Lý Lớp Học', icon: BookOpen },
-  { id: 'users-staff', label: 'Tài Khoản GLV & Nhân Sự', icon: UserCheck },
-  { id: 'users-parents', label: 'Tài Khoản Phụ Huynh', icon: Users },
+const TABS: { id: ManagementTab; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'academic-years', label: 'Quản Lý Năm Học', shortLabel: 'Năm Học', icon: Calendar },
+  { id: 'classes', label: 'Quản Lý Lớp Học', shortLabel: 'Lớp', icon: BookOpen },
+  { id: 'users-staff', label: 'Tài Khoản GLV & Nhân Sự', shortLabel: 'GLV', icon: UserCheck },
+  { id: 'users-parents', label: 'Tài Khoản Phụ Huynh', shortLabel: 'Phụ Huynh', icon: Users },
 ]
 
 /**
@@ -22,9 +24,23 @@ const TABS: { id: ManagementTab; label: string; icon: React.ComponentType<{ clas
  */
 export function ManagementPage() {
   const [activeTab, setActiveTab] = useState<ManagementTab>('academic-years')
+  const tabItems = TABS.map((tab) => {
+    const Icon = tab.icon
+    return {
+      value: tab.id,
+      label: (
+        <>
+          <span className="sm:hidden">{tab.shortLabel}</span>
+          <span className="hidden sm:inline">{tab.label}</span>
+        </>
+      ),
+      icon: <Icon aria-hidden="true" className="w-4 h-4" />,
+      ariaLabel: tab.label,
+    }
+  })
 
   return (
-    <div className="product-view space-y-6">
+    <DesktopAppShell width="wide">
       {/* Header */}
       <PageHeader
         icon={<ShieldCheck className="w-5 h-5" />}
@@ -33,33 +49,28 @@ export function ManagementPage() {
       />
 
       {/* Tabs */}
-      <div className="view-tabs" role="tablist" aria-label="Phân hệ quản lý">
-        {TABS.map((tab) => {
-          const Icon = tab.icon
-          const isActive = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`view-tab ${isActive ? 'is-active' : ''}`}
-              role="tab"
-              aria-selected={isActive}
-            >
-              <Icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
+      <Tabs
+        id="management-tabs"
+        ariaLabel="Phân hệ quản lý"
+        items={tabItems}
+        value={activeTab}
+        onValueChange={setActiveTab}
+      />
 
       {/* Tab content */}
-      <div>
-        {activeTab === 'academic-years' && <AcademicYearPage embedded />}
-        {activeTab === 'classes' && <ClassesPage embedded />}
-        {activeTab === 'users-staff' && <UsersPage scope="staff" embedded />}
-        {activeTab === 'users-parents' && <UsersPage scope="phuhuynh" embedded />}
-      </div>
-    </div>
+      <TabPanel tabsId="management-tabs" value="academic-years" activeValue={activeTab}>
+        <AcademicYearPage embedded />
+      </TabPanel>
+      <TabPanel tabsId="management-tabs" value="classes" activeValue={activeTab}>
+        <ClassesPage embedded />
+      </TabPanel>
+      <TabPanel tabsId="management-tabs" value="users-staff" activeValue={activeTab}>
+        <UsersPage scope="staff" embedded />
+      </TabPanel>
+      <TabPanel tabsId="management-tabs" value="users-parents" activeValue={activeTab}>
+        <UsersPage scope="phuhuynh" embedded />
+      </TabPanel>
+    </DesktopAppShell>
   )
 }
 

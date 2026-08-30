@@ -37,7 +37,7 @@ export const BRANCHES: Record<string, BranchInfo> = {
     scarfColor: '#EAB308', // Yellow
     bgColor: '#FEFCE8',
     badgeBg: '#FEF08A',
-    textColor: '#A16207',
+    textColor: '#854D0E',
     description: 'Chúa Giê-su Chinh Phục, sống chứng nhân Tin Mừng',
     ageRange: '13 - 15 tuổi'
   },

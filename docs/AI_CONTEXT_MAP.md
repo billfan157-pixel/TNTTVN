@@ -1,7 +1,39 @@
 # AI Agent Context Map & Repository Entrypoint
 
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 2.8 | Last reviewed: 2026-08-29 | Status: ✅ Current | Prerequisites: none
+> Version: 3.0 | Last reviewed: 2026-08-30 | Status: ✅ Current | Prerequisites: none
+
+---
+
+### Module: Design System v4.5 Semantic Primitives, CSS Graph & Runtime Gates (2026-08-30)
+
+- **Decision**: ADR-079, D2/GENERAL, R1. Tiếp tục navy–gold/product-first identity bằng typed semantic layer trên class contract hiện hữu; modularize CSS theo cascade; khóa debt typography/motion và bổ sung browser evidence. Không thêm UI framework hoặc đổi business mapping. ADR-030/055/063/065/072/077/078 consistency = **PASS**.
+- **Code truth**: `src/index.css` là manifest/entrypoint duy nhất; declarations ở ordered graph `src/styles/design-system/00-tokens.css` đến `70-sidebar.css`. React primitives ở `src/components/common/ui/`; governance ở `scripts/design-system-lint.mjs` + `design-system-debt-baseline.json`; runtime gates ở `e2e/design-system-matrix.ts`, `e2e/a11y.spec.ts` và `e2e/design-system-visual.spec.ts`; isolated launcher ở `scripts/e2e-dev.mjs` + `playwright.config.ts`. Documentation SSOT là `docs/03_DESIGN_SYSTEM.md` v4.5.
+- **Contracts**: Button mặc định non-submit và forwardRef; IconButton bắt buộc accessible label; FormField merge descriptions; Tabs liên kết panel và roving focus; SegmentedControl dùng radio semantics; FilterChips dùng `aria-pressed`; Badge/Surface không chứa business rules. Lazy content phải đặt `Suspense` bên trong active panel để `aria-controls` không trỏ vào panel tạm biến mất. CSS graph giữ import order, không `@layer`, không component-owned CSS import. `PageHeader` giữ identity/action flex-basis ở phone. Protected E2E navigation phải ở trong một SPA document bằng sidebar thật, assert canonical URL/`aria-current`/`.product-view`, rồi đợi hết primary loading status trước scan/capture.
+- **Governance & evidence**: `lint:ds` chạy 8 rules, 0 violation / 112 non-exempt application TSX. Ratchet hiện tại = 287 arbitrary-pixel font sizes / 58 files và 55 `transition-all` / 23 files, giảm từ baseline lịch sử 289 / 58 và 76 / 25. Split-only production CSS = 212,171 bytes, SHA-256 `09AD1BB6179D178887D5E5E3502363FE1D57C45597BDA048D5B925EC4A561CEB` trước/sau. Browser matrix gồm 5 protected routes đại diện × 3 viewport (1440/390/320) × 2 theme = 30, 4 public/auth routes × 3 × 2 = 24 và `ParentForgotPasswordModal` × 3 × 2 = 6: tổng **60 Axe observations** và **60 full-page visual/layout captures**, cộng một mobile-bottom-nav interaction. PNG chỉ là evidence artifact, không phải pixel-diff baseline. CI giữ Playwright report, screenshots và axe JSON 7 ngày.
+- **Runtime remediation**: matrix đã bắt và khóa các lỗi thật ở `PageHeader` mobile identity/action, dashboard/control/grade-highlight contrast, semantic token light/dark, Finance/Grade horizontal scrollers, labels/statuses, public auth/forgot modal/verify contrast. Native View Transition chỉ consume `AbortError|InvalidStateError|TimeoutError` ở `ready`/`finished`, giữ `updateCallbackDone` làm error path. `vite.config.ts` bỏ stale `optimizeDeps` entries `tailwind-merge`/`jspdf`. Harness E2E dùng Vite/API 3100/3101, UUID owner-marked SQLite OS-temp, deterministic fixture, không nạp server `.env`, scrub external DB env, preflight port, seed-before-`READY` và cleanup reporter; development DB SHA không đổi.
+- **Final verification**: `npm run verify:ci` PASS — lint zero-warning, `lint:ds` 0/112, client/server TypeScript, Vite/PWA build, **260/260 files và 1,836/1,836 tests PASS**; coverage 70.64% statements, 59.94% branches, 64.51% functions, 72.88% lines. Full Playwright **61/61 executed PASS**, 1 offline tenant-reload test skip có chủ đích; 60 Axe + 60 visual observations, role/tenant/attendance paths PASS.
+- **Scope & limitations**: presentation/tooling/tests/docs + dev dependency `@axe-core/playwright`; không đổi route policy, server API/schema, auth/RBAC, tenant, offline, scoring, print/OMR geometry hay data writer. Axe disable duy nhất `meta-viewport` theo accepted zoom-lock exception. Runtime protected matrix là representative 5/17 routes, không phải all-route/all-role, full WCAG, physical-device hoặc screen-reader acceptance. Rollback R1 bằng revert UI/CSS/tooling/docs; không migration.
+
+---
+
+### Module: Design System v4.4 Accessibility Hard Gates (2026-08-29)
+
+- **Decision**: ADR-078, D2/GENERAL, R1. Chọn nâng cấp contract-first trên DS navy–gold hiện tại: sửa placeholder/focus ở token và brand surface, khóa contrast bằng test, đồng thời thu hẹp claim của `lint:ds` về đúng six-rule static anti-drift scope.
+- **Code truth**: `src/index.css` (`--color-text-placeholder`, `--color-text-placeholder-on-brand`, `--color-focus-ring-brand`, brand focus selector, opaque mobile control sheet); `scripts/design-system-lint.mjs`; `src/__tests__/designSystemTokens.test.ts` và `designSystemLintContract.test.ts`. Documentation SSOT là `docs/03_DESIGN_SYSTEM.md` v4.4.
+- **Contracts**: placeholder text ≥4.5:1 trên mọi supported input surface; inverse placeholder ≥4.5:1 và focus ring ≥3:1 trên các navy gradient stop; brand control sheet không phụ thuộc page background để đạt contrast. `lint:ds = 0` chỉ xác nhận 6 regex/source rules trên non-exempt TSX, tuyệt đối không được gọi là full WCAG, runtime a11y hoặc visual-conformance PASS.
+- **Scope**: presentation/tooling/docs only; không đổi API, schema, RBAC, tenant, offline, scoring hay business rules. Zoom lock vẫn là accepted product trade-off và không được gọi là compliant. Rollback R1 bằng revert token/linter/test/docs, không có migration dữ liệu.
+- **Verification**: token/linter contracts 2 files/12 tests PASS; relevant UI regression 7 files/37 tests PASS; lint, TypeScript và Vite/PWA production build PASS; full serialized Vitest **257/257 files, 1819/1819 tests PASS**; `lint:ds` 0/107 và tự công bố scope. Axe, keyboard, authenticated roles, viewport/dark screenshot và thiết bị thật vẫn là evidence riêng, không suy diễn từ phase này.
+
+---
+
+### Module: App-wide Mobile Layout & Dialog Contract (2026-08-29)
+
+- **Decision**: ADR-077, D2/GENERAL, R1. Đồng bộ layout mobile toàn app qua hai shell rõ vai trò, safe-area một chủ sở hữu và root portal cho custom dialog; không thay brand navy-gold hay quy tắc nghiệp vụ.
+- **Code truth**: `src/index.css` (responsive/safe-area/z-index/touch tokens), `DesktopAppShell.tsx`, `MobileAppShell.tsx`, `ModalPortal.tsx`, `useAccessibleDialog.ts`, `ModalShell.tsx`, `ConfirmDialog.tsx`, `MobileTopBar.tsx`; route/public surfaces trong `src/router.tsx`, pages và mobile/exam/desktop dialog.
+- **Contracts**: dưới 1024px shared page dùng `.responsive-page-shell` (760px, gutter 16px, gap 14px); desktop từ 1024px dùng tier `full|wide|narrow`; embedded child không tạo gutter/cap mới. `--mobile-nav-total-height` sở hữu safe-bottom; action bar/FAB không cộng inset lần hai; top bar/offline banner phối hợp ownership safe-top. Control touch có effective hit-area ≥44px, form ≥16px. Modal route **và MobileTopBar control sheet** mount bằng `ModalPortal` tại `document.body`; modal lồng 1101, confirm 1110, trên top bar 950/bottom nav 1000; lifecycle giữ focus, Escape top-most và body lock. Finance/Classes/Users chuyển bảng thành card dưới `md`; calendar header được phép stack, calendar date grid là compact-data exception.
+- **Evidence & tests**: route inventory = 22 records (17 protected, 4 public/auth, root redirect), 21 pages, 93 components; `mobileLayoutContract.test.ts`, `appWideUiMigration.test.ts`, `useAccessibleDialog.test.tsx`, `MobileTopBarDialog.test.tsx` là regression contracts. Current local: oxlint + TypeScript + Vite/PWA build PASS; public/auth 4 route x 4 viewport matrix has one `main`, no overflow and >=44px visible controls. Kết quả physical-device phải được đọc trong `docs/mobile-ui-audit-2026-08-29.md`; không suy diễn từ local Chromium.
+- **Scope & exception**: presentation/a11y lifecycle only — không đổi API/schema/RBAC/offline/data. Pinch/double-tap zoom lock là trade-off WCAG đã được owner phê duyệt trong `mobile-native-ui-audit-2026-08-12.md`, không được gọi là compliant.
 
 ---
 
@@ -18,7 +50,7 @@
 
 ---
 
-### Module: UI System v4.2 — App-wide Calm, Confident Parish Product + Route Motion (2026-08-28)
+### Module: UI System v4.3 Baseline — App-wide Calm, Confident Parish Product + Route Motion (2026-08-28)
 
 - **Decision**: ADR-063/065, D2/GENERAL, R1. Giữ DNA navy–gold và product-first hiện có; nâng cấp bằng surface/elevation/motion tokens, shared primitives và route motion có mục đích, không thay brand bằng visual trend mới.
 - **Code truth**: `src/index.css`; route motion boundary tại `PageTransition.tsx` + `router.tsx`; shared shell/primitives tại `HeaderBar`, `RootLayout`, `PageHeader`, `DesktopAppShell`, toàn bộ desktop/mobile view inventory, auth/public surfaces và `StateFeedback`. `docs/03_DESIGN_SYSTEM.md` là documentation SSOT; root `DESIGN_SYSTEM.md` chỉ là legacy snapshot.
@@ -113,7 +145,7 @@ When starting a task, AI Agents MUST read documents in the following order:
 ```text
 src/                                ─ Client React Application
 ├── main.tsx                        ─ App entry, Sentry + DB init + TanStack Router
-├── router.tsx                      ─ TanStack Router (18 paths + auth guard, gồm /parent, /leave-requests)
+├── router.tsx                      ─ TanStack Router (22 route records: 17 protected, 4 public/auth, root redirect)
 ├── index.css                       ─ Tailwind v4 + design tokens
 ├── types/index.ts                  ─ TypeScript types & interfaces
 ├── lib/                            ─ Pure utilities, fetch API client, Dexie DB, sync engine
@@ -121,8 +153,8 @@ src/                                ─ Client React Application
 ├── lib/                              ─ Core logic (omr.ts, qr.ts, homography.ts, answerSheetTemplate.ts, barcode.ts (Code128 gen+decode), xlsxLoader.ts — lazy-load SheetJS)
 ├── stores/                         ─ 18 Zustand state stores (thêm leaveRequestStore.ts)
 ├── hooks/                          ─ 10 custom React hooks (useAuth, useParentPortal, useSemesterAccess, useEffectiveMode, useSyncEngine, ...)
-├── pages/                          ─ 16 route pages (Dashboard, Students, Grades, Attendance, Parent, LeaveRequests, ...)
-├── components/                     ─ 58 UI components (common: 22 — gồm ParentDashboard, LeaveRequestModal, desktop: 18, mobile: 13 — gồm MobileLeaveRequests, exam: 5)
+├── pages/                          ─ 21 route pages (17 protected + 4 public/auth)
+├── components/                     ─ 93 UI components (auth: 2, common: 35 gồm shared ui, desktop: 23, exam: 12, finance: 4, mobile: 17)
 ├── services/                       ─ reportExportService, reportExporter (CSV/XLSX, SSOT ReportViewModelFactory)
 └── utils/                          ─ Pure helpers (grades, sacraments, excelParser, pdfGenerator, username — mirror ADR-027)
 
@@ -139,7 +171,7 @@ server/src/                         ─ Backend Hono Application
 
 > **TypeScript projects (root `tsc -b`)**: `tsconfig.app.json` (client `src`), `tsconfig.node.json` (vite config), `server/tsconfig.json` (server build — **exclude** `src/__tests__`), `server/tsconfig.test.json` (extends server config, `noEmit`, types `node` + `vitest/globals`, include `src/__tests__/**/*` — referenced từ root `tsconfig.json` nên test files LUÔN được typecheck bởi `npx tsc -b`; 2026-08-12: dẹp toàn bộ test type debt 263 lỗi — `Response.json()` (undici) trả `unknown` nên test files dùng `(await res.json()) as any`; helper row functions dùng `as const` để giữ enum literal (gender/status/branch); test data insert chỉ dùng đúng column tồn tại trong schema).
 >
-> **ADR-027 (2026-08-12)**: `users.holy_name` (migration `20260812-104`); username tự sinh server-SSOT (`server/src/utils/username.ts`, prefix `glv_`/`cn_`/`ad_`) — client `src/utils/username.ts` chỉ preview; `POST /api/users` mới: `username`/`holyName` optional + 400 `HOLY_NAME_REQUIRED`/`PHONE_REQUIRED`. Lưu ý: `server/src/services/pdfService.ts` (PDF export dang dở, puppeteer) hiện **chưa typecheck pass** — chỉnh tsc toàn cục sẽ fail tới khi nhánh PDF hoàn thiện.
+> **ADR-027 (2026-08-12)**: `users.holy_name` (migration `20260812-104`); username tự sinh server-SSOT (`server/src/utils/username.ts`, prefix `glv_`/`cn_`/`ad_`) — client `src/utils/username.ts` chỉ preview; `POST /api/users` mới: `username`/`holyName` optional + 400 `HOLY_NAME_REQUIRED`/`PHONE_REQUIRED`. Nhánh PDF/Puppeteer phía server hiện đã nằm trong root typecheck; final `tsc -b` và server build ngày 2026-08-30 PASS.
 >
 > **Nhánh PDF (2026-08-12, đã hoàn thiện)**: `POST /api/reports/generate-pdf` (admin/chunhiem/phuta) render HTML→PDF qua Puppeteer (`server/src/services/pdfService.ts`); `server/src/utils/pdfGenerator.ts` = types mirror; client `src/utils/pdfGenerator.ts` thêm `BATCH_PHOTO_CARDS` (thẻ thiếu nhi A6) + watermark; chứng chỉ QR (`src/lib/qr.ts` `tntt-cert:`); test `server/src/__tests__/routes/pdfExportRoutes.test.ts` (mock pdfService — không launch Chromium thật). **P0 (2026-08-14)**: UI đã nối server PDF — nút "Xuất PDF" trong `PrintReportModal` (gọi `api.generatePDF`, loading + alert lỗi, filename .html→.pdf); A-NEW-42 đã **CLOSED** (`pdfSanitizer.ts` + Request Interception — xem SECURITY_AUDIT_LOG); watermark/header ấn phẩm + `excelExporter` lấy parishName/dioceseName từ settings (trước hardcode 'Giáo Xứ Gia Tôn'); fix bug `Niên học {academicYearDisplay}` không interpolate trong `generatePhotoCardHTML`.
 >
@@ -404,7 +436,7 @@ server/src/                         ─ Backend Hono Application
   5. **Tier B — a11y trực tiếp (15 modal giữ shell custom: header brand/màu, tabs, sticky footer, camera/print)**: ConflictInboxModal, GradeFormulaConfigModal, SystemDiagnosticsModal, ExcelImportModal, ExcelGradeImportModal, ConflictResolutionModal, BackupRestoreModal, PurgeDataModal (`role="alertdialog"`), ForcePasswordChangeModal (gate — scroll-lock, KHÔNG Escape), ParentForgotPasswordModal, ExamPaperModal, ExamImportModal, AnswerSheetModal, ExamScanModal, ExamSessionView ×2 → `role` + `aria-modal` + `aria-labelledby` + Escape + scroll-lock. **Lưu ý kỹ thuật**: effect a11y PHẢI đặt TRƯỚC early return `if (!isOpen) return null` (guard trong effect) — nếu không oxlint rules-of-hooks báo error (10 file đã dính ở batch 2, đã fix).
   6. **Skip hợp lệ**: NoticeModal/StudentModal (đã chuẩn role/Escape), Certificate/PhotoCard/StudentReportModal (print — exempt linter), InstallPrompt (button nổi không overlay).
   7. **Verify**: tsc clean · lint:ds 0/128 · 78/78 tests · oxlint 0 error (220 warnings pre-existing).
-  8. **Backlog**: axe-core scan tự động hóa verify (đề xuất CI sau PHA 6).
+  8. **Historical backlog**: axe-core scan từng được hoãn; đã đóng bằng matrix runtime và artifact CI tại ADR-079.
 
 ### Module: Desktop Mode UI Audit & Improvement Plan (2026-08-22)
 - **Files Created**: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` (NEW — audit toàn diện desktop mode + plan 7 phase P0–P5 + verification infra).
@@ -475,7 +507,7 @@ server/src/                         ─ Backend Hono Application
   3. **NoticeModal**: 5 field → FormField (aria-invalid/describedby + hint DS).
   4. **aria-label sweep**: Classes Sửa/Xóa (+tên lớp), AuditLog pagination, Calendar tháng, DailyGrade thêm điểm (+tên HS).
 - **Double-check**: tsc exit 0 · oxlint 0 · full suite **222/1618 ALL PASS** · build + lint:ds pass · re-grep đủ (bài học: lệnh rg bị PowerShell quoting sai kết quả → verify lại bằng Select-String, double-check cần ≥1 phương pháp khác nhau).
-- **Còn mở**: Pha 5 (tooltip primitive, StudentReportModal rewrite); Pha 6 (axe-core CI — cần dependency decision; visual regression baselines; viewport matrix).
+- **Trạng thái sau ADR-079**: Pha 6 đã có axe viewport/theme matrix và visual-layout evidence artifact trong CI. Pixel-diff baseline đa nền tảng vẫn không được claim; tooltip riêng và StudentReportModal là backlog cục bộ, không phải hard gate của v4.5.
 
 ### Module: Desktop UI Plan 2026-08-22 — PHA 5.6 ErrorState/alert unify (✅ DONE)
 - **Files Modified**: `src/index.css` (`.alert-error` utility — danger tokens, tự dark), `src/components/desktop/UserManagementPage.tsx`, `src/pages/AcademicYearPage.tsx` (banner → `.alert-error`), `src/components/desktop/DesktopGradeMatrix.tsx` (sync banner near-black → card chuẩn DS).

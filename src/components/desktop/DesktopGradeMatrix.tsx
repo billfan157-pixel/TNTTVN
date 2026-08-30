@@ -25,6 +25,7 @@ import { exportGradebookToExcel } from '../../utils/excelExporter';
 import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
+import { Button, IconButton, SegmentedControl } from '../common/ui';
 
 interface RowData {
   student: Student
@@ -235,7 +236,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     columnHelper.accessor(row => row.student.holyName || '', {
       id: 'holyName',
       header: 'Tên Thánh',
-      cell: info => <span className="font-semibold text-amber-900 dark:text-amber-400 text-sm">{info.getValue() || '—'}</span>,
+      cell: info => <span className="font-bold text-amber-900 dark:text-amber-400 text-sm">{info.getValue() || '—'}</span>,
       size: 140,
     }),
     columnHelper.accessor(row => row.student.fullName, {
@@ -360,44 +361,58 @@ export const DesktopGradeMatrix: React.FC = () => {
             </div>
 
             {/* Semester Switcher */}
-            <div className="flex bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner">
-              <button
-                onClick={() => setSelectedSemester(1)}
-                aria-pressed={selectedSemester === 1}
-                className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${selectedSemester === 1 ? 'bg-surface-card text-parish-primary shadow-sm' : 'text-text-secondary'}`}
-              >
-                HK I
-              </button>
-              <button
-                onClick={() => setSelectedSemester(2)}
-                aria-pressed={selectedSemester === 2}
-                className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${selectedSemester === 2 ? 'bg-surface-card text-parish-primary shadow-sm' : 'text-text-secondary'}`}
-              >
-                HK II
-              </button>
-            </div>
+            <SegmentedControl
+              id="grade-matrix-semester"
+              ariaLabel="Học kỳ của bảng điểm"
+              value={String(selectedSemester) as '1' | '2'}
+              onValueChange={(value) => setSelectedSemester(Number(value) as 1 | 2)}
+              items={[
+                { value: '1', label: 'HK I' },
+                { value: '2', label: 'HK II' },
+              ]}
+            />
 
             {/* Action Buttons */}
             <div className="flex gap-2">
               {isAdmin && (
-                <button onClick={() => setShowFormulaModal(true)} aria-label="Cấu hình hệ số điểm" className="p-2 rounded-xl bg-surface-card border border-surface-border text-text-secondary hover:bg-surface-hover transition-all shadow-sm active:scale-95" title="Cấu hình hệ số">
-                  <Settings2 size={18} />
-                </button>
+                <IconButton
+                  onClick={() => setShowFormulaModal(true)}
+                  label="Cấu hình hệ số điểm"
+                  icon={<Settings2 aria-hidden="true" size={18} />}
+                  variant="secondary"
+                  className="rounded-xl shadow-sm"
+                  title="Cấu hình hệ số"
+                />
               )}
               {isAdmin && (
-                <button 
-                  onClick={() => setIsOverrideModeEnabled(!isOverrideModeEnabled)} 
-                  className={`btn btn-sm flex items-center gap-1.5 px-4 py-2 font-bold text-xs rounded-xl shadow-sm transition-all active:scale-95 ${isOverrideModeEnabled ? 'bg-parish-warning text-white shadow-[var(--color-parish-warning)]/20' : 'bg-surface-card border border-surface-border text-text-main hover:bg-surface-hover'}`}
+                <Button
+                  onClick={() => setIsOverrideModeEnabled(!isOverrideModeEnabled)}
+                  variant="plain"
+                  size="sm"
+                  leadingIcon={<Calculator aria-hidden="true" size={14} />}
+                  className={`px-4 font-bold text-xs rounded-xl shadow-sm ${isOverrideModeEnabled ? 'bg-parish-warning-bg text-parish-warning-hover border border-parish-warning/30' : 'bg-surface-card border border-surface-border text-text-main hover:bg-surface-hover'}`}
                 >
-                  <Calculator size={14} /> {isOverrideModeEnabled ? 'Đang Điều Chỉnh' : 'Chế Độ Điều Chỉnh'}
-                </button>
+                  {isOverrideModeEnabled ? 'Đang Điều Chỉnh' : 'Chế Độ Điều Chỉnh'}
+                </Button>
               )}
-              <button onClick={() => setShowImportModal(true)} className="btn btn-primary btn-sm flex items-center gap-1.5 px-4 py-2 bg-parish-primary text-white font-bold text-xs rounded-xl shadow-md hover:bg-parish-primary-hover transition-all active:scale-95">
-                <Upload size={14} /> Import
-              </button>
-              <button onClick={handleExportExcel} className="btn btn-sm flex items-center gap-1.5 px-4 py-2 bg-parish-success text-white font-bold text-xs rounded-xl shadow-md hover:bg-parish-success-hover transition-all active:scale-95">
-                <Download size={14} /> Export
-              </button>
+              <Button
+                onClick={() => setShowImportModal(true)}
+                variant="primary"
+                size="sm"
+                leadingIcon={<Upload aria-hidden="true" size={14} />}
+                className="px-4 font-bold text-xs rounded-xl shadow-md"
+              >
+                Import
+              </Button>
+              <Button
+                onClick={handleExportExcel}
+                variant="plain"
+                size="sm"
+                leadingIcon={<Download aria-hidden="true" size={14} />}
+                className="px-4 bg-parish-success text-text-inverse font-bold text-xs rounded-xl shadow-md hover:bg-parish-success-hover"
+              >
+                Export
+              </Button>
             </div>
           </>
         }
@@ -430,7 +445,7 @@ export const DesktopGradeMatrix: React.FC = () => {
 
       {/* Matrix Table */}
       <div className="table-wrapper">
-        <div className="table-scroll">
+        <div className="table-scroll" role="region" aria-label="Bảng điểm học kỳ" tabIndex={0}>
           <table className="w-full text-sm text-left border-collapse table-fixed">
             <thead>
               <tr className="bg-surface-app border-b-2 border-surface-border">

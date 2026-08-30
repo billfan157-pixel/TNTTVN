@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin } from './helpers'
 
 test.describe('E2E Auth Guard & Navigation', () => {
   test('redirects to /login when accessing protected page without token', async ({ page }) => {
@@ -13,7 +14,11 @@ test.describe('E2E Auth Guard & Navigation', () => {
   })
 
   test('navigates to protected pages from dashboard', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.getByText('Giáo Lý Thiếu Nhi Thánh Thể')).toBeVisible()
+    await loginAsAdmin(page)
+    await page.goto('/dashboard')
+    const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
+    await expect(navigation.getByRole('button', { name: 'Tổng Quan', exact: true })).toBeVisible()
+    await navigation.getByRole('button', { name: 'Thiếu Nhi', exact: true }).click()
+    await expect(page).toHaveURL('/students')
   })
 })

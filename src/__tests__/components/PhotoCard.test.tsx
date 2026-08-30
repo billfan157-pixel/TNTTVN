@@ -81,9 +81,8 @@ describe('PhotoCard', () => {
 
   it('calls onClose when overlay is clicked', () => {
     const onClose = vi.fn()
-    const { container } = render(<PhotoCard isOpen={true} onClose={onClose} student={mockStudent} />)
-    const overlay = container.querySelector('.modal-overlay')
-    fireEvent.click(overlay!)
+    render(<PhotoCard isOpen={true} onClose={onClose} student={mockStudent} />)
+    fireEvent.click(screen.getByRole('dialog'))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

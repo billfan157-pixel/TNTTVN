@@ -1,8 +1,8 @@
 # 🎨 Design System — Brave Davinci (TNTT Parish Management PWA)
 
-**Phiên bản:** 4.1 (App-wide Calm, Confident Parish Product — Updated 2026-08-27)
+**Phiên bản:** 4.5 (Semantic Primitives, Modular CSS & Runtime Gates — Updated 2026-08-30)
 **Trạng thái:** ✅ **SSOT DUY NHẤT** — quyết định ADR-030
-**Nguồn vận hành (code truth):** `src/index.css` — mọi class/token được khai báo tại đây, tài liệu này là tài liệu hóa của nó.
+**Nguồn vận hành (code truth):** CSS graph có entrypoint duy nhất `src/index.css`; declarations nằm trong các module có thứ tự tại `src/styles/design-system/`. Tài liệu này là documentation SSOT của graph đó.
 
 > **Nguyên tắc bất biến:** Mọi thành phần UI MỚI phải dùng token/class trong tài liệu này. Không dùng hex màu cứng, không dùng class không tồn tại, không dùng màu ngoài bảng palette. Migration các module cũ theo bảng §10.
 
@@ -13,15 +13,16 @@
 1. **Token-First & Dark-Mode-First:** Mọi màu sắc qua CSS variables (`var(--color-*)`) — tự động thích nghi light/dark. Cấm hex cứng trong JSX (`style={{...}}`) và arbitrary values (`bg-[#...]`).
 2. **Source scope:** Tailwind v4 chỉ scan `src/` và `index.html` qua `source(none)` + `@source`; không scan Markdown/audit text để tránh sinh utility giả từ ví dụ tài liệu.
 3. **Brand nhất quán:** Màu chủ đạo duy nhất `parish-primary #1E3A8A` (Xanh Đại Hội). `blue-600 #2563EB` KHÔNG phải màu brand — nó là màu khăn chi đoàn **Thiếu Nhi** (dữ liệu nghiệp vụ, xem §2.4).
-4. **Accessibility (WCAG AA):** Chữ thường ≥ 4.5:1 trên nền. `text-text-muted #64748B` (4.76:1) là màu chữ phụ tối đa — cấm `text-slate-400 #94A3B8` (2.56:1 FAIL) làm chữ.
+4. **Accessibility:** Chữ thường và placeholder phải đạt ≥4.5:1 trên đúng surface thực tế; focus indicator phải có độ tương phản ≥3:1 với nền kề. Kết quả `lint:ds` chỉ là anti-drift source scan, không phải chứng nhận WCAG hoặc visual conformance.
 5. **Mobile-First, Data-Dense:** Trải nghiệm desktop + mobile PWA đồng bộ qua primitives `mobile-*`; bảng dữ liệu thoáng, rõ, không cắt chữ.
 6. **Glassmorphism có kiểm soát:** Chỉ dùng cho header/hero/bottom-nav (có backdrop nền màu phù hợp), KHÔNG dùng cho card nội dung/bảng (cần nền đục để đọc).
 7. **Calm, Confident, Crafted:** Giữ brand navy–gold và tính trang nghiêm; content/data là lớp nổi bật nhất. Delight đến từ tốc độ, clarity và chi tiết hoàn thiện, không từ orb/blur/decorative animation.
 8. **Elevation có nghĩa:** `surface-sunken → surface-card → surface-raised → overlay`; card tĩnh ưu tiên border + shadow rất nhẹ, chỉ interactive/overlay mới nâng rõ.
+9. **Semantic primitive trước markup tùy ý:** control dùng chung phải đi qua typed React primitives; tab, panel, radio group, filter và icon action phải biểu đạt đúng semantics thay vì chỉ giống nhau về màu/class.
 
 ---
 
-## 2. Bảng Màu Hệ Thống (Tokens — `src/index.css:10-76`)
+## 2. Bảng Màu Hệ Thống (Tokens — `src/styles/design-system/00-tokens.css`)
 
 ### 2.1 Brand & Semantic
 
@@ -31,10 +32,11 @@
 | `parish-primary-hover` | `#1E40AF` | `#3B82F6` | Hover nút chính |
 | `parish-primary-light` | `#EFF6FF` | `#1E3A5F` | Nền icon tile, badge-primary |
 | `parish-secondary` | `#D97706` | `#FBBF24` | Accent phụ |
-| `parish-success` | `#16A34A` | `#4ADE80` | Trạng thái hoàn thành |
+| `parish-success` | `#15803D` | `#4ADE80` | Trạng thái hoàn thành; foreground light đã tăng tương phản |
+| `parish-success-hover` | `#166534` | `#22C55E` | Hover/foreground đậm của success |
 | `parish-warning` | `#EA580C` | `#FB923C` | Cần lưu ý |
 | `parish-danger` | `#DC2626` | `#F87171` | Xóa, khẩn cấp |
-| `parish-info` | `#0284C7` | `#38BDF8` | Thông tin |
+| `parish-info` | `#0369A1` | `#7DD3FC` | Thông tin; foreground đủ đọc trên surface light/dark |
 | `parish-success-bg` | `#DCFCE7` | `#14532D` | Nền badge success |
 | `parish-warning-bg` | `#FFEDD5` | `#431407` | Nền badge warning |
 | `parish-danger-bg` | `#FEE2E2` | `#450A0A` | Nền badge danger |
@@ -45,21 +47,23 @@
 | Token | Light | Dark | Mục đích |
 | --- | --- | --- | --- |
 | `surface-card` | `#FFFFFF` | `#1E293B` | Card, modal content, input nền |
-| `surface-hover` | `#F1F5F9` | `#334155` | Hover, nền secondary |
-| `surface-border` | `#E2E8F0` | `#475569` | Viền card, viền bảng |
-| `surface-app` | `#F8FAFC` | `#0F172A` | Nền app, thead |
+| `surface-hover` | `#F1F4F8` | `#334155` | Hover, nền secondary |
+| `surface-border` | `#DDE3EC` | `#475569` | Viền card, viền bảng |
+| `surface-app` | `#F7F8FB` | `#0F172A` | Nền app, thead |
 | `text-main` | `#0F172A` | `#F1F5F9` | Tiêu đề, nội dung chính |
-| `text-muted` | `#64748B` | `#94A3B8` | Chữ phụ, chú thích (WCAG AA) |
-| `text-secondary` | `#475569` | `#94A3B8` | Chữ cấp 2 |
+| `text-muted` | `#5F6F82` | `#A3B1C4` | Chữ phụ, chú thích trên surface nội dung |
+| `text-secondary` | `#475569` | `#A3B1C4` | Chữ cấp 2 |
 | `text-inverse` | `#FFFFFF` | `#0F172A` | Chữ trên nền màu |
 | `border-input` | `#CBD5E1` | `#475569` | Viền input |
-| `text-placeholder` | `#94A3B8` | `#64748B` | Placeholder (chỉ placeholder) |
+| `text-placeholder` | `#5F6F82` | `#A3B1C4` | Placeholder trên surface nội dung; contrast thấp nhất 4.66:1 light / 4.75:1 dark |
+| `text-placeholder-on-brand` | `#E2E8F0` | kế thừa | Placeholder trên navy header/control sheet; không dùng trên surface sáng |
 
 ### 2.3 Interaction States & Feedback
 
 | Token | Light | Dark | Mục đích |
 | --- | --- | --- | --- |
-| `focus-ring` | `rgba(30, 58, 138, 0.35)` | `rgba(96, 165, 250, 0.45)` | Viền focus-visible WCAG AA |
+| `focus-ring` | `rgba(30, 58, 138, 0.35)` | `rgba(96, 165, 250, 0.45)` | Feedback focus trên content surface |
+| `focus-ring-brand` | `#FFFFFF` | kế thừa | Outline 3px trên `.app-header`, `.mobile-top-bar`, `.mobile-control-sheet` |
 | `surface-selected` | `#EFF6FF` | `#1E3A5F` | Nền hàng/mục được chọn |
 | `surface-selected-border` | `#93C5FD` | `#3B82F6` | Viền mục được chọn |
 | `surface-disabled` | `#F1F5F9` | `#1E293B` | Nền control bị vô hiệu |
@@ -92,21 +96,31 @@
 
 ### 2.4 Màu Chi Đoàn (Nghiệp Vụ — KHÔNG ĐƯỢC ĐỔI)
 
-Nguồn: `src/constants/branches.ts` + `--color-branch-*` (`index.css:39-43`). Đây là màu khăn quàng — **ngữ nghĩa nghiệp vụ, cấm dùng làm màu CTA/brand.**
+Nguồn: `src/constants/branches.ts` + `--color-branch-*` trong `src/styles/design-system/00-tokens.css`. Đây là màu khăn quàng — **ngữ nghĩa nghiệp vụ, cấm dùng làm màu CTA/brand.**
 
 | Chi đoàn | Màu |
 | --- | --- |
 | Chiên Con | `#EC4899` (hồng) |
 | Ấu Nhi | `#16A34A` (xanh lá) |
 | Thiếu Nhi | `#2563EB` (xanh dương) — **lưu ý: ≠ parish-primary** |
-| Nghĩa Sĩ | `#EAB308` (vàng) |
+| Nghĩa Sĩ | `#EAB308` (vàng); badge dùng foreground đọc được `#854D0E` trên nền vàng nhạt |
 | Hiệp Sĩ | `#8B4513` (nâu) |
+
+Việc điều chỉnh foreground Nghĩa Sĩ chỉ sửa contrast của chữ badge; màu khăn/ngữ nghĩa nghiệp vụ `#EAB308` không đổi và không tạo rebrand.
+
+### 2.5 Màu nghiệp vụ Tài chính
+
+| Token | Light | Dark | Mục đích |
+| --- | --- | --- | --- |
+| `finance-income` | `#15803D` | `#4ADE80` | Khoản thu |
+| `finance-expense` | `#DC2626` | `#F87171` | Khoản chi |
+| `finance-transfer` | `#0369A1` | `#38BDF8` | Chuyển quỹ |
 
 ---
 
 ## 3. Component Classes (Dùng Trực Tiếp — Không Tự Dựng Lại)
 
-Định nghĩa đầy đủ tại `src/index.css` — **chỉ dùng các class này, không viết lại pattern thủ công.**
+`src/index.css` là ordered import manifest duy nhất; declarations đầy đủ nằm trong graph `src/styles/design-system/00-tokens.css` đến `70-sidebar.css` — **chỉ dùng các class này, không viết lại pattern thủ công.**
 
 ### 3.1 Buttons
 - `btn` (base) + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-ghost`
@@ -202,18 +216,24 @@ Cấm: thead `bg-slate-800 text-white`, `bg-slate-50/*`, `bg-parish-primary text
 ## 7. Dark Mode
 
 - Toggle: `themeStore` → `.dark` trên `<html>` (`@custom-variant dark`).
-- **Quy tắc:** mọi component dùng token sẽ tự thích nghi. **Cấm hardcode** `bg-white`, `text-slate-*`, `bg-white/90`, inline hex màu light-only. Khi cần override dùng `dark:` variants với token dark (`index.css:641-736`).
+- **Quy tắc:** mọi component dùng token sẽ tự thích nghi. **Cấm hardcode** `bg-white`, `text-slate-*`, `bg-white/90`, inline hex màu light-only. Khi cần override dùng `dark:` variants với token dark trong `src/styles/design-system/30-theme-media.css`.
 
 ---
 
 ## 8. Mobile (PWA/Native)
 
-- Shell: `.mobile-app-shell` → `.mobile-app-main` → `.mobile-screen` (+ `--stack`/`--wide`).
-- Top bar: `.mobile-top-bar` (gradient brand cố định `#17347f→#2454bf`, ≤767px `#1d3f99→#2c58c7` — giữ nguyên, không phải token).
-- Bottom nav: `.mobile-bottom-nav` (token-based, tự dark-adapt); action: `.mobile-floating-action`, `.mobile-bottom-action-bar`.
-- Touch target tối thiểu: **44×44px** (`.mobile-touch-target`). Cấm button < 40px trên mobile.
-- Modal tác vụ dài (ví dụ **Tạo Phiên Chấm**) dùng bottom-sheet ở mobile: tiêu đề/nút đóng và hành động chính sticky, phần nội dung tự cuộn, footer chừa `safe-area-inset-bottom`; từ `sm` trở lên quay về modal giữa màn hình.
-- **Cấm** `space-y-*` chồng lên `.mobile-screen--stack` (gap 14px đã có) — tránh double-spacing.
+- **Hai loại shell, một contract chạm:** Workflow mobile-native dùng `.mobile-app-shell` → `.mobile-app-main` → `.mobile-screen` (`max-width: 760px`, gutter token) + `.mobile-screen--stack` (`gap: 14px`, `padding-top: 16px`). Route dùng chung desktop/touch dùng `DesktopAppShell` → `.responsive-page-shell`; đây là primitive khác, không gắn `.mobile-screen` lên cùng node.
+- **Responsive `DesktopAppShell`:** dưới `1024px`, `.responsive-page-shell` có `max-width: 760px`, gutter 16px và gap 14px; từ `1024px`, tier được CSS khai báo tường minh: `full` không giới hạn, `wide` 80rem, `narrow` 48rem, gap 24px. `embedded` chỉ dùng `.embedded-page-section`: parent giữ quyền sở hữu gutter/max-width, tránh double padding và cap bề rộng ngoài ý muốn.
+- **Responsive Table-to-Card Pattern:** Các trang quản trị phức tạp (`ClassesPage`, `UserManagementPage`, `FinancePage`) triển khai mô hình song song:
+  - `block md:hidden`: Mobile Card / List Views (`.entity-card`) với badge trạng thái, phân ngành, thông tin phụ trách và nút hành động touch-friendly (≥44px).
+  - `hidden md:block`: Bảng Desktop đầy đủ cột (`.app-panel > .table-wrapper > .table-scroll > table`).
+- **Top bar:** `.mobile-top-bar` (gradient brand cố định `#17347f→#2454bf`, ≤767px `#1d3f99→#2c58c7` — giữ nguyên, không phải token).
+- **Bottom nav:** `.mobile-bottom-nav` (token-based, tự dark-adapt); action: `.mobile-floating-action`, `.mobile-bottom-action-bar`.
+- **Safe area một chủ sở hữu:** `--mobile-nav-total-height` đã gồm `safe-area-inset-bottom`; action bar/FAB chỉ neo phía trên token này, không cộng inset lần nữa. Top bar sở hữu inset trên; khi có `.offline-status-banner`, banner sở hữu inset và top bar/clearance bỏ phần đó để không đếm hai lần.
+- **Touch target tối thiểu:** Mọi control chính trong touch shell có **effective hit-area ≥44×44px**. Control trực quan nhỏ chỉ được phép khi pseudo-element hoặc `.mobile-touch-target` mở vùng chạm đủ 44px; không dùng chiều cao 40px như một ngoại lệ mặc định. Input/select phải cao ≥44px và font-size ≥16px.
+- **Modal & Bottom-sheet:** Modal tác vụ dài (ví dụ **Tạo Phiên Chấm**) dùng bottom-sheet ở mobile: tiêu đề/nút đóng và hành động chính sticky, phần nội dung tự cuộn, footer chừa safe area; từ `sm` trở lên quay về modal giữa màn hình. Có hai contract độc lập: lifecycle dùng `ModalShell` / `ConfirmDialog` / `useAccessibleDialog` (focus restore, scroll lock, Escape top-most qua `modalStack`); mọi custom dialog thuộc route **và control sheet có `aria-modal` của shell** mount qua `ModalPortal` ra `document.body` để không bị stacking context của `PageTransition`/`main`/top bar cắt. Dialog lồng dùng `.app-modal-layer--nested`, confirm dùng `.app-confirm-layer`.
+- **Horizontal Scrollable Tabs & Charts:** `.view-tabs` và SVG charts trên mobile được bọc container cuộn ngang (`overflow-x-auto scrollbar-none snap-x`) chống co ép thanh biểu đồ hoặc gãy dòng tabs.
+- **Cấm** `space-y-*` chồng lên `.mobile-screen--stack` hoặc `.responsive-page-shell` khi cùng sở hữu nhịp dọc — gap 14px đã có, tránh double-spacing.
 - Không lạm dụng `backdrop-blur` cho nội dung cuộn (tốn GPU trên máy yếu).
 
 ---
@@ -256,13 +276,13 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - ✅ Dùng `.btn`, `.card`, `.badge`, `.form-*`, `.modal-overlay/.modal-content`, token `parish-*`/`surface-*`/`text-*`.
 - ✅ Mọi màu mới phải nằm trong §2 hoặc mapping §9.
 - ✅ Kiểm tra dark mode cho mọi component mới.
-- ✅ Kiểm tra WCAG: chữ thường ≥ 4.5:1 (linter rule 6).
+- ✅ Cặp màu chữ/placeholder phải được đo bằng `designSystemTokens.test.ts`; `lint:ds` không đo contrast runtime.
 - ❌ Không hex cứng, không `bg-[#...]`, không inline `style={{background/color}}`. (`bg-[var(--color-*)]` **được phép** — token arbitrary hợp lệ.)
 - ❌ Không dùng `blue-600` làm CTA (màu chi đoàn Thiếu Nhi).
-- ❌ **Không dùng `bg-emerald-600/700`, `bg-rose-600/700`, `bg-amber-600/700`, `bg-sky-600/700`, `bg-green-600/700` trên button** — white text FAIL WCAG AA (linter rule 6, 2026-08-16). Thay bằng `.btn-primary`/`.btn-secondary`/`.btn-danger` (không có `.btn-success` vì success #16A34A ≈ 3.0:1 không đạt AA với chữ trắng).
+- ❌ **Không dùng `bg-emerald-600/700`, `bg-rose-600/700`, `bg-amber-600/700`, `bg-sky-600/700`, `bg-green-600/700` trực tiếp trên button** — các class này bỏ qua foreground/background contract đã kiểm chứng của DS (linter rule 6). Dùng `.btn-primary`/`.btn-secondary`/`.btn-danger` hoặc exception có bằng chứng contrast.
 - ❌ **Filter/status pill active state không dùng solid 600** — dùng badge domain token: `bg-[var(--color-parish-*-bg)] text-[var(--color-parish-*-hover)] border border-[var(--color-parish-*)]/30` (mapping 2026-08-16).
-- ❌ Không tạo class mới ngoài `index.css` — mở rộng `@theme` + khai báo tại đây.
-- ❌ Không đụng: `Certificate`/`AnswerSheetModal`/`ExamScanModal` (in ấn + OMR cần contrast riêng), `index.css` `@media print`, mobile shell CSS.
+- ❌ Không tạo class mới ngoài ordered CSS graph — token thuộc `00-tokens.css`, shared primitive thuộc `20-primitives.css`, view language thuộc `60-view-language.css`; mọi thay đổi contract phải cập nhật tài liệu này.
+- ❌ Không đụng: `Certificate`/`AnswerSheetModal`/`ExamScanModal` (in ấn + OMR cần contrast riêng), `30-theme-media.css` `@media print`, mobile shell CSS.
 
 ---
 
@@ -290,13 +310,13 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - `ExcelImportModal`: Dọn dẹp toàn bộ ô duplicate mapping sang `bg-surface-card` và `bg-surface-app`.
 - `DesktopGradeMatrix` & `DesktopStudentList`: Header chuyển thành `bg-surface-card/80 backdrop-blur-md border-surface-border`. Bổ sung `bg-surface-card text-text-main` cho toàn bộ thẻ `table`, `tbody`, `tr`, các ô nhập điểm (`input[data-matrix-cell]`) và ô nhập ghi chú (`input[placeholder*="ghi chú"]`).
 - `DesktopDailyGradeEntry`, `DesktopGradeComparison`, `DesktopAttendanceGrid`, `DesktopAttendanceSummary`, `DesktopLeaveRequests`, `DesktopClasses`, `DesktopNotices`, `DesktopReports`, `UserManagementPage`, `ExamResultsTable`, `QuickScoreEntry`, `ParentPage`: Đồng bộ 100% `bg-surface-card text-text-main` trên bảng và thẻ hàng `tr`.
-- `src/index.css`: Bổ sung global dark mode reset rules cho `table`, `thead`, `tbody`, `tr`, `td`, `input`, `select`, `textarea` đảm bảo nền tối `--color-surface-card` và chữ `--color-text-main` nhất quán trên toàn bộ trình duyệt.
+- `src/styles/design-system/30-theme-media.css` (được chuyển từ monolith khi split v4.5): sở hữu global dark mode reset rules cho `table`, `thead`, `tbody`, `tr`, `td`, `input`, `select`, `textarea`, bảo đảm nền tối `--color-surface-card` và chữ `--color-text-main` nhất quán trên toàn bộ trình duyệt.
 - `src/stores/themeStore.ts`: Bổ sung đồng bộ class `.dark` vào `document.documentElement` ngay khi hydrate từ IndexedDB/Dexie và khi toggle theme.
 - `AnswerSheetModal`, `ExamScanModal`, `ExamSessionView`: Toàn bộ modal shell, bộ điều khiển, danh sách chọn in và popup đáp án chuẩn chuyển sang Design System v3.1 tokens với Dark Mode hoàn hảo.
 - `GradeCellInput`: 100% token-based (`bg-surface-card`, `border-surface-border`, `text-text-main`).
 
 **UX/UI Audit Batch 2026-08-16 (Pha 0 + Pha 2, kế thừa plan `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md`)**:
-- Linter mở rộng lên **6 rules**: + `NO_NONEXISTENT_CLASS` (badge-secondary/btn-neutral/custom-scrollbar/bg-surface-main), + `NO_ARBITRARY_HEX` (chỉ `[#hex]`, không chặn `[var(--color-*)]`), + `NO_RAW_600_BUTTON` (emerald/rose/amber/sky/green 600-700 trên button, quét button-context 3 dòng).
+- Linter mở rộng lên **6 rules**: + `NO_NONEXISTENT_CLASS` (badge-secondary/btn-neutral/custom-scrollbar/bg-surface-main), + `NO_ARBITRARY_HEX` (chỉ `[#hex]`, không chặn `[var(--color-*)]`), + `NO_RAW_600_BUTTON` (emerald/rose/amber/sky/green 600-700 trên button, quét button-context 3 dòng và buộc dùng variant đã kiểm chứng).
 - Contrast sweep: 19 button + 4 filter pill + rankColors → theo mapping §11 mới.
 - Nút "In Phiếu" (DesktopGradeCards/MobileStudentsView/DesktopReports/MobileReportsView) → `uiStore.openReportForPrint` + `StudentReportModal autoPrint` (print qua `ReportExportService.print` — cùng pipeline PrintReportModal, iframe fallback chống popup-block).
 - `DesktopStudentList.handleDelete` nối `studentStore.deleteStudents` + toast.
@@ -344,9 +364,11 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 ### Container tiers (`DesktopAppShell`)
 | Tier | Class | Dành cho |
 |---|---|---|
-| `full` | `w-full` | Data workspace: Dashboard, Students, Grades, Attendance, Calendar |
-| `wide` | `w-full max-w-7xl mx-auto` | Admin/directory: Finance, Users, AuditLog, AcademicYear, Catechist, ParentDashboard, **SettingsPage** (UI-POLISH 2026-08-25: narrow→wide — grid 12-col 7/5, form giới hạn `max-w-lg` giữ nhịp đọc; narrow trước đây gây chật 2-col + trống ~800px hai bên màn rộng) |
-| `narrow` | `w-full max-w-3xl mx-auto` | (Hiện không còn page nào — dành cho form đơn giản tương lai) |
+| `full` | `.responsive-page-shell--full` | Data workspace; touch vẫn bị giới hạn 760px, desktop từ 1024px không cap bề rộng. |
+| `wide` | `.responsive-page-shell--wide` | Directory/admin nhiều cột; touch là 760px, desktop là 80rem (1280px) và canh giữa. |
+| `narrow` | `.responsive-page-shell--narrow` | Form/summary cần nhịp đọc hẹp; touch là 760px, desktop là 48rem (768px) và canh giữa. |
+
+`DesktopAppShell` là owner duy nhất của ba tier trên. Child render bên trong `/management` hoặc shell cha truyền `embedded`; `.embedded-page-section` chỉ tạo column/gap, không tạo thêm gutter hay max-width.
 
 ### Shell & Sidebar desktop (UI-POLISH 2026-08-25)
 
@@ -362,7 +384,7 @@ flex h-screen flex-col
 > chống overflow (audit A7). Sidebar KHÔNG dùng `position: sticky` hay
 > `height: calc(100vh - …)` — là flex child stretch của row.
 
-**Sidebar spec (`src/index.css` block SIDEBAR):**
+**Sidebar spec (`src/styles/design-system/70-sidebar.css`):**
 | Class | Vai trò |
 |---|---|
 | `.sidebar-container` | 260px · `bg-surface-card` + `border-right surface-border` (CẢ HAI mode) · padding 16/14 · flex-col gap 16 |
@@ -378,7 +400,7 @@ flex h-screen flex-col
 2. Control trong toolbar: ưu tiên `min-w-0`/`max-w-full` thay width cứng khi nằm trong `justify-between`.
 3. Icon-button desktop chuẩn: `h-10 w-10 rounded-xl`; segment trong pill: `h-9 rounded-lg`.
 4. Header chia zone: Brand │ Data filters │ Utilities │ User identity (cùng phải).
-5. Z-index dùng token `--z-*` (xem `index.css :root`), không hard-code z mới.
+5. Z-index dùng token `--z-*` (xem `src/styles/design-system/40-mobile-shell.css`), không hard-code z mới.
 
 ## §14. Visual Language v4.1 — Calm, Confident Parish Product (2026-08-27)
 
@@ -443,7 +465,7 @@ flex h-screen flex-col
   `aria-pressed` hoặc semantic state tương đương.
 - Mobile/tablet shell (<1024px) có control chính tối thiểu 44×44px; input/select/textarea dùng
   font-size tối thiểu 16px để tránh auto-zoom.
-- Phone modal (≤767px) chuẩn chuyển thành bottom sheet; tablet giữ bề rộng dialog phù hợp. Mọi custom dialog dùng `ModalShell` hoặc `useAccessibleDialog` để giữ focus trap/restore, top-most Escape, `aria-modal` và scroll lock.
+- Phone modal (≤767px) chuẩn chuyển thành bottom sheet; tablet giữ bề rộng dialog phù hợp. Mọi custom dialog/control sheet có `aria-modal` dùng `ModalShell`, `ConfirmDialog` hoặc lifecycle tương đương (`useAccessibleDialog` khi phù hợp) để giữ focus trap/restore, top-most Escape, `aria-modal` và scroll lock; overlay render trong route hoặc shell phải được mount bởi `ModalPortal` ra `document.body`.
 - Chỉ một `#main-content`; owner mobile là `MobileAppShell`, owner desktop là
   `RootLayout`.
 - Không tự gắn entrance animation ở từng `.product-view`; page-level motion chỉ
@@ -456,6 +478,11 @@ camera/OMR guide và medal visualization vẫn được phép khi có semantic p
 Mọi exception mới phải được ghi tại đây hoặc ADR liên quan, không tạo visual
 dialect riêng ở từng page.
 
+Khóa pinch/double-tap zoom tại `index.html` + `zoomGuard` là yêu cầu sản phẩm đã
+được owner phê duyệt trong `mobile-native-ui-audit-2026-08-12.md`. Đây là
+trade-off WCAG có chủ đích, **không** được diễn giải là tuân thủ zoom accessibility;
+không tự ý gỡ trong các đợt đồng bộ layout.
+
 ---
 
 ## 15. Mobile Product UX/UI System (Cập nhật 2026-08-29)
@@ -463,7 +490,7 @@ dialect riêng ở từng page.
 ### 15.1 Tokens Mở Rộng
 - **Radius**: `--radius-nav: 14px` (bottom-nav items, sheet triggers), `--radius-sheet-lg: 18px` (control sheets, brand page headers), `--radius-hero: 22px` (hero cards).
 - **Z-Index Ladder**:
-  `--z-install-prompt: 30` < `--z-sticky-filter: 30` < `--z-header: 40` < `--z-modal: 50` < `--z-bottom-action: 850` < `--z-floating-action: 900` < `--z-top-bar: 950` < `--z-mobile-nav: 1000` < `--z-toast: 9999`.
+  `--z-install-prompt: 30` < `--z-sticky-filter: 30` < `--z-header: 40` < `--z-bottom-action: 850` < `--z-floating-action: 900` < `--z-top-bar: 950` < `--z-mobile-nav: 1000` < `--z-modal: 1100` < `.app-modal-layer--nested: 1101` < `.app-confirm-layer: 1110` < `--z-toast: 9999`.
 - **Motion**: Thống nhất dùng `--motion-standard: 180ms` và `--motion-fast: 120ms` cho toàn bộ micro-interactions mobile.
 
 ### 15.2 Mobile Component Primitives
@@ -567,4 +594,71 @@ Nhằm đảm bảo tính tôn nghiêm Công Giáo (Catholic Spiritual Identity)
     - **Tab `📖 Đọc Đề` (Native Mobile Reader)**: Trình đọc thẻ câu hỏi chuyên dụng cho điện thoại. Hiển thị điểm số, badge Tự luận/Trắc nghiệm, 4 thẻ phương án A/B/C/D rõ nét với khả năng highlight đáp án đúng (xanh lá) và hộp giải thích chi tiết (`💡 Lời giải`) khi bật Hiện Đáp Án.
     - **Tab `📄 Đề A4` & `📋 Phiếu A4` (Vector Print Preview)**: Giữ nguyên tỷ lệ 210mm A4 chuẩn (`min-width: 210mm`), hỗ trợ 2 chế độ xem: 📱 *Vừa màn hình* (tự động tính toán scale factor để trang A4 khớp 100% chiều rộng điện thoại mà không bị vỡ cột/bẻ dòng chữ) và 🔍 *100% A4* (tỷ lệ gốc chuẩn pixel cho phép vuốt ngang/dọc kiểm tra chi tiết khung OMR).
 
+---
 
+## 19. Accessibility Hard Gates & Audit Claim Contract (v4.4 / ADR-078)
+
+1. `--color-text-placeholder` phải đạt tối thiểu 4.5:1 trên toàn bộ `surface-card|raised|sunken|hover|app` ở cả light và dark. Giá trị hiện tại có worst-case lần lượt **4.66:1** và **4.75:1**; `::placeholder` dùng `opacity: 1` để phép đo token không bị user-agent làm giảm.
+2. Brand placeholder dùng riêng `--color-text-placeholder-on-brand`; navy control sheet phải đủ đục để contrast không phụ thuộc vào nội dung page phía sau. Worst-case tự động hiện tại ≥5.43:1 trên gradient và ≥12.23:1 trên control sheet.
+3. Brand focus dùng outline 3px `--color-focus-ring-brand` với offset 2px, scope tại `.app-header`, `.mobile-top-bar`, `.mobile-control-sheet`; contrast thấp nhất giữa các gradient stop là **6.70:1**.
+4. Từ v4.5, `npm run lint:ds` thực thi **8 static anti-drift rules** trên TSX không miễn trừ: 6 prohibition rules và 2 per-file debt ratchets. `0 violations` không đồng nghĩa toàn bộ component đã được quan sát runtime hoặc chứng nhận WCAG/visual conformance.
+5. Hard gate gồm token/graph/linter unit contracts và Playwright axe/layout matrix ở §20. Zoom lock tiếp tục là accepted product trade-off, được exclude đúng một rule `meta-viewport`, và không được gọi là compliant.
+
+---
+
+## 20. Semantic Primitives, CSS Graph & Verification Governance (v4.5 / ADR-079)
+
+### 20.1 Typed React primitives
+
+`src/components/common/ui/` là semantic layer mỏng trên class contract hiện hữu; không phải framework UI thứ hai:
+
+- `Button`/`IconButton`: `forwardRef`, mặc định `type="button"`, loading có `aria-busy`; icon-only bắt buộc có accessible label.
+- `TextInput`/`Select`/`TextArea` + `FormField`: mapping form class, invalid state và nối `aria-describedby` của caller với hint/error thay vì ghi đè.
+- `Tabs`/`TabPanel`: `tablist → tab → tabpanel`, ID/controls/labelledby khớp nhau, roving ArrowLeft/ArrowRight/Home/End và bỏ qua disabled item. Panel active tồn tại bên ngoài `Suspense` fallback để ARIA reference không mất trong lúc lazy chunk tải.
+- `SegmentedControl`: single selection qua `radiogroup/radio`; `FilterChips`: filter qua button `aria-pressed`, không giả làm content tab.
+- `Badge` và `Surface`: chỉ map presentation tone/surface; không tự nhúng business-status mapping.
+
+Batch v4.5 áp dụng cho shared modal/state, hai cổng auth, Dashboard, Students, Management, Attendance, Grades và Finance. Domain selector điểm danh, print/A4, camera/OMR và business calculations giữ contract riêng.
+
+### 20.2 CSS graph có thứ tự
+
+`src/index.css` sở hữu duy nhất Tailwind import, `@source`, dark custom variant và import manifest sau:
+
+1. `00-tokens.css`
+2. `10-foundations.css`
+3. `20-primitives.css`
+4. `30-theme-media.css`
+5. `40-mobile-shell.css`
+6. `50-app-shell.css`
+7. `60-view-language.css`
+8. `70-sidebar.css`
+
+Không dùng `@layer`, không import module từ component và không đảo cascade. `designSystemCssGraph.test.ts` khóa order, reachability, duplicate/cycle/orphan, ownership của `@source`/dark variant và cấm `transition: all`. Test đọc CSS phải dùng helper mở rộng relative-import graph thay vì giả định mọi declaration nằm vật lý trong entrypoint. Tại điểm tách thuần túy, production CSS trước/sau cùng **212,171 bytes** và SHA-256 `09AD1BB6179D178887D5E5E3502363FE1D57C45597BDA048D5B925EC4A561CEB`; các accessibility fix sau đó được kiểm thử như thay đổi có chủ đích.
+
+### 20.3 Anti-drift ratchets
+
+Hai debt hiện hữu chưa thể global-ban được khóa theo file tại `scripts/design-system-debt-baseline.json`:
+
+- `text-[Npx]`: 287 occurrences / 58 files.
+- `transition-all`: 55 occurrences / 23 files.
+
+Mỗi file chỉ được giữ nguyên hoặc giảm; file mới/missing baseline có ceiling bằng 0. Baseline chỉ được viết lại có chủ đích bằng `npm run lint:ds -- --write-debt-baseline` sau khi xác nhận mức debt mới thấp hơn hoặc bằng mức đã duyệt.
+
+### 20.4 Runtime evidence và claim boundary
+
+- Axe gate dùng `@axe-core/playwright` với tags `wcag2a|wcag2aa|wcag21aa|wcag22aa`: 5 protected routes đại diện (`/dashboard|/students|/attendance|/grades|/finances`) × 3 viewport (`1440×900`, `390×844`, `320×720`) × light/dark = **30 observations**; 4 public routes (`/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`) × 3 × 2 = **24**; modal quên mật khẩu phụ huynh × 3 × 2 = **6**. Tổng cộng **60 automated Axe observations**.
+- Visual layout gate dùng cùng ma trận **30 protected + 24 public + 6 forgot-modal = 60 observations**; assert document/body/main không horizontal overflow, token hiện diện và đính kèm full-page PNG làm evidence artifact. PNG là bằng chứng quan sát, **không phải** pixel-diff baseline. Một test tương tác riêng đi qua đủ năm đích mobile bottom-nav chính và kiểm tra URL + `aria-current`.
+- Protected matrix điều hướng qua sidebar SPA thật trước khi resize, xác nhận canonical URL/active nav/shared shell, rồi đợi lazy route và primary data readiness. Cách này tránh tạo refresh-token rotation race giả do reload lặp lại trong cùng một ma trận authenticated.
+- Harness Playwright chạy trên cặp cổng riêng `3100/3101`, DB SQLite tạm cô lập dưới OS temp, vô hiệu server `.env`, và chỉ phát stdout `READY` sau khi Vite + API + seed hoàn tất. Vì vậy E2E không reuse hay chiếm phiên dev `3000/3001`.
+- Remediation từ runtime gate: token success/info/muted và finance foreground được tăng contrast; nhãn ô điểm cuối kỳ dùng `text-primary` trên nền highlight ở mobile/desktop; public auth/forgot/verify dùng semantic foreground/control; `ParentForgotPasswordModal` dùng portal + accessible typed controls; `PageHeader` ở dưới `1024px` reset flex-basis của identity/actions để không kế thừa khoảng trắng dọc từ desktop; `vite.optimizeDeps.include` bỏ hai entry stale `tailwind-merge`/`jspdf`.
+- Dark mobile bottom-nav active background dùng primary mix 12% để label 10px vượt axe contrast gate. Motion CSS chỉ transition properties thực sự thay đổi.
+- Native View Transition giữ nguyên pathname-only contract. Wrapper trong `router.tsx` chỉ consume rejection lifecycle dự kiến `AbortError|InvalidStateError|TimeoutError` ở `ready`/`finished` khi điều hướng SPA nhanh thay thế transition đang chạy; `updateCallbackDone` không bị bắt để lỗi render/domain vẫn nổi lên.
+- Axe tự động chỉ phủ một tập con WCAG. Rule `meta-viewport` được disable duy nhất vì ADR-072/077/078 giữ zoom lock như product exception; do đó không được tuyên bố app “WCAG compliant”. Runtime protected hiện chỉ là 5 route đại diện, không phải toàn bộ 17 protected routes hay mọi role. Full WCAG audit, physical-device, screen-reader và task acceptance vẫn là manual release evidence.
+
+### 20.5 Verification record
+
+- Final `npm run verify:ci` sau toàn bộ remediation: **PASS** — lint zero-warning, 8-rule design-system guard, client/server TypeScript, Vite/PWA production build và serialized coverage suite.
+- Full Vitest cuối: **260/260 files, 1,836/1,836 tests PASS**. Coverage tổng: statements **70.64%**, branches **59.94%**, functions **64.51%**, lines **72.88%**. Mức phần trăm thay đổi vì harness/contract files mới được đưa vào mẫu số; không có test fail.
+- Semantic/CSS/mobile targeted regression: **12 files / 72 tests PASS**; legacy tab contract được nâng sang `role="tab"`/`aria-selected` và file hồi quy liên quan **11/11 tests PASS**.
+- Full Playwright cuối: **61/61 tests chạy PASS**, **1 offline tenant-reload test được skip có chủ đích**; gồm Axe **60/60 observations**, visual/layout **60/60 observations**, mobile-bottom-nav, role, tenant isolation và attendance save. Không còn unhandled View Transition log. CI lưu `playwright-report/` và `test-results/` trong artifact `playwright-runtime-evidence` 7 ngày, kể cả khi job fail.
+- `npm run lint:ds`: **0 violations / 112 non-exempt application TSX files**; `git diff --check`: PASS.

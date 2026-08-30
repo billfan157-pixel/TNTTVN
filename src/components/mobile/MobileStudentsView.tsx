@@ -20,6 +20,11 @@ import {
 } from 'lucide-react';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
 import { SkeletonTable } from '../common/StateFeedback';
+import { Button, IconButton } from '../common/ui/Button';
+import { Select, TextInput } from '../common/ui/FormControls';
+import { TabPanel, Tabs } from '../common/ui/SelectionControls';
+
+type MobileStudentsWorkspace = 'students' | 'promotions';
 
 interface MobileStudentsViewProps {
   onOpenAddStudent: () => void;
@@ -148,6 +153,13 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const clearSelection = () => setSelectedIds(new Set());
 
   const selectedStudents = students.filter(s => selectedIds.has(s.id));
+  const activeWorkspace: MobileStudentsWorkspace = showPromotions ? 'promotions' : 'students';
+  const workspaceItems = [
+    { value: 'students' as const, label: 'Danh Sách', icon: <Users aria-hidden="true" size={14} /> },
+    ...(canPromoteAction
+      ? [{ value: 'promotions' as const, label: 'Thăng Tiến', icon: <TrendingUp aria-hidden="true" size={14} /> }]
+      : []),
+  ];
 
   const buildBulkDeleteMessage = (list: Student[]): string => {
     const count = list.length;
@@ -160,33 +172,16 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   return (
     <>
     <div className="mobile-screen mobile-screen--stack product-view">
-      {/* View Switcher & Send Report Cards Bar */}
+      {/* View Switcher Bar */}
       <div className="view-toolbar">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowPromotions(false)}
-            className={`btn mobile-btn rounded-full ${!showPromotions ? 'btn-primary' : 'btn-secondary'}`}
-          >
-            <Users size={14} /> Danh Sách
-          </button>
-          {canPromoteAction && (
-            <button
-              onClick={() => setShowPromotions(true)}
-              className={`btn mobile-btn rounded-full ${showPromotions ? 'btn-primary' : 'btn-secondary'}`}
-            >
-              <TrendingUp size={14} /> Thăng Tiến
-            </button>
-          )}
-        </div>
-        {onSendReportCards && (
-          <button
-            onClick={() => setConfirmSendCards(true)}
-            disabled={sendingCards}
-            className="btn btn-primary mobile-btn rounded-full"
-          >
-            <Send size={14} /> {sendingCards ? 'Đang gửi...' : 'Gửi Kết Quả Học Tập'}
-          </button>
-        )}
+        <Tabs
+          id="mobile-students-workspace-tabs"
+          ariaLabel="Không gian quản lý thiếu nhi"
+          items={workspaceItems}
+          value={activeWorkspace}
+          onValueChange={(value) => setShowPromotions(value === 'promotions')}
+          className="w-full"
+        />
       </div>
 
       {cardError && (
@@ -196,43 +191,89 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </div>
       )}
 
-      {showPromotions ? (
+      <TabPanel tabsId="mobile-students-workspace-tabs" value="promotions" activeValue={activeWorkspace}>
         <Suspense fallback={<div className="p-2"><SkeletonTable rows={6} cols={3} /></div>}>
           <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
         </Suspense>
-      ) : (
+      </TabPanel>
+      <TabPanel
+        tabsId="mobile-students-workspace-tabs"
+        value="students"
+        activeValue={activeWorkspace}
+      >
         <>
           {/* Search & Actions — responsive: search full width + actions row */}
       <div className="flex flex-col gap-2.5">
         <label className="relative flex-1 block" aria-label="Tìm thiếu nhi">
           <Search size={16} className="text-text-placeholder absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
+          <TextInput
             type="search"
             inputMode="search"
             placeholder="Tìm tên thánh, họ tên hoặc mã..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="form-input w-full pr-3 min-h-[44px] rounded-xl text-sm"
+            className="w-full pr-3 min-h-[44px] rounded-xl text-sm"
             style={{ paddingLeft: '40px' }}
           />
         </label>
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x scrollbar-none" style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', maskImage: 'linear-gradient(to right, black calc(100% - 12px), transparent)' }}>
+        <div className={`grid gap-1.5 sm:gap-2 ${
+          (onSendReportCards && canDelete)
+            ? 'grid-cols-4'
+            : (onSendReportCards || canDelete)
+            ? 'grid-cols-3'
+            : 'grid-cols-2'
+        }`}>
+          <Button
+            onClick={onOpenAddStudent}
+            variant="primary"
+            mobile
+            fullWidth
+            leadingIcon={<UserPlus aria-hidden="true" size={15} />}
+            className="min-w-0 rounded-xl px-1.5 sm:px-2 text-xs shadow-sm"
+            aria-label="Thêm thiếu nhi"
+          >
+            Thêm em
+          </Button>
+          <Button
+            onClick={onImportStudents}
+            variant="secondary"
+            mobile
+            fullWidth
+            leadingIcon={<Upload aria-hidden="true" size={14} />}
+            className="min-w-0 rounded-xl px-1.5 sm:px-2 text-xs"
+            aria-label="Nhập danh sách thiếu nhi từ Excel"
+          >
+            Nhập Excel
+          </Button>
+          {onSendReportCards && (
+            <Button
+              onClick={() => setConfirmSendCards(true)}
+              loading={sendingCards}
+              loadingLabel="Gửi..."
+              variant="secondary"
+              mobile
+              fullWidth
+              leadingIcon={<Send aria-hidden="true" size={14} />}
+              className="min-w-0 rounded-xl px-1.5 sm:px-2 text-xs"
+              aria-label="Gửi kết quả học tập"
+            >
+              Gửi KQ
+            </Button>
+          )}
           {canDelete && (
-            <button
+            <Button
               onClick={toggleSelectionMode}
-              className={`btn mobile-btn rounded-full px-4 text-xs whitespace-nowrap shrink-0 snap-start ${selectionMode ? 'btn-primary' : 'btn-secondary'}`}
+              variant={selectionMode ? 'primary' : 'secondary'}
+              mobile
+              fullWidth
+              leadingIcon={<CheckSquare aria-hidden="true" size={14} />}
+              className="min-w-0 rounded-xl px-1.5 sm:px-2 text-xs"
               aria-label={selectionMode ? 'Kết thúc chọn nhiều' : 'Chọn nhiều thiếu nhi'}
               aria-pressed={selectionMode}
             >
-              <CheckSquare size={14} /> {selectionMode ? 'Xong' : 'Chọn nhiều'}
-            </button>
+              {selectionMode ? 'Xong' : 'Chọn'}
+            </Button>
           )}
-          <button onClick={onImportStudents} className="btn btn-secondary mobile-btn rounded-full px-4 text-xs shrink-0 snap-start">
-            <Upload size={14} /> Nhập Excel
-          </button>
-          <button onClick={onOpenAddStudent} className="btn btn-primary mobile-btn rounded-full px-5 shrink-0 snap-start shadow-sm">
-            <UserPlus size={16} /> Thêm em
-          </button>
         </div>
       </div>
 
@@ -250,10 +291,10 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
       {/* Lưới lớp — khi đang xem Tất cả, hiển thị các lớp để bấm vào xem học viên */}
       {selectedClassId === 'all' && classList.length > 0 && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="mt-3.5 grid grid-cols-2 gap-3">
           <button
             onClick={() => setSelectedClassId('all')}
-            className="text-left rounded-2xl p-3 bg-gradient-to-br from-parish-primary to-parish-primary-hover text-white flex flex-col gap-2 border border-parish-primary"
+            className="text-left rounded-2xl p-3 bg-gradient-to-br from-parish-primary to-parish-primary-hover text-text-inverse flex flex-col gap-2 border border-parish-primary"
           >
             <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center"><Users size={16} /></span>
             <span className="font-black text-sm">Tất cả</span>
@@ -286,7 +327,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         <button
           onClick={() => setSelectedClassId('all')}
-          className={`py-2 px-4 rounded-2xl border-none min-h-[44px] text-xs font-bold whitespace-nowrap ${selectedClassId === 'all' ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}
+          className={`py-2 px-4 rounded-2xl border-none min-h-[44px] text-xs font-bold whitespace-nowrap ${selectedClassId === 'all' ? 'bg-parish-primary text-text-inverse' : 'bg-surface-hover text-text-secondary'}`}
         >
           Tất cả lớp
         </button>
@@ -294,7 +335,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <button
             key={c.id}
             onClick={() => setSelectedClassId(c.id)}
-            className={`py-2 px-4 rounded-2xl border-none min-h-[44px] text-xs font-bold whitespace-nowrap ${selectedClassId === c.id ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'}`}
+            className={`py-2 px-4 rounded-2xl border-none min-h-[44px] text-xs font-bold whitespace-nowrap ${selectedClassId === c.id ? 'bg-parish-primary text-text-inverse' : 'bg-surface-hover text-text-secondary'}`}
           >
             {c.name}
           </button>
@@ -309,9 +350,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <button
             type="button"
             onClick={() => setSortClassDirection(prev => prev === 'asc' ? null : 'asc')}
-            className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 min-h-[44px] ${
+            className={`px-3 py-2 rounded-xl font-bold transition-colors flex items-center gap-1 min-h-[44px] ${
               sortClassDirection === 'asc'
-                ? 'bg-parish-primary text-white shadow-xs'
+                ? 'bg-parish-primary text-text-inverse shadow-xs'
                 : 'bg-surface-app text-text-secondary hover:bg-surface-hover'
             }`}
           >
@@ -321,9 +362,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <button
             type="button"
             onClick={() => setSortClassDirection(prev => prev === 'desc' ? null : 'desc')}
-            className={`px-3 py-2 rounded-xl font-bold transition-all flex items-center gap-1 min-h-[44px] ${
+            className={`px-3 py-2 rounded-xl font-bold transition-colors flex items-center gap-1 min-h-[44px] ${
               sortClassDirection === 'desc'
-                ? 'bg-parish-primary text-white shadow-xs'
+                ? 'bg-parish-primary text-text-inverse shadow-xs'
                 : 'bg-surface-app text-text-secondary hover:bg-surface-hover'
             }`}
           >
@@ -353,7 +394,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 className={`entity-card p-4 flex flex-col gap-3 relative overflow-hidden ${selectedIds.has(s.id) ? 'ring-2 ring-[var(--color-parish-danger)] ring-offset-0 border-[var(--color-parish-danger)]' : ''}`}
               >
                 {selectionMode && (
-                  <label className="absolute top-3 left-3 flex items-center justify-center w-6 h-6 rounded-md border bg-surface-card cursor-pointer has-[input:checked]:bg-[var(--color-parish-danger)] has-[input:checked]:border-[var(--color-parish-danger)] has-[input:checked]:text-white transition-colors">
+                  <label className="absolute top-3 left-3 flex items-center justify-center w-6 h-6 rounded-md border bg-surface-card cursor-pointer has-[input:checked]:bg-[var(--color-parish-danger)] has-[input:checked]:border-[var(--color-parish-danger)] has-[input:checked]:text-text-inverse transition-colors">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(s.id)}
@@ -361,7 +402,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                       className="sr-only"
                       aria-label={`Chọn ${s.holyName} ${s.fullName}`}
                     />
-                    {selectedIds.has(s.id) ? <CheckSquare size={14} className="text-white" /> : <span className="w-3.5 h-3.5 rounded-sm border-2 border-surface-border block" />}
+                    {selectedIds.has(s.id) ? <CheckSquare size={14} className="text-text-inverse" /> : <span className="w-3.5 h-3.5 rounded-sm border-2 border-surface-border block" />}
                   </label>
                 )}
                 <div className={`flex justify-between items-start ${selectionMode ? 'pl-8' : ''}`}>
@@ -398,7 +439,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                   {s.parentPhone && (
                       <a
                       href={`tel:${s.parentPhone}`}
-                      className="text-parish-primary no-underline font-bold flex items-center gap-1 shrink-0 ml-2 min-h-[32px] px-2 rounded-lg bg-parish-primary-light/50 hover:bg-parish-primary-light transition-colors"
+                      className="text-parish-primary no-underline font-bold flex items-center gap-1 shrink-0 ml-2 min-h-[44px] px-2 rounded-lg bg-parish-primary-light/50 hover:bg-parish-primary-light transition-colors"
                     >
                       <Phone size={12} /> Gọi
                     </a>
@@ -427,45 +468,47 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
       {totalFiltered > 0 && (
         <div className="bg-surface-card rounded-2xl border border-surface-border p-3 flex items-center justify-between gap-2">
-            <select
+            <Select
             value={pageSize}
             onChange={(e) => {
               const val = e.target.value
               handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
             }}
-            className="form-select text-xs min-h-[40px] rounded-xl"
+            className="text-xs min-h-[40px] rounded-xl"
             aria-label="Số lượng mỗi trang"
           >
             <option value="50">50 / trang</option>
             <option value="100">100 / trang</option>
             <option value="200">200 / trang</option>
             <option value="all">Tất cả</option>
-          </select>
+          </Select>
           <div className="text-text-muted text-xs font-semibold tabular-nums whitespace-nowrap">Trang {safePage}/{totalPages}</div>
           <div className="flex gap-1.5">
-            <button
+            <IconButton
               onClick={() => handlePageChange(safePage - 1)}
               disabled={safePage <= 1}
+              label="Trang trước"
+              icon={<ChevronLeft aria-hidden="true" size={16} />}
+              variant="secondary"
+              mobile
               className="min-h-[44px] min-w-[44px] p-2 rounded-xl border border-surface-border bg-surface-card flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-hover transition-colors"
-              aria-label="Trang trước"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
+            />
+            <IconButton
               onClick={() => handlePageChange(safePage + 1)}
               disabled={safePage >= totalPages}
+              label="Trang sau"
+              icon={<ChevronRight aria-hidden="true" size={16} />}
+              variant="secondary"
+              mobile
               className="min-h-[44px] min-w-[44px] p-2 rounded-xl border border-surface-border bg-surface-card flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-surface-hover transition-colors"
-              aria-label="Trang sau"
-            >
-              <ChevronRight size={16} />
-            </button>
+            />
           </div>
         </div>
       )}
       </>
       )}
       </>
-      )}
+      </TabPanel>
     </div>
       {selectionMode && selectedStudents.length > 0 && (
         <div className="mobile-bottom-action-bar">

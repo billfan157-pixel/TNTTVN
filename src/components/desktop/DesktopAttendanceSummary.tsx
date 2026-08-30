@@ -34,6 +34,7 @@ import {
 import { AttendanceHistoryModal } from './AttendanceHistoryModal'
 import { PageHeader } from '../common/PageHeader'
 import { NoResultState } from '../common/StateFeedback'
+import { Badge, Button, FilterChips, SegmentedControl, Select, TextInput } from '../common/ui'
 import { BRANCHES } from '../../constants/branches'
 
 export const DesktopAttendanceSummary: React.FC = () => {
@@ -178,10 +179,11 @@ export const DesktopAttendanceSummary: React.FC = () => {
         actions={
           <div className="flex items-center gap-2.5 flex-wrap">
             {/* Chọn Lớp */}
-            <select
+            <Select
+              aria-label="Lớp cần xem thống kê chuyên cần"
               value={selectedClassId}
               onChange={(e) => setSelectedClassId(e.target.value)}
-              className="form-select text-sm font-bold h-10 min-w-0 w-auto sm:min-w-[170px] max-w-full"
+              className="text-sm font-bold h-10 min-w-0 w-auto sm:min-w-[170px] max-w-full"
             >
               <option value="all">Tất cả các lớp</option>
               {classList.map((c) => (
@@ -189,61 +191,33 @@ export const DesktopAttendanceSummary: React.FC = () => {
                   {c.name}
                 </option>
               ))}
-            </select>
+            </Select>
 
             {/* Chọn Kỳ / Thời gian */}
-            <div className="flex bg-surface-hover p-1 rounded-xl border border-surface-border gap-1">
-              <button
-                onClick={() => setTimeFilterType('year')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                  timeFilterType === 'year'
-                    ? 'bg-parish-primary text-white shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card'
-                }`}
-              >
-                Cả Năm
-              </button>
-              <button
-                onClick={() => setTimeFilterType('sem1')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                  timeFilterType === 'sem1'
-                    ? 'bg-parish-primary text-white shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card'
-                }`}
-              >
-                Học Kỳ 1
-              </button>
-              <button
-                onClick={() => setTimeFilterType('sem2')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                  timeFilterType === 'sem2'
-                    ? 'bg-parish-primary text-white shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card'
-                }`}
-              >
-                Học Kỳ 2
-              </button>
-              <button
-                onClick={() => setTimeFilterType('custom')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                  timeFilterType === 'custom'
-                    ? 'bg-parish-primary text-white shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card'
-                }`}
-              >
-                Tùy Chọn
-              </button>
-            </div>
+            <SegmentedControl
+              id="attendance-summary-range"
+              ariaLabel="Khoảng thời gian thống kê"
+              value={timeFilterType}
+              onValueChange={setTimeFilterType}
+              items={[
+                { value: 'year', label: 'Cả Năm' },
+                { value: 'sem1', label: 'Học Kỳ 1' },
+                { value: 'sem2', label: 'Học Kỳ 2' },
+                { value: 'custom', label: 'Tùy Chọn' },
+              ]}
+              className="max-w-full"
+            />
 
             {/* Nút Xuất Excel */}
-            <button
+            <Button
               onClick={handleExportExcel}
               disabled={filteredSummaries.length === 0}
-              className="btn btn-primary text-xs font-bold flex items-center gap-1.5 h-10 px-4 shadow-xs disabled:opacity-50"
+              variant="primary"
+              leadingIcon={<FileSpreadsheet aria-hidden="true" size={16} />}
+              className="text-xs font-bold h-10 shadow-xs"
             >
-              <FileSpreadsheet size={16} />
-              <span>Xuất Excel</span>
-            </button>
+              Xuất Excel
+            </Button>
           </div>
         }
       />
@@ -258,6 +232,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
             <span className="text-text-muted">Từ</span>
             <input
               type="date"
+              aria-label="Ngày bắt đầu"
               value={customStartDate}
               onChange={(e) => setCustomStartDate(e.target.value)}
               className="form-input text-xs font-bold h-8"
@@ -267,6 +242,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
             <span className="text-text-muted">Đến</span>
             <input
               type="date"
+              aria-label="Ngày kết thúc"
               value={customEndDate}
               onChange={(e) => setCustomEndDate(e.target.value)}
               className="form-input text-xs font-bold h-8"
@@ -284,13 +260,9 @@ export const DesktopAttendanceSummary: React.FC = () => {
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Chuyên Cần Chung</p>
               <h3 className="text-2xl font-extrabold text-text-main mt-1.5 mb-0 flex items-center gap-1.5">
                 <span>{kpis.averageRate}%</span>
-                <span
-                  className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                    kpis.averageRate >= 80 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'
-                  }`}
-                >
+                <Badge tone={kpis.averageRate >= 80 ? 'success' : 'danger'}>
                   {kpis.averageRate >= 80 ? 'Đạt' : 'Cần chú ý'}
-                </span>
+                </Badge>
               </h3>
             </div>
             <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center font-bold">
@@ -312,9 +284,9 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Tham Dự Thánh Lễ</p>
-              <h3 className="text-2xl font-extrabold text-sky-600 mt-1.5 mb-0">{kpis.massRate}%</h3>
+              <h3 className="text-2xl font-extrabold text-sky-600 dark:text-sky-400 mt-1.5 mb-0">{kpis.massRate}%</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center font-bold">
               <Church size={20} />
             </div>
           </div>
@@ -331,9 +303,9 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Học Giáo Lý</p>
-              <h3 className="text-2xl font-extrabold text-amber-600 mt-1.5 mb-0">{kpis.catechismRate}%</h3>
+              <h3 className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1.5 mb-0">{kpis.catechismRate}%</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
               <BookOpen size={20} />
             </div>
           </div>
@@ -350,9 +322,9 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Chầu / Sinh Hoạt</p>
-              <h3 className="text-2xl font-extrabold text-purple-600 mt-1.5 mb-0">{kpis.adorationRate}%</h3>
+              <h3 className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 mt-1.5 mb-0">{kpis.adorationRate}%</h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
               <HeartHandshake size={20} />
             </div>
           </div>
@@ -517,78 +489,41 @@ export const DesktopAttendanceSummary: React.FC = () => {
           {/* Search Box */}
           <div className="relative w-full sm:w-72">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input
+            <TextInput
+              aria-label="Tìm học sinh trong thống kê chuyên cần"
               type="text"
               placeholder="Tìm theo tên hoặc mã học sinh..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="form-input pl-9 text-xs font-medium h-9 w-full"
+              className="pl-9 text-xs font-medium h-9 w-full"
             />
           </div>
 
           {/* Status Filter Pills */}
-          <div className="flex items-center gap-1.5 flex-wrap text-xs font-bold">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                statusFilter === 'all'
-                  ? 'bg-parish-primary text-white shadow-xs'
-                  : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              Tất Cả ({summaries.length})
-            </button>
-            <button
-              onClick={() => setStatusFilter('excellent')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                statusFilter === 'excellent'
-                  ? 'bg-[var(--color-parish-success-bg)] text-[var(--color-parish-success-hover)] border border-[var(--color-parish-success)]/30 shadow-xs'
-                  : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              Xuất Sắc ({kpis.excellentCount})
-            </button>
-            <button
-              onClick={() => setStatusFilter('good')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                statusFilter === 'good'
-                  ? 'bg-[var(--color-parish-info-bg)] text-[var(--color-parish-info-hover)] border border-[var(--color-parish-info)]/30 shadow-xs'
-                  : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              Đạt Chuẩn ({kpis.goodCount})
-            </button>
-            <button
-              onClick={() => setStatusFilter('warning')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                statusFilter === 'warning'
-                  ? 'bg-[var(--color-parish-warning-bg)] text-[var(--color-parish-warning-hover)] border border-[var(--color-parish-warning)]/30 shadow-xs'
-                  : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              Cần Lưu Ý ({kpis.warningCount})
-            </button>
-            <button
-              onClick={() => setStatusFilter('critical')}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                statusFilter === 'critical'
-                  ? 'bg-[var(--color-parish-danger-bg)] text-[var(--color-parish-danger-hover)] border border-[var(--color-parish-danger)]/30 shadow-xs'
-                  : 'bg-surface-app text-text-secondary hover:bg-surface-hover border border-surface-border'
-              }`}
-            >
-              Nguy Cơ ({kpis.criticalCount})
-            </button>
-          </div>
+          <FilterChips
+            ariaLabel="Lọc theo mức chuyên cần"
+            appearance="pills"
+            value={statusFilter}
+            onValueChange={setStatusFilter}
+            items={[
+              { value: 'all', label: `Tất Cả (${summaries.length})` },
+              { value: 'excellent', label: `Xuất Sắc (${kpis.excellentCount})` },
+              { value: 'good', label: `Đạt Chuẩn (${kpis.goodCount})` },
+              { value: 'warning', label: `Cần Lưu Ý (${kpis.warningCount})` },
+              { value: 'critical', label: `Nguy Cơ (${kpis.criticalCount})` },
+            ]}
+            className="flex-wrap text-xs font-bold"
+          />
 
           {/* Nút Sắp Xếp Cấp Bậc Lớp */}
           <div className="flex items-center bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner gap-1">
             <button
               type="button"
               onClick={() => setSortClassDirection(prev => prev === 'asc' ? null : 'asc')}
-              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
                 sortClassDirection === 'asc'
-                  ? 'bg-parish-primary text-white shadow-xs'
-                  : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+                  ? 'bg-parish-primary text-text-inverse shadow-xs'
+                  : 'text-text-main hover:bg-surface-card'
               }`}
               title="Sắp xếp danh sách học sinh theo lớp từ thấp đến cao (Chiên -> Ấu 1A -> Ấu 1B...)"
             >
@@ -598,10 +533,10 @@ export const DesktopAttendanceSummary: React.FC = () => {
             <button
               type="button"
               onClick={() => setSortClassDirection(prev => prev === 'desc' ? null : 'desc')}
-              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
                 sortClassDirection === 'desc'
-                  ? 'bg-parish-primary text-white shadow-xs'
-                  : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+                  ? 'bg-parish-primary text-text-inverse shadow-xs'
+                  : 'text-text-main hover:bg-surface-card'
               }`}
               title="Sắp xếp danh sách học sinh theo lớp từ cao đến thấp (Hiệp 2 -> ... -> Chiên)"
             >

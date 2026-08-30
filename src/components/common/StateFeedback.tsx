@@ -1,4 +1,5 @@
 import { FolderOpen, SearchX, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Button } from './ui/Button'
 
 export interface EmptyStateProps {
   icon?: React.ComponentType<{ className?: string }>
@@ -25,9 +26,9 @@ export function EmptyState({
       <h3 className="typography-section-title mb-1.5">{title}</h3>
       {description && <p className="typography-body-sm max-w-md mb-4 text-[var(--color-text-muted)]">{description}</p>}
       {actionLabel && onAction && (
-        <button type="button" onClick={onAction} className="btn btn-primary btn-sm mt-1">
+        <Button onClick={onAction} size="sm" variant="primary" className="mt-1">
           {actionLabel}
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -56,9 +57,9 @@ export function NoResultState({
       <h3 className="typography-card-title mb-1">{title}</h3>
       <p className="typography-body-sm max-w-sm mb-4 text-[var(--color-text-muted)]">{description}</p>
       {onReset && (
-        <button type="button" onClick={onReset} className="btn btn-secondary btn-sm">
+        <Button onClick={onReset} size="sm" variant="secondary">
           {resetLabel}
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -87,10 +88,15 @@ export function ErrorState({
       <h3 className="typography-card-title text-[var(--color-parish-danger)] mb-1">{title}</h3>
       <p className="typography-body-sm max-w-md mb-4 text-[var(--color-text-muted)]">{message}</p>
       {onRetry && (
-        <button type="button" onClick={onRetry} className="btn btn-secondary btn-sm gap-1.5">
-          <RefreshCw className="w-3.5 h-3.5" />
+        <Button
+          onClick={onRetry}
+          size="sm"
+          variant="secondary"
+          className="gap-1.5"
+          leadingIcon={<RefreshCw aria-hidden="true" className="w-3.5 h-3.5" />}
+        >
           {retryLabel}
-        </button>
+        </Button>
       )}
     </div>
   )

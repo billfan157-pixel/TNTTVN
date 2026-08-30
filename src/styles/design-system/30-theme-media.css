@@ -1,0 +1,230 @@
+/* ═══════════════════════════════════════════════════
+   PRINT
+   ═══════════════════════════════════════════════════ */
+
+@media print {
+  body { background: white !important; color: black !important; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+
+  /* Watermark for document security */
+  body::before {
+    content: 'Giáo Xứ Gia Tôn';
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-30deg);
+    font-size: 120px;
+    font-weight: 800;
+    color: rgba(30, 58, 138, 0.03);
+    pointer-events: none;
+    z-index: 9999;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  /* Print Modal Clean Layout */
+  .modal-overlay {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  .modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  header, main, nav, aside {
+    display: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   REDUCED MOTION
+   Reference: docs/03_DESIGN_SYSTEM.md §10
+   ═══════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   DARK MODE
+   Reference: docs/03_DESIGN_SYSTEM.md §8
+   ═══════════════════════════════════════════════════ */
+
+.dark {
+  --color-parish-primary: #60A5FA;
+  --color-parish-primary-hover: #3B82F6;
+  --color-parish-primary-light: #1E3A5F;
+  --color-parish-gold: #F0C36A;
+  --color-parish-gold-light: #3F3218;
+  --color-parish-secondary: #FBBF24;
+  --color-parish-secondary-hover: #FDE68A;
+  --color-parish-secondary-light: #4A3A0A;
+
+  --color-parish-success: #4ADE80;
+  --color-parish-success-hover: #22C55E;
+  --color-parish-success-bg: #14532D;
+  --color-parish-warning: #FB923C;
+  --color-parish-warning-hover: #FDBA74;
+  --color-parish-warning-bg: #431407;
+  --color-parish-danger: #F87171;
+  --color-parish-danger-hover: #FCA5A5;
+  --color-parish-danger-bg: #450A0A;
+  --color-parish-info: #7DD3FC;
+  --color-parish-info-bg: #0C4A6E;
+
+  --color-finance-income: #4ADE80;
+  --color-finance-income-bg: #14532D;
+  --color-finance-expense: #F87171;
+  --color-finance-expense-bg: #450A0A;
+  --color-finance-transfer: #38BDF8;
+  --color-finance-transfer-bg: #0C4A6E;
+
+  --color-surface-card: #1E293B;
+  --color-surface-raised: #243247;
+  --color-surface-sunken: #111B2D;
+  --color-surface-hover: #334155;
+  --color-surface-border: #475569;
+  --color-surface-app: #0F172A;
+
+  --color-text-main: #F1F5F9;
+  --color-text-muted: #A3B1C4;
+  --color-text-inverse: #0F172A;
+  --color-text-secondary: #A3B1C4;
+  --color-border-input: #475569;
+  --color-text-placeholder: #A3B1C4;
+  --color-parish-info-hover: #38BDF8;
+
+  /* ─── Interaction States & Feedback (Dark) ─── */
+  --color-focus-ring: rgba(96, 165, 250, 0.45);
+  --color-surface-selected: #1E3A5F;
+  --color-surface-selected-border: #3B82F6;
+  --color-surface-disabled: #1E293B;
+  --color-text-disabled: #64748B;
+  --color-border-disabled: #334155;
+  --color-surface-overlay: rgba(0, 0, 0, 0.75);
+
+  /* ─── Domain Cell States (Dark) ─── */
+  --color-cell-clean: transparent;
+  --color-cell-edited: #451A03;
+  --color-cell-edited-border: #D97706;
+  --color-cell-saving: #082F49;
+  --color-cell-saved: #052E16;
+  --color-cell-conflict: #450A0A;
+  --color-cell-conflict-border: #DC2626;
+  --color-cell-locked: #1E293B;
+  --color-cell-locked-border: #334155;
+
+  --shadow-card: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-raised: 0 18px 40px -20px rgba(0, 0, 0, 0.75);
+  --shadow-modal: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --shadow-toast: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+}
+
+.dark .modal-content {
+  background: var(--color-surface-card);
+}
+
+.dark .btn-primary { background: var(--color-parish-primary); color: var(--color-text-inverse); }
+.dark .btn-primary:hover { background: var(--color-parish-primary-hover); }
+
+.dark .btn-secondary { background: var(--color-surface-hover); color: var(--color-text-main); border-color: var(--color-surface-border); }
+.dark .btn-secondary:hover { background: var(--color-surface-border); color: var(--color-text-main); }
+
+.dark .btn-danger { background: var(--color-parish-danger); }
+.dark .btn-danger:hover { background: var(--color-parish-danger-hover); }
+
+.dark .btn-ghost { color: var(--color-text-muted); }
+.dark .btn-ghost:hover { background: var(--color-surface-hover); }
+
+.dark .pill-btn-secondary { background: var(--color-surface-hover); color: var(--color-text-main); border-color: var(--color-surface-border); }
+.dark .pill-btn-secondary:hover { background: var(--color-surface-border); color: var(--color-text-main); }
+.dark .pill-btn-primary { color: var(--color-text-inverse); }
+
+.dark .pill-group { background: var(--color-surface-hover); }
+.dark .pill-group .pill-group-item { color: var(--color-text-main); }
+.dark .pill-group .pill-group-item.active { background: var(--color-surface-card); color: var(--color-parish-primary); }
+
+.dark .badge-primary { background: var(--color-parish-primary-light); color: var(--color-parish-primary); }
+.dark .badge-success { background: var(--color-parish-success-bg); color: var(--color-parish-success); }
+.dark .badge-warning { background: var(--color-parish-warning-bg); color: var(--color-parish-warning); }
+.dark .badge-danger { background: var(--color-parish-danger-bg); color: var(--color-parish-danger); }
+.dark .badge-info { background: var(--color-parish-info-bg); color: var(--color-parish-info); }
+.dark .badge-neutral { background: var(--color-surface-hover); color: var(--color-text-main); }
+.dark .badge-syncing { background: var(--color-parish-info-bg); color: var(--color-parish-info); }
+.dark .badge-locked { background: var(--color-surface-disabled); color: var(--color-text-muted); border-color: var(--color-border-disabled); }
+.dark .badge-conflict { background: var(--color-parish-danger-bg); color: var(--color-parish-danger); }
+.dark .badge-offline { background: var(--color-parish-warning-bg); color: var(--color-parish-warning); }
+.dark .badge-violet { background: #2E1065; color: #C4B5FD; }
+.dark .badge-teal { background: #134E4A; color: #2DD4BF; }
+.dark .badge-orange { background: #431407; color: #FDBA74; }
+.dark .badge-indigo { background: #1E1B4B; color: #A5B4FC; }
+.dark .badge-purple { background: #3B0764; color: #D8B4FE; }
+.dark .btn-quiet { color: var(--color-text-muted); }
+.dark .btn-quiet:hover { background: var(--color-surface-hover); color: var(--color-text-main); }
+
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea,
+.dark .form-input,
+.dark .form-select,
+.dark .form-textarea,
+.dark .form-input-sm {
+  background-color: var(--color-surface-card);
+  border-color: var(--color-surface-border);
+  color: var(--color-text-main);
+}
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus,
+.dark .form-input:focus,
+.dark .form-select:focus,
+.dark .form-textarea:focus,
+.dark .form-input-sm:focus {
+  border-color: var(--color-parish-primary);
+}
+
+.dark .form-label {
+  color: var(--color-text-muted);
+}
+
+.dark table {
+  background-color: var(--color-surface-card);
+  color: var(--color-text-main);
+}
+
+.dark thead tr {
+  background-color: var(--color-surface-app);
+}
+
+.dark tbody tr {
+  background-color: var(--color-surface-card);
+}
+
+.dark tbody tr:hover {
+  background-color: var(--color-surface-app) !important;
+}
+
+.dark td,
+.dark th {
+  border-color: var(--color-surface-border);
+}
+
+.dark .table-wrapper {
+  background: var(--color-surface-card);
+  border-color: var(--color-surface-border);
+}
+
+.dark ::-webkit-scrollbar-thumb { background: var(--color-surface-border); }
+.dark ::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }

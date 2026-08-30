@@ -1,11 +1,12 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react'
+import React, { useMemo, useState, useCallback } from 'react'
 import { generateExamQrSvg, buildExamQrPayload, getExamQrViewBoxSize } from '../../lib/qr'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../../lib/barcode'
 import { CORNER_MARKERS, CORNER_SIZE, allCells, scoreToCell, mcOptionToCell, getMcColumnLayout, QR_X, QR_Y, QR_SIZE } from '../../lib/answerSheetTemplate'
 import { printBatchAnswerSheets, exportAnswerSheetPdf, sanitizeSvgInner } from '../../utils/examSheets'
 import { X, Printer, Layers, Settings2, CheckSquare, Square, Loader2, FileDown } from 'lucide-react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import type { ExamType, ExamVersionCode } from '../../types'
+import { ModalPortal } from '../common/ModalPortal'
 
 interface AnswerSheetProps {
   sessionId: string
@@ -284,8 +285,7 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
   onClose,
 }) => {
   const [idx, setIdx] = useState(0)
-  // PHA 1 nợ (audit A19): focus trap — exam suite giữ shell custom (camera/print)
-  const trapRef = useFocusTrap(true)
+  const { dialogRef: trapRef } = useAccessibleDialog(true, onClose)
   // EXAM-MIXED: phiếu trả lời của đề mixed là phiếu OMR phần TN.
   const [examType, setExamType] = useState<'written' | 'multiple_choice'>(initialExamType === 'mixed' ? 'multiple_choice' : initialExamType)
   const [questionCount, setQuestionCount] = useState<number>(initialQuestionCount)
@@ -390,16 +390,9 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
     })
   }, [selectedStudentsList, sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, examVersion])
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [onClose])
-
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="answer-sheet-title" className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="answer-sheet-title" className="app-modal-layer fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div ref={trapRef} className="bg-surface-card rounded-2xl p-5 w-full max-w-3xl shadow-2xl flex flex-col gap-4 max-h-[94vh] border border-surface-border" onClick={e => e.stopPropagation()}>
         {/* Header Modal */}
         <div className="flex items-center justify-between border-b border-surface-border pb-3">
@@ -583,5 +576,6 @@ export const AnswerSheetModal: React.FC<AnswerSheetModalProps> = ({
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

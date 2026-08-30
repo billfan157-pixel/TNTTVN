@@ -79,15 +79,15 @@ describe('MobileViewsEnhancement Tests', () => {
 
       // Default: Unified Bảng điểm tab active (C1 gộp Thẻ điểm + Ma trận)
       expect(screen.getByText('Bảng Điểm Giáo Lý')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Bảng điểm/ })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('tab', { name: /Bảng điểm/ })).toHaveAttribute('aria-selected', 'true')
 
       // Click Daily Entry tab
-      const dailyBtn = screen.getByText('Hằng ngày')
+      const dailyBtn = screen.getByRole('tab', { name: 'Hằng ngày' })
       fireEvent.click(dailyBtn)
       expect(await screen.findByText('Nhập Điểm Hằng Ngày')).toBeInTheDocument()
 
       // Click Comparison tab
-      const compBtn = screen.getByText('So sánh')
+      const compBtn = screen.getByRole('tab', { name: 'So sánh' })
       fireEvent.click(compBtn)
       expect(await screen.findByText(/So Sánh Học Kỳ I vs/i)).toBeInTheDocument()
     })
@@ -98,7 +98,7 @@ describe('MobileViewsEnhancement Tests', () => {
 
       // C1: 4 tabs only - Bảng điểm appears twice (tab + board header) so use getAllByText
       expect(screen.getAllByText('Bảng điểm').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getByRole('button', { name: /Bảng điểm/ })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /Bảng điểm/ })).toHaveAttribute('aria-selected', 'true')
       expect(screen.queryByText('Thẻ điểm')).not.toBeInTheDocument()
       expect(screen.queryByText('Ma trận')).not.toBeInTheDocument()
       expect(screen.getByText('Hằng ngày')).toBeInTheDocument()
@@ -165,7 +165,7 @@ describe('MobileViewsEnhancement Tests', () => {
         />
       )
 
-      const sendBtn = screen.getByText('Gửi Kết Quả Học Tập')
+      const sendBtn = screen.getByText('Gửi KQ')
       fireEvent.click(sendBtn)
 
       // Confirm dialog should appear

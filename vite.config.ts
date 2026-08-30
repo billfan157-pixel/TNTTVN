@@ -9,6 +9,9 @@ const appReleaseId = process.env.VITE_APP_RELEASE_ID
   || process.env.VERCEL_GIT_COMMIT_SHA
   || process.env.RENDER_GIT_COMMIT
   || 'dev'
+const devPort = Number(process.env.VITE_DEV_PORT) || 3000
+const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:3001'
+const strictDevPort = process.env.E2E_STRICT_PORT === 'true'
 
 export default defineConfig({
   define: {
@@ -16,11 +19,12 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 3000,
+    port: devPort,
+    strictPort: strictDevPort,
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },
@@ -30,7 +34,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },
@@ -47,8 +51,6 @@ export default defineConfig({
       'idb',
       'dexie',
       'clsx',
-      'tailwind-merge',
-      'jspdf',
       'xlsx',
       'jsqr',
       'qrcode-generator',

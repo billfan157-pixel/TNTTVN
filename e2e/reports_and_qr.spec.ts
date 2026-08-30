@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('Brave Davinci E2E - PDF Export and QR Verification', () => {
   test('should render verification page and handle missing parameters', async ({ page }) => {
     await page.goto('/verify')
-    await expect(page.locator('h1')).toContainText('Cổng Xác Thực Phiếu Điểm')
+    await expect(page.locator('h1')).toContainText('Cổng Xác Thực Kết Quả Học Tập')
     await expect(page.getByText('Thiếu tham số quét QR')).toBeVisible()
   })
 

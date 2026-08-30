@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { AlertTriangle, X, Loader2, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { resetClientData } from '../../lib/resetClientData'
 import * as Sentry from '@sentry/react'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from './ModalPortal'
 
 interface Props {
   isOpen: boolean
@@ -18,17 +19,7 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
   const [confirmKey, setConfirmKey] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
 
   if (!isOpen) return null
 
@@ -51,7 +42,8 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
   }
 
   return (
-    <div role="alertdialog" aria-modal="true" aria-labelledby="purge-data-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+    <ModalPortal>
+    <div role="alertdialog" aria-modal="true" aria-labelledby="purge-data-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
       <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
           <div className="flex items-center gap-3">
@@ -125,5 +117,6 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

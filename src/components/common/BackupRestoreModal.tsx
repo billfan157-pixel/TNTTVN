@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Database, Download, Upload, CheckCircle, X, Loader2 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
@@ -6,8 +6,9 @@ import { useAttendanceStore } from '../../stores/attendanceStore'
 import { db } from '../../lib/db'
 import { httpFetch } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import * as Sentry from '@sentry/react'
+import { ModalPortal } from './ModalPortal'
 
 interface Props {
   isOpen: boolean
@@ -25,17 +26,7 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const setGrades = useGradeStore((g) => g.setGrades)
   const setAttendance = useAttendanceStore((a) => a.setAttendance)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
-  // PHA 1 (audit A19): focus trap
-  const trapRef = useFocusTrap(isOpen)
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', handleKey); document.body.style.overflow = prev }
-  }, [isOpen, onClose])
+  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
 
   if (!isOpen) return null
 
@@ -151,7 +142,9 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="backup-restore-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+    <>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="backup-restore-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
       <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
@@ -247,7 +240,9 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </button>
         </div>
       </div>
-      {confirmDialog}
     </div>
+    </ModalPortal>
+    {confirmDialog}
+    </>
   )
 }

@@ -5,26 +5,31 @@ test.describe('E2E Role-Scoped Access & Navigation Flow', () => {
   test('phuhuynh role sees limited sidebar items', async ({ page }) => {
     await loginAsRole(page, 'phuhuynh')
     await page.goto('/dashboard')
-    await expect(page.getByText('Tổng Quan Giáo Xứ')).toBeVisible()
-    await expect(page.getByText('Danh Sách Thiếu Nhi')).toBeVisible()
-    await expect(page.getByText('Nhập Điểm Hàng Loạt')).not.toBeVisible()
-    await expect(page.getByText('Báo Cáo & In Phiếu')).not.toBeVisible()
-    await expect(page.getByText('Quản Lý Tài Khoản')).not.toBeVisible()
+    const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
+    await expect(navigation.getByRole('button', { name: 'Tổng Quan', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Con Của Tôi', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Thiếu Nhi', exact: true })).not.toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Bảng Điểm', exact: true })).not.toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Điểm Danh', exact: true })).not.toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Báo Cáo', exact: true })).not.toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quản Lý Hệ Thống', exact: true })).not.toBeVisible()
   })
 
   test('chunhiem role does not see Users menu', async ({ page }) => {
     await loginAsRole(page, 'chunhiem')
     await page.goto('/dashboard')
-    await expect(page.getByText('Báo Cáo & In Phiếu')).toBeVisible()
-    await expect(page.getByText('Quản Lý Tài Khoản')).not.toBeVisible()
+    const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
+    await expect(navigation.getByRole('button', { name: 'Báo Cáo', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quản Lý Hệ Thống', exact: true })).not.toBeVisible()
   })
 
-  test('phuta role does not see Reports or Users menu', async ({ page }) => {
+  test('phuta role sees teaching reports but not admin governance', async ({ page }) => {
     await loginAsRole(page, 'phuta')
     await page.goto('/dashboard')
-    await expect(page.getByText('Nhập Điểm Hàng Loạt')).toBeVisible()
-    await expect(page.getByText('Báo Cáo & In Phiếu')).not.toBeVisible()
-    await expect(page.getByText('Quản Lý Tài Khoản')).not.toBeVisible()
+    const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
+    await expect(navigation.getByRole('button', { name: 'Bảng Điểm', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Báo Cáo', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quản Lý Hệ Thống', exact: true })).not.toBeVisible()
   })
 
   test('admin can access /users but non-admin gets redirected', async ({ page }) => {

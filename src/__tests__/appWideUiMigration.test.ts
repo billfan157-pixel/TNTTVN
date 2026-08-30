@@ -5,13 +5,12 @@ import path from 'node:path'
 const root = path.resolve(__dirname, '..')
 const source = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), 'utf8')
 
-describe('App-wide UI System v4.1 migration contract', () => {
+describe('App-wide UI System v4.5 migration contract', () => {
   it('covers every desktop workspace with the product-view language', () => {
     const directViews = [
       'components/desktop/DesktopAttendanceGrid.tsx',
       'components/desktop/DesktopAttendanceSummary.tsx',
       'components/desktop/DesktopCalendarView.tsx',
-      'components/desktop/DesktopClasses.tsx',
       'components/desktop/DesktopDailyGradeEntry.tsx',
       'components/desktop/DesktopDashboard.tsx',
       'components/desktop/DesktopGradeCards.tsx',
@@ -25,6 +24,9 @@ describe('App-wide UI System v4.1 migration contract', () => {
 
     for (const file of directViews) expect(source(file), file).toContain('product-view')
     expect(source('components/desktop/DesktopAppShell.tsx')).toContain('product-view')
+    // Shared management pages now inherit the product-view language from the
+    // responsive shell rather than duplicating it on their route component.
+    expect(source('components/desktop/DesktopClasses.tsx')).toContain('<DesktopAppShell')
   })
 
   it('covers every mobile workflow with shared view, header, panel or entity primitives', () => {
@@ -47,7 +49,8 @@ describe('App-wide UI System v4.1 migration contract', () => {
     for (const file of mobileViews) expect(source(file), file).toContain('product-view')
     expect(source('components/mobile/MobileNoticesView.tsx')).toContain('mobile-page-header--brand')
     expect(source('components/mobile/MobileReportsView.tsx')).toContain('mobile-page-header--brand')
-    expect(source('components/mobile/MobileAttendanceView.tsx')).toContain('view-tabs')
+    expect(source('components/mobile/MobileAttendanceView.tsx')).toContain('<Tabs')
+    expect(source('components/mobile/MobileAttendanceView.tsx')).toContain('<TabPanel')
     expect(source('components/mobile/MobileStudentsView.tsx')).toContain('entity-card')
   })
 

@@ -34,6 +34,15 @@ async function installTenantApi(page: Parameters<typeof test>[0]['page'], getTen
       return
     }
 
+    if (url.pathname.endsWith('/auth/me')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: user }),
+      })
+      return
+    }
+
     if (url.pathname.endsWith('/students')) {
       const data = tenant === 'B' && url.searchParams.get('empty') === '1' ? [] : students[tenant]
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) })
@@ -77,6 +86,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await seedUser(page, 'A')
 
     await page.goto('/students')
+    await page.getByRole('button', { name: /Class Only A/ }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('Student Only B')).not.toBeVisible()
 
@@ -87,6 +97,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     }, users.B)
     await page.reload()
 
+    await page.getByRole('button', { name: /Class Only B/ }).click()
     await expect(page.getByText('Student Only B')).toBeVisible()
     await expect(page.getByText('Student Only A')).not.toBeVisible()
     await expect(page.getByText('Class Only A')).not.toBeVisible()
@@ -98,6 +109,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await seedUser(page, 'A')
 
     await page.goto('/students')
+    await page.getByRole('button', { name: /Class Only A/ }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
 
     tenant = 'B'
@@ -142,6 +154,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await installTenantApi(page, () => tenant)
     await seedUser(page, 'A')
     await page.goto('/students')
+    await page.getByRole('button', { name: /Class Only A/ }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
 
     const keys = await page.evaluate(async () => {

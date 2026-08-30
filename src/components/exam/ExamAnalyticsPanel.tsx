@@ -4,7 +4,8 @@ import { computeExamAnalytics } from '../../lib/examAnalytics'
 import { normalizeAnswerVariants } from '../../lib/examVariants'
 import { isMcGradedExamType } from '../../types'
 import type { ExamSession, ExamResult } from '../../types'
-import { useFocusTrap } from '../../hooks/useFocusTrap'
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { ModalPortal } from '../common/ModalPortal'
 
 interface ExamAnalyticsPanelProps {
   session: ExamSession
@@ -24,11 +25,11 @@ export const ExamAnalyticsPanel: React.FC<ExamAnalyticsPanelProps> = ({ session,
     [results, session.examType, session.questionCount, session.maxScore, variants],
   )
   const maxFrequency = Math.max(1, ...analytics.distribution.map(item => item.count))
-  // PHA 1 nợ (audit A19): focus trap
-  const trapRef = useFocusTrap(true)
+  const { dialogRef: trapRef } = useAccessibleDialog(true, onClose)
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="exam-analytics-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
+    <ModalPortal>
+    <div role="dialog" aria-modal="true" aria-labelledby="exam-analytics-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" onClick={onClose}>
       <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div><h4 id="exam-analytics-title" className="m-0 flex items-center gap-2 font-black text-parish-primary"><BarChart3 size={18} /> Phân tích phiên chấm</h4><p className="m-0 text-[11px] text-text-muted">{session.subject} · {analytics.count} kết quả</p></div>
@@ -57,5 +58,6 @@ export const ExamAnalyticsPanel: React.FC<ExamAnalyticsPanelProps> = ({ session,
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

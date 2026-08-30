@@ -11,7 +11,7 @@ import {
   UserPlus, Search,   Edit2, Trash2,
   FileText, Camera, Upload, CheckCircle2,  ChevronLeft,
   ChevronRight,  School,   CheckSquare, Square,
-  Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA
+  Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA, X
 } from 'lucide-react';
 import { useClassStore } from '../../stores/classStore';
 import { useStudentStore } from '../../stores/studentStore';
@@ -25,6 +25,8 @@ import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
 import { compareClassHierarchy } from '../../utils/classSort';
 import type { Student } from '../../types';
+import { Button, IconButton } from '../common/ui/Button';
+import { Select, TextInput } from '../common/ui/FormControls';
 
 interface DesktopStudentListProps {
   onOpenAddStudent: () => void;
@@ -210,31 +212,34 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         const meta = info.table.options.meta as any;
         return (
           <div className="flex items-center gap-1.5">
-            <button
+            <IconButton
               onClick={() => meta.onViewReport(info.row.original)}
               title="Xem kết quả học tập"
-              aria-label="Xem kết quả học tập"
+              label="Xem kết quả học tập"
+              icon={<FileText aria-hidden="true" size={16} />}
+              variant="plain"
+              size="sm"
               className="p-1.5 rounded-lg hover:bg-parish-primary-light text-parish-primary transition-colors"
-            >
-              <FileText size={16} />
-            </button>
-            <button
+            />
+            <IconButton
               onClick={() => meta.onViewPhotoCard(info.row.original)}
               title="Xem thẻ ảnh"
-              aria-label="Xem thẻ ảnh"
+              label="Xem thẻ ảnh"
+              icon={<Camera aria-hidden="true" size={16} />}
+              variant="plain"
+              size="sm"
               className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors"
-            >
-              <Camera size={16} />
-            </button>
+            />
             {meta.canEdit && (
-              <button
+              <IconButton
                 onClick={() => meta.onEditStudent(info.row.original)}
                 title="Chỉnh sửa"
-                aria-label="Chỉnh sửa học viên"
+                label="Chỉnh sửa học viên"
+                icon={<Edit2 aria-hidden="true" size={16} />}
+                variant="plain"
+                size="sm"
                 className="p-1.5 rounded-lg hover:bg-surface-hover text-text-secondary transition-colors"
-              >
-                <Edit2 size={16} />
-              </button>
+              />
             )}
           </div>
         );
@@ -306,39 +311,42 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             {/* Quick Search — flex-1 để co giãn, không đẩy vỡ layout */}
             <div className="relative flex-1 min-w-[180px] max-w-[260px]">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
-              <input
+              <TextInput
+                density="sm"
                 type="text"
                 placeholder="Tìm theo tên, mã thiếu nhi..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-9 text-xs font-medium rounded-xl outline-none pl-9 pr-8 bg-surface-hover text-text-main placeholder:text-text-placeholder border border-surface-border focus:bg-surface-card focus:border-parish-primary transition-all shadow-inner"
+                className="w-full h-9 text-xs font-medium rounded-xl !pl-9 !pr-8 bg-surface-hover text-text-main placeholder:text-text-placeholder focus:bg-surface-card transition-colors shadow-inner"
               />
               {searchQuery && (
-                <button
+                <IconButton
                   onClick={() => setSearchQuery('')}
-                  aria-label="Xóa tìm kiếm"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-text-secondary text-xs font-bold p-1"
-                >
-                  ×
-                </button>
+                  label="Xóa tìm kiếm"
+                  icon={<X aria-hidden="true" size={14} />}
+                  variant="quiet"
+                  size="sm"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2"
+                />
               )}
             </div>
 
             <div className="flex items-center gap-2 bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner shrink-0">
               <span className="text-[10px] font-black text-text-secondary uppercase px-2 whitespace-nowrap">Xem:</span>
-              <select
+              <Select
+                aria-label="Số dòng mỗi trang"
                 value={pageSize}
                 onChange={(e) => {
                   const val = e.target.value
                   handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
                 }}
-                className="text-xs font-bold border-none bg-transparent outline-none cursor-pointer pr-2"
+                className="text-xs font-bold !border-none bg-transparent outline-none cursor-pointer pr-2"
               >
                 <option value="50">50 / trang</option>
                 <option value="100">100 / trang</option>
                 <option value="200">200 / trang</option>
                 <option value="all">Tất cả</option>
-              </select>
+              </Select>
             </div>
 
             {/* Nút Sắp Xếp Cấp Bậc Lớp — gọn hơn trên desktop hẹp */}
@@ -352,9 +360,9 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                     setSorting([{ id: 'classId', desc: false }])
                   }
                 }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                   sorting[0]?.id === 'classId' && !sorting[0]?.desc
-                    ? 'bg-parish-primary text-white shadow-xs'
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
                 }`}
                 title="Sắp xếp danh sách học sinh theo lớp từ thấp đến cao (Chiên -> Ấu 1A -> Ấu 1B...)"
@@ -372,9 +380,9 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                     setSorting([{ id: 'classId', desc: true }])
                   }
                 }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                   sorting[0]?.id === 'classId' && sorting[0]?.desc
-                    ? 'bg-parish-primary text-white shadow-xs'
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
                 }`}
                 title="Sắp xếp danh sách học sinh theo lớp từ cao đến thấp (Hiệp 2 -> ... -> Chiên)"
@@ -387,18 +395,24 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             
             {canEdit && (
               <div className="flex gap-2 shrink-0">
-                <button 
-                  onClick={onImportStudents} 
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-surface-card border border-surface-border text-text-main font-bold text-xs rounded-xl shadow-sm hover:bg-surface-hover transition-all active:scale-95 whitespace-nowrap"
+                <Button
+                  onClick={onImportStudents}
+                  variant="secondary"
+                  size="sm"
+                  leadingIcon={<Upload aria-hidden="true" size={14} />}
+                  className="h-9 rounded-xl shadow-sm whitespace-nowrap"
                 >
-                  <Upload size={14} /> Import Excel
-                </button>
-                <button 
-                  onClick={onOpenAddStudent} 
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-parish-primary text-white font-bold text-xs rounded-xl shadow-md hover:bg-parish-primary-hover transition-all active:scale-95 whitespace-nowrap"
+                  Import Excel
+                </Button>
+                <Button
+                  onClick={onOpenAddStudent}
+                  variant="primary"
+                  size="sm"
+                  leadingIcon={<UserPlus aria-hidden="true" size={14} />}
+                  className="h-9 rounded-xl shadow-md whitespace-nowrap"
                 >
-                  <UserPlus size={14} /> Thêm Mới
-                </button>
+                  Thêm Mới
+                </Button>
               </div>
             )}
           </div>
@@ -438,14 +452,14 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               <button
                 key={c.id}
                 onClick={() => handleSelectClass(c.id)}
-                className="group text-left bg-surface-card border border-surface-border rounded-2xl p-4 flex flex-col gap-3 hover:border-parish-primary/30 hover:shadow-md transition-all active:scale-[0.98] relative overflow-hidden"
+                className="group text-left bg-surface-card border border-surface-border rounded-2xl p-4 flex flex-col gap-3 hover:border-parish-primary/30 hover:shadow-md transition-[border-color,box-shadow,transform] active:scale-[0.98] relative overflow-hidden"
               >
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-parish-primary/0 via-parish-primary/40 to-parish-gold/40 opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="flex items-center justify-between">
                         <span className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: BRANCHES[c.branchId as keyof typeof BRANCHES]?.badgeBg || 'var(--color-parish-primary-light)', color: BRANCHES[c.branchId as keyof typeof BRANCHES]?.textColor || 'var(--color-parish-primary)', borderColor: BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor ? `${BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor}40` : 'var(--color-surface-border)' }}>
                     {c.name.slice(0, 2).toUpperCase()}
                   </span>
-                  <span className="px-2.5 py-1 rounded-full bg-surface-hover border border-surface-border text-xs font-black text-text-secondary group-hover:bg-parish-primary group-hover:text-white group-hover:border-parish-primary transition-colors">
+                  <span className="px-2.5 py-1 rounded-full bg-surface-hover border border-surface-border text-xs font-black text-text-main group-hover:bg-parish-primary group-hover:text-text-inverse group-hover:border-parish-primary transition-colors">
                     {c.studentCount ?? 0} em
                   </span>
                 </div>
@@ -564,20 +578,22 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               Trang <span className="text-text-main">{pageIndex + 1}</span> / {totalPages}
             </p>
             <div className="flex gap-2">
-              <button
+              <IconButton
                 disabled={pageIndex === 0}
                 onClick={() => setPageIndex(p => p - 1)}
+                label="Trang trước"
+                icon={<ChevronLeft aria-hidden="true" size={16} />}
+                variant="secondary"
                 className="p-2 rounded-xl border border-surface-border bg-surface-card text-text-secondary disabled:opacity-30 transition-all hover:bg-surface-hover active:scale-90 shadow-sm"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button
+              />
+              <IconButton
                 disabled={pageIndex >= totalPages - 1}
                 onClick={() => setPageIndex(p => p + 1)}
+                label="Trang sau"
+                icon={<ChevronRight aria-hidden="true" size={16} />}
+                variant="secondary"
                 className="p-2 rounded-xl border border-surface-border bg-surface-card text-text-secondary disabled:opacity-30 transition-all hover:bg-surface-hover active:scale-90 shadow-sm"
-              >
-                <ChevronRight size={16} />
-              </button>
+              />
             </div>
           </div>
         )}

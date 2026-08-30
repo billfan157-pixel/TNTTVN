@@ -528,7 +528,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
         : 'Tạo, cấp quyền, khóa & đặt mật khẩu người dùng'
 
   return (
-    <DesktopAppShell width="wide" className="flex flex-col gap-6">
+    <DesktopAppShell width="wide" embedded={embedded}>
       {!embedded && <PageHeader
         icon={<ShieldCheck className="w-6 h-6 text-parish-primary" />}
         title={headerTitle}
@@ -565,7 +565,127 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
         <div className="alert-error">{error}</div>
       )}
 
-      <div className="app-panel overflow-x-auto">
+      {/* Mobile User Card List (< md) */}
+      <div className="block md:hidden space-y-3">
+        {filteredUsers.length === 0 ? (
+          <NoResultState
+            title="Không có tài khoản nào"
+            description={search ? `Không tìm thấy tài khoản khớp "${search}". Thử từ khóa khác.` : 'Chưa có tài khoản nào trong phạm vi này.'}
+            onReset={search ? () => setSearch('') : undefined}
+            resetLabel="Xóa tìm kiếm"
+          />
+        ) : (
+          filteredUsers.map((u) => {
+            const roleBadge = u.role === 'admin' ? (
+              <span className="px-2.5 py-0.5 text-xs font-bold bg-purple-500/10 text-purple-600 rounded-full">Admin</span>
+            ) : u.role === 'chunhiem' ? (
+              <span className="px-2.5 py-0.5 text-xs font-bold bg-sky-500/10 text-sky-600 rounded-full">Chủ Nhiệm</span>
+            ) : u.role === 'phuta' ? (
+              <span className="px-2.5 py-0.5 text-xs font-bold bg-emerald-500/10 text-emerald-600 rounded-full">Phụ Tá</span>
+            ) : (
+              <span className="px-2.5 py-0.5 text-xs font-bold bg-amber-500/10 text-amber-600 rounded-full">Phụ Huynh</span>
+            )
+
+            const statusBadge = u.status === 'ACTIVE' ? (
+              <span className="px-2 py-0.5 text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 rounded-full">Đang Hoạt Động</span>
+            ) : u.status === 'LOCKED' ? (
+              <span className="px-2 py-0.5 text-[11px] font-semibold bg-rose-500/10 text-rose-600 rounded-full">Đã Khóa</span>
+            ) : (
+              <span className="px-2 py-0.5 text-[11px] font-semibold bg-amber-500/10 text-amber-600 rounded-full">Cần Đổi Pass</span>
+            )
+
+            return (
+              <div key={u.id} className="entity-card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="font-extrabold text-base text-text-main leading-tight truncate">
+                        {u.fullName}
+                      </h3>
+                      {u.holyName && <span className="text-xs font-semibold text-parish-primary shrink-0">Th. {u.holyName}</span>}
+                    </div>
+                    <p className="text-xs text-text-muted font-mono mt-0.5 truncate">
+                      @{u.username}{u.phone ? ` • ${u.phone}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {roleBadge}
+                    {statusBadge}
+                  </div>
+                </div>
+
+                {/* Assigned classes & Login Info */}
+                <div className="bg-surface-hover/70 dark:bg-surface-card p-3 rounded-xl border border-surface-border text-xs space-y-1.5">
+                  {(u.role === 'chunhiem' || u.role === 'phuta') && (
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-text-muted font-medium shrink-0">Lớp phụ trách:</span>
+                      <div className="text-right">{renderAssignments(u.assignedClasses)}</div>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-2 text-text-muted">
+                    <span>Đăng nhập cuối:</span>
+                    <span className="font-medium text-text-secondary">
+                      {u.lastLoginAt ? formatDateTimeVi(u.lastLoginAt) : 'Chưa đăng nhập'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mobile Action Buttons */}
+                <div className="flex items-center gap-1.5 pt-1 border-t border-surface-border flex-wrap">
+                  {(u.role === 'chunhiem' || u.role === 'phuta') && (
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(u)}
+                      className="btn btn-secondary btn-sm min-h-[40px] px-2.5 text-xs font-semibold flex items-center gap-1"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Phân Công
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openChangePassword(u)}
+                    className="btn btn-secondary btn-sm min-h-[40px] px-2.5 text-xs font-semibold flex items-center gap-1"
+                  >
+                    <Key className="w-3.5 h-3.5" /> Đặt Mật Khẩu
+                  </button>
+                  {!isSuperAdmin(u) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openPhoneModal(u)}
+                        className="btn btn-secondary btn-sm min-h-[40px] px-2.5 text-xs font-semibold flex items-center gap-1"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" /> Đổi SĐT
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => confirmToggleUserStatus(u)}
+                        className={`btn btn-sm min-h-[40px] px-2.5 text-xs font-semibold flex items-center gap-1 ${
+                          u.status === 'ACTIVE' ? 'btn-ghost text-parish-danger hover:bg-parish-danger-bg' : 'btn-primary'
+                        }`}
+                      >
+                        {u.status === 'ACTIVE' ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                        {u.status === 'ACTIVE' ? 'Khóa' : 'Mở Khóa'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => confirmForceLogout(u)}
+                        className="btn btn-ghost btn-sm min-h-[40px] px-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 flex items-center gap-1"
+                        title="Đăng xuất khỏi mọi thiết bị"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Desktop Table View (>= md) */}
+      <div className="hidden md:block app-panel overflow-x-auto">
         <table className="w-full min-w-max text-left text-sm border-collapse bg-surface-card text-text-main">
           <thead>
             <tr className="bg-surface-app text-text-muted border-b-2 border-surface-border text-xs font-bold uppercase tracking-wider">

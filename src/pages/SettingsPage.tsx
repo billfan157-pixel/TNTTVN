@@ -115,7 +115,7 @@ const SettingsPage: React.FC = () => {
   const inputCls = 'w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary transition-shadow'
 
   return (
-    <DesktopAppShell width="wide" className="flex flex-col gap-5">
+    <DesktopAppShell width="wide">
       <PageHeader
         icon={<Settings className="w-5 h-5" />}
         title="Cài Đặt Hệ Thống"
