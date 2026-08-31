@@ -109,6 +109,15 @@ export const MOBILE_TAB_PATHS = {
   notices: '/notices',
 } as const satisfies Record<MobileRouteTab, ProtectedRoutePath>
 
+export const MOBILE_PRIMARY_TABS = [
+  'home',
+  'attendance',
+  'grades',
+  'students',
+  'parent',
+  'reports',
+] as const satisfies readonly MobileRouteTab[]
+
 export function getRoutePolicy(pathname: string): RoutePolicy | undefined {
   return ROUTE_POLICIES[pathname as AppRoutePath]
 }
@@ -117,4 +126,11 @@ export function canRoleAccessRoute(pathname: AppRoutePath, role: Role | null | u
   const policy = ROUTE_POLICIES[pathname]
   if (!policy.requiresAuth) return true
   return Boolean(role && policy.roles.some(allowedRole => allowedRole === role))
+}
+
+/** Mobile destinations whose code chunks may be prefetched for the active role. */
+export function getMobilePreloadPaths(role: Role | null | undefined): ProtectedRoutePath[] {
+  if (!role) return []
+  return [...new Set(MOBILE_PRIMARY_TABS.map(tab => MOBILE_TAB_PATHS[tab]))]
+    .filter(path => canRoleAccessRoute(path, role))
 }

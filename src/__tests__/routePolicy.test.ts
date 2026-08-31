@@ -6,6 +6,7 @@ import {
   MOBILE_TAB_PATHS,
   ROUTE_POLICIES,
   canRoleAccessRoute,
+  getMobilePreloadPaths,
   getRoutePolicy,
 } from '../constants/routePolicy'
 
@@ -38,6 +39,18 @@ describe('frontend route policy SSOT (ADR-072)', () => {
     for (const [tab, path] of Object.entries(MOBILE_TAB_PATHS)) {
       expect(getRoutePolicy(path)?.mobileTab, path).toBe(tab)
     }
+  })
+
+  it('prefetches only role-visible mobile destinations', () => {
+    expect(getMobilePreloadPaths('phuhuynh')).toEqual(['/dashboard', '/parent'])
+    expect(getMobilePreloadPaths('phuta')).toEqual([
+      '/dashboard',
+      '/attendance',
+      '/grades',
+      '/students',
+      '/reports',
+    ])
+    expect(getMobilePreloadPaths(null)).toEqual([])
   })
 
   it('wires every protected policy into the router guard', () => {

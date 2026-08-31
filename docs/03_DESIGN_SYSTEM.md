@@ -128,7 +128,7 @@ Việc điều chỉnh foreground Nghĩa Sĩ chỉ sửa contrast của chữ ba
 - `pill-btn` / `pill-btn-primary` / `pill-btn-secondary` / `pill-btn-active` + `pill-group` (segmented control)
 
 ### 3.2 Form
-- `form-group`, `form-label`, `form-input`, `form-select`, `form-textarea`, `form-input-sm` (pill search)
+- `form-group`, `form-label`, `form-input`, `form-select`, `form-textarea`, `form-input-sm` (pill search 36px), `form-select-sm` / compact select (36px toolbar class picker)
 - Error state: `aria-invalid="true"` + `form-error`
 
 ### 3.3 Badge
@@ -440,6 +440,11 @@ flex h-screen flex-col
   (header/sidebar/bottom nav) đứng yên; `app-page` fade-through + dịch dọc tối đa
   6px, 120–260ms. Trình duyệt thiếu `document.startViewTransition` dùng
   `.route-transition-frame--fallback`; reduced-motion tắt animation và smooth scroll.
+- Route readiness (ADR-080): route component dùng `lazyWithRetry` phải giữ
+  `.preload()` để TanStack thực sự tải chunk trước navigation. Mobile primary routes
+  được làm ấm **tuần tự** theo role khi browser idle; bottom-nav pointer/focus khởi
+  động preload còn thiếu và pending highlight phản hồi ngay. Không preload đồng loạt
+  mọi route, không replay motion cho search/filter, không đổi `aria-current` trước URL commit.
 - Mọi route/view: `.product-view`; `DesktopAppShell` tự gắn class này.
 - Generic content: `.app-panel`, `.app-panel--interactive`, `.entity-card`.
 - Filter/action cluster: `.view-toolbar`; switcher/tab: `.view-tabs` + `.view-tab.is-active`.

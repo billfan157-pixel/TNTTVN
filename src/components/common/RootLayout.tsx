@@ -21,6 +21,7 @@ import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import { useSyncEngine } from '../../hooks/useSyncEngine'
 import { useStoreErrorWatcher } from '../../hooks/useStoreErrorWatcher'
 import { useScrollRestoration } from '../../hooks/useScrollRestoration'
+import { useMobileRoutePreload } from '../../hooks/useMobileRoutePreload'
 import { useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -115,6 +116,7 @@ export function RootLayout() {
 
   const mode = useEffectiveMode()
   useScrollRestoration(pathname, mode)
+  const preloadMobileTab = useMobileRoutePreload(mode, currentUser?.role)
   const classList = useClassStore(s => s.getClassList)()
 
   if (!authReady) {
@@ -147,6 +149,7 @@ export function RootLayout() {
         <MobileAppShell
           activeTab={activeMobileTab}
           setActiveTab={(tab) => navigate({ to: MOBILE_TAB_PATHS[tab] })}
+          preloadTab={preloadMobileTab}
         >
           <HeaderBar />
           <PageTransition routeKey={pathname}>

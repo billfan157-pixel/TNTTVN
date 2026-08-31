@@ -378,8 +378,8 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
-  // Viewport preload: links in sidebar/bottom-nav enter viewport on load → chunk fetched before tap.
-  // Intent (hover/touchstart) still works as fallback, but viewport gives instant mobile.
+  // Links can request viewport/intent preload. Mobile button navigation additionally
+  // uses useMobileRoutePreload so role-visible chunks warm sequentially during idle.
   defaultPreload: 'viewport',
   defaultPreloadStaleTime: 10_000,
   // Avoid flash of loader for fast (<200ms) transitions; keep loader min 300ms to prevent flicker.
@@ -391,23 +391,6 @@ export const router = createRouter({
     ? { types: ({ pathChanged }) => pathChanged ? ['app-page-change'] : false }
     : false,
 })
-
-// Idle prefetch critical routes: dashboard, students, grades, attendance are 80% of navigations.
-// Runs once after first paint, during idle, without blocking main thread.
-if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-  requestIdleCallback(() => {
-    // Preload the most likely next chunks (tanstack will dedupe if already loaded)
-    router.preloadRoute({ to: '/dashboard' }).catch(() => {})
-    router.preloadRoute({ to: '/students' }).catch(() => {})
-    router.preloadRoute({ to: '/grades' }).catch(() => {})
-    router.preloadRoute({ to: '/attendance' }).catch(() => {})
-  }, { timeout: 2000 })
-} else if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    router.preloadRoute({ to: '/dashboard' }).catch(() => {})
-    router.preloadRoute({ to: '/students' }).catch(() => {})
-  }, 1500)
-}
 
 declare module '@tanstack/react-router' {
   interface Register {

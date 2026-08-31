@@ -19,7 +19,15 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ role: mocks.role }),
+  useAuth: () => ({
+    role: mocks.role,
+    can: (action: string, ...roles: string[]) => {
+      if (mocks.role === 'admin') return true
+      if (action === 'admin') return mocks.role === 'admin'
+      if (roles.length > 0) return roles.includes(mocks.role)
+      return false
+    },
+  }),
 }))
 
 vi.mock('../../stores/studentStore', () => ({

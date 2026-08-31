@@ -1,5 +1,4 @@
 import { MobileStudentsView } from '../components/mobile/MobileStudentsView'
-import { ExcelImportModal } from '../components/common/ExcelImportModal'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { useUIStore } from '../stores/uiStore'
 import { useStudentStore } from '../stores/studentStore'
@@ -37,6 +36,11 @@ const PromotionPanel = lazyWithRetry<React.FC<{
   onViewPhotoCard?: (student: Student) => void
   onViewCertificate?: (student: Student) => void
 }>>(() => import('../components/desktop/PromotionPanel'), 'PromotionPanel')
+
+const ExcelImportModal = lazyWithRetry<React.FC<{
+  isOpen: boolean
+  onClose: () => void
+}>>(() => import('../components/common/ExcelImportModal'), 'ExcelImportModal')
 
 export function StudentsPage() {
   const navigate = useNavigate()
@@ -187,7 +191,11 @@ export function StudentsPage() {
         </TabPanel>
       </div>
 
-      <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+      {showImportModal && (
+        <Suspense fallback={null}>
+          <ExcelImportModal isOpen onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+        </Suspense>
+      )}
       <ConfirmDialog
         isOpen={showConfirmSend}
         title="Gửi Kết Quả Học Tập"
@@ -213,7 +221,11 @@ export function StudentsPage() {
         onSendReportCards={handleSendReportCards}
         sendingCards={sendingCards}
       />
-      <ExcelImportModal isOpen={showImportModal} onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+      {showImportModal && (
+        <Suspense fallback={null}>
+          <ExcelImportModal isOpen onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+        </Suspense>
+      )}
       <ConfirmDialog
         isOpen={showConfirmSend}
         title="Gửi Kết Quả Học Tập"

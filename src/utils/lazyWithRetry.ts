@@ -1,4 +1,8 @@
-import { lazy, type ComponentType } from 'react'
+import { createElement, type ComponentType } from 'react'
+
+export type PreloadableComponent<T extends ComponentType<any>> = T & {
+  preload: () => Promise<void>
+}
 
 /**
  * lazyWithRetry — Bọc lazy() để tự động thử lại khi tải module bất đồng bộ bị gián đoạn mạng hoặc stale chunk do deploy/Vite HMR.
@@ -9,14 +13,21 @@ export function lazyWithRetry<T extends ComponentType<any>>(
   exportName = 'default',
   retries = 3,
   interval = 300
-): React.LazyExoticComponent<T> {
-  return lazy(() =>
-    new Promise<{ default: T }>((resolve, reject) => {
+): PreloadableComponent<T> {
+  let loadedComponent: T | undefined
+  let loadPromise: Promise<void> | undefined
+
+  const load = () => {
+    if (loadedComponent) return Promise.resolve()
+    if (loadPromise) return loadPromise
+
+    loadPromise = new Promise<void>((resolve, reject) => {
       const attempt = (remaining: number) => {
         factory()
           .then((module: any) => {
             const comp = exportName === 'default' ? module.default || module : module[exportName] || module.default || module
-            resolve({ default: comp })
+            loadedComponent = comp as T
+            resolve()
           })
           .catch((error) => {
             const msg = String(error?.message || error || '')
@@ -52,5 +63,18 @@ export function lazyWithRetry<T extends ComponentType<any>>(
       }
       attempt(retries)
     })
-  )
+
+    return loadPromise
+  }
+
+  // TanStack Router only preloads route components that expose `.preload()`.
+  // Rendering the resolved component directly also avoids a second Suspense
+  // pass after the router has already awaited the module during navigation.
+  const PreloadableLazyComponent = ((props: any) => {
+    if (!loadedComponent) throw load()
+    return createElement(loadedComponent, props)
+  }) as unknown as PreloadableComponent<T>
+
+  PreloadableLazyComponent.preload = load
+  return PreloadableLazyComponent
 }

@@ -2439,3 +2439,60 @@ Verification local được chạy tuần tự để tránh race `coverage/.tmp`
 
 Post-implementation reassessment giữ option C ở **8.85**; hard gates và ADR consistency tiếp tục PASS. Residual manual acceptance không chặn code integration nhưng chặn mọi claim “WCAG compliant” hoặc field-validated.
 
+---
+
+## ADR-080: Mobile Route Readiness, Staged Preload & Immediate Navigation Feedback (2026-08-30)
+
+**Status: IMPLEMENTED / VERIFICATION CONDITIONAL. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Problem và evidence
+
+Mobile đổi nhanh giữa primary pages có khoảng trễ trước fade-through. Audit end-to-end xác nhận:
+
+- **E3 HIGH:** route component dùng `lazyWithRetry` dựa trên `React.lazy` nhưng không có `.preload()`; TanStack `preloadRouteComponents()` chỉ gọi component `.preload?.()`. Vì vậy các `router.preloadRoute()` cũ không làm ấm page chunk như comment.
+- **E3 HIGH:** mobile bottom nav là `<button>` + `navigate()`, không phải Router `Link`; `defaultPreload: 'viewport'` không áp dụng cho các nút này.
+- **E3 HIGH:** Router bắt đầu View Transition trong `loadMatches.onReady`; cold import vì vậy trì hoãn trước animation, tạo perceived no-response. Motion 120–180ms/reduced-motion hiện tại không phải root cause đã chứng minh.
+- **E2 MEDIUM:** baseline production build trước batch có initial JS 59.10 KB gzip, router 41.54 KB, Attendance 17.81 KB, Dashboard 10.42 KB, Students 7.42 KB, Grades 4.13 KB; nested default `MobileGradeBoard` 3.33 KB và modal import Excel 12.50 KB. PWA precache 182 entries / 2667.93 KiB. Đây không phải field timing.
+- **E1 MEDIUM:** authenticated Chromium 390×844 render mobile admin/566-student snapshot không console error. Mid-tier Android/iOS latency, FPS và Long Task vẫn **UNKNOWN / NOT CONFIRMED**.
+
+### Options và matrix
+
+| Criterion | Weight | A: CSS-only/current preload | B: eager mọi route | C: preloadable + staged role queue |
+| --- | ---: | ---: | ---: | ---: |
+| Business / Operational Fit | 15% | 5 | 6 | 9 |
+| Reliability & Data Integrity | 20% | 9 | 9 | 9 |
+| Security & Privacy | 20% | 9 | 8 | 9 |
+| Maintainability | 15% | 6 | 6 | 8 |
+| Performance | 10% | 3 | 5 | 9 |
+| Testability | 10% | 4 | 7 | 9 |
+| Reversibility | 5% | 10 | 8 | 9 |
+| Observability | 5% | 4 | 5 | 7 |
+| **Weighted** | **100%** | **6.65 — REJECT** | **7.30 — REJECT** | **8.80 — SELECT** |
+
+A không xử lý root cause và fail D2 Testability. B tăng startup transfer/parse cho route user không dùng, đặc biệt bất lợi mobile. C dùng policy/lazy boundary hiện hữu, tải tuần tự và rollback theo file.
+
+### Decision contract
+
+1. `lazyWithRetry` giữ retry/reload-loop protection, thêm `.preload()`, dedupe concurrent promise và render component đã resolve đồng bộ sau preload.
+2. `getMobilePreloadPaths(role)` chỉ trả primary destination role được phép; đây là UX optimization, không thay server authorization.
+3. `useMobileRoutePreload` bỏ route hiện tại, preload tuần tự trong idle callback (timer fallback), không tạo burst bốn import đồng thời; cleanup hủy queue khi mode/role đổi.
+4. Bottom nav preloads tại pointer/focus, hiện pending selection và `aria-busy` ngay; `aria-current` chỉ theo committed route. Rapid tap mới nhất điều khiển pending visual; expected native interruption handling ADR-079 giữ nguyên.
+5. Default `MobileGradeBoard` đi cùng Grades route; non-default Daily/Comparison/Exam tiếp tục lazy. `ExcelImportModal` chỉ tải khi mở.
+6. Không đổi animation token/style, API/schema/auth, tenant state, data fetch, offline queue, business calculation, print hay OMR.
+
+### Gates, compatibility, risks và rollback
+
+- **D2 hard gates:** Security & Privacy **9**, Data Integrity **9**, Testability **9** — PASS bằng scope không writer/API/authority + unit/source contracts và full frontend build.
+- **ADR compatibility:** ADR-063 (navy–gold), ADR-065 (pathname motion), ADR-072 (route policy/RBAC), ADR-077 (mobile shell), ADR-079 (runtime evidence) = **PASS**.
+- **Architecture:** `RootLayout → hook → router/policy` và pages → components giữ chiều dependency hiện hữu = **PASS**. **Business Rule Gate:** không đổi nghiệp vụ = **CONFIRMED**.
+- **Risks:** idle prefetch tiêu data/CPU (medium/medium) → chỉ primary role paths, tuần tự, bỏ current; preload rejection/stale deploy (low/medium) → retry + one-reload guard; pending UI stale (low/medium) → reset theo committed active route và clear on rejection. Residual low/medium cho đến device trace.
+- **Rollback:** R1, revert hook/preload wrapper/nav feedback/nested boundary/docs; không migration hoặc data recovery.
+
+### Verification và source synchronization
+
+- Targeted: **5 files / 28 tests PASS** gồm preload dedupe/named export, role paths, pending/rapid navigation, PageTransition và representative mobile views.
+- `npm run lint`: **PASS**.
+- Full `npm run build:frontend` (`tsc -b && vite build`): **PASS**; Grades default route bỏ nested board chunk, Excel modal vẫn dynamic-only, initial entry không tăng.
+- Candidate performance targets/device plan và evidence boundary: `docs/mobile-route-performance-audit-2026-08-30.md`. Real-device/production target achievement: **NOT CONFIRMED**.
+- Updated: Architecture, Design System, AI Context, ADR and dedicated audit. API/schema/business/security docs: **NOT AFFECTED**.
+

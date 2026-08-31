@@ -10,11 +10,11 @@ import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { SkeletonCardGrid } from '../common/StateFeedback'
 import { Badge } from '../common/ui/Badge'
 import { FilterChips, TabPanel, Tabs } from '../common/ui/SelectionControls'
+import { MobileGradeBoard } from './MobileGradeBoard'
 
 const ExamSessionView = lazyWithRetry(() => import('../exam/ExamSessionView'), 'ExamSessionView')
 const MobileDailyGradeEntry = lazyWithRetry(() => import('./MobileDailyGradeEntry'), 'MobileDailyGradeEntry')
 const MobileGradeComparison = lazyWithRetry(() => import('./MobileGradeComparison'), 'MobileGradeComparison')
-const MobileGradeBoard = lazyWithRetry(() => import('./MobileGradeBoard'), 'MobileGradeBoard')
 
 // C1 Unified: gộp Thẻ điểm + Ma trận → 1 tab Bảng điểm (4 tabs thay vì 5)
  type MobileGradeTab = 'board' | 'daily' | 'comparison' | 'exam'
@@ -108,9 +108,7 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
       />
 
       <TabPanel tabsId="mobile-grade-view-tabs" value="board" activeValue={activeTab}>
-        <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
-          <MobileGradeBoard onViewReport={onViewReport} />
-        </Suspense>
+        <MobileGradeBoard onViewReport={onViewReport} />
       </TabPanel>
       <TabPanel tabsId="mobile-grade-view-tabs" value="daily" activeValue={activeTab}>
         <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>

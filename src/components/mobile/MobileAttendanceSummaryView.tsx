@@ -14,6 +14,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { StudentName } from '../common/StudentName'
+import { SegmentedControl } from '../common/ui/SelectionControls'
 import {
   calculateClassAttendanceAnalytics,
   exportAttendanceSummaryReport,
@@ -123,7 +124,8 @@ export const MobileAttendanceSummaryView: React.FC = () => {
           <select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
-            className="form-select text-xs font-bold flex-1 min-h-[44px]"
+            className="form-select text-xs font-bold flex-1 h-[36px] min-h-[36px] py-1 pl-3 pr-8 rounded-xl"
+            aria-label="Chọn lớp xem tổng hợp chuyên cần"
           >
             <option value="all">Tất cả các lớp</option>
             {classList.map((c) => (
@@ -135,81 +137,77 @@ export const MobileAttendanceSummaryView: React.FC = () => {
 
           {/* Xuất Excel */}
           <button
+            type="button"
             onClick={handleExportExcel}
-            className="btn btn-primary text-xs font-bold mobile-btn px-3 flex items-center gap-1.5 shrink-0 shadow-xs"
+            className="btn btn-primary text-xs font-bold mobile-btn px-3 flex items-center gap-1.5 shrink-0 shadow-xs rounded-xl h-[36px] min-h-[36px] py-1 active:scale-[0.98] transition-transform"
           >
-            <FileSpreadsheet size={14} />
+            <FileSpreadsheet size={14} aria-hidden="true" />
             <span>Excel</span>
           </button>
         </div>
 
         {/* Segmented Period Tabs */}
-        <div className="flex bg-surface-app p-1 rounded-xl border border-surface-border gap-1">
-          <button
-            onClick={() => setTimeFilterType('year')}
-            className={`flex-1 min-h-[44px] py-2 text-xs font-bold rounded-lg transition-all text-center ${
-              timeFilterType === 'year'
-                ? 'bg-parish-primary text-white shadow-xs'
-                : 'text-text-secondary hover:bg-surface-card'
-            }`}
-          >
-            Cả Năm
-          </button>
-          <button
-            onClick={() => setTimeFilterType('sem1')}
-            className={`flex-1 min-h-[44px] py-2 text-xs font-bold rounded-lg transition-all text-center ${
-              timeFilterType === 'sem1'
-                ? 'bg-parish-primary text-white shadow-xs'
-                : 'text-text-secondary hover:bg-surface-card'
-            }`}
-          >
-            Học Kỳ 1
-          </button>
-          <button
-            onClick={() => setTimeFilterType('sem2')}
-            className={`flex-1 min-h-[44px] py-2 text-xs font-bold rounded-lg transition-all text-center ${
-              timeFilterType === 'sem2'
-                ? 'bg-parish-primary text-white shadow-xs'
-                : 'text-text-secondary hover:bg-surface-card'
-            }`}
-          >
-            Học Kỳ 2
-          </button>
-        </div>
+        <SegmentedControl
+          id="mobile-attendance-time-filter"
+          ariaLabel="Thời gian tổng hợp chuyên cần"
+          items={[
+            { value: 'year', label: 'Cả Năm' },
+            { value: 'sem1', label: 'Học Kỳ 1' },
+            { value: 'sem2', label: 'Học Kỳ 2' },
+          ]}
+          value={timeFilterType}
+          onValueChange={setTimeFilterType}
+          className="w-full"
+        />
 
         {/* Search Box */}
         <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
-            type="text"
-            placeholder="Tìm theo tên hoặc mã..."
+            type="search"
+            inputMode="search"
+            placeholder="Tìm theo tên hoặc mã thiếu nhi..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="form-input pl-8 text-xs font-medium min-h-[40px] w-full"
+            className="form-input text-xs font-medium min-h-[44px] w-full pr-8 rounded-xl"
+            style={{ paddingLeft: '36px' }}
+            aria-label="Tìm thiếu nhi trong bảng tổng hợp"
           />
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
+            <Search size={14} aria-hidden="true" />
+          </span>
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-1 rounded-full text-xs font-bold"
+              aria-label="Xóa tìm kiếm"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
 
       {/* Quick KPI Overview */}
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-surface-card p-3 rounded-xl border border-surface-border shadow-xs">
-          <div className="text-[10px] uppercase font-bold text-text-muted">Chuyên Cần Chung</div>
-          <div className="text-xl font-black text-text-main mt-0.5">{kpis.averageRate}%</div>
-          <div className="text-[10px] text-text-muted mt-1">
+          <div className="text-xs uppercase font-extrabold text-text-muted tracking-wider">Chuyên Cần Chung</div>
+          <div className="text-xl font-black text-text-main mt-0.5 tabular-nums">{kpis.averageRate}%</div>
+          <div className="text-xs text-text-muted mt-1">
             {kpis.totalStudents} em • {kpis.totalSessionsMarked} buổi
           </div>
         </div>
 
         <div className="bg-surface-card p-3 rounded-xl border border-surface-border shadow-xs">
-          <div className="text-[10px] uppercase font-bold text-text-muted">Cảnh Báo Vắng</div>
+          <div className="text-xs uppercase font-extrabold text-text-muted tracking-wider">Cảnh Báo Vắng</div>
           <div
-            className={`text-xl font-black mt-0.5 ${
-              kpis.atRiskStudents.length > 0 ? 'text-rose-600' : 'text-emerald-600'
+            className={`text-xl font-black mt-0.5 tabular-nums ${
+              kpis.atRiskStudents.length > 0 ? 'text-parish-danger' : 'text-parish-success'
             }`}
           >
             {kpis.atRiskStudents.length} em
           </div>
-          <div className="text-[10px] text-text-muted mt-1">
+          <div className="text-xs text-text-muted mt-1">
             {kpis.atRiskStudents.length > 0 ? 'Cần liên hệ PH' : 'Đều đạt chuẩn'}
           </div>
         </div>
@@ -217,16 +215,16 @@ export const MobileAttendanceSummaryView: React.FC = () => {
 
       {/* Quick Session Stats Bar */}
       <div className="bg-surface-card p-3 rounded-xl border border-surface-border shadow-xs flex items-center justify-between text-xs font-bold">
-        <div className="flex items-center gap-1.5 text-sky-600">
-          <Church size={14} />
+        <div className="flex items-center gap-1.5 text-parish-primary">
+          <Church size={14} aria-hidden="true" />
           <span>Lễ: {kpis.massRate}%</span>
         </div>
-        <div className="flex items-center gap-1.5 text-amber-600">
-          <BookOpen size={14} />
+        <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+          <BookOpen size={14} aria-hidden="true" />
           <span>Giáo lý: {kpis.catechismRate}%</span>
         </div>
-        <div className="flex items-center gap-1.5 text-purple-600">
-          <HeartHandshake size={14} />
+        <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-400">
+          <HeartHandshake size={14} aria-hidden="true" />
           <span>Chầu: {kpis.adorationRate}%</span>
         </div>
       </div>
@@ -235,12 +233,14 @@ export const MobileAttendanceSummaryView: React.FC = () => {
       <div className="flex items-center justify-between text-xs px-1">
         <span className="font-bold text-text-muted">Danh Sách Học Sinh ({filteredSummaries.length})</span>
         <button
+          type="button"
           onClick={() => setStatusFilter((prev) => (prev === 'all' ? 'warning' : 'all'))}
-          className={`px-3 min-h-[44px] flex items-center rounded-lg font-bold border transition-colors ${
+          className={`px-3 min-h-[44px] flex items-center rounded-xl font-bold border transition-colors ${
             statusFilter === 'warning'
               ? 'bg-rose-500/10 text-rose-600 border-rose-500/30'
-              : 'bg-surface-card text-text-secondary border-surface-border'
+              : 'bg-surface-card text-text-secondary border-surface-border hover:bg-surface-hover'
           }`}
+          aria-pressed={statusFilter === 'warning'}
         >
           {statusFilter === 'warning' ? 'Đang lọc: Cần lưu ý' : 'Lọc cần lưu ý'}
         </button>
@@ -262,7 +262,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="xs" />
-                  <div className="text-[10px] text-text-muted font-mono">{item.student.code}</div>
+                  <div className="text-xs text-text-muted font-mono">{item.student.code}</div>
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -279,7 +279,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
                   >
                     {item.overall.rate}%
                   </span>
-                  <ChevronRight size={14} className="text-text-muted" />
+                  <ChevronRight size={14} className="text-text-muted" aria-hidden="true" />
                 </div>
               </div>
 
@@ -294,7 +294,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
               </div>
 
               {/* Session Pills */}
-              <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+              <div className="grid grid-cols-3 gap-1.5 text-xs">
                 <div className="p-1.5 rounded-lg bg-sky-500/5 text-sky-700 dark:text-sky-400 border border-sky-500/10 text-center">
                   <span className="font-bold">Lễ: </span>
                   <span>

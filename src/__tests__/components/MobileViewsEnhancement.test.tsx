@@ -4,9 +4,16 @@ import { MobileGradeView } from '../../components/mobile/MobileGradeView'
 import { MobileNoticesView } from '../../components/mobile/MobileNoticesView'
 import { MobileStudentsView } from '../../components/mobile/MobileStudentsView'
 import { MobileHomeView } from '../../components/mobile/MobileHomeView'
+import { MobileAttendanceView } from '../../components/mobile/MobileAttendanceView'
+import { MobileAttendanceSummaryView } from '../../components/mobile/MobileAttendanceSummaryView'
+import { MobileLeaveRequests } from '../../components/mobile/MobileLeaveRequests'
 import { MobileBottomNav } from '../../components/mobile/MobileBottomNav'
 import { useAuthStore } from '../../stores/authStore'
 import { useNoticeStore } from '../../stores/noticeStore'
+import { useStudentStore } from '../../stores/studentStore'
+import { useClassStore } from '../../stores/classStore'
+import { useFilterStore } from '../../stores/filterStore'
+import { useAttendanceStore } from '../../stores/attendanceStore'
 
 // Mock Stores & Hooks
 vi.mock('../../hooks/useAuth', () => ({
@@ -34,6 +41,20 @@ describe('MobileViewsEnhancement Tests', () => {
       notices: [
         { id: '1', title: 'Thông báo 1', content: 'Nội dung 1', date: '2026-08-08', priority: 'normal', author: 'Admin' }
       ]
+    })
+    useClassStore.setState({
+      classes: [
+        { id: 'cls-1', name: 'Ấu Nhi 1', branchId: 'AuNhi', room: 'Phòng 1', activeYear: '2026-2027', order: 1 } as any
+      ]
+    })
+    useStudentStore.setState({
+      students: [
+        { id: 'st-1', holyName: 'Phêrô', fullName: 'Nguyễn Văn A', code: 'TN-001', branch: 'AuNhi', classId: 'cls-1', status: 'Đang học', gender: 'Nam', dateOfBirth: '2018-01-01', parentName: 'Nguyễn Văn X', parentPhone: '0901234567', address: 'Xứ đoàn' },
+        { id: 'st-2', holyName: 'Maria', fullName: 'Trần Thị B', code: 'TN-002', branch: 'AuNhi', classId: 'cls-1', status: 'Đang học', gender: 'Nữ', dateOfBirth: '2018-02-02', parentName: 'Trần Văn Y', parentPhone: '0901234568', address: 'Xứ đoàn' }
+      ]
+    })
+    useFilterStore.setState({
+      selectedClassId: 'cls-1'
     })
   })
 
@@ -169,7 +190,122 @@ describe('MobileViewsEnhancement Tests', () => {
       fireEvent.click(sendBtn)
 
       // Confirm dialog should appear
-      expect(screen.getByText('Bạn có chắc chắn muốn gửi kết quả học tập cho 0 thiếu nhi?')).toBeInTheDocument()
+      expect(screen.getByText(/Bạn có chắc chắn muốn gửi kết quả học tập cho/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('MobileAttendanceView', () => {
+    it('renders Command Deck and filters students by search query and status', () => {
+      render(<MobileAttendanceView />)
+
+      // Command Deck header exists
+      expect(screen.getByText('Phiên điểm danh')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Có mặt tất cả/i })).toBeInTheDocument()
+
+      // Search input exists and filters student list
+      const searchInput = screen.getByLabelText('Tìm thiếu nhi trong lớp')
+      expect(searchInput).toBeInTheDocument()
+
+      fireEvent.change(searchInput, { target: { value: 'Phêrô' } })
+      expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument()
+      expect(screen.queryByText('Trần Thị B')).not.toBeInTheDocument()
+
+      // Clear search
+      fireEvent.change(searchInput, { target: { value: '' } })
+      expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument()
+      expect(screen.getByText('Trần Thị B')).toBeInTheDocument()
+
+      // Interactive status summary filter toggle
+      const presentSummaryBtn = screen.getByRole('button', { name: /Lọc có mặt/i })
+      fireEvent.click(presentSummaryBtn)
+      expect(presentSummaryBtn).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('toggles attendance status and allows adding notes via note modal', () => {
+      render(<MobileAttendanceView />)
+
+      // Toggle first student to AbsentExcused
+      const excusedBtns = screen.getAllByTitle('Vắng có phép')
+      expect(excusedBtns.length).toBeGreaterThanOrEqual(1)
+      fireEvent.click(excusedBtns[0])
+
+      // After setting to absent, the + Ghi chú button appears
+      const addNoteBtn = screen.getByRole('button', { name: /\+ Ghi chú/i })
+      expect(addNoteBtn).toBeInTheDocument()
+      fireEvent.click(addNoteBtn)
+
+      // Note modal dialog appears
+      expect(screen.getByRole('dialog', { name: /Nguyễn Văn A/i })).toBeInTheDocument()
+      expect(screen.getByText('Lý do nhanh:')).toBeInTheDocument()
+
+      // Click quick reason "Bệnh"
+      fireEvent.click(screen.getByRole('button', { name: 'Bệnh' }))
+      expect(screen.getByPlaceholderText('Nhập lý do vắng / phép / ghi chú...')).toHaveValue('Bệnh')
+
+      // Save note
+      fireEvent.click(screen.getByRole('button', { name: 'Lưu ghi chú' }))
+
+      // Note badge is now displayed on student row
+      expect(screen.getByTitle('Ghi chú: Bệnh')).toBeInTheDocument()
+    })
+
+    it('displays lock indicator and disables edit controls when semester is locked', () => {
+      useAttendanceStore.setState({
+        lockError: 'Học kỳ 1 đã bị khóa điểm danh',
+      })
+
+      render(<MobileAttendanceView />)
+
+      // Lock badge is shown
+      expect(screen.getByText(/Khóa sổ/i)).toBeInTheDocument()
+
+      // Có mặt tất cả button is disabled
+      const markAllBtn = screen.getByRole('button', { name: /Có mặt tất cả/i })
+      expect(markAllBtn).toBeDisabled()
+
+      // Status buttons are disabled
+      const excusedBtns = screen.getAllByTitle(/Không thể chỉnh sửa/i)
+      expect(excusedBtns.length).toBeGreaterThan(0)
+      expect(excusedBtns[0]).toBeDisabled()
+
+      // Clear lockError
+      useAttendanceStore.setState({ lockError: null })
+    })
+  })
+
+  describe('MobileAttendanceSummaryView', () => {
+    it('switches time filter via SegmentedControl and filters student list by search', () => {
+      render(<MobileAttendanceSummaryView />)
+
+      // Check SegmentedControl options (role="radio")
+      expect(screen.getByRole('radio', { name: 'Cả Năm' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Học Kỳ 1' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Học Kỳ 2' })).toBeInTheDocument()
+
+      // Switch to HK1
+      fireEvent.click(screen.getByRole('radio', { name: 'Học Kỳ 1' }))
+      expect(screen.getByRole('radio', { name: 'Học Kỳ 1' })).toHaveAttribute('aria-checked', 'true')
+
+      // Search student
+      const searchInput = screen.getByPlaceholderText(/Tìm theo tên hoặc mã/i)
+      fireEvent.change(searchInput, { target: { value: 'Phêrô' } })
+      expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument()
+    })
+  })
+
+  describe('MobileLeaveRequests', () => {
+    it('renders status tabs and filter toggle', () => {
+      render(<MobileLeaveRequests />)
+
+      // Check header and tabs
+      expect(screen.getByText('Đơn Xin Nghỉ Phép')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /Tất cả/i })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /Chờ duyệt/i })).toBeInTheDocument()
+
+      // Click filter button to open filter panel
+      const filterToggle = screen.getByRole('button', { name: /Bộ lọc/i })
+      fireEvent.click(filterToggle)
+      expect(screen.getByPlaceholderText(/Tìm theo tên con \/ phụ huynh/i)).toBeInTheDocument()
     })
   })
 

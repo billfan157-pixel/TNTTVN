@@ -122,6 +122,7 @@ export const MobileLeaveRequests: React.FC = () => {
           </div>
         </div>
         <button
+          type="button"
           onClick={() => fetchRequests()}
           className="btn btn-secondary mobile-btn flex items-center gap-1.5 shrink-0"
           disabled={loading}
@@ -136,6 +137,7 @@ export const MobileLeaveRequests: React.FC = () => {
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.key}
+            type="button"
             onClick={() => setStatusFilter(tab.key)}
             className={`view-tab ${statusFilter === tab.key ? 'is-active' : ''}`}
             role="tab"
@@ -143,7 +145,7 @@ export const MobileLeaveRequests: React.FC = () => {
           >
             {tab.label}
             {tab.key === 'PENDING' && pendingCount > 0 && (
-              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${
+              <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
                 statusFilter === 'PENDING' ? 'bg-white text-parish-primary' : 'bg-parish-danger text-white'
               }`}>
                 {pendingCount}
@@ -155,14 +157,15 @@ export const MobileLeaveRequests: React.FC = () => {
 
       {/* Filters toggle */}
       <button
+        type="button"
         onClick={() => setShowFilters((v) => !v)}
-        className="btn btn-secondary mobile-btn flex items-center justify-center gap-1.5"
+        className="btn btn-secondary mobile-btn flex items-center justify-center gap-1.5 min-h-[44px]"
         aria-expanded={showFilters}
       >
-        <Filter size={14} />
+        <Filter size={14} aria-hidden="true" />
         Bộ lọc
         {activeFilterCount > 0 && (
-          <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-parish-primary text-white">
+          <span className="text-xs font-extrabold px-1.5 py-0.5 rounded-full bg-parish-primary text-white">
             {activeFilterCount}
           </span>
         )}
@@ -209,12 +212,13 @@ export const MobileLeaveRequests: React.FC = () => {
 
           {activeFilterCount > 0 && (
             <button
+              type="button"
               onClick={() => {
                 setClassFilter('all')
                 setDateFilter('')
                 setSearchQuery('')
               }}
-              className="btn btn-secondary mobile-btn text-xs"
+              className="btn btn-secondary mobile-btn text-xs min-h-[44px]"
             >
               Xóa bộ lọc ({activeFilterCount})
             </button>
