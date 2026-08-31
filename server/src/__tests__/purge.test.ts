@@ -7,7 +7,7 @@ import { users, branches, auditLogs, systemSettings } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { PURGE_TABLES, PURGE_VERSION_KEY, DEFAULT_PURGE_VERSION } from '../services/purgeService.js'
 
-describe('Purge v2.3 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
+describe('Purge v2.4 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
   const parishId = 'parish-purge-test'
   const adminId = 'usr-purge-admin'
   const nonAdminId = 'usr-purge-phuta'
@@ -49,6 +49,8 @@ describe('Purge v2.3 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
     await client.execute(`INSERT OR IGNORE INTO grades (id, student_id, academic_year, semester, score_final, version, parish_id, created_at, updated_at) VALUES (?, ?, '2026-2027', 1, 8.5, 1, ?, ?, ?)`, [seedIds.grade, seedIds.student, parishId, now, now])
     await client.execute(`INSERT OR IGNORE INTO attendance (id, student_id, date, type, status, version, parish_id, created_at, updated_at) VALUES ('AT-PURGE-001', ?, '2026-01-01', 'CatechismClass', 'Present', 1, ?, ?, ?)`, [seedIds.student, parishId, now, now])
     await client.execute(`INSERT OR IGNORE INTO notices (id, title, content, date, author, priority, parish_id, created_at, updated_at) VALUES ('NC-PURGE-001', 'Test', 'Nội dung', '2026-01-01', 'Admin', 'normal', ?, ?, ?)`, [parishId, now, now])
+    await client.execute(`INSERT OR IGNORE INTO feedback_messages (id, parish_id, target_type, visibility, subject, content, status, created_at, updated_at) VALUES ('FBK-PURGE-001', ?, 'PARISH', 'ANONYMOUS', 'Góp ý purge', 'Nội dung góp ý dùng để kiểm thử purge.', 'NEW', ?, ?)`, [parishId, now, now])
+    await client.execute(`INSERT OR IGNORE INTO password_reset_requests (id, parish_id, user_id, status, request_count, last_requested_at, created_at, updated_at) VALUES ('PWR-PURGE-001', ?, ?, 'PENDING', 1, ?, ?, ?)`, [parishId, adminId, now, now, now])
     await client.execute(`INSERT OR IGNORE INTO semester_locks (id, parish_id, academic_year, semester, is_locked, created_at, updated_at) VALUES ('SML-PURGE-001', ?, '2026-2027', 1, 1, ?, ?)`, [parishId, now, now])
     // docs/AUDIT P4: outbox_messages mang parish_id (migration 097) — thuộc tenant test.
     await client.execute(`INSERT OR IGNORE INTO outbox_messages (id, aggregate_id, event_type, payload, status, sequence_number, parish_id, created_at) VALUES ('OUT-PURGE-001', 'x', 'GradeSaved', '{}', 'pending', 1, ?, ?)`, [parishId, now])
@@ -111,7 +113,7 @@ describe('Purge v2.3 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
     expect(json.error.code).toBe('INVALID_CONFIRM_KEY')
   })
 
-  it('200 — purge thành công: 24 bảng về 0, bảng hệ thống giữ nguyên, purge_version tăng', async () => {
+  it('200 — purge thành công: 26 bảng về 0, bảng hệ thống giữ nguyên, purge_version tăng', async () => {
     const res = await systemApp.request('/purge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken()}` },
@@ -122,9 +124,11 @@ describe('Purge v2.3 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
     expect(json.data.success).toBe(true)
     expect(json.data.countsBefore.students).toBe(1)
     expect(json.data.countsBefore.grades).toBe(1)
+    expect(json.data.countsBefore.feedback_messages).toBe(1)
+    expect(json.data.countsBefore.password_reset_requests).toBe(1)
     expect(json.data.purgeVersion).toBeGreaterThanOrEqual(DEFAULT_PURGE_VERSION + 1)
 
-    // 24 bảng purge về 0 — mọi bảng đều scoped theo parish_id (P4: không còn
+    // 26 bảng purge về 0 — mọi bảng đều scoped theo parish_id (P4: không còn
     // special-case grade_overrides/outbox_messages)
     for (const table of PURGE_TABLES) {
       const r = await client.execute(`SELECT count(*) AS n FROM ${table} WHERE parish_id = ?`, [parishId])

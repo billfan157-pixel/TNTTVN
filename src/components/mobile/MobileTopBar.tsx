@@ -16,6 +16,7 @@ import {
   WifiOff,
   Download,
   Landmark,
+  MessageSquareText,
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -192,6 +193,21 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold uppercase tracking-wider text-white/60 px-1">Công cụ & Tiện ích</span>
                 <div className="mobile-control-tiles">
+                  <button
+                    type="button"
+                    className="mobile-control-tile"
+                    onClick={() => { navigate({ to: '/feedback' }); closeMenu() }}
+                    aria-label="Mở hộp thư góp ý"
+                  >
+                    <span className="mobile-control-tile__icon">
+                      <MessageSquareText size={17} className="text-amber-300" />
+                    </span>
+                    <span className="mobile-control-tile__content">
+                      <strong className="mobile-control-tile__title">Thư góp ý</strong>
+                      <span className="mobile-control-tile__desc">Gửi hoặc xem thư</span>
+                    </span>
+                  </button>
+
                   {/* Theme Toggle Tile */}
                   <button
                     type="button"

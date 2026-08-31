@@ -243,6 +243,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
       passwordHash,
       passwordEncrypted: null,
       status: 'FORCE_PASSWORD_CHANGE',
+      mustChangePassword: 1,
       failedAttempts: 0,
       lockedUntil: null,
       tokenVersion: nextVersion,

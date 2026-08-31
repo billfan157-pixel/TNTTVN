@@ -133,7 +133,7 @@ export function ParentLoginPage() {
             size="sm"
             className="min-h-11 px-1 text-parish-primary hover:underline"
           >
-            Nhắn Zalo để được hỗ trợ
+            Gửi yêu cầu cấp lại mật khẩu
           </Button>
         </p>
         <Button
@@ -151,6 +151,7 @@ export function ParentLoginPage() {
       <ParentForgotPasswordModal
         isOpen={isForgotModalOpen}
         onClose={() => setIsForgotModalOpen(false)}
+        initialPhone={phone}
       />
     </LoginShell>
   )

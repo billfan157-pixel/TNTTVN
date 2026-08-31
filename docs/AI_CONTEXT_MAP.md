@@ -10,6 +10,15 @@
 
 ---
 
+### Module: Parent Password Reset Request Inbox (ADR-087, 2026-08-31)
+
+- **Decision:** D3/SECURITY, R1 code + R2 additive schema. Phụ huynh chưa đăng nhập được gửi ticket bằng SĐT; ticket không tự reset và Admin vẫn phải xác minh người yêu cầu qua kênh đã có trước khi cấp mật khẩu tạm.
+- **Code truth:** `ParentForgotPasswordModal.tsx` → `api.requestParentPasswordReset` → `/api/password-reset-requests` → `passwordResetRequestService.ts` → `password_reset_requests`; admin xử lý qua `PasswordResetRequestsPanel.tsx` trong tab Tài khoản Phụ huynh.
+- **Security contract:** response public generic `202`, bcrypt timing work, rate-limit 5/60s/IP, một row/parent/tenant, không lưu raw input/child KBA/credential. Admin endpoints lấy tenant từ JWT; reset yêu cầu re-auth và transaction cùng password hash, force-change, session revocation, ticket resolution và audit. Temp password chỉ trả một lần.
+- **Compatibility:** ADR-058 no KBA/no reversible secret vẫn giữ nguyên; chỉ câu “UI chỉ hướng dẫn liên hệ” được ADR-087 thay bằng ticket không xác thực + manual verification. Legacy `/auth/parent-reset-password` vẫn 410.
+
+---
+
 ### Module: Parish Organization & Catechist Profile Synchronization (2026-08-31)
 
 - **Decision:** D1/GENERAL, R0. Đồng bộ giao diện và dữ liệu giữa Tổng quan Xứ đoàn (`/parish`), Danh sách Huynh trưởng / GLV (`/catechists`) và Hồ sơ Xứ đoàn (`/parish-profile`).
@@ -563,6 +572,14 @@ server/src/                         ─ Backend Hono Application
 - **Backend:** `/api/parish-profile` -> `parishProfileService` -> 8 tables + private blob adapter. Server authority: admin CRUD; `chunhiem|phuta` published STAFF read; parent deny. Timeline derived; `parish_events` không bị nhập chung.
 - **Identity:** `parish_people` là organization identity, `linked_user_id` optional cho account hiện có, same-tenant + one-active-profile unique. Một person có nhiều class assignment/service term/event links; không duplicate account.
 - **Known boundary:** `users.role` vẫn là coarse auth role hiện hành. Multi-capability assignment cho access control là migration tương lai; không suy quyền từ workspace hoặc service-term title. Manual LMS backup vẫn academic-scope; automatic encrypted logical backup là full DB.
+
+### Module: Hộp thư góp ý ẩn danh (ADR-086, 2026-08-31)
+
+- **Route/UX:** `/feedback` dùng `FeedbackPage`; desktop đặt trong Organization/Parent sidebar, mobile đặt ở control sheet để không tăng primary bottom-nav. Admin mở thẳng inbox và không có compose/sent tabs.
+- **Role contract:** admin chỉ nhận/xử lý `PARISH`; `chunhiem|phuta` chỉ gửi tới Xứ đoàn; parent gửi tới Xứ đoàn hoặc chủ nhiệm đúng lớp con. Client policy chỉ là UX, `feedback.ts` + `feedbackService.ts` là authority.
+- **Privacy invariant:** `feedback_messages.visibility='ANONYMOUS'` bắt buộc `sender_user_id IS NULL` bằng DB CHECK. Không sender audit, không app-log user/IP/user-agent, không sent-box, receipt token hay offline persistence cho anonymous.
+- **Known boundary:** application admin không thể truy sender qua Catevia/DB/API/audit/app logs. Reverse proxy/cloud transport logs nằm ngoài quyền admin ứng dụng và chưa được xác minh/xóa; UI công bố giới hạn này.
+- **Data/recovery:** migration `20260831-145`, composite tenant PK/FK + inbox/sender indexes, schema readiness fail-closed. Purge v2.4/snapshot v3.1 gồm `feedback_messages`.
 
 
 

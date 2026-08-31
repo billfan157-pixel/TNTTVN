@@ -1742,6 +1742,62 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_parish_people_linked_user
 ON parish_people(parish_id, linked_user_id)
 WHERE linked_user_id IS NOT NULL AND deleted_at IS NULL;
 ` },
+  { version: '20260831-145', sql: `
+CREATE TABLE IF NOT EXISTS feedback_messages (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  target_type TEXT NOT NULL CHECK(target_type IN ('PARISH', 'HOMEROOM_TEACHER')),
+  target_user_id TEXT,
+  visibility TEXT NOT NULL CHECK(visibility IN ('ANONYMOUS', 'PUBLIC')),
+  sender_user_id TEXT,
+  subject TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'NEW' CHECK(status IN ('NEW', 'READ', 'ARCHIVED')),
+  read_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id, id),
+  FOREIGN KEY (parish_id, target_user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, sender_user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT,
+  CONSTRAINT feedback_sender_privacy_check CHECK(
+    (visibility = 'ANONYMOUS' AND sender_user_id IS NULL)
+    OR (visibility = 'PUBLIC' AND sender_user_id IS NOT NULL)
+  ),
+  CONSTRAINT feedback_target_check CHECK(
+    (target_type = 'PARISH' AND target_user_id IS NULL)
+    OR (target_type = 'HOMEROOM_TEACHER' AND target_user_id IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_inbox
+ON feedback_messages(parish_id, target_type, target_user_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_public_sender
+ON feedback_messages(parish_id, sender_user_id, created_at);
+` },
+  { version: '20260831-146', sql: `
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'RESOLVED', 'DISMISSED')),
+  request_count INTEGER NOT NULL DEFAULT 1 CHECK(request_count >= 1),
+  last_requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at TEXT,
+  resolved_by TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id, id),
+  FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (parish_id, resolved_by) REFERENCES users(parish_id, id) ON DELETE RESTRICT,
+  CONSTRAINT password_reset_request_resolution_check CHECK(
+    (status = 'PENDING' AND resolved_at IS NULL AND resolved_by IS NULL)
+    OR (status IN ('RESOLVED', 'DISMISSED') AND resolved_at IS NOT NULL AND resolved_by IS NOT NULL)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_request_user
+ON password_reset_requests(parish_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_requests_inbox
+ON password_reset_requests(parish_id, status, last_requested_at);
+` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate

@@ -244,7 +244,7 @@ Phân ngành TNTT là **cố định bất biến** gồm đúng 5 ngành: `Chi�
 ## 9. PURGE — Xóa Toàn Bộ Dữ Liệu Giáo Xứ (Danger Zone)
 
 ### 9.1 Phạm vi
-- **Bị xóa (24 bảng nghiệp vụ)**: `students`, `grades`, `attendance`, `notices`, `academic_years`, `classes`, `catechist_assignments`, `notifications`, `import_batches`, `import_batch_students`, `grade_import_hashes`, `service_assignments`, `mapping_memory`, `grade_overrides`, `outbox_messages`, `semester_locks`, `academic_year_snapshots`, `promotion_records`, `attendance_sessions`, `assessments`, `exam_result_mutations`, `exam_results`, `exam_sessions`, `refresh_tokens`. Receipt phải xóa trước `exam_results/exam_sessions`. (SSOT: `PURGE_TABLES` — `server/src/services/purgeService.ts`.)
+- **Bị xóa (26 bảng nghiệp vụ)**: `password_reset_requests`, `feedback_messages`, `students`, `grades`, `attendance`, `notices`, `academic_years`, `classes`, `catechist_assignments`, `notifications`, `import_batches`, `import_batch_students`, `grade_import_hashes`, `service_assignments`, `mapping_memory`, `grade_overrides`, `outbox_messages`, `semester_locks`, `academic_year_snapshots`, `promotion_records`, `attendance_sessions`, `assessments`, `exam_result_mutations`, `exam_results`, `exam_sessions`, `refresh_tokens`. Receipt phải xóa trước `exam_results/exam_sessions`; ticket reset xóa trước các quan hệ user được giữ. (SSOT: `PURGE_TABLES` — `server/src/services/purgeService.ts`.)
 - **Giữ nguyên (7 bảng hệ thống)**: `users`, `branches`, `permissions`, `role_permissions`, `audit_logs`, `push_subscriptions`, `system_settings` (kể cả `purge_version` được tăng +1).
 - Chỉ **DELETE rows** — cấm DROP bảng, cấm xóa function/trigger/schema.
 
@@ -255,7 +255,7 @@ Phân ngành TNTT là **cố định bất biến** gồm đúng 5 ngành: `Chi�
 4. Giới hạn **10 lần/phút/IP** (`purgeRateLimiter`).
 
 ### 9.3 An toàn dữ liệu (bắt buộc)
-- Trước khi xóa: snapshot v3.0 đủ 24 bảng + SHA256 checksum ghi vào `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (override bằng env `SAFETY_BACKUP_DIR`, xem `docs/07_DATABASE_PLAN.md`).
+- Trước khi xóa: snapshot v3.1 đủ 26 bảng + SHA256 checksum ghi vào `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (override bằng env `SAFETY_BACKUP_DIR`, xem `docs/07_DATABASE_PLAN.md`).
 - Toàn bộ DELETE nằm trong **1 transaction** (FK order con→cha + `PRAGMA defer_foreign_keys`); sau transaction, verify từng bảng về 0 — nếu không, purge coi như FAILED.
 - Audit log `SYSTEM_PURGE` ghi counts trước-khi-xóa.
 - Sau purge, mọi thiết bị đang đăng nhập phải bị vô hiệu hóa dữ liệu offline (ghost data): device thực hiện tự reset + đăng xuất; các device khác bị chặn ở lần sync kế tiếp qua so sánh `purge_version`.
@@ -337,7 +337,9 @@ Enforcement:
 ### 10.12 Quên mật khẩu phụ huynh — Hỗ trợ có xác minh (ADR-058, supersedes ADR-042)
 - Không được dùng SĐT + tên/ngày sinh của trẻ làm yếu tố tự đặt lại mật khẩu. Đây là KBA từ dữ liệu nhận dạng dễ biết, không chứng minh người yêu cầu đang sở hữu kênh liên lạc.
 - `POST /api/auth/parent-reset-password` chỉ là compatibility tombstone: luôn `410 PARENT_SELF_RESET_REMOVED`, không lookup hồ sơ và không đổi credential.
-- Modal chỉ hướng dẫn phụ huynh liên hệ Ban Giáo Lý qua kênh đã xác minh. Admin cấp mật khẩu tạm qua flow reset có JWT admin + re-auth + rate-limit + audit; mật khẩu tạm hiển thị đúng một lần và tài khoản ở `FORCE_PASSWORD_CHANGE`.
+- ADR-087 bổ sung ticket: modal gửi SĐT tới `POST /api/password-reset-requests`; response `202` luôn giống nhau dù tài khoản có/không tồn tại. Ticket không tự đổi credential, không xác minh danh tính và không được coi là bằng chứng sở hữu SĐT.
+- Mỗi tài khoản phụ huynh chỉ có một row ticket; gửi lại mở lại cùng row và tăng `request_count`. Chỉ Admin cùng `parish_id` được đọc, bỏ qua hoặc xử lý. Admin bắt buộc xác minh qua kênh tin cậy, xác nhận trong UI và re-auth bằng mật khẩu hiện tại trước khi reset.
+- Reset từ ticket phải commit atomic: đổi bcrypt hash, `FORCE_PASSWORD_CHANGE`, `must_change_password=1`, xóa lockout, tăng `tokenVersion`, thu hồi mọi refresh session, đóng ticket và ghi audit. Mật khẩu tạm chỉ trả một lần để Admin giao riêng.
 - Hệ thống chỉ lưu bcrypt hash. `users.password_encrypted` bị purge về `NULL`; `reveal-password` luôn `410 PASSWORD_REVEAL_REMOVED`. Nếu mất mật khẩu tạm, phải tạo mật khẩu tạm mới, không xem lại bí mật cũ.
 
 ### 10.13 Hai cổng đăng nhập — Phụ Huynh & Giáo Lý Viên/Nhân Sự (ADR-044, 2026-08-16)
@@ -364,7 +366,7 @@ Quyền được kiểm tra **trong code** qua `roleMiddleware` + `checkUserClas
 
 | Nhóm route | Vai trò được vào |
 | :--- | :--- |
-| `/dashboard`, `/notices`, `/calendar`, `/settings` | mọi role đã xác thực |
+| `/dashboard`, `/notices`, `/calendar`, `/settings`, `/feedback` | mọi role đã xác thực; quyền thao tác `/feedback` phân tách ở backend theo §26 |
 | `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` | `admin`, `chunhiem`, `phuta` |
 | `/parent` | chỉ `phuhuynh` |
 | `/users`, `/classes`, `/academic-years`, `/catechists`, `/audit-logs`, `/management`, `/finances` | chỉ `admin` |
@@ -754,5 +756,18 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
 3. Catevia không thu, đọc, gửi hoặc lưu ảnh khuôn mặt, vân tay hay biometric template. Chỉ hệ điều hành trả kết quả thành công/thất bại; local marker chỉ mang giá trị `enabled` và không chứa PII/credential.
 4. Nếu sinh trắc học mất enrollment, không khả dụng hoặc lockout, app không được bypass vào dữ liệu. Đường recovery phải xóa marker khóa, đăng xuất/dọn client session rồi quay về đăng nhập mật khẩu.
 5. Khóa local không thay thế mật khẩu, server session, RBAC, tenant isolation hoặc yêu cầu re-auth cho thao tác nhạy cảm. Không được mô tả nó là MFA/passkey/server authentication.
+
+---
+
+## 26. HỘP THƯ GÓP Ý VÀ ẨN DANH (ADR-086)
+
+1. `admin` chỉ tiếp nhận/xử lý thư gửi tới `PARISH`; admin không có chức năng viết hoặc gửi thư góp ý. Backend phải trả 403 nếu admin gọi writer, dù UI đã ẩn.
+2. `chunhiem|phuta` chỉ gửi góp ý lên Ban điều hành Xứ đoàn. `phuhuynh` gửi lên Xứ đoàn hoặc tới đúng tài khoản `chunhiem` được phân công lớp của ít nhất một người con đang liên kết với phụ huynh.
+3. Người gửi chọn `PUBLIC` hoặc `ANONYMOUS`. Public lưu `sender_user_id` và người nhận thấy họ tên. Anonymous bắt buộc `sender_user_id IS NULL` bằng DB CHECK; không được lưu tên, role, lớp/con được chọn, phone, IP hoặc user-agent trong row thư.
+4. Thư anonymous không tạo audit theo sender, không nằm trong sent-box và không được đưa vào offline queue/client persistence. Chỉ phản hồi xác nhận gửi thành công; không có receipt/reply token có thể nối ngược với tài khoản.
+5. Admin đọc mọi thư `PARISH` cùng giáo xứ; `chunhiem` chỉ đọc thư `HOMEROOM_TEACHER` có `target_user_id` đúng tài khoản mình. `phuta|phuhuynh` không có inbox nhận.
+6. Người nhận được chuyển `NEW → READ|ARCHIVED`; thay đổi trạng thái được audit theo người xử lý nhưng audit không sao chép subject/content hay sender của thư ẩn danh.
+7. Request anonymous được log ứng dụng dưới path tổng quát và bỏ `userId`, `parishId`, IP, user-agent. Cam kết “admin không biết người gửi” áp dụng cho admin ứng dụng/Catevia; metadata transport do reverse proxy/cloud provider nằm ngoài database và quyền admin ứng dụng phải được công bố rõ.
+8. Nội dung dài 10–5000 ký tự, tiêu đề 3–160 ký tự; mọi query/mutation scope bằng `parish_id`. Không có gửi anonymous public/không-auth vì eligibility và chống lạm dụng phải được giữ.
 
 

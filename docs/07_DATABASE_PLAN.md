@@ -1,11 +1,11 @@
 # Database Schema Specification & Plan
 
-> Canonical Single Source of Truth (SSOT) for all 49 SQLite production tables managed via Drizzle ORM.
-> Version: 2.7 | Last reviewed: 2026-08-31 | Status: ✅ Current | Prerequisites: 02
+> Canonical Single Source of Truth (SSOT) for all 51 SQLite production tables managed via Drizzle ORM.
+> Version: 2.9 | Last reviewed: 2026-08-31 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
-## All Production Tables (49)
+## All Production Tables (51)
 
 | # | Table Name | Purpose | Unique Indexes / Constraints |
 |---|------------|---------|------------------------------|
@@ -18,7 +18,7 @@
 | 7 | `branches` | TNTT branch definitions | `(parish_id, id)` PK ('CC', 'AU', 'TN', 'NS', 'HS') |
 | 8 | `academic_years` | School year config + lifecycle state machine (`status`, `current_semester`, `is_locked`) | `(parish_id, id)` PK ('2025 - 2026') |
 | 9 | `classes` | Catechism classes linked to branch + year | `idx_classes_code_year` UNIQUE |
-| 10 | `system_settings` | App configuration key-value store | `(key, parish_id)` PK — gồm key `purge_version` (marker đa thiết bị, Purge v2.3) |
+| 10 | `system_settings` | App configuration key-value store | `(key, parish_id)` PK — gồm key `purge_version` (marker đa thiết bị, Purge v2.4) |
 | 11 | `catechist_assignments` | User ↔ class mapping with role | `idx_catechist_assignments_unique` `(user_id, class_id)` UNIQUE |
 | 12 | `notifications` | Persistent notification history — thêm `target_user_ids` (JSON array userId, migration `20260808-082`): web push CÓ CHỦ ĐÍCH (phụ huynh theo chi đoàn), queue recover sau restart gửi lại đúng nhóm, không broadcast nhầm (ADR-022) | `idx_notifications_lookup` |
 | 13 | `permissions` | RBAC permission definitions | `id` PK |
@@ -58,6 +58,8 @@
 | 47 | `parish_record_people` | Quan hệ nhiều-nhiều record ↔ person | PK `(parish_id,record_id,person_id)`; composite tenant FKs |
 | 48 | `parish_archive_assets` | Metadata tư liệu upload riêng tư hoặc external HTTPS | PK `(parish_id,id)`; type/storage indexes; storage XOR constraint |
 | 49 | `parish_record_assets` | Quan hệ nhiều-nhiều record ↔ asset | PK `(parish_id,record_id,asset_id)`; composite tenant FKs |
+| 50 | `feedback_messages` | Thư góp ý gửi Xứ đoàn/GLV chủ nhiệm; anonymous không giữ sender identity | PK `(parish_id,id)`; sender/target CHECK; `idx_feedback_inbox`, `idx_feedback_public_sender` |
+| 51 | `password_reset_requests` | Ticket quên mật khẩu hiện tại của mỗi tài khoản phụ huynh; không lưu SĐT tự khai hay credential | PK `(parish_id,id)`; UNIQUE `(parish_id,user_id)`; inbox index `(parish_id,status,last_requested_at)`; composite FKs tới `users`; resolution/count CHECK |
 
 ---
 
@@ -142,13 +144,35 @@
 
 ---
 
-## Purge v2.3 — `purge_version` marker (ghost-data prevention)
+### `feedback_messages` (migration `20260831-145`, ADR-086)
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `parish_id,id` | TEXT | Composite PK và tenant scope bắt buộc |
+| `target_type,target_user_id` | TEXT | `PARISH` bắt buộc target null; `HOMEROOM_TEACHER` bắt buộc target user |
+| `visibility,sender_user_id` | TEXT | `ANONYMOUS` bắt buộc sender null; `PUBLIC` bắt buộc sender user bằng DB CHECK |
+| `subject,content` | TEXT | Nội dung thư; không sao chép vào audit log |
+| `status,read_at` | TEXT | `NEW|READ|ARCHIVED`; thời điểm đọc nullable |
+
+### `password_reset_requests` (migration `20260831-146`, ADR-087)
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `parish_id,id` | TEXT | Composite PK; mọi admin query bắt buộc scope từ JWT |
+| `user_id` | TEXT | Tài khoản `phuhuynh` đã match server-side; UNIQUE với `parish_id` để retry/spam hội tụ |
+| `status` | TEXT | `PENDING|RESOLVED|DISMISSED` |
+| `request_count,last_requested_at` | INTEGER/TEXT | Số lần gửi và thời điểm mới nhất; gửi lại mở lại row hiện hữu |
+| `resolved_at,resolved_by` | TEXT | Người/thời điểm Admin xử lý; nullable khi pending |
+
+DB CHECK bắt buộc `request_count >= 1`; `PENDING` phải chưa có resolver, còn `RESOLVED|DISMISSED` phải có đủ `resolved_at/resolved_by`. Không có cột phone/password/IP/user-agent trong ticket. Network metadata chỉ nằm trong audit bảo mật hiện hữu; `PASSWORD_RESET_REQUESTED` ghi rõ actor là unauthenticated request, không tuyên bố `user_id` là người đã xác thực.
+
+## Purge v2.4 — `purge_version` marker (ghost-data prevention)
 
 - Key `purge_version` trong bảng `system_settings` (value = số nguyên, mặc định `1`, tăng +1 mỗi lần purge).
 - Mọi client lưu `purge_version` local (localStorage `parish_purge_version`); mỗi chu kỳ sync, `GET /api/system/purge-version` được gọi trước pull delta.
 - Nếu server version > local version → dữ liệu offline của thiết bị là **GHOST DATA** (đã bị xóa trên server) → client tự xóa sạch Dexie + localStorage + đăng xuất, không bao giờ push lại queue cũ.
-- Purge **không DROP bảng** — chỉ `DELETE rows` của 24 bảng trong hợp đồng `PURGE_TABLES`. `exam_result_mutations` được xóa trước `exam_results`/`exam_sessions`; mọi bảng trong danh sách đều có `parish_id`.
-- Trước khi xóa: snapshot v3.0 (24 bảng, SHA256 checksum) ghi tại `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (mặc định; override bằng env `SAFETY_BACKUP_DIR` — xem `server/src/utils/safetyDir.ts` và `docs/DEPLOYMENT_GUIDE.md` §3).
+- Purge **không DROP bảng** — chỉ `DELETE rows` của 26 bảng trong hợp đồng `PURGE_TABLES`, gồm `password_reset_requests` và `feedback_messages`. `exam_result_mutations` được xóa trước `exam_results`/`exam_sessions`; mọi bảng trong danh sách đều có `parish_id`.
+- Trước khi xóa: snapshot v3.1 (26 bảng, SHA256 checksum) ghi tại `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (mặc định; override bằng env `SAFETY_BACKUP_DIR` — xem `server/src/utils/safetyDir.ts` và `docs/DEPLOYMENT_GUIDE.md` §3).
 
 ---
 

@@ -11,6 +11,7 @@ import { DesktopAppShell } from './DesktopAppShell'
 import { formatDateTimeVi } from '../../utils/formatDate'
 import { NoResultState } from '../common/StateFeedback'
 import * as Sentry from '@sentry/react'
+import { PasswordResetRequestsPanel } from './PasswordResetRequestsPanel'
 
 export interface UserAccount {
   id: string
@@ -550,6 +551,8 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
           </>
         }
       />}
+
+      {scope !== 'staff' && <PasswordResetRequestsPanel onUsersRefresh={fetchUsers} />}
 
       <div className="view-toolbar">
         <div className="relative flex-1">

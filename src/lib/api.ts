@@ -8,6 +8,10 @@ import type {
   CreateTransactionInput,
   CreateFundInput,
   Student,
+  FeedbackTarget,
+  FeedbackMessage,
+  FeedbackStatus,
+  CreateFeedbackInput,
 } from '../types'
 import { clearAuthSnapshot } from './db'
 
@@ -436,6 +440,26 @@ export const api = {
   adminChangePassword: (userId: string, newPassword: string, adminPassword: string) =>
     request<{ success: boolean; message: string }>('POST', '/auth/admin-change-password', { userId, newPassword, adminPassword }),
 
+  // ADR-087: request public chỉ tạo ticket; không tự đổi credential và response
+  // không cho biết SĐT có tồn tại. Xử lý ticket vẫn là admin-only + re-auth.
+  requestParentPasswordReset: (phone: string) =>
+    request<{ accepted: boolean; message: string }>('POST', '/password-reset-requests', { phone }),
+  getPasswordResetRequests: () =>
+    request<Array<{
+      id: string
+      userId: string
+      fullName: string
+      username: string
+      phone: string | null
+      status: 'PENDING' | 'RESOLVED' | 'DISMISSED'
+      requestCount: number
+      lastRequestedAt: string
+    }>>('GET', '/password-reset-requests/admin'),
+  resolvePasswordResetRequest: (requestId: string, adminPassword: string) =>
+    request<{ username: string; tempPassword: string; fullName: string }>('POST', `/password-reset-requests/admin/${requestId}/reset`, { adminPassword }),
+  dismissPasswordResetRequest: (requestId: string) =>
+    request<{ dismissed: boolean }>('PATCH', `/password-reset-requests/admin/${requestId}/dismiss`, {}),
+
   // ADR-039: phụ huynh không tự đổi SĐT — gửi phone undefined để server giữ nguyên
   updateProfile: (fullName: string, phone?: string) =>
     request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string }>('PUT', '/auth/profile', { fullName, phone }),
@@ -470,6 +494,14 @@ export const api = {
     request<{ enabled: boolean; updatedLinks: number }>('POST', '/parents/telegram/notifications', { enabled }),
   revokeTelegramLink: () =>
     request<{ revokedLinks: number }>('DELETE', '/parents/telegram/link'),
+
+  // ─── Hộp thư góp ý ───
+  getFeedbackTargets: () => request<FeedbackTarget[]>('GET', '/feedback/targets'),
+  getFeedbackInbox: () => request<FeedbackMessage[]>('GET', '/feedback/inbox'),
+  getPublicSentFeedback: () => request<FeedbackMessage[]>('GET', '/feedback/sent'),
+  createFeedback: (data: CreateFeedbackInput) => request<FeedbackMessage>('POST', '/feedback', data),
+  updateFeedbackStatus: (id: string, status: Exclude<FeedbackStatus, 'NEW'>) =>
+    request<FeedbackMessage>('PATCH', `/feedback/${encodeURIComponent(id)}/status`, { status }),
 
   // ─── Leave Requests (Xin Phép Nghỉ Online) ───
   getLeaveRequests: (params?: { classId?: string; status?: string; date?: string; studentId?: string }) => {

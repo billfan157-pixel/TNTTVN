@@ -128,6 +128,39 @@ export interface ParishNotice {
   updatedAt?: string;
 }
 
+export type FeedbackTargetType = 'PARISH' | 'HOMEROOM_TEACHER';
+export type FeedbackVisibility = 'ANONYMOUS' | 'PUBLIC';
+export type FeedbackStatus = 'NEW' | 'READ' | 'ARCHIVED';
+
+export interface FeedbackTarget {
+  type: FeedbackTargetType;
+  userId: string | null;
+  label: string;
+  detail: string;
+}
+
+export interface FeedbackMessage {
+  id: string;
+  targetType: FeedbackTargetType;
+  targetName: string;
+  visibility: FeedbackVisibility;
+  senderName: string;
+  subject: string;
+  content: string;
+  status: FeedbackStatus;
+  readAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateFeedbackInput {
+  targetType: FeedbackTargetType;
+  targetUserId?: string;
+  visibility: FeedbackVisibility;
+  subject: string;
+  content: string;
+}
+
 export type Role = 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh';
 
 export type ScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final';

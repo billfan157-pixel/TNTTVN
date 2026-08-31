@@ -96,7 +96,13 @@ async function seed() {
     })
   }
 
-  console.log('Successfully seeded runtime database with 150 students, classes, branches, and academic years!')
+  // 6. Parish Profile (Xứ Đoàn Đức Mẹ Fatima)
+  await client.execute({
+    sql: `INSERT OR IGNORE INTO parish_profiles (parish_id, display_name, patron_name, created_at, updated_at) VALUES (?, 'Xứ Đoàn Đức Mẹ Fatima', 'Đức Mẹ Fatima', ?, ?)`,
+    args: [parishId, now, now],
+  })
+
+  console.log('Successfully seeded runtime database with 150 students, classes, branches, academic years, and parish profile!')
 }
 
 await seed()

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey, foreignKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey, foreignKey, check } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 export const users = sqliteTable('users', {
@@ -212,6 +212,81 @@ export const notices = sqliteTable('notices', {
    index('idx_notices_date').on(table.parishId, table.date),
    uniqueIndex('idx_notices_idempotency').on(table.parishId, table.idempotencyKey),
  ])
+
+/**
+ * Hộp thư góp ý. Thư ẩn danh cố ý KHÔNG có sender_user_id; đây là invariant DB,
+ * không chỉ là phép che tên ở response/UI. target_user_id cũng chỉ tồn tại khi
+ * thư gửi đích danh GLV chủ nhiệm.
+ */
+export const feedbackMessages = sqliteTable('feedback_messages', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  targetType: text('target_type', { enum: ['PARISH', 'HOMEROOM_TEACHER'] }).notNull(),
+  targetUserId: text('target_user_id'),
+  visibility: text('visibility', { enum: ['ANONYMOUS', 'PUBLIC'] }).notNull(),
+  senderUserId: text('sender_user_id'),
+  subject: text('subject').notNull(),
+  content: text('content').notNull(),
+  status: text('status', { enum: ['NEW', 'READ', 'ARCHIVED'] }).notNull().default('NEW'),
+  readAt: text('read_at'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({
+    columns: [table.parishId, table.targetUserId],
+    foreignColumns: [users.parishId, users.id],
+  }).onDelete('restrict'),
+  foreignKey({
+    columns: [table.parishId, table.senderUserId],
+    foreignColumns: [users.parishId, users.id],
+  }).onDelete('restrict'),
+  index('idx_feedback_inbox').on(table.parishId, table.targetType, table.targetUserId, table.status, table.createdAt),
+  index('idx_feedback_public_sender').on(table.parishId, table.senderUserId, table.createdAt),
+  check('feedback_sender_privacy_check', sql`
+    (${table.visibility} = 'ANONYMOUS' AND ${table.senderUserId} IS NULL)
+    OR (${table.visibility} = 'PUBLIC' AND ${table.senderUserId} IS NOT NULL)
+  `),
+  check('feedback_target_check', sql`
+    (${table.targetType} = 'PARISH' AND ${table.targetUserId} IS NULL)
+    OR (${table.targetType} = 'HOMEROOM_TEACHER' AND ${table.targetUserId} IS NOT NULL)
+  `),
+])
+
+/**
+ * Một hàng trạng thái hiện tại cho mỗi tài khoản phụ huynh. Yêu cầu public chỉ
+ * lưu user_id đã khớp server-side; không lưu SĐT nhập vào hay mật khẩu. UNIQUE
+ * theo tenant + user giúp spam/retry hội tụ vào một phiếu thay vì làm phình inbox.
+ */
+export const passwordResetRequests = sqliteTable('password_reset_requests', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  userId: text('user_id').notNull(),
+  status: text('status', { enum: ['PENDING', 'RESOLVED', 'DISMISSED'] }).notNull().default('PENDING'),
+  requestCount: integer('request_count').notNull().default(1),
+  lastRequestedAt: text('last_requested_at').notNull().$defaultFn(() => new Date().toISOString()),
+  resolvedAt: text('resolved_at'),
+  resolvedBy: text('resolved_by'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({
+    columns: [table.parishId, table.userId],
+    foreignColumns: [users.parishId, users.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    columns: [table.parishId, table.resolvedBy],
+    foreignColumns: [users.parishId, users.id],
+  }).onDelete('restrict'),
+  uniqueIndex('idx_password_reset_request_user').on(table.parishId, table.userId),
+  index('idx_password_reset_requests_inbox').on(table.parishId, table.status, table.lastRequestedAt),
+  check('password_reset_request_count_check', sql`${table.requestCount} >= 1`),
+  check('password_reset_request_resolution_check', sql`
+    (${table.status} = 'PENDING' AND ${table.resolvedAt} IS NULL AND ${table.resolvedBy} IS NULL)
+    OR (${table.status} IN ('RESOLVED', 'DISMISSED') AND ${table.resolvedAt} IS NOT NULL AND ${table.resolvedBy} IS NOT NULL)
+  `),
+])
 
 export const auditLogs = sqliteTable('audit_logs', {
    id: text('id').notNull(),

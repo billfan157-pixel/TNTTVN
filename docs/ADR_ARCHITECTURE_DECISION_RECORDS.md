@@ -1512,7 +1512,7 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 
 1. Mọi create/reset/provision chỉ lưu bcrypt hash; response trả mật khẩu tạm đúng một lần. `password_encrypted` luôn `NULL`; migration `20260827-131` purge mọi ciphertext lịch sử. Cột được giữ nullable để rollback schema an toàn nhưng đã deprecated.
 2. `POST /api/users/:id/reveal-password` là compatibility tombstone `410 PASSWORD_REVEAL_REMOVED`; không thực hiện re-auth, không trả bí mật. UI/API client bỏ chức năng xem lại.
-3. `POST /api/auth/parent-reset-password` trả `410 PARENT_SELF_RESET_REMOVED` bất kể body; không lookup SĐT/trẻ và không đổi dữ liệu. UI chỉ hướng dẫn liên hệ Ban Giáo Lý qua kênh đã xác minh để cấp mật khẩu tạm.
+3. `POST /api/auth/parent-reset-password` trả `410 PARENT_SELF_RESET_REMOVED` bất kể body; không lookup SĐT/trẻ và không đổi dữ liệu. Tại thời điểm ADR này, UI chỉ hướng dẫn liên hệ Ban Giáo Lý; ADR-087 sau đó bổ sung ticket chưa xác thực để Admin tiếp nhận nhưng không khôi phục KBA/self-reset.
 4. Admin reset vẫn yêu cầu JWT admin + re-auth + rate-limit + audit; user buộc đổi mật khẩu tạm ở lần đăng nhập sau.
 
 **Business Rule Gate:** không lưu credential reversible và không dùng KBA trẻ em = `CONFIRMED` bằng source + 39 targeted tests. **ADR compatibility:** ADR-044/045/046 `PASS`; ADR-021/042 `CONFLICT RESOLVED BY SUPERSESSION`. **Rollback:** code R1 có thể khôi phục UI nhưng ciphertext đã purge không thể/không được phục hồi; phải reset mật khẩu mới.
@@ -2708,4 +2708,90 @@ Scores là so sánh dựa trên E3 repository/plugin integration và E4 platform
 Migration không DB/API; `npm install` + `cap sync` thêm plugin native và preference chỉ sinh sau opt-in. Rollback R1: gỡ gate/settings/store/lib/dependencies/native plugin wiring và `NSFaceIDUsageDescription`; marker còn lại inert, không cần data migration.
 
 Verification hiện tại: targeted **4 files / 15 tests PASS** (native bridge strong-only/no-device-credential, cold-start gate, settings integration, store lifecycle resume re-check/recovery và lỗi ghi preference); full final gate **267 files / 1,878 tests PASS**, gồm lint, design-system anti-drift, TypeScript, server/frontend production build và coverage; production dependency audit **0 vulnerability**; `npx cap sync` nhận đúng hai plugin ở Android/iOS. Android `assembleDebug` **BUILD SUCCESSFUL / 153 tasks**, sinh APK 11,123,048 bytes; merged debug manifest có `USE_BIOMETRIC` + `USE_FINGERPRINT`. Test cleanup backup tạm dùng `fs.rmSync` retry để tránh Windows EPERM thoáng qua; rerun riêng 4/4 và full coverage đều PASS. Hậu kiểm D3 giữ nguyên Security 8, Privacy 10, Data Integrity 9, Testability 8; không phát hiện regression hoặc ADR conflict trong evidence tự động. Physical Face ID/Touch ID/Android biometric, app-switcher timing, iOS build và signed release build vẫn **NOT CONFIRMED** cho tới device/CI acceptance.
+
+---
+
+## ADR-086: Hộp thư góp ý — anonymous by non-attribution (2026-08-31)
+
+**Status: IMPLEMENTED / INFRASTRUCTURE PRIVACY CONDITIONAL. Severity: D3. Profile: SECURITY. Reversibility: R2.**
+
+### Problem và business contract
+
+Catevia cần kênh góp ý trong tenant: GLV (`chunhiem|phuta`) gửi lên Xứ đoàn; phụ huynh gửi lên Xứ đoàn hoặc đúng GLV chủ nhiệm của con. Admin chỉ tiếp nhận/xử lý thư gửi về Xứ đoàn, không phải sender. Người gửi chọn công khai hoặc ẩn danh; với anonymous, admin ứng dụng không được có khóa dữ liệu/API/audit để truy ngược tài khoản.
+
+Business Rule Gate: các luồng sender/recipient và admin receive-only là **CONFIRMED** từ yêu cầu sản phẩm. Reply thread, attachment, public unauthenticated submit và retention duration là **NOT CONFIRMED / OUT OF SCOPE**.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: sender nullable + non-attribution | B: mã hóa reversible sender | C: public unauth endpoint |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 9 | 8 | 4 |
+| Privacy | 20% | 9 | 5 | 9 |
+| Data Integrity | 20% | 9 | 8 | 6 |
+| Reliability | 15% | 9 | 7 | 5 |
+| Testability | 10% | 9 | 6 | 7 |
+| Maintainability | 10% | 8 | 6 | 7 |
+| Reversibility | 5% | 8 | 7 | 9 |
+| **Weighted** | **100%** | **8.85 — SELECT** | **6.85 — REJECT** | **6.30 — REJECT** |
+
+A dựa trên E3 schema/service/logger/route evidence, HIGH confidence cho application boundary. B fail D3 Privacy vì hệ thống vẫn giữ khóa giải mã. C fail Security/Data Integrity vì mất eligibility/tenant sender gate và mở spam. Hạ tầng reverse-proxy metadata là UNKNOWN nên status vận hành còn CONDITIONAL, không được cộng điểm giả.
+
+### Decision contract
+
+1. `feedback_messages` dùng PK `(parish_id,id)`. `ANONYMOUS` bắt buộc sender null; `PUBLIC` bắt buộc sender non-null. `PARISH` bắt buộc target null; `HOMEROOM_TEACHER` bắt buộc target user non-null. DB CHECK là hard invariant.
+2. Admin writer bị 403 và UI chỉ có inbox. Admin inbox chỉ `PARISH`; chủ nhiệm inbox chỉ row target đúng self. GLV gửi duy nhất Xứ đoàn; parent target chủ nhiệm phải qua phone → active student → class → `role_in_class='chunhiem'` cùng parish.
+3. Không lưu source role, class, student hay parent linkage trong row. Public sender name resolve từ `users`; response không phát sender ID. Anonymous không có sent-box, offline queue, client persistence, receipt/reply token hoặc automatic POST retry.
+4. Anonymous không tạo audit sender. Logger application redacts userId/parishId/IP/user-agent và chuẩn hóa path. Status processing được audit theo recipient nhưng không copy nội dung.
+5. “Admin không biết” nghĩa là admin ứng dụng không truy được qua Catevia database/API/audit/application logs. Reverse proxy/cloud provider có thể giữ transport metadata ngoài app; UI/docs phải công bố, và muốn mở rộng claim cần hạ tầng anonymous relay/log-retention ADR riêng.
+6. Schema readiness bắt marker `20260831-145`, columns/indexes/composite PK và FK check. Purge v2.4/safety snapshot v3.1 bao gồm thư; rollback UI/API R1 nhưng migration/data là R2 và không down-migrate.
+
+### Gates, compatibility, risks và verification
+
+- D3 hard gates: Security **9**, Privacy **9**, Data Integrity **9** — PASS trong application boundary. Testability **9** bằng route/RBAC/tenant/DB constraint/logger/schema tests.
+- ADR compatibility: ADR-031 tenant binding = PASS; ADR-045 PII minimization = PASS; ADR-063/072/077/082 UI/route/workspace = PASS; ADR-041/059 backup = PASS vì logical full DB tự bao gồm table mới.
+- Architecture: `FeedbackPage → api.ts → feedback route → feedbackService → schema`; không reverse dependency. Route policy là UX, server role/tenant checks là authority.
+- Risks: proxy correlation (medium/high) → explicit boundary + future infra review; small-recipient-set inference (medium/medium) → không lưu child/class/source role nhưng social inference không thể loại bỏ; abuse (medium/medium) → authenticated-only + existing global limiter; accidental attribution regression (low/critical) → DB CHECK + tests + log redaction.
+- Final engineering verification: feedback/schema-health **16/16 PASS**; targeted purge/frontend/route **5 files / 29 tests PASS**; full serialized regression **269 files / 1,891 tests PASS**; lint, design-system lint, server/frontend TypeScript và production build PASS. Production proxy log-retention/access policy vẫn phải được duyệt trước khi mở rộng claim ẩn danh ra ngoài application boundary.
+
+---
+
+## ADR-087: Parent Password Reset Request Inbox (2026-08-31)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profile: SECURITY. Reversibility: R1 code, R2 additive table.**
+
+### Problem, evidence và business rule
+
+Yêu cầu sản phẩm `CONFIRMED`: phụ huynh quên mật khẩu phải gửi được yêu cầu trong app để Admin cấp lại mật khẩu mới. Evidence E3 cho thấy `ParentForgotPasswordModal` trước đây chỉ sao chép/mở Zalo; `/api/auth/parent-reset-password` là tombstone 410 theo ADR-058; luồng Admin reset hiện hữu đã có bcrypt, re-auth, rate-limit, audit, force-change và session revocation. Không có OTP/SMS ownership provider trong repo (UNKNOWN, không được coi là đã sẵn sàng).
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: chỉ Zalo/manual hiện tại | B: ticket + Admin xác minh | C: OTP self-service |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 35% | 9 | 9 | 8 |
+| Data Integrity | 20% | 8 | 9 | 9 |
+| Reliability | 15% | 5 | 8 | 8 |
+| Testability | 10% | 6 | 9 | 7 |
+| Maintainability | 10% | 7 | 8 | 5 |
+| Operational Fit | 5% | 4 | 9 | 6 |
+| Reversibility | 5% | 10 | 9 | 7 |
+| **Weighted** | **100%** | **7.50** | **8.75 — SELECT** | **7.65 — CONDITIONAL** |
+
+A không thỏa yêu cầu trực tiếp. C cần provider, ownership proof, delivery SLO, cost/consent và recovery policy chưa có evidence nên chưa thể approve. B tái dùng control đã kiểm chứng và không biến SĐT/ticket thành proof.
+
+### Decision contract
+
+1. Public `POST /api/password-reset-requests` nhận SĐT + `parishId` optional, rate-limit 5/60s/IP, normalize/lookup đúng tenant + role parent. Response `202` giống nhau cho account có/không tồn tại và thực hiện bcrypt dummy work để giảm timing enumeration.
+2. Ticket chỉ lưu `user_id` đã match, status/count/timestamps; không lưu raw phone, child KBA hay credential. UNIQUE `(parish_id,user_id)` làm mọi lần gửi hội tụ vào một row và mở lại row đã xử lý.
+3. Ticket là tín hiệu chưa xác thực. Admin UI bắt buộc xác nhận đã verify qua kênh tin cậy. Chỉ admin cùng tenant được list/dismiss/reset; hidden UI không thay backend authorization.
+4. Reset yêu cầu mật khẩu hiện tại của Admin và commit atomic: bcrypt hash mới, `password_encrypted=NULL`, force-change, clear lockout, token version bump, revoke refresh sessions, resolve ticket, audit `RESET_PASSWORD`. Temp password chỉ xuất hiện trong response một lần.
+5. Compatibility route ADR-058 vẫn 410; không khôi phục KBA hoặc reveal. Manual Zalo còn là fallback.
+
+### Hard gates, compatibility, risks và verification
+
+- D3 hard gates: Security **9**, Privacy **9**, Data Integrity **9** — PASS. Testability **9** qua generic-response/dedupe/RBAC/tenant/re-auth/atomic credential+session+ticket tests. Confidence HIGH cho application boundary; production notification latency/support handling là UNKNOWN.
+- ADR compatibility: ADR-058 = **PASS WITH AMENDMENT** (no KBA/reversible secret giữ nguyên; thay câu UI-only); ADR-044/045/046 = PASS; ADR-031 tenant binding = PASS; ADR-041/059 backup = PASS (logical backup tự gồm table); manual LMS snapshot cố ý không gồm auth-support state.
+- Risks: spoof/spam request (medium/medium) → rate limit + one-row dedupe + explicit unverified state; enumeration (medium/high) → generic payload/status + bcrypt timing work; wrong-recipient credential (low/critical) → required manual verification + admin re-auth; concurrent resolution (low/high) → transaction/status gate; temp credential disclosure (low/high) → one-time response, never persisted reversible.
+- Rollback: UI/API/service R1; để table inert là an toàn. Drop table/data là R2 và không cần cho rollback. Purge contract xóa ticket trước users-related rows.
+- Final acceptance: targeted recovery/schema/purge/UI **7 files / 32 tests PASS**; full serialized regression **272 files / 1,900 tests PASS**; oxlint zero-warning; design-system lint **0/119**; client/server TypeScript và production frontend/server build PASS. Concurrency test xác nhận hai Admin cùng claim một ticket chỉ có đúng một reset thành công (`200/409`) và hash cuối khớp mật khẩu của response thành công.
+- Post-implementation Decision Matrix: **KEEP** — Security 9, Privacy 9, Data Integrity 9, Testability 9 giữ nguyên; không phát hiện regression hoặc ADR conflict trong evidence tự động. Production support SLA, request volume và abuse telemetry vẫn là **NOT CONFIRMED** cho tới khi có dữ liệu vận hành thật.
 

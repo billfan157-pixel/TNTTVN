@@ -269,7 +269,7 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
           <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:52px;height:52px;object-fit:contain;" />
           <div class="header-left-text">
             <div>${data.dioceseName || 'GIÁO PHẬN'} — ${data.parishName || 'GIÁO XỨ GIA TÔN'}</div>
-            <div class="unit">${data.unitName || 'XỨ ĐOÀN THIẾU NHI THÁNH THỂ'}</div>
+            <div class="unit">${data.unitName || 'XỨ ĐOÀN ĐỨC MẸ FATIMA'}</div>
             <div>Số sổ: <strong>${data.fundName}</strong></div>
           </div>
         </td>

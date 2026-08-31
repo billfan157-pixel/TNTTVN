@@ -28,6 +28,7 @@ const CalendarPage = lazyWithRetry(() => import('./pages/CalendarPage'))
 const FinancePage = lazyWithRetry(() => import('./pages/FinancePage'))
 const ParishProfilePage = lazyWithRetry(() => import('./pages/ParishProfilePage'))
 const OrganizationDashboardPage = lazyWithRetry(() => import('./pages/OrganizationDashboardPage'))
+const FeedbackPage = lazyWithRetry(() => import('./pages/FeedbackPage'))
 
 const patchedViewTransitionDocuments = new WeakSet<Document>()
 const expectedViewTransitionInterruptions = new Set([
@@ -375,6 +376,17 @@ const financeRoute = createRoute({
   ),
 })
 
+const feedbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/feedback',
+  beforeLoad: requireRouteAccess('/feedback'),
+  component: () => (
+    <PageSuspense>
+      <FeedbackPage />
+    </PageSuspense>
+  ),
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
@@ -400,6 +412,7 @@ const routeTree = rootRoute.addChildren([
   parishProfileRoute,
   verifyRoute,
   financeRoute,
+  feedbackRoute,
 ])
 
 export const router = createRouter({

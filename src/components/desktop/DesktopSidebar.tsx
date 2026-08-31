@@ -2,14 +2,14 @@ import React from 'react';
 import {
   LayoutDashboard, Users, FileSpreadsheet, CheckSquare,
   Printer, Bell, ShieldCheck, Settings,
-  UserCheck, FileText, HeartHandshake, CalendarClock, Wallet, Landmark
+  UserCheck, FileText, HeartHandshake, CalendarClock, Wallet, Landmark, MessageSquareText
 } from 'lucide-react';
 import type { ClassInfo, BranchInfo } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
 import { WORKSPACE_DEFINITIONS, canRoleAccessRoute, getAccessibleWorkspaces, type WorkspaceId } from '../../constants/routePolicy';
 
-export type DesktopTab = 'dashboard' | 'parish-home' | 'students' | 'grades' | 'attendance' | 'reports' | 'calendar' | 'parish-profile' | 'notices' | 'users' | 'classes' | 'academic-years' | 'catechists' | 'audit-logs' | 'settings' | 'management' | 'parent' | 'finances';
+export type DesktopTab = 'dashboard' | 'parish-home' | 'students' | 'grades' | 'attendance' | 'reports' | 'calendar' | 'parish-profile' | 'notices' | 'users' | 'classes' | 'academic-years' | 'catechists' | 'audit-logs' | 'settings' | 'management' | 'parent' | 'finances' | 'feedback';
 
 interface DesktopSidebarProps {
   activeTab: DesktopTab;
@@ -64,7 +64,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
     // Con Của Tôi — cổng riêng của phụ huynh, nhóm ngay dưới Tổng Quan
     const parentHome: SidebarItem[] = canRoleAccessRoute('/parent', role)
-      ? [{ id: 'parent', label: 'Con Của Tôi', icon: HeartHandshake }]
+      ? [
+          { id: 'parent', label: 'Con Của Tôi', icon: HeartHandshake },
+          { id: 'feedback', label: 'Thư góp ý', icon: MessageSquareText },
+        ]
       : [];
 
     // Dạy học & theo dõi — chỉ nhân sự (GLV/trợ tá/admin)
@@ -80,6 +83,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       { id: 'parish-profile', label: 'Hồ sơ Xứ đoàn', icon: Landmark },
       { id: 'calendar', label: 'Lịch phụng vụ', icon: CalendarClock },
       { id: 'notices', label: 'Thông báo', icon: Bell },
+      { id: 'feedback', label: 'Thư góp ý', icon: MessageSquareText },
     ];
 
     const organizationGovernance: SidebarItem[] = role === 'admin' ? [

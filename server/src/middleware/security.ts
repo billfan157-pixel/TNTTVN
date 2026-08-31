@@ -127,12 +127,12 @@ export const adminReauthRateLimiter = createMiddleware(async (c, next) => {
   await next()
 })
 
-// ADR-058: endpoint self-reset đã ngừng (410); giữ giới hạn 10/60s/IP để chặn spam
-// vào compatibility route trong thời gian các client cũ còn tồn tại.
+// ADR-087: public password-recovery ticket + compatibility tombstone dùng chung
+// giới hạn 5/60s/IP. Ticket không tự reset nhưng vẫn phải chống spam/enumeration.
 export const parentForgotRateLimiter = createMiddleware(async (c, next) => {
   const ip = getClientIp(c)
   const entry = await getRateLimitEntry(`parent-forgot:${ip}`)
-  if (entry.count > 10) {
+  if (entry.count > 5) {
     return c.json({ error: 'Quá nhiều lần thử đặt lại mật khẩu. Vui lòng đợi 1 phút hoặc liên hệ Ban Giáo Lý.' }, 429)
   }
   await next()

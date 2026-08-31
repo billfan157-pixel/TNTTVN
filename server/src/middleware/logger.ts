@@ -16,6 +16,24 @@ export interface StructuredLogContext {
   error?: string
 }
 
+declare module 'hono' {
+  interface ContextVariableMap {
+    requestId: string
+    privacyMode?: 'anonymous-feedback'
+  }
+}
+
+/**
+ * Anonymous feedback must not leave an application-log identity trail that an
+ * in-app administrator can correlate with the stored letter. Infrastructure
+ * providers may still retain transport metadata outside this application.
+ */
+export function applyLogPrivacy(context: StructuredLogContext, privacyMode?: string): StructuredLogContext {
+  if (privacyMode !== 'anonymous-feedback') return context
+  const { userId: _userId, parishId: _parishId, ip: _ip, userAgent: _userAgent, ...redacted } = context
+  return { ...redacted, path: '/api/feedback/anonymous' }
+}
+
 /**
  * Structured Logging & Correlation ID Tracing Middleware
  * Enforces Request ID propagation across HTTP headers and structured JSON logs.
@@ -55,7 +73,8 @@ export async function loggerMiddleware(c: Context, next: Next) {
 
     // Emit structured JSON log to stdout
     if (process.env.NODE_ENV !== 'test') {
-      console.log(JSON.stringify({ level: logContext.error ? 'ERROR' : 'INFO', ...logContext }))
+      const safeLogContext = applyLogPrivacy(logContext, c.get('privacyMode'))
+      console.log(JSON.stringify({ level: logContext.error ? 'ERROR' : 'INFO', ...safeLogContext }))
     }
   }
 }

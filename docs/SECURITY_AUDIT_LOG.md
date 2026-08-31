@@ -3482,3 +3482,25 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - **Rollback:** R1; không DB/API/server data. Marker preference còn lại sau rollback là inert.
 
 ---
+
+## Audit FEEDBACK-PRIVACY-1 — Hộp thư góp ý anonymous — ✅ ENGINEERING VERIFIED / INFRA BOUNDARY EXPLICIT (2026-08-31, ADR-086)
+
+- **Threat model:** chống admin ứng dụng/API/DB/audit truy ngược người gửi anonymous; không tuyên bố ẩn danh trước operator của reverse proxy/cloud network.
+- **Identity minimization:** anonymous row không có sender ID/name/role/phone/class/student. DB CHECK từ chối mọi anonymous row có `sender_user_id`; public bắt buộc có sender. Target chủ nhiệm không lưu class/student context.
+- **Authorization:** admin chỉ inbox/status cho thư Xứ đoàn và bị 403 ở writer; chủ nhiệm chỉ inbox đúng `target_user_id`; phụ huynh chỉ target chủ nhiệm suy từ con cùng tenant; phuta không có inbox.
+- **Trace controls:** anonymous không tạo sender audit; logger đổi path tổng quát và bỏ userId/parishId/IP/user-agent. Status audit ghi recipient action + status, không copy subject/content/sender.
+- **Client controls:** anonymous không sent-box, không offline queue/persist, không auto-retry POST và không reply/receipt token. UI công bố auth tạm thời và giới hạn hạ tầng.
+- **Integrity/recovery:** migration `145`, composite tenant keys/FKs, target/sender CHECK, startup schema marker/index/column/PK checks; purge v2.4 + snapshot v3.1 gồm thư.
+- **Evidence:** feedback + schema-health 16/16 PASS; targeted purge/frontend/route **5 files / 29 tests PASS**; full serialized regression **269 files / 1,891 tests PASS**; server/frontend TypeScript, lint, design-system lint và production build PASS. Production proxy log retention/access policy và abuse telemetry dài hạn là **NOT CONFIRMED**.
+
+---
+
+## Audit AUTH-RECOVERY-1 — Parent reset request inbox — ✅ ENGINEERING VERIFIED (2026-09-01, ADR-087)
+
+- **Threat model:** public account enumeration, request spam, giả mạo chủ SĐT, cross-tenant admin access, cấp credential khi chưa re-auth, race hai Admin và lộ mật khẩu tạm.
+- **Controls:** generic 202 cho existing/unknown + dummy bcrypt; 5/60s/IP; one-row `(parish_id,user_id)` dedupe; ticket không lưu raw input/KBA/credential; Admin JWT tenant scope; UI acknowledgement xác minh; server re-auth; reset/session revoke/ticket close/audit cùng transaction; temp password one-time và `password_encrypted=NULL`.
+- **Audit semantics:** public event ghi subject user vì `audit_logs.user_id` NOT NULL nhưng `newValue.actor='unauthenticated_request'`; không được diễn giải subject là người đã xác thực. Admin reset/dismiss ghi actor Admin thật.
+- **Compatibility:** legacy KBA endpoint vẫn 410, ADR-058 no-KBA/no-reveal giữ nguyên. Ticket không phải possession factor và không tự reset.
+- **Final evidence:** targeted recovery/schema/purge/UI **7 files / 32 tests PASS**; full serialized regression **272 files / 1,900 tests PASS**; oxlint zero-warning; design-system lint **0/119**; client/server TypeScript và production frontend/server build PASS. Atomic-claim concurrency test chứng minh hai Admin tranh cùng ticket chỉ có đúng một reset thành công (`200/409`) và credential cuối thuộc response thành công. Hậu kiểm D3: **KEEP**, Security/Privacy/Data Integrity/Testability đều 9. Production support response time, request volume và abuse telemetry là **NOT CONFIRMED** cho tới khi có vận hành thật.
+
+---

@@ -42,7 +42,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260824', 129, 129),
   ...migrationRange('20260827', 130, 131),
   ...migrationRange('20260828', 132, 135),
-  ...migrationRange('20260831', 136, 144),
+  ...migrationRange('20260831', 136, 146),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -67,6 +67,10 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_parish_terms_person: ['parish_id', 'person_id', 'start_date'],
   idx_parish_records_timeline: ['parish_id', 'status', 'show_on_timeline', 'occurred_on'],
   idx_parish_assets_type: ['parish_id', 'asset_type', 'captured_on'],
+  idx_feedback_inbox: ['parish_id', 'target_type', 'target_user_id', 'status', 'created_at'],
+  idx_feedback_public_sender: ['parish_id', 'sender_user_id', 'created_at'],
+  idx_password_reset_request_user: ['parish_id', 'user_id'],
+  idx_password_reset_requests_inbox: ['parish_id', 'status', 'last_requested_at'],
 }
 
 const REQUIRED_TRIGGER_NAMES = [
@@ -98,6 +102,22 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   parish_service_terms: ['parish_id', 'id', 'person_id', 'unit_id', 'deleted_at'],
   parish_records: ['parish_id', 'id', 'status', 'visibility', 'show_on_timeline', 'deleted_at'],
   parish_archive_assets: ['parish_id', 'id', 'storage_type', 'object_key', 'external_url', 'deleted_at'],
+  feedback_messages: ['parish_id', 'id', 'target_type', 'target_user_id', 'visibility', 'sender_user_id', 'subject', 'content', 'status'],
+  password_reset_requests: ['parish_id', 'id', 'user_id', 'status', 'request_count', 'last_requested_at', 'resolved_at', 'resolved_by'],
+}
+
+const REQUIRED_TABLE_SQL_FRAGMENTS: Record<string, readonly string[]> = {
+  feedback_messages: [
+    'visibility=anonymousandsender_user_idisnull',
+    'visibility=publicandsender_user_idisnotnull',
+    'target_type=parishandtarget_user_idisnull',
+    'target_type=homeroom_teacherandtarget_user_idisnotnull',
+  ],
+  password_reset_requests: [
+    'request_count>=1',
+    'status=pendingandresolved_atisnullandresolved_byisnull',
+    'statusin(resolved,dismissed)andresolved_atisnotnullandresolved_byisnotnull',
+  ],
 }
 
 const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
@@ -118,6 +138,8 @@ const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
   parish_archive_assets: ['parish_id', 'id'],
   parish_record_people: ['parish_id', 'record_id', 'person_id'],
   parish_record_assets: ['parish_id', 'record_id', 'asset_id'],
+  feedback_messages: ['parish_id', 'id'],
+  password_reset_requests: ['parish_id', 'id'],
 }
 
 function rowValue(row: unknown, key: string, index: number): unknown {
@@ -209,6 +231,29 @@ export async function assertDatabaseReady(client: SchemaHealthClient): Promise<v
     const actualColumns = new Set(tableInfo.map((column) => column.name))
     for (const column of requiredColumns) {
       if (!actualColumns.has(column)) problems.push(`missing required column ${tableName}.${column}`)
+    }
+  }
+
+  const constrainedTableNames = Object.keys(REQUIRED_TABLE_SQL_FRAGMENTS)
+  const constrainedTableList = constrainedTableNames.map(quoteSqlLiteral).join(', ')
+  const tableSqlResult = await client.execute(
+    `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN (${constrainedTableList})`,
+  )
+  const tableSqlByName = new Map<string, string>()
+  for (const row of tableSqlResult.rows) {
+    tableSqlByName.set(
+      normalizeIdentifier(rowValue(row, 'name', 0)),
+      normalizeSql(rowValue(row, 'sql', 1)),
+    )
+  }
+  for (const [tableName, fragments] of Object.entries(REQUIRED_TABLE_SQL_FRAGMENTS)) {
+    const definition = tableSqlByName.get(tableName.toLowerCase())
+    if (!definition) {
+      problems.push(`missing required table ${tableName}`)
+      continue
+    }
+    for (const fragment of fragments) {
+      if (!definition.includes(fragment)) problems.push(`table ${tableName} is missing privacy constraint ${fragment}`)
     }
   }
 

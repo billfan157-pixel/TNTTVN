@@ -1,20 +1,34 @@
-import React, { useId, useState } from 'react'
-import { CheckCircle2, Copy, ExternalLink, MessageCircle, ShieldCheck, X } from 'lucide-react'
+import React, { useEffect, useId, useState } from 'react'
+import { CheckCircle2, Copy, ExternalLink, MessageCircle, Send, ShieldCheck, X } from 'lucide-react'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
 import { Button, IconButton } from '../common/ui/Button'
 import { TextInput } from '../common/ui/FormControls'
+import { api } from '../../lib/api'
+import { isValidVnPhone, parentUsername } from '../../utils/username'
 
 interface ParentForgotPasswordModalProps {
   isOpen: boolean
   onClose: () => void
+  initialPhone?: string
 }
 
-export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps> = ({ isOpen, onClose }) => {
+export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps> = ({ isOpen, onClose, initialPhone = '' }) => {
   const { dialogRef, titleId } = useAccessibleDialog(isOpen, onClose)
   const phoneId = useId()
   const [phone, setPhone] = useState('')
   const [copied, setCopied] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+
+  useEffect(() => {
+    if (!isOpen) return
+    setPhone(initialPhone)
+    setError('')
+    setSuccessMessage('')
+    setSubmitting(false)
+  }, [initialPhone, isOpen])
 
   if (!isOpen) return null
 
@@ -27,6 +41,26 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
       setTimeout(() => setCopied(false), 2000)
     } catch {
       // Người dùng vẫn có thể chọn và sao chép nội dung thủ công.
+    }
+  }
+
+  async function submitRequest(event: React.FormEvent) {
+    event.preventDefault()
+    const normalizedPhone = parentUsername(phone)
+    if (!isValidVnPhone(normalizedPhone)) {
+      setError('Số điện thoại phải có 10 chữ số và bắt đầu bằng 0.')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await api.requestParentPasswordReset(normalizedPhone)
+      setSuccessMessage(result.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Không thể gửi yêu cầu. Vui lòng thử lại sau.')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -53,12 +87,34 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
 
         <div className="space-y-4 p-5">
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-text-main">
-            Hệ thống không còn dùng ngày sinh hoặc tên của trẻ để tự đặt lại mật khẩu vì những thông tin này có thể bị đoán hoặc biết bởi người khác.
+            Yêu cầu này không tự đổi mật khẩu. Admin sẽ xác minh danh tính trước khi cấp mật khẩu tạm qua kênh riêng; hệ thống không dùng tên hoặc ngày sinh của trẻ để xác thực.
           </div>
-          <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
-            Số điện thoại phụ huynh
-            <TextInput id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg" />
-          </label>
+
+          {successMessage ? (
+            <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm leading-relaxed text-text-main">
+              <div className="mb-1 flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 aria-hidden="true" className="h-5 w-5" /> Đã tiếp nhận yêu cầu
+              </div>
+              {successMessage}
+            </div>
+          ) : (
+            <form onSubmit={submitRequest} className="space-y-3">
+              <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
+                Số điện thoại đăng nhập
+                <TextInput id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="username" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg" />
+              </label>
+              {error && <div role="alert" className="text-xs font-semibold text-rose-600">{error}</div>}
+              <Button type="submit" loading={submitting} loadingLabel="Đang gửi yêu cầu..." variant="primary" mobile fullWidth>
+                <Send aria-hidden="true" className="h-4 w-4" /> Gửi yêu cầu cho Admin
+              </Button>
+            </form>
+          )}
+
+          <div className="flex items-center gap-3" aria-hidden="true">
+            <span className="h-px flex-1 bg-surface-border" />
+            <span className="text-xs font-semibold uppercase text-text-muted">Hoặc liên hệ trực tiếp</span>
+            <span className="h-px flex-1 bg-surface-border" />
+          </div>
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase text-text-muted">Tin nhắn mẫu</div>
             <div className="rounded-xl border border-surface-border bg-surface-hover/50 p-3 text-xs leading-relaxed text-text-main">{message}</div>
@@ -68,7 +124,7 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
               {copied ? <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-parish-success" /> : <Copy aria-hidden="true" className="h-4 w-4" />}
               {copied ? 'Đã sao chép' : 'Sao chép tin nhắn'}
             </Button>
-            <Button type="button" onClick={() => window.open('https://zalo.me', '_blank', 'noopener,noreferrer')} variant="primary" mobile fullWidth>
+            <Button type="button" onClick={() => window.open('https://zalo.me', '_blank', 'noopener,noreferrer')} variant="secondary" mobile fullWidth>
               <MessageCircle aria-hidden="true" className="h-4 w-4" /> Mở Zalo <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
             </Button>
           </div>

@@ -173,9 +173,9 @@ Client: `src/lib/api.ts` (`purgeAllData`, `probePurgeVersion`) · UI: `src/compo
 
 ### Purge semantics (Business Rules → `docs/BUSINESS_RULES.md` §9)
 - Chỉ admin; phải nhập đúng mật khẩu (bcrypt) + chuỗi xác nhận `XÓA TẤT CẢ`.
-- Xóa rows của 24 bảng nghiệp vụ trong hợp đồng Purge v2.3 trong 1 transaction (FK order + `PRAGMA defer_foreign_keys`), scope `parish_id`; `exam_result_mutations` xóa trước result/session; KHÔNG drop bảng, KHÔNG xóa function/trigger.
+- Xóa rows của 26 bảng nghiệp vụ trong hợp đồng Purge v2.4 trong 1 transaction (FK order + `PRAGMA defer_foreign_keys`), scope `parish_id`; gồm `password_reset_requests`, `feedback_messages`, và `exam_result_mutations` xóa trước result/session; KHÔNG drop bảng, KHÔNG xóa function/trigger.
 - Giữ nguyên: `users`, `branches`, `permissions`, `role_permissions`, `audit_logs`, `push_subscriptions`, `system_settings`.
-- Snapshot v3.0 (24 bảng) tự ghi file trước khi xóa; audit log `SYSTEM_PURGE` ghi counts.
+- Snapshot v3.1 (26 bảng) tự ghi file trước khi xóa; audit log `SYSTEM_PURGE` ghi counts.
 - Sau thành công: client gọi `resetClientData(purgeVersion)` → xóa sạch Dexie + localStorage + đăng xuất. Các thiết bị khác bị `fetchAllData` phát hiện version chênh lệch → tự reset + đăng xuất (chống ghost data).
 - **A-NEW-47 (2026-08-13)**: `fetchAllData` chỉ reset khi device ĐÃ TỪNG sync (có key `parish_purge_version` trong localStorage). Device mới/chưa có key chỉ **ghi baseline** `purge_version` hiện tại, KHÔNG wipe, KHÔNG logout — tránh đá user ra khỏi phiên hợp lệ khi `purge_version` server cao hơn từ các lần purge lịch sử (production hiện là 4). Device cũ có key < server version vẫn bị reset (ghost data).
 - Sau purge, quy trình bắt đầu lại: Tạo Năm Học → (khóa HK1 mặc định mở vì `semester_locks` đã purge) → Tạo Lớp hoặc Import Excel (tự tạo lớp qua `suggestedNewClasses`) → Nhập điểm / Điểm danh.
@@ -227,7 +227,18 @@ Client: `src/lib/api.ts` (`api.login/changePassword/adminChangePassword/logout/m
 
 ### `POST /api/auth/parent-reset-password` compatibility tombstone (ADR-058)
 - Endpoint luôn trả **410** `{ success:false, error:{ code:"PARENT_SELF_RESET_REMOVED", ... } }` bất kể body; không lookup SĐT/hồ sơ trẻ và không mutate user/session.
-- Client mới không gọi endpoint này. UI "Quên mật khẩu" chỉ hướng dẫn liên hệ Ban Giáo Lý qua kênh đã xác minh để được cấp mật khẩu tạm.
+- Client mới không gọi endpoint này; dùng ticket ADR-087 bên dưới.
+
+### Parent password reset request (`/api/password-reset-requests`, ADR-087)
+
+| Method/path | Quyền | Contract |
+| :--- | :--- | :--- |
+| `POST /` | Public + `parentForgotRateLimiter` 5/60s/IP | Body `{phone, parishId?}`; normalize SĐT, chỉ tạo/mở lại ticket nếu khớp `role=phuhuynh` cùng tenant. Luôn `202 {accepted:true,message}` giống nhau cho số có/không có tài khoản; không tự reset. |
+| `GET /admin` | admin | Danh sách ticket `PENDING` cùng tenant, mới nhất trước: `{id,userId,fullName,username,phone,status,requestCount,lastRequestedAt}[]`. |
+| `POST /admin/:id/reset` | admin + re-auth + `adminReauthRateLimiter` | Body `{adminPassword}`; transaction reset bcrypt + force-change + revoke sessions + resolve ticket + audit. Trả `{username,tempPassword,fullName}` đúng một lần. |
+| `PATCH /admin/:id/dismiss` | admin | Đóng ticket sai/không còn cần; audit người xử lý. |
+
+Public response không chứng minh ticket đã được tạo và không được dùng để suy ra account existence. Admin UI bắt buộc xác nhận đã xác minh danh tính qua kênh tin cậy; ticket/SĐT tự khai không phải possession factor. Client không persist/offline-enqueue/auto-retry request này.
 
 ---
 
@@ -283,7 +294,7 @@ Client: `src/lib/api.ts` (`getMyChildren`, `getStudentReportCard`) · Page: `src
 
 - Phone khớp linh hoạt: bỏ khoảng trắng/`-`/`(`/`)`/`.`, đổi đầu `+84` → `0`; `users.phone` có thể lệch định dạng so với `students.parentPhone` mà vẫn khớp.
 - Phụ huynh **không** thấy tab Thiếu Nhi/Điểm Danh/Bảng Điểm/Báo Cáo; `GET /api/students`, `/api/grades`, `/api/attendance` trả rỗng cho role `phuhuynh` (guard an toàn hiện có).
-- Frontend route-policy SSOT: `src/constants/routePolicy.ts`. Router guard, desktop/mobile navigation state và mobile title cùng dẫn xuất từ policy này. `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` chỉ `admin|chunhiem|phuta`; `/parent` chỉ `phuhuynh`; governance routes chỉ `admin`; `/dashboard|notices|calendar|settings` dùng chung cho mọi role đã xác thực. Đây là fail-closed UX boundary; server middleware vẫn là authorization authority.
+- Frontend route-policy SSOT: `src/constants/routePolicy.ts`. Router guard, desktop/mobile navigation state và mobile title cùng dẫn xuất từ policy này. `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` chỉ `admin|chunhiem|phuta`; `/parent` chỉ `phuhuynh`; governance routes chỉ `admin`; `/dashboard|notices|calendar|settings|feedback` dùng chung cho mọi role đã xác thực. `/feedback` chỉ chung quyền vào trang; quyền gửi/nhận vẫn tách theo endpoint và role. Đây là fail-closed UX boundary; server middleware vẫn là authorization authority.
 - Telegram UI (ADR-022 hoàn thiện, 2026-08-15): `src/components/common/TelegramLinkCard.tsx` + `src/hooks/useTelegramLink.ts` (mount trong `ParentPage` mục "Thông Báo Telegram") — tạo mã (10 phút), sao chép, bật/tắt thông báo, hủy liên kết; bot nhận `/link <mã>`, `/status`, `/optout`, `/optin`, `/unlink` (`server/src/services/telegram.ts`). Hướng dẫn bot trỏ tới "Con Của Tôi" → "Thông Báo Telegram".
 
 ## 9A. USER ACCOUNT PROVISIONING API (`/api/users/parent-*`) — ADR-026
@@ -597,5 +608,21 @@ Tất cả endpoint yêu cầu auth và tenant lấy từ JWT, không nhận `pa
 | `GET /assets/:id/download` | Authenticated private blob download; `Cache-Control: private, no-store`. External asset không proxy qua route này. |
 
 Client store không persist/offline-enqueue domain này. FormData không được gắn `Content-Type: application/json`; API client để browser sinh multipart boundary.
+
+---
+
+## 20. FEEDBACK MAILBOX API (`/api/feedback`, ADR-086)
+
+Mọi endpoint yêu cầu JWT và lấy tenant từ token. Admin chỉ có receiver endpoints; `POST /api/feedback`, `/targets`, `/sent` chặn admin ở backend.
+
+| Method/path | Quyền | Contract |
+| :--- | :--- | :--- |
+| `GET /targets` | `chunhiem|phuta|phuhuynh` | Staff nhận duy nhất đích Xứ đoàn. Parent nhận Xứ đoàn + các chủ nhiệm thuộc lớp của con, server tự suy từ phone/student/class/assignment. |
+| `POST /` | `chunhiem|phuta|phuhuynh` | `{targetType,targetUserId?,visibility,subject,content}`. Staff chỉ `PARISH`; parent được `PARISH|HOMEROOM_TEACHER` đúng scope. Admin luôn 403. |
+| `GET /inbox` | `admin|chunhiem` | Admin nhận thư `PARISH`; chủ nhiệm chỉ nhận thư đích danh `target_user_id=self`. Tối đa 200 thư mới nhất. |
+| `GET /sent` | `chunhiem|phuta|phuhuynh` | Chỉ trả thư `PUBLIC` có `sender_user_id=self`. Anonymous cố ý không có sent history. |
+| `PATCH /:id/status` | `admin|chunhiem` receiver | Body `{status:'READ'|'ARCHIVED'}`; chỉ recipient hợp lệ cùng tenant được đổi. |
+
+`FeedbackMessage` response không bao giờ phát `senderUserId`. Anonymous trả `senderName='Ẩn danh'`; public trả display name. Client không retry tự động POST, không queue offline và không persist thư. Sau gửi anonymous chỉ toast xác nhận; sau gửi public refetch sent-box.
 
 

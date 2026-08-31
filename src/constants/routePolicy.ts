@@ -19,6 +19,7 @@ export type DesktopRouteTab =
   | 'management'
   | 'parent'
   | 'finances'
+  | 'feedback'
 
 export type MobileRouteTab =
   | 'home'
@@ -70,6 +71,7 @@ export const ROUTE_POLICIES = {
   '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch phụng vụ', workspace: 'organization', desktopTab: 'calendar' },
   '/parish-profile': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Hồ sơ Xứ đoàn', workspace: 'organization', desktopTab: 'parish-profile' },
   '/settings': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Cài đặt', workspace: 'shared', desktopTab: 'settings', mobileTab: 'settings' },
+  '/feedback': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thư góp ý', workspace: 'shared', desktopTab: 'feedback' },
   '/parent': { requiresAuth: true, roles: PARENT_ONLY, mobileTitle: 'Con của tôi', workspace: 'parent', desktopTab: 'parent', mobileTab: 'parent' },
   '/leave-requests': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Đơn xin nghỉ', workspace: 'academic', desktopTab: 'attendance' },
 
@@ -106,6 +108,7 @@ export const DESKTOP_TAB_PATHS = {
   management: '/management',
   parent: '/parent',
   finances: '/finances',
+  feedback: '/feedback',
 } as const satisfies Record<DesktopRouteTab, ProtectedRoutePath>
 
 export const WORKSPACE_DEFINITIONS = {

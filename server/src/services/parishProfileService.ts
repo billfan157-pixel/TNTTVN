@@ -287,8 +287,8 @@ export async function getParishProfileSnapshot(parishId: string, role: ParishPro
   return {
     profile: profile ?? {
       parishId,
-      displayName: 'Xứ Đoàn',
-      patronName: null,
+      displayName: 'Xứ Đoàn Đức Mẹ Fatima',
+      patronName: 'Đức Mẹ Fatima',
       foundedDate: null,
       motto: null,
       description: null,
