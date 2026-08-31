@@ -25,15 +25,19 @@
  * cookie), không tạo vector session hijack mới.
  */
 
+export const NATIVE_ALLOWED_ORIGINS = [
+  'capacitor://localhost',
+  'https://localhost',
+  'http://localhost',
+]
+
 export const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:4173',
   'https://tnttvn.vercel.app',
-  'capacitor://localhost',
-  'https://localhost',
-  'http://localhost',
+  ...NATIVE_ALLOWED_ORIGINS,
 ]
 
 // A-NEW-12 (2026-08-10): production KHÔNG được chứa localhost dev ports trong default
@@ -43,13 +47,16 @@ export const DEFAULT_ALLOWED_ORIGINS = [
 // muốn thêm origin → set CLIENT_ORIGIN rõ ràng.
 const PRODUCTION_ALLOWED_ORIGINS = [
   'https://tnttvn.vercel.app',
-  'capacitor://localhost',
-  'https://localhost',
-  'http://localhost',
+  ...NATIVE_ALLOWED_ORIGINS,
 ]
 
 export function resolveAllowedOrigins(): string[] {
-  if (process.env.CLIENT_ORIGIN) return process.env.CLIENT_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+  if (process.env.CLIENT_ORIGIN) {
+    const configured = process.env.CLIENT_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+    // NATIVE (2026-08-31): luôn giữ các origin native shell để việc cấu hình CLIENT_ORIGIN
+    // cho web domain (ví dụ trên Render/Vercel) không làm hỏng app native iOS/Android
+    return Array.from(new Set([...configured, ...NATIVE_ALLOWED_ORIGINS]))
+  }
   return process.env.NODE_ENV === 'production' ? PRODUCTION_ALLOWED_ORIGINS : DEFAULT_ALLOWED_ORIGINS
 }
 
