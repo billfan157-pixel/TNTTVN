@@ -2,14 +2,14 @@ import React from 'react';
 import {
   LayoutDashboard, Users, FileSpreadsheet, CheckSquare,
   Printer, Bell, ShieldCheck, Settings,
-  UserCheck, FileText, HeartHandshake, CalendarClock, Wallet
+  UserCheck, FileText, HeartHandshake, CalendarClock, Wallet, Landmark
 } from 'lucide-react';
 import type { ClassInfo, BranchInfo } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
-import { canRoleAccessRoute } from '../../constants/routePolicy';
+import { WORKSPACE_DEFINITIONS, canRoleAccessRoute, getAccessibleWorkspaces, type WorkspaceId } from '../../constants/routePolicy';
 
-export type DesktopTab = 'dashboard' | 'students' | 'grades' | 'attendance' | 'reports' | 'calendar' | 'notices' | 'users' | 'classes' | 'academic-years' | 'catechists' | 'audit-logs' | 'settings' | 'management' | 'parent' | 'finances';
+export type DesktopTab = 'dashboard' | 'parish-home' | 'students' | 'grades' | 'attendance' | 'reports' | 'calendar' | 'parish-profile' | 'notices' | 'users' | 'classes' | 'academic-years' | 'catechists' | 'audit-logs' | 'settings' | 'management' | 'parent' | 'finances';
 
 interface DesktopSidebarProps {
   activeTab: DesktopTab;
@@ -20,6 +20,8 @@ interface DesktopSidebarProps {
   setSelectedClassId: (classId: string) => void;
   classes: ClassInfo[];
   branches: Record<string, BranchInfo>;
+  activeWorkspace?: WorkspaceId;
+  onWorkspaceChange?: (workspace: WorkspaceId) => void;
 }
 
 interface SidebarItem {
@@ -43,7 +45,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   selectedClassId,
   setSelectedClassId,
   classes,
-  branches
+  branches,
+  activeWorkspace = 'academic',
+  onWorkspaceChange,
 }) => {
   const { role } = useAuth();
   const pendingCount = useLeaveRequestStore((s) => s.pendingCount);
@@ -71,26 +75,43 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       ...(canRoleAccessRoute('/reports', role) ? [{ id: 'reports', label: 'Báo Cáo', icon: Printer } as SidebarItem] : []),
     ];
 
-    const community: SidebarItem[] = [
-      { id: 'calendar', label: 'Lịch Phụng Vụ', icon: CalendarClock },
-      { id: 'notices', label: 'Thông Báo', icon: Bell },
+    const organization: SidebarItem[] = [
+      { id: 'parish-home', label: 'Tổng quan Xứ đoàn', icon: LayoutDashboard },
+      { id: 'parish-profile', label: 'Hồ sơ Xứ đoàn', icon: Landmark },
+      { id: 'calendar', label: 'Lịch phụng vụ', icon: CalendarClock },
+      { id: 'notices', label: 'Thông báo', icon: Bell },
     ];
 
-    const governance: SidebarItem[] = role === 'admin' ? [
-      { id: 'finances', label: 'Quỹ & Thu Chi', icon: Wallet },
-      { id: 'catechists', label: 'Giáo Lý Viên', icon: UserCheck },
-      { id: 'management', label: 'Quản Lý Hệ Thống', icon: ShieldCheck },
-      { id: 'audit-logs', label: 'Nhật Ký', icon: FileText },
+    const organizationGovernance: SidebarItem[] = role === 'admin' ? [
+      { id: 'finances', label: 'Quỹ & thu chi', icon: Wallet },
+      { id: 'catechists', label: 'Giáo lý viên', icon: UserCheck },
     ] : [];
+
+    const platformGovernance: SidebarItem[] = role === 'admin' ? [
+      { id: 'management', label: 'Quản lý hệ thống', icon: ShieldCheck },
+      { id: 'audit-logs', label: 'Nhật ký', icon: FileText },
+    ] : [];
+
+    if (activeWorkspace === 'parent') {
+      return [{ items: parentHome }];
+    }
+
+    if (activeWorkspace === 'organization') {
+      return [
+        { items: organization },
+        ...(organizationGovernance.length ? [{ label: 'VẬN HÀNH XỨ ĐOÀN', items: organizationGovernance }] : []),
+        ...(platformGovernance.length ? [{ label: 'QUẢN TRỊ NỀN TẢNG', items: platformGovernance }] : []),
+      ];
+    }
 
     return [
       { items: overview },
-      ...(parentHome.length ? [{ items: parentHome }] : []),
       ...(teaching.length ? [{ label: 'DẠY HỌC & THEO DÕI', items: teaching }] : []),
-      { label: 'CỘNG ĐỒNG GIÁO XỨ', items: community },
-      ...(governance.length ? [{ label: 'QUẢN TRỊ', items: governance }] : []),
+      ...(platformGovernance.length ? [{ label: 'QUẢN TRỊ NỀN TẢNG', items: platformGovernance }] : []),
     ];
   })();
+
+  const accessibleWorkspaces = getAccessibleWorkspaces(role);
 
   const filteredClasses = selectedBranchId === 'all'
     ? classes
@@ -120,6 +141,25 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
   return (
     <aside className="sidebar-container">
+      {accessibleWorkspaces.length > 1 && (
+        <div className="sidebar-workspace">
+          <div className="sidebar-section-label">KHÔNG GIAN LÀM VIỆC</div>
+          <div className="sidebar-nav-list" role="group" aria-label="Chuyển không gian làm việc">
+            {accessibleWorkspaces.map(workspace => (
+              <button
+                key={workspace}
+                type="button"
+                className={`sidebar-nav-item w-full ${activeWorkspace === workspace ? 'sidebar-nav-item-active' : ''}`}
+                aria-pressed={activeWorkspace === workspace}
+                onClick={() => onWorkspaceChange?.(workspace)}
+              >
+                {workspace === 'academic' ? <FileSpreadsheet size={18} /> : <Landmark size={18} />}
+                <span className="sidebar-nav-label">{WORKSPACE_DEFINITIONS[workspace].label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Navigation Links — phân nhóm theo vai trò để giảm tải nhận biết */}
       <div className="sidebar-nav">
         <nav className="sidebar-nav-list" aria-label="Điều hướng quản lý">
@@ -136,7 +176,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           khối có 1 đường kẻ phân cách — nav phía trên tự cuộn, footer luôn nhìn thấy. */}
       <div className="sidebar-footer">
         {/* Branch & Class Filter Section (admin only — GLV only sees their assigned classes) */}
-        {role === 'admin' && (
+        {role === 'admin' && activeWorkspace === 'academic' && (
         <div className="sidebar-filter-section">
           <div className="sidebar-section-label">
             BỘ LỌC PHÂN NGÀNH & LỚP
@@ -194,7 +234,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           aria-current={activeTab === 'settings' ? 'page' : undefined}
         >
           <Settings size={18} className={activeTab === 'settings' ? 'text-parish-primary' : 'text-text-muted'} />
-          <span className="sidebar-nav-label">Cài Đặt</span>
+          <span className="sidebar-nav-label">Cài đặt</span>
         </button>
       </div>
     </aside>

@@ -90,6 +90,7 @@ import examsRouter from './routes/exams.js'
 import leaveRequestsRouter from './routes/leaveRequests.js'
 import { financesRouter } from './routes/finances.js'
 import parishEventsRouter from './routes/parishEvents.js'
+import parishProfileRouter from './routes/parishProfile.js'
 import { loggerMiddleware } from './middleware/logger.js'
 import { metricsMiddleware } from './middleware/metrics.js'
 
@@ -127,6 +128,7 @@ app.route('/api/exams', examsRouter)
 app.route('/api/leave-requests', leaveRequestsRouter)
 app.route('/api/finances', financesRouter)
 app.route('/api/parish-events', parishEventsRouter)
+app.route('/api/parish-profile', parishProfileRouter)
 
 // A-NEW-49 (2026-08-17): Railway injects PORT env at runtime và DÙNG giá trị này
 // cho healthcheck + public routing. Code cũ (3f01bd0) đọc process.env.PORT → bind

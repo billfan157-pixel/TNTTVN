@@ -1,5 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
-import { LogIn, HeartHandshake, GraduationCap, ChevronRight } from 'lucide-react'
+import { HeartHandshake, GraduationCap, ChevronRight } from 'lucide-react'
+import appLogo from '../assets/app-logo.png'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -10,10 +11,15 @@ export function LoginPage() {
         {/* Header */}
         <div className="auth-hero">
           <div className="auth-hero__mark">
-            <LogIn className="w-8 h-8 text-white" />
+            <img src={appLogo} alt="Logo Catevia" className="w-full h-full object-cover" />
           </div>
-          <h1 className="auth-hero__title">Xứ Đoàn Thiếu Nhi Thánh Thể</h1>
-          <p className="auth-hero__subtitle">Vui lòng chọn cổng đăng nhập phù hợp</p>
+          <h1 className="auth-hero__title">Catevia</h1>
+          <div className="auth-hero__subtitle-wrap">
+            <span className="auth-hero__subtitle">
+              <span className="auth-hero__subtitle-dot" aria-hidden="true" />
+              Nền tảng quản lý Giáo lý &amp; Thiếu Nhi Thánh Thể
+            </span>
+          </div>
         </div>
 
         {/* Portal chooser */}

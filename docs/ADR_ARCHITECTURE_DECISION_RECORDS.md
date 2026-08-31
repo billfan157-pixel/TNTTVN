@@ -2393,11 +2393,11 @@ A fail D2 Testability gate và giữ semantic drift. B có blast radius/reversib
 3. `src/index.css` là entrypoint duy nhất của ordered graph `00-tokens.css → 70-sidebar.css`. Không dùng `@layer`, không component-owned CSS import, không đảo cascade. CSS graph test khóa manifest, reachability, duplicate/cycle/orphan và directive ownership.
 4. Tại điểm split-only, production CSS phải giống trước/sau. Baseline đã xác nhận 212,171 bytes và SHA-256 `09AD1BB6179D178887D5E5E3502363FE1D57C45597BDA048D5B925EC4A561CEB`; accessibility fixes sau split được xem là intentional diff riêng.
 5. `lint:ds` v4.5 chạy 8 static rules trên 112 non-exempt application TSX. Hai debt chưa thể cấm toàn cục dùng per-file ceiling; file mới hoặc không có baseline có ceiling 0. Baseline chỉ được viết lại có chủ đích và không được dùng để hợp thức hóa debt tăng. Current ratchet đã giảm còn 287 arbitrary-pixel font sizes / 58 files và 55 `transition-all` / 23 files; current linter result là 0 violation.
-6. Browser hard gate dùng ba viewport 1440/390/320 và light/dark trên ba nhóm: 5 protected routes đại diện (`/dashboard`, `/students`, `/attendance`, `/grades`, `/finances`) = 30 observations; 4 public/auth routes (`/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`) = 24; `ParentForgotPasswordModal` = 6. Tổng cộng Axe = 60 observations; visual/layout full-page dùng cùng 60 scenarios, cộng một mobile-bottom-nav interaction test. Axe JSON, full-page screenshots và HTML report được CI giữ 7 ngày kể cả khi job fail; screenshot là evidence artifact, không phải portable pixel-diff baseline.
+6. Browser hard gate dùng ba viewport 1440/390/320 và light/dark: 7 protected routes đại diện (`/dashboard`, `/students`, `/attendance`, `/grades`, `/finances`, `/parish`, `/parish-profile`) = 42 observations; 4 public/auth routes (`/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`) = 24; `ParentForgotPasswordModal` = 6; `ParishProfileEditorModal` = 6. Tổng cộng Axe = 78 observations; visual/layout dùng cùng 78 scenarios, cộng một mobile-bottom-nav interaction test. Axe JSON, full-page screenshots và HTML report được CI giữ 7 ngày kể cả khi job fail; screenshot là evidence artifact, không phải portable pixel-diff baseline.
 7. Protected traversal dùng sidebar thật và giữ nguyên một SPA document để không tạo hard-refresh/refresh-token rotation ngoài ý muốn. Mỗi bước phải assert canonical URL, matching `aria-current`, `.product-view` và zero primary loading status trước scan/capture; canonical finance route là `/finances`. Mobile-bottom-nav test điều hướng thật qua Attendance, Grades, Students, Reports và Dashboard.
 8. Playwright harness tách khỏi developer runtime: Vite/API dùng 3100/3101; mỗi run có UUID + owner marker và SQLite tạm trong OS temp; `dev:e2e` không nạp server `.env`; remote/external DB env bị scrub; ports được preflight; stdout chỉ phát `READY` sau khi Vite, API và deterministic seed đều hoàn tất; reporter dọn sandbox sau teardown. E2E-only trusted-proxy + IP riêng theo browser context giữ login limiter production nguyên vẹn. Local evidence xác nhận SHA của development DB không đổi sau suite.
 9. Remediation giữ nguyên visual language: `PageHeader` có mobile identity/action flex-basis; dashboard/control và light/dark semantic tokens đạt runtime contrast gate; nhãn grade highlight dùng foreground primary; Finance/Grade scrollers có region/label/focus; control có label/status đúng; public auth, forgot modal và verify được sửa contrast. Native route motion chỉ consume ba browser lifecycle interruption dự kiến trên `ready`/`finished`, không bắt `updateCallbackDone`. `vite.config.ts` bỏ stale `optimizeDeps` entries `tailwind-merge` và `jspdf`.
-10. Axe chỉ là automated subset. `meta-viewport` là rule duy nhất bị disable theo zoom-lock exception đã chấp nhận ở ADR-072/077/078. Protected matrix là representative 5/17 routes, không bao phủ mọi role; không tuyên bố full WCAG, screen-reader, physical-device, field usability hoặc pixel-diff acceptance.
+10. Axe chỉ là automated subset. `meta-viewport` là rule duy nhất bị disable theo zoom-lock exception đã chấp nhận ở ADR-072/077/078. Protected matrix là 7 route đại diện, không bao phủ mọi protected route hoặc role; không tuyên bố full WCAG, screen-reader, physical-device, field usability hoặc pixel-diff acceptance.
 
 ### Gates, compatibility, business rule và risks
 
@@ -2495,4 +2495,217 @@ A không xử lý root cause và fail D2 Testability. B tăng startup transfer/p
 - Full `npm run build:frontend` (`tsc -b && vite build`): **PASS**; Grades default route bỏ nested board chunk, Excel modal vẫn dynamic-only, initial entry không tăng.
 - Candidate performance targets/device plan và evidence boundary: `docs/mobile-route-performance-audit-2026-08-30.md`. Real-device/production target achievement: **NOT CONFIRMED**.
 - Updated: Architecture, Design System, AI Context, ADR and dedicated audit. API/schema/business/security docs: **NOT AFFECTED**.
+
+---
+
+## ADR-081: Hồ sơ Xứ đoàn — Parish Memory bounded context, publication boundary và kho tư liệu có kiểm soát (2026-08-31)
+
+**Status: IMPLEMENTED / OPERATIONS CONDITIONAL. Severity: D3. Profile: SECURITY. Reversibility: R2.**
+
+### Problem, current state và evidence
+
+Catevia có lịch phụng vụ/sự kiện tác nghiệp nhưng chưa có nguồn dữ liệu chuẩn cho lịch sử thành lập, các đời Ban Trị Sự, cơ cấu, quá trình phục vụ Huynh trưởng/GLV, hoạt động lớn, thành tích và tư liệu. `parish_events` chỉ có ngày, tiêu đề, loại, giờ và địa điểm; local fallback hiện không phải durable offline queue nên không được dùng làm kho lưu trữ lịch sử. `users` là tài khoản đăng nhập, không đại diện đầy đủ cho người từng phục vụ. `blobStorage` ADR-041 được xây cho backup/safety snapshot; production archive không được dựa vào disk ephemeral hoặc URL object công khai.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: kéo dài Calendar/Settings | B: bounded context riêng | C: chỉ liên kết Drive ngoài |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 7 | 9 | 6 |
+| Privacy | 15% | 6 | 9 | 5 |
+| Data Integrity | 20% | 5 | 9 | 7 |
+| Tenant Isolation | 10% | 8 | 9 | 5 |
+| Business / Operational Fit | 15% | 5 | 9 | 7 |
+| Maintainability | 10% | 4 | 8 | 6 |
+| Testability | 5% | 4 | 9 | 4 |
+| Reversibility | 5% | 8 | 7 | 9 |
+| **Weighted** | **100%** | **5.85 — REJECT** | **8.85 — SELECT** | **6.15 — REJECT** |
+
+Scores use E3 source/schema evidence and E4 architecture/security authority with HIGH confidence for current limitations; production media latency/cost and future public publication remain UNKNOWN and are not counted as verified benefits. A fails D3 Privacy/Data Integrity; C fails Security/Privacy/Tenant Isolation. B passes the architectural gate only with the controls below.
+
+### Decision contract
+
+1. Tạo Organization workspace tại `/parish` và route cấu trúc `/parish-profile`; không nhúng Parish Memory vào Calendar hoặc Management.
+2. Server REST là authority. Read cho `admin|chunhiem|phuta`; write/publish/delete chỉ `admin`. `phuhuynh` bị chặn ở cả frontend policy và backend. Admin thấy draft/archived; staff chỉ thấy bản `PUBLISHED` và dữ liệu `STAFF` không bị soft-delete.
+3. Mọi bảng dùng tenant key `(parish_id,id)` hoặc parish-scoped key tương đương; mọi lookup/reference/read-back mang `parish_id`. Cross-tenant target được trả 404 trước khi mutation.
+4. `parish_people` là organization identity, tách account/auth khỏi biography nhưng có `linked_user_id` tùy chọn. Link bắt buộc cùng tenant và partial unique trên active row để một account không có hai identity. Nhân vật lịch sử không có account vẫn được lưu mà không tạo user giả. Hồ sơ không lưu ngày sinh đầy đủ hoặc số điện thoại; năm sinh là optional và visibility mặc định `STAFF`.
+5. Dữ liệu chuẩn gồm profile, people, organization units, service terms, records, record-person links, archive assets và record-asset links. Timeline là read-model hợp nhất `parish_records(show_on_timeline=1)` và mốc bắt đầu/kết thúc nhiệm kỳ; không có bảng timeline nhập trùng.
+6. `parish_events` tiếp tục là lịch tác nghiệp. `parish_records.source_event_id` có thể liên kết mềm để chuyển một sự kiện đã diễn ra thành nhật ký lịch sử, không thay đổi contract lịch/offline hiện hữu.
+7. Kho tư liệu hỗ trợ external HTTPS link và upload giới hạn 8 MiB cho JPEG/PNG/WebP/PDF, kiểm MIME + magic bytes + SHA-256. Production upload fail-closed khi R2 chưa cấu hình; object key do server sinh dưới prefix tenant, không dùng tên file hay path do client cung cấp. Download luôn qua endpoint auth/tenant/visibility; không phát public object URL.
+8. Video ở MVP dùng external HTTPS link. Upload video lớn, public gallery/CDN, parental publication và anonymous access là NOT CONFIRMED/OUT OF SCOPE cho đến khi có storage, consent, retention và abuse controls riêng.
+9. Mutation chạy transaction cùng audit metadata. Audit không lưu body tiểu sử/nội dung/file bytes/URL đầy đủ; delete là soft-delete. Client không giả thành công offline và không có local-only archive mutation.
+10. UI dùng Design System v4.5 navy–gold, shared `PageHeader`, `Tabs`, `Surface`, form/button/modal primitives, responsive shell và dark/reduced-motion contract. Mobile truy cập từ control sheet; không tăng số mục bottom nav.
+
+### Hard gates, compatibility và business rules
+
+- **D3 hard gates:** Security **9**, Privacy **9**, Data Integrity **9** — PASS ở thiết kế. Evidence riêng Privacy: tối thiểu PII, parent/public deny, staff publication filter, audit redaction và authorized download. Testability **9** nhờ route/RBAC/tenant/migration/service/UI contracts.
+- **ADR compatibility:** ADR-031 composite tenant binding = PASS; ADR-041/059 R2 storage = CONDITIONAL (reuse adapter, production upload requires R2); ADR-045 PII-at-rest = PASS do không persist client profile cache; ADR-058 no reversible credentials = NOT AFFECTED; ADR-063/065/072/077/079/080 UI/route/mobile contracts = PASS.
+- **Architecture:** pages -> stores/lib/types, server routes -> service -> db/storage; no reverse dependency = PASS.
+- **Business Rule Gate:** first-class Xứ đoàn area and requested content groups = CONFIRMED by product request. Admin-only publication, staff-only read and no parent/public MVP = CONDITIONAL conservative defaults. Public publication/consent/retention duration = NOT CONFIRMED and therefore disabled.
+
+### Risk, migration, rollback và verification
+
+| Risk | Probability | Impact | Mitigation | Residual |
+| --- | --- | --- | --- | --- |
+| Cross-parish/reference leak | Low | Critical | composite tenant keys, parish-scoped lookup, isolation tests | Low |
+| Draft/restricted content exposed | Low | High | backend filter is authority; route policy only UX | Low |
+| Malicious/oversized upload | Medium | High | 8 MiB cap, allowlist + signature, generated key, auth download | Low/Medium |
+| Object/metadata partial commit | Low | High | upload object then transactional metadata; delete object on DB failure; soft delete afterward | Low |
+| Historical record loss | Low | High | additive migration, soft delete, audit, backup | Low |
+| External media link privacy/availability | Medium | Medium | HTTPS-only, explicit external label, no embed | Medium |
+
+Migration is additive (`20260831-136..144`) and R2-compatible. Automatic encrypted logical backup includes all metadata tables; manual LMS export v2 remains academic-only by explicit contract. Purge v2.3 preserves Parish Memory. Rollback R2: hide/remove route and API while retaining new tables/objects; do not down-migrate or delete historical data. Rollback trigger: relevant tenant/RBAC/upload/migration/type gate fails. Acceptance requires migration readiness, server typecheck, targeted service/route tenant tests, frontend route/UI tests, lint/design-system lint, production builds and final serialized verification. Review at 7/30/90 days after real use; public/media expansion requires REASSESS.
+
+---
+
+## ADR-082: Catevia Platform Workspaces — Academic, Organization, Parent (2026-08-31)
+
+**Status: IMPLEMENTED PHASE 1. Severity: D3. Profile: ARCHITECTURE + SECURITY. Reversibility: R1 UI / R2 data.**
+
+### Context và evidence
+
+Catevia đã có 17+ protected routes thuộc học vụ, tổ chức, tài chính và phụ huynh trong một navigation phẳng. Tiếp tục thêm Parish Memory vào shell cũ làm tăng cognitive load và khiến academic filters xuất hiện ở màn tổ chức. Tuy nhiên auth, user, tenant, backend, database, notification, audit, offline sync và design system đang là shared platform ổn định; tách deploy/app hoặc rewrite phá dependency/operational contract mà không tạo giá trị tương ứng. Workspace vì vậy là presentation/IA boundary trên modular monolith, không phải service hoặc security boundary.
+
+### Options và matrix
+
+| Criterion | Weight | A: sidebar phẳng | B: nhiều app/deploy | C: workspace trên modular monolith |
+| :--- | ---: | ---: | ---: | ---: |
+| Business fit | 20% | 4 | 7 | 9 |
+| Security & Privacy | 20% | 7 | 6 | 9 |
+| Data Integrity | 15% | 8 | 5 | 9 |
+| Maintainability | 15% | 4 | 4 | 9 |
+| Migration safety | 10% | 8 | 3 | 9 |
+| UX clarity | 10% | 4 | 8 | 9 |
+| Testability | 5% | 5 | 5 | 9 |
+| Reversibility | 5% | 9 | 3 | 8 |
+| **Weighted** | **100%** | **5.65 — REJECT** | **5.45 — REJECT** | **8.95 — SELECT** |
+
+### Decision contract
+
+1. Catevia giữ một app/deploy/auth/database/backend. Ba workspace là `academic`, `organization`, `parent`; route policy là frontend IA SSOT.
+2. Landing routes: `/dashboard`, `/parish`, `/parent`. Organization chứa Parish Memory, Huynh trưởng/GLV, calendar/events, notices và finance; Academic giữ student/class/attendance/grade/exam/report/year lifecycle; Parent giữ experience hiện hữu.
+3. Người có nhiều workspace chuyển trong desktop sidebar hoặc mobile control sheet, không logout. Lựa chọn cuối được lưu theo `parishId:userId`; route workspace cụ thể cập nhật marker, route `shared` giữ context trước đó.
+4. Workspace không cấp quyền. Router/nav chỉ là fail-closed UX; server middleware, class scope và service tenant/reference checks vẫn là authority. Parent không nhìn thấy Organization/Academic switcher.
+5. Không rewrite route/domain ổn định. Route cũ và offline engine giữ nguyên; shell chỉ ẩn academic class/search/semester controls trong Organization. Desktop sidebar cũng chỉ render bộ lọc phân ngành/lớp khi workspace hiện hành là Academic. Secondary mobile route không chiếm thêm bottom-nav slot.
+6. Identity không đồng nhất với credential: một canonical organization person có thể optional-link đúng một user account, đồng thời có nhiều class assignments, service terms và record links. Không duplicate account/person cho từng workspace.
+7. Current `users.role` tiếp tục là coarse access role để tránh risky auth rewrite. Multi-responsibility nghiệp vụ đã biểu diễn bằng assignment/term links; future multi-capability authorization phải là additive assignment model, server-authoritative, có deny/conflict policy và migration ADR riêng. Chức danh hoặc active workspace không được tự suy ra permission.
+8. Shared platform services (auth, users, audit, notification, settings, backup, design system) không fork theo workspace.
+9. Organization navigation dùng sentence case theo Design System. Form trong `ParishProfileEditorModal` phải dùng vertical `.form-group` primitive; runtime gate quan sát cả `/parish`, `/parish-profile` và modal tại desktop/390/320, light/dark.
+
+### Gates, compatibility, migration và rollback
+
+- D3 gates: Security **9**, Privacy **9**, Data Integrity **9**, Testability **9** — PASS bằng server authority không đổi, parent isolation, scoped persisted workspace marker không PII và targeted route/RBAC/tenant tests.
+- ADR consistency: ADR-031 tenant binding, ADR-045 client PII, ADR-063/072/077/080 shell/route/mobile và ADR-081 Parish Memory = **PASS**. “Một coarse auth role” hiện hữu là transitional constraint, không bị workspace giả vờ giải quyết.
+- Business gate: một platform/ba experience, shared data và no rewrite = **CONFIRMED**. Full multi-capability authorization, public tradition portal, cross-parish federation và automated historical query engine = **NOT CONFIRMED / future ADR**.
+- Migration UI là additive R1. Parish Memory schema là additive R2 theo ADR-081. Rollback workspace UI về navigation cũ không xóa tables/data; Organization API vẫn có thể ẩn bằng route removal. Real-device usability và production R2/restore drill còn CONDITIONAL.
+- Design conformance remediation: Organization không còn academic filters; modal dùng vertical form primitive; sentence-case navigation và mobile inactive-nav contrast được khóa bằng tests. Playwright Axe/visual/layout/CRUD/role **41/41 PASS**, mỗi design matrix **78/78 observations**; final serialized `verify:ci` **264 files / 1,864 tests PASS**, `lint:ds` **0/115**.
+
+---
+
+## ADR-083: Standardization of Class Selector Dropdown & Date Picker Controls Height to 40px (2026-08-31)
+
+**Status: APPROVED / IMPLEMENTED / VERIFIED. Severity: D1. Profile: GENERAL. Reversibility: R1.**
+
+### Context và Mục Tiêu
+Trước đây, kích thước các bộ chọn (dropdown chọn lớp, ô chọn ngày) có sự phân tán giữa các màn hình và thiết bị:
+- `36px` ở toolbar Báo cáo & Tổng kết.
+- `38px` ở `.form-select` / `.form-input` base token.
+- `44px` ở Mobile attendance fields & control sheet select.
+
+Sự phân tán này dẫn đến việc không đồng nhất thị giác khi các control chọn lớp và chọn ngày đứng cạnh nhau trên cùng một thanh công cụ. Quyết định chuẩn hóa chiều cao chuẩn của các bộ chọn ngày (`input[type="date"]`) và dropdown chọn lớp (`select`) trên toàn bộ ứng dụng thành **`40px`** (`height: 40px` / `min-height: 40px` / `h-10` / `h-[40px] min-h-[40px]`).
+
+### Decision Contract
+1. **Design System Tokens (`20-primitives.css`):** `.form-input`, `.form-select`, `.form-textarea` có base `height: 40px; min-height: 40px;`.
+2. **Mobile Shell & Forms (`40-mobile-shell.css`, `60-view-language.css`):**
+   - `.mobile-control-field select, .mobile-control-search` chuẩn hóa `height: 40px; min-height: 40px;`.
+   - `.attendance-field .form-input, .attendance-field .form-select` chuẩn hóa `height: 40px; min-height: 40px;` với `padding-top: 13px; padding-bottom: 2px;`.
+3. **Components (`MobileReportsView`, `MobileAttendanceSummaryView`, `MobileLeaveRequests`, `DesktopAttendanceGrid`):**
+   - Dropdown chọn lớp và ô chọn ngày được đồng bộ về `40px` (`h-[40px] min-h-[40px]` hoặc `h-10`).
+4. **Contract Testing & Documentation:**
+   - `mobileLayoutContract.test.ts` cập nhật assert `min-height: 40px`.
+   - `docs/03_DESIGN_SYSTEM.md` và `docs/AI_CONTEXT_MAP.md` đồng bộ SSOT.
+
+---
+
+## ADR-084: Redesign & Streamlining of Mobile Quick Control Sheet (2026-08-31)
+
+**Status: APPROVED / IMPLEMENTED / VERIFIED. Severity: D1. Profile: GENERAL. Reversibility: R1.**
+
+### Context và Mục Tiêu
+Bảng điều khiển nhanh trên Mobile (`MobileTopBar.tsx` Control Sheet) trước đây tích hợp bộ lọc lớp, ô tìm kiếm, bộ chuyển học kỳ và nút chuyển Desktop Mode. Các phần tử này làm tăng chiều cao menu không cần thiết trong khi các trang nghiệp vụ (Điểm danh, Học sinh, Bảng điểm, Báo cáo) đều đã có bộ lọc, chọn học kỳ và tìm kiếm riêng.
+Quyết định tái thiết kế bảng điều khiển nhanh:
+1. **Loại bỏ:** Bộ lọc lớp, thanh tìm kiếm nhanh, chuyển đổi học kỳ, nút Desktop Mode.
+2. **Nâng cấp giao diện:**
+   - Profile Header trang trọng với Avatar, Họ tên, Role badge và Ngữ cảnh giáo xứ.
+   - Workspace Segmented Switcher trực quan (`.mobile-workspace-switcher`).
+   - Quick Utility Tiles Grid 2 cột (`.mobile-control-tiles`): Đổi Theme ☀️/🌙, Chẩn đoán hệ thống 🩺, Làm mới dữ liệu 🔄, Cài đặt PWA 📲.
+   - Footer Action: Cài đặt và Đăng xuất an toàn.
+
+### Verification
+- `MobileTopBarDialog.test.tsx` + `mobileLayoutContract.test.ts` PASS.
+- `npm run lint:ds` + `npx oxlint` PASS (0 errors, 0 warnings).
+- `npm run build:frontend` PASS.
+
+---
+
+## ADR-085: Native biometric app lock — Face ID, Touch ID và Android biometrics (2026-08-31)
+
+**Status: IMPLEMENTED / DEVICE ACCEPTANCE CONDITIONAL. Severity: D3. Profile: SECURITY. Reversibility: R1.**
+
+### Problem, evidence và phạm vi
+
+Catevia native giữ refresh session tối đa 7 ngày và có offline data trong app sandbox, nhưng trước quyết định này không có privacy gate khi một người cầm thiết bị đã mở khóa hoặc khi app quay lại từ background. Yêu cầu sản phẩm là mở khóa app bằng Face ID/dấu vân tay. E3 code cho thấy auth server hiện đã có JWT memory-only, HttpOnly refresh rotation, password fallback, tenant marker tối thiểu và snapshot Dexie mã hóa; thay toàn bộ auth bằng passkey sẽ mở rộng schema/API/origin ceremony nhưng không trực tiếp giải quyết resume lock. E4 W3C/WebAuthn xác nhận biometric không nên rời authenticator; native LocalAuthentication/BiometricPrompt cũng chỉ trả kết quả xác minh cho app.
+
+Phạm vi được chốt là **local native app-lock opt-in**, không phải passwordless login, MFA server hoặc thay đổi session authority. Web/PWA không giả biometric.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ nguyên | B: native OS app-lock | C: WebAuthn/passkey full login |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 4 | 8 | 9 |
+| Privacy | 15% | 6 | 10 | 10 |
+| Data Integrity | 20% | 9 | 9 | 8 |
+| Reliability | 15% | 9 | 8 | 5 |
+| Testability | 10% | 10 | 8 | 6 |
+| Maintainability | 10% | 10 | 8 | 5 |
+| Operational Fit | 5% | 9 | 9 | 5 |
+| Reversibility | 5% | 10 | 9 | 6 |
+| **Weighted** | **100%** | **7.30 — REJECT** | **8.65 — SELECT** | **7.45 — NOT SELECTED** |
+
+Scores là so sánh dựa trên E3 repository/plugin integration và E4 platform standards, confidence HIGH cho scope/flow, MEDIUM cho behavior thiết bị cho đến physical-device run. A fail D3 Security. C có security tốt cho login nhưng blast radius schema/API/origin/recovery lớn, không đáp ứng trực tiếp app-resume lock và thiếu native associated-domain decision.
+
+### Decision contract
+
+1. `BiometricLockGate` đặt ngoài `RouterProvider`. Marker được đọc đồng bộ: account không bật khóa không phải chờ native capability check; cold start với marker enabled không mount protected router trước khi OS xác minh thành công.
+2. `@aparajita/capacitor-biometric-auth@10` là bridge Capacitor 8 tới iOS LocalAuthentication và Android BiometricPrompt. Chấp nhận Face ID, Touch ID và Android biometric được hệ điều hành phân loại **strong**; Android face loại weak bị từ chối, fingerprint/strong face vẫn dùng được. App không thu modality data.
+3. `@capacitor/app` bắt `appStateChange`: inactive khóa ngay; active kiểm tra lại strong-biometry availability rồi mới tự gọi prompt, vì enrollment/lockout có thể đổi khi app ở nền. Trong lúc native prompt đang chạy, lifecycle event không được tạo lock/prompt loop.
+4. Preference duy nhất là chuỗi `enabled` tại key versioned, scope bằng `parishId:userId`. Không lưu username, phone, full name, password, token, ảnh hoặc biometric template.
+5. Enable và disable đều yêu cầu xác minh thành công. Unavailable/enrollment removal/lockout fail-closed tại lock screen.
+6. Recovery không bypass vào app: xóa local lock marker, logout/dọn client state, rồi quay về password login. Password/server recovery hiện hữu giữ nguyên.
+7. iOS khai báo `NSFaceIDUsageDescription`; Android/iOS plugin wiring được sinh qua Capacitor sync. SwiftPM local paths commit bằng forward slash để build được trên macOS.
+8. App lock không thay JWT/refresh rotation/RBAC/tenant checks, không phát access token và không được dùng làm re-auth cho mutation nhạy cảm.
+
+### Hard gates, compatibility và business status
+
+- **Security 8/10 — PASS:** native OS prompt, cold-start gate, background relock, disable re-verification, fail-closed recovery; residual local-client/root/debugger bypass nằm ngoài server-auth claim.
+- **Privacy 10/10 — PASS:** biometric data không vào JS/storage/network; marker không PII và scope per account/tenant.
+- **Data Integrity 9/10 — PASS:** không schema/API/writer/offline mutation; logout recovery dùng cleanup hiện hữu. Local component state có thể unmount khi khóa, nhưng không commit hoặc mutate server data.
+- **Testability 8/10 — PASS:** store/native dependency boundaries, targeted 15 cases gồm native bridge, full 1,878-test regression gate trên snapshot cuối, TypeScript/lint/build và native sync evidence; real Face ID/fingerprint remains CONDITIONAL.
+- **ADR compatibility:** ADR-029 Capacitor pipeline = PASS; ADR-045 PII marker = PASS; ADR-058 no reversible credentials = PASS; ADR-072/082 client is not authorization = PASS; ADR-063/079 UI/accessibility = PASS.
+- **Architecture:** `main → gate/store → native bridge`; presentation không gọi server/db và native plugin không đi ngược domain dependency = PASS.
+- **Business Rule Gate:** yêu cầu mở khóa bằng Face ID/dấu vân tay = **CONFIRMED**. Android strong-only là security constraint của implementation; passwordless web login/server MFA, passkey sync và app-switcher screenshot blocking = **NOT CONFIRMED / OUT OF SCOPE**.
+
+### Risks, rollback, acceptance và evidence
+
+| Risk | Probability | Impact | Mitigation | Residual |
+| --- | --- | --- | --- | --- |
+| Sensor bị gỡ enrollment/lockout | Medium | High | fail-closed + logout/password recovery | Low |
+| Prompt/lifecycle lặp vô hạn | Low | High | `authenticating` guard + shared in-flight promise + regression test | Low |
+| Account khác kế thừa setting | Low | High | versioned `parishId:userId` key + scope test | Low |
+| Local unsaved component state mất khi lock unmount router | Medium | Medium | lock chỉ opt-in; domain commits vẫn server/store owned | Medium |
+| Rooted/debuggable device sửa marker | Low | High | claim giới hạn local privacy barrier; server authority không đổi | Medium |
+| Native modality/build khác nhau theo thiết bị | Medium | Medium | OS capability label, password recovery, device/CI gate | Medium |
+
+Migration không DB/API; `npm install` + `cap sync` thêm plugin native và preference chỉ sinh sau opt-in. Rollback R1: gỡ gate/settings/store/lib/dependencies/native plugin wiring và `NSFaceIDUsageDescription`; marker còn lại inert, không cần data migration.
+
+Verification hiện tại: targeted **4 files / 15 tests PASS** (native bridge strong-only/no-device-credential, cold-start gate, settings integration, store lifecycle resume re-check/recovery và lỗi ghi preference); full final gate **267 files / 1,878 tests PASS**, gồm lint, design-system anti-drift, TypeScript, server/frontend production build và coverage; production dependency audit **0 vulnerability**; `npx cap sync` nhận đúng hai plugin ở Android/iOS. Android `assembleDebug` **BUILD SUCCESSFUL / 153 tasks**, sinh APK 11,123,048 bytes; merged debug manifest có `USE_BIOMETRIC` + `USE_FINGERPRINT`. Test cleanup backup tạm dùng `fs.rmSync` retry để tránh Windows EPERM thoáng qua; rerun riêng 4/4 và full coverage đều PASS. Hậu kiểm D3 giữ nguyên Security 8, Privacy 10, Data Integrity 9, Testability 8; không phát hiện regression hoặc ADR conflict trong evidence tự động. Physical Face ID/Touch ID/Android biometric, app-switcher timing, iOS build và signed release build vẫn **NOT CONFIRMED** cho tới device/CI acceptance.
 

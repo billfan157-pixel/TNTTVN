@@ -971,3 +971,178 @@ export const parishEvents = sqliteTable('parish_events', {
   index('idx_parish_events_parish_date').on(table.parishId, table.date),
   index('idx_parish_events_parish_category').on(table.parishId, table.category),
 ])
+
+// ADR-081: Hồ sơ Xứ đoàn is a separate bounded context from operational calendar.
+export const parishProfiles = sqliteTable('parish_profiles', {
+  parishId: text('parish_id').notNull(),
+  displayName: text('display_name').notNull(),
+  patronName: text('patron_name'),
+  foundedDate: text('founded_date'),
+  motto: text('motto'),
+  description: text('description'),
+  updatedBy: text('updated_by'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId] }),
+])
+
+export const parishPeople = sqliteTable('parish_people', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  linkedUserId: text('linked_user_id'),
+  holyName: text('holy_name'),
+  fullName: text('full_name').notNull(),
+  birthYear: integer('birth_year'),
+  biography: text('biography'),
+  serviceStatus: text('service_status', { enum: ['ACTIVE', 'FORMER', 'DECEASED'] }).notNull().default('ACTIVE'),
+  visibility: text('visibility', { enum: ['STAFF', 'ADMIN'] }).notNull().default('STAFF'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  index('idx_parish_people_name').on(table.parishId, table.fullName),
+  index('idx_parish_people_status').on(table.parishId, table.serviceStatus),
+  uniqueIndex('idx_parish_people_linked_user').on(table.parishId, table.linkedUserId)
+    .where(sql`${table.linkedUserId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+])
+
+export const parishOrganizationUnits = sqliteTable('parish_organization_units', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  parentId: text('parent_id'),
+  name: text('name').notNull(),
+  unitType: text('unit_type', { enum: ['BOARD', 'COMMITTEE', 'BRANCH', 'CHAPTER', 'OTHER'] }).notNull(),
+  description: text('description'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  index('idx_parish_units_parent').on(table.parishId, table.parentId, table.sortOrder),
+  index('idx_parish_units_type').on(table.parishId, table.unitType),
+])
+
+export const parishServiceTerms = sqliteTable('parish_service_terms', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  personId: text('person_id').notNull(),
+  unitId: text('unit_id'),
+  positionTitle: text('position_title').notNull(),
+  rankTitle: text('rank_title'),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date'),
+  notes: text('notes'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({
+    columns: [table.parishId, table.personId],
+    foreignColumns: [parishPeople.parishId, parishPeople.id],
+  }).onDelete('restrict'),
+  foreignKey({
+    columns: [table.parishId, table.unitId],
+    foreignColumns: [parishOrganizationUnits.parishId, parishOrganizationUnits.id],
+  }).onDelete('restrict'),
+  index('idx_parish_terms_person').on(table.parishId, table.personId, table.startDate),
+  index('idx_parish_terms_unit').on(table.parishId, table.unitId, table.startDate),
+])
+
+export const parishRecords = sqliteTable('parish_records', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  recordType: text('record_type', { enum: ['MILESTONE', 'ACTIVITY', 'ACHIEVEMENT'] }).notNull(),
+  title: text('title').notNull(),
+  summary: text('summary'),
+  content: text('content'),
+  occurredOn: text('occurred_on').notNull(),
+  endedOn: text('ended_on'),
+  location: text('location'),
+  status: text('status', { enum: ['DRAFT', 'PUBLISHED', 'ARCHIVED'] }).notNull().default('DRAFT'),
+  visibility: text('visibility', { enum: ['STAFF', 'ADMIN'] }).notNull().default('STAFF'),
+  showOnTimeline: integer('show_on_timeline', { mode: 'boolean' }).notNull().default(true),
+  sourceEventId: text('source_event_id'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  publishedBy: text('published_by'),
+  publishedAt: text('published_at'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  index('idx_parish_records_timeline').on(table.parishId, table.status, table.showOnTimeline, table.occurredOn),
+  index('idx_parish_records_type').on(table.parishId, table.recordType, table.occurredOn),
+])
+
+export const parishRecordPeople = sqliteTable('parish_record_people', {
+  parishId: text('parish_id').notNull(),
+  recordId: text('record_id').notNull(),
+  personId: text('person_id').notNull(),
+  relationRole: text('relation_role'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.recordId, table.personId] }),
+  foreignKey({
+    columns: [table.parishId, table.recordId],
+    foreignColumns: [parishRecords.parishId, parishRecords.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    columns: [table.parishId, table.personId],
+    foreignColumns: [parishPeople.parishId, parishPeople.id],
+  }).onDelete('restrict'),
+  index('idx_parish_record_people_person').on(table.parishId, table.personId),
+])
+
+export const parishArchiveAssets = sqliteTable('parish_archive_assets', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  assetType: text('asset_type', { enum: ['IMAGE', 'VIDEO', 'POSTER', 'DOCUMENT', 'MINUTES', 'CERTIFICATE', 'OTHER'] }).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  capturedOn: text('captured_on'),
+  storageType: text('storage_type', { enum: ['UPLOAD', 'EXTERNAL'] }).notNull(),
+  objectKey: text('object_key'),
+  externalUrl: text('external_url'),
+  originalFilename: text('original_filename'),
+  mimeType: text('mime_type'),
+  sizeBytes: integer('size_bytes'),
+  checksumSha256: text('checksum_sha256'),
+  visibility: text('visibility', { enum: ['STAFF', 'ADMIN'] }).notNull().default('STAFF'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  index('idx_parish_assets_type').on(table.parishId, table.assetType, table.capturedOn),
+  index('idx_parish_assets_storage').on(table.parishId, table.storageType),
+])
+
+export const parishRecordAssets = sqliteTable('parish_record_assets', {
+  parishId: text('parish_id').notNull(),
+  recordId: text('record_id').notNull(),
+  assetId: text('asset_id').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.recordId, table.assetId] }),
+  foreignKey({
+    columns: [table.parishId, table.recordId],
+    foreignColumns: [parishRecords.parishId, parishRecords.id],
+  }).onDelete('cascade'),
+  foreignKey({
+    columns: [table.parishId, table.assetId],
+    foreignColumns: [parishArchiveAssets.parishId, parishArchiveAssets.id],
+  }).onDelete('restrict'),
+  index('idx_parish_record_assets_asset').on(table.parishId, table.assetId),
+])

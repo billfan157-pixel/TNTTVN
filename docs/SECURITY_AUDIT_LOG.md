@@ -3458,3 +3458,27 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - Rollback R1; không server data/migration.
 
 ---
+
+## Audit PARISH-PLATFORM-1 — Workspace platform + Parish Memory — ✅ CODE HARDENED / OPS CONDITIONAL (2026-08-31, ADR-081/082)
+
+- **Boundary:** workspace chỉ thay information architecture; route client fail-closed nhưng `authMiddleware` + `roleMiddleware` + tenant-scoped service queries vẫn là security authority. Parent bị deny toàn bộ `/api/parish-profile`; staff read-only; admin writer.
+- **Identity:** `linked_user_id` được xác minh cùng parish, service trả 409 khi trùng và migration `20260831-144` tạo partial unique index cho active identity. Historical person không cần account giả.
+- **Privacy:** năm sinh optional thay ngày sinh đầy đủ; không phone trong profile; staff không nhận account candidates, draft, ADMIN records/assets/people; audit chỉ ghi changed-field names.
+- **Archive:** 8 MiB, MIME allowlist + magic bytes + SHA-256, generated tenant object key, HTTPS-only external URL, production R2 fail-closed, authenticated private/no-store download. Public gallery/video upload/parent access chưa được duyệt.
+- **Integrity:** migrations `136..144`, composite tenant PK/FK, schema readiness markers/indexes/columns/PKs, transaction-owned relationship writes, cycle/date/dependency guards và soft delete.
+- **Recovery:** encrypted logical backup enumerates all tables nên gồm metadata mới; uploaded blobs nằm trên independent R2. Purge v2.3 chủ ý giữ Parish Memory; manual LMS export v2 không phải full-platform backup.
+- **Evidence:** targeted server tenant/RBAC/upload/schema tests và frontend workspace/route/profile tests; production R2 credentials, restore drill, real-device UX và retention policy vẫn **CONDITIONAL/NOT CONFIRMED**.
+
+---
+
+## Audit NATIVE-LOCK-1 — Biometric app lock — ✅ ENGINEERING VERIFIED / DEVICE CONDITIONAL (2026-08-31, ADR-085)
+
+- **Finding:** native shell có refresh session/offline cache nhưng chưa có local privacy gate khi app cold-start hoặc quay lại từ background — **CONFIRMED** bằng E3 bootstrap/root source.
+- **Selected control:** OS-owned Face ID/Touch ID/Android strong face/fingerprint qua Capacitor bridge; Android weak biometric bị từ chối; gate ngoài router; background relock; enable/disable đều re-verify; unavailable fail-closed.
+- **Privacy:** app chỉ persist marker `enabled` scope `parishId:userId`; không nhận/lưu/truyền khuôn mặt, vân tay, template, password hoặc token. iOS purpose string mô tả đúng phạm vi.
+- **Recovery:** không có nút bypass vào protected content. Người dùng chỉ có thể xóa marker đồng thời logout/dọn client session rồi đăng nhập mật khẩu.
+- **Claim boundary:** đây là local privacy barrier, không phải MFA/passkey/server authentication; rooted/debuggable client có thể sửa local state nhưng không vượt server JWT/RBAC/tenant controls.
+- **Evidence:** targeted **4 files / 15 tests PASS** (gồm native bridge strong-only/no-device-credential, resume capability re-check, settings integration và lỗi ghi preference); full final gate **267 files / 1,878 tests PASS** với lint, design-system, TypeScript, server/frontend build và coverage; production dependency audit 0 vulnerability; Capacitor sync nhận plugin Android+iOS. Android debug APK build PASS (153 tasks) và merged manifest có `USE_BIOMETRIC` + `USE_FINGERPRINT`. Hậu kiểm D3 không làm giảm Security/Privacy/Data Integrity/Testability gates. Native device prompt, app-switcher snapshot timing, iOS build và signed release build là **NOT CONFIRMED**.
+- **Rollback:** R1; không DB/API/server data. Marker preference còn lại sau rollback là inert.
+
+---

@@ -577,4 +577,25 @@ Lỗi 500 từ validate/import trả message chung kèm mã tham chiếu; chi ti
 
 Fast path ADR-066 xử lý các row create hợp lệ theo chunk 40 trong transaction multi-row. Bất kỳ lỗi constraint/race nào rollback nguyên chunk rồi retry từng row, vì vậy response chỉ công bố `studentChanges` sau commit và vẫn giữ chính xác partial-success/undo của ADR-008/064. `studentChanges` không phải optimistic payload: nó là projection của server response; stale response khác tenant bị client bỏ qua. Undo roster tiếp tục refetch authoritative vì có thể delete record mới và restore record cũ.
 
+---
+
+## 19. PARISH PROFILE API (`/api/parish-profile`, ADR-081)
+
+Tất cả endpoint yêu cầu auth và tenant lấy từ JWT, không nhận `parishId` từ body. `GET` cho `admin|chunhiem|phuta`; mọi mutation chỉ `admin`; `phuhuynh` trả 403. Response snapshot gồm `profile`, `people`, `units`, `terms`, `records`, `assets`, derived `timeline`, admin-only `accounts` và `permissions`.
+
+| Method/path | Contract |
+| :--- | :--- |
+| `GET /api/parish-profile` | Admin nhận draft/archived/restricted; staff chỉ nhận active/published/STAFF projection. |
+| `PUT /profile` | Upsert tên, bổn mạng, ngày thành lập, khẩu hiệu, giới thiệu. |
+| `POST|PUT|DELETE /people[/:id]` | Hồ sơ identity tổ chức. `linkedUserId` phải cùng tenant và unique trên active profile. |
+| `POST|PUT|DELETE /units[/:id]` | Đơn vị/cây tổ chức; service chặn parent cross-tenant và cycle. |
+| `POST|PUT|DELETE /terms[/:id]` | Nhiệm kỳ, chức vụ, cấp bậc; references tenant-scoped, date range hợp lệ. |
+| `POST|PUT|DELETE /records[/:id]` | Cột mốc/hoạt động/thành tích; person/asset links commit atomically. |
+| `POST /assets/external` | External HTTPS metadata + record links. |
+| `POST /assets/upload` | Multipart JPEG/PNG/WebP/PDF ≤8 MiB; production thiếu R2 trả 503 fail-closed. |
+| `PUT|DELETE /assets/:id` | Sửa metadata/link hoặc soft-delete khi không còn dependency. |
+| `GET /assets/:id/download` | Authenticated private blob download; `Cache-Control: private, no-store`. External asset không proxy qua route này. |
+
+Client store không persist/offline-enqueue domain này. FormData không được gắn `Content-Type: application/json`; API client để browser sinh multipart boundary.
+
 

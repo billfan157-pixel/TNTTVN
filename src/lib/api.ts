@@ -248,15 +248,17 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
   }
 
   const url = `${API_BASE}${path}`
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(customHeaders || {}) }
+  const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData
+  const headers: Record<string, string> = { ...(isMultipart ? {} : { 'Content-Type': 'application/json' }), ...(customHeaders || {}) }
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+  const serializedBody = body === undefined ? undefined : isMultipart ? body : JSON.stringify(body)
 
   let res: Response
   try {
     res = await fetch(url, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: serializedBody,
       // A01 Phase 1: bắt buộc để gửi/nhận HttpOnly cookie refresh (cùng site
       // & cross-origin khi API server riêng).
       credentials: 'include',
@@ -266,7 +268,7 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
     // Network error — A12: chỉ retry method idempotent (hoặc có Idempotency-Key)
     if (canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
       await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
-      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry)
+      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope)
     }
     throw new ApiError(0, 'Network error — unable to reach server', path)
   }
@@ -278,7 +280,7 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
     const refreshRes = await refreshAccessToken()
     if (refreshRes === 'success') {
       headers['Authorization'] = `Bearer ${accessToken}`
-      res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, credentials: 'include', signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS) })
+      res = await fetch(url, { method, headers, body: serializedBody, credentials: 'include', signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS) })
     } else if (refreshRes === 'auth_failed') {
       redirectToLogin()
       throw new ApiError(401, 'Session expired — redirecting to login', path)
@@ -858,4 +860,36 @@ export const api = {
     request<any>('PUT', `/parish-events/${encodeURIComponent(id)}`, data),
   deleteParishEvent: (id: string) =>
     request<{ deleted: boolean }>('DELETE', `/parish-events/${encodeURIComponent(id)}`),
+
+  parishProfile: {
+    getSnapshot: () => request<import('../types/parishProfile').ParishProfileSnapshot>('GET', '/parish-profile'),
+    updateProfile: (data: import('../types/parishProfile').ParishProfileInput) => request('PUT', '/parish-profile/profile', data),
+    createPerson: (data: import('../types/parishProfile').ParishPersonInput) => request('POST', '/parish-profile/people', data),
+    updatePerson: (id: string, data: import('../types/parishProfile').ParishPersonInput) => request('PUT', `/parish-profile/people/${encodeURIComponent(id)}`, data),
+    deletePerson: (id: string) => request('DELETE', `/parish-profile/people/${encodeURIComponent(id)}`),
+    createUnit: (data: import('../types/parishProfile').ParishUnitInput) => request('POST', '/parish-profile/units', data),
+    updateUnit: (id: string, data: import('../types/parishProfile').ParishUnitInput) => request('PUT', `/parish-profile/units/${encodeURIComponent(id)}`, data),
+    deleteUnit: (id: string) => request('DELETE', `/parish-profile/units/${encodeURIComponent(id)}`),
+    createTerm: (data: import('../types/parishProfile').ParishTermInput) => request('POST', '/parish-profile/terms', data),
+    updateTerm: (id: string, data: import('../types/parishProfile').ParishTermInput) => request('PUT', `/parish-profile/terms/${encodeURIComponent(id)}`, data),
+    deleteTerm: (id: string) => request('DELETE', `/parish-profile/terms/${encodeURIComponent(id)}`),
+    createRecord: (data: import('../types/parishProfile').ParishRecordInput) => request('POST', '/parish-profile/records', data),
+    updateRecord: (id: string, data: import('../types/parishProfile').ParishRecordInput) => request('PUT', `/parish-profile/records/${encodeURIComponent(id)}`, data),
+    deleteRecord: (id: string) => request('DELETE', `/parish-profile/records/${encodeURIComponent(id)}`),
+    createExternalAsset: (data: import('../types/parishProfile').ParishExternalAssetInput) => request('POST', '/parish-profile/assets/external', data),
+    uploadAsset: (data: import('../types/parishProfile').ParishUploadAssetInput) => {
+      const form = new FormData()
+      form.set('file', data.file)
+      form.set('assetType', data.assetType)
+      form.set('title', data.title)
+      if (data.description) form.set('description', data.description)
+      if (data.capturedOn) form.set('capturedOn', data.capturedOn)
+      form.set('visibility', data.visibility)
+      form.set('recordIds', JSON.stringify(data.recordIds))
+      return request('POST', '/parish-profile/assets/upload', form)
+    },
+    updateAsset: (id: string, data: import('../types/parishProfile').ParishAssetInput) => request('PUT', `/parish-profile/assets/${encodeURIComponent(id)}`, data),
+    deleteAsset: (id: string) => request('DELETE', `/parish-profile/assets/${encodeURIComponent(id)}`),
+    downloadAsset: (id: string) => request<Blob>('GET', `/parish-profile/assets/${encodeURIComponent(id)}/download`, undefined, 0, undefined, false, 'blob'),
+  },
 }

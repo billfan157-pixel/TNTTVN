@@ -1,11 +1,11 @@
 # Database Schema Specification & Plan
 
-> Canonical Single Source of Truth (SSOT) for all 41 SQLite production tables managed via Drizzle ORM.
-> Version: 2.6 | Last reviewed: 2026-08-28 | Status: ✅ Current | Prerequisites: 02
+> Canonical Single Source of Truth (SSOT) for all 49 SQLite production tables managed via Drizzle ORM.
+> Version: 2.7 | Last reviewed: 2026-08-31 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
-## All Production Tables (41)
+## All Production Tables (49)
 
 | # | Table Name | Purpose | Unique Indexes / Constraints |
 |---|------------|---------|------------------------------|
@@ -50,6 +50,14 @@
 | 39 | `financial_transactions` | Giao dịch thu/chi/chuyển quỹ | PK `(parish_id,id)`, fund/date/academic/class indexes |
 | 40 | `student_fee_records` | Nghĩa vụ và trạng thái đóng phí theo học sinh/năm | PK `(parish_id,id)`, `(parish_id,student_id,academic_year,fee_type)` UNIQUE |
 | 41 | `parish_events` | Lịch sự kiện giáo xứ persisted (soft delete) | PK `(parish_id,id)`, parish/date và parish/category indexes |
+| 42 | `parish_profiles` | Identity, ngày thành lập, bổn mạng, khẩu hiệu và giới thiệu Xứ đoàn | PK `parish_id` |
+| 43 | `parish_people` | Identity tổ chức duy nhất cho người đang/từng phục vụ; có thể liên kết một tài khoản đăng nhập | PK `(parish_id,id)`; partial UNIQUE `(parish_id,linked_user_id)` khi active; name/status indexes |
+| 44 | `parish_organization_units` | Ban Trị Sự, ban, ngành, chi đoàn và cây tổ chức | PK `(parish_id,id)`; parent/type indexes; cycle chặn tại service |
+| 45 | `parish_service_terms` | Chức vụ, cấp bậc và nhiệm kỳ của một người trong một đơn vị | PK `(parish_id,id)`; person/unit/date indexes; tenant composite FKs |
+| 46 | `parish_records` | Cột mốc, hoạt động và thành tích có draft/publication/timeline state | PK `(parish_id,id)`; type/timeline indexes |
+| 47 | `parish_record_people` | Quan hệ nhiều-nhiều record ↔ person | PK `(parish_id,record_id,person_id)`; composite tenant FKs |
+| 48 | `parish_archive_assets` | Metadata tư liệu upload riêng tư hoặc external HTTPS | PK `(parish_id,id)`; type/storage indexes; storage XOR constraint |
+| 49 | `parish_record_assets` | Quan hệ nhiều-nhiều record ↔ asset | PK `(parish_id,record_id,asset_id)`; composite tenant FKs |
 
 ---
 

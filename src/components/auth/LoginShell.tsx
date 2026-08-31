@@ -1,4 +1,4 @@
-import { LogIn } from 'lucide-react'
+import appLogo from '../../assets/app-logo.png'
 
 interface LoginShellProps {
   title: string
@@ -13,10 +13,15 @@ export function LoginShell({ title, subtitle, children }: LoginShellProps) {
         {/* Header */}
         <div className="auth-hero">
           <div className="auth-hero__mark">
-            <LogIn className="w-8 h-8 text-white" />
+            <img src={appLogo} alt="Logo Catevia" className="w-full h-full object-cover" />
           </div>
           <h1 className="auth-hero__title">{title}</h1>
-          <p className="auth-hero__subtitle">{subtitle}</p>
+          <div className="auth-hero__subtitle-wrap">
+            <span className="auth-hero__subtitle">
+              <span className="auth-hero__subtitle-dot" aria-hidden="true" />
+              {subtitle}
+            </span>
+          </div>
         </div>
         {children}
       </div>

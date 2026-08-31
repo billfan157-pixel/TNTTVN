@@ -1,7 +1,37 @@
-# AI Agent Context Map & Repository Entrypoint
+# AI Agent Context Map & Repository Entrypoint — Catevia (`brave-davinci` / `TNTTVN`)
 
+> **Technical Naming Taxonomy**:
+> - **Repository**: `TNTTVN` (GitHub: `billfan157-pixel/TNTTVN`)
+> - **Internal Codename**: `brave-davinci`
+> - **Product Name**: `Catevia`
+>
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.0 | Last reviewed: 2026-08-30 | Status: ✅ Current | Prerequisites: none
+> Version: 3.1 | Last reviewed: 2026-08-31 | Status: ✅ Current | Prerequisites: none
+
+---
+
+### Module: Parish Organization & Catechist Profile Synchronization (2026-08-31)
+
+- **Decision:** D1/GENERAL, R0. Đồng bộ giao diện và dữ liệu giữa Tổng quan Xứ đoàn (`/parish`), Danh sách Huynh trưởng / GLV (`/catechists`) và Hồ sơ Xứ đoàn (`/parish-profile`).
+- **Code truth:** `src/pages/OrganizationDashboardPage.tsx` (tự động đếm `snapshot.people.length || snapshot.accounts.length` để luôn phản ánh đúng 4 nhân sự hiện có), `src/components/parish/ParishProfileEditorModal.tsx` (tự động điền `holyName` và `fullName` khi chọn tài khoản liên kết), `src/pages/ParishProfilePage.tsx` (bổ sung tính năng **1-click Đồng bộ nhanh {n} tài khoản GLV** thành Hồ sơ nhân sự), `src/pages/CatechistPage.tsx` (nút liên kết `Hồ Sơ Xứ Đoàn` trên PageHeader).
+- **Contracts:** Không thay đổi API hay schema; liên kết liền mạch và tự động giữa tài khoản đăng nhập (`users`) và hồ sơ lịch sử phục vụ (`parish_people`).
+
+---
+
+### Module: Mobile Quick Control Sheet & Form Sizing Standardization (ADR-083, ADR-084, 2026-08-31)
+
+- **Decision:** ADR-083, ADR-084, D1/GENERAL, R1. Chuẩn hóa kích thước dropdown chọn lớp & date picker về 40px; tái thiết kế bảng điều khiển nhanh trên Mobile TopBar theo phong cách Glassmorphism, bỏ lọc lớp/tìm kiếm/chuyển học kỳ/desktop mode thừa thãi, tổ chức thẻ hồ sơ + workspace switcher + quick utility tiles.
+- **Code truth:** `src/components/mobile/MobileTopBar.tsx`, `src/styles/design-system/40-mobile-shell.css` (`.mobile-control-sheet`, `.mobile-control-tile`, `.mobile-workspace-switcher`), `src/styles/design-system/70-sidebar.css` (`.sidebar-workspace`), `src/components/desktop/DesktopSidebar.tsx`.
+- **Contracts:** Universal 40px form controls (`.form-input, .form-select`); Mobile control sheet độc lập với bottom nav clearance; 0 lint/anti-drift violations.
+
+---
+
+### Module: Native Biometric App Lock (2026-08-31)
+
+- **Decision:** ADR-085, D3/SECURITY, R1. Android/iOS có khóa cục bộ bằng Face ID/Touch ID/Android face hoặc fingerprint; PWA/web giữ luồng mật khẩu hiện hữu và không dùng biometric simulation.
+- **Code truth:** `src/lib/biometricAppLock.ts` sở hữu capability, scoped preference và native prompt; `src/stores/appLockStore.ts` sở hữu state/lifecycle; `src/components/auth/BiometricLockGate.tsx` chặn trước `RouterProvider`; `BiometricLockSettings.tsx` là opt-in UI; `Info.plist`, generated Capacitor Gradle/SPM files và package dependencies là native wiring.
+- **Security contract:** biometric data chỉ ở OS/authenticator; app lưu đúng marker `enabled` theo `parishId:userId`. Enable/disable đều cần biometric. Cold start enabled fail-closed; unavailable/lockout không bypass mà chỉ cho logout + password recovery. Background/inactive khóa ngay; prompt đang chạy không tự tạo vòng lặp lifecycle. Đây là local privacy barrier, không phát token và không thay server authentication/authorization.
+- **Evidence boundary:** targeted **4 files / 15 tests PASS** cho native bridge strong-only/no-device-credential, cold-start gate, settings integration, enable/failure/scope/lifecycle resume re-check/recovery và lỗi ghi preference; full final gate **267 files / 1,878 tests PASS**, lint, design-system, TypeScript và production frontend/server build PASS. `npx cap sync` nhận đúng hai plugin Android/iOS. Android `assembleDebug` PASS (**153 tasks**, APK 11,123,048 bytes) và merged manifest có `USE_BIOMETRIC` + `USE_FINGERPRINT`. Face ID/fingerprint thật, app-switcher snapshot timing, iOS build và signed release build vẫn cần device/CI evidence trước khi gọi production-verified.
 
 ---
 
@@ -79,7 +109,7 @@
 ### Module: Mobile Product UX/UI Optimization (2026-08-28, audited 2026-08-29)
 
 - **Decision**: D1/GENERAL, R0. Mobile UX/UI upgrade theo hướng sản phẩm giáo xứ rõ ràng, ổn định và dễ thao tác, bao phủ tokens, ergonomics, loading states, accessibility và dark mode.
-- **Code truth**: `src/index.css` (semantic tokens `--radius-nav`, `--radius-sheet-lg`, `--radius-hero`, z-index ladder; unified `.mobile-top-bar`; `.sheet-grabber`; dark mobile brand overlays; backdrop-filter scroll optimization), `src/components/mobile/MobileAttendanceView.tsx` (attendance header panel, live KPI capsule, liturgical ribbon, haptic mark-all CTA, Semester Lock visual indicator & protection, Quick Note Bottom Sheet), `src/components/mobile/MobileGradeView.tsx` (`SkeletonCardGrid` fallbacks), `src/components/mobile/MobileStudentsView.tsx` (`SkeletonTable` fallback, `inputMode="search"`, accessible class creation button), `src/components/mobile/MobileAttendanceSummaryView.tsx` (compact 36px toolbar class select & Excel export, `inputMode="search"`, `SegmentedControl` semester switcher), `src/components/mobile/MobileReportsView.tsx` (Command Deck header, 3 sub-tabs `print`/`analytics`/`export`, compact 36px class filter dropdown, batch print & class gradebook via `PrintReportModal`, `GradeDistributionBar` 5-tier ratio bar, CSV/Excel 1-touch export, `inputMode="search"`, haptic feedback), `src/components/mobile/MobileNoticesView.tsx` (≥44px edit button, descriptive `aria-label`), `src/components/mobile/MobileTopBar.tsx` (`.sheet-grabber`, `inputMode="search"`, ≥44px search target), `src/components/mobile/MobileCalendarView.tsx` (`.sheet-grabber`, accessible dialog lifecycle, day tile `aria-label` & `aria-pressed`), `src/components/mobile/MobileHomeView.tsx` (semantic `<nav>`, `<section>`, quick action `aria-label`s).
+- **Code truth**: `src/index.css` (semantic tokens `--radius-nav`, `--radius-sheet-lg`, `--radius-hero`, z-index ladder; unified `.mobile-top-bar`; `.sheet-grabber`; dark mobile brand overlays; backdrop-filter scroll optimization), `src/components/mobile/MobileAttendanceView.tsx` (attendance header panel, live KPI capsule, liturgical ribbon, haptic mark-all CTA, Semester Lock visual indicator & protection, Quick Note Bottom Sheet, 40px unified class & date controls), `src/components/mobile/MobileGradeView.tsx` (`SkeletonCardGrid` fallbacks), `src/components/mobile/MobileStudentsView.tsx` (`SkeletonTable` fallback, `inputMode="search"`, accessible class creation button), `src/components/mobile/MobileAttendanceSummaryView.tsx` (compact 40px toolbar class select & Excel export, `inputMode="search"`, `SegmentedControl` semester switcher), `src/components/mobile/MobileReportsView.tsx` (Command Deck header, 3 sub-tabs `print`/`analytics`/`export`, compact 40px class filter dropdown, batch print & class gradebook via `PrintReportModal`, `GradeDistributionBar` 5-tier ratio bar, CSV/Excel 1-touch export, `inputMode="search"`, haptic feedback), `src/components/mobile/MobileNoticesView.tsx` (≥44px edit button, descriptive `aria-label`), `src/components/mobile/MobileTopBar.tsx` (`.sheet-grabber`, redesigned streamlined control sheet with profile header, workspace switcher, and quick utility tiles), `src/components/mobile/MobileCalendarView.tsx` (`.sheet-grabber`, accessible dialog lifecycle, day tile `aria-label` & `aria-pressed`), `src/components/mobile/MobileHomeView.tsx` (semantic `<nav>`, `<section>`, quick action `aria-label`s).
 - **Contracts**: Behavior-preserving presentation optimization. Zero breaking changes to routes, stores, APIs, schema, or RBAC. Universal ≥44px touch targets, mobile OS search keyboard optimization via `inputMode`, seamless dark mode elevation for brand components, and rich skeleton feedback during async chunk loading.
 - **Scope**: Presentation, ergonomics, accessibility, and CSS token normalization only.
 
@@ -525,6 +555,14 @@ server/src/                         ─ Backend Hono Application
 - **Files Modified**: `src/index.css` (block SIDEBAR viết lại: nền card + border-right cả 2 mode, nhịp section label, active inset-ring + focus-visible, scrollbar mảnh hover-mới-hiện, `.sidebar-footer` ghim đáy 1 divider, filter compact 32px), `src/components/desktop/DesktopSidebar.tsx` (footer group Bộ lọc + Cài Đặt; `aria-current="page"`; label/select liên kết htmlFor; badge 18px), `src/components/common/RootLayout.tsx` (**HeaderBar + OfflineStatusBanner lên full-width top** — sidebar + main start cùng mép dưới header, diệt góc trên-trái trống; sidebar bỏ sticky/height calc → flex stretch), `src/pages/SettingsPage.tsx` (narrow→**wide 12-col 7/5**; FormField ×5 field + autoComplete name/tel/current+new-password; eye toggle + theme/view-mode buttons `aria-pressed`; hint quy tắc mật khẩu; Vùng Nguy Hiểm về cột phải; SectionTitle tile 32px).
 - **Summary**: sửa gap đầu sidebar (user report — sticky top 68px lệch với cột phải có banner đẩy header xuống); sidebar light-mode hết "hòa vào nền"; Settings hết chật 2-col trong max-w-3xl (audit §2 Settings MED a11y đóng kèm).
 - **Verify**: tsc exit 0 · oxlint 0 · lint:ds 0/135 · HeaderBar+CommonComponents 20/20 · build pass. Container tier SettingsPage narrow→wide đã cập nhật DS §13.
+
+### Module: Catevia Workspace Platform + Parish Memory (ADR-081/082, 2026-08-31)
+
+- **Routes/IA:** `src/constants/routePolicy.ts` là SSOT cho `workspace`; `/dashboard` = Academic, `/parish` = Organization dashboard, `/parish-profile` = structured memory, `/parent` = Parent Portal. Shared admin/settings routes giữ workspace gần nhất. `RootLayout` nhớ theo `parishId+userId` và shell chuyển workspace không logout.
+- **Frontend:** `OrganizationDashboardPage`, `ParishProfilePage`, `ParishProfileEditorModal`, non-persisted `parishProfileStore`; desktop sidebar tách menu theo workspace, mobile control sheet có switcher và secondary organization pages không hiển thị academic bottom nav.
+- **Backend:** `/api/parish-profile` -> `parishProfileService` -> 8 tables + private blob adapter. Server authority: admin CRUD; `chunhiem|phuta` published STAFF read; parent deny. Timeline derived; `parish_events` không bị nhập chung.
+- **Identity:** `parish_people` là organization identity, `linked_user_id` optional cho account hiện có, same-tenant + one-active-profile unique. Một person có nhiều class assignment/service term/event links; không duplicate account.
+- **Known boundary:** `users.role` vẫn là coarse auth role hiện hành. Multi-capability assignment cho access control là migration tương lai; không suy quyền từ workspace hoặc service-term title. Manual LMS backup vẫn academic-scope; automatic encrypted logical backup là full DB.
 
 
 

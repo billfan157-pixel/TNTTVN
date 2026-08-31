@@ -10,6 +10,8 @@ import { loadTokens } from './lib/api'
 import { registerServiceWorkerOnly } from './lib/pushManager'
 import { installNativeMediaDevicesGuard } from './lib/nativeMediaGuard'
 import { installZoomGuard } from './lib/zoomGuard'
+import { BiometricLockGate } from './components/auth/BiometricLockGate'
+import { installAppLockLifecycle } from './stores/appLockStore'
 import { useClassStore } from './stores/classStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useAcademicYearStore } from './stores/academicYearStore'
@@ -18,6 +20,7 @@ import './index.css'
 
 installNativeMediaDevicesGuard()
 installZoomGuard()
+installAppLockLifecycle().catch(console.warn)
 initSentry()
 loadTokens()
 useAuthStore.getState().loadFromStorage()
@@ -28,7 +31,9 @@ registerServiceWorkerOnly().catch(console.warn)
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <RouterProvider router={router} />
+      <BiometricLockGate>
+        <RouterProvider router={router} />
+      </BiometricLockGate>
       <ToastContainer />
     </ErrorBoundary>
   </StrictMode>,

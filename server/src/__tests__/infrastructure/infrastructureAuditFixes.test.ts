@@ -21,7 +21,12 @@ describe('Infrastructure Audit Fixes (INF-01 .. INF-06)', () => {
   afterEach(async () => {
     stopBackupScheduler()
     if (fs.existsSync(TEST_BACKUP_DIR)) {
-      fs.rmSync(TEST_BACKUP_DIR, { recursive: true, force: true })
+      fs.rmSync(TEST_BACKUP_DIR, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      })
     }
     await db.delete(systemSettings).where(
       and(eq(systemSettings.key, 'auto_backup_last_date'), eq(systemSettings.parishId, 'gia-ton'))

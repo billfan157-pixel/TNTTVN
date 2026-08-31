@@ -179,7 +179,7 @@ describe('Design System v4.5 Foundation Tokens & Classes', () => {
     expect(contrastRatio(placeholder, worstCaseSheetBackground)).toBeGreaterThanOrEqual(4.5)
 
     expect(cssContent).toContain('.app-header__search::placeholder { color: var(--color-text-placeholder-on-brand); }')
-    expect(cssContent).toMatch(/\.mobile-control-search input::placeholder\s*\{\s*color:\s*var\(--color-text-placeholder-on-brand\);/)
+    expect(cssContent).not.toContain('.mobile-control-search')
     expect(cssContent).toMatch(/:is\(\.app-header, \.mobile-top-bar, \.mobile-control-sheet\) :focus-visible\s*\{[\s\S]*?outline:\s*3px solid var\(--color-focus-ring-brand\);/)
   })
 

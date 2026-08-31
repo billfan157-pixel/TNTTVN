@@ -2,7 +2,9 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { getAdminSession, injectSession } from './helpers'
 import {
   installUiBoot,
+  assertParishRecordEditorLayout,
   matrixViewports,
+  openParishRecordEditor,
   openPublicObservation,
   openProtectedObservation,
   publicDesignRoutes,
@@ -70,6 +72,12 @@ test.describe('Design System visual layout matrix', () => {
         await captureLayoutEvidence(page, testInfo, `${route.slice(1)}-${scenario.name}`)
 
         await assertViewportContainment(page)
+        if (route === '/parish-profile') {
+          const dialog = await openParishRecordEditor(page)
+          await assertParishRecordEditorLayout(page)
+          await captureLayoutEvidence(page, testInfo, `parish-profile-record-editor-${scenario.name}`)
+          await dialog.getByRole('button', { name: 'Đóng' }).click()
+        }
         if (scenario.viewportName !== 'desktop') {
           const pageHeader = page.locator('.page-header').first()
           if (await pageHeader.count()) {

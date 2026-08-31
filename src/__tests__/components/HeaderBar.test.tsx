@@ -90,7 +90,8 @@ describe('HeaderBar Component', () => {
 
   it('renders the header with title', () => {
     render(<HeaderBar />)
-    expect(screen.getByText('Xứ Đoàn Đức Mẹ Fatima')).toBeDefined()
+    expect(screen.getByText('Catevia')).toBeDefined()
+    expect(screen.getByText('Thiếu nhi & Học vụ')).toBeDefined()
   })
 
   it('renders search input', () => {

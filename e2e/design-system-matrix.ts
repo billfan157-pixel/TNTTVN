@@ -1,6 +1,20 @@
 import { expect, type Page } from '@playwright/test'
 
 export type MatrixTheme = 'light' | 'dark'
+
+async function settleFiniteAnimations(page: Page) {
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  await page.evaluate(async () => {
+    const finiteAnimations = document.getAnimations().filter(animation => {
+      const iterations = animation.effect?.getComputedTiming().iterations
+      return animation.playState === 'running' && iterations !== Infinity
+    })
+    await Promise.allSettled(finiteAnimations.map(animation => animation.finished))
+  })
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+}
 export type MatrixViewportName = 'desktop' | 'mobile' | 'compact'
 
 export const matrixViewports = {
@@ -15,6 +29,8 @@ export const representativeProtectedRoutes = [
   '/attendance',
   '/grades',
   '/finances',
+  '/parish',
+  '/parish-profile',
 ] as const
 
 export type RepresentativeProtectedRoute = (typeof representativeProtectedRoutes)[number]
@@ -33,13 +49,20 @@ export const publicDesignRoutes = [
 
 export type PublicDesignRoute = (typeof publicDesignRoutes)[number]
 
-const desktopNavLabels: Record<RepresentativeProtectedRoute, string> = {
-  '/dashboard': 'Tổng Quan',
-  '/students': 'Thiếu Nhi',
-  '/attendance': 'Điểm Danh',
-  '/grades': 'Bảng Điểm',
-  '/finances': 'Quỹ & Thu Chi',
+const protectedRouteNavigation: Record<RepresentativeProtectedRoute, { label: string; workspace: 'academic' | 'organization' }> = {
+  '/dashboard': { label: 'Tổng Quan', workspace: 'academic' },
+  '/students': { label: 'Thiếu Nhi', workspace: 'academic' },
+  '/attendance': { label: 'Điểm Danh', workspace: 'academic' },
+  '/grades': { label: 'Bảng Điểm', workspace: 'academic' },
+  '/finances': { label: 'Quỹ & thu chi', workspace: 'organization' },
+  '/parish': { label: 'Tổng quan Xứ đoàn', workspace: 'organization' },
+  '/parish-profile': { label: 'Hồ sơ Xứ đoàn', workspace: 'organization' },
 }
+
+const workspaceLabels = {
+  academic: 'Thiếu nhi & Học vụ',
+  organization: 'Xứ đoàn & Giáo xứ',
+} as const
 
 export async function installUiBoot(page: Page, theme: MatrixTheme = 'light') {
   await page.addInitScript(selectedTheme => {
@@ -57,6 +80,7 @@ export async function setThemeThroughHeader(page: Page, theme: MatrixTheme) {
   }
   await expect(toggle).toHaveAttribute('aria-pressed', desiredPressed)
   await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+  await settleFiniteAnimations(page)
 }
 
 /**
@@ -71,7 +95,17 @@ export async function openProtectedObservation(
   observationName: string,
 ) {
   await page.setViewportSize(matrixViewports.desktop)
-  const navItem = page.locator('.sidebar-nav-item', { hasText: desktopNavLabels[route] }).first()
+  const navigation = protectedRouteNavigation[route]
+  const workspaceGroup = page.getByRole('group', { name: 'Chuyển không gian làm việc' })
+  const workspaceButton = workspaceGroup.getByRole('button', { name: workspaceLabels[navigation.workspace], exact: true })
+  if (await workspaceButton.getAttribute('aria-pressed') !== 'true') {
+    await workspaceButton.click()
+    await expect(workspaceButton).toHaveAttribute('aria-pressed', 'true')
+  }
+
+  const navItem = page
+    .getByRole('navigation', { name: 'Điều hướng quản lý' })
+    .getByRole('button', { name: navigation.label, exact: true })
   if (new URL(page.url()).pathname !== route) {
     await expect(navItem, `${route} must be reachable from the admin sidebar`).toBeVisible({ timeout: 15_000 })
     await navItem.click()
@@ -91,7 +125,49 @@ export async function openProtectedObservation(
     main.locator('[role="status"][aria-label^="Đang tải"]'),
     `${route} must finish loading its primary data before ${observationName}`,
   ).toHaveCount(0, { timeout: 15_000 })
+  await settleFiniteAnimations(page)
   return main
+}
+
+export async function openParishRecordEditor(page: Page) {
+  await page.getByRole('button', { name: 'Thêm bản ghi', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Bản ghi Xứ đoàn' })
+  await expect(dialog).toBeVisible()
+  await settleFiniteAnimations(page)
+  return dialog
+}
+
+export async function assertParishRecordEditorLayout(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Bản ghi Xứ đoàn' })
+  const layout = await dialog.evaluate(element => {
+    const content = element.querySelector<HTMLElement>('.modal-content')
+    const groups = Array.from(element.querySelectorAll<HTMLElement>('.form-group'))
+    const controls = Array.from(element.querySelectorAll<HTMLElement>('.form-group > input, .form-group > select, .form-group > textarea'))
+    const noLabelOverlap = groups.every(group => {
+      const label = group.querySelector<HTMLElement>('.form-label')
+      const control = group.querySelector<HTMLElement>('input, select, textarea')
+      if (!label || !control) return true
+      return control.getBoundingClientRect().top >= label.getBoundingClientRect().bottom - 1
+    })
+    const controlsContained = controls.every(control => {
+      const group = control.parentElement?.getBoundingClientRect()
+      const box = control.getBoundingClientRect()
+      return !!group && box.left >= group.left - 1 && box.right <= group.right + 1
+    })
+    return {
+      groupCount: groups.length,
+      allGroupsVertical: groups.every(group => getComputedStyle(group).display === 'flex' && getComputedStyle(group).flexDirection === 'column'),
+      noLabelOverlap,
+      controlsContained,
+      contentOverflow: content ? content.scrollWidth <= content.clientWidth + 1 : false,
+    }
+  })
+
+  expect(layout.groupCount).toBeGreaterThan(0)
+  expect(layout.allGroupsVertical).toBe(true)
+  expect(layout.noLabelOverlap).toBe(true)
+  expect(layout.controlsContained).toBe(true)
+  expect(layout.contentOverflow).toBe(true)
 }
 
 export async function openPublicObservation(

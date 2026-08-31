@@ -14,11 +14,23 @@
      sidebar hòa vào content, thiếu ranh giới cấu trúc. Token tự dark. */
   background: var(--color-surface-card);
   border-right: 1px solid var(--color-surface-border);
-  padding: 16px 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   overflow: hidden;
+}
+
+.sidebar-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-surface-border);
+}
+
+.sidebar-workspace .sidebar-section-label {
+  padding: 2px 12px 6px 12px;
 }
 
 .sidebar-nav {

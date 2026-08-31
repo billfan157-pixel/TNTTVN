@@ -338,3 +338,4 @@ export interface ReportCardDTO {
 }
 
 export * from './finance'
+export * from './parishProfile'

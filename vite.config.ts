@@ -65,10 +65,10 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      includeAssets: ['favicon.svg', 'pwa-icon.svg'],
+      includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.png'],
       manifest: {
-        name: 'Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn',
-        short_name: 'Fatima Gia Tôn',
+        name: 'Catevia — Quản Lý Giáo Xứ & TNTT',
+        short_name: 'Catevia',
         description: 'Hệ thống quản lý điểm số & theo dõi chuyên cần Thiếu Nhi Thánh Thể',
         start_url: '/',
         display: 'standalone',
@@ -76,8 +76,10 @@ export default defineConfig({
         theme_color: '#1E3A8A',
         orientation: 'portrait',
         icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: '/pwa-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
           { src: '/favicon.svg', sizes: '48x48', type: 'image/svg+xml' },
         ],
         shortcuts: [
@@ -86,14 +88,14 @@ export default defineConfig({
             short_name: 'Điểm Danh',
             description: 'Mở nhanh giao diện điểm danh thiếu nhi',
             url: '/attendance',
-            icons: [{ src: '/pwa-icon.svg', sizes: '96x96', type: 'image/svg+xml' }]
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }]
           },
           {
             name: 'Bảng Điểm',
             short_name: 'Bảng Điểm',
             description: 'Quản lý và nhập điểm giáo lý',
             url: '/grades',
-            icons: [{ src: '/pwa-icon.svg', sizes: '96x96', type: 'image/svg+xml' }]
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }]
           }
         ],
       },

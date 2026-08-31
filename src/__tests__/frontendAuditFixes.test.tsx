@@ -63,6 +63,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
 
       render(
         <DesktopSidebar
+          activeWorkspace="organization"
           activeTab="dashboard"
           setActiveTab={vi.fn()}
           selectedBranchId="all"
@@ -74,7 +75,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.queryByText('Giáo Lý Viên')).toBeNull()
+      expect(screen.queryByText('Giáo lý viên')).toBeNull()
     })
 
     it('does NOT display catechists tab for phuta role', () => {
@@ -85,6 +86,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
 
       render(
         <DesktopSidebar
+          activeWorkspace="organization"
           activeTab="dashboard"
           setActiveTab={vi.fn()}
           selectedBranchId="all"
@@ -96,7 +98,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.queryByText('Giáo Lý Viên')).toBeNull()
+      expect(screen.queryByText('Giáo lý viên')).toBeNull()
     })
 
     it('displays catechists tab for admin role', () => {
@@ -107,6 +109,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
 
       render(
         <DesktopSidebar
+          activeWorkspace="organization"
           activeTab="dashboard"
           setActiveTab={vi.fn()}
           selectedBranchId="all"
@@ -118,7 +121,31 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.getByText('Giáo Lý Viên')).toBeDefined()
+      expect(screen.getByText('Giáo lý viên')).toBeDefined()
+      expect(screen.queryByText('BỘ LỌC PHÂN NGÀNH & LỚP')).toBeNull()
+    })
+
+    it('keeps academic filters inside the academic workspace only', () => {
+      useAuthStore.setState({
+        user: { id: 'u4', username: 'admin2', role: 'admin', parishId: 'p1', fullName: 'Admin 2', status: 'ACTIVE' as const },
+        isAuthenticated: true,
+      })
+
+      render(
+        <DesktopSidebar
+          activeWorkspace="academic"
+          activeTab="dashboard"
+          setActiveTab={vi.fn()}
+          selectedBranchId="all"
+          setSelectedBranchId={vi.fn()}
+          selectedClassId="all"
+          setSelectedClassId={vi.fn()}
+          classes={[]}
+          branches={{}}
+        />
+      )
+
+      expect(screen.getByText('BỘ LỌC PHÂN NGÀNH & LỚP')).toBeDefined()
     })
   })
 

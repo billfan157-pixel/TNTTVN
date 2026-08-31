@@ -4,6 +4,8 @@ import { getAdminSession, injectSession } from './helpers'
 import {
   installUiBoot,
   matrixViewports,
+  assertParishRecordEditorLayout,
+  openParishRecordEditor,
   openPublicObservation,
   openProtectedObservation,
   publicDesignRoutes,
@@ -60,6 +62,16 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
           const results = await runAxe(page, testInfo, artifactName)
           if (results.violations.length > 0) {
             failedObservations.push(`[${artifactName}]\n${formatViolations(results.violations)}`)
+          }
+
+          if (route === '/parish-profile') {
+            const dialog = await openParishRecordEditor(page)
+            await assertParishRecordEditorLayout(page)
+            const modalResults = await runAxe(page, testInfo, `${artifactName}-record-editor`)
+            if (modalResults.violations.length > 0) {
+              failedObservations.push(`[${artifactName}-record-editor]\n${formatViolations(modalResults.violations)}`)
+            }
+            await dialog.getByRole('button', { name: 'Đóng' }).click()
           }
 
           if (route === '/dashboard' && viewportName === 'desktop' && theme === 'light') {

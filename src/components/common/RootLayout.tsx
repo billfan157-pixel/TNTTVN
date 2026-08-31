@@ -28,7 +28,15 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { PageTransition } from './PageTransition'
 import { BRANCHES } from '../../constants/branches'
 import type { MobileTab } from '../mobile/MobileBottomNav'
-import { DESKTOP_TAB_PATHS, MOBILE_TAB_PATHS, getRoutePolicy } from '../../constants/routePolicy'
+import {
+  DESKTOP_TAB_PATHS,
+  MOBILE_TAB_PATHS,
+  WORKSPACE_DEFINITIONS,
+  getAccessibleWorkspaces,
+  getRoutePolicy,
+  resolveActiveWorkspace,
+  type WorkspaceId,
+} from '../../constants/routePolicy'
 
 const PageSkeleton = () => (
   <div className="animate-pulse space-y-4 p-1" aria-hidden="true">
@@ -60,6 +68,11 @@ export function RootLayout() {
   const navigate = useNavigate()
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
+  const currentUser = useAuthStore(s => s.user)
+  const workspaceStorageKey = currentUser ? `catevia:last-workspace:${currentUser.parishId}:${currentUser.id}` : null
+  const accessibleWorkspaces = React.useMemo(() => getAccessibleWorkspaces(currentUser?.role), [currentUser?.role])
+  const defaultWorkspace: WorkspaceId = currentUser?.role === 'phuhuynh' ? 'parent' : 'academic'
+  const [rememberedWorkspace, setRememberedWorkspace] = React.useState<WorkspaceId>(defaultWorkspace)
 
   useFilterSearchSync()
   useSyncEngine()
@@ -67,6 +80,10 @@ export function RootLayout() {
   useStoreErrorWatcher()
 
   const routePolicy = getRoutePolicy(pathname)
+  const routeWorkspace = currentUser?.role === 'phuhuynh'
+    ? 'parent'
+    : routePolicy?.workspace
+  const activeWorkspace = resolveActiveWorkspace(pathname, currentUser?.role, rememberedWorkspace)
   const activeTab: DesktopTab = routePolicy?.desktopTab || 'dashboard'
   const activeMobileTab: MobileTab | null = routePolicy?.mobileTab || null
 
@@ -88,8 +105,27 @@ export function RootLayout() {
   // Non-admin users (chunhiem/phuta/phuhuynh) are scoped to their assigned
   // classes server-side, so filters must stay at 'all' to avoid stale
   // persisted class/branch selections rendering empty lists.
-  const currentUser = useAuthStore(s => s.user)
   const authReady = useAuthStore(s => s.authReady)
+
+  React.useEffect(() => {
+    if (!workspaceStorageKey) return
+    const stored = localStorage.getItem(workspaceStorageKey) as WorkspaceId | null
+    const next = stored && accessibleWorkspaces.includes(stored) ? stored : defaultWorkspace
+    setRememberedWorkspace(next)
+  }, [workspaceStorageKey, defaultWorkspace, accessibleWorkspaces])
+
+  React.useEffect(() => {
+    if (!workspaceStorageKey || !routeWorkspace || routeWorkspace === 'shared' || !accessibleWorkspaces.includes(routeWorkspace)) return
+    setRememberedWorkspace(routeWorkspace)
+    localStorage.setItem(workspaceStorageKey, routeWorkspace)
+  }, [workspaceStorageKey, routeWorkspace, accessibleWorkspaces])
+
+  const switchWorkspace = React.useCallback((workspace: WorkspaceId) => {
+    if (!accessibleWorkspaces.includes(workspace)) return
+    setRememberedWorkspace(workspace)
+    if (workspaceStorageKey) localStorage.setItem(workspaceStorageKey, workspace)
+    navigate({ to: WORKSPACE_DEFINITIONS[workspace].landingPath })
+  }, [accessibleWorkspaces, navigate, workspaceStorageKey])
   React.useEffect(() => {
     if (currentUser && currentUser.role !== 'admin') {
       if (selectedClassId !== 'all') setSelectedClassId('all')
@@ -151,7 +187,7 @@ export function RootLayout() {
           setActiveTab={(tab) => navigate({ to: MOBILE_TAB_PATHS[tab] })}
           preloadTab={preloadMobileTab}
         >
-          <HeaderBar />
+          <HeaderBar activeWorkspace={activeWorkspace} onWorkspaceChange={switchWorkspace} />
           <PageTransition routeKey={pathname}>
             <PageSuspense>
               <Outlet />
@@ -210,7 +246,7 @@ export function RootLayout() {
           với header tối, đồng thời sidebar sticky top lệch khỏi mép header do
           OfflineStatusBanner đẩy header xuống. Header full-width = sidebar + content
           start cùng một mép trên, header có thêm ~260px chống overflow (audit A7). */}
-      <HeaderBar />
+      <HeaderBar activeWorkspace={activeWorkspace} onWorkspaceChange={switchWorkspace} />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <DesktopSidebar
           activeTab={activeTab}
@@ -221,6 +257,8 @@ export function RootLayout() {
           setSelectedClassId={setSelectedClassId}
           classes={classList as any}
           branches={BRANCHES}
+          activeWorkspace={activeWorkspace}
+          onWorkspaceChange={switchWorkspace}
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           <main id="main-content" className="app-main-content">

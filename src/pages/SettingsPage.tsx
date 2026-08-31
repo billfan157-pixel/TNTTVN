@@ -17,6 +17,7 @@ import { validatePassword } from '../utils/passwordValidation'
 import { SystemDiagnosticsModal } from '../components/desktop/SystemDiagnosticsModal'
 import { BackupRestoreModal } from '../components/common/BackupRestoreModal'
 import { PurgeDataModal } from '../components/common/PurgeDataModal'
+import { BiometricLockSettings } from '../components/auth/BiometricLockSettings'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Quản trị viên',
@@ -210,6 +211,8 @@ const SettingsPage: React.FC = () => {
               </form>
             )}
           </section>
+
+          <BiometricLockSettings />
         </div>
 
         {/* ─── CỘT PHẢI: giao diện & tiện ích ─── */}

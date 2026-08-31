@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Award, Search, AlertCircle } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
+import { Award, Search, AlertCircle, Landmark } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { SkeletonCardGrid, NoResultState } from '../components/common/StateFeedback'
+import { Button } from '../components/common/ui'
 import { api, ApiError } from '../lib/api'
 
 interface CatechistUser {
@@ -16,6 +18,7 @@ interface CatechistUser {
 }
 
 export function CatechistPage() {
+  const navigate = useNavigate()
   const [users, setUsers] = useState<CatechistUser[]>([])
   const [classes, setClasses] = useState<{ id: string; name: string; code: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -55,13 +58,13 @@ export function CatechistPage() {
   const getRoleBadge = (role: string) => {
     switch (role) {
       case 'admin':
-        return <span className="px-2 py-0.5 bg-rose-500/10 text-rose-600 font-bold text-[10px] rounded-full">Ban Quản Trị</span>
+        return <span className="px-2 py-0.5 bg-rose-500/10 text-rose-600 font-bold text-xs rounded-full">Ban Quản Trị</span>
       case 'chunhiem':
-        return <span className="px-2 py-0.5 bg-sky-500/10 text-sky-600 font-bold text-[10px] rounded-full">Huynh Trưởng Chủ Nhiệm</span>
+        return <span className="px-2 py-0.5 bg-sky-500/10 text-sky-600 font-bold text-xs rounded-full">Huynh Trưởng Chủ Nhiệm</span>
       case 'phuta':
-        return <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 font-bold text-[10px] rounded-full">Huynh Trưởng Phụ Tá</span>
+        return <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 font-bold text-xs rounded-full">Huynh Trưởng Phụ Tá</span>
       default:
-        return <span className="px-2 py-0.5 bg-surface-hover text-text-secondary font-bold text-[10px] rounded-full">Phụ Huynh</span>
+        return <span className="px-2 py-0.5 bg-surface-hover text-text-secondary font-bold text-xs rounded-full">Phụ Huynh</span>
     }
   }
 
@@ -72,6 +75,16 @@ export function CatechistPage() {
         icon={<Award className="w-5 h-5" />}
         title="Danh Sách Huynh Trưởng & Phân Công"
         description={`${filteredUsers.length} Giáo Lý Viên / Huynh Trưởng trong Xứ Đoàn`}
+        actions={(
+          <Button
+            variant="secondary"
+            size="sm"
+            leadingIcon={<Landmark className="w-4 h-4" />}
+            onClick={() => navigate({ to: '/parish-profile' })}
+          >
+            Hồ Sơ Xứ Đoàn
+          </Button>
+        )}
       />
 
       {error && (

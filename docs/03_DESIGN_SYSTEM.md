@@ -13,6 +13,7 @@
 1. **Token-First & Dark-Mode-First:** Mọi màu sắc qua CSS variables (`var(--color-*)`) — tự động thích nghi light/dark. Cấm hex cứng trong JSX (`style={{...}}`) và arbitrary values (`bg-[#...]`).
 2. **Source scope:** Tailwind v4 chỉ scan `src/` và `index.html` qua `source(none)` + `@source`; không scan Markdown/audit text để tránh sinh utility giả từ ví dụ tài liệu.
 3. **Brand nhất quán:** Màu chủ đạo duy nhất `parish-primary #1E3A8A` (Xanh Đại Hội). `blue-600 #2563EB` KHÔNG phải màu brand — nó là màu khăn chi đoàn **Thiếu Nhi** (dữ liệu nghiệp vụ, xem §2.4).
+   Logo chính thức dùng chung là `src/assets/logo-gia-ton.png` (nền trong suốt); desktop/mobile import asset này, còn các mẫu in/export lấy data URI tự chứa qua `src/utils/parishLogo.ts`.
 4. **Accessibility:** Chữ thường và placeholder phải đạt ≥4.5:1 trên đúng surface thực tế; focus indicator phải có độ tương phản ≥3:1 với nền kề. Kết quả `lint:ds` chỉ là anti-drift source scan, không phải chứng nhận WCAG hoặc visual conformance.
 5. **Mobile-First, Data-Dense:** Trải nghiệm desktop + mobile PWA đồng bộ qua primitives `mobile-*`; bảng dữ liệu thoáng, rõ, không cắt chữ.
 6. **Glassmorphism có kiểm soát:** Chỉ dùng cho header/hero/bottom-nav (có backdrop nền màu phù hợp), KHÔNG dùng cho card nội dung/bảng (cần nền đục để đọc).
@@ -128,7 +129,7 @@ Việc điều chỉnh foreground Nghĩa Sĩ chỉ sửa contrast của chữ ba
 - `pill-btn` / `pill-btn-primary` / `pill-btn-secondary` / `pill-btn-active` + `pill-group` (segmented control)
 
 ### 3.2 Form
-- `form-group`, `form-label`, `form-input`, `form-select`, `form-textarea`, `form-input-sm` (pill search 36px), `form-select-sm` / compact select (36px toolbar class picker)
+- `form-group`, `form-label`, `form-input` (40px, bao gồm date input), `form-select` (40px, bao gồm dropdown chọn lớp), `form-textarea`, `form-input-sm` (pill search 36px), `form-select-sm` / compact select (40px toolbar class picker)
 - Error state: `aria-invalid="true"` + `form-error`
 
 ### 3.3 Badge
@@ -230,7 +231,7 @@ Cấm: thead `bg-slate-800 text-white`, `bg-slate-50/*`, `bg-parish-primary text
 - **Top bar:** `.mobile-top-bar` (gradient brand cố định `#17347f→#2454bf`, ≤767px `#1d3f99→#2c58c7` — giữ nguyên, không phải token).
 - **Bottom nav:** `.mobile-bottom-nav` (token-based, tự dark-adapt); action: `.mobile-floating-action`, `.mobile-bottom-action-bar`.
 - **Safe area một chủ sở hữu:** `--mobile-nav-total-height` đã gồm `safe-area-inset-bottom`; action bar/FAB chỉ neo phía trên token này, không cộng inset lần nữa. Top bar sở hữu inset trên; khi có `.offline-status-banner`, banner sở hữu inset và top bar/clearance bỏ phần đó để không đếm hai lần.
-- **Touch target tối thiểu:** Mọi control chính trong touch shell có **effective hit-area ≥44×44px**. Control trực quan nhỏ chỉ được phép khi pseudo-element hoặc `.mobile-touch-target` mở vùng chạm đủ 44px; không dùng chiều cao 40px như một ngoại lệ mặc định. Input/select phải cao ≥44px và font-size ≥16px.
+- **Touch target & Form Controls:** Mọi action control chính trong touch shell có **effective hit-area ≥44×44px** (hoặc 40px cho các form inputs/selects chuẩn: dropdown chọn lớp và ô chọn ngày có chiều cao chuẩn đồng bộ **40px**). Input/select chuẩn hóa cao ≥40px và font-size ≥16px.
 - **Modal & Bottom-sheet:** Modal tác vụ dài (ví dụ **Tạo Phiên Chấm**) dùng bottom-sheet ở mobile: tiêu đề/nút đóng và hành động chính sticky, phần nội dung tự cuộn, footer chừa safe area; từ `sm` trở lên quay về modal giữa màn hình. Có hai contract độc lập: lifecycle dùng `ModalShell` / `ConfirmDialog` / `useAccessibleDialog` (focus restore, scroll lock, Escape top-most qua `modalStack`); mọi custom dialog thuộc route **và control sheet có `aria-modal` của shell** mount qua `ModalPortal` ra `document.body` để không bị stacking context của `PageTransition`/`main`/top bar cắt. Dialog lồng dùng `.app-modal-layer--nested`, confirm dùng `.app-confirm-layer`.
 - **Horizontal Scrollable Tabs & Charts:** `.view-tabs` và SVG charts trên mobile được bọc container cuộn ngang (`overflow-x-auto scrollbar-none snap-x`) chống co ép thanh biểu đồ hoặc gãy dòng tabs.
 - **Cấm** `space-y-*` chồng lên `.mobile-screen--stack` hoặc `.responsive-page-shell` khi cùng sở hữu nhịp dọc — gap 14px đã có, tránh double-spacing.
@@ -430,7 +431,7 @@ flex h-screen flex-col
 - Page identity: `PageHeader` / `.page-header*`.
 - Nhóm nội dung: `.section-card` + `.section-heading*`.
 - KPI: `.metric-card*`; accent chỉ là một spine 3px và phải dùng semantic token.
-- Desktop shell: `.app-header*`, `.app-main-content`, `.app-page-loader*`.
+- Desktop shell: `.app-header*`, `.app-main-content`, `.app-page-loader*`; `.app-header__mark` là logo nhận diện 60px, nền trắng đục, luôn dùng `object-fit: contain`.
 - Mobile home: `.mobile-home-hero`, `.mobile-quick-action*`,
   `.mobile-stat-card*`, `.mobile-content-card`.
 - Motion: `--motion-fast|standard|slow` + `--motion-ease-out`; luôn tôn trọng
@@ -500,7 +501,7 @@ không tự ý gỡ trong các đợt đồng bộ layout.
 
 ### 15.2 Mobile Component Primitives
 - `.sheet-grabber`: Visual drag handle (Apple HIG & Material Design 3) cho tất cả bottom sheets (`width: 36px; height: 5px; border-radius: var(--radius-full); margin: 0 auto 12px;`).
-- `.mobile-top-bar`: Khai báo duy nhất với `z-index: var(--z-top-bar)`, dynamic clearance token `--mobile-topbar-clearance`, loại bỏ xung đột giữa desktop và mobile media queries.
+- `.mobile-top-bar`: Khai báo duy nhất với `z-index: var(--z-top-bar)`, dynamic clearance token `--mobile-topbar-clearance`, logo mark nền trắng 52px (48px ở viewport ≤380px), loại bỏ xung đột giữa desktop và mobile media queries.
 - `.mobile-filter-panel`: Tối ưu hiệu năng cuộn trên mobile bằng việc loại bỏ `backdrop-filter: blur(12px)` trên sticky panel trong scroll area, sử dụng 97% surface-card background.
 
 ### 15.3 Dark Mode Overrides cho Mobile Brand Components
@@ -651,19 +652,42 @@ Mỗi file chỉ được giữ nguyên hoặc giảm; file mới/missing baseli
 
 ### 20.4 Runtime evidence và claim boundary
 
-- Axe gate dùng `@axe-core/playwright` với tags `wcag2a|wcag2aa|wcag21aa|wcag22aa`: 5 protected routes đại diện (`/dashboard|/students|/attendance|/grades|/finances`) × 3 viewport (`1440×900`, `390×844`, `320×720`) × light/dark = **30 observations**; 4 public routes (`/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`) × 3 × 2 = **24**; modal quên mật khẩu phụ huynh × 3 × 2 = **6**. Tổng cộng **60 automated Axe observations**.
-- Visual layout gate dùng cùng ma trận **30 protected + 24 public + 6 forgot-modal = 60 observations**; assert document/body/main không horizontal overflow, token hiện diện và đính kèm full-page PNG làm evidence artifact. PNG là bằng chứng quan sát, **không phải** pixel-diff baseline. Một test tương tác riêng đi qua đủ năm đích mobile bottom-nav chính và kiểm tra URL + `aria-current`.
+- Axe gate dùng `@axe-core/playwright` với tags `wcag2a|wcag2aa|wcag21aa|wcag22aa`: 7 protected routes đại diện (`/dashboard|/students|/attendance|/grades|/finances|/parish|/parish-profile`) × 3 viewport (`1440×900`, `390×844`, `320×720`) × light/dark = **42 observations**; 4 public routes (`/login`, `/login/nhan-su`, `/login/phuhuynh`, `/verify`) × 3 × 2 = **24**; modal quên mật khẩu phụ huynh × 3 × 2 = **6**; modal tạo bản ghi Xứ đoàn × 3 × 2 = **6**. Tổng cộng **78 automated Axe observations**.
+- Visual layout gate dùng cùng ma trận **42 protected + 24 public + 6 forgot-modal + 6 parish-record-modal = 78 observations**; assert document/body/main không horizontal overflow, token hiện diện, modal Xứ đoàn có `.form-group` dọc không chồng label/control, và đính kèm full-page PNG làm evidence artifact. PNG là bằng chứng quan sát, **không phải** pixel-diff baseline. Một test tương tác riêng đi qua đủ năm đích mobile bottom-nav chính và kiểm tra URL + `aria-current`.
 - Protected matrix điều hướng qua sidebar SPA thật trước khi resize, xác nhận canonical URL/active nav/shared shell, rồi đợi lazy route và primary data readiness. Cách này tránh tạo refresh-token rotation race giả do reload lặp lại trong cùng một ma trận authenticated.
 - Harness Playwright chạy trên cặp cổng riêng `3100/3101`, DB SQLite tạm cô lập dưới OS temp, vô hiệu server `.env`, và chỉ phát stdout `READY` sau khi Vite + API + seed hoàn tất. Vì vậy E2E không reuse hay chiếm phiên dev `3000/3001`.
 - Remediation từ runtime gate: token success/info/muted và finance foreground được tăng contrast; nhãn ô điểm cuối kỳ dùng `text-primary` trên nền highlight ở mobile/desktop; public auth/forgot/verify dùng semantic foreground/control; `ParentForgotPasswordModal` dùng portal + accessible typed controls; `PageHeader` ở dưới `1024px` reset flex-basis của identity/actions để không kế thừa khoảng trắng dọc từ desktop; `vite.optimizeDeps.include` bỏ hai entry stale `tailwind-merge`/`jspdf`.
 - Dark mobile bottom-nav active background dùng primary mix 12% để label 10px vượt axe contrast gate. Motion CSS chỉ transition properties thực sự thay đổi.
+- Inactive mobile bottom-nav dùng `--color-text-secondary` thay vì muted để nhãn 9px ở compact vẫn đạt contrast trên nền navigation/active-transition; runtime audit phải chờ finite UI animations kết thúc trước khi đo màu trạng thái ổn định.
 - Native View Transition giữ nguyên pathname-only contract. Wrapper trong `router.tsx` chỉ consume rejection lifecycle dự kiến `AbortError|InvalidStateError|TimeoutError` ở `ready`/`finished` khi điều hướng SPA nhanh thay thế transition đang chạy; `updateCallbackDone` không bị bắt để lỗi render/domain vẫn nổi lên.
-- Axe tự động chỉ phủ một tập con WCAG. Rule `meta-viewport` được disable duy nhất vì ADR-072/077/078 giữ zoom lock như product exception; do đó không được tuyên bố app “WCAG compliant”. Runtime protected hiện chỉ là 5 route đại diện, không phải toàn bộ 17 protected routes hay mọi role. Full WCAG audit, physical-device, screen-reader và task acceptance vẫn là manual release evidence.
+- Axe tự động chỉ phủ một tập con WCAG. Rule `meta-viewport` được disable duy nhất vì ADR-072/077/078 giữ zoom lock như product exception; do đó không được tuyên bố app “WCAG compliant”. Runtime protected hiện chỉ là 7 route đại diện, không phải toàn bộ protected routes hay mọi role. Full WCAG audit, physical-device, screen-reader và task acceptance vẫn là manual release evidence.
 
 ### 20.5 Verification record
 
-- Final `npm run verify:ci` sau toàn bộ remediation: **PASS** — lint zero-warning, 8-rule design-system guard, client/server TypeScript, Vite/PWA production build và serialized coverage suite.
-- Full Vitest cuối: **260/260 files, 1,836/1,836 tests PASS**. Coverage tổng: statements **70.64%**, branches **59.94%**, functions **64.51%**, lines **72.88%**. Mức phần trăm thay đổi vì harness/contract files mới được đưa vào mẫu số; không có test fail.
+- Baseline `npm run verify:ci` trước Organization remediation: **PASS** — lint zero-warning, 8-rule design-system guard, client/server TypeScript, Vite/PWA production build và serialized coverage suite.
+- Baseline Vitest trước Organization remediation: **260/260 files, 1,836/1,836 tests PASS**. Coverage tổng: statements **70.64%**, branches **59.94%**, functions **64.51%**, lines **72.88%**.
 - Semantic/CSS/mobile targeted regression: **12 files / 72 tests PASS**; legacy tab contract được nâng sang `role="tab"`/`aria-selected` và file hồi quy liên quan **11/11 tests PASS**.
-- Full Playwright cuối: **61/61 tests chạy PASS**, **1 offline tenant-reload test được skip có chủ đích**; gồm Axe **60/60 observations**, visual/layout **60/60 observations**, mobile-bottom-nav, role, tenant isolation và attendance save. Không còn unhandled View Transition log. CI lưu `playwright-report/` và `test-results/` trong artifact `playwright-runtime-evidence` 7 ngày, kể cả khi job fail.
-- `npm run lint:ds`: **0 violations / 112 non-exempt application TSX files**; `git diff --check`: PASS.
+- Full Playwright baseline trước khi thêm Organization matrix: **61/61 tests chạy PASS**, **1 offline tenant-reload test được skip có chủ đích**; gồm Axe **60/60 observations**, visual/layout **60/60 observations**, mobile-bottom-nav, role, tenant isolation và attendance save. Không còn unhandled View Transition log. CI lưu `playwright-report/` và `test-results/` trong artifact `playwright-runtime-evidence` 7 ngày, kể cả khi job fail.
+- Organization remediation gate 2026-08-31: **41/41 Playwright tests PASS** trong nhóm Axe + visual/layout + CRUD + role. Axe **78/78 observations** và visual/layout **78/78 observations** bao gồm `/parish`, `/parish-profile` và modal bản ghi ở desktop/390/320, light/dark; finite animations được chờ hoàn tất trước khi đo contrast trạng thái ổn định.
+- Final serialized `npm run verify:ci` 2026-08-31: **PASS** — lint zero-warning; `lint:ds` **0/115**; client/server TypeScript + Vite/PWA build; Vitest **264/264 files, 1,864/1,864 tests PASS**. Coverage: statements **69.44%**, branches **59.59%**, functions **61.96%**, lines **71.79%**.
+
+---
+
+## 21. Workspace navigation contract (ADR-082)
+
+- Catevia giữ một brand/header và navy–gold token system; workspace không được tạo theme hoặc app shell riêng.
+- Nhân sự có hai workspace: `Thiếu nhi & Học vụ` và `Xứ đoàn & Giáo xứ`. Desktop switcher nằm đầu sidebar (`.sidebar-workspace`); mobile switcher nằm trong control sheet (`.mobile-workspace-switcher`). Control sheet được tinh gọn, tối ưu hóa (loại bỏ bộ lọc lớp, thanh tìm kiếm, chuyển đổi học kỳ và nút desktop mode; tổ chức theo Profile Header, Workspace Segmented Switcher, Quick Utility Tiles Grid ☀️/🩺/🔄/📲 và Settings/Logout).
+- Sidebar chỉ hiển thị navigation của workspace hiện hành. Bộ lọc phân ngành/lớp ở desktop chỉ render khi `activeWorkspace="academic"`; Organization không được kế thừa academic filters. Parent Portal không thấy switcher quản trị.
+- Navigation label mới dùng sentence case nhất quán (`Tổng quan Xứ đoàn`, `Hồ sơ Xứ đoàn`, `Quỹ & thu chi`, `Giáo lý viên`, `Cài đặt`); section label viết hoa vẫn là exception phân cấp thị giác có chủ đích.
+- `/parish` dùng `DesktopAppShell width="wide"`, `PageHeader`, `Surface`; `/parish-profile` dùng shared `Tabs/TabPanel`, entity cards, states và modal primitives. Field trong modal dùng `.form-group → .form-label + control` để giữ label/control theo cột ở 320px; tab rail được cuộn ngang trên màn nhỏ, không tăng primary bottom-nav item.
+- Secondary mobile route không có `mobileTab` thì bottom nav được ẩn và shell tự bỏ clearance; control sheet là đường quay/chuyển workspace. Dark mode, reduced motion, focus-visible và modal accessibility giữ contract chung.
+
+---
+
+## 22. Native biometric lock surface (ADR-085)
+
+- Lock screen dùng lại navy–gold auth surface, logo Catevia, semantic `main/section/h1`, live status và control tối thiểu 44px; không tạo visual language riêng cho native.
+- Primary action nêu đúng capability do OS báo (`Face ID`, `Touch ID`, nhận diện khuôn mặt, dấu vân tay). Không khẳng định một modality cụ thể khi Android chỉ trả capability tổng hợp.
+- Error là `role="alert"`; trạng thái xác minh là `role="status"`. Nút mở khóa có loading label; nút recovery luôn mô tả hậu quả “Đăng xuất và dùng mật khẩu”.
+- Setting dùng switch có `role="switch"`, `aria-checked`, disabled khi OS báo unavailable và giải thích lý do. Tắt khóa cũng yêu cầu xác minh.
+- Web/PWA hiển thị trạng thái không khả dụng trong Settings, không mô phỏng biometric hoặc hiển thị control có vẻ hoạt động.

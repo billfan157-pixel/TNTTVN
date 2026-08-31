@@ -209,7 +209,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
                 <Select
                   value={selectedClassId}
                   onChange={e => setSelectedClassId(e.target.value)}
-                  className="text-sm font-bold"
+                  className="text-sm font-bold h-10"
                 >
                   <option value="all">Tất cả các lớp</option>
                   {classList.map(c => (

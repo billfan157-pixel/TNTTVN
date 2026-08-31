@@ -124,7 +124,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
           <select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
-            className="form-select text-xs font-bold flex-1 h-[36px] min-h-[36px] py-1 pl-3 pr-8 rounded-xl"
+            className="form-select text-xs font-bold flex-1 h-[40px] min-h-[40px] py-1 pl-3 pr-8 rounded-xl"
             aria-label="Chọn lớp xem tổng hợp chuyên cần"
           >
             <option value="all">Tất cả các lớp</option>
@@ -139,7 +139,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
           <button
             type="button"
             onClick={handleExportExcel}
-            className="btn btn-primary text-xs font-bold mobile-btn px-3 flex items-center gap-1.5 shrink-0 shadow-xs rounded-xl h-[36px] min-h-[36px] py-1 active:scale-[0.98] transition-transform"
+            className="btn btn-primary text-xs font-bold mobile-btn px-3 flex items-center gap-1.5 shrink-0 shadow-xs rounded-xl h-[40px] min-h-[40px] py-1 active:scale-[0.98] transition-transform"
           >
             <FileSpreadsheet size={14} aria-hidden="true" />
             <span>Excel</span>

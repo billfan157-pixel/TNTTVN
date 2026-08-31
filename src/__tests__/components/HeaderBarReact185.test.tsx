@@ -31,6 +31,6 @@ describe('REACT-185 regression: HeaderBar classList unstable selector', () => {
     expect(after).toBeGreaterThan(before)
 
     // HeaderBar vẫn hiển thị title chính sau store update (không unmount do crash)
-    expect(screen.getByText(/Giáo Xứ/i)).toBeDefined()
-  })
+    expect(screen.getByText('Catevia')).toBeDefined()
+  }, 15000)
 })

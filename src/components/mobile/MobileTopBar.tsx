@@ -8,22 +8,19 @@ import {
   Monitor,
   Moon,
   RefreshCw,
-  Search,
   Settings,
   Sun,
   UserCheck,
   X,
   Bell,
   WifiOff,
-  Download
+  Download,
+  Landmark,
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
-import { useFilterStore } from '../../stores/filterStore'
-import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useTheme } from '../../hooks/useTheme'
-import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { useInstallPrompt } from '../../hooks/useInstallPrompt'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useSyncStore } from '../../stores/syncStore'
@@ -33,22 +30,19 @@ import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalPortal } from '../common/ModalPortal'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import logo from '../../assets/logo-gia-ton.png'
-import { getRoutePolicy } from '../../constants/routePolicy'
+import { WORKSPACE_DEFINITIONS, getAccessibleWorkspaces, getRoutePolicy, type WorkspaceId } from '../../constants/routePolicy'
 
-export const MobileTopBar: React.FC = () => {
+interface MobileTopBarProps {
+  activeWorkspace?: WorkspaceId
+  onWorkspaceChange?: (workspace: WorkspaceId) => void
+}
+
+export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'academic', onWorkspaceChange }) => {
   const navigate = useNavigate()
   const { location } = useRouterState()
   const students = useStudentStore(s => s.students)
   const currentUser = useAuthStore(s => s.user)
-  const selectedClassId = useFilterStore(s => s.selectedClassId)
-  const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
-  const searchQuery = useFilterStore(s => s.searchQuery)
-  const setSearchQuery = useFilterStore(s => s.setSearchQuery)
-  const selectedSemester = useFilterStore(s => s.selectedSemester)
-  const setSelectedSemester = useFilterStore(s => s.setSelectedSemester)
   const academicYearDisplay = useAcademicYearStore(s => s.currentYear)
-  const classList = useClassStore(s => s.getClassList)()
-  const { restricted: semesterRestricted, openSemester } = useSemesterAccess()
   const { theme, toggleTheme } = useTheme()
   const [isOpen, setIsOpen] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
@@ -66,8 +60,9 @@ export const MobileTopBar: React.FC = () => {
 
   const title = getRoutePolicy(location.pathname)?.mobileTitle || 'Trang không xác định'
   const isParent = currentUser?.role === 'phuhuynh'
-  const eyebrow = isParent ? 'CỔNG PHỤ HUYNH' : 'XỨ ĐOÀN ĐỨC MẸ FATIMA'
-  const summary = isParent ? 'Theo dõi việc học của gia đình' : `Niên học ${academicYearDisplay} · ${students.length} thiếu nhi`
+  const eyebrow = isParent ? 'CỔNG PHỤ HUYNH' : activeWorkspace === 'organization' ? 'XỨ ĐOÀN & GIÁO XỨ' : 'THIẾU NHI & HỌC VỤ'
+  const summary = isParent ? 'Theo dõi việc học của gia đình' : activeWorkspace === 'organization' ? 'Xứ Đoàn Đức Mẹ Fatima' : `Niên học ${academicYearDisplay} · ${students.length} thiếu nhi`
+  const accessibleWorkspaces = getAccessibleWorkspaces(currentUser?.role)
 
   useEffect(() => {
     setIsOpen(false)
@@ -151,92 +146,139 @@ export const MobileTopBar: React.FC = () => {
             />
             <div id={sheetId} ref={sheetDialogRef} role="dialog" aria-modal="true" aria-label="Bảng điều khiển" className="mobile-control-sheet">
               <div className="sheet-grabber" aria-hidden="true" />
+
+              {/* Profile & Identity Header */}
               <div className="mobile-control-sheet__profile">
-                <span className="mobile-control-sheet__avatar"><UserCheck size={17} /></span>
-                <div className="min-w-0">
-                  <div className="truncate font-bold">{currentUser?.fullName || 'Người dùng'}</div>
-                  <div className="text-[10px] uppercase tracking-wide text-text-muted">{currentUser?.role || 'guest'}</div>
+                <span className="mobile-control-sheet__avatar">
+                  <UserCheck size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-extrabold text-base text-white">{currentUser?.fullName || 'Người dùng'}</div>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-extrabold uppercase tracking-wide bg-white/15 text-amber-200">
+                      {currentUser?.role === 'admin' ? 'Admin Xứ Đoàn' : currentUser?.role === 'chunhiem' ? 'GLV Chủ Nhiệm' : currentUser?.role === 'phuta' ? 'GLV Phụ Tá' : currentUser?.role === 'phuhuynh' ? 'Phụ Huynh' : (currentUser?.role || 'Khách')}
+                    </span>
+                    <span className="text-xs text-white/60 truncate">Xứ Đoàn Đức Mẹ Fatima</span>
+                  </div>
                 </div>
                 <button type="button" className="mobile-control-sheet__close" onClick={closeMenu} aria-label="Đóng bảng điều khiển">
-                  <ChevronDown size={18} />
+                  <ChevronDown size={20} />
                 </button>
               </div>
 
-              <div className="mobile-control-sheet__grid">
-                {/* Class filter: admin only — GLV only sees their assigned classes */}
-                {currentUser?.role === 'admin' && (
-                <label className="mobile-control-field mobile-control-field--wide">
-                  <span>Lớp đang xem</span>
-                  <select value={selectedClassId} onChange={event => setSelectedClassId(event.target.value)}>
-                    <option value="all">Tất cả lớp học</option>
-                    {classList.map(item => (
-                      <option key={item.id} value={item.id}>{item.name}</option>
+              {/* Workspace Switcher (if multi-workspace accessible) */}
+              {accessibleWorkspaces.length > 1 && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-white/60 px-1">Không gian làm việc</span>
+                  <div className="mobile-workspace-switcher" role="tablist" aria-label="Chọn không gian làm việc">
+                    {accessibleWorkspaces.map(workspace => (
+                      <button
+                        key={workspace}
+                        type="button"
+                        className={`mobile-workspace-item ${activeWorkspace === workspace ? 'is-active' : ''}`}
+                        aria-selected={activeWorkspace === workspace}
+                        role="tab"
+                        onClick={() => { onWorkspaceChange?.(workspace); closeMenu() }}
+                      >
+                        {workspace === 'organization' ? <Landmark size={15} /> : <Monitor size={15} />}
+                        <span>{WORKSPACE_DEFINITIONS[workspace].label}</span>
+                      </button>
                     ))}
-                  </select>
-                </label>
-                )}
-
-                <label className="mobile-control-field mobile-control-field--wide">
-                  <span>Tìm nhanh</span>
-                  <span className="mobile-control-search min-h-[44px]">
-                    <Search size={15} aria-hidden="true" />
-                    <input
-                      type="search"
-                      inputMode="search"
-                      value={searchQuery}
-                      onChange={event => setSearchQuery(event.target.value)}
-                      placeholder="Tên hoặc mã thiếu nhi"
-                      aria-label="Tìm tên hoặc mã thiếu nhi"
-                    />
-                  </span>
-                </label>
-              </div>
-
-            <div className="mobile-control-sheet__row">
-              <div className="mobile-semester-control" aria-label="Chọn học kỳ">
-                {semesterRestricted ? (
-                  <span>Học kỳ {openSemester === 2 ? 'II' : 'I'}</span>
-                ) : (
-                  [1, 2].map(semester => (
-                    <button
-                      key={semester}
-                      type="button"
-                      className={selectedSemester === semester ? 'is-active' : ''}
-                      onClick={() => setSelectedSemester(semester as 1 | 2)}
-                    >
-                      HK {semester === 1 ? 'I' : 'II'}
-                    </button>
-                  ))
-                )}
-              </div>
-
-              <button type="button" className="mobile-control-icon" onClick={toggleTheme} aria-label="Đổi giao diện sáng tối">
-                {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-              </button>
-              <button type="button" className="mobile-control-icon" onClick={() => { closeMenu(); setShowDiagnostics(true) }} aria-label="Mở chẩn đoán hệ thống">
-                <Activity size={17} />
-              </button>
-              {currentUser?.role === 'admin' && <button type="button" className="mobile-control-icon" onClick={() => { closeMenu(); setShowResetConfirm(true) }} aria-label="Làm mới dữ liệu trên thiết bị">
-                <RefreshCw size={17} />
-              </button>}
-            </div>
-
-            <div className="mobile-control-sheet__actions">
-              {canInstall && (
-                <button type="button" className="btn btn-primary mobile-control-action" onClick={() => { install(); closeMenu() }}>
-                  <Download size={16} /> Cài đặt ứng dụng (PWA)
-                </button>
+                  </div>
+                </div>
               )}
-              <button type="button" className="btn btn-secondary mobile-control-action" onClick={() => { navigate({ to: '/settings' }); closeMenu() }}>
-                <Settings size={16} /> Cài đặt
-              </button>
-              <button type="button" className="btn btn-secondary mobile-control-action" onClick={() => { useFilterStore.getState().setViewMode('desktop'); closeMenu() }}>
-                <Monitor size={16} /> Giao diện desktop
-              </button>
-              <button type="button" className="btn btn-ghost mobile-control-action mobile-control-action--danger" onClick={handleLogout}>
-                <LogOut size={16} /> Đăng xuất
-              </button>
-            </div>
+
+              {/* Quick Utility Tiles Grid */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-white/60 px-1">Công cụ & Tiện ích</span>
+                <div className="mobile-control-tiles">
+                  {/* Theme Toggle Tile */}
+                  <button
+                    type="button"
+                    className="mobile-control-tile"
+                    onClick={toggleTheme}
+                    aria-label={`Đổi sang chế độ ${theme === 'dark' ? 'Sáng' : 'Tối'}`}
+                  >
+                    <span className="mobile-control-tile__icon">
+                      {theme === 'dark' ? <Sun size={17} className="text-amber-300" /> : <Moon size={17} className="text-sky-300" />}
+                    </span>
+                    <span className="mobile-control-tile__content">
+                      <strong className="mobile-control-tile__title">Giao diện</strong>
+                      <span className="mobile-control-tile__desc">{theme === 'dark' ? 'Chế độ Tối' : 'Chế độ Sáng'}</span>
+                    </span>
+                  </button>
+
+                  {/* System Diagnostics Tile */}
+                  <button
+                    type="button"
+                    className="mobile-control-tile"
+                    onClick={() => { closeMenu(); setShowDiagnostics(true) }}
+                    aria-label="Mở chẩn đoán hệ thống"
+                  >
+                    <span className="mobile-control-tile__icon">
+                      <Activity size={17} className="text-emerald-300" />
+                    </span>
+                    <span className="mobile-control-tile__content">
+                      <strong className="mobile-control-tile__title">Chẩn đoán</strong>
+                      <span className="mobile-control-tile__desc">Hệ thống & DB</span>
+                    </span>
+                  </button>
+
+                  {/* Reset Cache Tile (Admin only) */}
+                  {currentUser?.role === 'admin' && (
+                    <button
+                      type="button"
+                      className="mobile-control-tile"
+                      onClick={() => { closeMenu(); setShowResetConfirm(true) }}
+                      aria-label="Làm mới dữ liệu trên thiết bị"
+                    >
+                      <span className="mobile-control-tile__icon">
+                        <RefreshCw size={17} className="text-amber-300" />
+                      </span>
+                      <span className="mobile-control-tile__content">
+                        <strong className="mobile-control-tile__title">Làm mới dữ liệu</strong>
+                        <span className="mobile-control-tile__desc">Tải lại từ máy chủ</span>
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Install PWA Tile (if installable) */}
+                  {canInstall && (
+                    <button
+                      type="button"
+                      className="mobile-control-tile"
+                      onClick={() => { install(); closeMenu() }}
+                      aria-label="Cài đặt ứng dụng PWA"
+                    >
+                      <span className="mobile-control-tile__icon">
+                        <Download size={17} className="text-indigo-300" />
+                      </span>
+                      <span className="mobile-control-tile__content">
+                        <strong className="mobile-control-tile__title">Cài ứng dụng</strong>
+                        <span className="mobile-control-tile__desc">Thêm ra màn hình</span>
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Footer */}
+              <div className="mobile-control-sheet__footer">
+                <button
+                  type="button"
+                  className="btn mobile-control-action"
+                  onClick={() => { navigate({ to: '/settings' }); closeMenu() }}
+                >
+                  <Settings size={16} /> Cài đặt
+                </button>
+                <button
+                  type="button"
+                  className="btn mobile-control-action mobile-control-action--danger"
+                  onClick={handleLogout}
+                >
+                  <LogOut size={16} /> Đăng xuất
+                </button>
+              </div>
             </div>
           </div>
         </ModalPortal>

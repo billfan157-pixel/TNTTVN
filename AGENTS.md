@@ -1,4 +1,9 @@
-# Agent Guidelines: TNTT Parish Management Platform (`brave-davinci`)
+# Agent Guidelines: Catevia — TNTT Parish Management Platform (`brave-davinci` / `TNTTVN`)
+
+> **Technical Naming Taxonomy**:
+> - **Repository**: `TNTTVN` (GitHub: `billfan157-pixel/TNTTVN`)
+> - **Internal Codename**: `brave-davinci`
+> - **Product Name**: `Catevia` (Tên thương mại / sản phẩm ứng dụng)
 
 ## 📐 Mandatory Decision Matrix & Code Audit Framework v4.1.2
 

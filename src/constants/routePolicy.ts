@@ -2,11 +2,13 @@ import type { Role } from '../types'
 
 export type DesktopRouteTab =
   | 'dashboard'
+  | 'parish-home'
   | 'students'
   | 'grades'
   | 'attendance'
   | 'reports'
   | 'calendar'
+  | 'parish-profile'
   | 'notices'
   | 'users'
   | 'classes'
@@ -28,10 +30,14 @@ export type MobileRouteTab =
   | 'parent'
   | 'notices'
 
+export type WorkspaceId = 'academic' | 'organization' | 'parent'
+export type RouteWorkspace = WorkspaceId | 'shared'
+
 export interface RoutePolicy {
   requiresAuth: boolean
   roles: readonly Role[]
   mobileTitle: string
+  workspace?: RouteWorkspace
   desktopTab?: DesktopRouteTab
   mobileTab?: MobileRouteTab
 }
@@ -54,24 +60,26 @@ export const ROUTE_POLICIES = {
   '/login/phuhuynh': { requiresAuth: false, roles: [], mobileTitle: 'Đăng nhập phụ huynh' },
   '/verify': { requiresAuth: false, roles: [], mobileTitle: 'Xác thực chứng nhận' },
 
-  '/dashboard': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Tổng quan', desktopTab: 'dashboard', mobileTab: 'home' },
-  '/students': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Thiếu nhi', desktopTab: 'students', mobileTab: 'students' },
-  '/grades': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Bảng điểm', desktopTab: 'grades', mobileTab: 'grades' },
-  '/attendance': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Điểm danh', desktopTab: 'attendance', mobileTab: 'attendance' },
-  '/reports': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Báo cáo học tập', desktopTab: 'reports', mobileTab: 'reports' },
-  '/notices': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thông báo', desktopTab: 'notices', mobileTab: 'notices' },
-  '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch phụng vụ', desktopTab: 'calendar' },
-  '/settings': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Cài đặt', desktopTab: 'settings', mobileTab: 'settings' },
-  '/parent': { requiresAuth: true, roles: PARENT_ONLY, mobileTitle: 'Con của tôi', desktopTab: 'parent', mobileTab: 'parent' },
-  '/leave-requests': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Đơn xin nghỉ', desktopTab: 'attendance' },
+  '/dashboard': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Tổng quan học vụ', workspace: 'academic', desktopTab: 'dashboard', mobileTab: 'home' },
+  '/students': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Thiếu nhi', workspace: 'academic', desktopTab: 'students', mobileTab: 'students' },
+  '/grades': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Bảng điểm', workspace: 'academic', desktopTab: 'grades', mobileTab: 'grades' },
+  '/attendance': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Điểm danh', workspace: 'academic', desktopTab: 'attendance', mobileTab: 'attendance' },
+  '/reports': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Báo cáo học tập', workspace: 'academic', desktopTab: 'reports', mobileTab: 'reports' },
+  '/parish': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Tổng quan Xứ đoàn', workspace: 'organization', desktopTab: 'parish-home' },
+  '/notices': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thông báo', workspace: 'organization', desktopTab: 'notices', mobileTab: 'notices' },
+  '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch phụng vụ', workspace: 'organization', desktopTab: 'calendar' },
+  '/parish-profile': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Hồ sơ Xứ đoàn', workspace: 'organization', desktopTab: 'parish-profile' },
+  '/settings': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Cài đặt', workspace: 'shared', desktopTab: 'settings', mobileTab: 'settings' },
+  '/parent': { requiresAuth: true, roles: PARENT_ONLY, mobileTitle: 'Con của tôi', workspace: 'parent', desktopTab: 'parent', mobileTab: 'parent' },
+  '/leave-requests': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Đơn xin nghỉ', workspace: 'academic', desktopTab: 'attendance' },
 
-  '/users': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Tài khoản', desktopTab: 'management' },
-  '/classes': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Lớp học', desktopTab: 'management' },
-  '/academic-years': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Năm học', desktopTab: 'management' },
-  '/catechists': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Giáo lý viên', desktopTab: 'catechists' },
-  '/audit-logs': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Nhật ký hệ thống', desktopTab: 'audit-logs' },
-  '/management': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quản lý hệ thống', desktopTab: 'management' },
-  '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ và thu chi', desktopTab: 'finances' },
+  '/users': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Tài khoản', workspace: 'shared', desktopTab: 'management' },
+  '/classes': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Lớp học', workspace: 'academic', desktopTab: 'management' },
+  '/academic-years': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Năm học', workspace: 'academic', desktopTab: 'management' },
+  '/catechists': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Giáo lý viên', workspace: 'organization', desktopTab: 'catechists' },
+  '/audit-logs': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Nhật ký hệ thống', workspace: 'shared', desktopTab: 'audit-logs' },
+  '/management': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quản lý hệ thống', workspace: 'shared', desktopTab: 'management' },
+  '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ và thu chi', workspace: 'organization', desktopTab: 'finances' },
 } as const satisfies Record<string, RoutePolicy>
 
 export type AppRoutePath = keyof typeof ROUTE_POLICIES
@@ -81,11 +89,13 @@ export type ProtectedRoutePath = {
 
 export const DESKTOP_TAB_PATHS = {
   dashboard: '/dashboard',
+  'parish-home': '/parish',
   students: '/students',
   grades: '/grades',
   attendance: '/attendance',
   reports: '/reports',
   calendar: '/calendar',
+  'parish-profile': '/parish-profile',
   notices: '/notices',
   users: '/users',
   classes: '/classes',
@@ -97,6 +107,24 @@ export const DESKTOP_TAB_PATHS = {
   parent: '/parent',
   finances: '/finances',
 } as const satisfies Record<DesktopRouteTab, ProtectedRoutePath>
+
+export const WORKSPACE_DEFINITIONS = {
+  academic: { label: 'Thiếu nhi & Học vụ', shortLabel: 'Học vụ', landingPath: '/dashboard', roles: STAFF_ROLES },
+  organization: { label: 'Xứ đoàn & Giáo xứ', shortLabel: 'Xứ đoàn', landingPath: '/parish', roles: STAFF_ROLES },
+  parent: { label: 'Phụ huynh', shortLabel: 'Phụ huynh', landingPath: '/parent', roles: PARENT_ONLY },
+} as const satisfies Record<WorkspaceId, { label: string; shortLabel: string; landingPath: ProtectedRoutePath; roles: readonly Role[] }>
+
+export function getAccessibleWorkspaces(role: Role | null | undefined): WorkspaceId[] {
+  if (!role) return []
+  return (Object.keys(WORKSPACE_DEFINITIONS) as WorkspaceId[])
+    .filter(workspace => WORKSPACE_DEFINITIONS[workspace].roles.some(allowed => allowed === role))
+}
+
+export function resolveActiveWorkspace(pathname: string, role: Role | null | undefined, remembered: WorkspaceId): WorkspaceId {
+  if (role === 'phuhuynh') return 'parent'
+  const workspace = getRoutePolicy(pathname)?.workspace
+  return workspace && workspace !== 'shared' ? workspace : remembered
+}
 
 export const MOBILE_TAB_PATHS = {
   home: '/dashboard',

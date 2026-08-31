@@ -24,6 +24,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TNTTVN cần sử dụng camera để quét mã phiếu và chấm bài tự động.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Catevia dùng Face ID để mở khóa ứng dụng và bảo vệ dữ liệu giáo lý trên thiết bị.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>TNTTVN khai báo quyền media để camera hoạt động ổn định trong ứng dụng; tính năng chấm bài không ghi âm.</string>
 	<key>LSRequiresIPhoneOS</key>

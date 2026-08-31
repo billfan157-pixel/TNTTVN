@@ -16,8 +16,14 @@ import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { MobileTopBar } from '../mobile/MobileTopBar'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
+import type { WorkspaceId } from '../../constants/routePolicy'
 
-export const HeaderBar: React.FC = () => {
+interface HeaderBarProps {
+  activeWorkspace?: WorkspaceId
+  onWorkspaceChange?: (workspace: WorkspaceId) => void
+}
+
+export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academic', onWorkspaceChange }) => {
   const students = useStudentStore((s) => s.students)
   const viewMode = useFilterStore((s) => s.viewMode)
   const setViewMode = useFilterStore((s) => s.setViewMode)
@@ -58,7 +64,7 @@ export const HeaderBar: React.FC = () => {
     <>
       <OfflineStatusBanner />
       {effectiveMode === 'mobile' ? (
-        <MobileTopBar />
+        <MobileTopBar activeWorkspace={activeWorkspace} onWorkspaceChange={onWorkspaceChange} />
       ) : (
         <header className="app-header">
           <div className="app-header__inner">
@@ -69,20 +75,17 @@ export const HeaderBar: React.FC = () => {
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="app-header__title">
-                    Xứ Đoàn Đức Mẹ Fatima
-                  </h1>
+                  <h1 className="app-header__title">Catevia</h1>
                   <span className="app-header__parish-badge">
-                    Giáo Xứ Gia Tôn
+                    {activeWorkspace === 'organization' ? 'Xứ đoàn & Giáo xứ' : activeWorkspace === 'parent' ? 'Phụ huynh' : 'Thiếu nhi & Học vụ'}
                   </span>
                 </div>
                 <div className="app-header__meta">
                   <span className="flex items-center gap-1.5">
                     <span className="app-header__status-dot"></span>
-                    Niên Học {academicYearDisplay}
+                    {activeWorkspace === 'academic' ? `Niên Học ${academicYearDisplay}` : 'Xứ Đoàn Đức Mẹ Fatima'}
                   </span>
-                  <span aria-hidden="true">•</span>
-                  <span>{students.length} Thiếu Nhi</span>
+                  {activeWorkspace === 'academic' && <><span aria-hidden="true">•</span><span>{students.length} Thiếu Nhi</span></>}
                 </div>
               </div>
             </div>
@@ -90,7 +93,7 @@ export const HeaderBar: React.FC = () => {
             {/* Controls Section */}
             <div className="app-header__controls">
               {/* Class & Search Group */}
-              <div className="app-header__control-group app-header__search-group">
+              {activeWorkspace === 'academic' && <div className="app-header__control-group app-header__search-group">
                 {/* Class Switcher (admin only — GLV only sees their assigned classes) */}
                 {currentUser?.role === 'admin' && (
                   <div className="flex items-center gap-1.5 text-white">
@@ -125,10 +128,10 @@ export const HeaderBar: React.FC = () => {
                     aria-label="Tìm thiếu nhi theo tên hoặc mã"
                   />
                 </div>
-              </div>
+              </div>}
 
               {/* Semester Selector */}
-              <div className="app-header__control-group">
+              {activeWorkspace === 'academic' && <div className="app-header__control-group">
                 {semesterRestricted ? (
                   <span className="app-header__segment text-white">
                     Học Kỳ {openSemester === 2 ? 'II' : 'I'}
@@ -153,7 +156,7 @@ export const HeaderBar: React.FC = () => {
                     </button>
                   </>
                 )}
-              </div>
+              </div>}
 
               {/* ── Zone 2: App utilities (PHA 2 — tách khỏi data filters) ── */}
               <div className="flex items-center gap-1.5">

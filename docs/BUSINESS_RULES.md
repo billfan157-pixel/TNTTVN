@@ -730,4 +730,29 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
 ### 23.3 Quy Chuẩn Đánh Số Phiếu Thu / Chi Tuần Tự (Sequential Voucher Numbering)
 - Số phiếu thu (`PT-YYYY-XXXX`) và phiếu chi (`PC-YYYY-XXXX`) được sinh tuần tự tăng dần dựa trên dữ liệu thực tế của từng năm trong CSDL (bắt đầu từ `0001`), không sử dụng số ngẫu nhiên nhằm đảm bảo tính duy nhất và tính liên tục của sổ sách kế toán Xứ Đoàn.
 
+---
+
+## 24. HỒ SƠ, TỔ CHỨC VÀ BỘ NHỚ SỐ XỨ ĐOÀN (ADR-081/082)
+
+1. Catevia là một platform duy nhất với ba experience: `academic`, `organization`, `parent`. Đổi workspace không đổi tài khoản, tenant hoặc quyền; backend authorization vẫn là nguồn quyết định.
+2. Một tài khoản nhân sự chỉ được liên kết tối đa một `parish_people` active trong cùng giáo xứ. Nhân vật lịch sử không có tài khoản vẫn có một identity tổ chức độc lập; không tạo tài khoản giả.
+3. Một người có thể đồng thời có nhiều `catechist_assignments`, `parish_service_terms` và record/event links. `users.role` vẫn là coarse access role hiện hành; workspace không được dùng để suy diễn quyền write.
+4. Nhiệm kỳ phải tham chiếu person và unit cùng tenant; ngày kết thúc không trước ngày bắt đầu. Cây đơn vị không được tự tham chiếu hoặc tạo vòng lặp.
+5. Record có ba loại `MILESTONE|ACTIVITY|ACHIEVEMENT`, ba trạng thái `DRAFT|PUBLISHED|ARCHIVED` và visibility `STAFF|ADMIN`. Nhân sự không phải admin chỉ đọc `PUBLISHED+STAFF`; phụ huynh không truy cập domain này.
+6. Timeline là projection từ ngày thành lập, record có `show_on_timeline` và mốc nhiệm kỳ. Không nhập một bản sao timeline riêng.
+7. Tư liệu upload chỉ JPEG/PNG/WebP/PDF tối đa 8 MiB, kiểm signature; video dùng external HTTPS. Production upload bắt buộc independent R2. Download upload phải qua auth/tenant/visibility route.
+8. Delete domain là soft delete và bị chặn khi entity còn dependency. Audit chỉ ghi loại thay đổi, không sao chép tiểu sử, nội dung, URL hoặc file bytes.
+9. `parish_events` là lịch vận hành; `parish_records` là ký ức có cấu trúc. Liên kết nguồn không làm thay đổi offline/calendar contract cũ.
+10. Manual LMS export/restore hiện vẫn là snapshot học vụ theo hợp đồng v2; full encrypted logical backup tự động bao gồm các bảng Parish Memory. Không được quảng bá manual export là bản sao toàn platform.
+
+---
+
+## 25. KHÓA ỨNG DỤNG BẰNG SINH TRẮC HỌC (ADR-085)
+
+1. Khóa sinh trắc học là tùy chọn riêng của bản native Android/iOS và scope theo đúng `parishId:userId`; tài khoản khác trên cùng thiết bị không được kế thừa lựa chọn.
+2. Bật hoặc tắt khóa đều phải hoàn tất xác minh native; Android chỉ chấp nhận biometric được OS phân loại `strong`. Khi app ra nền, phiên UI đã bật phải chuyển sang trạng thái khóa; cold start không được mount protected router trước khi mở khóa.
+3. Catevia không thu, đọc, gửi hoặc lưu ảnh khuôn mặt, vân tay hay biometric template. Chỉ hệ điều hành trả kết quả thành công/thất bại; local marker chỉ mang giá trị `enabled` và không chứa PII/credential.
+4. Nếu sinh trắc học mất enrollment, không khả dụng hoặc lockout, app không được bypass vào dữ liệu. Đường recovery phải xóa marker khóa, đăng xuất/dọn client session rồi quay về đăng nhập mật khẩu.
+5. Khóa local không thay thế mật khẩu, server session, RBAC, tenant isolation hoặc yêu cầu re-auth cho thao tác nhạy cảm. Không được mô tả nó là MFA/passkey/server authentication.
+
 

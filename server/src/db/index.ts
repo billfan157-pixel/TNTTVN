@@ -1576,6 +1576,172 @@ CREATE TABLE IF NOT EXISTS exam_result_mutations (
 );
 CREATE INDEX IF NOT EXISTS idx_exam_result_mutations_session ON exam_result_mutations(parish_id, exam_session_id, created_at);
 ` },
+  { version: '20260831-136', sql: `
+CREATE TABLE IF NOT EXISTS parish_profiles (
+  parish_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  patron_name TEXT,
+  founded_date TEXT,
+  motto TEXT,
+  description TEXT,
+  updated_by TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id)
+);
+` },
+  { version: '20260831-137', sql: `
+CREATE TABLE IF NOT EXISTS parish_people (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  linked_user_id TEXT,
+  holy_name TEXT,
+  full_name TEXT NOT NULL,
+  birth_year INTEGER CHECK(birth_year IS NULL OR (birth_year >= 1900 AND birth_year <= 2100)),
+  biography TEXT,
+  service_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(service_status IN ('ACTIVE', 'FORMER', 'DECEASED')),
+  visibility TEXT NOT NULL DEFAULT 'STAFF' CHECK(visibility IN ('STAFF', 'ADMIN')),
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_parish_people_name ON parish_people(parish_id, full_name);
+CREATE INDEX IF NOT EXISTS idx_parish_people_status ON parish_people(parish_id, service_status);
+` },
+  { version: '20260831-138', sql: `
+CREATE TABLE IF NOT EXISTS parish_organization_units (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  parent_id TEXT,
+  name TEXT NOT NULL,
+  unit_type TEXT NOT NULL CHECK(unit_type IN ('BOARD', 'COMMITTEE', 'BRANCH', 'CHAPTER', 'OTHER')),
+  description TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_parish_units_parent ON parish_organization_units(parish_id, parent_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_parish_units_type ON parish_organization_units(parish_id, unit_type);
+` },
+  { version: '20260831-139', sql: `
+CREATE TABLE IF NOT EXISTS parish_service_terms (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  person_id TEXT NOT NULL,
+  unit_id TEXT,
+  position_title TEXT NOT NULL,
+  rank_title TEXT,
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  notes TEXT,
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id),
+  FOREIGN KEY (parish_id, person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, unit_id) REFERENCES parish_organization_units(parish_id, id) ON DELETE RESTRICT,
+  CHECK(end_date IS NULL OR end_date >= start_date)
+);
+CREATE INDEX IF NOT EXISTS idx_parish_terms_person ON parish_service_terms(parish_id, person_id, start_date);
+CREATE INDEX IF NOT EXISTS idx_parish_terms_unit ON parish_service_terms(parish_id, unit_id, start_date);
+` },
+  { version: '20260831-140', sql: `
+CREATE TABLE IF NOT EXISTS parish_records (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  record_type TEXT NOT NULL CHECK(record_type IN ('MILESTONE', 'ACTIVITY', 'ACHIEVEMENT')),
+  title TEXT NOT NULL,
+  summary TEXT,
+  content TEXT,
+  occurred_on TEXT NOT NULL,
+  ended_on TEXT,
+  location TEXT,
+  status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
+  visibility TEXT NOT NULL DEFAULT 'STAFF' CHECK(visibility IN ('STAFF', 'ADMIN')),
+  show_on_timeline INTEGER NOT NULL DEFAULT 1 CHECK(show_on_timeline IN (0,1)),
+  source_event_id TEXT,
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  published_by TEXT,
+  published_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id),
+  CHECK(ended_on IS NULL OR ended_on >= occurred_on),
+  CHECK((status = 'PUBLISHED' AND published_at IS NOT NULL AND published_by IS NOT NULL) OR status != 'PUBLISHED')
+);
+CREATE INDEX IF NOT EXISTS idx_parish_records_timeline ON parish_records(parish_id, status, show_on_timeline, occurred_on);
+CREATE INDEX IF NOT EXISTS idx_parish_records_type ON parish_records(parish_id, record_type, occurred_on);
+` },
+  { version: '20260831-141', sql: `
+CREATE TABLE IF NOT EXISTS parish_record_people (
+  parish_id TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  person_id TEXT NOT NULL,
+  relation_role TEXT,
+  PRIMARY KEY (parish_id, record_id, person_id),
+  FOREIGN KEY (parish_id, record_id) REFERENCES parish_records(parish_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (parish_id, person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_parish_record_people_person ON parish_record_people(parish_id, person_id);
+` },
+  { version: '20260831-142', sql: `
+CREATE TABLE IF NOT EXISTS parish_archive_assets (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  asset_type TEXT NOT NULL CHECK(asset_type IN ('IMAGE', 'VIDEO', 'POSTER', 'DOCUMENT', 'MINUTES', 'CERTIFICATE', 'OTHER')),
+  title TEXT NOT NULL,
+  description TEXT,
+  captured_on TEXT,
+  storage_type TEXT NOT NULL CHECK(storage_type IN ('UPLOAD', 'EXTERNAL')),
+  object_key TEXT,
+  external_url TEXT,
+  original_filename TEXT,
+  mime_type TEXT,
+  size_bytes INTEGER CHECK(size_bytes IS NULL OR size_bytes >= 0),
+  checksum_sha256 TEXT,
+  visibility TEXT NOT NULL DEFAULT 'STAFF' CHECK(visibility IN ('STAFF', 'ADMIN')),
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id),
+  CHECK(
+    (storage_type = 'UPLOAD' AND object_key IS NOT NULL AND external_url IS NULL)
+    OR (storage_type = 'EXTERNAL' AND external_url IS NOT NULL AND object_key IS NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_parish_assets_type ON parish_archive_assets(parish_id, asset_type, captured_on);
+CREATE INDEX IF NOT EXISTS idx_parish_assets_storage ON parish_archive_assets(parish_id, storage_type);
+` },
+  { version: '20260831-143', sql: `
+CREATE TABLE IF NOT EXISTS parish_record_assets (
+  parish_id TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  PRIMARY KEY (parish_id, record_id, asset_id),
+  FOREIGN KEY (parish_id, record_id) REFERENCES parish_records(parish_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (parish_id, asset_id) REFERENCES parish_archive_assets(parish_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_parish_record_assets_asset ON parish_record_assets(parish_id, asset_id);
+` },
+  { version: '20260831-144', sql: `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_parish_people_linked_user
+ON parish_people(parish_id, linked_user_id)
+WHERE linked_user_id IS NOT NULL AND deleted_at IS NULL;
+` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate

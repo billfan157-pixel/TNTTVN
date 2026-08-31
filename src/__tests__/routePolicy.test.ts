@@ -7,12 +7,14 @@ import {
   ROUTE_POLICIES,
   canRoleAccessRoute,
   getMobilePreloadPaths,
+  getAccessibleWorkspaces,
+  resolveActiveWorkspace,
   getRoutePolicy,
 } from '../constants/routePolicy'
 
 describe('frontend route policy SSOT (ADR-072)', () => {
   it('keeps parent and staff workspaces mutually isolated', () => {
-    for (const path of ['/students', '/grades', '/attendance', '/reports'] as const) {
+    for (const path of ['/students', '/grades', '/attendance', '/reports', '/parish-profile'] as const) {
       expect(canRoleAccessRoute(path, 'phuhuynh')).toBe(false)
       expect(canRoleAccessRoute(path, 'admin')).toBe(true)
       expect(canRoleAccessRoute(path, 'chunhiem')).toBe(true)
@@ -23,6 +25,16 @@ describe('frontend route policy SSOT (ADR-072)', () => {
     expect(canRoleAccessRoute('/parent', 'admin')).toBe(false)
     expect(canRoleAccessRoute('/parent', 'chunhiem')).toBe(false)
     expect(canRoleAccessRoute('/parent', 'phuta')).toBe(false)
+  })
+
+  it('exposes two staff workspaces without leaking them into the parent portal', () => {
+    expect(getAccessibleWorkspaces('admin')).toEqual(['academic', 'organization'])
+    expect(getAccessibleWorkspaces('chunhiem')).toEqual(['academic', 'organization'])
+    expect(getAccessibleWorkspaces('phuhuynh')).toEqual(['parent'])
+    expect(getRoutePolicy('/parish')?.workspace).toBe('organization')
+    expect(getRoutePolicy('/students')?.workspace).toBe('academic')
+    expect(resolveActiveWorkspace('/notices', 'phuhuynh', 'organization')).toBe('parent')
+    expect(resolveActiveWorkspace('/settings', 'admin', 'organization')).toBe('organization')
   })
 
   it('gives every protected route an explicit non-empty role set and title', () => {

@@ -42,6 +42,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260824', 129, 129),
   ...migrationRange('20260827', 130, 131),
   ...migrationRange('20260828', 132, 135),
+  ...migrationRange('20260831', 136, 144),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -60,6 +61,12 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_classes_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_result_mutations_session: ['parish_id', 'exam_session_id', 'created_at'],
+  idx_parish_people_name: ['parish_id', 'full_name'],
+  idx_parish_people_linked_user: ['parish_id', 'linked_user_id'],
+  idx_parish_units_parent: ['parish_id', 'parent_id', 'sort_order'],
+  idx_parish_terms_person: ['parish_id', 'person_id', 'start_date'],
+  idx_parish_records_timeline: ['parish_id', 'status', 'show_on_timeline', 'occurred_on'],
+  idx_parish_assets_type: ['parish_id', 'asset_type', 'captured_on'],
 }
 
 const REQUIRED_TRIGGER_NAMES = [
@@ -85,6 +92,12 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   // Gate chặt cột cho bảng trong pipeline báo cáo + grade_overrides.phuhuynh-spec.
   promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
   grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
+  parish_profiles: ['parish_id', 'display_name', 'founded_date'],
+  parish_people: ['parish_id', 'id', 'visibility', 'deleted_at'],
+  parish_organization_units: ['parish_id', 'id', 'parent_id', 'deleted_at'],
+  parish_service_terms: ['parish_id', 'id', 'person_id', 'unit_id', 'deleted_at'],
+  parish_records: ['parish_id', 'id', 'status', 'visibility', 'show_on_timeline', 'deleted_at'],
+  parish_archive_assets: ['parish_id', 'id', 'storage_type', 'object_key', 'external_url', 'deleted_at'],
 }
 
 const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
@@ -98,6 +111,13 @@ const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
   financial_transactions: ['parish_id', 'id'],
   student_fee_records: ['parish_id', 'id'],
   exam_result_mutations: ['parish_id', 'user_id', 'client_mutation_id'],
+  parish_people: ['parish_id', 'id'],
+  parish_organization_units: ['parish_id', 'id'],
+  parish_service_terms: ['parish_id', 'id'],
+  parish_records: ['parish_id', 'id'],
+  parish_archive_assets: ['parish_id', 'id'],
+  parish_record_people: ['parish_id', 'record_id', 'person_id'],
+  parish_record_assets: ['parish_id', 'record_id', 'asset_id'],
 }
 
 function rowValue(row: unknown, key: string, index: number): unknown {

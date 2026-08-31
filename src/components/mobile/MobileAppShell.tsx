@@ -25,6 +25,6 @@ export const MobileAppShell: React.FC<MobileAppShellProps> = ({
     <main id="main-content" className="mobile-app-main">
       {children}
     </main>
-    <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} preloadTab={preloadTab} />
+    {activeTab && <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} preloadTab={preloadTab} />}
   </div>
 )
