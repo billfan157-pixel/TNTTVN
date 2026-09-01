@@ -76,9 +76,9 @@ export const ROUTE_POLICIES = {
   '/leave-requests': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Đơn xin nghỉ', workspace: 'academic', desktopTab: 'attendance' },
 
   '/users': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Tài khoản', workspace: 'shared', desktopTab: 'management' },
-  '/classes': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Lớp học', workspace: 'academic', desktopTab: 'management' },
+  '/classes': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Lớp học', workspace: 'academic', desktopTab: 'students' },
   '/academic-years': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Năm học', workspace: 'academic', desktopTab: 'management' },
-  '/catechists': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Giáo lý viên', workspace: 'organization', desktopTab: 'catechists' },
+  '/catechists': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Giáo lý viên', workspace: 'organization', desktopTab: 'catechists' },
   '/audit-logs': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Nhật ký hệ thống', workspace: 'shared', desktopTab: 'audit-logs' },
   '/management': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quản lý hệ thống', workspace: 'shared', desktopTab: 'management' },
   '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ và thu chi', workspace: 'organization', desktopTab: 'finances' },

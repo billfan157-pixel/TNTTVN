@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "dev": "node --import tsx --watch --env-file-if-exists=.env src/index.ts",
     "dev:e2e": "tsx src/index.ts",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "db:generate": "drizzle-kit generate",

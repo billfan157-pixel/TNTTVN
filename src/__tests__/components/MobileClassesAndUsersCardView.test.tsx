@@ -1,5 +1,6 @@
 ﻿import { render, screen, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { fireEvent } from '@testing-library/react'
 import { DesktopClasses } from '../../components/desktop/DesktopClasses'
 import { UserManagementPage } from '../../components/desktop/UserManagementPage'
 import { useAuthStore } from '../../stores/authStore'
@@ -99,8 +100,9 @@ describe('MobileClasses and UserManagement Responsive Views', () => {
   })
 
   it('renders DesktopClasses with both mobile card list and desktop table', async () => {
+    const onViewClassStudents = vi.fn()
     await act(async () => {
-      render(<DesktopClasses />)
+      render(<DesktopClasses onViewClassStudents={onViewClassStudents} />)
     })
 
     expect(screen.getAllByText('Chiên Con 1').length).toBeGreaterThanOrEqual(1)
@@ -109,6 +111,22 @@ describe('MobileClasses and UserManagement Responsive Views', () => {
     expect(screen.getByText('30 thiếu nhi')).toBeInTheDocument()
     const viewButtons = screen.getAllByRole('button', { name: /Xem Danh Sách/i })
     expect(viewButtons.length).toBeGreaterThanOrEqual(2)
+    fireEvent.click(viewButtons[0])
+    expect(onViewClassStudents).toHaveBeenCalledWith('c1')
+  })
+
+  it('does not expose class mutations to catechists', async () => {
+    useAuthStore.setState({
+      user: { id: 'glv-1', username: 'glv', fullName: 'GLV User', role: 'chunhiem', status: 'ACTIVE', parishId: 'test-parish' },
+    })
+
+    await act(async () => {
+      render(<DesktopClasses embedded />)
+    })
+
+    expect(screen.queryByRole('button', { name: /Sửa lớp/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Xóa lớp/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Thêm Lớp/i })).not.toBeInTheDocument()
   })
 
   it('renders UserManagementPage with both mobile card list and desktop table', async () => {

@@ -1798,6 +1798,11 @@ ON password_reset_requests(parish_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_inbox
 ON password_reset_requests(parish_id, status, last_requested_at);
 ` },
+  { version: '20260901-147', sql: `
+ALTER TABLE users ADD COLUMN deleted_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_users_active_role
+ON users(parish_id, role, deleted_at);
+` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate

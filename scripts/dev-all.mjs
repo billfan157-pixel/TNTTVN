@@ -6,6 +6,9 @@
  * trả 502 Bad Gateway (VD: POST /api/auth/login). Script này spawn cả 2 và kill cả 2
  * khi một trong hai thoát hoặc nhận SIGINT/SIGTERM.
  *
+ * Phía server dùng `node --import tsx --watch` thay vì `tsx watch` độc lập vì `tsx watch`
+ * gặp lỗi IPC im lặng trên Node 24+ (Windows) khiến server không bind port 3001 và gây 502.
+ *
  * Không dùng `concurrently` để tránh dependency thừa — child_process.spawn là đủ.
  */
 import { spawn } from 'node:child_process'

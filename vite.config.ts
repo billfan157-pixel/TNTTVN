@@ -62,6 +62,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registration is owned by pushManager so the Capacitor native shell can
+      // explicitly opt out. Auto-injecting registerSW.js made Android WebView
+      // install the PWA worker and reload the running app on worker activation.
+      injectRegister: false,
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',

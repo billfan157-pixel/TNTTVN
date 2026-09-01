@@ -202,6 +202,9 @@ export function RootLayout() {
               isOpen={isStudentModalOpen}
               onClose={closeStudentModal}
               studentToEdit={studentToEdit}
+              onGoToClasses={currentUser.role === 'admin'
+                ? () => navigate({ to: '/students', search: { view: 'classes' } })
+                : undefined}
             />
           </Suspense>
         )}
@@ -275,6 +278,9 @@ export function RootLayout() {
                 isOpen={isStudentModalOpen}
                 onClose={closeStudentModal}
                 studentToEdit={studentToEdit}
+                onGoToClasses={currentUser.role === 'admin'
+                  ? () => navigate({ to: '/students', search: { view: 'classes' } })
+                  : undefined}
               />
             </Suspense>
           )}

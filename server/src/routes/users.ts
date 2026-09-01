@@ -16,6 +16,7 @@ import {
   updateUserPhone,
   resetUserPassword,
   forceLogoutUser,
+  deleteUserAccount,
   verifyAdminReauth,
   getParentProvisionPreview,
   provisionParentAccounts,
@@ -37,7 +38,11 @@ const createUserSchema = z.object({
   assignedClasses: z.array(z.string()).optional(),
 })
 
-usersRouter.get('/catechists', roleMiddleware('admin', 'chunhiem'), async (c) => {
+const deleteUserSchema = z.object({
+  adminPassword: z.string().min(1, 'Mật khẩu xác nhận Admin không được để trống').max(128),
+})
+
+usersRouter.get('/catechists', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const list = await getCatechists(user.parishId)
   return successResponse(c, list)
@@ -117,6 +122,7 @@ usersRouter.put('/:id/status', roleMiddleware('admin'), zValidator('json', z.obj
   const userAgent = c.req.header('user-agent') || ''
 
   if (getSuperAdminId() === id) return errorResponse(c, 'FORBIDDEN', 'Không thể thay đổi trạng thái của Admin trưởng', 403)
+  if (user.userId === id && status !== 'ACTIVE') return errorResponse(c, 'FORBIDDEN', 'Admin không thể tự khóa hoặc vô hiệu hóa tài khoản của mình', 403)
 
   const ok = await updateUserStatus(id, status, user.userId, user.parishId, ip, userAgent)
   if (!ok) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
@@ -215,6 +221,41 @@ usersRouter.post('/:id/force-logout', roleMiddleware('admin'), async (c) => {
   const ok = await forceLogoutUser(id, user.userId, user.parishId, ip, userAgent)
   if (!ok) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
   return successResponse(c, { id, forcedOut: true })
+})
+
+usersRouter.delete('/:id', roleMiddleware('admin'), adminReauthRateLimiter, zValidator('json', deleteUserSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const id = c.req.param('id')
+  const { adminPassword } = c.req.valid('json')
+  const ip = getClientIp(c)
+  const userAgent = c.req.header('user-agent') || ''
+
+  if (id === user.userId || id === getSuperAdminId()) {
+    return errorResponse(c, 'PROTECTED_ACCOUNT', 'Không thể tự xóa tài khoản hoặc xóa Admin trưởng', 403)
+  }
+
+  const reauthOk = await verifyAdminReauth(
+    user.userId,
+    adminPassword,
+    user.parishId,
+    ip,
+    userAgent,
+    id,
+    'DELETE_USER_ACCOUNT_FAILED',
+  )
+  if (!reauthOk) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
+
+  let result: Awaited<ReturnType<typeof deleteUserAccount>>
+  try {
+    result = await deleteUserAccount(id, user.userId, user.parishId, ip, userAgent)
+  } catch (err: any) {
+    if (err?.code === 'PROTECTED_ACCOUNT') {
+      return errorResponse(c, 'PROTECTED_ACCOUNT', err.message, 403)
+    }
+    throw err
+  }
+  if (!result) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
+  return successResponse(c, result)
 })
 
 export default usersRouter

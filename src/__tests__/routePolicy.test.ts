@@ -25,6 +25,11 @@ describe('frontend route policy SSOT (ADR-072)', () => {
     expect(canRoleAccessRoute('/parent', 'admin')).toBe(false)
     expect(canRoleAccessRoute('/parent', 'chunhiem')).toBe(false)
     expect(canRoleAccessRoute('/parent', 'phuta')).toBe(false)
+
+    expect(canRoleAccessRoute('/catechists', 'admin')).toBe(true)
+    expect(canRoleAccessRoute('/catechists', 'chunhiem')).toBe(true)
+    expect(canRoleAccessRoute('/catechists', 'phuta')).toBe(true)
+    expect(canRoleAccessRoute('/catechists', 'phuhuynh')).toBe(false)
   })
 
   it('exposes two staff workspaces without leaking them into the parent portal', () => {
@@ -33,6 +38,7 @@ describe('frontend route policy SSOT (ADR-072)', () => {
     expect(getAccessibleWorkspaces('phuhuynh')).toEqual(['parent'])
     expect(getRoutePolicy('/parish')?.workspace).toBe('organization')
     expect(getRoutePolicy('/students')?.workspace).toBe('academic')
+    expect(getRoutePolicy('/classes')?.desktopTab).toBe('students')
     expect(resolveActiveWorkspace('/notices', 'phuhuynh', 'organization')).toBe('parent')
     expect(resolveActiveWorkspace('/settings', 'admin', 'organization')).toBe('organization')
   })

@@ -25,6 +25,9 @@
 | FE-06 | 🟡 P3 | Thiếu accessible skip link ở RootLayout | ✅ CLOSED (2026-08-14) | `src/components/common/RootLayout.tsx` |
 | FE-08 | 🔴 P1/P2 | Hidden-nav thay route authorization: parent deep-link staff workspace; admin vào parent-only UI; route/title/nav drift | ✅ CLOSED (2026-08-29, ADR-072) | `src/constants/routePolicy.ts`, `src/router.tsx`, shell/nav regression |
 | FE-07 | 🔴 P1 | User report "dữ liệu mất sạch trên Vercel": stale build/SW cũ trong browser (tab mở nhiều ngày) → dashboard "0 thiếu nhi" + sync queue kẹt re-push mỗi 60s; server data AN TOÀN (566 students) | ✅ CLOSED (2026-08-16) | `src/sw.ts` (skipWaiting+clientsClaim+reload-on-activate), `src/lib/pushManager.ts` (updateViaCache none), `vercel.json` (no-store sw.js/index.html), `src/hooks/useSyncEngine.ts` (self-heal full pull) |
+| FE-09 | 🟠 P2 | Capacitor native bị PWA worker auto-register; worker activate sau precache gọi `client.navigate()` làm app reload bất chợt sau login. Idle route preload cũng có thể hard-reload khi chunk fetch lỗi | ✅ CLOSED (2026-09-01, ADR-088) | `vite.config.ts` (`injectRegister:false`), `src/lib/pushManager.ts` (native unregister + scoped PWA-cache cleanup), `src/utils/lazyWithRetry.ts` (no background hard reload), 2 files / 7 regression tests |
+| AUTH-DELETE-1 | 🔴 P1 | Xóa account cần giữ lịch sử/FK nhưng phải thu hồi toàn bộ quyền truy cập; GLV không được nhận dữ liệu/quyền quản trị | ✅ ENGINEERING VERIFIED (2026-09-01, ADR-089) | migration `147`, `userService.ts`, `routes/users.ts`, auth/refresh guards, `/catechists`, deletion/RBAC tests |
+| FE-10 | 🟠 P2 | Gộp quản lý lớp vào route staff có thể làm lộ mutation controls cho GLV nếu chỉ dựa vào tab ẩn | ✅ ENGINEERING VERIFIED (2026-09-01, ADR-090) | role-aware `/students?view=classes`, admin-only `DesktopClasses.canEdit`, existing server class RBAC, UI/route tests |
 | EXAM-02 | 🟠 P2 | Conflict matrix chia đôi client/server: client thiếu `override` trong PROTECTED sources (server: manual/override/excel_import) → lệch kết quả hiển thị local; docs re-score ghi `totalAnswered` trong khi code dùng `totalQuestions` | ✅ CLOSED (2026-08-17) | `src/services/examFinalizeService.ts` (thêm `override` vào conflict sources + khớp comment server `examService.ts:22`), `docs/BUSINESS_RULES.md` §11.5, `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` ADR-043, test mở rộng `examFinalizeService.test.ts` (3 nguồn) |
 | A01 | 🔴 P1 | Refresh token trong localStorage + XSS sinks trong popup in | ✅ CLOSED | 2026-08-10 |
 | A05 | 🟠 P2 | Reveal password tạm thiếu re-authentication | ✅ CLOSED | 2026-08-10 |
@@ -3502,5 +3505,24 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - **Audit semantics:** public event ghi subject user vì `audit_logs.user_id` NOT NULL nhưng `newValue.actor='unauthenticated_request'`; không được diễn giải subject là người đã xác thực. Admin reset/dismiss ghi actor Admin thật.
 - **Compatibility:** legacy KBA endpoint vẫn 410, ADR-058 no-KBA/no-reveal giữ nguyên. Ticket không phải possession factor và không tự reset.
 - **Final evidence:** targeted recovery/schema/purge/UI **7 files / 32 tests PASS**; full serialized regression **272 files / 1,900 tests PASS**; oxlint zero-warning; design-system lint **0/119**; client/server TypeScript và production frontend/server build PASS. Atomic-claim concurrency test chứng minh hai Admin tranh cùng ticket chỉ có đúng một reset thành công (`200/409`) và credential cuối thuộc response thành công. Hậu kiểm D3: **KEEP**, Security/Privacy/Data Integrity/Testability đều 9. Production support response time, request volume và abuse telemetry là **NOT CONFIRMED** cho tới khi có vận hành thật.
+
+---
+
+## Audit AUTH-DELETE-1 — Account soft deletion & catechist RBAC — ✅ ENGINEERING VERIFIED (2026-09-01, ADR-089)
+
+- **Threat model:** hard-delete làm mất lịch sử/FK; UI-only authorization; cross-tenant target; self/Admin trưởng deletion; credential/session còn dùng được sau xóa; PII bị copy vào audit; GLV nhận trường quản trị.
+- **Controls:** migration `147` soft-delete; admin-only DELETE + rate-limit + password re-auth; tenant scope; protected accounts; transaction đặt INACTIVE/deleted, bump token, revoke refresh sessions và dọn assignment/push/Telegram/reset-ticket; active guards trên login/access/refresh và projections.
+- **Privacy/RBAC:** `chunhiem|phuta` chỉ nhận directory projection tối thiểu và không được gọi management/delete endpoints. Audit deletion chỉ ghi role/status/token transition, không tên/username/SĐT/credential.
+- **Integrity:** user row và lịch sử nghiệp vụ được giữ; `parish_people` chỉ unlink account; username đã xóa không tự tái sử dụng. Retry deletion idempotent; khôi phục/physical purge chưa được duyệt.
+- **Evidence:** targeted deletion/directory/route/UI/schema **10 files / 64 tests PASS**; deletion transaction rerun **5/5 PASS** sau khi mở rộng archived-profile unlink. Client/server TypeScript, scoped oxlint, DS lint **0/119**, production build và full serialized regression **275 files / 1,915 tests PASS**. Full lint final retry bị chặn ngoài scope bởi `server/watch-test.ts` + `server/test-file.ts` untracked/malformed tạo đồng thời. D3 hậu kiểm **KEEP**: Security/Privacy/Data Integrity/Testability đều 9.
+
+---
+
+## Audit FE-10 — Student/class workspace role boundary — ✅ ENGINEERING VERIFIED (2026-09-01, ADR-090)
+
+- **Finding:** đưa class-management component vào `/students` (route dùng chung staff) có thể vô tình phát nút create/edit/delete cho GLV vì component trước đây đặt `canEdit = admin || chunhiem` dù deep route `/classes` chỉ admin.
+- **Controls:** `DesktopClasses.canEdit` đổi thành admin-only; tab `view=classes` chỉ được đưa vào desktop/mobile items và render khi admin; GLV ép query bị normalize về roster. Server `POST|PUT|DELETE /api/classes`, available-teachers và assignment endpoints vẫn `roleMiddleware('admin')`.
+- **Integrity/navigation:** typed search giữ `classId/branchId/semester/search`; chọn “Xem Danh Sách” chuyển tab nhưng giữ class filter. `/classes` vẫn admin-only compatibility route.
+- **Evidence:** targeted class-workspace role/tab/route tests **4 files / 29 tests PASS**; combined final target **7 files / 43 tests PASS**. Client/server TypeScript, scoped oxlint, DS lint **0/119**, production build và full serialized regression **275 files / 1,915 tests PASS**. Full lint final retry bị chặn ngoài scope bởi hai file untracked malformed nói trên. D2 hậu kiểm **KEEP**: Security/Data Integrity/Testability đều 9.
 
 ---

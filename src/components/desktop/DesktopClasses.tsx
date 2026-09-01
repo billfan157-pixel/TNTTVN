@@ -20,11 +20,11 @@ interface TeacherOption {
   username: string
 }
 
-export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}) {
+export function DesktopClasses({ embedded = false, onViewClassStudents }: { embedded?: boolean; onViewClassStudents?: (classId: string) => void } = {}) {
   const navigate = useNavigate()
   const { classes, branches, academicYears, loading, fetchClasses, fetchBranches, fetchAcademicYears, createClass, updateClass, deleteClass } = useClassStore()
   const { role } = useAuth()
-  const canEdit = role === 'admin' || role === 'chunhiem'
+  const canEdit = role === 'admin'
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
 
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -34,6 +34,10 @@ export function DesktopClasses({ embedded = false }: { embedded?: boolean } = {}
   }, [classes, sortDirection])
 
   const viewClassStudents = (classId: string) => {
+    if (onViewClassStudents) {
+      onViewClassStudents(classId)
+      return
+    }
     setSelectedClassId(classId)
     navigate({ to: '/students' })
   }

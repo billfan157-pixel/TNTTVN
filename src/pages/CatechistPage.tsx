@@ -1,154 +1,141 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Award, Search, AlertCircle, Landmark } from 'lucide-react'
+import { AlertCircle, Award, Landmark, Search } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
-import { SkeletonCardGrid, NoResultState } from '../components/common/StateFeedback'
+import { UserManagementPage } from '../components/desktop/UserManagementPage'
+import { NoResultState, SkeletonCardGrid } from '../components/common/StateFeedback'
 import { Button } from '../components/common/ui'
 import { api, ApiError } from '../lib/api'
+import { useAuthStore } from '../stores/authStore'
 
-interface CatechistUser {
+interface CatechistDirectoryEntry {
   id: string
-  username: string
   fullName: string
-  role: 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh'
-  status: 'ACTIVE' | 'LOCKED' | 'INACTIVE' | 'FORCE_PASSWORD_CHANGE'
+  holyName?: string | null
+  role: 'admin' | 'chunhiem' | 'phuta'
   assignedClasses: string[]
-  createdAt?: string
+  assignedClassNames: string[]
+}
+
+function ParishProfileAction() {
+  const navigate = useNavigate()
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      leadingIcon={<Landmark className="h-4 w-4" />}
+      onClick={() => navigate({ to: '/parish-profile' })}
+    >
+      Hồ Sơ Xứ Đoàn
+    </Button>
+  )
 }
 
 export function CatechistPage() {
-  const navigate = useNavigate()
-  const [users, setUsers] = useState<CatechistUser[]>([])
-  const [classes, setClasses] = useState<{ id: string; name: string; code: string }[]>([])
-  const [loading, setLoading] = useState(true)
+  const role = useAuthStore(state => state.user?.role)
+  const [users, setUsers] = useState<CatechistDirectoryEntry[]>([])
+  const [loading, setLoading] = useState(role !== 'admin')
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('all')
 
-  const fetchData = async () => {
+  useEffect(() => {
+    if (role === 'admin') return
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const [userList, classList] = await Promise.all([
-        api.getCatechists(),
-        api.getClasses()
-      ])
-      setUsers(userList || [])
-      setClasses(classList || [])
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Không thể tải danh sách huynh trưởng'
-      setError(message)
-    } finally {
-      setLoading(false)
-    }
+    api.getCatechists()
+      .then(userList => {
+        if (cancelled) return
+        setUsers(Array.isArray(userList) ? userList : [])
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof ApiError ? err.message : 'Không thể tải danh bạ giáo lý viên')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [role])
+
+  if (role === 'admin') {
+    return <UserManagementPage scope="staff" headerActions={<ParishProfileAction />} />
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const filteredUsers = users.filter(u => {
-    const matchSearch = u.fullName.toLowerCase().includes(search.toLowerCase()) ||
-                        u.username.toLowerCase().includes(search.toLowerCase())
-    const matchRole = roleFilter === 'all' || u.role === roleFilter
-    return matchSearch && matchRole
+  const normalizedSearch = search.trim().toLocaleLowerCase('vi')
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = !normalizedSearch
+      || user.fullName.toLocaleLowerCase('vi').includes(normalizedSearch)
+      || (user.holyName || '').toLocaleLowerCase('vi').includes(normalizedSearch)
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter
+    return matchesSearch && matchesRole
   })
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return <span className="px-2 py-0.5 bg-rose-500/10 text-rose-600 font-bold text-xs rounded-full">Ban Quản Trị</span>
-      case 'chunhiem':
-        return <span className="px-2 py-0.5 bg-sky-500/10 text-sky-600 font-bold text-xs rounded-full">Huynh Trưởng Chủ Nhiệm</span>
-      case 'phuta':
-        return <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 font-bold text-xs rounded-full">Huynh Trưởng Phụ Tá</span>
-      default:
-        return <span className="px-2 py-0.5 bg-surface-hover text-text-secondary font-bold text-xs rounded-full">Phụ Huynh</span>
-    }
+  const roleLabel = (entryRole: CatechistDirectoryEntry['role']) => {
+    if (entryRole === 'admin') return 'Ban Quản Trị'
+    if (entryRole === 'chunhiem') return 'GLV Chủ Nhiệm'
+    return 'GLV Phụ Tá'
   }
 
   return (
     <DesktopAppShell width="wide">
-      {/* Header */}
       <PageHeader
-        icon={<Award className="w-5 h-5" />}
-        title="Danh Sách Huynh Trưởng & Phân Công"
-        description={`${filteredUsers.length} Giáo Lý Viên / Huynh Trưởng trong Xứ Đoàn`}
-        actions={(
-          <Button
-            variant="secondary"
-            size="sm"
-            leadingIcon={<Landmark className="w-4 h-4" />}
-            onClick={() => navigate({ to: '/parish-profile' })}
-          >
-            Hồ Sơ Xứ Đoàn
-          </Button>
-        )}
+        icon={<Award className="h-5 w-5" />}
+        title="Danh Bạ Giáo Lý Viên & Nhân Sự"
+        description={`${filteredUsers.length} nhân sự trong Xứ Đoàn · Chế độ chỉ xem`}
+        actions={<ParishProfileAction />}
       />
 
       {error && (
-        <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
+        <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs font-semibold text-rose-600">
+          <AlertCircle className="h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Filter Bar */}
       <div className="view-toolbar">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-placeholder" />
+        <div className="relative min-w-[200px] flex-1">
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-placeholder" />
           <input
             type="text"
-            placeholder="Tìm theo tên hoặc tên đăng nhập..."
+            placeholder="Tìm theo Tên Thánh hoặc họ tên..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={event => setSearch(event.target.value)}
             className="form-input-sm w-full pl-10"
           />
         </div>
-
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value)}
-          className="form-select text-sm font-medium min-h-[40px] w-full sm:w-auto"
-        >
+        <select value={roleFilter} onChange={event => setRoleFilter(event.target.value)} className="form-select min-h-[40px] w-full text-sm font-medium sm:w-auto">
           <option value="all">Tất cả vai trò</option>
-          <option value="chunhiem">Huynh Trưởng Chủ Nhiệm</option>
-          <option value="phuta">Huynh Trưởng Phụ Tá</option>
+          <option value="chunhiem">GLV Chủ Nhiệm</option>
+          <option value="phuta">GLV Phụ Tá</option>
           <option value="admin">Ban Quản Trị</option>
         </select>
       </div>
 
-      {/* Cards Grid */}
       {loading ? (
         <SkeletonCardGrid count={6} />
       ) : filteredUsers.length === 0 ? (
-        <NoResultState
-          title="Không có Huynh Trưởng nào"
-          description="Thử đổi bộ lọc vai trò hoặc từ khóa tìm kiếm."
-        />
+        <NoResultState title="Không có giáo lý viên phù hợp" description="Thử đổi vai trò hoặc từ khóa tìm kiếm." />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredUsers.map((u) => {
-            const assignedClassNameList = u.assignedClasses
-              ?.map(cid => classes.find(c => c.id === cid || c.code === cid)?.name || cid)
-              .join(', ') || 'Chưa phân công'
-
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredUsers.map(user => {
+            const assignedClassNames = user.assignedClassNames.join(', ') || 'Chưa phân công'
             return (
-              <div key={u.id} className="entity-card app-panel--interactive p-5 space-y-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-bold text-base text-text-main">{u.fullName}</h3>
-                    <p className="text-xs font-semibold text-text-muted">@{u.username}</p>
+              <article key={user.id} className="entity-card p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {user.holyName && <p className="text-xs font-bold text-parish-primary">{user.holyName}</p>}
+                    <h2 className="truncate text-base font-bold text-text-main">{user.fullName}</h2>
                   </div>
-                  {getRoleBadge(u.role)}
+                  <span className="badge badge-info shrink-0">{roleLabel(user.role)}</span>
                 </div>
-
-                <div className="bg-surface-hover p-3 rounded-xl space-y-1 border border-surface-border">
-                  <span className="text-[11px] font-semibold text-text-muted uppercase">Lớp Phụ Trách:</span>
-                  <p className="text-xs font-medium text-text-main">{assignedClassNameList}</p>
+                <div className="mt-3 rounded-xl border border-surface-border bg-surface-hover p-3">
+                  <span className="text-[11px] font-semibold uppercase text-text-muted">Lớp phụ trách</span>
+                  <p className="mt-1 text-xs font-medium text-text-main">{assignedClassNames}</p>
                 </div>
-              </div>
+              </article>
             )
           })}
         </div>

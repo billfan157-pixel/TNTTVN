@@ -165,12 +165,14 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               Quy trình sử dụng: <strong>Tạo Năm Học → Tạo Lớp Học → Nhập Danh Sách Thiếu Nhi</strong>.
               Hãy tạo lớp học trước khi thêm học sinh.
             </p>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => { onClose(); onGoToClasses?.() }}
-            >
-              <UserPlus size={14} /> Đi Tới Quản Lý Lớp Học
-            </button>
+            {onGoToClasses && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => { onClose(); onGoToClasses() }}
+              >
+                <UserPlus size={14} /> Quản Lý Lớp Học Trong Trang Thiếu Nhi
+              </button>
+            )}
           </div>
         </div>
       </div>

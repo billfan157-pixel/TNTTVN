@@ -184,7 +184,7 @@ Client: `src/lib/api.ts` (`purgeAllData`, `probePurgeVersion`) · UI: `src/compo
 - `GET /api/audit-logs` (admin-only, paginated, cap 500) — xem `server/src/routes/auditLogs.ts`.
 - `GET /api/audit-logs/policy-history` (admin-only, ADR-047): subset lọc sẵn theo policy (actions `UPDATE`/`OVERRIDE_GRADE`/`RESTORE_GRADE`/`APPROVE_PROMOTION`/`LOCK_SEMESTER`/`UNLOCK_SEMESTER` + entity types `settings`/`grade_override`/`promotion_record`/`semester_lock`), enrich `policyMetadata` (type: `POLICY_UPDATE`/`GRADE_OVERRIDE`/`PROMOTION_DECISION`/`SEMESTER_LOCK`), `studentId`/`studentName` (tenant-scoped) và `meta.summary` (thống kê KPI). UI hiển thị qua tab **"Chính Sách & Tác Động"** trên trang Nhật Ký Hệ Thống (`src/pages/AuditLogPage.tsx`, endpoint `getPolicyHistory` trong `src/lib/api.ts`) — trang `/policy-dashboard` đã gộp vào đây.
 - **Server ghi action GENERIC `CREATE`/`UPDATE`/`DELETE` + `entityType`** cho các entity nghiệp vụ (`grade`/`attendance`/`student`/`notice`/`class` — `gradeService.ts`, `attendanceService.ts`, `studentService.ts`, `noticeService.ts`, `classService.ts`). Mọi write điểm — kể cả **import Excel** (qua `POST /api/grades/batch`) — đều ghi audit 1 dòng/học sinh (CREATE nếu grade mới, UPDATE nếu tồn tại).
-- Action **đặc biệt** giữ tên riêng: `CREATE_USER`, `UPDATE_USER_STATUS`, `UPDATE_USER_ASSIGNMENTS`, `RESET_PASSWORD`, `FORCE_LOGOUT`, `CHANGE_PASSWORD`, `REVEAL_PASSWORD`, `RESTORE_BACKUP(_FAILED)`, `SYSTEM_PURGE`, `EXAM_FINALIZE/REOPEN/DELETE_SESSION/DELETE_RESULT`, `DELETE_CLASS_ASSIGNMENT`, `PARENT_ACCOUNTS_PROVISIONED(_FAILED)`, `*_FAILED`.
+- Action **đặc biệt** giữ tên riêng: `CREATE_USER`, `UPDATE_USER_STATUS`, `UPDATE_USER_ASSIGNMENTS`, `DELETE_USER_ACCOUNT(_FAILED)`, `RESET_PASSWORD`, `FORCE_LOGOUT`, `CHANGE_PASSWORD`, `REVEAL_PASSWORD`, `RESTORE_BACKUP(_FAILED)`, `SYSTEM_PURGE`, `EXAM_FINALIZE/REOPEN/DELETE_SESSION/DELETE_RESULT`, `DELETE_CLASS_ASSIGNMENT`, `PARENT_ACCOUNTS_PROVISIONED(_FAILED)`, `*_FAILED`.
 - **KHÔNG tồn tại action `UPSERT_GRADE`/`UPSERT_ATTENDANCE`** — UI `src/pages/AuditLogPage.tsx` map nhãn/color theo cặp `(action, entityType)` (`CRUD_LABELS`), filter hành động dùng action thật + option ghép `UPDATE|grade` (gửi kèm `entityType`).
 - Filter params: `action` (string chính xác), `entityType`, `userId`, `startDate`/`endDate` (ISO), `page`/`limit`.
 
@@ -265,11 +265,11 @@ Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ 
 | `POST /api/notifications/smart/reminder/class` | Nhắc lớp học | admin + chunhiem | `{ enqueued, failed }` |
 
 ### Client flow (pushManager)
-1. `main.tsx` → `registerServiceWorkerOnly()` — đăng ký `public/sw.js` sớm, KHÔNG hỏi permission.
+1. `main.tsx` → `registerServiceWorkerOnly()` là owner duy nhất của SW (`vite.config.ts: injectRegister=false`): web đăng ký `/sw.js` sớm, KHÔNG hỏi permission; Capacitor native không đăng ký, đồng thời unregister worker/cache PWA còn sót từ build cũ mà không đụng Dexie/auth/offline queue (ADR-088).
 2. Sau **login thành công** (authStore) → `initPushSubscription()`: permission 'default' → hỏi 1 lần; lấy public key → `PushManager.subscribe({ userVisibleOnly: true })` → POST `/subscribe`; có sẵn subscription (reload) → re-sync idempotent.
 3. Logout → `disablePushSubscription()`: POST `/unsubscribe` (best-effort) + `subscription.unsubscribe()`.
 4. SW: `push` → `showNotification(icon: /pwa-icon.svg)`; `notificationclick` → focus window hiện có hoặc `openWindow(url)`.
-- Yêu cầu: secure context (HTTPS/localhost) — web push không hoạt động trên HTTP plain.
+- Yêu cầu: secure context (HTTPS/localhost) — web push không hoạt động trên HTTP plain. Native push vẫn là backlog riêng; không dùng Web Push/Service Worker trong WebView.
 
 ### Delivery semantics (SSOT webPushService)
 - Gửi song song tới mọi `push_subscriptions` của parish; endpoint trả `404`/`410` (trình duyệt đã hủy) → **xóa vĩnh viễn**; lỗi tạm thời (500…) → đếm failed nhưng GIỮ subscription.
@@ -326,6 +326,15 @@ Client: `src/lib/api.ts` (`updateUserPhone`) · UI: `src/components/desktop/User
 | Method & Path | Purpose | Auth | Success `data` | Errors |
 | :--- | :--- | :--- | :--- | :--- |
 | `PUT /api/users/:id/phone` | Đổi SĐT tài khoản — **endpoint duy nhất sửa SĐT**. `phuhuynh` có username = SĐT cũ (quy ước ADR-026/027) → username **đồng bộ theo SĐT mới**. Body `{ phone: ^0\d{9}$, adminPassword }` — re-auth chuẩn A05/A06 (`adminReauthRateLimiter` + audit `UPDATE_USER_PHONE`/`UPDATE_USER_PHONE_FAILED`, **không ghi SĐT thô** — A16) | admin (+ re-auth) | `{ id, phone, username, usernameChanged }` (`usernameChanged: false` nếu không đổi — GLV/CN username custom) | 400 format SĐT, 401 `INVALID_ADMIN_PASSWORD`, 403 Admin trưởng, 404 không tồn tại, 409 `USERNAME_EXISTS` (SĐT mới trùng tài khoản khác) |
+
+## 9D. DANH BẠ GLV & XÓA TÀI KHOẢN (`/api/users`) — ADR-089
+
+| Endpoint | Mô tả | Quyền | Response | Lỗi chính |
+|---|---|---|---|---|
+| `GET /api/users/catechists` | Danh bạ read-only đã tối thiểu hóa: `id`, `fullName`, `holyName`, `role`, `assignedClasses`, `assignedClassNames`; không trả username, SĐT, status, last-login, token hay credential | admin + chunhiem + phuta | `{ data: CatechistDirectoryEntry[] }` | 401, 403 phụ huynh |
+| `DELETE /api/users/:id` | Soft-delete account; body `{ adminPassword }`. Thu hồi sessions/assignment/subscription/link và ghi audit trong transaction; giữ lịch sử nghiệp vụ | admin + re-auth | `{ data: { id, deleted: true, alreadyDeleted } }` | 400 thiếu mật khẩu, 401 `INVALID_ADMIN_PASSWORD`, 403 `PROTECTED_ACCOUNT`, 404 tenant-scoped `NOT_FOUND` |
+
+UI canonical là `/catechists`: admin nhận bảng quản trị đầy đủ và thao tác xóa; `chunhiem`/`phuta` chỉ nhận projection danh bạ. Tab GLV cũ trong `/management` đã bỏ; `/users` còn là deep-link admin tương thích.
 
 - **`PUT /api/auth/profile`**: role `phuhuynh` gửi `phone` khác SĐT hiện tại → **403 `PHONE_CHANGE_NOT_ALLOWED`** (SĐT = identity liên kết con — chỉ admin đổi qua endpoint trên). `phone` validate `^0\d{9}$` cho mọi role. Client `SettingsPage` disable ô SĐT cho phụ huynh + hướng dẫn liên hệ BGL.
 - Audit: `UPDATE_USER_PHONE` ghi `{ phoneChanged, usernameChanged }` (không chứa SĐT/mật khẩu — A16).
@@ -530,6 +539,8 @@ Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`)
 | `POST` | `/api/classes/academic-years` | Bắt buộc `id` khớp `YYYY-YYYY` (`parseAcademicYear`); `startDate`/`endDate` (nếu gửi) phải `YYYY-MM-DD` hợp lệ và start < end | 400 `ACADEMIC_YEAR_INVALID` |
 | `POST` | `/api/classes` | Trùng `(parish, code, academicYear)` hoặc FK sai trả rõ nghĩa thay vì 500 | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
 | `PUT` | `/api/classes/:id` | Như trên | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
+
+UI canonical (ADR-090): admin quản lý lớp tại tab `/students?view=classes` trên desktop/mobile. GLV không được render tab/mutation controls; server `POST|PUT|DELETE /api/classes` và assignment endpoints vẫn là authority admin-only. `/classes` được giữ làm deep-link admin tương thích.
 | `POST` | `/api/academic-years/:id/copy` · `/:id/promote` | Năm đích bắt buộc định dạng `YYYY-YYYY` | 400 `COPY_YEAR_ERROR` / `PROMOTE_ERROR` kèm message định dạng |
 
 `PromoteSummary` (response của `/promote`) thêm trường `warnings: { studentId, reason }[]` — học sinh không được chuyển lớp do thiếu lớp cùng `code` ở năm mới (PRM-F4); năm học vẫn `PROMOTED`, admin xử lý thủ công.

@@ -65,8 +65,9 @@ describe('App-wide UI System v4.5 migration contract', () => {
   it('removes duplicate page hierarchy when management pages are embedded', () => {
     const management = source('pages/ManagementPage.tsx')
     expect(management).toContain('<AcademicYearPage embedded />')
-    expect(management).toContain('<ClassesPage embedded />')
-    expect(management).toContain('<UsersPage scope="staff" embedded />')
+    expect(management).toContain('<UsersPage scope="phuhuynh" embedded />')
+    expect(management).not.toContain('<ClassesPage embedded />')
+    expect(source('pages/StudentsPage.tsx')).toContain('<DesktopClasses embedded')
     expect(source('pages/AcademicYearPage.tsx')).toContain('!embedded && <PageHeader')
     expect(source('components/desktop/DesktopClasses.tsx')).toContain('!embedded && <PageHeader')
     expect(source('components/desktop/UserManagementPage.tsx')).toContain('!embedded && <PageHeader')

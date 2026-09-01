@@ -348,6 +348,12 @@ Enforcement:
   - `/login/phuhuynh` — cổng Phụ Huynh: đăng nhập bằng **SĐT** (username phụ huynh = SĐT chuẩn hóa, quy ước §10.8) + mật khẩu; "Quên mật khẩu?" mở hướng dẫn liên hệ BGL theo ADR-058 (§10.12).
   - `/login/nhan-su` — cổng Giáo Lý Viên / Nhân Sự: đăng nhập bằng **tên đăng nhập** (prefix `glv_`/`cn_`/`ad_`, ADR-027) + mật khẩu; quên mật khẩu → liên hệ Quản Trị Viên / Ban Giáo Lý cấp mật khẩu tạm (admin flow, KHÔNG dùng luồng xác minh con).
 - **1 tài khoản = 1 vai trò** (`users.role` enum — không đổi schema): người vừa là GLV vừa là phụ huynh dùng **2 tài khoản riêng** (nhân sự + phụ huynh qua Parent Provisioning ADR-026).
+
+### 10.14 Xóa tài khoản có truy vết (ADR-089, 2026-09-01)
+- Chỉ `admin` được gọi `DELETE /api/users/:id`; bắt buộc re-auth bằng mật khẩu hiện tại và rate limit. Admin không được tự xóa, không được xóa Admin trưởng và không được tác động tài khoản ở giáo xứ khác.
+- Xóa tài khoản là **soft delete**: đặt `users.deleted_at`, chuyển `status='INACTIVE'`, tăng `tokenVersion`, thu hồi refresh sessions, gỡ `catechist_assignments`, push subscription, Telegram link token, password-reset ticket và gỡ liên kết `parish_people.linked_user_id`. Hồ sơ nhân sự và lịch sử nghiệp vụ/audit vẫn được giữ.
+- Tài khoản đã xóa không được đăng nhập, refresh, truy cập bằng access token cũ, xuất hiện trong `/api/users`, danh bạ GLV hoặc danh sách đồng bộ Hồ sơ Xứ đoàn. Username vẫn được giữ để không tái sử dụng nhầm identity lịch sử.
+- Audit `DELETE_USER_ACCOUNT` chỉ ghi role/status/token transition, không sao chép họ tên, username, SĐT hoặc credential; xác nhận sai ghi `DELETE_USER_ACCOUNT_FAILED`.
 - **Role gate sau login**: đăng nhập cổng Phụ Huynh với tài khoản không phải `phuhuynh` (hoặc ngược lại) → hệ thống **tự logout** phiên vừa tạo + hiện thông báo chỉ đường sang cổng đúng. Không tồn tại session nhầm vai trò.
 - **Backend bất biến**: `POST /api/auth/login` duy nhất cho mọi role; lockout/rate-limit/refresh rotation/audit giữ nguyên.
 - **Local-storage policy (ADR-045, 2026-08-16)**: `parish_current_user` chỉ chứa **marker không-PII** `{id, role, parishId}` (guard đồng bộ); bản đầy đủ (username/fullName/phone — SĐT PH = username) ở snapshot `parish_auth_user` **mã hóa AES-256-GCM** trong IndexedDB (dexieStorage, tenant-scoped). Snapshot hỏng/thiếu → rebuild qua `GET /auth/me` khi online, offline → logout sạch. Ghi fail-safe: lỗi Dexie/crypto không làm hỏng login. Mọi đường session chết dọn cả marker lẫn snapshot.
@@ -369,7 +375,10 @@ Quyền được kiểm tra **trong code** qua `roleMiddleware` + `checkUserClas
 | `/dashboard`, `/notices`, `/calendar`, `/settings`, `/feedback` | mọi role đã xác thực; quyền thao tác `/feedback` phân tách ở backend theo §26 |
 | `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` | `admin`, `chunhiem`, `phuta` |
 | `/parent` | chỉ `phuhuynh` |
-| `/users`, `/classes`, `/academic-years`, `/catechists`, `/audit-logs`, `/management`, `/finances` | chỉ `admin` |
+| `/users`, `/classes`, `/academic-years`, `/audit-logs`, `/management`, `/finances` | chỉ `admin` |
+| `/catechists` | `admin`, `chunhiem`, `phuta`; GLV chỉ đọc danh bạ đã tối thiểu hóa dữ liệu, mọi mutation tài khoản/phân công vẫn chỉ `admin` |
+
+- **UI canonical (ADR-090):** quản lý lớp nằm trong tab `Lớp Học` của `/students`; tab chỉ render cho admin. `/classes` vẫn admin-only để tương thích deep link. GLV xem roster/lớp được phân công nhưng không được tạo, sửa, xóa lớp hoặc thay phân công.
 
 - Ẩn menu không thay thế route guard. Deep-link sai vai trò phải bị chuyển về `/dashboard` trước khi render workspace.
 - Phụ huynh không vào workspace nhân sự; admin/GLV/phụ tá không dùng `/parent` để “xem trước”, vì endpoint `my-children` là parent-only và quan hệ con dựa trên identity phụ huynh.

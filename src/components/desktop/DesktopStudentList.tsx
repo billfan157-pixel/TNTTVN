@@ -19,7 +19,6 @@ import { useToastStore } from '../../stores/toastStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useAuth } from '../../hooks/useAuth';
 import { BRANCHES } from '../../constants/branches';
-import { useNavigate } from '@tanstack/react-router';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
@@ -34,6 +33,7 @@ interface DesktopStudentListProps {
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onViewPhotoCard: (student: Student) => void;
+  onManageClasses?: () => void;
 }
 
 const columnHelper = createColumnHelper<Student>();
@@ -44,8 +44,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   onEditStudent,
   onViewReport,
   onViewPhotoCard,
+  onManageClasses,
 }) => {
-  const navigate = useNavigate();
   const { isAdmin, isChunhiem, isPhuta } = useAuth();
   const canEdit = isAdmin || isChunhiem || isPhuta;
   const canDelete = isAdmin;
@@ -429,9 +429,11 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             <p className="text-sm font-black text-amber-900 m-0 uppercase tracking-wide">Chưa có lớp học</p>
             <p className="text-xs text-amber-800 mt-1 m-0 font-bold">
               Bạn cần tạo lớp học trước khi thêm thiếu nhi.
-              <button className="ml-2 text-parish-primary underline decoration-2 underline-offset-2" onClick={() => navigate({ to: '/classes' })}>
-                Quản lý lớp học →
-              </button>
+              {isAdmin && onManageClasses && (
+                <button className="ml-2 text-parish-primary underline decoration-2 underline-offset-2" onClick={onManageClasses}>
+                  Quản lý lớp học →
+                </button>
+              )}
             </p>
           </div>
         </div>

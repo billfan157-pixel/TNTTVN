@@ -1,7 +1,7 @@
 # Database Schema Specification & Plan
 
 > Canonical Single Source of Truth (SSOT) for all 51 SQLite production tables managed via Drizzle ORM.
-> Version: 2.9 | Last reviewed: 2026-08-31 | Status: ✅ Current | Prerequisites: 02
+> Version: 3.0 | Last reviewed: 2026-09-01 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
@@ -9,7 +9,7 @@
 
 | # | Table Name | Purpose | Unique Indexes / Constraints |
 |---|------------|---------|------------------------------|
-| 1 | `users` | User accounts, auth status, roles, token version, bcrypt `password_hash`, `holy_name`. `password_encrypted` là cột legacy deprecated, bắt buộc `NULL`; migration `20260827-131` purge ciphertext (ADR-058) | `(parish_id, username)` UNIQUE (`idx_users_username_parish` — ADR-046, migration `20260816-121` thay `users_username_unique` global), `idx_users_parish_id` |
+| 1 | `users` | User accounts, auth status, roles, token version, bcrypt `password_hash`, `holy_name`; `deleted_at` soft-delete account (migration `20260901-147`, ADR-089). `password_encrypted` là cột legacy deprecated, bắt buộc `NULL`; migration `20260827-131` purge ciphertext (ADR-058) | `(parish_id, username)` UNIQUE (`idx_users_username_parish` — ADR-046), `idx_users_parish_id`, `idx_users_active_role(parish_id,role,deleted_at)` |
 | 2 | `students` | Student roster (soft-deletable) | `(parish_id, code)` UNIQUE (`idx_students_code_parish`), `idempotency_key` (UNIQUE) |
 | 3 | `grades` | Academic scores per semester | `idx_grades_lookup` `(parish_id, student_id, academic_year, semester)` UNIQUE |
 | 4 | `attendance` | Mass & Catechism attendance events | `idx_attendance_unique` `(parish_id, student_id, date, type)` UNIQUE |

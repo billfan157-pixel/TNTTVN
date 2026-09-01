@@ -10,7 +10,7 @@ import { useParishProfileStore } from '../stores/parishProfileStore'
 
 const destinations = [
   { title: 'Hồ sơ Xứ đoàn', description: 'Lịch sử, cơ cấu, nhân sự, hoạt động, thành tích và timeline.', to: '/parish-profile', icon: Landmark, adminOnly: false },
-  { title: 'Huynh trưởng / GLV', description: 'Tài khoản, phân công giảng dạy và thông tin phục vụ.', to: '/catechists', icon: Users, adminOnly: true },
+  { title: 'Huynh trưởng / GLV', description: 'Danh bạ, phân công giảng dạy và thông tin phục vụ.', to: '/catechists', icon: Users, adminOnly: false },
   { title: 'Lịch & sự kiện', description: 'Lịch phụng vụ và hoạt động đang vận hành.', to: '/calendar', icon: CalendarDays, adminOnly: false },
   { title: 'Thông báo', description: 'Thông tin điều hành gửi tới các nhóm liên quan.', to: '/notices', icon: Megaphone, adminOnly: false },
   { title: 'Quỹ & thu chi', description: 'Theo dõi quỹ, giao dịch và nghĩa vụ tài chính.', to: '/finances', icon: Wallet, adminOnly: true },

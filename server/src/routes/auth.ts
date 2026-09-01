@@ -127,6 +127,11 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
     return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
+  if (user.deletedAt || user.status === 'INACTIVE') {
+    await consumeDummyPassword(password)
+    return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
+  }
+
   if (user.status === 'LOCKED' && user.id !== getSuperAdminId()) {
     return errorResponse(c, 'ACCOUNT_LOCKED', 'Tài khoản đã bị khóa do bảo mật. Vui lòng liên hệ Admin!', 403)
   }

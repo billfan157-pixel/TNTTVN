@@ -372,3 +372,5 @@ export interface ReportCardDTO {
 
 export * from './finance'
 export * from './parishProfile'
+
+export type StudentWorkspace = 'students' | 'promotions' | 'classes'

@@ -4,6 +4,7 @@ import { RootLayout, PageSuspense } from './components/common/RootLayout'
 import { setNavigateToLogin } from './lib/api'
 import { lazyWithRetry } from './utils/lazyWithRetry'
 import { ROUTE_POLICIES, type ProtectedRoutePath } from './constants/routePolicy'
+import { z } from 'zod'
 
 const DashboardPage = lazyWithRetry(() => import('./pages/DashboardPage'))
 const StudentsPage = lazyWithRetry(() => import('./pages/StudentsPage'))
@@ -141,6 +142,13 @@ const dashboardRoute = createRoute({
 const studentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/students',
+  validateSearch: z.object({
+    view: z.enum(['students', 'promotions', 'classes']).optional().catch('students'),
+    classId: z.string().optional(),
+    branchId: z.string().optional(),
+    semester: z.string().optional(),
+    search: z.string().optional(),
+  }),
   beforeLoad: requireRouteAccess('/students'),
   component: () => (
     <PageSuspense>

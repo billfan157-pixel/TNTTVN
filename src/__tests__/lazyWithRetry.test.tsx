@@ -27,4 +27,31 @@ describe('lazyWithRetry preload contract', () => {
 
     expect(screen.getByText('Named route')).toBeInTheDocument()
   })
+
+  it('never reloads the app when an idle preload exhausts its retries', async () => {
+    sessionStorage.clear()
+    const factory = vi.fn(async () => {
+      throw new Error('Failed to fetch dynamically imported module')
+    })
+    const Component = lazyWithRetry(factory, 'default', 0, 0)
+
+    await expect(Component.preload()).rejects.toThrow('Failed to fetch dynamically imported module')
+
+    expect(factory).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('tntt_last_chunk_reload_time')).toBeNull()
+  })
+
+  it('allows a later navigation preload to retry after a background failure', async () => {
+    const factory = vi.fn()
+      .mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'))
+      .mockResolvedValueOnce({ default: () => <div>Recovered route</div> })
+    const Component = lazyWithRetry(factory, 'default', 0, 0)
+
+    await expect(Component.preload()).rejects.toThrow('Failed to fetch dynamically imported module')
+    await Component.preload()
+    render(<Component />)
+
+    expect(factory).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Recovered route')).toBeInTheDocument()
+  })
 })

@@ -149,19 +149,25 @@ describe('MobileViewsEnhancement Tests', () => {
   })
 
   describe('MobileStudentsView', () => {
-    it('shows Promotion tab for admin/chunhiem and hides it for phuta', () => {
+    it('shows class management only for admin and keeps phuta read-only', () => {
       const dummyHandlers = {
+        workspace: 'students' as const,
+        onWorkspaceChange: vi.fn(),
+        onViewClassStudents: vi.fn(),
         onOpenAddStudent: vi.fn(),
         onImportStudents: vi.fn(),
         onEditStudent: vi.fn(),
         onViewReport: vi.fn(),
         onPrintReport: vi.fn(),
-        onNavigateToClasses: vi.fn(),
         onSendReportCards: vi.fn(),
       }
 
       const { rerender } = render(<MobileStudentsView {...dummyHandlers} />)
       expect(screen.getByText('Thăng Tiến')).toBeInTheDocument()
+      expect(screen.getByText('Lớp Học')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Lớp Học'))
+      expect(dummyHandlers.onWorkspaceChange).toHaveBeenCalledWith('classes')
 
       // Switch to phuta role
       useAuthStore.setState({
@@ -170,18 +176,21 @@ describe('MobileViewsEnhancement Tests', () => {
 
       rerender(<MobileStudentsView {...dummyHandlers} />)
       expect(screen.queryByText('Thăng Tiến')).not.toBeInTheDocument()
+      expect(screen.queryByText('Lớp Học')).not.toBeInTheDocument()
     })
 
     it('opens confirmation modal when clicking Send Report Cards button', () => {
       const handleSendCards = vi.fn()
       render(
         <MobileStudentsView
+          workspace="students"
+          onWorkspaceChange={vi.fn()}
+          onViewClassStudents={vi.fn()}
           onOpenAddStudent={vi.fn()}
           onImportStudents={vi.fn()}
           onEditStudent={vi.fn()}
           onViewReport={vi.fn()}
           onPrintReport={vi.fn()}
-          onNavigateToClasses={vi.fn()}
           onSendReportCards={handleSendCards}
         />
       )

@@ -156,7 +156,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
             />
           ) : (
             <Button
-              onClick={() => navigate({ to: '/classes' })}
+              onClick={() => navigate({ to: '/students', search: { view: 'classes' } })}
               variant="primary"
               size="sm"
               leadingIcon={<School aria-hidden="true" size={16} />}

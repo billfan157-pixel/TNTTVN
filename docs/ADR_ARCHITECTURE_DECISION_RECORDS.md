@@ -1654,7 +1654,8 @@ Security/Privacy 9, Data Integrity 9, Testability 9: hard gates PASS.
 7. Thêm product-view/panel/toolbar/tab/mobile-page-header/filter/entity/state/auth
    primitives; `DesktopAppShell` tự sở hữu product-view.
 8. `/management` truyền `embedded` cho AcademicYear/Classes/Users để loại bỏ
-   PageHeader lặp; tab dùng programmatic role/state.
+   PageHeader lặp; tab dùng programmatic role/state. *(Historical inventory;
+   ADR-089/090 sau đó chuyển Users staff sang `/catechists` và Classes sang `/students`.)*
 9. `appWideUiMigration.test.ts` là hard regression contract cho inventory, tránh
    quay lại trạng thái chỉ Dashboard nhận visual migration.
 
@@ -2473,7 +2474,7 @@ A không xử lý root cause và fail D2 Testability. B tăng startup transfer/p
 
 ### Decision contract
 
-1. `lazyWithRetry` giữ retry/reload-loop protection, thêm `.preload()`, dedupe concurrent promise và render component đã resolve đồng bộ sau preload.
+1. `lazyWithRetry` giữ retry, thêm `.preload()`, dedupe concurrent promise và render component đã resolve đồng bộ sau preload. **Amendment ADR-088 (2026-09-01):** background preload không được hard-reload; khi hết retry, promise reject để ErrorBoundary cho người dùng chủ động tải lại, và failed promise được reset để navigation sau có thể retry mới.
 2. `getMobilePreloadPaths(role)` chỉ trả primary destination role được phép; đây là UX optimization, không thay server authorization.
 3. `useMobileRoutePreload` bỏ route hiện tại, preload tuần tự trong idle callback (timer fallback), không tạo burst bốn import đồng thời; cleanup hủy queue khi mode/role đổi.
 4. Bottom nav preloads tại pointer/focus, hiện pending selection và `aria-busy` ngay; `aria-current` chỉ theo committed route. Rapid tap mới nhất điều khiển pending visual; expected native interruption handling ADR-079 giữ nguyên.
@@ -2485,7 +2486,7 @@ A không xử lý root cause và fail D2 Testability. B tăng startup transfer/p
 - **D2 hard gates:** Security & Privacy **9**, Data Integrity **9**, Testability **9** — PASS bằng scope không writer/API/authority + unit/source contracts và full frontend build.
 - **ADR compatibility:** ADR-063 (navy–gold), ADR-065 (pathname motion), ADR-072 (route policy/RBAC), ADR-077 (mobile shell), ADR-079 (runtime evidence) = **PASS**.
 - **Architecture:** `RootLayout → hook → router/policy` và pages → components giữ chiều dependency hiện hữu = **PASS**. **Business Rule Gate:** không đổi nghiệp vụ = **CONFIRMED**.
-- **Risks:** idle prefetch tiêu data/CPU (medium/medium) → chỉ primary role paths, tuần tự, bỏ current; preload rejection/stale deploy (low/medium) → retry + one-reload guard; pending UI stale (low/medium) → reset theo committed active route và clear on rejection. Residual low/medium cho đến device trace.
+- **Risks:** idle prefetch tiêu data/CPU (medium/medium) → chỉ primary role paths, tuần tự, bỏ current; preload rejection/stale deploy (low/medium) → retry + ErrorBoundary reload có chủ đích, tuyệt đối không background reload; pending UI stale (low/medium) → reset theo committed active route và clear on rejection. Residual low/medium cho đến device trace.
 - **Rollback:** R1, revert hook/preload wrapper/nav feedback/nested boundary/docs; không migration hoặc data recovery.
 
 ### Verification và source synchronization
@@ -2794,4 +2795,146 @@ A không thỏa yêu cầu trực tiếp. C cần provider, ownership proof, del
 - Rollback: UI/API/service R1; để table inert là an toàn. Drop table/data là R2 và không cần cho rollback. Purge contract xóa ticket trước users-related rows.
 - Final acceptance: targeted recovery/schema/purge/UI **7 files / 32 tests PASS**; full serialized regression **272 files / 1,900 tests PASS**; oxlint zero-warning; design-system lint **0/119**; client/server TypeScript và production frontend/server build PASS. Concurrency test xác nhận hai Admin cùng claim một ticket chỉ có đúng một reset thành công (`200/409`) và hash cuối khớp mật khẩu của response thành công.
 - Post-implementation Decision Matrix: **KEEP** — Security 9, Privacy 9, Data Integrity 9, Testability 9 giữ nguyên; không phát hiện regression hoặc ADR conflict trong evidence tự động. Production support SLA, request volume và abuse telemetry vẫn là **NOT CONFIRMED** cho tới khi có dữ liệu vận hành thật.
+
+---
+
+## ADR-088: Native Service Worker Isolation & Non-disruptive Chunk Recovery (2026-09-01)
+
+**Status: APPROVED / IMPLEMENTED / DEVICE ACCEPTANCE CONDITIONAL. Severity: D3. Profile: SECURITY. Reversibility: R1.**
+
+### Problem và evidence
+
+Người dùng báo app native tự reload sau khi đăng nhập và sử dụng một lúc. Chuỗi E3 HIGH đã xác nhận: VitePWA auto-inject `registerSW.js` vào `dist/index.html`; file này đăng ký `/sw.js` trong cả Capacitor WebView. Worker compiled trong Android bundle chứa `skipWaiting()`, `clients.claim()` và `client.navigate(client.url)` cho mọi client ngoài `/login`. Cài APK mới làm worker precache bundle bất đồng bộ; nếu activate sau khi người dùng đã chuyển từ login sang route bảo vệ, `navigate()` reload toàn bộ WebView. `MainActivity` không có `recreate()`/`loadUrl()` custom. Tác nhân thứ hai là `lazyWithRetry`: route warmup chạy idle nhưng final chunk failure gọi `window.location.reload()` và để promise pending, nên background optimization có quyền reload app.
+
+Business Rule Gate: yêu cầu app không tự reload giữa phiên là **CONFIRMED**. Web stale-build protection FE-07 và auth/session/offline authority hiện hữu phải được giữ; nguyên nhân thiết bị thật ngoài hai code path đã chứng minh vẫn là **NOT CONFIRMED** cho tới APK acceptance.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ SW chung web/native | B: web SW, native cleanup/opt-out | C: update coordinator chung có safe-point |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 35% | 8 | 9 | 9 |
+| Data Integrity | 20% | 6 | 9 | 8 |
+| Reliability | 15% | 4 | 9 | 7 |
+| Testability | 10% | 5 | 9 | 6 |
+| Maintainability | 10% | 6 | 8 | 5 |
+| Operational Fit | 5% | 4 | 9 | 6 |
+| Reversibility | 5% | 10 | 9 | 7 |
+| **Weighted** | **100%** | **6.35 — REJECT** | **8.85 — SELECT** | **7.50** |
+
+A fail Data Integrity hard gate vì reload có thể cắt trạng thái form/component chưa commit và không phù hợp native release model. C có thể hữu ích cho PWA tương lai nhưng thêm protocol/state/UX mà native không cần. B tách đúng platform boundary: web update qua service worker; native update qua APK/IPA.
+
+### Decision contract
+
+1. `vite.config.ts` đặt `injectRegister: false`; không còn generated `registerSW.js` tự đăng ký ngoài policy ứng dụng.
+2. `main.tsx → pushManager.registerServiceWorkerOnly()` là registration owner duy nhất. Web vẫn đăng ký `/sw.js` với `updateViaCache: 'none'`, giữ FE-07 reload-on-activate sau web deploy.
+3. Khi `Capacitor.isNativePlatform()`, không đăng ký service worker; unregister mọi legacy registration và chỉ xóa cache PWA đã biết (`workbox-precache*`, `pages-cache`, `static-resources`, `google-fonts-cache`, `api-cache`). Không xóa IndexedDB/Dexie, auth marker/snapshot hoặc sync queue.
+4. Web Push tiếp tục web-only; native push không được giả bằng service worker và vẫn là backlog theo ADR-029.
+5. `lazyWithRetry` vẫn retry/dedupe/preload nhưng final failure reject vào ErrorBoundary; background preload không được hard-reload. Failed promise được reset để lần navigation/preload sau có retry mới. Reload khi chunk stale chỉ xảy ra khi người dùng bấm nút ErrorBoundary.
+6. Không đổi JWT/refresh cookie rotation, logout/revocation, biometric lock, RBAC, tenant isolation, API/schema, server writer hay offline sync semantics.
+
+### Hard gates, compatibility, risks và rollback
+
+- **Security 9/10 — PASS:** không đổi token/session authority; native loại bỏ worker có thể điều hướng document ngoài lifecycle ứng dụng. **Privacy 10/10 — PASS:** cleanup chỉ cache shell công khai; Dexie PII snapshot không đọc/xóa/upload. **Data Integrity 9/10 — PASS:** không reload nền, không đụng mutation queue; cleanup allowlist không xóa domain IndexedDB. **Testability 9/10 — PASS:** platform branch, register/unregister/cache allowlist và preload failure có regression trực tiếp.
+- **ADR compatibility:** ADR-029 native pipeline = PASS và sửa đúng tuyên bố Web Push native-disabled; FE-07 web freshness = PASS vì web worker giữ nguyên; ADR-045 auth snapshot = PASS; ADR-067 offline durability = PASS; ADR-080 staged preload = PASS WITH AMENDMENT; ADR-085 biometric lifecycle = PASS.
+- **Architecture:** `main → pushManager → Capacitor platform boundary / browser SW API`; native shell không còn phụ thuộc PWA update lifecycle. API/domain/data layers không bị reverse dependency = PASS.
+- **Risks:** legacy worker cleanup lỗi (low/medium) → best-effort warning, lần startup sau retry; xóa nhầm cache (low/high) → exact allowlist + `workbox-precache` prefix, regression giữ domain cache; web mất registration (low/high) → generated injection tắt nhưng manual web registration test + production build inspection; stale chunk không tự phục hồi (medium/low) → ba retry, retry mới sau failure và explicit ErrorBoundary action.
+- **Rollback R1:** revert config/pushManager/lazy wrapper/docs rồi redeploy/rebuild. Không migration hay data recovery. Rollback trigger là web build không có active SW hoặc native startup regression không liên quan legacy worker.
+
+### Verification và acceptance
+
+- Baseline artifact: packaged Android `sw.js` có `client.navigate(t.url)` và `index.html` có `vite-plugin-pwa:register-sw`; source `MainActivity` chỉ extends `BridgeActivity`.
+- Targeted policy/lazy regression: **2 files / 7 tests PASS** cho web register, native no-register/unregister/scoped cache cleanup, plugin injection policy, no-reload failed preload và retry-after-failure. Hậu kiểm mở rộng auth/token/API retry: **5 files / 32 tests PASS**.
+- Engineering acceptance: lint zero-warning; client TypeScript + production PWA build PASS; generated `dist/index.html` và Android packaged `index.html` không còn `registerSW.js`, Android bundle chứa native cleanup branch; `npm run capacitor:sync` PASS cho Android/iOS; Android `assembleDebug` **BUILD SUCCESSFUL / 153 tasks**. Runtime APK cold-start/update/login soak test là **NOT CONFIRMED** cho tới kiểm tra thiết bị thật.
+
+---
+
+## ADR-089: Account Soft Deletion & Shared Catechist Directory (2026-09-01)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profile: SECURITY. Reversibility: R1 application, R2 additive schema.**
+
+### Problem, evidence và business contract
+
+Yêu cầu sản phẩm `CONFIRMED`: trang Giáo Lý Viên là điểm vào chung; GLV (`chunhiem|phuta`) chỉ xem danh bạ, còn admin mới được phân công lớp, đặt mật khẩu tạm, khóa/mở, đăng xuất mọi thiết bị và xóa tài khoản. Repository evidence E3 cho thấy `users` là identity gốc được nhiều bảng lịch sử và tenant FK tham chiếu; hard delete trực tiếp có blast radius lớn, có thể làm mất attribution hoặc vi phạm ràng buộc. Account deletion vì vậy phải chấm dứt quyền truy cập ngay nhưng giữ lịch sử nghiệp vụ.
+
+Khôi phục account đã xóa, tái sử dụng username/identity và xóa vật lý theo retention policy là `NOT CONFIRMED / OUT OF SCOPE`.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: hard delete cascade | B: soft delete + revoke | C: chỉ đặt INACTIVE |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 35% | 6 | 9 | 6 |
+| Data Integrity | 20% | 4 | 9 | 7 |
+| Reliability | 15% | 6 | 9 | 6 |
+| Testability | 10% | 6 | 9 | 7 |
+| Maintainability | 10% | 5 | 8 | 7 |
+| Operational Fit | 5% | 5 | 9 | 6 |
+| Reversibility | 5% | 2 | 8 | 9 |
+| **Weighted** | **100%** | **5.25 — REJECT** | **8.85 — SELECT** | **6.65 — REJECT** |
+
+A fail D3 Data Integrity và khó rollback. C không đủ Security vì session, assignment và channel links có thể còn hiệu lực hoặc xuất hiện trong projection khác. B tách rõ lifecycle identity khỏi historical data, có revoke và tenant/RBAC controls kiểm thử được.
+
+### Decision contract
+
+1. Migration `20260901-147` thêm nullable `users.deleted_at` và index active-role. Không drop user row, không cascade lịch sử nghiệp vụ và không tái sử dụng identity đã xóa.
+2. `DELETE /api/users/:id` chỉ admin, tenant lấy từ JWT, áp dụng `adminReauthRateLimiter`, bắt buộc `adminPassword`, chặn self-delete và Admin trưởng. Retry trên account đã xóa là idempotent.
+3. Một transaction đặt `status='INACTIVE'`, `deleted_at`, bump `token_version`; revoke refresh sessions; xóa catechist assignments, push subscriptions, Telegram link tokens và password-reset tickets; revoke Telegram link; unlink `parish_people.linked_user_id`. Hồ sơ lịch sử không bị xóa.
+4. Login, access-token middleware, refresh rotation, password-reset lookup và active user/catechist projections đều fail-closed với `deleted_at IS NOT NULL`. Chuyển account sang `LOCKED` hoặc `INACTIVE` cũng bump token và revoke refresh sessions.
+5. Audit thành công dùng `DELETE_USER_ACCOUNT`, chỉ ghi role/status/token transition; không copy full name, holy name, username, phone, password hoặc credential. Re-auth sai ghi `DELETE_USER_ACCOUNT_FAILED` theo policy hiện hữu.
+6. `GET /api/users/catechists` cho `admin|chunhiem|phuta` nhưng chỉ trả projection tối thiểu `id/fullName/holyName/role/assignedClasses/assignedClassNames`. GLV không nhận username, phone, status, last-login, token state và không có mutation endpoint.
+7. `/catechists` là UI canonical: admin nhận management component; GLV nhận view read-only. `/management` bỏ tab GLV; `/users` còn là deep-link admin tương thích. Client route policy/navigation là UX guard, không thay server authorization. Việc chuyển tab lớp được quyết định riêng tại ADR-090.
+
+### Hard gates, compatibility, risks và rollback
+
+- **Security 9/10 — PASS:** admin-only + re-auth/rate-limit, protected accounts, immediate token/session invalidation, active-state guards và deletion cleanup. **Privacy 9/10 — PASS:** GLV projection tối thiểu và deletion audit không PII. **Data Integrity 9/10 — PASS:** transaction giữ FK/history, unlink quan hệ chủ động, không hard cascade. **Testability 9/10 — PASS:** RBAC, tenant, re-auth, cleanup, idempotency và auth denial có regression trực tiếp.
+- **ADR compatibility:** ADR-031 tenant isolation = PASS; ADR-045 PII minimization = PASS; ADR-046 parish-scoped username = PASS; ADR-058/087 credential recovery = PASS; ADR-072/082 server-authoritative RBAC = PASS; backup/purge ADR-041/059 = PASS vì additive column nằm trong full logical database và user row vẫn được preserve.
+- **Business Rule Gate:** admin-only mutations/deletion và GLV read-only = `CONFIRMED`; account restore/physical erasure/identity reuse = `NOT CONFIRMED`.
+- **Risks:** xóa nhầm (low/critical) → re-auth + protected self/Admin trưởng + explicit modal; session sống sót (low/critical) → token bump + refresh revocation + middleware state check; dữ liệu lịch sử mất (low/critical) → soft-delete và unlink thay vì cascade; identity tái sử dụng mơ hồ (medium/high) → giữ row/unique username; UI che quyền nhưng API hở (low/critical) → server role middleware và negative RBAC tests.
+- **Rollback:** R1 ẩn action/route và bỏ application filter nếu có quyết định khôi phục; migration/rows đã đánh dấu là R2, không down-migrate tự động. Khôi phục một account cần quy trình riêng để xét lại links/assignments/session, hiện chưa được approve.
+
+### Verification và acceptance
+
+- Targeted deletion/directory/route/UI/schema regression **10 files / 64 tests PASS**, gồm GLV chỉ đọc, admin re-auth, self/Admin trưởng/cross-tenant deny, transaction cleanup, active + archived profile unlink, PII-redacted audit, access/login/refresh denial và idempotent retry. Final serialized regression **275 files / 1,915 tests PASS**.
+- Client/server TypeScript, scoped oxlint zero-warning, design-system lint **0/119** và production frontend/server build PASS. Full lint từng PASS trước final run; lần chạy lại cuối bị chặn ngoài scope bởi hai file untracked tạo đồng thời `server/watch-test.ts` và `server/test-file.ts` có chuỗi chưa đóng. Hậu kiểm D3: **KEEP** — Security 9, Privacy 9, Data Integrity 9, Testability 9; không phát hiện ADR conflict hoặc regression trong evidence tự động.
+
+---
+
+## ADR-090: Student & Class Workspace Consolidation (2026-09-01)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Problem và evidence
+
+Yêu cầu sản phẩm `CONFIRMED`: quản lý lớp học nên nằm trong trang Thiếu Nhi thay vì là một tab rời trong Quản Lý Hệ Thống. Evidence E3 cho thấy lớp là bộ lọc, grouping và prerequisite trực tiếp của roster; `DesktopClasses` đã có surface responsive và hành động “Xem Danh Sách” quay về `/students`. Backend hiện đã đúng authority: đọc lớp được class-scope cho staff, còn create/update/delete/assignment chỉ admin.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ tab `/management` | B: tab role-aware trong `/students` | C: nhúng luôn form lớp trên roster |
+| :--- | ---: | ---: | ---: | ---: |
+| Business fit | 25% | 5 | 9 | 8 |
+| Security & Privacy | 20% | 9 | 9 | 7 |
+| Data Integrity | 15% | 9 | 9 | 7 |
+| Usability | 15% | 5 | 9 | 6 |
+| Testability | 10% | 8 | 9 | 6 |
+| Maintainability | 10% | 6 | 9 | 5 |
+| Reversibility | 5% | 10 | 9 | 7 |
+| **Weighted** | **100%** | **7.15** | **9.00 — SELECT** | **6.85** |
+
+B tái sử dụng component, giữ URL state/deep link và không đổi API/schema. C trộn hai mutation surface trong một view dài, tăng coupling và rủi ro thao tác nhầm.
+
+### Decision contract và gates
+
+1. `/students` validate search `view=students|promotions|classes` cùng filter params hiện hữu. Admin thấy tab `Lớp Học` ở desktop/mobile; GLV không thấy và giá trị `view=classes` thủ công fail-closed về roster.
+2. `DesktopClasses` được render `embedded`; `onViewClassStudents` đặt class filter rồi chuyển lại tab roster mà không rời route. Dashboard, Settings, empty roster và student modal trỏ tới canonical search URL.
+3. `/management` bỏ tab lớp, chỉ còn Năm Học + Tài Khoản Phụ Huynh. `/classes` giữ route admin-only tương thích và active sidebar chuyển sang Thiếu Nhi.
+4. `DesktopClasses.canEdit` chỉ admin, khớp `roleMiddleware('admin')` trên create/update/delete/assignment. GLV vẫn đọc danh sách lớp đã được server scope và không có mutation UI.
+5. Không đổi schema, server API, offline writer, class/student data semantics hoặc tenant isolation.
+
+- **D2 hard gates:** Security **9 — PASS**, Data Integrity **9 — PASS**, Testability **9 — PASS**. Server authorization không đổi; client role-aware tab là fail-closed UX boundary.
+- **ADR compatibility:** ADR-030/063/079 design system = PASS; ADR-031 tenant/class scope = PASS; ADR-072 route policy = PASS WITH AMENDMENT (`/classes` highlight students); ADR-089 management consolidation = PASS.
+- **Risks:** GLV ép query tab (low/high) → render normalization + server admin-only mutations; filter search bị mất khi đổi tab (low/medium) → typed search schema giữ filter keys; class “Xem Danh Sách” ở cùng route không đổi view (medium/medium) → explicit callback; stale deep links (medium/low) → `/classes` compatibility route.
+- **Rollback R1:** khôi phục tab `/management`, links `/classes` và bỏ `view=classes`; không có data migration/recovery.
+
+### Verification
+
+- Targeted mobile/desktop role-tab + route policy/migration contract **4 files / 29 tests PASS**; combined final change-set target **7 files / 43 tests PASS**. Client/server TypeScript, scoped oxlint zero-warning, design-system lint **0/119**, production frontend/server build và full serialized regression **275 files / 1,915 tests PASS**. Full lint final retry bị chặn ngoài scope bởi hai file untracked malformed tạo đồng thời trong `server/`. Post-implementation D2 scores giữ nguyên Security 9, Data Integrity 9, Testability 9 — **KEEP**.
 

@@ -91,7 +91,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
   // check role → admin bị LOCKED vẫn PASS middleware (chỉ non-admin bị chặn). Giờ chỉ
   // SUPERADMIN được miễn (không thể bị khóa self-lockout, nhất quán với login users.ts:89
   // và verifyAdminReauth userService.ts:221); mọi LOCKED khác → 401 ngay lập tức.
-  if (!userDb || (userDb.status === 'LOCKED' && !isSuperAdmin(payload.userId)) || (payload.tokenVersion !== undefined && userDb.tokenVersion !== payload.tokenVersion)) {
+  if (!userDb || userDb.deletedAt || userDb.status === 'INACTIVE' || (userDb.status === 'LOCKED' && !isSuperAdmin(payload.userId)) || (payload.tokenVersion !== undefined && userDb.tokenVersion !== payload.tokenVersion)) {
     return c.json({ error: 'Session invalidated or account locked' }, 401)
   }
 

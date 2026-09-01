@@ -601,6 +601,8 @@ export const api = {
     request<{ username: string; tempPassword: string }>('POST', `/users/${id}/reset-password`, { adminPassword }),
   forceLogoutUser: (id: string) =>
     request<{ success: boolean }>('POST', `/users/${id}/force-logout`),
+  deleteUser: (id: string, adminPassword: string) =>
+    request<{ id: string; deleted: true; alreadyDeleted: boolean }>('DELETE', `/users/${id}`, { adminPassword }),
   // ADR-026 (2026-08-12): cấp tài khoản phụ huynh hàng loạt từ students.parentPhone
   getParentProvisionPreview: () =>
     request<{ total: number; candidates: Array<{ phone: string; parentName: string; childrenCount: number }>; validPhoneCount: number; existingCount: number }>('GET', '/users/parent-provision-preview'),

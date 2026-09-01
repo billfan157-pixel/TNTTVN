@@ -10,7 +10,17 @@ export interface FilterSearchParams {
 }
 
 export function useFilterSearchSync() {
-  const searchStr = useRouterState({ select: s => s.location.search })
+  const searchValue = useRouterState({ select: s => s.location.search })
+  const searchStr = typeof searchValue === 'string'
+    ? searchValue
+    : (() => {
+        const params = new URLSearchParams()
+        for (const [key, value] of Object.entries(searchValue || {})) {
+          if (value !== undefined && value !== null) params.set(key, String(value))
+        }
+        const query = params.toString()
+        return query ? `?${query}` : ''
+      })()
   const pathname = useRouterState({ select: s => s.location.pathname })
   const navigate = useNavigate()
   const urlRef = useRef(searchStr)

@@ -2,7 +2,7 @@ import { UserManagementPage, type UserManagementScope } from '../components/desk
 
 /**
  * Wrapper trang Tài Khoản. scope mặc định 'all' (route /users xem mọi vai trò);
- * ManagementPage truyền 'staff' / 'phuhuynh' để tách 2 tab riêng (2026-08-22).
+ * `/catechists` dùng scope `staff`; ManagementPage chỉ còn truyền `phuhuynh`.
  */
 export function UsersPage({ scope, embedded = false }: { scope?: UserManagementScope; embedded?: boolean }) {
   return <UserManagementPage scope={scope} embedded={embedded} />

@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto'
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, runDbTransaction } from '../db/index.js'
 import { auditLogs, passwordResetRequests, users } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
@@ -50,6 +50,7 @@ export async function submitParentPasswordResetRequest(
     .where(and(
       eq(users.parishId, parishId),
       eq(users.role, 'phuhuynh'),
+      isNull(users.deletedAt),
       inArray(users.phone, variants),
     ))
     .limit(2)

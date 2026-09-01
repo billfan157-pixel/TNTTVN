@@ -1,6 +1,17 @@
 ﻿import { randomInt } from 'node:crypto'
 import { db, runDbTransaction } from '../db/index.js'
-import { users, students, auditLogs, catechistAssignments } from '../db/schema.js'
+import {
+  users,
+  students,
+  auditLogs,
+  catechistAssignments,
+  passwordResetRequests,
+  pushSubscriptions,
+  telegramLinkTokens,
+  telegramLinks,
+  parishPeople,
+  classes,
+} from '../db/schema.js'
 import { eq, and, ne, inArray, isNull } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { generateId } from '../utils/id.js'
@@ -12,7 +23,7 @@ import { buildAutoUsername, isValidVnPhone } from '../utils/username.js'
 
 export async function getUsers(parishId: string, limit: number = 50, page: number = 1) {
   const offset = (page - 1) * limit
-  const userList = await db.select().from(users).where(eq(users.parishId, parishId)).limit(limit).offset(offset)
+  const userList = await db.select().from(users).where(and(eq(users.parishId, parishId), isNull(users.deletedAt))).limit(limit).offset(offset)
   const assignments = await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, parishId))
 
   const assignmentMap = new Map<string, string[]>()
@@ -36,16 +47,19 @@ export async function getCatechists(parishId: string) {
   const userList = await db
     .select({
       id: users.id,
-      username: users.username,
       fullName: users.fullName,
-      phone: users.phone,
+      holyName: users.holyName,
       role: users.role,
-      status: users.status,
-      createdAt: users.createdAt,
     })
     .from(users)
-    .where(and(eq(users.parishId, parishId), inArray(users.role, ['admin', 'chunhiem', 'phuta'])))
+    .where(and(
+      eq(users.parishId, parishId),
+      inArray(users.role, ['admin', 'chunhiem', 'phuta']),
+      isNull(users.deletedAt),
+    ))
   const assignments = await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, parishId))
+  const parishClasses = await db.select({ id: classes.id, name: classes.name }).from(classes).where(and(eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+  const classNames = new Map(parishClasses.map(item => [item.id, item.name]))
 
   const assignmentMap = new Map<string, string[]>()
   for (const a of assignments) {
@@ -56,6 +70,7 @@ export async function getCatechists(parishId: string) {
   return userList.map((u) => ({
     ...u,
     assignedClasses: assignmentMap.get(u.id) || [],
+    assignedClassNames: (assignmentMap.get(u.id) || []).map(classId => classNames.get(classId) || 'Lớp không còn hoạt động'),
   }))
 }
 
@@ -63,7 +78,7 @@ export async function getUserById(id: string, parishId: string) {
   const [u] = await db
     .select()
     .from(users)
-    .where(and(eq(users.id, id), eq(users.parishId, parishId)))
+    .where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
     .limit(1)
   if (!u) return null
   const { passwordHash: _passwordHash, passwordEncrypted: _passwordEncrypted, ...safeUser } = u
@@ -186,15 +201,15 @@ export async function updateUserStatus(
   userAgent: string,
 ) {
   if (getSuperAdminId() === id) return null
-  if (id === adminUserId && status === 'LOCKED') throw new Error('Admin cannot lock their own account')
+  if (id === adminUserId && status !== 'ACTIVE') throw new Error('Admin cannot deactivate their own account')
 
   return runDbTransaction(async (tx) => {
-    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
+    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
-    if (status === 'LOCKED') {
+    if (status === 'LOCKED' || status === 'INACTIVE') {
       const nextVersion = (existing.tokenVersion || 1) + 1
-      await tx.update(users).set({ status, tokenVersion: nextVersion }).where(and(eq(users.id, id), eq(users.parishId, parishId)))
+      await tx.update(users).set({ status, tokenVersion: nextVersion }).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
       await revokeAllSessionsWith(tx, id, parishId)
       await tx.insert(auditLogs).values({
         id: generateId('AUD'),
@@ -211,7 +226,7 @@ export async function updateUserStatus(
       return true
     }
 
-    await tx.update(users).set({ status }).where(and(eq(users.id, id), eq(users.parishId, parishId)))
+    await tx.update(users).set({ status }).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),
       userId: adminUserId,
@@ -235,7 +250,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
   const passwordHash = await bcrypt.hash(tempPass, BCRYPT_COST)
 
   return runDbTransaction(async (tx) => {
-    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
+    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
     const nextVersion = (existing.tokenVersion || 1) + 1
@@ -247,7 +262,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
       failedAttempts: 0,
       lockedUntil: null,
       tokenVersion: nextVersion,
-    }).where(and(eq(users.id, id), eq(users.parishId, parishId)))
+    }).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
 
     await revokeAllSessionsWith(tx, id, parishId)
     await tx.insert(auditLogs).values({
@@ -288,8 +303,8 @@ export async function verifyAdminReauth(
   entityId: string,
   failureAction: string,
 ): Promise<boolean> {
-  const [admin] = await db.select().from(users).where(and(eq(users.id, adminUserId), eq(users.parishId, parishId))).limit(1)
-  if (!admin || (admin.status === 'LOCKED' && admin.id !== getSuperAdminId())) {
+  const [admin] = await db.select().from(users).where(and(eq(users.id, adminUserId), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
+  if (!admin || admin.status === 'INACTIVE' || (admin.status === 'LOCKED' && admin.id !== getSuperAdminId())) {
     await auditReauthFailure(failureAction, adminUserId, entityId, parishId, ip, userAgent)
     return false
   }
@@ -328,7 +343,7 @@ export async function updateUserPhone(
   }
 
   return runDbTransaction(async (tx) => {
-    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
+    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
     const usernameFromPhone = existing.role === 'phuhuynh' && /^0\d{9}$/.test(existing.username || '')
@@ -352,7 +367,7 @@ export async function updateUserPhone(
     await tx
       .update(users)
       .set({ phone: normalized, ...(usernameChanged ? { username: newUsername } : {}) })
-      .where(and(eq(users.id, id), eq(users.parishId, parishId)))
+      .where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
 
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),
@@ -380,7 +395,7 @@ export async function updateUserAssignments(
   userAgent: string,
 ) {
   return runDbTransaction(async (tx) => {
-    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
+    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
     // ADR-026 invariant (hardening 2026-08-22): chỉ GLV (chunhiem/phuta) được có
@@ -430,11 +445,11 @@ export async function forceLogoutUser(id: string, adminUserId: string, parishId:
   if (getSuperAdminId() === id) return null
 
   return runDbTransaction(async (tx) => {
-    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId))).limit(1)
+    const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
     const nextVersion = (existing.tokenVersion || 1) + 1
-    await tx.update(users).set({ tokenVersion: nextVersion }).where(and(eq(users.id, id), eq(users.parishId, parishId)))
+    await tx.update(users).set({ tokenVersion: nextVersion }).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
     await revokeAllSessionsWith(tx, id, parishId)
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),
@@ -449,6 +464,78 @@ export async function forceLogoutUser(id: string, adminUserId: string, parishId:
     })
 
     return true
+  })
+}
+
+export type DeleteUserAccountResult = {
+  id: string
+  deleted: true
+  alreadyDeleted: boolean
+}
+
+/**
+ * Xóa logic tài khoản nhưng giữ hàng users làm neo lịch sử cho các bảng nghiệp vụ.
+ * Phiên đăng nhập, phân công và kênh gửi chủ động bị thu hồi trong cùng transaction;
+ * hồ sơ nhân sự Xứ đoàn chỉ bị gỡ liên kết, không bị xóa theo tài khoản.
+ */
+export async function deleteUserAccount(
+  id: string,
+  adminUserId: string,
+  parishId: string,
+  ip: string,
+  userAgent: string,
+): Promise<DeleteUserAccountResult | null> {
+  if (id === adminUserId || id === getSuperAdminId()) {
+    throw Object.assign(new Error('Không thể tự xóa tài khoản hoặc xóa Admin trưởng'), { code: 'PROTECTED_ACCOUNT' })
+  }
+
+  return runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(users)
+      .where(and(eq(users.id, id), eq(users.parishId, parishId)))
+      .limit(1)
+    if (!existing) return null
+    if (existing.deletedAt) return { id, deleted: true as const, alreadyDeleted: true }
+
+    const now = new Date().toISOString()
+    const nextVersion = (existing.tokenVersion || 1) + 1
+
+    await tx
+      .update(users)
+      .set({
+        status: 'INACTIVE',
+        deletedAt: now,
+        tokenVersion: nextVersion,
+        failedAttempts: 0,
+        lockedUntil: null,
+        passwordEncrypted: null,
+      })
+      .where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt)))
+
+    await revokeAllSessionsWith(tx, id, parishId)
+    await tx.delete(catechistAssignments).where(and(eq(catechistAssignments.userId, id), eq(catechistAssignments.parishId, parishId)))
+    await tx.delete(pushSubscriptions).where(and(eq(pushSubscriptions.userId, id), eq(pushSubscriptions.parishId, parishId)))
+    await tx.delete(telegramLinkTokens).where(and(eq(telegramLinkTokens.userId, id), eq(telegramLinkTokens.parishId, parishId)))
+    await tx.update(telegramLinks).set({ status: 'REVOKED', revokedAt: now, updatedAt: now }).where(and(eq(telegramLinks.userId, id), eq(telegramLinks.parishId, parishId)))
+    await tx.delete(passwordResetRequests).where(and(eq(passwordResetRequests.userId, id), eq(passwordResetRequests.parishId, parishId)))
+    await tx.update(parishPeople).set({ linkedUserId: null, updatedBy: adminUserId, updatedAt: now }).where(and(eq(parishPeople.linkedUserId, id), eq(parishPeople.parishId, parishId)))
+
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: adminUserId,
+      action: 'DELETE_USER_ACCOUNT',
+      entityType: 'user',
+      entityId: id,
+      oldValue: JSON.stringify({ role: existing.role, status: existing.status }),
+      newValue: JSON.stringify({ status: 'INACTIVE', deleted: true, tokenVersion: nextVersion }),
+      ip,
+      userAgent,
+      parishId,
+      createdAt: now,
+    })
+
+    return { id, deleted: true as const, alreadyDeleted: false }
   })
 }
 

@@ -10,14 +10,13 @@ import { useClassStore } from '../stores/classStore'
 import { useToastStore } from '../stores/toastStore'
 import { api, ApiError } from '../lib/api'
 import { useState, useCallback, Suspense, useMemo } from 'react'
-import { TrendingUp, Users, Send, AlertCircle, CheckCircle } from 'lucide-react'
-import { useNavigate } from '@tanstack/react-router'
+import { TrendingUp, Users, Send, AlertCircle, CheckCircle, BookOpen } from 'lucide-react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { lazyWithRetry } from '../utils/lazyWithRetry'
-import type { Student } from '../types'
+import type { Student, StudentWorkspace } from '../types'
 import { Button } from '../components/common/ui/Button'
 import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
-
-type StudentWorkspace = 'students' | 'promotions'
+import { useAuth } from '../hooks/useAuth'
 
 const STUDENT_WORKSPACE_TABS = [
   { value: 'students' as const, label: 'Danh Sách', icon: <Users aria-hidden="true" size={14} /> },
@@ -30,7 +29,13 @@ const DesktopStudentList = lazyWithRetry<React.FC<{
   onEditStudent: (student: Student) => void
   onViewReport: (student: Student) => void
   onViewPhotoCard: (student: Student) => void
+  onManageClasses: () => void
 }>>(() => import('../components/desktop/DesktopStudentList'), 'DesktopStudentList')
+
+const DesktopClasses = lazyWithRetry<React.FC<{
+  embedded?: boolean
+  onViewClassStudents?: (classId: string) => void
+}>>(() => import('../components/desktop/DesktopClasses').then(module => ({ default: module.DesktopClasses })), 'DesktopClasses')
 
 const PromotionPanel = lazyWithRetry<React.FC<{
   onViewPhotoCard?: (student: Student) => void
@@ -44,15 +49,32 @@ const ExcelImportModal = lazyWithRetry<React.FC<{
 
 export function StudentsPage() {
   const navigate = useNavigate()
+  const search = useSearch({ from: '/students' })
+  const { role } = useAuth()
   const effectiveMode = useEffectiveMode()
   const { openAddStudent, openEditStudent, openReport, openReportForPrint, openPhotoCard, openCertificate } = useUIStore()
-  const [showPromotions, setShowPromotions] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [sendingCards, setSendingCards] = useState(false)
   const [cardError, setCardError] = useState<string | null>(null)
   const [cardSuccess, setCardSuccess] = useState<string | null>(null)
   const [showConfirmSend, setShowConfirmSend] = useState(false)
-  const activeWorkspace: StudentWorkspace = showPromotions ? 'promotions' : 'students'
+  const requestedWorkspace = search.view || 'students'
+  const activeWorkspace: StudentWorkspace = requestedWorkspace === 'classes' && role !== 'admin'
+    ? 'students'
+    : requestedWorkspace
+  const workspaceTabs = role === 'admin'
+    ? [...STUDENT_WORKSPACE_TABS, { value: 'classes' as const, label: 'Lớp Học', icon: <BookOpen aria-hidden="true" size={14} /> }]
+    : STUDENT_WORKSPACE_TABS
+  const setActiveWorkspace = useCallback((view: StudentWorkspace) => {
+    navigate({ to: '/students', search: previous => ({ ...previous, view }), replace: true })
+  }, [navigate])
+  const openClassRoster = useCallback((classId: string) => {
+    navigate({
+      to: '/students',
+      search: previous => ({ ...previous, view: 'students', classId }),
+      replace: true,
+    })
+  }, [navigate])
   const students = useStudentStore(s => s.students)
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
   const getStudentAttendanceRate = useAttendanceStore(s => s.getStudentAttendanceRate)
@@ -141,12 +163,12 @@ export function StudentsPage() {
           <Tabs
             id="students-workspace-tabs"
             ariaLabel="Không gian quản lý thiếu nhi"
-            items={STUDENT_WORKSPACE_TABS}
+            items={workspaceTabs}
             value={activeWorkspace}
-            onValueChange={(value) => setShowPromotions(value === 'promotions')}
+            onValueChange={setActiveWorkspace}
             className="w-fit"
           />
-          <Button
+          {activeWorkspace === 'students' && <Button
             onClick={() => setShowConfirmSend(true)}
             disabled={sendingCards || filteredStudentsForSend.length === 0}
             loading={sendingCards}
@@ -157,7 +179,7 @@ export function StudentsPage() {
             className="text-xs font-bold disabled:opacity-50"
           >
             {`Gửi Kết Quả Học Tập${confirmSendInfo.count > 0 ? ` (${confirmSendInfo.count})` : ''}`}
-          </Button>
+          </Button>}
         </div>
 
         {cardSuccess && (
@@ -186,9 +208,17 @@ export function StudentsPage() {
               onEditStudent={openEditStudent}
               onViewReport={openReport}
               onViewPhotoCard={openPhotoCard}
+              onManageClasses={() => setActiveWorkspace('classes')}
             />
           </Suspense>
         </TabPanel>
+        {role === 'admin' && (
+          <TabPanel tabsId="students-workspace-tabs" value="classes" activeValue={activeWorkspace}>
+            <Suspense fallback={<div className="flex h-64 items-center justify-center text-sm font-medium text-text-secondary">Đang tải lớp học...</div>}>
+              <DesktopClasses embedded onViewClassStudents={openClassRoster} />
+            </Suspense>
+          </TabPanel>
+        )}
       </div>
 
       {showImportModal && (
@@ -212,12 +242,14 @@ export function StudentsPage() {
   return (
     <>
       <MobileStudentsView
+        workspace={activeWorkspace}
+        onWorkspaceChange={setActiveWorkspace}
+        onViewClassStudents={openClassRoster}
         onOpenAddStudent={openAddStudent}
         onImportStudents={() => setShowImportModal(true)}
         onEditStudent={openEditStudent}
         onViewReport={openReport}
         onPrintReport={openReportForPrint}
-        onNavigateToClasses={() => navigate({ to: '/classes' })}
         onSendReportCards={handleSendReportCards}
         sendingCards={sendingCards}
       />

@@ -18,10 +18,12 @@ export const users = sqliteTable('users', {
    mustChangePassword: integer('must_change_password').notNull().default(1),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+   deletedAt: text('deleted_at'),
   }, (table) => [
     primaryKey({ columns: [table.parishId, table.id] }),
     index('idx_users_parish_id').on(table.parishId),
     uniqueIndex('idx_users_username_parish').on(table.parishId, table.username),
+    index('idx_users_active_role').on(table.parishId, table.role, table.deletedAt),
   ])
 
 // Refresh session management (JWT rotation + reuse detection).

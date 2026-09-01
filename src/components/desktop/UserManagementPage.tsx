@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search, Loader2, Edit2, Eye, EyeOff, AlertCircle, Copy, Users, Smartphone } from 'lucide-react'
+import { ShieldCheck, UserPlus, Key, Lock, Unlock, LogOut, CheckCircle2, Search, Loader2, Edit2, Eye, EyeOff, AlertCircle, Copy, Users, Smartphone, Trash2 } from 'lucide-react'
 import { useClassStore } from '../../stores/classStore'
+import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../lib/api'
 import { validatePassword } from '../../utils/passwordValidation'
 import { buildAutoUsername, parentUsername, isValidVnPhone } from '../../utils/username'
@@ -27,11 +28,19 @@ export interface UserAccount {
 
 // Tách trang quản lý tài khoản (2026-08-22): 'staff' = GLV & nhân sự
 // (admin/chunhiem/phuta), 'phuhuynh' = chỉ tài khoản phụ huynh, 'all' = hành vi cũ
-// (route /users xem toàn bộ). Entry point chính là 2 tab trong /management.
+// (route /users xem toàn bộ). GLV/Nhân sự dùng canonical route /catechists;
+// tài khoản phụ huynh tiếp tục nằm trong /management.
 export type UserManagementScope = 'all' | 'staff' | 'phuhuynh'
 
-export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedded?: boolean }> = ({ scope = 'all', embedded = false }) => {
+interface UserManagementPageProps {
+  scope?: UserManagementScope
+  embedded?: boolean
+  headerActions?: React.ReactNode
+}
+
+export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 'all', embedded = false, headerActions }) => {
   const [users, setUsers] = useState<UserAccount[]>([])
+  const currentUserId = useAuthStore(state => state.user?.id)
   // REACT-185 (2026-08-14): pattern ổn định — selector trả hàm, gọi () ngoài
   // (tránh snapshot mảng mới mỗi render → loop, xem HeaderBar.tsx:34).
   const classList = useClassStore((s) => s.getClassList)()
@@ -73,6 +82,11 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
   const [cpLoading, setCpLoading] = useState(false)
   const [cpError, setCpError] = useState('')
   const [cpSuccess, setCpSuccess] = useState(false)
+
+  const [deleteUser, setDeleteUser] = useState<UserAccount | null>(null)
+  const [deleteAdminPass, setDeleteAdminPass] = useState('')
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   // Tạo tài khoản thành công → modal riêng hiển thị MẬT KHẨU TẠM (chỉ trả 1 lần từ server).
   // Không dùng chung modal "Đặt Mật Khẩu Thành Công" để tránh nhầm lẫn.
@@ -367,6 +381,34 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
     if (ok) await toggleUserStatus(user.id)
   }
 
+  const openDeleteUser = (user: UserAccount) => {
+    setDeleteUser(user)
+    setDeleteAdminPass('')
+    setDeleteError('')
+  }
+
+  const handleDeleteUser = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!deleteUser) return
+    if (!deleteAdminPass.trim()) {
+      setDeleteError('Vui lòng nhập mật khẩu hiện tại của Admin để xác nhận')
+      return
+    }
+    setDeleteLoading(true)
+    setDeleteError('')
+    try {
+      await api.deleteUser(deleteUser.id, deleteAdminPass)
+      setDeleteUser(null)
+      setDeleteAdminPass('')
+      await fetchUsers()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Xóa tài khoản thất bại')
+      Sentry.captureException(err)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
   const handleCopyTempPassword = async () => {
     if (!createdAccount || !createdAccount.tempPassword) return
     try {
@@ -536,6 +578,7 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
         description={headerDescription}
         actions={
           <>
+            {headerActions}
             {scope !== 'staff' && (
               <button onClick={openProvisionModal}
                 className="btn btn-secondary">
@@ -678,6 +721,16 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
                       >
                         <LogOut className="w-3.5 h-3.5" />
                       </button>
+                      {u.id !== currentUserId && (
+                        <button
+                          type="button"
+                          onClick={() => openDeleteUser(u)}
+                          className="btn btn-ghost btn-sm min-h-[40px] px-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 flex items-center gap-1"
+                          title="Xóa tài khoản"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -775,6 +828,12 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
                         {u.status === 'ACTIVE' ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4 text-emerald-600" />}
                       </button>
                     )}
+                    {!isSuperAdmin(u) && u.id !== currentUserId && (
+                      <button onClick={() => openDeleteUser(u)} title="Xóa Tài Khoản"
+                        className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-rose-600 hover:bg-rose-500/10 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -784,6 +843,43 @@ export const UserManagementPage: React.FC<{ scope?: UserManagementScope; embedde
       </div>
 
       {confirmDialog}
+
+      {deleteUser && (
+        <ModalShell
+          isOpen={!!deleteUser}
+          onClose={() => { if (!deleteLoading) setDeleteUser(null) }}
+          title={<><Trash2 className="w-5 h-5 text-rose-600 inline mr-2" />Xóa Tài Khoản</>}
+          subtitle={`${deleteUser.fullName} (@${deleteUser.username})`}
+          maxWidth="448px"
+        >
+          <form onSubmit={handleDeleteUser} className="space-y-4">
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-300">
+              Tài khoản sẽ bị vô hiệu hóa và ẩn khỏi danh sách. Mọi phiên đăng nhập, phân công lớp và kênh thông báo của tài khoản này sẽ bị thu hồi; lịch sử nghiệp vụ và nhật ký vẫn được giữ để bảo toàn truy vết.
+            </div>
+            <div>
+              <label className="form-label" htmlFor="delete-user-admin-password">Mật khẩu hiện tại của Admin</label>
+              <input
+                id="delete-user-admin-password"
+                type="password"
+                value={deleteAdminPass}
+                onChange={event => setDeleteAdminPass(event.target.value)}
+                autoComplete="current-password"
+                required
+                autoFocus
+                className="form-input"
+              />
+            </div>
+            {deleteError && <div className="alert-error">{deleteError}</div>}
+            <div className="flex items-center justify-end gap-3 border-t border-surface-border pt-4">
+              <button type="button" onClick={() => setDeleteUser(null)} disabled={deleteLoading} className="btn btn-ghost">Hủy</button>
+              <button type="submit" disabled={deleteLoading || !deleteAdminPass.trim()} className="btn btn-danger">
+                {deleteLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Xóa Tài Khoản
+              </button>
+            </div>
+          </form>
+        </ModalShell>
+      )}
 
       {/* Create User Modal */}
       {isCreateModalOpen && (

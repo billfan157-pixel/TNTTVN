@@ -22,10 +22,11 @@ installNativeMediaDevicesGuard()
 installZoomGuard()
 installAppLockLifecycle().catch(console.warn)
 initSentry()
+// Start native legacy-worker cleanup before auth bootstrap/render. This remains
+// non-blocking so a slow browser storage API cannot cause a white screen.
+registerServiceWorkerOnly().catch(console.warn)
 loadTokens()
 useAuthStore.getState().loadFromStorage()
-
-registerServiceWorkerOnly().catch(console.warn)
 
 // Render immediately to prevent any white screen if IndexedDB / WebCrypto hangs or blocks
 createRoot(document.getElementById('root')!).render(

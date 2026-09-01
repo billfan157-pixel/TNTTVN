@@ -277,13 +277,16 @@ const SettingsPage: React.FC = () => {
             <section className="app-panel p-5 space-y-1">
               <div className="mb-2"><SectionTitle icon={<ShieldCheck className="w-4 h-4" />} text="Quản Trị Nhanh" /></div>
               {[
-                { to: '/users' as const, icon: Users, title: 'Tài Khoản', desc: 'GLV, phân công, mật khẩu' },
+                { to: '/catechists' as const, icon: Users, title: 'Giáo Lý Viên', desc: 'Tài khoản, phân công, bảo mật' },
                 { to: '/academic-years' as const, icon: Calendar, title: 'Năm Học', desc: 'Khóa sổ, chốt năm, lên lớp' },
-                { to: '/classes' as const, icon: BookOpen, title: 'Lớp Học', desc: 'Tạo lớp theo phân ngành' },
+                { to: '/students' as const, view: 'classes' as const, icon: BookOpen, title: 'Lớp Học', desc: 'Tạo lớp theo phân ngành' },
               ].map(link => {
                 const Icon = link.icon
                 return (
-                  <button key={link.to} onClick={() => navigate({ to: link.to })}
+                  <button key={`${link.to}-${'view' in link ? link.view : 'default'}`} onClick={() => {
+                    if ('view' in link) navigate({ to: '/students', search: { view: link.view } })
+                    else navigate({ to: link.to })
+                  }}
                     className="w-full flex items-center gap-3 px-2 py-2.5 -mx-2 rounded-xl hover:bg-surface-hover transition-colors group text-left">
                     <span className="w-8 h-8 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
                       <Icon size={15} />

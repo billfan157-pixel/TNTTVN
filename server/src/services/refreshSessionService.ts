@@ -67,7 +67,10 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
     .from(users)
     .where(and(eq(users.id, payload.userId), eq(users.parishId, payload.parishId)))
     .limit(1)
-  if (!user || (user.status === 'LOCKED' && user.id !== getSuperAdminId())) {
+  if (!user || user.deletedAt || user.status === 'INACTIVE') {
+    return { status: 'rejected', code: 'USER_INACTIVE', message: 'Tài khoản không còn hoạt động' }
+  }
+  if (user.status === 'LOCKED' && user.id !== getSuperAdminId()) {
     return { status: 'rejected', code: 'USER_LOCKED', message: 'Tài khoản đã bị khóa' }
   }
   if (payload.tokenVersion !== undefined && user.tokenVersion !== payload.tokenVersion) {

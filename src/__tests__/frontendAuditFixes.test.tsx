@@ -55,7 +55,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
 
   // ─── FE-04: DesktopSidebar Role Consistency ───
   describe('FE-04: DesktopSidebar catechists tab role authorization', () => {
-    it('does NOT display catechists tab for chunhiem role', () => {
+    it('displays the read-only catechist directory for chunhiem role', () => {
       useAuthStore.setState({
         user: { id: 'u1', username: 'cn1', role: 'chunhiem', parishId: 'p1', fullName: 'CN 1', status: 'ACTIVE' as const },
         isAuthenticated: true,
@@ -75,10 +75,10 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.queryByText('Giáo lý viên')).toBeNull()
+      expect(screen.getByText('Giáo lý viên')).toBeDefined()
     })
 
-    it('does NOT display catechists tab for phuta role', () => {
+    it('displays the read-only catechist directory for phuta role', () => {
       useAuthStore.setState({
         user: { id: 'u2', username: 'pt1', role: 'phuta', parishId: 'p1', fullName: 'PT 1', status: 'ACTIVE' as const },
         isAuthenticated: true,
@@ -98,7 +98,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.queryByText('Giáo lý viên')).toBeNull()
+      expect(screen.getByText('Giáo lý viên')).toBeDefined()
     })
 
     it('displays catechists tab for admin role', () => {

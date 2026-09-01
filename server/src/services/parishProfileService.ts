@@ -79,6 +79,7 @@ async function requireLinkedUser(tx: DbTransaction, parishId: string, id?: strin
   const [row] = await tx.select({ id: users.id }).from(users).where(and(
     eq(users.parishId, parishId),
     eq(users.id, id),
+    isNull(users.deletedAt),
   )).limit(1)
   if (!row) parishError(404, 'PARISH_LINKED_USER_INVALID', 'Tài khoản liên kết không thuộc Xứ đoàn hiện tại')
 }
@@ -196,7 +197,7 @@ export async function getParishProfileSnapshot(parishId: string, role: ParishPro
     holyName: users.holyName,
     role: users.role,
     status: users.status,
-  }).from(users).where(and(eq(users.parishId, parishId), ne(users.role, 'phuhuynh'))) : []
+  }).from(users).where(and(eq(users.parishId, parishId), ne(users.role, 'phuhuynh'), isNull(users.deletedAt))) : []
 
   const people = await db.select().from(parishPeople).where(and(
     eq(parishPeople.parishId, parishId),

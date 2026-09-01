@@ -6,7 +6,25 @@
 > - **Product Name**: `Catevia`
 >
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.1 | Last reviewed: 2026-08-31 | Status: ✅ Current | Prerequisites: none
+> Version: 3.2 | Last reviewed: 2026-09-01 | Status: ✅ Current | Prerequisites: none
+
+---
+
+### Module: Student & Class Workspace Consolidation (ADR-090, 2026-09-01)
+
+- **Decision:** D2/GENERAL, R1. Quản lý lớp thuộc cùng bounded context với roster thiếu nhi, nên canonical UI chuyển từ tab `/management` sang `/students?view=classes`.
+- **Code truth:** `StudentsPage.tsx` sở hữu search contract `view=students|promotions|classes`, render `DesktopClasses embedded` cho admin trên desktop; `MobileStudentsView.tsx` dùng cùng workspace tabs và surface responsive của `DesktopClasses`. `DesktopClasses.onViewClassStudents` chuyển lại tab danh sách sau khi chọn lớp.
+- **Authorization:** tab lớp và mutation controls chỉ hiện cho admin; `DesktopClasses.canEdit` khớp backend admin-only. GLV vẫn vào `/students` theo class scope hiện hữu và không được render class-management workspace. `/classes` còn là protected admin deep-link tương thích.
+- **Navigation:** dashboard, settings, empty roster và student modal đi thẳng tới `/students?view=classes`; `/management` chỉ còn Năm Học + Tài Khoản Phụ Huynh.
+
+---
+
+### Module: Account Soft Deletion & Shared Catechist Directory (ADR-089, 2026-09-01)
+
+- **Decision:** D3/SECURITY, R1 application + R2 additive schema. `/catechists` là điểm vào chung: `chunhiem|phuta` chỉ xem danh bạ tối thiểu; admin dùng cùng trang để phân công, đặt mật khẩu tạm, khóa/mở, đăng xuất mọi thiết bị và xóa tài khoản.
+- **Code truth:** `CatechistPage.tsx` chọn read-only directory hoặc `UserManagementPage`; `GET /api/users/catechists` chỉ trả `id/fullName/holyName/role/assignedClasses/assignedClassNames`; `DELETE /api/users/:id` đi qua `adminReauthRateLimiter` và `deleteUserAccount`; migration `20260901-147` thêm `users.deleted_at`.
+- **Security contract:** delete là soft-delete tenant-scoped, chặn self/Admin trưởng, yêu cầu mật khẩu Admin, đặt `INACTIVE`, bump `tokenVersion`, revoke refresh sessions và gỡ assignment/push/Telegram/reset-ticket trong một transaction. User row và lịch sử nghiệp vụ vẫn được giữ; audit không sao chép PII. Login/access/refresh và active projections đều loại account đã xóa.
+- **Compatibility:** ADR-031 tenant isolation, ADR-045 minimization, ADR-072/082 server-authoritative RBAC và ADR-087 reset inbox = PASS. Username/định danh đã xóa vẫn được giữ để tránh tái sử dụng mơ hồ; khôi phục account chưa được duyệt. Việc chuyển quản lý lớp khỏi `/management` được quyết định riêng tại ADR-090.
 
 ---
 
@@ -100,9 +118,18 @@
 ### Module: Mobile Route Readiness & Smooth Navigation (ADR-080, 2026-08-30)
 
 - **Root cause**: `lazyWithRetry` trước đây trả `React.lazy` không có `.preload()` nên TanStack `preloadRoute()` không tải page component; mobile bottom-nav là button nên `defaultPreload: viewport` của `Link` không áp dụng. Cold chunk delay xảy ra trước `startViewTransition`.
-- **Code truth**: `src/utils/lazyWithRetry.ts` (preloadable/deduped component), `src/hooks/useMobileRoutePreload.ts` (role-aware sequential idle queue), `src/constants/routePolicy.ts::getMobilePreloadPaths`, `MobileBottomNav.tsx` (pointer/focus preload + pending acknowledgement), `MobileGradeView.tsx` (default board eager with route), `StudentsPage.tsx` (Excel import lazy-on-open).
+- **Code truth**: `src/utils/lazyWithRetry.ts` (preloadable/deduped component; retry rồi chuyển lỗi cho ErrorBoundary, không hard-reload từ preload nền), `src/hooks/useMobileRoutePreload.ts` (role-aware sequential idle queue), `src/constants/routePolicy.ts::getMobilePreloadPaths`, `MobileBottomNav.tsx` (pointer/focus preload + pending acknowledgement), `MobileGradeView.tsx` (default board eager with route), `StudentsPage.tsx` (Excel import lazy-on-open).
 - **Boundary**: chỉ code readiness/presentation; không preload API data, không đổi RBAC/server authority, tenant cache, offline sync, API/schema hay business rules. Visual motion vẫn ADR-065 pathname-only/reduced-motion.
 - **Evidence**: `docs/mobile-route-performance-audit-2026-08-30.md`; targeted 5 files / 27 tests và lint pass. Type/build full gate đang chờ concurrent dirty `MobileReportsView` type errors; real-device latency/FPS vẫn NOT CONFIRMED.
+
+---
+
+### Module: Native Service Worker Isolation & Reload Safety (ADR-088, 2026-09-01)
+
+- **Root cause**: `vite-plugin-pwa` auto-inject `registerSW.js` vào `dist/index.html`, nên Capacitor Android/iOS cũng đăng ký `sw.js`. Worker web dùng `skipWaiting()` và `client.navigate(client.url)` khi activate; precache hoàn tất sau lúc login làm WebView điều hướng lại URL đang mở và trông như app tự reload. Idle mobile preload còn có đường hard-reload riêng khi chunk fetch hết retry.
+- **Code truth**: `vite.config.ts` đặt `injectRegister: false`; `main.tsx → pushManager.registerServiceWorkerOnly()` là owner duy nhất. Web đăng ký PWA bình thường; native dùng `Capacitor.isNativePlatform()` để unregister mọi legacy worker và chỉ xóa cache PWA (`workbox-precache*`, pages/static/fonts/api), không xóa IndexedDB/Dexie. `lazyWithRetry` không tự reload; ErrorBoundary giữ nút tải lại có chủ đích.
+- **Boundary**: không đổi JWT/refresh rotation, auth marker/snapshot, RBAC, tenant isolation, API/schema, data writer hay sync semantics. PWA web vẫn giữ FE-07 reload-on-new-build; native assets cập nhật qua APK/IPA release.
+- **Evidence**: Android asset trước fix chứa cả auto `registerSW.js` và compiled `client.navigate`; policy/lazy regression 2 files / 7 tests và hậu kiểm auth/token/API retry 5 files / 32 tests PASS; lint và client TypeScript/production PWA build PASS; fresh dist/Android index không còn registration script; Capacitor sync PASS; Android assembleDebug BUILD SUCCESSFUL / 153 tasks. Device runtime vẫn cần APK acceptance.
 
 ---
 
@@ -228,7 +255,7 @@ server/src/                         ─ Backend Hono Application
 > - **FE-01**: Tách biệt lỗi offline (`ApiError(0)`) với lỗi xác thực (401/403) trong `src/lib/api.ts` `refreshAccessToken` & `request`, không gọi `redirectToLogin()` khi reload offline, giữ nguyên phiên làm việc và dữ liệu cục bộ đã sync.
 > - **FE-02**: Loại bỏ runtime caching `/api/*` trong `src/sw.ts`, bảo đảm an toàn dữ liệu nhiều tài khoản và cô lập Tenant Isolation; dọn sạch `api-cache` cũ khi kích hoạt service worker.
 > - **FE-03**: Loại bỏ hoàn toàn các lệnh gọi `useClassStore.getState()` trong luồng render JSX của hơn 15 components, chuyển đổi sang Zustand reactive selectors (`useClassStore(s => s.getClassList())`, `useClassStore(s => s.findClassById)`, `useClassStore(s => s.classes)`).
-> - **FE-04**: Đồng bộ hiển thị tab `Giáo Lý Viên` (`catechists`) trong `DesktopSidebar.tsx` chỉ dành cho role `admin` khớp với `requireRole('admin')` trên router.
+> - **FE-04 (historical, superseded by ADR-089)**: bản sửa 2026-08-14 từng giới hạn `catechists` cho admin. Từ 2026-09-01, router/sidebar cho `admin|chunhiem|phuta`; server trả projection tối thiểu cho GLV và chỉ admin có mutation.
 > - **FE-05**: Chuẩn hóa `ErrorBoundary.tsx` không rò rỉ technical error message ở môi trường production.
 > - **FE-06**: Bổ sung skip link có thể điều hướng bằng phím `<a href="#main-content" className="skip-link">` và thẻ `#main-content` trong `RootLayout.tsx`.
 >
@@ -281,7 +308,7 @@ server/src/                         ─ Backend Hono Application
 > **API-DIAG (2026-08-25)**: Phân loại lỗi BACKEND OFFLINE qua platform proxy — production Vercel báo 404 mọi `/api/*` với body `{"message":"Application not found"}`: evidence `x-railway-fallback: true` + `Server: railway-hikari` chứng tỏ domain Railway trỏ vào nhưng KHÔNG có deployment active (service pause/xóa/deploy fail) — KHÔNG phải lỗi app hay rewrite Vercel (chain proxy thấy X-Railway-Edge). Fix client-side (`api.ts`): thêm `isBackendUnavailableResponse()` nhận diện chữ ký fallback (status 404/502/503 + header `x-railway-fallback`) → ném `ApiError` với message tiếng Việt hướng dẫn ("Máy chủ API hiện không khả dụng...") thay vì dump JSON nền tảng gây nhầm sai mật khẩu. Runbook xử lý backend Railway (resume service / fix deploy fail do thiếu env bắt buộc như REPORT_HMAC_SECRET / verify healthcheck `/health`) tại DEPLOYMENT_GUIDE §7.1. Test: `src/lib/__tests__/apiBackendUnavailable.test.ts` 6/6 PASS.
 > **DEPLOY-MIGRATE (2026-08-25, ADR-056)**: Chuyển backend từ Railway (hết gói — service dừng, dữ liệu volume không khôi phục được theo xác nhận chủ tài khoản) sang **Render free + Turso free** ($0/tháng). (1) DB: dùng sẵn nhánh Turso của ADR-041 (`TURSO_URL`/`TURSO_AUTH_TOKEN` trong `dbConfig.ts`) — DB mới TRỐNG, startup seed admin qua `SEED_ADMIN_PASSWORD`. (2) Hạ tầng: thêm blueprint `render.yaml` (docker runtime, healthCheckPath `/health`, secrets `sync:false`), Render inject PORT → server bind đúng. (3) Routing: `vercel.json` rewrite `/api/:path*` → `https://tnttvn.onrender.com/api/:path*`; mobile builds (`codemagic.yaml`, ios-ipa workflow) đổi `VITE_API_BASE` cùng domain; CORS giữ default `https://tnttvn.vercel.app` (originPolicy). (4) Đặc tính free: cold start ~30–60s sau 15 phút idle (khuyến nghị keep-alive ping `/health`), disk ephemeral → backup phải đẩy R2. Docs: DEPLOYMENT_GUIDE §7 mới + mục Railway chuyển DEPRECATED.
 > **DEPLOY-MIGRATE-FIX (2026-08-25)**: Bug chặn deploy Render — container crash lúc startup với `SQL_PARSE_ERROR: SQL not allowed statement: PRAGMA busy_timeout=5000`. Root cause: `runDbTransaction` (server/src/db/index.ts) chạy `tx.run(PRAGMA)` trong MỌI transaction; Turso/sqld cấm PRAGMA trong Hrana batch transaction (file SQLite local chấp nhận bình thường) → seed fail → process exit → `update_failed`. Fix: guard `if (!dbConfig.isRemote)` trước PRAGMA (remote có retry SQLITE_BUSY loop riêng, busy_timeout vô nghĩa qua HTTP). Audit toàn bộ 10 chỗ PRAGMA khác: module-level đã guard sẵn; migrationRunner dùng executeMultiple (Turso OK); purgeService/backupScheduler/shutdown đã wrap try/catch hoặc thiết kế an toàn. Verify E2E sau fix: health Render 200 database:connected, login qua Vercel 3/3 PASS (user seed), wrong-password 401 sạch. Bài học: khi thêm SQLite-specific statement phải hỏi "statement này có qua Hrana được không" nếu hệ thống hỗ trợ dual-mode DB (ADR-041).
-> **ASYNC-CHUNK-RETRY (2026-08-17)**: Nâng cao độ tin cậy tải mã nguồn động (Dynamic Import Resilience): (1) Thêm utility `src/utils/lazyWithRetry.ts` tự động thử lại (retry 2 lần, backoff 400ms) khi tải module bất đồng bộ bị gián đoạn mạng hoặc stale chunk sau khi deploy/cập nhật bundle; (2) Tự động reload trang một lần an toàn (rate-limited chống reload loop) khi gặp lỗi ChunkLoadError / Failed to fetch dynamic module; (3) Áp dụng `lazyWithRetry` cho toàn bộ các route trong `src/router.tsx`, `GradesPage.tsx` và `StudentsPage.tsx`; (4) Nâng cấp `ErrorBoundary` và bọc trong `RootLayout.tsx` với thông báo thân thiện và nút "Tải lại trang" chuyên biệt khi phát hiện phiên bản ứng dụng đã được cập nhật.
+> **ASYNC-CHUNK-RETRY (2026-08-17; amended 2026-09-01 ADR-088)**: `src/utils/lazyWithRetry.ts` tự động retry dynamic import khi mạng gián đoạn/stale chunk và áp dụng cho route/nested lazy. Hard reload tự động đã bị loại bỏ vì idle route preload có thể kích hoạt nó ngoài ý muốn; failure nay reject có kiểm soát, cho phép lần tải sau retry mới và đi vào `ErrorBoundary` với nút "Tải lại trang" do người dùng chủ động.
 > **GRADE-SYNC-1 (2026-08-14)**: Sửa lỗi "Nhập điểm không tạo Nhật Ký Hệ Thống" — root cause: `gradeStore` là store duy nhất thiếu kích hoạt sync tức thì sau khi enqueue. Fix: (1) `src/stores/gradeStore.ts` thêm lazy `triggerSyncFlow()` (pattern `attendanceStore.ts:46-54`) sau `syncUpsertGrade` + `syncBatchUpsertGrades`; (2) `src/components/desktop/DesktopGradeMatrix.tsx` — debounce 2s→800ms + chỉ gửi dirty records (`dirtyIdsRef`) thay vì cả lớp + flush on unmount/chuyển lớp (`saveDirtyRef`) để không mất điểm khi rời trang; (3) `server/src/routes/auditLogs.ts:57` — join `and(eq(auditLogs.userId, users.id), eq(auditLogs.parishId, users.parishId))` (users PK composite) — hardening tenant isolation khi hiển thị tên người thực hiện. Test E2E `server/src/__tests__/gradeAuditSync.test.ts` (3 case). Server đã tự ghi audit (`gradeService.ts:287/337/465/500`) — issue gốc chỉ nằm ở frontend không trigger sync.
 
 ### Security test suites (multi-tenant isolation)
@@ -458,8 +485,7 @@ server/src/                         ─ Backend Hono Application
 - **Default sort Danh Sách Thiếu Nhi theo cấp bậc lớp (cùng ngày)**: `DesktopStudentList` (`sorting` init `[{id:'classId', desc:false}]`) + `MobileStudentsView` (`sortClassDirection` init `'asc'`) — danh sách mở lên đã nhóm Chiến Con → Ấu Nhi → Thiếu Nhi → Nghĩa Sĩ → Hiệp Sĩ, trong lớp theo tên tiếng Việt (`classSort.ts`). Trước đây mặc định theo thứ tự nhập server (`createdAt`) — Excel nhập A-Z nên trông như alphabet. Server/API không đổi.
 
 ### Module: Quản Lý Tài Khoản Tách 2 Tab — Phụ Huynh / GLV & Nhân Sự (2026-08-22)
-- **Files Modified**: `src/components/desktop/UserManagementPage.tsx` (prop `scope?: 'all' | 'staff' | 'phuhuynh'` — filter client-side theo role, header/nút hành động + `allowedRoles` form tạo tài khoản theo scope), `src/pages/UsersPage.tsx` (forward scope), `src/pages/ManagementPage.tsx` (tách tab `users` thành `users-staff` + `users-parents`).
-- **Summary**: `/management` có 2 tab riêng — **"Tài Khoản GLV & Nhân Sự"** (role admin/chunhiem/phuta; KHÔNG có nút cấp phát phụ huynh) và **"Tài Khoản Phụ Huynh"** (chỉ role phuhuynh; nút "Cấp Tài Khoản Phụ Huynh" + tạo PH lẻ với vai trò khóa `phuhuynh`, SĐT = username). Route `/users` giữ nguyên (`scope='all'`) cho deep-link cũ. Không đổi API/schema/server.
+- **Historical UI (superseded by ADR-089)**: `UserManagementPage` từng tách `users-staff` + `users-parents` trong `/management` (2026-08-22). Từ 2026-09-01, staff management canonical chuyển về `/catechists`; `/management` chỉ còn tài khoản phụ huynh, `/users` là deep-link admin tương thích.
 - **Quick-create trong StudentModal (cùng ngày)**: `src/components/common/StudentModal.tsx` thêm nút **"Tạo Tài Khoản Phụ Huynh"** (chỉ hiện cho admin, bật khi Tên PH ≥ 2 ký tự + SĐT đúng 10 số) gọi `POST /users` role phuhuynh → panel xanh hiển thị username + mật khẩu tạm đúng 1 lần + nút chép; nếu mất phải reset mới, không xem lại. Sửa Tên PH/SĐT sau khi tạo → reset panel.
 - **Verify**: `tsc -b` clean · oxlint 0 error (1 warning exhaustive-deps pre-existing tại effect cũ) · `build:frontend` pass · `lint:ds` 0 violations / 134 components.
 

@@ -43,10 +43,12 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260827', 130, 131),
   ...migrationRange('20260828', 132, 135),
   ...migrationRange('20260831', 136, 146),
+  '20260901-147',
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_users_username_parish: ['parish_id', 'username'],
+  idx_users_active_role: ['parish_id', 'role', 'deleted_at'],
   idx_students_code_parish: ['parish_id', 'code'],
   idx_attendance_unique: ['parish_id', 'student_id', 'date', 'type'],
   idx_grades_lookup: ['parish_id', 'student_id', 'academic_year', 'semester'],
@@ -87,7 +89,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
   notifications: ['target_user_ids'],
-  users: ['password_encrypted', 'holy_name'],
+  users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
   exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],

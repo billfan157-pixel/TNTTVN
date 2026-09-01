@@ -2,7 +2,7 @@ import React from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { Student } from '../../types';
+import type { Student, StudentWorkspace } from '../../types';
 import { useClassStore } from '../../stores/classStore';
 import { BRANCHES } from '../../constants/branches';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -23,16 +23,17 @@ import { SkeletonTable } from '../common/StateFeedback';
 import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
 import { TabPanel, Tabs } from '../common/ui/SelectionControls';
-
-type MobileStudentsWorkspace = 'students' | 'promotions';
+import { DesktopClasses } from '../desktop/DesktopClasses';
 
 interface MobileStudentsViewProps {
+  workspace: StudentWorkspace;
+  onWorkspaceChange: (workspace: StudentWorkspace) => void;
+  onViewClassStudents: (classId: string) => void;
   onOpenAddStudent: () => void;
   onImportStudents: () => void;
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onPrintReport: (student: Student) => void;
-  onNavigateToClasses: () => void;
   onSendReportCards?: () => void;
   sendingCards?: boolean;
   cardError?: string | null;
@@ -41,12 +42,14 @@ interface MobileStudentsViewProps {
 }
 
 export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
+  workspace,
+  onWorkspaceChange,
+  onViewClassStudents,
   onOpenAddStudent,
   onImportStudents,
   onEditStudent,
   onViewReport: _onViewReport,
   onPrintReport,
-  onNavigateToClasses,
   onSendReportCards,
   sendingCards,
   cardError,
@@ -122,7 +125,6 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const [pendingBulkDelete, setPendingBulkDelete] = React.useState(false);
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
-  const [showPromotions, setShowPromotions] = React.useState(false);
   const [confirmSendCards, setConfirmSendCards] = React.useState(false);
 
   const { can, role } = useAuth();
@@ -153,11 +155,17 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const clearSelection = () => setSelectedIds(new Set());
 
   const selectedStudents = students.filter(s => selectedIds.has(s.id));
-  const activeWorkspace: MobileStudentsWorkspace = showPromotions ? 'promotions' : 'students';
+  const activeWorkspace: StudentWorkspace = (workspace === 'classes' && !canDelete)
+    || (workspace === 'promotions' && !canPromoteAction)
+    ? 'students'
+    : workspace;
   const workspaceItems = [
     { value: 'students' as const, label: 'Danh Sách', icon: <Users aria-hidden="true" size={14} /> },
     ...(canPromoteAction
       ? [{ value: 'promotions' as const, label: 'Thăng Tiến', icon: <TrendingUp aria-hidden="true" size={14} /> }]
+      : []),
+    ...(canDelete
+      ? [{ value: 'classes' as const, label: 'Lớp Học', icon: <School aria-hidden="true" size={14} /> }]
       : []),
   ];
 
@@ -179,7 +187,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           ariaLabel="Không gian quản lý thiếu nhi"
           items={workspaceItems}
           value={activeWorkspace}
-          onValueChange={(value) => setShowPromotions(value === 'promotions')}
+          onValueChange={onWorkspaceChange}
           className="w-full"
         />
       </div>
@@ -196,6 +204,11 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
         </Suspense>
       </TabPanel>
+      {canDelete && (
+        <TabPanel tabsId="mobile-students-workspace-tabs" value="classes" activeValue={activeWorkspace}>
+          <DesktopClasses embedded onViewClassStudents={onViewClassStudents} />
+        </TabPanel>
+      )}
       <TabPanel
         tabsId="mobile-students-workspace-tabs"
         value="students"
@@ -281,10 +294,9 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         <div className="flex items-start gap-2 p-2.5 rounded-xl bg-[var(--color-parish-warning-bg)] border border-[var(--color-parish-warning)]">
           <School size={16} className="text-parish-secondary shrink-0 mt-0.5" />
           <p className="m-0 text-xs font-semibold text-[var(--color-parish-warning-hover)] leading-relaxed">
-            Chưa có lớp học nào. Import Excel sẽ tự động tạo lớp mới từ cột "Lớp" trong file, hoặc bạn có thể tạo lớp thủ công.
-            <button type="button" onClick={onNavigateToClasses} className="text-parish-primary font-bold underline cursor-pointer inline p-0 bg-transparent border-0 font-inherit text-xs">
-              {' '}Tạo lớp →
-            </button>
+            {canDelete
+              ? <>Chưa có lớp học nào. Import Excel sẽ tự động tạo lớp mới từ cột "Lớp", hoặc <button type="button" onClick={() => onWorkspaceChange('classes')} className="text-parish-primary font-bold underline cursor-pointer inline p-0 bg-transparent border-0 font-inherit text-xs">tạo lớp thủ công →</button></>
+              : 'Chưa có lớp học nào trong phạm vi được phân công.'}
           </p>
         </div>
       )}

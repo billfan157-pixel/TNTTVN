@@ -29,7 +29,7 @@ Baseline build thu trong pre-push gate trước batch: initial JS `59.10 KB gzip
 
 Chọn preload có khả năng thực thi + staged mobile warmup:
 
-1. `lazyWithRetry` cung cấp `.preload()`, dedupe promise và render component đã resolve trực tiếp để tránh Suspense pass thứ hai.
+1. `lazyWithRetry` cung cấp `.preload()`, dedupe promise và render component đã resolve trực tiếp để tránh Suspense pass thứ hai. Amendment ADR-088: preload nền hết retry chỉ reject/cho lần sau retry mới, không tự hard-reload app; navigation lỗi đi vào ErrorBoundary với nút tải lại có chủ đích.
 2. `useMobileRoutePreload` chỉ lấy primary destinations hợp lệ với role từ route-policy SSOT, bỏ route hiện tại và tải tuần tự trong idle callback; fallback timer dùng cho WebView cũ.
 3. Bottom nav gọi preload tại `pointerdown`/focus và hiển thị pending highlight + `aria-busy` ngay, trong khi `aria-current` vẫn phản ánh URL đã commit.
 4. `MobileGradeBoard` đi cùng default mobile Grades path; các tab Daily/Comparison/Exam vẫn lazy.

@@ -81,6 +81,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     const organization: SidebarItem[] = [
       { id: 'parish-home', label: 'Tổng quan Xứ đoàn', icon: LayoutDashboard },
       { id: 'parish-profile', label: 'Hồ sơ Xứ đoàn', icon: Landmark },
+      { id: 'catechists', label: 'Giáo lý viên', icon: UserCheck },
       { id: 'calendar', label: 'Lịch phụng vụ', icon: CalendarClock },
       { id: 'notices', label: 'Thông báo', icon: Bell },
       { id: 'feedback', label: 'Thư góp ý', icon: MessageSquareText },
@@ -88,7 +89,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
     const organizationGovernance: SidebarItem[] = role === 'admin' ? [
       { id: 'finances', label: 'Quỹ & thu chi', icon: Wallet },
-      { id: 'catechists', label: 'Giáo lý viên', icon: UserCheck },
     ] : [];
 
     const platformGovernance: SidebarItem[] = role === 'admin' ? [

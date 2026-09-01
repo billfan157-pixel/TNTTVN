@@ -19,8 +19,8 @@ import { updateUserStatus } from '../../services/userService.js'
  * Sau fix (A10):
  *  - authMiddleware: chỉ SuperAdmin được miễn LOCKED (nhất quán login + verifyAdminReauth);
  *    mọi LOCKED khác → 401 NGAY trên mỗi request.
- *  - updateUserStatus: LOCKED → tokenVersion +1 (giết access token cũ) + revokeAllSessions
- *    (giết refresh_tokens). INACTIVE giữ nguyên hành vi phiên (A11 — trạng thái nghiệp vụ).
+ *  - updateUserStatus: LOCKED/INACTIVE → tokenVersion +1 (giết access token cũ)
+ *    + revokeAllSessions (giết refresh_tokens). INACTIVE không còn là đường bypass auth.
  */
 
 const PREFIX = `A10-${Date.now()}`
@@ -128,5 +128,19 @@ describe('A10 — Account LOCKED invalidates Admin Session ngay lập tức', ()
     const freshToken = generateTokens({ userId: TARGET_ID, username: 'target_a10', role: 'admin', parishId: PARISH, tokenVersion: row!.tokenVersion }).accessToken
     const res = await usersRouter.request('/', { headers: { Authorization: `Bearer ${freshToken}` } })
     expect(res.status).toBe(200)
+  })
+
+  it('6. INACTIVE cũng tăng tokenVersion và chặn token mới ngay lập tức', async () => {
+    const before = await dbUser(TARGET_ID)
+    const ok = await updateUserStatus(TARGET_ID, 'INACTIVE', ADMIN_ID, PARISH, '10.0.0.1', 'vitest-a10')
+    expect(ok).toBe(true)
+
+    const after = await dbUser(TARGET_ID)
+    expect(after?.status).toBe('INACTIVE')
+    expect(after?.tokenVersion).toBe((before?.tokenVersion || 0) + 1)
+
+    const inactiveToken = generateTokens({ userId: TARGET_ID, username: 'target_a10', role: 'admin', parishId: PARISH, tokenVersion: after!.tokenVersion }).accessToken
+    const res = await usersRouter.request('/', { headers: { Authorization: `Bearer ${inactiveToken}` } })
+    expect(res.status).toBe(401)
   })
 })

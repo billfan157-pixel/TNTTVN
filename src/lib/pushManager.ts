@@ -1,7 +1,14 @@
+import { Capacitor } from '@capacitor/core'
 import { api } from './api'
 
 const SW_PATH = '/sw.js'
 const PUSH_FLAG_KEY = 'push_subscription_active'
+const PWA_CACHE_NAMES = new Set([
+  'api-cache',
+  'pages-cache',
+  'google-fonts-cache',
+  'static-resources',
+])
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -14,8 +21,52 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray
 }
 
+function hasServiceWorkerSupport(): boolean {
+  return typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+}
+
 function isSupported(): boolean {
-  return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+  return !Capacitor.isNativePlatform()
+    && hasServiceWorkerSupport()
+    && 'PushManager' in window
+    && 'Notification' in window
+}
+
+function isPwaOwnedCache(cacheName: string): boolean {
+  return PWA_CACHE_NAMES.has(cacheName) || cacheName.startsWith('workbox-precache')
+}
+
+/**
+ * Capacitor ships the web bundle inside the app, so a PWA service worker is
+ * redundant there. More importantly, the web worker's activate handler
+ * intentionally navigates every authenticated web client to the new build.
+ * In Android WebView that navigation looked like a random full-app reload.
+ *
+ * Remove registrations left by older APK/IPA builds and only delete caches
+ * owned by the PWA shell. IndexedDB/Dexie auth snapshots and the offline sync
+ * queue are separate storage and are deliberately preserved.
+ */
+async function removeNativePwaArtifacts(): Promise<void> {
+  if (!hasServiceWorkerSupport()) return
+
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.allSettled(registrations.map(registration => registration.unregister()))
+  } catch (err) {
+    console.warn('[pushManager] failed to unregister native service workers:', err)
+  }
+
+  if (typeof caches === 'undefined') return
+  try {
+    const cacheNames = await caches.keys()
+    await Promise.allSettled(
+      cacheNames
+        .filter(isPwaOwnedCache)
+        .map(cacheName => caches.delete(cacheName)),
+    )
+  } catch (err) {
+    console.warn('[pushManager] failed to clear native PWA caches:', err)
+  }
 }
 
 async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
@@ -33,7 +84,11 @@ async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null
 
 /** Đăng ký service worker sớm (main.tsx) — không hỏi permission, không subscribe. */
 export async function registerServiceWorkerOnly(): Promise<void> {
-  if (!isSupported()) return
+  if (Capacitor.isNativePlatform()) {
+    await removeNativePwaArtifacts()
+    return
+  }
+  if (!hasServiceWorkerSupport()) return
   try {
     await navigator.serviceWorker.register(SW_PATH, { updateViaCache: 'none' })
   } catch (err) {

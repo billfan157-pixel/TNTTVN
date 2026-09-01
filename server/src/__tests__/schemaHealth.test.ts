@@ -31,6 +31,7 @@ const INDEXES: Record<string, string[]> = {
   idx_feedback_public_sender: ['parish_id', 'sender_user_id', 'created_at'],
   idx_password_reset_request_user: ['parish_id', 'user_id'],
   idx_password_reset_requests_inbox: ['parish_id', 'status', 'last_requested_at'],
+  idx_users_active_role: ['parish_id', 'role', 'deleted_at'],
 }
 
 const TRIGGERS = [
@@ -72,7 +73,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
   notifications: ['target_user_ids'],
-  users: ['password_encrypted', 'holy_name'],
+  users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
   exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
