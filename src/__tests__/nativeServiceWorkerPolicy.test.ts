@@ -26,6 +26,19 @@ describe('native service worker policy', () => {
     expect(viteConfig).toMatch(/injectRegister:\s*false/)
   })
 
+  it('keeps Vite optimized-dependency hashes stable across normal dev restarts', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const viteConfig = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8')
+
+    expect(packageJson.scripts.predev).toBeUndefined()
+    expect(packageJson.scripts['clean:vite']).toContain("rmSync('node_modules/.vite'")
+    expect(viteConfig).toContain("'src/**/*.{ts,tsx}'")
+    expect(viteConfig).toMatch(/['"]jsqr['"]/)
+    expect(viteConfig).toMatch(/['"]qrcode-generator['"]/)
+  })
+
   it('registers the PWA worker on web through the runtime policy', async () => {
     const register = vi.fn().mockResolvedValue(undefined)
     const getRegistrations = vi.fn()
@@ -67,5 +80,24 @@ describe('native service worker policy', () => {
     expect(deleteCache).toHaveBeenCalledWith('pages-cache')
     expect(deleteCache).toHaveBeenCalledWith('static-resources')
     expect(deleteCache).not.toHaveBeenCalledWith('domain-image-cache')
+  })
+
+  it('unregisters dev workers and skips registration in development mode to prevent 504 outdated optimize dep', async () => {
+    const unregister = vi.fn().mockResolvedValue(true)
+    const register = vi.fn()
+    const getRegistrations = vi.fn().mockResolvedValue([{ unregister }])
+    vi.stubGlobal('navigator', {
+      serviceWorker: {
+        register,
+        getRegistrations,
+      },
+    })
+    vi.stubEnv('MODE', 'development')
+
+    await registerServiceWorkerOnly()
+
+    expect(register).not.toHaveBeenCalled()
+    expect(getRegistrations).toHaveBeenCalled()
+    expect(unregister).toHaveBeenCalledOnce()
   })
 })

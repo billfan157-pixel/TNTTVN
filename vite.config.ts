@@ -23,6 +23,10 @@ export default defineConfig({
     strictPort: strictDevPort,
     allowedHosts: true,
     proxy: {
+      '/health': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
       '/api': {
         target: apiProxyTarget,
         changeOrigin: true,
@@ -33,6 +37,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     proxy: {
+      '/health': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+      },
       '/api': {
         target: apiProxyTarget,
         changeOrigin: true,
@@ -40,20 +48,32 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    entries: [
+      'index.html',
+      'src/**/*.{ts,tsx}',
+    ],
     include: [
       'react',
       'react-dom',
       'react-dom/client',
       '@tanstack/react-table',
+      '@tanstack/table-core',
       '@tanstack/react-router',
+      '@tanstack/router-core',
+      '@tanstack/history',
+      '@tanstack/react-store',
       'lucide-react',
       'zustand',
+      'zustand/middleware',
       'idb',
       'dexie',
       'clsx',
       'xlsx',
       'jsqr',
       'qrcode-generator',
+      'zod',
+      '@sentry/react',
+      '@aparajita/capacitor-biometric-auth',
     ],
   },
   plugins: [

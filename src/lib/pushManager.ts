@@ -69,7 +69,21 @@ async function removeNativePwaArtifacts(): Promise<void> {
   }
 }
 
+async function clearDevServiceWorkers(): Promise<void> {
+  if (!hasServiceWorkerSupport()) return
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.allSettled(registrations.map(r => r.unregister()))
+  } catch (err) {
+    console.warn('[pushManager] failed to clear dev service workers:', err)
+  }
+}
+
 async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (import.meta.env.DEV && import.meta.env.MODE === 'development') {
+    await clearDevServiceWorkers()
+    return null
+  }
   if (!isSupported()) return null
   try {
     // FE-03 (2026-08-16): updateViaCache 'none' — KHÔNG cho browser HTTP-cache file
@@ -86,6 +100,10 @@ async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null
 export async function registerServiceWorkerOnly(): Promise<void> {
   if (Capacitor.isNativePlatform()) {
     await removeNativePwaArtifacts()
+    return
+  }
+  if (import.meta.env.DEV && import.meta.env.MODE === 'development') {
+    await clearDevServiceWorkers()
     return
   }
   if (!hasServiceWorkerSupport()) return
@@ -109,75 +127,75 @@ let pushInitPromise: Promise<void> | null = null
 export async function initPushSubscription(): Promise<void> {
   if (pushInitPromise) return pushInitPromise
   pushInitPromise = (async () => {
-  if (!isSupported() || Notification.permission === 'denied') return
+    if (!isSupported() || Notification.permission === 'denied') return
 
-  try {
-    if (Notification.permission === 'default') {
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') return
-    }
-
-    const registration = await registerServiceWorker()
-    if (!registration) return
-
-    let publicKey: string | null = null
     try {
-      const res: any = await api.getVapidPublicKey()
-      // Server mới trả { publicKey: null, configured:false } với 200 khi chưa cấu hình (tránh 501 spam).
-      // Giữ tương thích 501 legacy cho deploy cũ chưa redeploy.
-      if (res && res.configured === false) {
-        console.debug('[pushManager] VAPID not configured — skipping push subscription')
-        return
+      if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') return
       }
-      publicKey = res?.publicKey ?? null
-      if (!publicKey) {
-        console.debug('[pushManager] VAPID not configured — skipping push subscription')
-        return
-      }
-    } catch (err: any) {
-      // 501 legacy = VAPID chưa cấu hình — expected khi deploy chưa set env, không phải lỗi app
-      if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
-        console.debug('[pushManager] VAPID not configured — skipping push subscription')
-        return
-      }
-      throw err
-    }
 
-    const existing = await registration.pushManager.getSubscription()
-    if (existing) {
-      // Đã subscribe trong trình duyệt này — đồng bộ lên server (idempotent).
+      const registration = await registerServiceWorker()
+      if (!registration) return
+
+      let publicKey: string | null = null
       try {
-        await api.subscribePush({
-          endpoint: existing.endpoint,
-          keys: { p256dh: btoa(String.fromCharCode(...new Uint8Array(existing.getKey('p256dh')!))), auth: btoa(String.fromCharCode(...new Uint8Array(existing.getKey('auth')!))) },
-        })
-        localStorage.setItem(PUSH_FLAG_KEY, '1')
-      } catch (err) {
-        console.warn('[pushManager] failed to re-sync existing push subscription:', err)
+        const res: any = await api.getVapidPublicKey()
+        // Server mới trả { publicKey: null, configured:false } với 200 khi chưa cấu hình (tránh 501 spam).
+        // Giữ tương thích 501 legacy cho deploy cũ chưa redeploy.
+        if (res && res.configured === false) {
+          console.debug('[pushManager] VAPID not configured — skipping push subscription')
+          return
+        }
+        publicKey = res?.publicKey ?? null
+        if (!publicKey) {
+          console.debug('[pushManager] VAPID not configured — skipping push subscription')
+          return
+        }
+      } catch (err: any) {
+        // 501 legacy = VAPID chưa cấu hình — expected khi deploy chưa set env, không phải lỗi app
+        if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
+          console.debug('[pushManager] VAPID not configured — skipping push subscription')
+          return
+        }
+        throw err
       }
-      return
-    }
 
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
-    })
+      const existing = await registration.pushManager.getSubscription()
+      if (existing) {
+        // Đã subscribe trong trình duyệt này — đồng bộ lên server (idempotent).
+        try {
+          await api.subscribePush({
+            endpoint: existing.endpoint,
+            keys: { p256dh: btoa(String.fromCharCode(...new Uint8Array(existing.getKey('p256dh')!))), auth: btoa(String.fromCharCode(...new Uint8Array(existing.getKey('auth')!))) },
+          })
+          localStorage.setItem(PUSH_FLAG_KEY, '1')
+        } catch (err) {
+          console.warn('[pushManager] failed to re-sync existing push subscription:', err)
+        }
+        return
+      }
 
-    await api.subscribePush({
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('p256dh')!))),
-        auth: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('auth')!))),
-      },
-    })
-    localStorage.setItem(PUSH_FLAG_KEY, '1')
-  } catch (err: any) {
-    if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
-      console.debug('[pushManager] VAPID not configured — skipping', err)
-      return
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      })
+
+      await api.subscribePush({
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('p256dh')!))),
+          auth: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('auth')!))),
+        },
+      })
+      localStorage.setItem(PUSH_FLAG_KEY, '1')
+    } catch (err: any) {
+      if (err?.status === 501 || String(err?.message || '').includes('VAPID')) {
+        console.debug('[pushManager] VAPID not configured — skipping', err)
+        return
+      }
+      console.warn('[pushManager] push subscription failed (skipping):', err)
     }
-    console.warn('[pushManager] push subscription failed (skipping):', err)
-  }
   })()
   try { await pushInitPromise } finally { pushInitPromise = null }
 }

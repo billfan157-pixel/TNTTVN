@@ -49,13 +49,15 @@ jobs:
       - name: Sync Capacitor iOS
         run: npx cap sync ios
 
-      - name: Verify iOS camera privacy declarations
+      - name: Verify minimal iOS camera privacy declaration
         run: |
           camera_usage="$(/usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' ios/App/App/Info.plist)"
-          microphone_usage="$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' ios/App/App/Info.plist)"
           test -n "$camera_usage"
-          test -n "$microphone_usage"
-          echo "Camera privacy declarations are present."
+          if /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' ios/App/App/Info.plist >/dev/null 2>&1; then
+            echo "Microphone permission must not be declared because OMR capture always uses audio:false." >&2
+            exit 1
+          fi
+          echo "Camera-only privacy declaration is present."
 
       - name: Archive App (no code signing)
         run: |

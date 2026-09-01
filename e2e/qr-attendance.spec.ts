@@ -12,7 +12,7 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
     await page.goto('/attendance')
 
     await expect(page.getByRole('tab', { name: 'Điểm Danh' })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByText('Thiếu Nhi E2E')).toBeVisible()
+    await expect(page.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
     // Fresh sandbox records are unsaved; a previous attendance spec may have
     // persisted a non-present state. This action is deterministic in both cases.
     await page.getByRole('button', { name: 'Có mặt tất cả' }).click()

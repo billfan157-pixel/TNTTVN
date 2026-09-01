@@ -1,4 +1,4 @@
-import appLogo from '../../assets/app-logo.png'
+import appLogo from '../../assets/app-logo-192.png'
 
 interface LoginShellProps {
   title: string

@@ -61,9 +61,11 @@ vi.mock('../../stores/filterStore', () => ({
 
 vi.mock('../../stores/classStore', () => ({
   useClassStore: (selector: (state: any) => unknown) => selector({
-    getClassList: () => mocks.classes,
+    classes: mocks.classes,
     findClassById: (id: string) => mocks.classes.find(classItem => classItem.id === id),
   }),
+  getFilteredClassList: (classes: any[]) => classes,
+  scopeClassesForAssignedWrites: (classes: any[]) => classes,
 }))
 
 vi.mock('../../utils/getDefaultDate', () => ({ getDefaultDate: () => '2026-08-23' }))

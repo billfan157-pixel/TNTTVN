@@ -87,6 +87,9 @@ describe('MobileClasses and UserManagement Responsive Views', () => {
         { id: 'chien', name: 'Chiên Con' },
         { id: 'au', name: 'Ấu Nhi' },
       ] as any,
+      academicYears: [
+        { id: '2025-2026', startDate: '2025-09-01', endDate: '2026-05-31', status: 'OPEN' },
+      ] as any,
       loading: false,
       fetchClasses: vi.fn(),
       fetchBranches: vi.fn(),
@@ -127,6 +130,14 @@ describe('MobileClasses and UserManagement Responsive Views', () => {
     expect(screen.queryByRole('button', { name: /Sửa lớp/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Xóa lớp/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Thêm Lớp/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the create-class action available to admins in the embedded workspace', async () => {
+    await act(async () => {
+      render(<DesktopClasses embedded />)
+    })
+
+    expect(screen.getByRole('button', { name: /Thêm Lớp/i })).toBeInTheDocument()
   })
 
   it('renders UserManagementPage with both mobile card list and desktop table', async () => {

@@ -173,8 +173,9 @@ export const useAttendanceStore = create<AttendanceState>()(
           // Offline: optimistic update + enqueue to IndexedDB sync queue so the
           // record is retried automatically when connectivity returns.
           applyLocal()
-          syncService.syncSaveAttendance({ studentId, date, type, status, note, version })
-          void triggerSyncFlow()
+          void Promise.resolve(syncService.syncSaveAttendance({ studentId, date, type, status, note, version }))
+            .then(() => triggerSyncFlow())
+            .catch(err => console.warn('[attendanceStore] offline enqueue failed:', err))
           return
         }
 
@@ -188,8 +189,9 @@ export const useAttendanceStore = create<AttendanceState>()(
             || (err?.message && (String(err.message).includes('Network error') || String(err.message).includes('failed to fetch')))
           if (isNetwork) {
             applyLocal()
-            syncService.syncSaveAttendance({ studentId, date, type, status, note, version })
-            void triggerSyncFlow()
+            void Promise.resolve(syncService.syncSaveAttendance({ studentId, date, type, status, note, version }))
+              .then(() => triggerSyncFlow())
+              .catch(queueError => console.warn('[attendanceStore] network fallback enqueue failed:', queueError))
             return
           }
           const msg = err instanceof ApiError ? err.message : 'Lỗi khi lưu điểm danh'
@@ -236,8 +238,9 @@ export const useAttendanceStore = create<AttendanceState>()(
             }
             return { attendance: updated, isSubmitting: false }
           })
-          syncService.syncBatchSaveAttendance(date, type, records)
-          void triggerSyncFlow()
+          void Promise.resolve(syncService.syncBatchSaveAttendance(date, type, records))
+            .then(() => triggerSyncFlow())
+            .catch(err => console.warn('[attendanceStore] batch enqueue failed:', err))
           return {
             total: records.length,
             successCount: records.length,

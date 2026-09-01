@@ -16,6 +16,7 @@ import { useToastStore } from '../../stores/toastStore'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { StudentName } from '../common/StudentName'
 import { EmptyState } from '../common/StateFeedback'
+import { hapticFeedback } from '../../utils/haptics'
 
 const SCORE_TYPES: { id: DailyScoreType; label: string; color: string }[] = [
   { id: 'oral', label: 'Điểm Miệng', color: 'bg-[var(--color-parish-info)]' },
@@ -37,10 +38,10 @@ export const DesktopDailyGradeEntry: React.FC = () => {
   const getAverageForStudent = useDailyGradeStore(s => s.getAverageForStudent)
   const getEntriesForStudent = useDailyGradeStore(s => s.getEntriesForStudent)
 
-
   const [activeScoreType, setActiveScoreType] = useState<DailyScoreType>('oral')
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null)
+  const [srAnnouncement, setSrAnnouncement] = useState<string>('')
   // P0.9 (audit desktop 2026-08-22): confirm cho xóa điểm & restore override
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
@@ -56,31 +57,86 @@ export const DesktopDailyGradeEntry: React.FC = () => {
 
   const activeLabel = SCORE_TYPES.find(t => t.id === activeScoreType)?.label || ''
 
-  const handleAddScore = (studentId: string) => {
+  const focusDailyRow = (rowIdx: number): boolean => {
+    if (rowIdx < 0 || rowIdx >= filteredStudents.length) return false
+    const target = document.querySelector<HTMLInputElement>(
+      `input[data-daily-row="${rowIdx}"]`
+    )
+    if (target && !target.disabled) {
+      target.focus()
+      target.select()
+      return true
+    }
+    return false
+  }
+
+  const handleAddScore = (studentId: string, rowIdx?: number) => {
     const raw = inputValues[studentId]
     if (!raw || raw.trim() === '') return
     const val = parseFloat(raw.replace(',', '.'))
-    // P0.9: báo lỗi rõ ràng thay vì bỏ qua im lặng khi điểm invalid
     if (isNaN(val) || val < 0 || val > 10) {
+      hapticFeedback.error()
       useToastStore.getState().addToast('Điểm không hợp lệ — chỉ nhận số từ 0 đến 10', 'error')
       return
     }
-    addEntry(studentId, activeScoreType, val, selectedSemester)
+    const clamped = Math.round(val * 10) / 10
+    addEntry(studentId, activeScoreType, clamped, selectedSemester)
+    hapticFeedback.medium()
     setInputValues(prev => ({ ...prev, [studentId]: '' }))
+
+    const student = filteredStudents.find(s => s.id === studentId)
+    if (student) {
+      setSrAnnouncement(`Đã thêm điểm ${activeLabel} ${clamped} cho ${student.fullName}`)
+    }
+
+    if (rowIdx !== undefined) {
+      focusDailyRow(rowIdx + 1)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, studentId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const raw = inputValues[studentId]?.trim()
+      if (raw) {
+        handleAddScore(studentId, rowIdx)
+      } else {
+        focusDailyRow(rowIdx + 1)
+      }
+      return
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      focusDailyRow(rowIdx + 1)
+      return
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      focusDailyRow(rowIdx - 1)
+      return
+    }
   }
 
   const handleRemoveEntry = async (entryId: string, studentName: string, value: number) => {
+    hapticFeedback.warning()
     const ok = await askConfirm({
       title: 'Xác Nhận Xóa Điểm',
       message: `Xóa điểm ${value} của ${studentName}? Hành động này không thể hoàn tác.`,
       confirmText: 'Xóa Điểm',
       variant: 'danger',
     })
-    if (ok) removeEntry(entryId)
+    if (ok) {
+      removeEntry(entryId)
+      hapticFeedback.light()
+      setSrAnnouncement(`Đã xóa điểm ${value} của ${studentName}`)
+    }
   }
 
   const handleRestoreAuto = async (studentId: string, studentName: string, avg: number, scoreType: DailyScoreType) => {
     const label = SCORE_TYPES.find(t => t.id === scoreType)?.label || scoreType
+    hapticFeedback.warning()
     const ok = await askConfirm({
       title: 'Khôi Phục Điểm Tự Động',
       message: `Ghi ĐTB ${label} (${avg}) vào cột điểm matrix của ${studentName}, thay thế điểm đang override thủ công?`,
@@ -95,12 +151,8 @@ export const DesktopDailyGradeEntry: React.FC = () => {
       [`${SCORE_FIELD_MAP[scoreType]}_source`]: 'daily_avg',
       [`${SCORE_FIELD_MAP[scoreType]}_updated_at`]: new Date().toISOString(),
     } as any)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent, studentId: string) => {
-    if (e.key === 'Enter') {
-      handleAddScore(studentId)
-    }
+    hapticFeedback.success()
+    setSrAnnouncement(`Đã khôi phục điểm tự động cho ${studentName}`)
   }
 
   const stats = useMemo(() => {
@@ -122,6 +174,11 @@ export const DesktopDailyGradeEntry: React.FC = () => {
 
   return (
     <div className="product-view flex flex-col gap-6">
+      {/* Hidden Live Announcer for Screen Readers */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {srAnnouncement}
+      </div>
+
       {/* Header with Explicit Semester Selector */}
       <PageHeader
         icon={<Calculator size={20} />}
@@ -141,7 +198,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
             ) : (
               <>
                 <button
-                  onClick={() => setSelectedSemester(1)}
+                  onClick={() => { setSelectedSemester(1); hapticFeedback.light(); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     selectedSemester === 1
                       ? 'bg-parish-primary text-white shadow-xs'
@@ -151,7 +208,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                   Học Kỳ I
                 </button>
                 <button
-                  onClick={() => setSelectedSemester(2)}
+                  onClick={() => { setSelectedSemester(2); hapticFeedback.light(); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                     selectedSemester === 2
                       ? 'bg-parish-primary text-white shadow-xs'
@@ -171,7 +228,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
         {SCORE_TYPES.map(t => (
           <button
             key={t.id}
-            onClick={() => setActiveScoreType(t.id)}
+            onClick={() => { setActiveScoreType(t.id); hapticFeedback.light(); }}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
               activeScoreType === t.id
                 ? `${t.color} text-white shadow-xs`
@@ -264,7 +321,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map(student => {
+                filteredStudents.map((student, idx) => {
                   const studentEntries = getEntriesForStudent(student.id, selectedSemester, activeScoreType)
                   const avg = getAverageForStudent(student.id, selectedSemester, activeScoreType)
                   const existingGrade = getStudentGrade(student.id, selectedSemester)
@@ -366,20 +423,22 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                               <input
                                 type="text"
                                 inputMode="decimal"
+                                data-daily-row={idx}
                                 aria-label={`Nhập điểm ${activeLabel} cho ${student.holyName ? `${student.holyName} ` : ''}${student.fullName}`}
                                 placeholder="0-10"
                                 value={inputValues[student.id] || ''}
+                                onFocus={e => e.currentTarget.select()}
                                 onChange={e => {
                                   const v = e.target.value;
-                                  if (v === '' || /^(?:10(?:\.0)?|[0-9](?:\.[05])?)$/.test(v.replace(',', '.')) || /^(?:10\.?|[0-9]\.)$/.test(v.replace(',', '.'))) {
+                                  if (v === '' || /^(?:10(?:.0)?|[0-9](?:.[05])?)$/.test(v.replace(',', '.')) || /^(?:10.?|[0-9].)$/.test(v.replace(',', '.'))) {
                                     setInputValues(prev => ({ ...prev, [student.id]: v }));
                                   }
                                 }}
-                                onKeyDown={e => handleKeyDown(e, student.id)}
+                                onKeyDown={e => handleKeyDown(e, idx, student.id)}
                                 className="w-20 h-8 px-2 text-sm font-bold bg-surface-card text-text-main border border-surface-border rounded-lg focus:border-parish-primary outline-hidden text-center"
                               />
                               <button
-                                onClick={() => handleAddScore(student.id)}
+                                onClick={() => handleAddScore(student.id, idx)}
                                 disabled={!inputValues[student.id]?.trim()}
                                 aria-label={`Thêm điểm ${activeLabel} cho ${student.fullName}`}
                                 title="Thêm điểm"
@@ -411,7 +470,6 @@ export const DesktopDailyGradeEntry: React.FC = () => {
       </div>
 
       {confirmDialog}
-
     </div>
   )
 }

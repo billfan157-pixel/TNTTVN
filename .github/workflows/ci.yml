@@ -1,6 +1,7 @@
 name: Parish LMS Enterprise CI/CD Pipeline
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, develop]
   pull_request:
@@ -48,6 +49,9 @@ jobs:
         run: |
           npx tsc -b --noEmit
           npx tsc --noEmit -p server/tsconfig.json
+
+      - name: Run Security-Critical Regression Gate
+        run: npm run test:security-critical
 
       - name: Run Full Vitest Suite and Enforce Coverage
         shell: bash
@@ -109,8 +113,13 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install chromium --with-deps
 
-      - name: Run Playwright E2E Tests
-        run: npx playwright test
+      - name: Run Critical Business E2E Tests
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e:critical
+
+      - name: Run Full Playwright Regression Suite
+        if: github.event_name != 'pull_request'
+        run: npm run test:e2e
 
       - name: Upload Playwright Runtime Evidence
         if: always()

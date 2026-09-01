@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
-import { normalizeExamSessionClassFilter } from '../../lib/examSessionScope'
+import { normalizeExamSessionClassFilter, scopeExamWorkspaceClasses } from '../../lib/examSessionScope'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -124,10 +124,14 @@ export const ExamSessionView: React.FC = () => {
   const canManage = can('admin', 'chunhiem', 'phuta')
   const canScan = can('admin', 'chunhiem', 'phuta')
   // A-NEW (2026-08-13): chunhiem/phuta mặc định chỉ được chọn lớp mình được phân công —
-  // bộ lọc toàn cục ẩn với non-admin (RootLayout force 'all'), nên dùng danh sách lớp
-  // đã được server scope theo phân công (GET /classes) làm nguồn chọn lớp nội bộ.
+  // bộ lọc toàn cục ẩn với non-admin (RootLayout force 'all'). GET /classes là
+  // parish-wide cho roster, nên workspace thi phải lọc bằng assignment marker.
   const isAdmin = can('admin')
-  const assignedClasses = useClassStore(s => s.classes)
+  const classCatalog = useClassStore(s => s.classes)
+  const assignedClasses = useMemo(
+    () => scopeExamWorkspaceClasses(classCatalog, isAdmin),
+    [classCatalog, isAdmin],
+  )
 
   const students = useStudentStore(s => s.students)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
@@ -980,6 +984,7 @@ export const ExamSessionView: React.FC = () => {
                   Lớp học <span className="text-red-500">*</span>
                 </label>
                 <select
+                  aria-label="Lớp học cho phiên chấm"
                   value={createForm.classId || ''}
                   onChange={e => {
                     setCreateForm(f => ({ ...f, classId: e.target.value }))
@@ -1183,6 +1188,7 @@ export const ExamSessionView: React.FC = () => {
               <div>
                 <label className="block text-xs font-bold text-text-secondary mb-1.5">Môn / Nội dung kiểm tra <span className="text-red-500">*</span></label>
                 <input
+                  aria-label="Môn hoặc nội dung kiểm tra"
                   value={createForm.subject}
                   onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
                   onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
@@ -1196,6 +1202,7 @@ export const ExamSessionView: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <button type="button" onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.max(1, f.maxScore - 1) }))} className="w-10 h-11 rounded-xl border border-surface-border bg-surface-hover text-text-secondary hover:bg-surface-card flex items-center justify-center shrink-0" aria-label="Giảm thang điểm">−</button>
                   <input
+                    aria-label="Thang điểm phiên chấm"
                     type="number"
                     inputMode="decimal"
                     pattern="[0-9]*"
@@ -1217,6 +1224,7 @@ export const ExamSessionView: React.FC = () => {
                     {createForm.examType === 'mixed' ? 'Số câu trắc nghiệm' : 'Số câu hỏi'}
                   </label>
                   <input
+                    aria-label="Số câu hỏi trắc nghiệm"
                     type="number"
                     inputMode="numeric"
                     min={1}

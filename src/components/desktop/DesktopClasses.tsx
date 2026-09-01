@@ -200,6 +200,20 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
         }
       />}
 
+      {embedded && canEdit && (
+        <div className="flex justify-end">
+          {academicYears.length === 0 ? (
+            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5" onClick={() => navigate({ to: '/academic-years' })}>
+              <Calendar size={16} /> Tạo Năm Học Trước
+            </button>
+          ) : (
+            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5" onClick={openCreate}>
+              <Plus size={16} /> Thêm Lớp
+            </button>
+          )}
+        </div>
+      )}
+
       {academicYears.length === 0 && (
         <div className="bg-parish-warning-bg border border-parish-warning/30 rounded-2xl p-4 flex items-start gap-3 shadow-card">
           <Calendar size={20} className="text-parish-warning shrink-0 mt-0.5" />

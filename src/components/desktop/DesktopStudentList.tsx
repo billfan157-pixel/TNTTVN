@@ -28,8 +28,8 @@ import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
 
 interface DesktopStudentListProps {
-  onOpenAddStudent: () => void;
-  onImportStudents: () => void;
+  onOpenAddStudent?: () => void;
+  onImportStudents?: () => void;
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onViewPhotoCard: (student: Student) => void;
@@ -393,7 +393,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               </button>
             </div>
             
-            {canEdit && (
+            {isAdmin && onImportStudents && onOpenAddStudent && (
               <div className="flex gap-2 shrink-0">
                 <Button
                   onClick={onImportStudents}
@@ -420,7 +420,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       />
 
       {/* Warning if no classes */}
-      {canEdit && !hasClasses && (
+      {!hasClasses && (
         <div className="bg-amber-50/80 backdrop-blur-sm border border-amber-200/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
           <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
             <School size={20} />
@@ -428,7 +428,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
           <div>
             <p className="text-sm font-black text-amber-900 m-0 uppercase tracking-wide">Chưa có lớp học</p>
             <p className="text-xs text-amber-800 mt-1 m-0 font-bold">
-              Bạn cần tạo lớp học trước khi thêm thiếu nhi.
+              {isAdmin ? 'Bạn cần tạo lớp học trước khi thêm thiếu nhi.' : 'Giáo xứ chưa có lớp học nào để hiển thị.'}
               {isAdmin && onManageClasses && (
                 <button className="ml-2 text-parish-primary underline decoration-2 underline-offset-2" onClick={onManageClasses}>
                   Quản lý lớp học →
@@ -556,8 +556,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               <EmptyState
                 title="Chưa có thiếu nhi nào"
                 description="Danh sách thiếu nhi hiện đang trống. Hãy thêm mới hoặc import từ file Excel."
-                actionLabel={canEdit ? "Thêm thiếu nhi" : undefined}
-                onAction={canEdit ? onOpenAddStudent : undefined}
+                actionLabel={isAdmin && onOpenAddStudent ? "Thêm thiếu nhi" : undefined}
+                onAction={isAdmin ? onOpenAddStudent : undefined}
               />
             </div>
           ) : (

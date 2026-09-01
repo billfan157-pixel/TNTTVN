@@ -2,7 +2,7 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-08-24 (SEC-HMAC-1: `REPORT_HMAC_SECRET` **BẮT BUỘC production** — fail-closed startup, ký QR phiếu điểm; OBS-1: endpoint `/api/csp-report` public thu CSP violation); 2026-08-21 (ADR-051: migration + schema readiness + initial seed fail-closed; `SEED_ADMIN_PASSWORD` explicit strong bootstrap secret, no default); 2026-08-19 (A-NEW-58: production CORS default thêm origin native Capacitor — capacitor://localhost / https://localhost / http://localhost); 2026-08-16 (FE-07: PWA freshness — no-store sw.js/index.html, updateViaCache none, reload-on-activate); 2026-08-12 (Web Push §8 VAPID setup — fix production 501 `VAPID_NOT_CONFIGURED`; env table VAPID ⚠️ conditional); 2026-08-10 (A-NEW-12: CORS split dev/prod — production default CHỈ tnttvn.vercel.app; A-NEW-08: xlsx 0.20.3; A-NEW-04/01/02: refresh cookie SameSite=None;Secure ở production cho Vercel→Railway cross-site)  
+Last Updated: 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy); 2026-08-24 (SEC-HMAC-1: `REPORT_HMAC_SECRET` **BẮT BUỘC production** — fail-closed startup, ký QR phiếu điểm; OBS-1: endpoint `/api/csp-report` public thu CSP violation); 2026-08-21 (ADR-051: migration + schema readiness + initial seed fail-closed; `SEED_ADMIN_PASSWORD` explicit strong bootstrap secret, no default); 2026-08-19 (A-NEW-58: production CORS default thêm origin native Capacitor — capacitor://localhost / https://localhost / http://localhost); 2026-08-16 (FE-07: PWA freshness — no-store sw.js/index.html, updateViaCache none, reload-on-activate)
 
 ---
 
@@ -125,6 +125,7 @@ Browser/PWA (https://tnttvn.vercel.app)
 - Repo có sẵn **`render.yaml`** blueprint: Render Dashboard → New → Blueprint → chọn repo → Render tự tạo service `tnttvn-api`, healthcheck `/health`.
 - Render inject biến `PORT` (~10000) — server bind theo `SERVER_PORT || PORT || 3001` nên KHÔNG cần cấu hình port.
 - DB mới TRỐNG: startup seed user admin qua `SEED_ADMIN_PASSWORD` (chỉ seed khi chưa có user nào — `seed-no-overwrite`).
+- `vercel.json` đặt rewrite `/health` → Render trước `/api` và SPA fallback; System Diagnostics vì vậy nhận JSON DB-aware thay vì `index.html`. Cùng file áp CSP/frame/nosniff/referrer/Permissions-Policy cho static HTML; `camera=(self)` phải được giữ cho OMR và microphone bị tắt.
 
 ### 7.1 Các bước thiết lập (một lần)
 
@@ -140,9 +141,15 @@ Browser/PWA (https://tnttvn.vercel.app)
 
 ### 7.2 Đặc tính gói Render free — cần biết
 
-- **Cold start**: service spin-down sau ~15 phút không có request; request đầu mất ~30–60s. Client fetch timeout 30s → lần login đầu sau idle CÓ THỂ timeout, thử lại lần 2 sẽ vào được. Giải pháp: keep-alive ping `/health` mỗi 10 phút (cron-job.org miễn phí) hoặc nâng gói Starter ($7).
+- **Cold start**: service free có thể spin-down khi idle; request đầu có thể mất khoảng một phút. Refresh-cookie bootstrap dùng timeout **65 giây** và mọi request thường vẫn timeout 30 giây, nên UI không treo vô hạn. Repo không tự tạo keep-alive; nếu cần SLO production ổn định, nâng Render always-on là quyết định vận hành/chi phí và phải smoke-check lại `/health` qua Vercel.
 - **Disk ephemeral**: KHÔNG lưu gì lâu dài trên container. Với Turso, scheduler tạo logical snapshot mã hóa và bắt buộc upload R2; thiếu R2/key sẽ báo backup failure, không giả thành công hoặc fallback local.
 - **750 giờ/tháng**: đủ cho 1 service luôn bật.
+
+### 7.2.1 Native privacy/build gate
+
+- Android source đặt `allowBackup=false` và vẫn có `backup_rules.xml`/`data_extraction_rules.xml` loại toàn bộ cloud + device-transfer domains; không được nới rule cho IndexedDB/WebView data nếu chưa privacy review.
+- OMR native chỉ xin camera; không xin microphone. Camera được khai báo optional vì đường chọn/tải ảnh là fallback bắt buộc.
+- CI hiện chỉ chứng minh Android debug APK và iOS unsigned/TestFlight pipeline tùy workflow. Camera/biometric trên thiết bị, signed Android release và App Store artifact là external acceptance gates, không được suy diễn từ unit test.
 
 ### 7.3 Legacy — Railway (SUPERSEDED, không còn hoạt động)
 

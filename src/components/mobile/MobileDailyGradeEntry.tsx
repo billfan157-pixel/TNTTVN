@@ -9,12 +9,15 @@ import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import type { DailyScoreType, Student } from '../../types'
 import { StudentName } from '../common/StudentName'
+import { hapticFeedback } from '../../utils/haptics'
 
 const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string }> = [
   { id: 'oral', label: 'Điểm miệng', short: 'Miệng' },
   { id: '15m', label: 'Điểm 15 phút', short: '15 phút' },
   { id: '1period', label: 'Điểm 1 tiết', short: '1 tiết' },
 ]
+
+const QUICK_SCORES = [10, 9, 8, 7, 6, 5]
 
 interface MobileDailyGradeEntryProps {
   onViewReport: (student: Student) => void
@@ -37,6 +40,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   const [activeType, setActiveType] = useState<DailyScoreType>('oral')
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [srAnnouncement, setSrAnnouncement] = useState<string>('')
 
   const filteredStudents = useMemo(() => (
     selectedClassId === 'all'
@@ -67,16 +71,30 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
     return counts
   }, [entries, filteredStudents, selectedSemester])
 
+  const addScoreValue = (student: Student, scoreValue: number) => {
+    if (!Number.isFinite(scoreValue) || scoreValue < 0 || scoreValue > 10) {
+      hapticFeedback.error()
+      return
+    }
+    addEntry(student.id, activeType, scoreValue, selectedSemester)
+    hapticFeedback.success()
+    setInputValues(previous => ({ ...previous, [student.id]: '' }))
+    setSrAnnouncement(`Đã thêm ${activeTypeLabel} ${scoreValue} cho ${student.fullName}`)
+  }
+
   const addScore = (student: Student) => {
     const key = student.id
     const raw = (inputValues[key] || '').replace(',', '.').trim()
     const score = Number(raw)
-    if (!raw || !Number.isFinite(score) || score < 0 || score > 10) return
-    addEntry(student.id, activeType, score, selectedSemester)
-    setInputValues(previous => ({ ...previous, [key]: '' }))
+    if (!raw || !Number.isFinite(score) || score < 0 || score > 10) {
+      hapticFeedback.error()
+      return
+    }
+    addScoreValue(student, score)
   }
 
   const toggleExpanded = (studentId: string) => {
+    hapticFeedback.light()
     setExpanded(previous => {
       const next = new Set(previous)
       if (next.has(studentId)) next.delete(studentId)
@@ -87,6 +105,11 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
 
   return (
     <div className="product-view flex flex-col gap-2.5">
+      {/* Live region for screen readers */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {srAnnouncement}
+      </div>
+
       <section className="grade-command-deck" aria-label="Bảng chọn loại điểm hằng ngày">
         <div className="grade-command-deck__header">
           <div className="grade-command-deck__title-group">
@@ -110,7 +133,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                 type="button"
                 role="tab"
                 aria-selected={isActive}
-                onClick={() => setActiveType(type.id)}
+                onClick={() => { setActiveType(type.id); hapticFeedback.light(); }}
                 className={`grade-segmented-item ${isActive ? 'is-active' : ''}`}
               >
                 <span>{type.short}</span>
@@ -171,23 +194,61 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                     {studentEntries.map(entry => (
                       <span key={entry.id} className="inline-flex items-center gap-1.5 rounded-lg bg-surface-card border border-surface-border px-2.5 py-1.5 text-xs font-bold">
                         <Clock3 size={12} className="text-text-muted" /> {entry.value}
-                        {canEdit && <button type="button" onClick={() => removeEntry(entry.id)} className="relative p-1 text-rose-600 after:absolute after:-inset-2.5 after:content-[''] active:text-rose-700" aria-label={`Xóa điểm ${entry.value}`}><Trash2 size={12} /></button>}
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              removeEntry(entry.id)
+                              hapticFeedback.warning()
+                              setSrAnnouncement(`Đã xóa điểm ${entry.value} của ${student.fullName}`)
+                            }}
+                            className="relative p-1 text-rose-600 after:absolute after:-inset-2.5 after:content-[''] active:text-rose-700"
+                            aria-label={`Xóa điểm ${entry.value}`}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>
                 )}
                 {canEdit ? (
-                  <div className="flex gap-2">
-                    <input
-                      value={inputValues[student.id] || ''}
-                      onChange={event => setInputValues(previous => ({ ...previous, [student.id]: event.target.value }))}
-                      onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addScore(student) } }}
-                      inputMode="decimal"
-                      placeholder="0–10"
-                      aria-label={`Thêm ${activeTypeLabel} cho ${student.fullName}`}
-                      className="h-11 min-w-0 flex-1 rounded-xl border border-surface-border bg-surface-card px-3 text-center font-extrabold outline-none focus:border-parish-primary"
-                    />
-                    <button type="button" onClick={() => addScore(student)} disabled={!inputValues[student.id]?.trim()} className="h-11 w-11 rounded-xl bg-parish-primary text-white flex items-center justify-center disabled:opacity-40" aria-label={`Thêm ${activeTypeLabel}`}><Plus size={18} /></button>
+                  <div className="flex flex-col gap-2.5">
+                    {/* Quick Score 1-Tap Pills */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1" aria-label="Chọn điểm nhanh 1 chạm">
+                      <span className="text-xs font-bold text-text-muted shrink-0 mr-1">Nhanh:</span>
+                      {QUICK_SCORES.map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => addScoreValue(student, val)}
+                          className="h-8 min-w-[36px] px-2 rounded-lg bg-surface-card border border-surface-border text-xs font-extrabold text-text-main active:scale-95 transition-transform hover:border-parish-primary hover:text-parish-primary"
+                        >
+                          {val}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <input
+                        value={inputValues[student.id] || ''}
+                        onChange={event => setInputValues(previous => ({ ...previous, [student.id]: event.target.value }))}
+                        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addScore(student) } }}
+                        inputMode="decimal"
+                        placeholder="Nhập 0–10..."
+                        aria-label={`Thêm ${activeTypeLabel} cho ${student.fullName}`}
+                        className="h-11 min-w-0 flex-1 rounded-xl border border-surface-border bg-surface-card px-3 text-center font-extrabold outline-none focus:border-parish-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addScore(student)}
+                        disabled={!inputValues[student.id]?.trim()}
+                        className="h-11 w-11 rounded-xl bg-parish-primary text-white flex items-center justify-center disabled:opacity-40 active:scale-95 transition-transform"
+                        aria-label={`Thêm ${activeTypeLabel}`}
+                      >
+                        <Plus size={18} />
+                      </button>
+                    </div>
                   </div>
                 ) : <span className="text-xs text-text-muted italic">Chỉ xem</span>}
                 <button type="button" onClick={() => onViewReport(student)} className="btn btn-secondary w-full min-h-[44px]">Xem kết quả học tập</button>

@@ -24,12 +24,12 @@ const STUDENT_WORKSPACE_TABS = [
 ]
 
 const DesktopStudentList = lazyWithRetry<React.FC<{
-  onOpenAddStudent: () => void
-  onImportStudents: () => void
+  onOpenAddStudent?: () => void
+  onImportStudents?: () => void
   onEditStudent: (student: Student) => void
   onViewReport: (student: Student) => void
   onViewPhotoCard: (student: Student) => void
-  onManageClasses: () => void
+  onManageClasses?: () => void
 }>>(() => import('../components/desktop/DesktopStudentList'), 'DesktopStudentList')
 
 const DesktopClasses = lazyWithRetry<React.FC<{
@@ -51,6 +51,7 @@ export function StudentsPage() {
   const navigate = useNavigate()
   const search = useSearch({ from: '/students' })
   const { role } = useAuth()
+  const isAdmin = role === 'admin'
   const effectiveMode = useEffectiveMode()
   const { openAddStudent, openEditStudent, openReport, openReportForPrint, openPhotoCard, openCertificate } = useUIStore()
   const [showImportModal, setShowImportModal] = useState(false)
@@ -168,7 +169,7 @@ export function StudentsPage() {
             onValueChange={setActiveWorkspace}
             className="w-fit"
           />
-          {activeWorkspace === 'students' && <Button
+          {isAdmin && activeWorkspace === 'students' && <Button
             onClick={() => setShowConfirmSend(true)}
             disabled={sendingCards || filteredStudentsForSend.length === 0}
             loading={sendingCards}
@@ -203,12 +204,12 @@ export function StudentsPage() {
         <TabPanel tabsId="students-workspace-tabs" value="students" activeValue={activeWorkspace}>
           <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải dữ liệu thiếu nhi...</div>}>
             <DesktopStudentList
-              onOpenAddStudent={openAddStudent}
-              onImportStudents={() => setShowImportModal(true)}
+              onOpenAddStudent={isAdmin ? openAddStudent : undefined}
+              onImportStudents={isAdmin ? () => setShowImportModal(true) : undefined}
               onEditStudent={openEditStudent}
               onViewReport={openReport}
               onViewPhotoCard={openPhotoCard}
-              onManageClasses={() => setActiveWorkspace('classes')}
+              onManageClasses={isAdmin ? () => setActiveWorkspace('classes') : undefined}
             />
           </Suspense>
         </TabPanel>
@@ -245,12 +246,12 @@ export function StudentsPage() {
         workspace={activeWorkspace}
         onWorkspaceChange={setActiveWorkspace}
         onViewClassStudents={openClassRoster}
-        onOpenAddStudent={openAddStudent}
-        onImportStudents={() => setShowImportModal(true)}
+        onOpenAddStudent={isAdmin ? openAddStudent : undefined}
+        onImportStudents={isAdmin ? () => setShowImportModal(true) : undefined}
         onEditStudent={openEditStudent}
         onViewReport={openReport}
         onPrintReport={openReportForPrint}
-        onSendReportCards={handleSendReportCards}
+        onSendReportCards={isAdmin ? handleSendReportCards : undefined}
         sendingCards={sendingCards}
       />
       {showImportModal && (

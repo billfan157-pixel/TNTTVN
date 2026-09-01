@@ -14,6 +14,7 @@ export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
+  failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   timeout: 30000,
@@ -24,6 +25,8 @@ export default defineConfig({
     // E2E dùng cặp cổng riêng 3100/3101 để không reuse hay chặn phiên dev 3000/3001.
     baseURL: e2eEndpoints.baseUrl,
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
   },
   projects: [
     {

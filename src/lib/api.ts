@@ -105,6 +105,9 @@ export function clearTokens() {
 
 type RefreshResult = 'success' | 'auth_failed' | 'network_offline'
 let refreshPromise: Promise<RefreshResult> | null = null
+// Render free instances can need roughly one minute to wake. Keep bootstrap
+// bounded while allowing one cold-start window before offline fallback.
+const REFRESH_REQUEST_TIMEOUT_MS = 65_000
 
 /**
  * Refresh access token with mutex to prevent concurrent refresh calls.
@@ -135,6 +138,7 @@ async function doRefresh(): Promise<RefreshResult> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      signal: AbortSignal.timeout(REFRESH_REQUEST_TIMEOUT_MS),
     })
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {

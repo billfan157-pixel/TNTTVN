@@ -67,6 +67,8 @@ interface ClassItem {
   createdAt: string
   updatedAt: string
   updatedBy: string | null
+  /** Only reports the signed-in staff member's own class assignment. */
+  assignedToCurrentUser?: boolean
 }
 
 interface BranchItem {
@@ -94,6 +96,7 @@ export interface ClassListItem {
   catechistLeader: string
   catechistAssistants: string[]
   academicYear: string
+  assignedToCurrentUser?: boolean
 }
 
 function toClassListItem(c: ClassItem): ClassListItem {
@@ -103,7 +106,20 @@ function toClassListItem(c: ClassItem): ClassListItem {
     catechistLeader: c.homeroomTeacher?.fullName || '',
     catechistAssistants: c.assistants?.map(a => a.fullName) || [],
     academicYear: c.academicYear || '',
+    assignedToCurrentUser: c.assignedToCurrentUser,
   }
+}
+
+/** Fail-closed write scope once the server's assignment marker contract exists. */
+export function scopeClassesForAssignedWrites(
+  classList: ClassListItem[],
+  role: string | undefined,
+): ClassListItem[] {
+  if (role === 'admin') return classList
+  const markerContractPresent = classList.some(item => typeof item.assignedToCurrentUser === 'boolean')
+  return markerContractPresent
+    ? classList.filter(item => item.assignedToCurrentUser === true)
+    : classList
 }
 
 export function getFilteredClassList(classes: ClassItem[]): ClassListItem[] {

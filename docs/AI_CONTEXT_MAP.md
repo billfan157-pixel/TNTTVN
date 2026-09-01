@@ -6,7 +6,35 @@
 > - **Product Name**: `Catevia`
 >
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.2 | Last reviewed: 2026-09-01 | Status: ✅ Current | Prerequisites: none
+> Version: 3.4 | Last reviewed: 2026-09-01 | Status: ✅ Current | Prerequisites: none
+
+### Module: Risk-based Business E2E System (ADR-093, 2026-09-01)
+
+- **Decision:** D3/ARCHITECTURE, R1. Giữ Playwright + isolated real SQLite; tổ chức critical suite theo API-assisted arrange → UI action → authoritative API/reload assert. Không dùng shared dev DB, mocked backend cho business outcome hoặc browser-matrix nhân toàn bộ mutation suite.
+- **Code truth:** `playwright.config.ts`, `scripts/e2e-dev.mjs`, `scripts/e2e-sandbox.mjs`, `scripts/e2e-seed-users.mjs`, `e2e/helpers.ts`, ba `e2e/critical-*.spec.ts`, `.github/workflows/ci.yml`; strategy SSOT là `docs/08_E2E_TESTING_STRATEGY.md`.
+- **Coverage boundary:** critical journeys bảo vệ auth/session/logout, parent ownership, backend RBAC, class/student persistence, grade sync, finance ledger/balance, offline attendance reconnect, semester lock/premature promotion và Smart Exam server scoring/finalization. OMR detector/camera corpus, exhaustive formula/RBAC/OCC/migration matrix ở integration/field gates.
+- **Reliability:** synthetic tenant data, unique key theo test+retry, workers=1 trên một run DB, không execution-order dependency, không arbitrary delay, fail CI on flaky retry; screenshot/video/trace chỉ giữ khi fail/retry.
+- **CI:** PR chạy `test:e2e:critical`; main/push/manual chạy `test:e2e`. Desktop Chromium là mutation baseline; mobile viewport chỉ cho Parent/offline journeys có interaction khác thật.
+- **Verification:** critical **10/10 PASS** trong 44,7 giây; full Playwright **72/72 PASS** trong 5,4 phút, không skip/flaky retry và sandbox cleanup thành công. Targeted regressions của hai file unit từng fail trong full diagnostic đã **21/21 PASS** sau khi cập nhật mock contract.
+
+---
+
+### Module: Comprehensive Security, Native Privacy & Delivery Hardening (ADR-092, 2026-09-01)
+
+- **Decision:** D3/SECURITY, R1. Chọn hardening theo pha trên kiến trúc hiện hành; không rewrite và không nâng dependency mù quáng.
+- **Authorization:** `GET /api/students` và `/:id` chỉ `admin|chunhiem|phuta`; phụ huynh nhận 403 ở cả list/detail và tiếp tục dùng parent portal. Staff roster parish-wide, tenant binding và class-scoped writes không đổi.
+- **Web/runtime:** Vercel HTML có CSP/frame/nosniff/referrer/Permissions-Policy đồng bộ policy hiện hữu; theme boot external; `/health` proxy đúng Render; refresh bootstrap có AbortSignal 65 giây. Ba surface auth/lock dùng `app-logo-192.png` thay asset 1.29 MB.
+- **Native privacy:** product label đồng bộ Catevia; Android backup/D2D bị loại trừ fail-closed, FileProvider thu hẹp vào app-specific storage, camera optional và không xin microphone; iOS bỏ microphone purpose string không dùng.
+- **Quality gate:** `test:security-critical` chạy trước full coverage trong CI. Dependency production audit sạch; 7 moderate dev-tool findings được giữ làm residual vì các bản/override đề xuất chưa loại hết chuỗi lỗi và có rủi ro toolchain.
+- **Current evidence:** security-critical 7 files / 72 tests; full serialized + coverage 279 files / 1,944 tests; lint/design-system/client+server build PASS; Android debug 153 tasks PASS. Physical/signed/post-deploy claims vẫn conditional.
+
+---
+
+### Module: Superfast 2D Keyboard Navigation, Tactile Haptics & Accessible Ergonomics (ADR-091, 2026-09-01)
+
+- **Decision:** D2/GENERAL, R1. Hiện đại hóa trải nghiệm nhập điểm và tương tác di động: Ma trận điểm Desktop điều hướng 2D siêu tốc bằng phím mũi tên/Enter/Tab kèm tự động bôi đen, chống re-render thừa; Hệ thống rung xúc giác đa nền tảng (`src/utils/haptics.ts`) cho thao tác điểm danh và điểm hằng ngày; Nút chọn điểm nhanh 1 chạm (1-tap quick score pills); Vùng thông báo trợ năng Screen Reader (`aria-live="polite"`).
+- **Code truth:** `src/utils/haptics.ts`, `src/components/desktop/DesktopGradeMatrix.tsx`, `src/components/desktop/DesktopDailyGradeEntry.tsx`, `src/components/mobile/MobileAttendanceView.tsx`, `src/components/mobile/MobileDailyGradeEntry.tsx`, `src/components/mobile/MobileGradeBoard.tsx`, `src/__tests__/utils/haptics.test.ts`, `src/__tests__/components/DesktopGradeMatrixKeyboardNav.test.tsx`, `src/__tests__/components/MobileDailyGradeQuickScores.test.tsx`.
+- **Contracts:** Tuân thủ WCAG 2.1 AA (chặn rung khi bật `prefers-reduced-motion`, live announcer cho screen readers); Giới hạn điểm chặt chẽ `0.0 <= score <= 10.0`; Design system 0 anti-drift violations.
 
 ---
 
@@ -14,8 +42,14 @@
 
 - **Decision:** D2/GENERAL, R1. Quản lý lớp thuộc cùng bounded context với roster thiếu nhi, nên canonical UI chuyển từ tab `/management` sang `/students?view=classes`.
 - **Code truth:** `StudentsPage.tsx` sở hữu search contract `view=students|promotions|classes`, render `DesktopClasses embedded` cho admin trên desktop; `MobileStudentsView.tsx` dùng cùng workspace tabs và surface responsive của `DesktopClasses`. `DesktopClasses.onViewClassStudents` chuyển lại tab danh sách sau khi chọn lớp.
-- **Authorization:** tab lớp và mutation controls chỉ hiện cho admin; `DesktopClasses.canEdit` khớp backend admin-only. GLV vẫn vào `/students` theo class scope hiện hữu và không được render class-management workspace. `/classes` còn là protected admin deep-link tương thích.
+- **Authorization:** tab lớp và mutation controls chỉ hiện cho admin; `DesktopClasses.canEdit` khớp backend admin-only. GLV được đọc roster/catalog lớp parish-wide đã tối thiểu hóa nhưng không được render class-management workspace. Catalog chỉ thêm `assignedToCurrentUser` cho assignment của chính user; `ExamSessionView` lọc controls lớp thi bằng marker này, còn server `getUserClassIds` vẫn là authority read/write. `/classes` còn là protected admin deep-link tương thích.
 - **Navigation:** dashboard, settings, empty roster và student modal đi thẳng tới `/students?view=classes`; `/management` chỉ còn Năm Học + Tài Khoản Phụ Huynh.
+
+### Module: Grading DEV Dependency Stability (ADR-076 reassess, 2026-09-01)
+
+- **Decision:** D2/ARCHITECTURE, R1. Giữ hash optimized dependencies ổn định trong một phiên dev: source scan bao phủ `index.html` + toàn bộ TS/TSX, lazy-route vendors được pre-bundle, `npm run dev` không tự xóa cache, `npm run clean:vite` là recovery tường minh, và DEV unregister legacy PWA worker.
+- **Evidence:** console người dùng có 504 cho `jsqr`/`qrcode-generator` với hash cũ; live `chunhiem` smoke sau remediation tải tab `Chấm bài` đầy đủ không phát sinh 504 mới. `VM…reportAllChanges` không tái hiện ở tab mới và không có application source URL, nên attribution cho Catevia là **NOT CONFIRMED**.
+- **Regression:** `nativeServiceWorkerPolicy.test.ts` khóa optimizer entries/deps, không có automatic `predev` purge và DEV worker policy. `examSessionScope.test.ts` + tenant isolation khóa việc parish-wide roster catalog không mở parish-wide exam controls.
 
 ---
 
@@ -24,7 +58,7 @@
 - **Decision:** D3/SECURITY, R1 application + R2 additive schema. `/catechists` là điểm vào chung: `chunhiem|phuta` chỉ xem danh bạ tối thiểu; admin dùng cùng trang để phân công, đặt mật khẩu tạm, khóa/mở, đăng xuất mọi thiết bị và xóa tài khoản.
 - **Code truth:** `CatechistPage.tsx` chọn read-only directory hoặc `UserManagementPage`; `GET /api/users/catechists` chỉ trả `id/fullName/holyName/role/assignedClasses/assignedClassNames`; `DELETE /api/users/:id` đi qua `adminReauthRateLimiter` và `deleteUserAccount`; migration `20260901-147` thêm `users.deleted_at`.
 - **Security contract:** delete là soft-delete tenant-scoped, chặn self/Admin trưởng, yêu cầu mật khẩu Admin, đặt `INACTIVE`, bump `tokenVersion`, revoke refresh sessions và gỡ assignment/push/Telegram/reset-ticket trong một transaction. User row và lịch sử nghiệp vụ vẫn được giữ; audit không sao chép PII. Login/access/refresh và active projections đều loại account đã xóa.
-- **Compatibility:** ADR-031 tenant isolation, ADR-045 minimization, ADR-072/082 server-authoritative RBAC và ADR-087 reset inbox = PASS. Username/định danh đã xóa vẫn được giữ để tránh tái sử dụng mơ hồ; khôi phục account chưa được duyệt. Việc chuyển quản lý lớp khỏi `/management` được quyết định riêng tại ADR-090.
+- **Compatibility:** ADR-031 tenant isolation, ADR-045 minimization, ADR-072/082 server-authoritative RBAC và ADR-087 reset inbox = PASS. Username/định danh đã xóa vẫn được giữ để tránh tái sử dụng mơ hồ; khôi phục account chưa được duyệt. Việc chuyển quản lý lớp khỏi `/management` được quyết định riêng tại ADR-090; amendment cùng ngày cho GLV đọc roster/metadata lớp toàn xứ nhưng che assignment identities và giữ write class-scoped.
 
 ---
 
@@ -89,7 +123,7 @@
 - **Decision**: ADR-077, D2/GENERAL, R1. Đồng bộ layout mobile toàn app qua hai shell rõ vai trò, safe-area một chủ sở hữu và root portal cho custom dialog; không thay brand navy-gold hay quy tắc nghiệp vụ.
 - **Code truth**: `src/index.css` (responsive/safe-area/z-index/touch tokens), `DesktopAppShell.tsx`, `MobileAppShell.tsx`, `ModalPortal.tsx`, `useAccessibleDialog.ts`, `ModalShell.tsx`, `ConfirmDialog.tsx`, `MobileTopBar.tsx`; route/public surfaces trong `src/router.tsx`, pages và mobile/exam/desktop dialog.
 - **Contracts**: dưới 1024px shared page dùng `.responsive-page-shell` (760px, gutter 16px, gap 14px); desktop từ 1024px dùng tier `full|wide|narrow`; embedded child không tạo gutter/cap mới. `--mobile-nav-total-height` sở hữu safe-bottom; action bar/FAB không cộng inset lần hai; top bar/offline banner phối hợp ownership safe-top. Control touch có effective hit-area ≥44px, form ≥16px. Modal route **và MobileTopBar control sheet** mount bằng `ModalPortal` tại `document.body`; modal lồng 1101, confirm 1110, trên top bar 950/bottom nav 1000; lifecycle giữ focus, Escape top-most và body lock. Finance/Classes/Users chuyển bảng thành card dưới `md`; calendar header được phép stack, calendar date grid là compact-data exception.
-- **Evidence & tests**: route inventory = 22 records (17 protected, 4 public/auth, root redirect), 21 pages, 93 components; `mobileLayoutContract.test.ts`, `appWideUiMigration.test.ts`, `useAccessibleDialog.test.tsx`, `MobileTopBarDialog.test.tsx` là regression contracts. Current local: oxlint + TypeScript + Vite/PWA build PASS; public/auth 4 route x 4 viewport matrix has one `main`, no overflow and >=44px visible controls. Kết quả physical-device phải được đọc trong `docs/mobile-ui-audit-2026-08-29.md`; không suy diễn từ local Chromium.
+- **Evidence & tests**: current inventory = 25 paths (20 protected, 4 public/auth, root redirect), 24 page TSX, 97 component TSX; `mobileLayoutContract.test.ts`, `appWideUiMigration.test.ts`, `useAccessibleDialog.test.tsx`, `MobileTopBarDialog.test.tsx` là regression contracts. Current local: oxlint + TypeScript + Vite/PWA build PASS; public/auth viewport matrix has one `main`, no overflow and >=44px visible controls. Kết quả physical-device phải được đọc trong `docs/mobile-ui-audit-2026-08-29.md`; không suy diễn từ local Chromium.
 - **Scope & exception**: presentation/a11y lifecycle only — không đổi API/schema/RBAC/offline/data. Pinch/double-tap zoom lock là trade-off WCAG đã được owner phê duyệt trong `mobile-native-ui-audit-2026-08-12.md`, không được gọi là compliant.
 
 ---
@@ -201,8 +235,8 @@ When starting a task, AI Agents MUST read documents in the following order:
 | **Architecture Decisions** | [`docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`](./ADR_ARCHITECTURE_DECISION_RECORDS.md) | `server/src/services/*.ts` |
 | **Decision Governance (framework)** | `.gemini/skills/decision-matrix/SKILL.md` v4.1.2 — Decision Levels D0–D3, Evidence Model E1–E5, Dynamic Profiles, Hard Gates (§13), ADR Gate (§14), Business Rule Gate (§17), Priority Order (§29) | `AGENTS.md`, `server/src/__tests__/security/*` |
 | **Execution Workflow** | `.gemini/skills/prompt-execution-workflow/SKILL.md` v1.0 — Standardized 6-step lifecycle for prompt processing (Context Analysis -> Planning -> Inspection -> Execution -> Sync -> Delivery) | `AGENTS.md` |
-| **Database Schema** | [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md) | `server/src/db/schema.ts` (33 tables) |
-| **API Contract** | [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md) | `server/src/routes/*.ts` (21 routes) |
+| **Database Schema** | [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md) | `server/src/db/schema.ts` (51 tables) |
+| **API Contract** | [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md) | `server/src/routes/*.ts` (28 routes) |
 | **Security & Auth** | [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md) (Security Envelope §3) | `server/src/middleware/auth.ts`, `security.ts`, `services/refreshSessionService.ts`, `services/webPushService.ts` |
 | **Security Audit Log (SSOT)** | [`docs/SECURITY_AUDIT_LOG.md`](./SECURITY_AUDIT_LOG.md) — SSOT chứa toàn bộ security & data audits | `src/lib/api.ts`, `server/src/routes/auth.ts`, `server/src/routes/users.ts`, `server/src/routes/backup.ts`, `server/src/routes/import.ts` |
 | **Domain Business Rules** | [`docs/BUSINESS_RULES.md`](./BUSINESS_RULES.md) | `server/src/services/AttendanceApplicationService.ts`, `PromotionApplicationService.ts`, `AcademicYearLifecycleService.ts` |
@@ -218,26 +252,26 @@ When starting a task, AI Agents MUST read documents in the following order:
 ```text
 src/                                ─ Client React Application
 ├── main.tsx                        ─ App entry, Sentry + DB init + TanStack Router
-├── router.tsx                      ─ TanStack Router (22 route records: 17 protected, 4 public/auth, root redirect)
+├── router.tsx                      ─ TanStack Router (25 paths: 20 protected, 4 public/auth, root redirect)
 ├── index.css                       ─ Tailwind v4 + design tokens
 ├── types/index.ts                  ─ TypeScript types & interfaces
 ├── lib/                            ─ Pure utilities, fetch API client, Dexie DB, sync engine
 ├── lib/                              ─ Sync engine tách 3 tầng (REFACTOR-SYNC-1): syncApply.ts (F9 merge + áp kết quả server + batch isolation), syncQueueMaintenance.ts (prune/promote/remap temp-ID); useSyncEngine.ts chỉ còn orchestrator
 ├── lib/                              ─ Core logic (omr.ts, qr.ts, homography.ts, answerSheetTemplate.ts, barcode.ts (Code128 gen+decode), xlsxLoader.ts — lazy-load SheetJS)
-├── stores/                         ─ 18 Zustand state stores (thêm leaveRequestStore.ts)
-├── hooks/                          ─ 10 custom React hooks (useAuth, useParentPortal, useSemesterAccess, useEffectiveMode, useSyncEngine, ...)
-├── pages/                          ─ 21 route pages (17 protected + 4 public/auth)
-├── components/                     ─ 93 UI components (auth: 2, common: 35 gồm shared ui, desktop: 23, exam: 12, finance: 4, mobile: 17)
+├── stores/                         ─ 22 Zustand state stores (12 persisted, 10 in-memory)
+├── hooks/                          ─ 18 custom React hooks
+├── pages/                          ─ 24 route pages (20 protected + 4 public/auth)
+├── components/                     ─ 97 TSX components (auth: 4, common: 35, desktop: 24, exam: 12, finance: 4, mobile: 17, parish: 1)
 ├── services/                       ─ reportExportService, reportExporter (CSV/XLSX, SSOT ReportViewModelFactory)
 └── utils/                          ─ Pure helpers (grades, sacraments, excelParser, pdfGenerator, username — mirror ADR-027)
 
 server/src/                         ─ Backend Hono Application
 ├── index.ts                        ─ Hono app, CORS, middleware registration, graceful shutdown
 ├── seed.ts                         ─ DB seed script
-├── db/schema.ts                    ─ Drizzle ORM schema (33 tables, thêm leave_requests)
+├── db/schema.ts                    ─ Drizzle ORM schema (51 tables)
 ├── middleware/                     ─ authMiddleware, roleMiddleware, security.ts
-├── routes/                         ─ 21 REST route files (thêm leaveRequests.ts)
-├── services/                       ─ 31 business logic application services
+├── routes/                         ─ 28 REST route files
+├── services/                       ─ 39 business logic application services
 ├── utils/                          ─ phone.ts, username.ts, id.ts (thêm LRQ prefix), telegram.ts
 └── repositories/                   ─ 6 CQRS Read & Write Repositories
 ```

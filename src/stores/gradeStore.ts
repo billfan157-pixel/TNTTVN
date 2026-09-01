@@ -186,8 +186,9 @@ export const useGradeStore = create<GradeState>()(
           }
         }
         if (!skipSync) {
-          syncService.syncUpsertGrade(stripGradeMeta(grade as unknown as Record<string, unknown>))
-          void triggerSyncFlow()
+          void Promise.resolve(syncService.syncUpsertGrade(stripGradeMeta(grade as unknown as Record<string, unknown>)))
+            .then(() => triggerSyncFlow())
+            .catch(err => console.warn('[gradeStore] enqueue failed:', err))
         }
         return existingIndex >= 0
           ? { grades: [...state.grades].map((g, i) => i === existingIndex ? grade : g) }
@@ -255,8 +256,9 @@ export const useGradeStore = create<GradeState>()(
           batch.push(stripGradeMeta(grade as unknown as Record<string, unknown>))
         }
         if (!skipSync) {
-          syncService.syncBatchUpsertGrades(batch)
-          void triggerSyncFlow()
+          void Promise.resolve(syncService.syncBatchUpsertGrades(batch))
+            .then(() => triggerSyncFlow())
+            .catch(err => console.warn('[gradeStore] batch enqueue failed:', err))
         }
         return { grades: updated }
       }),

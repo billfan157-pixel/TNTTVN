@@ -11,6 +11,7 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { StudentName } from '../common/StudentName'
+import { hapticFeedback } from '../../utils/haptics'
 import type { GradeRecord, Student } from '../../types'
 
 const ExcelGradeImportModal = lazyWithRetry(() => import('../common/ExcelGradeImportModal'), 'ExcelGradeImportModal')
@@ -81,6 +82,7 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
   }, [effectiveSemester, filteredStudents, getStudentGrade])
 
   const handleExport = () => {
+    hapticFeedback.success()
     exportGradebookToExcel({
       students: filteredStudents,
       matrixData,
@@ -91,6 +93,7 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
   }
 
   const toggleExpanded = (studentId: string) => {
+    hapticFeedback.light()
     setExpanded(previous => {
       const next = new Set(previous)
       if (next.has(studentId)) next.delete(studentId)

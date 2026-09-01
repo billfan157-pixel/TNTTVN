@@ -2186,21 +2186,24 @@ Formula configuration (`GradeFormulaConfigModal`) and granular score overriding 
 3. **Exam Print vs Preview Partitioning:**
    - Mobile displays `<Eye size={14} /> Xem Đề Thi`, hides direct print and desktop exports (Word, Excel, HTML), keeping only `[PDF]` download.
    - Desktop displays `<Printer size={14} /> In Đề & Phiếu` with full batch printing and multi-format export center.
-4. **Vite Pre-Bundle Optimization & Default Export (`vite.config.ts`, `ExamSessionView.tsx`):**
+4. **Vite Pre-Bundle Optimization & Default Export (`vite.config.ts`, `ExamSessionView.tsx`; reassessed 2026-09-01):**
    - Added `export default ExamSessionView` and pre-bundled `'jsqr'`, `'qrcode-generator'`, `'dexie'` in `optimizeDeps.include`.
+   - Runtime evidence later showed old `?v=<hash>` requests could still receive `504 Outdated Optimize Dep` after normal dev startup deleted `node_modules/.vite` or runtime discovery changed the optimized graph. Source entries now cover `index.html` plus `src/**/*.{ts,tsx}` and the include list covers the lazy-route vendor graph. Normal `npm run dev` preserves Vite's hash cache; `npm run clean:vite` is the explicit recovery command. DEV unregisters legacy PWA workers instead of registering one.
+   - Contract regression locks the optimizer entries, scan dependencies and absence of automatic `predev` cache deletion. Local browser smoke with a `chunhiem` account loaded `Chấm bài` without a new 504. The separate `VM…reportAllChanges` stack did not reproduce in a fresh tab and had no application source URL, so attribution to application code is **NOT CONFIRMED** and telemetry was not changed without E2/E3 evidence.
+   - The parish-wide roster class catalog now carries `assignedToCurrentUser` for non-admin staff. `ExamSessionView` filters its class chips/create controls by that marker, while server `getUserClassIds` remains the read/write authority. This closes the integration drift where a chủ nhiệm could see all parish classes in the exam UI after the roster read scope was broadened; no out-of-scope write was authorized.
 5. **Mobile Grade Board Toolbar Consolidation & Per-Card Chevron:**
    - Placed `[Xuất]` và `[Nhập]` into `.grade-command-deck__header`; added rotating `ChevronDown` 16px per student card.
 
 ### Consequences & Verification
 - **Positive:**
   - Zero overlay clipping: Modal is cleanly isolated at root level via React Portal.
-  - Zero 504 errors on dynamic module loading.
+  - Stable optimized-dependency hashes across normal dev restarts; current live smoke has zero 504s on the grading lazy route. This is local evidence, not a production SLO claim.
   - Teachers on mobile enjoy both a high-readability native question reader and a true-to-print A4 sheet preview.
 - **Verification:**
   - TypeScript `npx tsc -b`: PASS (Exit code 0).
   - ESLint `npm run lint`: PASS (0 warnings, 0 errors).
   - Design System Linter `npm run lint:ds`: PASS (0 violations across 143 UI components).
-  - Vitest suite: PASS (33/33 targeted tests passed).
+  - Original Vitest suite: PASS (33/33 targeted tests passed). Reassessment targeted regressions: optimizer/SW policy, exam class scoping and tenant/class authority PASS (26/26).
 
 ---
 
@@ -2904,7 +2907,7 @@ A fail D3 Data Integrity và khó rollback. C không đủ Security vì session,
 
 ### Problem và evidence
 
-Yêu cầu sản phẩm `CONFIRMED`: quản lý lớp học nên nằm trong trang Thiếu Nhi thay vì là một tab rời trong Quản Lý Hệ Thống. Evidence E3 cho thấy lớp là bộ lọc, grouping và prerequisite trực tiếp của roster; `DesktopClasses` đã có surface responsive và hành động “Xem Danh Sách” quay về `/students`. Backend hiện đã đúng authority: đọc lớp được class-scope cho staff, còn create/update/delete/assignment chỉ admin.
+Yêu cầu sản phẩm `CONFIRMED`: quản lý lớp học nên nằm trong trang Thiếu Nhi thay vì là một tab rời trong Quản Lý Hệ Thống. Evidence E3 cho thấy lớp là bộ lọc, grouping và prerequisite trực tiếp của roster; `DesktopClasses` đã có surface responsive và hành động “Xem Danh Sách” quay về `/students`. Amendment ngày 2026-09-01 xác nhận GLV cần duyệt toàn bộ thiếu nhi của giáo xứ, không chỉ lớp được phân công; họ vẫn không được thấy assignment identity của lớp khác hoặc có thêm write authority. Create/update/delete/assignment lớp vẫn admin-only.
 
 ### Options và Decision Matrix
 
@@ -2926,15 +2929,163 @@ B tái sử dụng component, giữ URL state/deep link và không đổi API/sc
 1. `/students` validate search `view=students|promotions|classes` cùng filter params hiện hữu. Admin thấy tab `Lớp Học` ở desktop/mobile; GLV không thấy và giá trị `view=classes` thủ công fail-closed về roster.
 2. `DesktopClasses` được render `embedded`; `onViewClassStudents` đặt class filter rồi chuyển lại tab roster mà không rời route. Dashboard, Settings, empty roster và student modal trỏ tới canonical search URL.
 3. `/management` bỏ tab lớp, chỉ còn Năm Học + Tài Khoản Phụ Huynh. `/classes` giữ route admin-only tương thích và active sidebar chuyển sang Thiếu Nhi.
-4. `DesktopClasses.canEdit` chỉ admin, khớp `roleMiddleware('admin')` trên create/update/delete/assignment. GLV vẫn đọc danh sách lớp đã được server scope và không có mutation UI.
-5. Không đổi schema, server API, offline writer, class/student data semantics hoặc tenant isolation.
+4. `DesktopClasses.canEdit` chỉ admin, khớp `roleMiddleware('admin')` trên create/update/delete/assignment. `GET /api/students` và `GET /api/classes/:id?` nay trả roster/metadata lớp toàn giáo xứ cho GLV, cùng tenant; projection lớp loại `homeroomTeacher` và `assistants` khi không phải admin. `RootLayout` giữ filter lớp GLV trên đúng `/students` để click lớp mở roster, rồi reset khi rời route. Read scope này không làm đổi `checkUserClassAccess`: ghi hồ sơ thiếu nhi và các module điểm danh/điểm/thi vẫn class-scoped server-side.
+5. Admin-only controls trên `/students` là tạo thiếu nhi, Import Excel, gửi phiếu điểm hàng loạt, chọn/xóa nhiều và tab quản lý lớp; controls này không render ở desktop/mobile GLV. Hidden UI không phải authority: class mutation/delete/report-card endpoints vẫn do middleware/route guard bảo vệ; create/import legacy server grant cho `chunhiem` trong lớp được phân công không được mở rộng bởi amendment này.
+6. Không đổi schema, offline writer, class/student data semantics hoặc tenant isolation; API read projection/scope thay đổi có test contract.
 
-- **D2 hard gates:** Security **9 — PASS**, Data Integrity **9 — PASS**, Testability **9 — PASS**. Server authorization không đổi; client role-aware tab là fail-closed UX boundary.
-- **ADR compatibility:** ADR-030/063/079 design system = PASS; ADR-031 tenant/class scope = PASS; ADR-072 route policy = PASS WITH AMENDMENT (`/classes` highlight students); ADR-089 management consolidation = PASS.
-- **Risks:** GLV ép query tab (low/high) → render normalization + server admin-only mutations; filter search bị mất khi đổi tab (low/medium) → typed search schema giữ filter keys; class “Xem Danh Sách” ở cùng route không đổi view (medium/medium) → explicit callback; stale deep links (medium/low) → `/classes` compatibility route.
+- **D2 hard gates:** Security **8 — PASS**, Data Integrity **9 — PASS**, Testability **9 — PASS**. Parish-wide roster is deliberate product scope, tenant is still mandatory and assignment identity is minimized; server class-write checks remain the authorization authority.
+- **ADR compatibility:** ADR-030/063/079 design system = PASS; ADR-031 tenant/class scope = PASS WITH AMENDMENT (staff read broadens only within tenant); ADR-045 minimization = PASS (redacted assignment identities); ADR-072 route policy = PASS WITH AMENDMENT (`/classes` highlight students); ADR-089 management consolidation = PASS.
+- **Risks:** GLV read scope accidentally becomes write scope (medium/high) → retain per-route `getUserClassIds`/`checkUserClassAccess` and negative write tests; assignment identity leak through enriched class DTO (medium/high) → non-admin projection strips both fields; GLV ép query tab (low/high) → render normalization + server admin-only mutations; filter search bị mất khi đổi tab (low/medium) → typed search schema giữ filter keys; stale deep links (medium/low) → `/classes` compatibility route.
 - **Rollback R1:** khôi phục tab `/management`, links `/classes` và bỏ `view=classes`; không có data migration/recovery.
 
 ### Verification
 
-- Targeted mobile/desktop role-tab + route policy/migration contract **4 files / 29 tests PASS**; combined final change-set target **7 files / 43 tests PASS**. Client/server TypeScript, scoped oxlint zero-warning, design-system lint **0/119**, production frontend/server build và full serialized regression **275 files / 1,915 tests PASS**. Full lint final retry bị chặn ngoài scope bởi hai file untracked malformed tạo đồng thời trong `server/`. Post-implementation D2 scores giữ nguyên Security 9, Data Integrity 9, Testability 9 — **KEEP**.
+- Baseline consolidation trước amendment: targeted role-tab + route policy/migration contract **4 files / 29 tests PASS**. Amendment + ADR-092 parent boundary được xác minh lại trong security-critical **7 files / 72 tests PASS** và full serialized/coverage **279 files / 1,944 tests PASS**; client/server TypeScript, production build và design-system lint **0/119** PASS. Post-implementation D2 scores Security 9, Privacy 9, Data Integrity 9, Testability 9 — **KEEP**.
+
+---
+
+## ADR-091: Superfast 2D Keyboard Navigation, Cross-Platform Tactile Haptics & Accessible Ergonomics (2026-09-01)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D2. Profile: GENERAL. Reversibility: R1.**
+
+### Problem, evidence và business context
+
+- **Vấn đề Desktop:** Nhập điểm học kỳ và điểm hằng ngày trên máy tính đòi hỏi thao tác chuột nhiều, gây chậm trễ khi chấm bài cho lớp từ 30–60 thiếu nhi. Việc điều hướng phím trước đây chỉ hỗ trợ Enter nhảy 1D tuần tự và thường xuyên kích hoạt re-render thừa khi unmount/remount thẻ input.
+- **Vấn đề Mobile:** Thao tác điểm danh, lưu điểm và toggle trạng thái thiếu phản hồi xúc giác (tactile feedback), khiến người dùng không chắc chắn thao tác đã được ghi nhận. Nhập điểm trên di động thiếu phím tắt 1 chạm cho các mức điểm phổ biến (10, 9, 8, 7, 6, 5).
+- **Vấn đề Trợ Năng (Accessibility):** Người dùng khiếm thị hoặc sử dụng Screen Reader không nhận được thông báo cập nhật điểm tức thời sau khi hoàn tất chỉnh sửa ô ma trận.
+
+### Decision Matrix & Options
+
+| Criterion | Weight | A: Giữ tương tác chuột hiện tại | B: 2D Grid KeyNav + Haptics Engine + WCAG 2.1 Live Announcer | C: Chỉ thêm phím Enter |
+| :--- | ---: | ---: | ---: | ---: |
+| Usability & Speed | 30% | 5 | 9.5 | 6.5 |
+| Accessibility (WCAG) | 20% | 5 | 9.0 | 5.5 |
+| Mobile Ergonomics | 20% | 4 | 9.0 | 4.0 |
+| Reliability & Stability | 15% | 8 | 9.0 | 7.5 |
+| Maintainability | 10% | 8 | 9.0 | 8.0 |
+| Reversibility | 5% | 10 | 9.5 | 9.5 |
+| **Weighted** | **100%** | **5.75 — REJECT** | **9.15 — SELECT** | **6.10 — REJECT** |
+
+### Decision Contract
+
+1. **2D Grid Navigation Engine (`DesktopGradeMatrix.tsx`, `DesktopDailyGradeEntry.tsx`):**
+   - Hỗ trợ đầy đủ phím mũi tên `↑`, `↓`, `←`, `→`, `Enter`, `Shift+Enter`, `Tab`, `Shift+Tab`.
+   - Tọa độ ma trận 2D `data-matrix-row` và `data-matrix-col` cho phép nhảy ô trực tiếp giữa các học sinh và các cột điểm mà không cần chuột.
+   - Tự động gọi `.select()` khi focus ô điểm để người dùng gõ đè số mới ngay lập tức mà không cần xóa lùi (backspace).
+   - Khắc phục triệt để hiện tượng re-render thừa: Chỉ cập nhật state và kích hoạt dirty pipeline khi giá trị thực sự thay đổi (`prev !== clamped`).
+   - Tự động chuẩn hóa và giới hạn điểm số trong khoảng hợp lệ `0.0 <= score <= 10.0`, tự động chuyển dấu phẩy `,` thành dấu chấm `.`.
+
+2. **Cross-Platform Haptic Feedback Engine (`src/utils/haptics.ts`):**
+   - Cung cấp các mức phản hồi xúc giác chuẩn hóa: `light()` (8ms), `medium()` (16ms), `success()` ([12, 40, 20]ms), `warning()` ([25, 40, 25]ms), `error()` ([35, 60, 35]ms), `selection()` (4ms).
+   - Tự động nhận diện nền tảng (Web Vibration API vs Native Bridge) và fallback an toàn (no-op).
+   - Tuân thủ quy chuẩn trợ năng: Tự động tắt rung khi hệ điều hành bật chế độ giảm chuyển động (`prefers-reduced-motion: reduce`).
+   - Tích hợp vào: Điểm danh (`MobileAttendanceView`), Nhập điểm nhanh (`MobileDailyGradeEntry`), Xuất Excel & Mở rộng thẻ (`MobileGradeBoard`).
+
+3. **1-Tap Quick Scores & Screen Reader Announcer:**
+   - Cung cấp dãy nút bấm 1 chạm `[10]`, `[9]`, `[8]`, `[7]`, `[6]`, `[5]` trên giao diện di động giúp vào điểm tức thì.
+   - Thêm vùng thông báo vô hình `aria-live="polite"` (`.sr-only`) đọc to kết quả cập nhật điểm cho các phần mềm đọc màn hình.
+
+### Verification & Test Suite
+
+- Unit tests: `src/__tests__/utils/haptics.test.ts` (8 tests PASS), `src/__tests__/components/DesktopGradeMatrixKeyboardNav.test.tsx` (5 tests PASS), `src/__tests__/components/MobileDailyGradeQuickScores.test.tsx` (3 tests PASS).
+- Design System Anti-Drift: **0 violations across 119 files** (`npm run lint:ds`).
+- Production Build: `tsc -b && vite build` hoàn tất sạch sẽ trong 4.96s.
+- Full regression/coverage trên snapshot hardening ADR-092 trước các thay đổi E2E song song: **279 files / 1,944 tests PASS**; coverage threshold PASS. E2E đang được phát triển ở phiên riêng nên không được suy diễn từ bằng chứng này.
+
+---
+
+## ADR-092: Comprehensive Security, Native Privacy & Delivery Hardening (2026-09-01)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profile: SECURITY. Reversibility: R1.**
+
+### Problem, evidence và authoritative contract
+
+Audit E1–E4 xác nhận bốn gap liên quan: (1) staff roster parish-wide ở ADR-090 bị triển khai chỉ với `authMiddleware`, cho phép `phuhuynh` đọc list/detail PII cùng tenant; (2) Vercel static HTML không nhận security headers của Hono, theme boot dùng inline script và `/health` rơi vào SPA rewrite; (3) refresh bootstrap không có timeout trong khi Render free có cold start; (4) Android cho backup app data và FileProvider expose toàn external storage, iOS khai báo microphone dù OMR luôn `audio:false`. Inventory tài liệu cũng drift khỏi code hiện tại.
+
+Business rule là **CONFIRMED**: roster toàn giáo xứ chỉ dành cho `admin|chunhiem|phuta`; phụ huynh chỉ đọc con qua `/api/parents/my-children`. Không có thay đổi schema hoặc domain scoring/offline semantics.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: vá riêng lỗi parent | B: hardening theo pha | C: rewrite/major-upgrade đồng loạt |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 35% | 7 | 9 | 6 |
+| Data Integrity | 20% | 8 | 9 | 6 |
+| Reliability | 15% | 6 | 8 | 5 |
+| Testability | 10% | 7 | 9 | 5 |
+| Maintainability | 10% | 6 | 8 | 5 |
+| Operational Fit | 5% | 8 | 8 | 4 |
+| Reversibility | 5% | 10 | 9 | 3 |
+| **Weighted** | **100%** | **7.20 — REJECT** | **8.65 — SELECT** | **5.45 — REJECT** |
+
+A không xử lý static/native boundary đã xác nhận. C tăng blast radius, không có migration/recovery need và thất bại hard gate. B là thay đổi additive/config nhỏ, rollback bằng redeploy và có contract tests.
+
+### Decision contract
+
+1. `GET /api/students` và `GET /api/students/:id` bắt buộc `roleMiddleware('admin','chunhiem','phuta')`; tenant query giữ nguyên. Negative test khóa parent 403 ở cả list/detail; staff parish-wide read và class-scoped write tests vẫn giữ.
+2. Vercel áp CSP không cho inline script/eval; style attribute được tách bằng `style-src-attr`, OMR camera được giữ `camera=(self)`, microphone/geolocation bị tắt. Pre-paint theme chuyển sang `/theme-boot.js`; `/health` rewrite đặt trước SPA catch-all.
+3. Refresh bootstrap dùng timeout 65 giây: đủ một cửa sổ cold start quan sát được, nhưng bounded. Paid always-on/keep-warm là quyết định vận hành ngoài repo và không được tự kích hoạt.
+4. Android `allowBackup=false` cộng rule loại mọi cloud/D2D domain; FileProvider chỉ app-specific external files/cache; khai báo CAMERA optional để đường tải ảnh vẫn dùng được trên thiết bị không camera. iOS/Android/Capacitor dùng label Catevia và không xin microphone.
+5. Ba auth/lock surface dùng logo 192px sẵn có thay PNG 1,288,526 byte; không đổi asset brand/style. CI chạy `test:security-critical` trước full coverage.
+6. Không ép override `uuid`, không rollback Capacitor và chưa nâng `drizzle-kit`: `npm audit --omit=dev` sạch; 7 moderate chỉ thuộc dev toolchain, trong khi bản mới/override chưa loại bỏ chắc chắn chuỗi transitive và có thể phá native/schema CLI.
+
+### Gates, compatibility, risk và rollback
+
+- **D3 hard gates (post-change):** Security **9 PASS**; Privacy **9 PASS**; Data Integrity **9 PASS**. Evidence riêng: middleware/test RBAC; backup/data-extraction + minimal permissions; không đổi writer/schema và class/tenant negative tests.
+- **ADR compatibility:** ADR-022 parent portal PASS; ADR-029 native shell PASS WITH AMENDMENT; ADR-031 tenant isolation PASS; ADR-045 minimization PASS; ADR-056 Render/Turso PASS; ADR-072 route policy PASS; ADR-085 biometric privacy PASS; ADR-090 parish roster PASS WITH AMENDMENT. CSP giữ đúng A-NEW-23 (`style-src-attr` tách riêng).
+- **Risks:** CSP block asset hợp lệ (medium/high) → contract + production build + post-deploy browser smoke; backup rule/OEM drift (low/high) → manifest/Gradle verification + physical-device gate; 65s wait trên outage (medium/medium) → abort và offline fallback; FileProvider consumer ẩn (low/medium) → dependency/source search không thấy camera/file plugin, Android build gate.
+- **Rollback:** R1, revert config/middleware/assets and redeploy; không có data migration. Không được rollback riêng parent role guard.
+
+### Verification và residual gates
+
+Targeted RBAC + deployment/native contracts **6 files / 49 tests PASS**; security-critical CI gate **7 files / 72 tests PASS**. Full serialized regression và coverage đều **279 files / 1,944 tests PASS**; coverage Statements **69.90%**, Branches **59.93%**, Functions **63.23%**, Lines **72.26%**. Oxlint PASS, design-system **0/119**, client/server TypeScript + production builds PASS, production dependency audit **0 vulnerability**. `cap sync android` nhận 2 plugin; Android `assembleDebug` **BUILD SUCCESSFUL / 153 tasks**, APK 11,123,999 bytes và merged manifest xác nhận backup fail-closed + CAMERA. Logo production giảm từ 1,288,526 xuống 63,897 byte (khoảng 95%). Physical camera/biometric behavior, signed Android/iOS release, post-deploy CSP headers, Render always-on cost decision, OMR field corpus và retention policy vẫn **NOT CONFIRMED / EXTERNAL GATE**.
+
+---
+
+## ADR-093: Risk-Based, Outcome-Oriented E2E Testing Architecture (2026-09-01)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profile: ARCHITECTURE. Reversibility: R1.**
+
+### Problem, evidence và business classification
+
+Repository đã có Playwright, backend thật và isolated SQLite sandbox nhưng browser inventory chủ yếu là smoke, route visibility, accessibility và visual capture. Baseline trước thay đổi có 62 declared tests, 61 executed: 60 PASS, 1 brand assertion FAIL và 1 tenant-offline test skip. Hai attendance test có mutation nhưng chưa reload/API read-back. Vì vậy claim “E2E bảo vệ nghiệp vụ production” là **CONFIRMED INSUFFICIENT**, không được suy ra từ số lượng test.
+
+Các journey auth/session, parent ownership, role/class scope, persisted student/class/grade/finance outcome, academic lock, offline attendance và exam finalization được phân loại **CONFIRMED high impact** từ route/service/schema/test inventory. Physical OMR accuracy, camera latency và device behavior là **NOT CONFIRMED by browser E2E** và tiếp tục thuộc ADR-060 field gate.
+
+### Options và Decision Matrix
+
+| Criterion | Weight | A: giữ smoke suite hiện tại | B: layered risk-based suite | C: reset-per-test + full browser matrix mọi journey |
+| :--- | ---: | ---: | ---: | ---: |
+| Maintainability | 20% | 5 | 9 | 6 |
+| Reliability | 15% | 5 | 9 | 9 |
+| Security & Privacy | 15% | 7 | 9 | 9 |
+| Data Integrity | 15% | 6 | 9 | 10 |
+| Reversibility | 15% | 10 | 9 | 6 |
+| Performance | 10% | 8 | 8 | 3 |
+| Observability | 5% | 5 | 9 | 8 |
+| Operational Fit | 5% | 7 | 9 | 4 |
+| **Weighted** | **100%** | **6.60 — REJECT** | **8.90 — SELECT** | **7.20 — REJECT** |
+
+A không bảo vệ business outcome. C có isolation mạnh nhưng nhân runtime/maintenance cost mà không tăng tương xứng risk coverage. B giữ một sandbox riêng mỗi run, unique namespace mỗi test/retry, API-assisted arrange và authoritative read-back; logic matrix lớn tiếp tục ở unit/integration.
+
+### Decision contract
+
+1. Giữ Playwright và harness hiện hữu. Mỗi run chỉ được dùng database OS-temp có owner marker; remote DB/env và development DB bị fail-closed.
+2. Critical test phải có UI action thật và assert outcome qua response + API/database projection và/hoặc reload. Render-only assertion không đủ.
+3. Seed chỉ chứa synthetic data và hai parent scope khác nhau. Test mutation dùng key theo `testId:retry`, không dùng output từ test khác, không phụ thuộc thứ tự.
+4. Không dùng arbitrary delay. Chỉ chờ observable state (`waitForResponse`, URL, ARIA state, IndexedDB hoặc authoritative `expect.poll`). Retry chỉ tạo diagnostic artifact; CI bật `failOnFlakyTests`.
+5. PR chạy `@critical`; main/push/manual chạy full suite. Chromium desktop là mutation baseline; mobile viewport chỉ áp dụng cho Parent và offline attendance. Không nhân mutation suite sang browser khác khi chưa có risk evidence.
+6. Server RBAC/tenant/domain service là authority. Negative test gửi payload hợp lệ; UI redirect/hide chỉ là UX assertion bổ sung.
+7. Grade/attendance store phải await enqueue trước khi trigger sync. Filter URL phải hydrate ở first mount để class-scoped reload không đổi outcome.
+8. Camera detector, QR/OMR geometry, multi-frame consensus, field corpus, native biometric/camera và exhaustive lifecycle/RBAC/OCC remain lower-layer or external gates.
+
+### Compatibility, hard gates và rollback
+
+- **ADR compatibility:** ADR-016 offline sync PASS WITH AMENDMENT; ADR-022 Parent Portal PASS; ADR-023/049/060/067 Smart Exam/OMR PASS; ADR-031 tenant isolation PASS; ADR-045 memory-only access token PASS; ADR-051 server finalization PASS; ADR-072 route policy PASS; ADR-082 workspaces PASS; ADR-090 class-scope authority PASS.
+- **D3 hard gates:** Security **9 PASS**; Privacy **9 PASS** (synthetic data, no production DB/artifacts); Data Integrity **9 PASS** (real writer/read-back, lock and server-score assertions); Testability **9 PASS**.
+- **Risk:** shared run DB có thể tích lũy records giữa tests (medium) → unique namespaces, no cross-test reads và workers=1; first-use Vite transform (low) → wait semantic readiness, không sleep; broad browser matrix runtime (medium) → tagged CI split; test credential leakage (low) → fixed sandbox-only accounts.
+- **Rollback:** R1, revert tests/config/docs and the two behavior-preserving client fixes; no schema/data migration. Không rollback riêng enqueue-before-sync nếu queue-race evidence còn hợp lệ.
+
+### Verification and reassessment
+
+Critical suite **10/10 PASS** trong 44,7 giây từ sandbox sạch. Full Playwright **72/72 PASS** trong 5,4 phút, không skip, không flaky retry và cleanup thành công. Targeted store/sandbox/component regressions PASS; full Vitest diagnostic trước fixture fix đạt 1.943 PASS/5 FAIL, sau đó hai file từng fail chạy độc lập **21/21 PASS**. TypeScript, oxlint và design-system lint PASS sau production edits; CI workflow đã được kiểm tra. Theo yêu cầu không chạy lại test đã pass, full Vitest không được lặp lần ba sau patch chỉ ở fixture test. D3 post-check: **KEEP**, hard gates giữ 9/9/9/9. Strategy SSOT: `docs/08_E2E_TESTING_STRATEGY.md`.
 

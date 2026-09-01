@@ -22,7 +22,7 @@ import { useSyncEngine } from '../../hooks/useSyncEngine'
 import { useStoreErrorWatcher } from '../../hooks/useStoreErrorWatcher'
 import { useScrollRestoration } from '../../hooks/useScrollRestoration'
 import { useMobileRoutePreload } from '../../hooks/useMobileRoutePreload'
-import { useClassStore } from '../../stores/classStore'
+import { getFilteredClassList, useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ErrorBoundary } from './ErrorBoundary'
 import { PageTransition } from './PageTransition'
@@ -102,9 +102,9 @@ export function RootLayout() {
     }
   }, [semesterRestricted, semesterReady, openSemester, selectedSemester, setSelectedSemester])
 
-  // Non-admin users (chunhiem/phuta/phuhuynh) are scoped to their assigned
-  // classes server-side, so filters must stay at 'all' to avoid stale
-  // persisted class/branch selections rendering empty lists.
+  // GLV may browse the parish-wide roster by class on /students. Keep that
+  // selection on the roster only; other staff modules remain class-scoped at
+  // the server and must not inherit a stale persisted class filter.
   const authReady = useAuthStore(s => s.authReady)
 
   React.useEffect(() => {
@@ -128,10 +128,10 @@ export function RootLayout() {
   }, [accessibleWorkspaces, navigate, workspaceStorageKey])
   React.useEffect(() => {
     if (currentUser && currentUser.role !== 'admin') {
-      if (selectedClassId !== 'all') setSelectedClassId('all')
+      if (pathname !== '/students' && selectedClassId !== 'all') setSelectedClassId('all')
       if (selectedBranchId !== 'all') setSelectedBranchId('all')
     }
-  }, [currentUser, selectedClassId, setSelectedClassId, selectedBranchId, setSelectedBranchId])
+  }, [currentUser, pathname, selectedClassId, setSelectedClassId, selectedBranchId, setSelectedBranchId])
 
   const {
     isStudentModalOpen,
@@ -153,7 +153,18 @@ export function RootLayout() {
   const mode = useEffectiveMode()
   useScrollRestoration(pathname, mode)
   const preloadMobileTab = useMobileRoutePreload(mode, currentUser?.role)
-  const classList = useClassStore(s => s.getClassList)()
+  const rawClasses = useClassStore(s => s.classes)
+  const classList = React.useMemo(() => getFilteredClassList(rawClasses), [rawClasses])
+
+  // A class deep-link is valid only while that class exists in the current
+  // tenant snapshot. Tenant changes can leave ?classId from the previous
+  // parish in the URL; clear it once the authoritative class list arrives.
+  React.useEffect(() => {
+    if (selectedClassId === 'all' || classList.length === 0) return
+    if (!classList.some(classItem => classItem.id === selectedClassId)) {
+      setSelectedClassId('all')
+    }
+  }, [classList, selectedClassId, setSelectedClassId])
 
   if (!authReady) {
     return (

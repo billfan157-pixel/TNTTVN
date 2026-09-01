@@ -16,7 +16,7 @@ import type { GradeRecord, Student } from '../../types';
 import { useClassStore, getFilteredClassList } from '../../stores/classStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/academicYear';
-import { FileSpreadsheet,  CheckCircle,    Calculator, Download, Upload, RefreshCw,   Settings2 } from 'lucide-react';
+import { FileSpreadsheet, CheckCircle, Calculator, Download, Upload, RefreshCw, Settings2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { useSyncStore } from '../../stores/syncStore';
@@ -32,6 +32,15 @@ interface RowData {
   index: number
   currentRec: Partial<GradeRecord>
 }
+
+const SCORE_MATRIX_FIELDS = [
+  { id: 'scoreOral', header: 'Miệng', label: 'điểm miệng' },
+  { id: 'score15m', header: '15P', label: 'điểm 15 phút' },
+  { id: 'score1Period', header: '1 Tiết', label: 'điểm một tiết' },
+  { id: 'scoreMidterm', header: 'Giữa Kỳ', label: 'điểm giữa kỳ' },
+  { id: 'scoreFinal', header: 'Cuối Kỳ', label: 'điểm cuối kỳ' },
+  { id: 'scoreDaoDuc', header: 'Đạo Đức', label: 'điểm đạo đức' },
+] as const;
 
 export const DesktopGradeMatrix: React.FC = () => {
   const { can } = useAuth();
@@ -56,6 +65,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [srAnnouncement, setSrAnnouncement] = useState<string>('');
   const syncPendingCount = useSyncStore(s => s.pendingCount);
   const formulaWeights = useSettingsStore(s => s.settings.gradeWeights);
   const rawClasses = useClassStore(s => s.classes);
@@ -77,27 +87,27 @@ export const DesktopGradeMatrix: React.FC = () => {
   const dirtyIdsRef = useRef<Set<string>>(new Set());
 
   const saveDirtyGrades = useCallback(async () => {
-    const ids = dirtyIdsRef.current
-    if (ids.size === 0) return
-    const records: GradeRecord[] = []
+    const ids = dirtyIdsRef.current;
+    if (ids.size === 0) return;
+    const records: GradeRecord[] = [];
     ids.forEach(id => {
-      const rec = matrixDataRef.current[id]
-      if (rec) records.push(rec as GradeRecord)
-    })
-    ids.clear()
-    if (records.length === 0) return
-    await batchSaveGrades(records)
-    setIsDirty(false)
-    setIsSaved(true)
-    setLastSavedTime(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
-  }, [batchSaveGrades])
+      const rec = matrixDataRef.current[id];
+      if (rec) records.push(rec as GradeRecord);
+    });
+    ids.clear();
+    if (records.length === 0) return;
+    await batchSaveGrades(records);
+    setIsDirty(false);
+    setIsSaved(true);
+    setLastSavedTime(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  }, [batchSaveGrades]);
 
-  const saveDirtyRef = useRef(saveDirtyGrades)
-  saveDirtyRef.current = saveDirtyGrades
+  const saveDirtyRef = useRef(saveDirtyGrades);
+  saveDirtyRef.current = saveDirtyGrades;
 
   useEffect(() => {
-    return () => { void saveDirtyRef.current() }
-  }, [])
+    return () => { void saveDirtyRef.current(); };
+  }, []);
 
   const currentInitKey = `${selectedClassId}_${selectedSemester}`;
   
@@ -106,8 +116,8 @@ export const DesktopGradeMatrix: React.FC = () => {
   // đổi tham chiếu) chạy lại effect: setMatrixData(initialData) reset dữ liệu đang gõ
   // dở + flush thừa — tạo re-render storm nuôi loop #185 (HeaderBar unstable selector).
   useEffect(() => {
-    void saveDirtyRef.current()
-    dirtyIdsRef.current.clear()
+    void saveDirtyRef.current();
+    dirtyIdsRef.current.clear();
     const normAY = matrixAcademicYear;
     const initialData: Record<string, Partial<GradeRecord>> = {};
     
@@ -127,26 +137,26 @@ export const DesktopGradeMatrix: React.FC = () => {
   // chỉnh sửa dở giữ nguyên) và chỉ trong class/học kỳ hiện tại — không rebuild toàn
   // bộ matrix, không mất dữ liệu chưa lưu.
   useEffect(() => {
-    const normAY = matrixAcademicYear
-    const studentIds = new Set(filteredStudents.map(s => s.id))
+    const normAY = matrixAcademicYear;
+    const studentIds = new Set(filteredStudents.map(s => s.id));
     setMatrixData(prev => {
-      let changed = false
-      const next: Record<string, Partial<GradeRecord>> = { ...prev }
+      let changed = false;
+      const next: Record<string, Partial<GradeRecord>> = { ...prev };
       for (const g of grades) {
-        if (!studentIds.has(g.studentId)) continue
-        if (g.semester !== selectedSemester) continue
-        if (normalizeAcademicYear(g.academicYear) !== normAY) continue
-        if (dirtyIdsRef.current.has(g.studentId)) continue
-        if (next[g.studentId] === g) continue
-        next[g.studentId] = { ...g }
-        changed = true
+        if (!studentIds.has(g.studentId)) continue;
+        if (g.semester !== selectedSemester) continue;
+        if (normalizeAcademicYear(g.academicYear) !== normAY) continue;
+        if (dirtyIdsRef.current.has(g.studentId)) continue;
+        if (next[g.studentId] === g) continue;
+        next[g.studentId] = { ...g };
+        changed = true;
       }
-      return changed ? next : prev
-    })
-  }, [grades, filteredStudents, selectedSemester, matrixAcademicYear])
+      return changed ? next : prev;
+    });
+  }, [grades, filteredStudents, selectedSemester, matrixAcademicYear]);
 
   const updateField = useCallback((studentId: string, field: keyof GradeRecord, val: any) => {
-    dirtyIdsRef.current.add(studentId)
+    dirtyIdsRef.current.add(studentId);
     setMatrixData(prev => {
       const current = prev[studentId] || { studentId, semester: selectedSemester, academicYear: matrixAcademicYear };
       return {
@@ -163,40 +173,127 @@ export const DesktopGradeMatrix: React.FC = () => {
     setIsSaved(false);
   }, [selectedSemester, matrixAcademicYear]);
 
-  const handleScoreBlur = useCallback((e: React.FocusEvent<HTMLInputElement>, studentId: string, field: keyof GradeRecord) => {
-    const raw = e.target.value;
+  const focusMatrixCell = useCallback((rowIdx: number, colIdx: number): boolean => {
+    if (rowIdx < 0 || colIdx < 0 || colIdx >= SCORE_MATRIX_FIELDS.length) return false;
+    const target = document.querySelector<HTMLInputElement>(
+      `input[data-matrix-cell="true"][data-matrix-row="${rowIdx}"][data-matrix-col="${colIdx}"]`
+    );
+    if (target && !target.disabled) {
+      target.focus();
+      target.select();
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleScoreBlur = useCallback((
+    e: React.FocusEvent<HTMLInputElement>,
+    studentId: string,
+    studentLabel: string,
+    field: keyof GradeRecord,
+    scoreLabel: string
+  ) => {
+    const raw = e.target.value.trim();
+    const prev = matrixDataRef.current[studentId]?.[field];
     if (raw === '') {
-      updateField(studentId, field, null);
+      if (prev !== null && prev !== undefined) {
+        updateField(studentId, field, null);
+        setSrAnnouncement(`Đã xóa ${scoreLabel} của ${studentLabel}`);
+      }
       return;
     }
     const val = parseFloat(raw.replace(',', '.'));
     if (!isNaN(val)) {
-      updateField(studentId, field, val);
+      const clamped = Math.max(0, Math.min(10, Math.round(val * 10) / 10));
+      if (prev !== clamped) {
+        updateField(studentId, field, clamped);
+        e.target.value = String(clamped);
+        setSrAnnouncement(`Đã lưu ${scoreLabel} ${clamped} cho ${studentLabel}`);
+      }
     } else {
-      const prev = matrixDataRef.current[studentId]?.[field];
       e.target.value = prev === null || prev === undefined ? '' : String(prev);
     }
   }, [updateField]);
 
-  const handleScoreKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, _studentId: string, _field: keyof GradeRecord) => {
-    if (e.key === 'Enter') {
+  const handleScoreKeyDown = useCallback((
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIdx: number,
+    colIdx: number,
+    _studentId: string,
+    _field: keyof GradeRecord
+  ) => {
+    // 1. Enter / ArrowDown -> Di chuyển xuống học sinh tiếp theo (cùng cột điểm)
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       e.currentTarget.blur();
-      const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-matrix-cell="true"]'));
-      const idx = inputs.indexOf(e.currentTarget);
-      if (idx !== -1 && idx + 1 < inputs.length) {
-        inputs[idx + 1].focus();
-        inputs[idx + 1].select();
+      if (!focusMatrixCell(rowIdx + 1, colIdx)) {
+        focusMatrixCell(0, colIdx + 1);
       }
+      return;
     }
-  }, []);
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      focusMatrixCell(rowIdx + 1, colIdx);
+      return;
+    }
+
+    // 2. Shift+Enter / ArrowUp -> Di chuyển lên học sinh trước đó (cùng cột điểm)
+    if ((e.key === 'Enter' && e.shiftKey) || e.key === 'ArrowUp') {
+      e.preventDefault();
+      focusMatrixCell(rowIdx - 1, colIdx);
+      return;
+    }
+
+    // 3. ArrowRight / Tab (không shift) -> Di chuyển sang cột điểm tiếp theo
+    if (e.key === 'ArrowRight') {
+      const input = e.currentTarget;
+      const isAtEnd = input.selectionStart === input.value.length || (input.selectionStart === 0 && input.selectionEnd === input.value.length);
+      if (isAtEnd) {
+        e.preventDefault();
+        if (!focusMatrixCell(rowIdx, colIdx + 1)) {
+          focusMatrixCell(rowIdx + 1, 0);
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      if (!focusMatrixCell(rowIdx, colIdx + 1)) {
+        focusMatrixCell(rowIdx + 1, 0);
+      }
+      return;
+    }
+
+    // 4. ArrowLeft / Shift+Tab -> Di chuyển sang cột điểm trước đó
+    if (e.key === 'ArrowLeft') {
+      const input = e.currentTarget;
+      const isAtStart = input.selectionStart === 0 || (input.selectionStart === 0 && input.selectionEnd === input.value.length);
+      if (isAtStart) {
+        e.preventDefault();
+        if (!focusMatrixCell(rowIdx, colIdx - 1)) {
+          focusMatrixCell(rowIdx - 1, SCORE_MATRIX_FIELDS.length - 1);
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      if (!focusMatrixCell(rowIdx, colIdx - 1)) {
+        focusMatrixCell(rowIdx - 1, SCORE_MATRIX_FIELDS.length - 1);
+      }
+      return;
+    }
+  }, [focusMatrixCell]);
 
   useEffect(() => {
     if (!isDirty) return;
     // GRADE-SYNC-1 (2026-08-14): debounce 800ms (trước 2s). Chỉ gửi dirty records;
     // phần chưa kịp gửi được flush khi unmount/chuyển lớp (saveDirtyRef effect).
     const timer = setTimeout(() => {
-      void saveDirtyRef.current()
+      void saveDirtyRef.current();
     }, 800);
     return () => clearTimeout(timer);
   }, [isDirty, saveDirtyGrades]);
@@ -245,14 +342,14 @@ export const DesktopGradeMatrix: React.FC = () => {
       cell: info => <span className="font-extrabold text-text-main text-base">{info.getValue()}</span>,
       size: 240,
     }),
-    ...(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'] as const).map(field => 
-      columnHelper.accessor(row => row.currentRec[field], {
-        id: field,
-        header: field === 'scoreOral' ? 'Miệng' : field === 'score15m' ? '15P' : field === 'score1Period' ? '1 Tiết' : field === 'scoreMidterm' ? 'Giữa Kỳ' : field === 'scoreFinal' ? 'Cuối Kỳ' : 'Đạo Đức',
+    ...SCORE_MATRIX_FIELDS.map((scoreDef, colIdx) =>
+      columnHelper.accessor(row => row.currentRec[scoreDef.id], {
+        id: scoreDef.id,
+        header: scoreDef.header,
         cell: info => {
           const val = info.getValue();
           const { student } = info.row.original;
-          const scoreLabel = field === 'scoreOral' ? 'điểm miệng' : field === 'score15m' ? 'điểm 15 phút' : field === 'score1Period' ? 'điểm một tiết' : field === 'scoreMidterm' ? 'điểm giữa kỳ' : field === 'scoreFinal' ? 'điểm cuối kỳ' : 'điểm đạo đức';
+          const scoreLabel = scoreDef.label;
           const studentLabel = `${student.holyName ? `${student.holyName} ` : ''}${student.fullName}`;
           return (
             <input
@@ -260,15 +357,14 @@ export const DesktopGradeMatrix: React.FC = () => {
               inputMode="decimal"
               aria-label={`Nhập ${scoreLabel} cho ${studentLabel}`}
               data-matrix-cell="true"
-              disabled={!canEditGrades || ((!isAdmin || !isOverrideModeEnabled) && field !== 'scoreDaoDuc' && field !== 'scoreOral')}
-              // P0.7 (audit desktop 2026-08-22): key theo giá trị → khi server-sync/import
-              // merge điểm mới vào matrixData (record KHÔNG dirty), input remount và hiển thị
-              // đúng giá trị mới thay vì giữ defaultValue stale đến khi remount trang.
-              // Trong lúc đang gõ record là dirty nên không bị merge → key ổn định, focus giữ nguyên.
-              key={`${student.id}:${field}:${val === null || val === undefined ? '' : String(val)}`}
+              data-matrix-row={info.row.index}
+              data-matrix-col={colIdx}
+              disabled={!canEditGrades || ((!isAdmin || !isOverrideModeEnabled) && scoreDef.id !== 'scoreDaoDuc' && scoreDef.id !== 'scoreOral')}
+              key={`${student.id}:${scoreDef.id}`}
               defaultValue={val === null || val === undefined ? '' : String(val)}
-              onBlur={e => handleScoreBlur(e, student.id, field)}
-              onKeyDown={e => handleScoreKeyDown(e, student.id, field)}
+              onFocus={e => e.currentTarget.select()}
+              onBlur={e => handleScoreBlur(e, student.id, studentLabel, scoreDef.id, scoreLabel)}
+              onKeyDown={e => handleScoreKeyDown(e, info.row.index, colIdx, student.id, scoreDef.id)}
               className="form-input w-14 h-9 text-center text-base font-black bg-surface-card text-text-main border border-surface-border rounded-xl focus:border-parish-primary focus:ring-2 focus:ring-parish-primary/20 outline-none transition-all disabled:bg-surface-app disabled:text-text-placeholder shadow-xs"
             />
           );
@@ -335,6 +431,11 @@ export const DesktopGradeMatrix: React.FC = () => {
 
   return (
     <div className="product-view space-y-6 pb-10">
+      {/* Hidden Live Announcer for Screen Readers */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {srAnnouncement}
+      </div>
+
       {/* Modern Header */}
       <PageHeader
         icon={<FileSpreadsheet size={22} />}
@@ -418,7 +519,7 @@ export const DesktopGradeMatrix: React.FC = () => {
         }
       />
 
-      {/* Sync Status Banner — PHA 5.6: card chuẩn DS thay strip near-black */}
+      {/* Sync Status Banner */}
       <div className="view-toolbar animate-in fade-in duration-500">
         <div className="flex items-center gap-3">
           {isDirty ? (
@@ -439,7 +540,7 @@ export const DesktopGradeMatrix: React.FC = () => {
           )}
         </div>
         <div className="text-[10px] font-bold text-[var(--color-text-muted)] italic">
-          Mẹo: Nhấn Enter để xuống dòng, Tab để sang ô tiếp theo.
+          Mẹo phím tắt: Dùng các phím mũi tên ↑ ↓ ← →, Enter, Tab để di chuyển và nhập điểm siêu tốc.
         </div>
       </div>
 

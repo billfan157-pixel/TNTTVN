@@ -21,10 +21,12 @@ const ayYear = `2025-${PREFIX.toString().slice(-4)}`
 
 const adminAToken = generateTokens({ userId: `admA-${PREFIX}`, username: `admA_${PREFIX}`, role: 'admin', parishId: parishA }).accessToken
 const chunhiemAToken = generateTokens({ userId: `cnA-${PREFIX}`, username: `cnA_${PREFIX}`, role: 'chunhiem', parishId: parishA }).accessToken
+const parentAToken = generateTokens({ userId: `parentA-${PREFIX}`, username: `parentA_${PREFIX}`, role: 'phuhuynh', parishId: parishA }).accessToken
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 const STUDENT_B = `stB-${PREFIX}`
+const STUDENT_A1 = `stA1-${PREFIX}`
 const STUDENT_A2 = `stA2-${PREFIX}`
 
 describe('Multi-Tenant Isolation & Class-Scope Security Tests (Plan v2 §5)', () => {
@@ -33,6 +35,7 @@ describe('Multi-Tenant Isolation & Class-Scope Security Tests (Plan v2 §5)', ()
     await db.insert(users).values([
       { id: `admA-${PREFIX}`, username: `admA_${PREFIX}`, fullName: 'Admin A', passwordHash: 'hash', role: 'admin', parishId: parishA },
       { id: `cnA-${PREFIX}`, username: `cnA_${PREFIX}`, fullName: 'Catechist A CN', passwordHash: 'hash', role: 'chunhiem', parishId: parishA },
+      { id: `parentA-${PREFIX}`, username: `parentA_${PREFIX}`, fullName: 'Parent A', passwordHash: 'hash', role: 'phuhuynh', parishId: parishA },
     ]).onConflictDoNothing()
 
     // ── Branches / Academic Years ──
@@ -63,7 +66,7 @@ describe('Multi-Tenant Isolation & Class-Scope Security Tests (Plan v2 §5)', ()
 
     // ── Students ──
     await db.insert(students).values([
-      { id: `stA1-${PREFIX}`, code: `STA1-${PREFIX}`, holyName: 'Giuse', fullName: 'Nguyen A1', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '0901', address: 'X', branch: 'AuNhi', classId: `clA1-${PREFIX}`, parishId: parishA },
+      { id: STUDENT_A1, code: `STA1-${PREFIX}`, holyName: 'Giuse', fullName: 'Nguyen A1', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '0901', address: 'X', branch: 'AuNhi', classId: `clA1-${PREFIX}`, parishId: parishA },
       { id: STUDENT_A2, code: `STA2-${PREFIX}`, holyName: 'Maria', fullName: 'Nguyen A2', gender: 'Nữ', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '0902', address: 'X', branch: 'AuNhi', classId: `clA2-${PREFIX}`, parishId: parishA },
       { id: STUDENT_B, code: `STB-${PREFIX}`, holyName: 'Phanxico', fullName: 'Nguyen B', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '0903', address: 'X', branch: 'AuNhi', classId: `clB-${PREFIX}`, parishId: parishB },
     ]).onConflictDoNothing()
@@ -158,19 +161,55 @@ describe('Multi-Tenant Isolation & Class-Scope Security Tests (Plan v2 §5)', ()
     })
   })
 
-  describe('3. Class-scope — chủ nhiệm lớp X1 cô lập khỏi lớp X2 (cùng giáo xứ)', () => {
-    it('chủ nhiệm A không đọc được student thuộc lớp không được phân công (403)', async () => {
+  describe('3. Roster read / class-write scope — chủ nhiệm lớp X1', () => {
+    it('phụ huynh bị chặn khỏi cả roster và student detail dành cho staff', async () => {
+      const listRes = await studentsRouter.request('/?limit=100', {
+        headers: { Authorization: `Bearer ${parentAToken}` },
+      })
+      expect(listRes.status).toBe(403)
+
+      const detailRes = await studentsRouter.request(`/${STUDENT_A1}`, {
+        headers: { Authorization: `Bearer ${parentAToken}` },
+      })
+      expect(detailRes.status).toBe(403)
+    })
+
+    it('chủ nhiệm A đọc được roster và chi tiết thiếu nhi của mọi lớp cùng giáo xứ', async () => {
+      const listRes = await studentsRouter.request('/?limit=100', {
+        headers: { Authorization: `Bearer ${chunhiemAToken}` },
+      })
+      expect(listRes.status).toBe(200)
+      const listJson = await listRes.json() as { data: Array<{ id: string }> }
+      expect(listJson.data.map(student => student.id)).toEqual(expect.arrayContaining([STUDENT_A1, STUDENT_A2]))
+
       const res = await studentsRouter.request(`/${STUDENT_A2}`, {
         headers: { Authorization: `Bearer ${chunhiemAToken}` },
       })
-      expect(res.status).toBe(403)
+      expect(res.status).toBe(200)
+      const json = await res.json() as { data: { id: string } }
+      expect(json.data.id).toBe(STUDENT_A2)
     })
 
-    it('chủ nhiệm A không xem được class không được phân công (403)', async () => {
+    it('chủ nhiệm A xem được metadata lớp khác nhưng không thấy danh sách GLV phân công', async () => {
       const res = await classesRouter.request(`/clA2-${PREFIX}`, {
         headers: { Authorization: `Bearer ${chunhiemAToken}` },
       })
-      expect(res.status).toBe(403)
+      expect(res.status).toBe(200)
+      const json = await res.json() as { data: Record<string, unknown> }
+      expect(json.data).not.toHaveProperty('homeroomTeacher')
+      expect(json.data).not.toHaveProperty('assistants')
+    })
+
+    it('class catalog chỉ đánh dấu assignment của chính tài khoản chủ nhiệm', async () => {
+      const res = await classesRouter.request('/', {
+        headers: { Authorization: `Bearer ${chunhiemAToken}` },
+      })
+      expect(res.status).toBe(200)
+      const json = await res.json() as { data: Array<{ id: string; assignedToCurrentUser?: boolean }> }
+      const ownClass = json.data.find(item => item.id === `clA1-${PREFIX}`)
+      const otherClass = json.data.find(item => item.id === `clA2-${PREFIX}`)
+      expect(ownClass?.assignedToCurrentUser).toBe(true)
+      expect(otherClass?.assignedToCurrentUser).toBe(false)
     })
 
     it('chủ nhiệm A không upsert điểm cho student lớp không được phân công (403)', async () => {

@@ -18,7 +18,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore'
 import { useFilterStore } from '../../stores/filterStore'
-import { useClassStore } from '../../stores/classStore'
+import { getFilteredClassList, scopeClassesForAssignedWrites, useClassStore } from '../../stores/classStore'
 import { useAuth } from '../../hooks/useAuth'
 import { getDefaultDate } from '../../utils/getDefaultDate'
 import { getLiturgicalDay } from '../../utils/liturgicalEngine'
@@ -29,6 +29,7 @@ import { MobileLeaveRequests } from './MobileLeaveRequests'
 import { MobileAttendanceSummaryView } from './MobileAttendanceSummaryView'
 import type { AttendanceType, Student } from '../../types'
 import { TabPanel, Tabs } from '../common/ui/SelectionControls'
+import { hapticFeedback } from '../../utils/haptics'
 
 type AttendanceStatus = 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
 type AttendanceDraft = { status: AttendanceStatus; note: string }
@@ -65,7 +66,8 @@ export const MobileAttendanceView: React.FC = () => {
   const clearErrors = useAttendanceStore(s => s.clearErrors)
   const pendingCount = useLeaveRequestStore(s => s.pendingCount)
   const fetchPendingCount = useLeaveRequestStore(s => s.fetchPendingCount)
-  const classList = useClassStore(s => s.getClassList)()
+  const rawClasses = useClassStore(s => s.classes)
+  const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses])
   const findClassById = useClassStore(s => s.findClassById)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
@@ -85,9 +87,20 @@ export const MobileAttendanceView: React.FC = () => {
 
   const needsAdminClassSelection = role === 'admin' && selectedClassId === 'all'
 
+  const writableClassList = useMemo(
+    () => scopeClassesForAssignedWrites(classList, role),
+    [classList, role]
+  )
+  const writableClassIds = useMemo(
+    () => new Set(writableClassList.map(classItem => classItem.id)),
+    [writableClassList]
+  )
+
   const filteredStudents = useMemo(
-    () => selectedClassId === 'all' ? students : students.filter(student => student.classId === selectedClassId),
-    [selectedClassId, students]
+    () => selectedClassId === 'all'
+      ? (role === 'admin' ? students : students.filter(student => writableClassIds.has(student.classId)))
+      : students.filter(student => student.classId === selectedClassId && (role === 'admin' || writableClassIds.has(student.classId))),
+    [role, selectedClassId, students, writableClassIds]
   )
 
   const displayedStudents = useMemo(() => {
@@ -158,9 +171,7 @@ export const MobileAttendanceView: React.FC = () => {
   const liturgicalColor = LITURGICAL_COLORS[liturgicalDay.color] || LITURGICAL_COLORS.GREEN
 
   const handleToggle = (studentId: string, status: AttendanceStatus) => {
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      try { navigator.vibrate(8) } catch {}
-    }
+    hapticFeedback.medium()
     setAttendanceMap(previous => ({
       ...previous,
       [studentId]: { ...previous[studentId], status },
@@ -170,9 +181,7 @@ export const MobileAttendanceView: React.FC = () => {
   }
 
   const handleMarkAllPresent = () => {
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      try { navigator.vibrate(12) } catch {}
-    }
+    hapticFeedback.success()
     setAttendanceMap(previous => Object.fromEntries(
       Object.entries(previous).map(([studentId, draft]) => [studentId, { ...draft, status: 'Present' }])
     ))
@@ -181,12 +190,14 @@ export const MobileAttendanceView: React.FC = () => {
   }
 
   const handleOpenNote = (student: Student) => {
+    hapticFeedback.light()
     setEditingNoteStudent(student)
     setNoteInputText(attendanceMap[student.id]?.note || '')
   }
 
   const handleSaveNote = () => {
     if (!editingNoteStudent) return
+    hapticFeedback.light()
     setAttendanceMap(previous => ({
       ...previous,
       [editingNoteStudent.id]: {
@@ -198,6 +209,7 @@ export const MobileAttendanceView: React.FC = () => {
   }
 
   const handleToggleStatusFilter = (status: AttendanceStatus) => {
+    hapticFeedback.light()
     setStatusFilter(current => current === status ? 'all' : status)
   }
 
@@ -212,9 +224,17 @@ export const MobileAttendanceView: React.FC = () => {
       note: draft.note,
     }))
     const result = await batchSaveAttendance(records, date, type)
-    if (!result) return
+    if (!result) {
+      hapticFeedback.error()
+      return
+    }
 
     const unresolvedCount = result.errorCount + result.conflictCount
+    if (unresolvedCount > 0) {
+      hapticFeedback.warning()
+    } else {
+      hapticFeedback.success()
+    }
     setSaveMessage(unresolvedCount > 0
       ? `Đã lưu ${result.successCount}/${result.total}. Còn ${unresolvedCount} mục cần kiểm tra.`
       : `Đã lưu điểm danh cho ${result.successCount} thiếu nhi.`)

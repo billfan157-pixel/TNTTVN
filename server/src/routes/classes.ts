@@ -25,12 +25,21 @@ const classSchema = z.object({
 
 classesRouter.get('/', async (c) => {
   const user = c.get('user') as JwtPayload
-  let list = await getClasses(user.parishId)
-  if (!isAdmin(user)) {
-    const classIds = await getUserClassIds(user.userId, user.parishId)
-    list = list.filter(item => classIds.includes(item.id))
-  }
-  return listResponse(c, list)
+  const list = await getClasses(user.parishId)
+  // Staff need the parish-wide class metadata to label and filter the shared
+  // roster. Only expose whether the current staff member is assigned to each
+  // class so class-scoped workspaces can fail closed; never expose assignment
+  // identities for other classes.
+  const assignedClassIds = isAdmin(user)
+    ? null
+    : new Set(await getUserClassIds(user.userId, user.parishId))
+  const response = assignedClassIds === null
+    ? list
+    : list.map(({ homeroomTeacher: _homeroomTeacher, assistants: _assistants, ...classItem }) => ({
+        ...classItem,
+        assignedToCurrentUser: assignedClassIds.has(classItem.id),
+      }))
+  return listResponse(c, response)
 })
 
 classesRouter.get('/available-teachers', roleMiddleware('admin'), async (c) => {
@@ -161,15 +170,11 @@ classesRouter.post('/academic-years', roleMiddleware('admin'), zValidator('json'
 classesRouter.get('/:id', async (c) => {
   const user = c.get('user') as JwtPayload
   const id = c.req.param('id')
-  if (!isAdmin(user)) {
-    const classIds = await getUserClassIds(user.userId, user.parishId)
-    if (!classIds.includes(id)) {
-      return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền truy cập lớp học này', 403)
-    }
-  }
   const result = await getClassById(id, user.parishId)
   if (!result) return errorResponse(c, 'NOT_FOUND', 'Lớp học không tồn tại', 404)
-  return successResponse(c, result)
+  if (isAdmin(user)) return successResponse(c, result)
+  const { homeroomTeacher: _homeroomTeacher, assistants: _assistants, ...classItem } = result
+  return successResponse(c, classItem)
 })
 
 classesRouter.post('/', roleMiddleware('admin'), zValidator('json', classSchema), async (c) => {

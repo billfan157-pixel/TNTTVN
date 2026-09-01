@@ -23,7 +23,10 @@ export function useFilterSearchSync() {
       })()
   const pathname = useRouterState({ select: s => s.location.pathname })
   const navigate = useNavigate()
-  const urlRef = useRef(searchStr)
+  // Hydrate deep-linked filters on the first mount as well as later navigation.
+  // Initializing with searchStr skipped the first effect, so a reload at
+  // /students?classId=... silently reset the visible roster to "all".
+  const urlRef = useRef<string | null>(null)
   const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {

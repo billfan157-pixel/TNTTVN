@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router'
 import { HeartHandshake, GraduationCap, ChevronRight } from 'lucide-react'
-import appLogo from '../assets/app-logo.png'
+import appLogo from '../assets/app-logo-192.png'
 
 export function LoginPage() {
   const navigate = useNavigate()

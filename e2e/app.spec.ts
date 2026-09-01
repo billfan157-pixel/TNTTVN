@@ -41,8 +41,9 @@ test.describe('Critical Path — Attendance', () => {
     await page.getByRole('tab', { name: 'Sổ Điểm Danh' }).click()
     await expect(page.getByText('Điểm Danh Chuyên Cần')).toBeVisible()
 
-    await expect(page.getByText('Thiếu Nhi E2E')).toBeVisible()
-    await page.getByRole('radio', { name: 'Vắng', exact: true }).click()
+    const studentRow = page.getByRole('row', { name: /Maria Thiếu Nhi E2E E2E-001/ })
+    await expect(studentRow.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
+    await studentRow.getByRole('radio', { name: 'Vắng', exact: true }).click()
 
     await page.getByRole('button', { name: 'Lưu Điểm Danh' }).click()
     await expect(page.getByText('Đã Lưu!')).toBeVisible({ timeout: 5000 })

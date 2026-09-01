@@ -49,15 +49,16 @@ export async function seedE2EUsers({
 
     // 2. Ba user vai trò cho spec phân quyền — ACTIVE + mustChangePassword=0.
     const roleUsers = [
-      ['usr-e2e-chunhiem', 'e2e_chunhiem', 'chunhiem', 'E2E Chunhiem'],
-      ['usr-e2e-phuta', 'e2e_phuta', 'phuta', 'E2E Phuta'],
-      ['usr-e2e-phuhuynh', 'e2e_phuhuynh', 'phuhuynh', 'E2E Phuhuynh'],
+      ['usr-e2e-chunhiem', 'e2e_chunhiem', 'chunhiem', 'E2E Chunhiem', null],
+      ['usr-e2e-phuta', 'e2e_phuta', 'phuta', 'E2E Phuta', null],
+      ['usr-e2e-phuhuynh', '0900000000', 'phuhuynh', 'E2E Phuhuynh A', '0900000000'],
+      ['usr-e2e-phuhuynh-b', '0900000001', 'phuhuynh', 'E2E Phuhuynh B', '0900000001'],
     ]
-    for (const [id, username, role, fullName] of roleUsers) {
+    for (const [id, username, role, fullName, phone] of roleUsers) {
       await c.execute(
-        `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role, parish_id, token_version, status, must_change_password, created_at)
-         VALUES (?, ?, ?, ?, ?, 'gia-ton', 1, 'ACTIVE', 0, ?)`,
-        [id, username, hashRole, fullName, role, now],
+        `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, phone, role, parish_id, token_version, status, must_change_password, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'gia-ton', 1, 'ACTIVE', 0, ?)`,
+        [id, username, hashRole, fullName, phone, role, now],
       )
     }
 
@@ -74,6 +75,16 @@ export async function seedE2EUsers({
       [now, now],
     )
 
+    await c.execute(
+      `INSERT OR IGNORE INTO students
+       (id, code, holy_name, full_name, gender, date_of_birth, parent_name, parent_phone,
+        address, branch, class_id, status, parish_id, created_at, updated_at, updated_by)
+       VALUES ('student-e2e-002', 'E2E-002', 'Giuse', 'Thiếu Nhi E2E Khác', 'Nam',
+        '2016-02-02', 'Phụ Huynh E2E B', '0900000001', 'Giáo Xứ Gia Tôn',
+        'AuNhi', 'CLS-AN-1', 'Đang học', 'gia-ton', ?, ?, 'e2e-seed')`,
+      [now, now],
+    )
+
     const assignments = [
       ['assignment-e2e-chunhiem', 'usr-e2e-chunhiem', 'chunhiem'],
       ['assignment-e2e-phuta', 'usr-e2e-phuta', 'phuta'],
@@ -87,7 +98,7 @@ export async function seedE2EUsers({
       )
     }
 
-    console.log('[e2e-seed-users] OK — users + student-e2e-001 + 2 class assignments sẵn sàng.')
+    console.log('[e2e-seed-users] OK — role users + 2 parent-scoped students + 2 class assignments sẵn sàng.')
   } finally {
     c.close()
   }

@@ -1,4 +1,4 @@
-# Sổ Điểm GL — Nền Tảng Quản Lý Giáo Lý Thiếu Nhi Thánh Thể
+# Catevia — Nền Tảng Quản Lý Giáo Lý & Thiếu Nhi Thánh Thể
 
 Nền tảng quản lý điểm số, chuyên cần, hồ sơ Thiếu Nhi Thánh Thể, thông báo và báo cáo thăng tiến cho Giáo Xứ. Hệ thống được xây dựng theo mô hình **Offline-First**, hỗ trợ đầy đủ cả giao diện **Desktop** và **Mobile** với khả năng tự động nhận diện thiết bị.
 
@@ -10,7 +10,7 @@ Nền tảng quản lý điểm số, chuyên cần, hồ sơ Thiếu Nhi Thánh
 - **Core Framework**: React 19 + TypeScript 5.8
 - **Build Tool**: Vite 8
 - **Styling**: Tailwind CSS 4 + Design Token Variables (`src/index.css`)
-- **Routing**: TanStack Router (16 paths, Auth Guard & RBAC Role Guards)
+- **Routing**: TanStack Router (25 paths: 20 protected, 4 public/auth, 1 root redirect)
 - **State Management**: Zustand 5 + Dexie.js (IndexedDB Persistence & Offline Sync Queue)
 - **Table Component**: TanStack Table v8
 - **Monitoring & Diagnostics**: Sentry React + Custom System Diagnostics Modal
@@ -18,7 +18,7 @@ Nền tảng quản lý điểm số, chuyên cần, hồ sơ Thiếu Nhi Thánh
 ### Backend (Server-side)
 - **Server Framework**: Hono (Node.js)
 - **Database**: SQLite via `@libsql/client` (WAL Mode enabled)
-- **ORM**: Drizzle ORM (30 tables)
+- **ORM**: Drizzle ORM (51 tables, tenant-scoped SQLite/Turso)
 - **Authentication**: JWT (Access 15m, Refresh 7d), bcrypt, Role-Based Access Control (RBAC)
 - **Integrations**: Grammy (Telegram Bot Notification Engine), Web Push Notifications
 
@@ -29,20 +29,20 @@ Nền tảng quản lý điểm số, chuyên cần, hồ sơ Thiếu Nhi Thánh
 ```text
 brave-davinci/
 ├── src/                        # Frontend React Application
-│   ├── components/             # 41 UI Components (common: 19, desktop: 15, mobile: 7)
-│   ├── hooks/                  # 10 React Hooks (useAuth, useParentPortal, useSyncEngine, useEffectiveMode, ...)
+│   ├── components/             # 97 TSX Components (auth/common/desktop/exam/finance/mobile/parish)
+│   ├── hooks/                  # 18 React Hooks (useAuth, useParentPortal, useSyncEngine, useEffectiveMode, ...)
 │   ├── lib/                    # API Client, Dexie DB, Sync Engine, Sentry
-│   ├── pages/                  # 14 Route Pages (Dashboard, Students, Grades, Attendance, Reports, ...)
-│   ├── stores/                 # 15 Zustand State Stores (studentStore, gradeStore, attendanceStore, ...)
+│   ├── pages/                  # 24 Route Pages (20 protected + 4 public/auth)
+│   ├── stores/                 # 22 Zustand Stores (12 persisted, 10 in-memory)
 │   ├── types/                  # TypeScript Interfaces & Models
 │   └── utils/                  # Pure Helpers (grades, sacraments, excelParser, pdfGenerator)
 ├── server/                     # Backend Hono Application
 │   ├── src/
-│   │   ├── db/                 # Drizzle Schema (30 tables) & DB Connection
+│   │   ├── db/                 # Drizzle Schema (51 tables) & DB Connection
 │   │   ├── middleware/         # Auth, Security, RBAC & Class Access Guards
 │   │   ├── repositories/       # 6 CQRS Read & Write Repositories
-│   │   ├── routes/             # 20 REST Route Handlers
-│   │   └── services/           # 28 Application Services & Business Specifications
+│   │   ├── routes/             # 28 REST Route Handlers
+│   │   └── services/           # 39 Application Services & Business Specifications
 ├── docs/                       # Official System Documentation & ADRs
 │   ├── AI_CONTEXT_MAP.md       # AI & Developer Navigation Sitemap
 │   ├── 02_ARCHITECTURE.md      # System Architecture & Layer Boundaries
@@ -64,15 +64,14 @@ brave-davinci/
 ### 1. Cài Đặt & Dev Local
 
 ```bash
-# Cài đặt dependencies cho cả Frontend và Server
+# Cài dependencies cho root và workspace server
 npm install
-cd server && npm install && cd ..
 
 # Khởi chạy Dev Server đồng thời (Client Vite + Server Hono)
-npm run dev:all
+npm run dev
 ```
 
-> **Lưu ý**: `npm run dev` (root) chỉ chạy Vite (client). Backend Hono phải chạy riêng bằng `npm run dev:server` (terminal 2) — nếu quên, API trả **502 Bad Gateway** (Vite proxy `/api` → `localhost:3001` không có server lắng nghe). `npm run dev:all` chạy cả hai tiến trình cùng lúc và tự dừng khi một trong hai thoát.
+> `npm run dev` và `npm run dev:all` đều chạy Vite + Hono qua `scripts/dev-all.mjs`. Khi cần tách terminal, dùng `npm run dev:client` và `npm run dev:server`.
 
 ### 2. Kiểm Thử (Testing & Quality Assurance)
 
@@ -80,9 +79,20 @@ npm run dev:all
 # Kiểm tra kiểu dữ liệu TypeScript (Frontend + Server)
 npx tsc -b --noEmit
 
-# Chạy toàn bộ 93 test suites (vitest) + 5 E2E (Playwright)
+# Chạy cổng bảo mật nhanh, rồi toàn bộ Vitest
+npm run test:security-critical
 npm run test
+
+# Kiểm tra lint, design-system và build production
+npm run lint && npm run lint:ds && npm run build
+
+# E2E business journeys trên backend + SQLite sandbox thật
+npm run test:e2e:critical   # PR gate nhỏ, risk-based
+npm run test:e2e            # full browser/a11y/visual suite
+npm run test:e2e:list       # inventory không khởi động app
 ```
+
+Chiến lược, test-data contract, CI policy và cách chạy từng journey: [`docs/08_E2E_TESTING_STRATEGY.md`](docs/08_E2E_TESTING_STRATEGY.md).
 
 ### 3. Docker Deployment
 
@@ -105,3 +115,4 @@ Tất cả các tài liệu chuẩn hóa về Kiến trúc, Thiết kế, Cơ s�
 - 📋 **Quy tắc nghiệp vụ (Business Rules)**: [`docs/BUSINESS_RULES.md`](docs/BUSINESS_RULES.md)
 - 📥 **Import/Export**: [`docs/IMPORT_EXPORT_SPECIFICATION.md`](docs/IMPORT_EXPORT_SPECIFICATION.md)
 - 🚢 **Triển khai**: [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md)
+- 🧪 **E2E Testing Strategy**: [`docs/08_E2E_TESTING_STRATEGY.md`](docs/08_E2E_TESTING_STRATEGY.md)

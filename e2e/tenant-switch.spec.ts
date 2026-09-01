@@ -19,11 +19,19 @@ async function seedUser(page: Parameters<typeof test>[0]['page'], tenant: Tenant
   }, users[tenant])
 }
 
-async function installTenantApi(page: Parameters<typeof test>[0]['page'], getTenant: () => Tenant) {
+async function installTenantApi(
+  page: Parameters<typeof test>[0]['page'],
+  getTenant: () => Tenant,
+  isApiOffline: () => boolean = () => false,
+) {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (!url.pathname.startsWith('/api/')) {
       await route.continue()
+      return
+    }
+    if (isApiOffline()) {
+      await route.abort('internetdisconnected')
       return
     }
     const tenant = getTenant()
@@ -94,6 +102,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await page.evaluate((user) => {
       localStorage.removeItem('parish_current_user')
       localStorage.setItem('parish_current_user', JSON.stringify(user))
+      history.replaceState(null, '', '/students')
     }, users.B)
     await page.reload()
 
@@ -126,25 +135,29 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await expect(page.locator('body')).toContainText(/0\s*em|Không có dữ liệu|Chưa có thiếu nhi/i, { timeout: 10000 })
   })
 
-  test.skip('offline reload under tenant B does not hydrate tenant A, then online sync loads B', async ({ page }) => {
+  test('offline reload under tenant B does not hydrate tenant A, then online sync loads B', async ({ page }) => {
     let tenant: Tenant = 'A'
-    await installTenantApi(page, () => tenant)
+    let apiOffline = false
+    await installTenantApi(page, () => tenant, () => apiOffline)
     await seedUser(page, 'A')
 
     await page.goto('/students')
+    await page.getByRole('button', { name: /Class Only A/ }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
 
     tenant = 'B'
     await page.evaluate((user) => {
       localStorage.removeItem('parish_current_user')
       localStorage.setItem('parish_current_user', JSON.stringify(user))
+      history.replaceState(null, '', '/students')
     }, users.B)
-    await page.context().setOffline(true)
+    apiOffline = true
     await page.reload()
 
     await expect(page.getByText('Student Only A')).not.toBeVisible()
-    await page.context().setOffline(false)
+    apiOffline = false
     await page.reload()
+    await page.getByRole('button', { name: /Class Only B/ }).click()
     await expect(page.getByText('Student Only B')).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('Student Only A')).not.toBeVisible()
   })

@@ -3,7 +3,7 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { useClassStore } from '../../stores/classStore';
+import { getFilteredClassList, scopeClassesForAssignedWrites, useClassStore } from '../../stores/classStore';
 import {
   CheckSquare, Save, CheckCircle2,
   XCircle, AlertTriangle, CalendarClock, ArrowRight, BarChart2
@@ -25,17 +25,20 @@ import { SegmentedControl, TabPanel, Tabs } from '../common/ui/SelectionControls
 type AttendanceSubTab = 'summary' | 'attendance' | 'leave-requests';
 
 export const DesktopAttendanceGrid: React.FC = () => {
-  const { can } = useAuth();
+  const { can, role } = useAuth();
   const canEditAttendance = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
   const attendance = useAttendanceStore(s => s.attendance);
   const batchSaveAttendance = useAttendanceStore(s => s.batchSaveAttendance);
   const pendingCount = useLeaveRequestStore(s => s.pendingCount);
   const fetchPendingCount = useLeaveRequestStore(s => s.fetchPendingCount);
-  const classList = useClassStore(s => s.getClassList)();
+  const rawClasses = useClassStore(s => s.classes);
+  const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
   const findClassById = useClassStore(s => s.findClassById);
   const selectedClassId = useFilterStore(s => s.selectedClassId);
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId);
+  const writableClassList = useMemo(() => scopeClassesForAssignedWrites(classList, role), [classList, role]);
+  const writableClassIds = useMemo(() => new Set(writableClassList.map(c => c.id)), [writableClassList]);
 
   const [activeSubTab, setActiveSubTab] = useState<AttendanceSubTab>('summary');
   const [date, setDate] = useState<string>(getDefaultDate);
@@ -48,8 +51,10 @@ export const DesktopAttendanceGrid: React.FC = () => {
   }, [fetchPendingCount]);
 
   const filteredStudents = useMemo(
-    () => selectedClassId === 'all' ? students : students.filter(s => s.classId === selectedClassId),
-    [selectedClassId, students]
+    () => selectedClassId === 'all'
+      ? (role === 'admin' ? students : students.filter(s => writableClassIds.has(s.classId)))
+      : students.filter(s => s.classId === selectedClassId && (role === 'admin' || writableClassIds.has(s.classId))),
+    [role, selectedClassId, students, writableClassIds]
   );
 
   useEffect(() => {
@@ -212,7 +217,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
                   className="text-sm font-bold h-10"
                 >
                   <option value="all">Tất cả các lớp</option>
-                  {classList.map(c => (
+                  {writableClassList.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </Select>

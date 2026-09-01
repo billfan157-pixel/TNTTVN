@@ -2,14 +2,7 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <script>
-      /* PHA 2 (audit A24): áp dụng theme trước CSS paint để diệt light-flash
-         trên dark mode. Mirror được ghi bởi src/lib/uiBoot.ts. */
-      try {
-        var __boot = JSON.parse(localStorage.getItem('parish_ui_boot') || '{}');
-        if (__boot.theme === 'dark') document.documentElement.classList.add('dark');
-      } catch (e) {}
-    </script>
+    <script src="/theme-boot.js"></script>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />

@@ -7,7 +7,6 @@ import { listResponse, successResponse, errorResponse } from '../utils/response.
 import { getClientIp } from '../utils/ip.js'
 import {
   getStudents,
-  getStudentsByClassIds,
   getStudentById,
   createStudent,
   updateStudent,
@@ -39,31 +38,22 @@ const studentSchema = z.object({
   idempotencyKey: z.string().trim().optional(),
 })
 
-studentsRouter.get('/', async (c) => {
+studentsRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const updatedAfter = c.req.query('updatedAfter')
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10))
   const limit = Math.min(10000, Math.max(1, parseInt(c.req.query('limit') || '50', 10)))
-  if (isAdmin(user)) {
-    const result = await getStudents(user.parishId, updatedAfter, limit, page)
-    return listResponse(c, result.data, result.total)
-  }
-  const classIds = await getUserClassIds(user.userId, user.parishId)
-  const result = await getStudentsByClassIds(user.parishId, classIds, updatedAfter, limit, page)
+  // Roster read scope is parish-wide for all staff. Class assignments still
+  // gate every write route below and all grade/attendance/exam operations.
+  const result = await getStudents(user.parishId, updatedAfter, limit, page)
   return listResponse(c, result.data, result.total)
 })
 
-studentsRouter.get('/:id', async (c) => {
+studentsRouter.get('/:id', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const id = c.req.param('id')
   const student = await getStudentById(id, user.parishId)
   if (!student) return errorResponse(c, 'NOT_FOUND', 'Học sinh không tồn tại', 404)
-  if (!isAdmin(user)) {
-    const classIds = await getUserClassIds(user.userId, user.parishId)
-    if (student.classId && !classIds.includes(student.classId)) {
-      return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền xem học sinh này', 403)
-    }
-  }
   return successResponse(c, student)
 })
 

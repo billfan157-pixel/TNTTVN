@@ -375,6 +375,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
             return (
               <div
                 key={item.id}
+                data-testid={`academic-year-${item.id}`}
                 className={`p-5 rounded-2xl border transition-all shadow-sm ${
                   isActive
                     ? 'bg-parish-primary-light border-parish-primary'

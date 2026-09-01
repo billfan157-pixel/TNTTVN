@@ -7,7 +7,7 @@
     "server"
   ],
   "scripts": {
-    "predev": "node -e \"import('node:fs').then(fs => fs.rmSync('node_modules/.vite',{recursive:true,force:true})).catch(() => {})\"",
+    "clean:vite": "node -e \"import('node:fs').then(fs => fs.rmSync('node_modules/.vite',{recursive:true,force:true})).catch(() => {})\"",
     "dev": "node scripts/dev-all.mjs",
     "dev:client": "vite",
     "dev:server": "npm --prefix server run dev",
@@ -19,9 +19,12 @@
     "lint": "oxlint --deny-warnings",
     "verify:ci": "npm run lint && npm run lint:ds && npm run build && npm run test:coverage -- --fileParallelism=false",
     "test": "vitest run",
+    "test:security-critical": "vitest run src/__tests__/deploymentSecurityContract.test.ts server/src/__tests__/security/auth-cookie.test.ts server/src/__tests__/security/authorization-matrix-audit-b.test.ts server/src/__tests__/security/tenantIsolation.test.ts server/src/__tests__/rbac-matrix.test.ts server/src/__tests__/goliveVerification.test.ts server/src/__tests__/smokeTestPhase15.test.ts --fileParallelism=false",
     "test:coverage": "vitest run --coverage --testTimeout=15000",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:critical": "playwright test --grep @critical",
+    "test:e2e:list": "playwright test --list",
     "benchmark:omr": "tsx scripts/benchmark-omr.ts",
     "benchmark:omr:sequence": "tsx scripts/evaluate-omr-sequence.ts",
     "build:analyze": "ANALYZE=true vite build",

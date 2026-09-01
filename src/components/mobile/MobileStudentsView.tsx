@@ -29,8 +29,8 @@ interface MobileStudentsViewProps {
   workspace: StudentWorkspace;
   onWorkspaceChange: (workspace: StudentWorkspace) => void;
   onViewClassStudents: (classId: string) => void;
-  onOpenAddStudent: () => void;
-  onImportStudents: () => void;
+  onOpenAddStudent?: () => void;
+  onImportStudents?: () => void;
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onPrintReport: (student: Student) => void;
@@ -127,9 +127,17 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [confirmSendCards, setConfirmSendCards] = React.useState(false);
 
-  const { can, role } = useAuth();
+  const { can } = useAuth();
   const canDelete = can('admin');
   const canPromoteAction = can('admin', 'chunhiem');
+  const managementActionCount = [
+    canDelete && onOpenAddStudent,
+    canDelete && onImportStudents,
+    canDelete && onSendReportCards,
+    canDelete,
+  ]
+    .filter(Boolean)
+    .length
 
   const handleDelete = (s: Student) => {
     setPendingDelete(s);
@@ -229,14 +237,10 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             style={{ paddingLeft: '40px' }}
           />
         </label>
-        <div className={`grid gap-1.5 sm:gap-2 ${
-          (onSendReportCards && canDelete)
-            ? 'grid-cols-4'
-            : (onSendReportCards || canDelete)
-            ? 'grid-cols-3'
-            : 'grid-cols-2'
+        {managementActionCount > 0 && <div className={`grid gap-1.5 sm:gap-2 ${
+          managementActionCount === 4 ? 'grid-cols-4' : managementActionCount === 3 ? 'grid-cols-3' : managementActionCount === 2 ? 'grid-cols-2' : 'grid-cols-1'
         }`}>
-          <Button
+          {canDelete && onOpenAddStudent && <Button
             onClick={onOpenAddStudent}
             variant="primary"
             mobile
@@ -246,8 +250,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             aria-label="Thêm thiếu nhi"
           >
             Thêm em
-          </Button>
-          <Button
+          </Button>}
+          {canDelete && onImportStudents && <Button
             onClick={onImportStudents}
             variant="secondary"
             mobile
@@ -257,8 +261,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             aria-label="Nhập danh sách thiếu nhi từ Excel"
           >
             Nhập Excel
-          </Button>
-          {onSendReportCards && (
+          </Button>}
+          {canDelete && onSendReportCards && (
             <Button
               onClick={() => setConfirmSendCards(true)}
               loading={sendingCards}
@@ -287,7 +291,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
               {selectionMode ? 'Xong' : 'Chọn'}
             </Button>
           )}
-        </div>
+        </div>}
       </div>
 
       {!hasClasses && (
@@ -296,7 +300,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <p className="m-0 text-xs font-semibold text-[var(--color-parish-warning-hover)] leading-relaxed">
             {canDelete
               ? <>Chưa có lớp học nào. Import Excel sẽ tự động tạo lớp mới từ cột "Lớp", hoặc <button type="button" onClick={() => onWorkspaceChange('classes')} className="text-parish-primary font-bold underline cursor-pointer inline p-0 bg-transparent border-0 font-inherit text-xs">tạo lớp thủ công →</button></>
-              : 'Chưa có lớp học nào trong phạm vi được phân công.'}
+              : 'Giáo xứ chưa có lớp học nào để hiển thị.'}
           </p>
         </div>
       )}
@@ -334,8 +338,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </button>
       )}
 
-      {/* Class Selector Pill Bar (admin only — GLV only sees their assigned classes) */}
-      {role === 'admin' && selectedClassId !== 'all' && (
+      {/* Class Selector Pill Bar — all staff can browse the parish-wide roster. */}
+      {selectedClassId !== 'all' && (
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         <button
           onClick={() => setSelectedClassId('all')}

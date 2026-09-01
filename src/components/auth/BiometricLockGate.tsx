@@ -1,6 +1,6 @@
 import React from 'react'
 import { Fingerprint, Loader2, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react'
-import appLogo from '../../assets/app-logo.png'
+import appLogo from '../../assets/app-logo-192.png'
 import { appLockAccountKey, isNativeBiometricPlatform, type AppLockAccount } from '../../lib/biometricAppLock'
 import { useAppLockStore } from '../../stores/appLockStore'
 import { useAuthStore } from '../../stores/authStore'

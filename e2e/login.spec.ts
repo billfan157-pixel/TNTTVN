@@ -4,7 +4,7 @@ import { loginAsAdmin } from './helpers'
 test.describe('E2E Authentication Flow', () => {
   test('displays portal chooser on /login with both portals', async ({ page }) => {
     await page.goto('/login')
-    await expect(page.locator('h1')).toContainText('Xứ Đoàn Thiếu Nhi Thánh Thể')
+    await expect(page.getByRole('heading', { name: 'Catevia' })).toBeVisible()
     await expect(page.getByText('Cổng Phụ Huynh')).toBeVisible()
     await expect(page.getByText('Giáo Lý Viên / Nhân Sự')).toBeVisible()
   })

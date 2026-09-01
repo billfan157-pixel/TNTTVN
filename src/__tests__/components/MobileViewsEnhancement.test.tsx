@@ -1,4 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MobileGradeView } from '../../components/mobile/MobileGradeView'
 import { MobileNoticesView } from '../../components/mobile/MobileNoticesView'
@@ -177,6 +179,15 @@ describe('MobileViewsEnhancement Tests', () => {
       rerender(<MobileStudentsView {...dummyHandlers} />)
       expect(screen.queryByText('Thăng Tiến')).not.toBeInTheDocument()
       expect(screen.queryByText('Lớp Học')).not.toBeInTheDocument()
+      expect(screen.queryByText('Thêm em')).not.toBeInTheDocument()
+      expect(screen.queryByText('Nhập Excel')).not.toBeInTheDocument()
+      expect(screen.queryByText('Gửi KQ')).not.toBeInTheDocument()
+
+      useFilterStore.setState({ selectedClassId: 'all' })
+      rerender(<MobileStudentsView {...dummyHandlers} />)
+      fireEvent.click(screen.getByRole('button', { name: /Ấu Nhi 1/ }))
+      expect(useFilterStore.getState().selectedClassId).toBe('cls-1')
+      expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument()
     })
 
     it('opens confirmation modal when clicking Send Report Cards button', () => {
@@ -201,6 +212,11 @@ describe('MobileViewsEnhancement Tests', () => {
       // Confirm dialog should appear
       expect(screen.getByText(/Bạn có chắc chắn muốn gửi kết quả học tập cho/i)).toBeInTheDocument()
     })
+  })
+
+  it('keeps a GLV class selection while they stay on the roster route', () => {
+    const rootLayoutSource = readFileSync(resolve(process.cwd(), 'src/components/common/RootLayout.tsx'), 'utf8')
+    expect(rootLayoutSource).toContain("pathname !== '/students' && selectedClassId !== 'all'")
   })
 
   describe('MobileAttendanceView', () => {

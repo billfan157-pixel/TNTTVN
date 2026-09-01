@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { setTokens, loadTokensFromStorage, clearTokens, getAccessToken } from '../../lib/api'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { setTokens, loadTokensFromStorage, clearTokens, getAccessToken, bootstrapAccessToken } from '../../lib/api'
 
 // SECURITY_AUDIT_A01 + A-NEW-01/10 — client KHÔNG giữ refresh token ở BẤT KỲ ĐÂU trong JS
 // (không memory, không localStorage) — nguồn duy nhất là HttpOnly cookie.
@@ -10,6 +10,10 @@ describe('A01 + A-NEW-01 — token storage (client, cookie-only)', () => {
   beforeEach(() => {
     localStorage.clear()
     clearTokens()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('setTokens CHỈ giữ access token trong memory — KHÔNG ghi localStorage, KHÔNG có kênh nào để JS giữ refresh token', () => {
@@ -44,5 +48,16 @@ describe('A01 + A-NEW-01 — token storage (client, cookie-only)', () => {
     expect(getAccessToken()).toBeNull()
     expect(localStorage.getItem('parish_access_token')).toBeNull()
     expect(localStorage.getItem('parish_refresh_token')).toBeNull()
+  })
+
+  it('bootstrap refresh luôn có AbortSignal để cold start không treo vô hạn', async () => {
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return Promise.reject(new DOMException('network unavailable', 'AbortError'))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(bootstrapAccessToken()).resolves.toBe(false)
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 })
