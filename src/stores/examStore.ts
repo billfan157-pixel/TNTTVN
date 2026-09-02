@@ -10,7 +10,7 @@ import {
   syncReopenExam,
   syncDeleteExam,
 } from '../lib/syncService'
-import type { ExamSession, ExamResult, ExamFinalizeResult, ExamVersionCode, MultipleChoiceOption } from '../types'
+import type { ExamSession, ExamResult, ExamFinalizeResult, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../types'
 import { normalizeAnswerKey, normalizeAnswerVariants } from '../lib/examVariants'
 import { useGradeStore } from './gradeStore'
 import { useDailyGradeStore } from './dailyGradeStore'
@@ -56,6 +56,7 @@ function normalizeExamSessions(rows: ExamSession[]): ExamSession[] {
       ...row,
       answerKey,
       answerVariants: normalizeAnswerVariants(row.answerVariants, answerKey, row.questionCount),
+      variantManifests: parseJsonObject<ExamVariantManifestSet>(row.variantManifests),
     }
   })
 }
@@ -177,6 +178,7 @@ interface ExamState {
   reopenSession: () => Promise<void>
   deleteSession: (id: string) => Promise<boolean>
   updateAnswerVariants: (answerVariants: Partial<Record<ExamVersionCode, Record<number, MultipleChoiceOption>>>, questionCount: number) => Promise<{ rescored: number; skipped: number } | null>
+  generateVariantManifests: (variantCount: number) => Promise<ExamSession | null>
   replaceSessionId: (oldId: string, serverData: ExamSession) => void
   /**
    * FE-F1 (audit 2026-08-21): hoàn tác optimistic "Hoàn tất phiên" offline —
@@ -547,6 +549,26 @@ export const useExamStore = create<ExamState>()(
       return { rescored: response.rescored, skipped: response.skipped }
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi cập nhật nhiều mã đề' })
+      return null
+    } finally {
+      set({ saving: false })
+    }
+  },
+
+  generateVariantManifests: async (variantCount) => {
+    const id = get().selectedSessionId
+    if (!id || isOffline()) {
+      set({ error: 'Tạo mã đề tự động cần kết nối máy chủ để khóa manifest an toàn.' })
+      return null
+    }
+    set({ saving: true, error: null })
+    try {
+      const response = await api.generateExamVariantManifests(id, variantCount)
+      const session = normalizeExamSessions([response.session])[0]
+      set({ sessions: get().sessions.map(item => item.id === id ? session : item) })
+      return session
+    } catch (err) {
+      set({ error: (err as Error)?.message || 'Không thể tạo bộ mã đề tự động' })
       return null
     } finally {
       set({ saving: false })

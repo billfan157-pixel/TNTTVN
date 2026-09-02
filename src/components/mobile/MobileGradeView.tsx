@@ -1,5 +1,5 @@
 import React, { Suspense, useMemo, useState } from 'react'
-import { Calculator, ClipboardList, Columns3, Grid3X3 } from 'lucide-react'
+import { Calculator, ClipboardList, Columns3, Grid3X3, LibraryBig } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
@@ -15,9 +15,10 @@ import { MobileGradeBoard } from './MobileGradeBoard'
 const ExamSessionView = lazyWithRetry(() => import('../exam/ExamSessionView'), 'ExamSessionView')
 const MobileDailyGradeEntry = lazyWithRetry(() => import('./MobileDailyGradeEntry'), 'MobileDailyGradeEntry')
 const MobileGradeComparison = lazyWithRetry(() => import('./MobileGradeComparison'), 'MobileGradeComparison')
+const QuestionBankView = lazyWithRetry(() => import('../exam/QuestionBankView'), 'QuestionBankView')
 
 // C1 Unified: gộp Thẻ điểm + Ma trận → 1 tab Bảng điểm (4 tabs thay vì 5)
- type MobileGradeTab = 'board' | 'daily' | 'comparison' | 'exam'
+ type MobileGradeTab = 'board' | 'daily' | 'comparison' | 'exam' | 'bank'
 
 interface MobileGradeViewProps {
   onViewReport: (student: Student) => void
@@ -28,6 +29,7 @@ const tabs: Array<{ id: MobileGradeTab; label: string; icon: React.ReactNode }> 
   { id: 'daily', label: 'Hằng ngày', icon: <Calculator size={14} /> },
   { id: 'comparison', label: 'So sánh', icon: <Columns3 size={14} /> },
   { id: 'exam', label: 'Chấm bài', icon: <ClipboardList size={14} /> },
+  { id: 'bank', label: 'Ngân hàng', icon: <LibraryBig size={14} /> },
 ]
 
 export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }) => {
@@ -126,6 +128,11 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
             <ExamSessionView />
           </Suspense>
         </div>
+      </TabPanel>
+      <TabPanel tabsId="mobile-grade-view-tabs" value="bank" activeValue={activeTab}>
+        <Suspense fallback={<div className="p-2"><SkeletonCardGrid count={3} /></div>}>
+          <QuestionBankView />
+        </Suspense>
       </TabPanel>
     </div>
   )

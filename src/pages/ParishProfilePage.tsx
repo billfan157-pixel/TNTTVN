@@ -65,7 +65,12 @@ function formatDate(value: string | null | undefined) {
 
 function PersonName({ person }: { person?: ParishPerson }) {
   if (!person) return <span>Nhân sự không xác định</span>
-  return <span>{person.holyName ? `${person.holyName} ` : ''}{person.fullName}</span>
+  return (
+    <span>
+      {person.holyName && <span className="font-bold text-amber-950 dark:text-amber-400 mr-1.5">{person.holyName}</span>}
+      <span className="font-extrabold text-text-main">{person.fullName}</span>
+    </span>
+  )
 }
 
 function ActionButtons({ onEdit, onDelete, label }: { onEdit: () => void; onDelete: () => void; label: string }) {

@@ -25,7 +25,9 @@ const classSchema = z.object({
 
 classesRouter.get('/', async (c) => {
   const user = c.get('user') as JwtPayload
-  const list = await getClasses(user.parishId)
+  const updatedAfter = c.req.query('updatedAfter')
+  const updatedBefore = c.req.query('updatedBefore')
+  const list = await getClasses(user.parishId, updatedAfter, updatedBefore)
   // Staff need the parish-wide class metadata to label and filter the shared
   // roster. Only expose whether the current staff member is assigned to each
   // class so class-scoped workspaces can fail closed; never expose assignment

@@ -89,6 +89,12 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
+      // SheetJS is a user-triggered import/export capability. Precaching every
+      // generated chunk would otherwise download the 493 KB vendor during PWA
+      // installation even though application code imports it lazily.
+      injectManifest: {
+        globIgnores: ['**/xlsx-*.js'],
+      },
       includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.png'],
       manifest: {
         name: 'Catevia — Quản Lý Giáo Xứ & TNTT',

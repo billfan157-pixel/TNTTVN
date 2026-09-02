@@ -156,7 +156,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     }),
     columnHelper.accessor('holyName', {
       header: 'Tên Thánh',
-      cell: (info) => <span className="text-sm font-bold text-amber-900 dark:text-amber-400">{info.getValue() || '—'}</span>,
+      cell: (info) => <span className="text-sm font-bold text-amber-950 dark:text-amber-400">{info.getValue() || '—'}</span>,
       size: 120,
     }),
     columnHelper.accessor('fullName', {

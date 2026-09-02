@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getDB } from '../lib/db'
-import { encryptQueueValue, decryptQueueValue } from '../lib/offlineCipher'
+import { encryptQueueValue, decryptQueueValue, isEncryptedValue } from '../lib/offlineCipher'
 import type { SyncQueueItem, SyncConflict } from '../lib/db'
 
 export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'retrying' | 'failed'
@@ -217,31 +217,42 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   getConflicts: async () => {
     const db = getDB()
     const userId = getCurrentUserId()
-    if (userId) {
-      return await db.syncConflicts
-        .where('userId')
-        .equals(userId)
-        .reverse()
-        .sortBy('createdAt')
-    }
-    return await db.syncConflicts.reverse().sortBy('createdAt')
+    if (!userId) return []
+    return await db.syncConflicts
+      .where('userId')
+      .equals(userId)
+      .reverse()
+      .sortBy('createdAt')
   },
 
   addConflict: async (conflict: Omit<SyncConflict, 'id' | 'createdAt' | 'resolved' | 'userId'>) => {
     const db = getDB()
     const userId = getCurrentUserId()
+    if (!userId) throw new Error('Cannot store sync conflict without an authenticated user scope')
+    const localValue = isEncryptedValue(conflict.localValue)
+      ? conflict.localValue
+      : await encryptQueueValue(conflict.localValue)
+    const serverValue = isEncryptedValue(conflict.serverValue)
+      ? conflict.serverValue
+      : await encryptQueueValue(conflict.serverValue)
     const item: SyncConflict = {
       ...conflict,
+      localValue,
+      serverValue,
       id: `CONF-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
       createdAt: new Date().toISOString(),
       resolved: false,
-      userId: userId || undefined,
+      userId,
     }
     await db.syncConflicts.add(item)
   },
 
   resolveConflict: async (id) => {
     const db = getDB()
+    const userId = getCurrentUserId()
+    if (!userId) return
+    const conflict = await db.syncConflicts.get(id)
+    if (!conflict || conflict.userId !== userId) return
     await db.syncConflicts.update(id, {
       resolved: true,
       resolvedAt: new Date().toISOString(),
@@ -250,8 +261,11 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   clearResolvedConflicts: async () => {
     const db = getDB()
-    // Chỉ xóa các bản ghi đã xác nhận (resolved === true).
-    await db.syncConflicts.where('resolved').equals(1).delete()
+    const userId = getCurrentUserId()
+    if (!userId) return
+    const resolved = await db.syncConflicts.where('resolved').equals(1).toArray()
+    const ownIds = resolved.filter(item => item.userId === userId).map(item => item.id)
+    if (ownIds.length > 0) await db.syncConflicts.bulkDelete(ownIds)
   },
 
   compactQueue: async () => {

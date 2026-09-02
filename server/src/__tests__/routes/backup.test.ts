@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import bcrypt from 'bcryptjs'
 import backupRouter from '../../routes/backup.js'
 import { db } from '../../db/index.js'
-import { students, users, classes, branches, academicYears, examSessions, examResults } from '../../db/schema.js'
+import { students, users, classes, branches, academicYears, examSessions, examResults, questionBankItems, questionBankVersions } from '../../db/schema.js'
 import { generateId } from '../../utils/id.js'
 import { generateTokens } from '../../middleware/auth.js'
 import { and, eq } from 'drizzle-orm'
@@ -92,7 +92,12 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
 
     expect(res.status).toBe(200)
     const json = (await res.json()) as any
-    expect(json.version).toBe('2.0-production')
+    expect(json.version).toBe('2.1-question-bank')
+    expect(json.data.questionBankItems).toBeDefined()
+    expect(json.data.questionBankVersions).toBeDefined()
+    expect(json.data.examBlueprints).toBeDefined()
+    expect(json.data.examBlueprintRules).toBeDefined()
+    expect(json.data.examQuestionSnapshots).toBeDefined()
     expect(json.data.students).toBeDefined()
     expect(json.data.students.some((s: any) => s.id === testId)).toBe(true)
   })
@@ -249,5 +254,57 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
     const json = (await res.json()) as any
     expect(json.data.examResults.some((row: any) => row.id === localResultId)).toBe(true)
     expect(json.data.examResults.some((row: any) => row.id === foreignResultId)).toBe(false)
+  })
+
+  it('4. Backup v2.1 restores immutable question-bank items and versions', async () => {
+    const questionId = generateId('QBI')
+    const versionId = generateId('QBV')
+    const now = new Date().toISOString()
+    await db.insert(questionBankItems).values({
+      id: questionId,
+      parishId: 'gia-ton',
+      status: 'active',
+      currentVersion: 1,
+      tags: '[]',
+      provenance: 'human',
+      createdBy: adminId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.insert(questionBankVersions).values({
+      id: versionId,
+      parishId: 'gia-ton',
+      questionId,
+      version: 1,
+      questionType: 'essay',
+      stem: 'Câu hỏi cần khôi phục nguyên vẹn?',
+      answerData: '{"rubric":"Đủ ý"}',
+      metadataSnapshot: '{}',
+      contentHash: 'a'.repeat(64),
+      createdBy: adminId,
+      createdAt: now,
+    })
+
+    const exportRes = await backupRouter.request('/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ adminPassword: ADMIN_PASSWORD }),
+    })
+    const snapshot = (await exportRes.json()) as any
+    expect(snapshot.data.questionBankItems.some((row: any) => row.id === questionId)).toBe(true)
+    expect(snapshot.data.questionBankVersions.some((row: any) => row.id === versionId)).toBe(true)
+
+    await db.delete(questionBankItems).where(and(eq(questionBankItems.parishId, 'gia-ton'), eq(questionBankItems.id, questionId)))
+    expect(await db.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, 'gia-ton'), eq(questionBankVersions.id, versionId)))).toHaveLength(0)
+
+    const restoreRes = await backupRouter.request('/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ ...snapshot, adminPassword: ADMIN_PASSWORD }),
+    })
+    expect(restoreRes.status).toBe(200)
+    const restored = await db.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, 'gia-ton'), eq(questionBankVersions.id, versionId)))
+    expect(restored).toHaveLength(1)
+    expect(restored[0].stem).toBe('Câu hỏi cần khôi phục nguyên vẹn?')
   })
 })

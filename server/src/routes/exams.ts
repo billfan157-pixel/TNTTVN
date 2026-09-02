@@ -451,6 +451,9 @@ examsRouter.patch('/:id/answer-key', zValidator('json', updateAnswerKeySchema), 
     if (session.status === 'completed') {
       return errorResponse(c, 'STATE_TRANSITION_INVALID', 'Phiên đã hoàn tất — mở lại trước khi sửa answer key', 409)
     }
+    if (session.variantManifests) {
+      return errorResponse(c, 'VARIANT_MANIFEST_LOCKED', 'Bộ mã đề đã khóa; không được sửa đáp án tách rời khỏi manifest.', 409)
+    }
     if (session.examType !== 'multiple_choice' && session.examType !== 'mixed') {
       return errorResponse(c, 'INVALID_OPERATION', 'Chỉ sửa answer key cho phiên trắc nghiệm hoặc mixed', 400)
     }
@@ -491,10 +494,43 @@ examsRouter.patch('/:id/answer-variants', zValidator('json', updateAnswerVariant
     if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
       return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền sửa mã đề của phiên này', 403)
     }
+    if (session.variantManifests) {
+      return errorResponse(c, 'VARIANT_MANIFEST_LOCKED', 'Bộ mã đề đã khóa; không được sửa đáp án tách rời khỏi manifest.', 409)
+    }
     const check = parseAnswerVariants(answerVariants, questionCount)
     if (!check.ok) return errorResponse(c, 'INVALID_ANSWER_VARIANTS', check.message, 400)
     const { updateAnswerVariantsAndRescore } = await import('../services/examService.js')
     const result = await updateAnswerVariantsAndRescore(sessionId, user.parishId, answerVariants, questionCount, user.userId, ip, userAgent)
+    return successResponse(c, result)
+  } catch (err) {
+    return handleServiceError(c, err)
+  }
+})
+
+const generateVariantManifestSchema = z.object({
+  variantCount: z.coerce.number().int().min(1).max(8),
+  seed: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/).optional(),
+})
+
+examsRouter.post('/:id/variant-manifests', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', generateVariantManifestSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const sessionId = c.req.param('id')
+  const { variantCount, seed } = c.req.valid('json')
+  const ip = getClientIp(c)
+  const userAgent = c.req.header('user-agent') || ''
+  try {
+    const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
+    const { createImmutableVariantManifests } = await import('../services/examService.js')
+    const result = await createImmutableVariantManifests({
+      sessionId,
+      parishId: user.parishId,
+      userId: user.userId,
+      ip,
+      userAgent,
+      allowedClassIds,
+      variantCount,
+      seed,
+    })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)

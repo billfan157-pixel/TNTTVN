@@ -1,5 +1,6 @@
 const SYNC_LEASE_KEY = 'parish_sync_lease'
 const SYNC_LEASE_TTL_MS = 60_000
+const WEB_LOCK_NAME = 'catevia-sync-lease'
 
 type SyncLeaseRecord = {
   owner: string
@@ -69,7 +70,55 @@ export function releaseSyncLease(): void {
   }
 }
 
+type WebLockManagerLike = {
+  request<T>(
+    name: string,
+    options: { ifAvailable: true; mode: 'exclusive' },
+    callback: (lock: unknown | null) => Promise<T>,
+  ): Promise<T>
+}
+
+/**
+ * Prefer the browser's atomic same-origin lock for the complete sync flow.
+ * Unsupported runtimes retain the expiring localStorage lease. Server-side
+ * idempotency/version checks remain authoritative across devices.
+ */
+export async function runWithSyncLease(task: () => Promise<void>): Promise<boolean> {
+  const locks = typeof navigator !== 'undefined'
+    ? (navigator as Navigator & { locks?: WebLockManagerLike }).locks
+    : undefined
+
+  if (locks?.request) {
+    let taskStarted = false
+    try {
+      return await locks.request(
+        WEB_LOCK_NAME,
+        { ifAvailable: true, mode: 'exclusive' },
+        async (lock) => {
+          if (!lock) return false
+          taskStarted = true
+          await task()
+          return true
+        },
+      )
+    } catch (error) {
+      // Never run a mutation flow twice when the task itself failed.
+      if (taskStarted) throw error
+      // API/options unavailable despite feature detection: use fallback below.
+    }
+  }
+
+  if (!acquireSyncLease()) return false
+  try {
+    await task()
+    return true
+  } finally {
+    releaseSyncLease()
+  }
+}
+
 export const syncLeaseConfig = {
   key: SYNC_LEASE_KEY,
   ttlMs: SYNC_LEASE_TTL_MS,
+  webLockName: WEB_LOCK_NAME,
 }

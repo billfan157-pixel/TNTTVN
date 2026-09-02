@@ -4,10 +4,11 @@ import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware, checkUserClassAccess, getUserClassIds, isAdmin } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { notifyAbsence, notifyBatchReportCards, notifySundayMassReminder, notifyClassReminder } from '../services/smartNotifications.js'
-import { sendWebPushToParish, isVapidConfigured, getVapidPublicKey } from '../services/webPushService.js'
+import { isVapidConfigured, getVapidPublicKey } from '../services/webPushService.js'
+import { sendAppPushToParish } from '../services/appPushService.js'
 import { db } from '../db/index.js'
-import { pushSubscriptions, students, classes, auditLogs } from '../db/schema.js'
-import { and, eq, sql, isNull, inArray } from 'drizzle-orm'
+import { pushSubscriptions, nativePushTokens, students, classes, auditLogs } from '../db/schema.js'
+import { and, eq, sql, isNull, inArray, or } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
 import { successResponse, errorResponse } from '../utils/response.js'
@@ -29,10 +30,20 @@ const unsubscribeSchema = z.object({
   endpoint: z.string().trim().min(1),
 })
 
+const nativeRegistrationSchema = z.object({
+  installationId: z.string().trim().uuid(),
+  platform: z.enum(['android', 'ios']),
+  token: z.string().trim().min(16).max(4096),
+})
+
+const nativeUnregisterSchema = z.object({
+  installationId: z.string().trim().uuid(),
+})
+
 const sendNotificationSchema = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(2000),
-  url: z.string().trim().startsWith('http').optional(),
+  url: z.string().trim().regex(/^\/(?!\/)/, 'URL thông báo phải là đường dẫn nội bộ').max(500).optional(),
 })
 
 const absenceSchema = z.object({
@@ -78,7 +89,70 @@ notificationsRouter.post('/subscribe', zValidator('json', subscribeSchema), asyn
     auth: body.keys.auth,
     userId: user.userId,
     parishId: user.parishId,
-  }).onConflictDoNothing()
+  }).onConflictDoUpdate({
+    target: pushSubscriptions.endpoint,
+    set: {
+      p256dh: body.keys.p256dh,
+      auth: body.keys.auth,
+      userId: user.userId,
+      parishId: user.parishId,
+    },
+  })
+  return successResponse(c, { ok: true })
+})
+
+notificationsRouter.post('/native/register', zValidator('json', nativeRegistrationSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const body = c.req.valid('json')
+  const now = new Date().toISOString()
+  await db.transaction(async tx => {
+    await tx.delete(nativePushTokens).where(or(
+      eq(nativePushTokens.installationId, body.installationId),
+      and(eq(nativePushTokens.platform, body.platform), eq(nativePushTokens.token, body.token)),
+    ))
+    await tx.insert(nativePushTokens).values({
+      id: generateId('NPT'),
+      installationId: body.installationId,
+      platform: body.platform,
+      token: body.token,
+      userId: user.userId,
+      parishId: user.parishId,
+      createdAt: now,
+      updatedAt: now,
+    })
+  })
+  await db.insert(auditLogs).values({
+    id: generateId('AUD'),
+    userId: user.userId,
+    action: 'NATIVE_PUSH_REGISTER',
+    entityType: 'native_push_installation',
+    entityId: user.userId,
+    newValue: JSON.stringify({ platform: body.platform }),
+    ip: getClientIp(c),
+    userAgent: c.req.header('user-agent') || '',
+    parishId: user.parishId,
+  })
+  return successResponse(c, { ok: true })
+})
+
+notificationsRouter.post('/native/unregister', zValidator('json', nativeUnregisterSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const { installationId } = c.req.valid('json')
+  await db.delete(nativePushTokens).where(and(
+    eq(nativePushTokens.installationId, installationId),
+    eq(nativePushTokens.parishId, user.parishId),
+    eq(nativePushTokens.userId, user.userId),
+  ))
+  await db.insert(auditLogs).values({
+    id: generateId('AUD'),
+    userId: user.userId,
+    action: 'NATIVE_PUSH_UNREGISTER',
+    entityType: 'native_push_installation',
+    entityId: user.userId,
+    ip: getClientIp(c),
+    userAgent: c.req.header('user-agent') || '',
+    parishId: user.parishId,
+  })
   return successResponse(c, { ok: true })
 })
 
@@ -92,10 +166,10 @@ notificationsRouter.post('/unsubscribe', zValidator('json', unsubscribeSchema), 
 notificationsRouter.post('/send', roleMiddleware('admin'), zValidator('json', sendNotificationSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const { title, body, url } = c.req.valid('json')
-  // SSOT: sendWebPushToParish — tự xóa subscription chết (404/410).
-  const result = await sendWebPushToParish(user.parishId, { title, body, url })
+  // SSOT: fan-out Web Push + native FCM/APNs; mỗi provider tự xóa token chết.
+  const result = await sendAppPushToParish(user.parishId, { title, body, url })
   if (!result.configured) {
-    return errorResponse(c, 'VAPID_NOT_CONFIGURED', 'VAPID keys not configured', 501)
+    return errorResponse(c, 'PUSH_PROVIDER_NOT_CONFIGURED', 'No push provider is configured', 501)
   }
 
   // AUDIT-F4 (2026-08-22): broadcast toàn giáo xứ ảnh hưởng mọi phụ huynh/staff —
@@ -107,13 +181,13 @@ notificationsRouter.post('/send', roleMiddleware('admin'), zValidator('json', se
     action: 'NOTIFICATION_SEND',
     entityType: 'notification',
     entityId: 'parish-broadcast',
-    newValue: JSON.stringify({ title, sent: result.sent, failed: result.failed, total: result.total, removed: result.removed }),
+    newValue: JSON.stringify({ title, sent: result.sent, failed: result.failed, total: result.total, removed: result.removed, skipped: result.skipped }),
     ip: getClientIp(c),
     userAgent: c.req.header('user-agent') || '',
     parishId: user.parishId,
   })
 
-  return successResponse(c, { sent: result.sent, failed: result.failed, total: result.total, removed: result.removed })
+  return successResponse(c, result)
 })
 
 notificationsRouter.get('/vapid-public-key', async (c) => {
@@ -128,8 +202,13 @@ notificationsRouter.get('/vapid-public-key', async (c) => {
 
 notificationsRouter.get('/subscriptions', roleMiddleware('admin'), async (c) => {
   const user = c.get('user') as JwtPayload
-  const count = await db.select({ count: sql`count(*)` }).from(pushSubscriptions).where(eq(pushSubscriptions.parishId, user.parishId))
-  return successResponse(c, { count: count[0]?.count || 0 })
+  const [webCount, nativeCount] = await Promise.all([
+    db.select({ count: sql`count(*)` }).from(pushSubscriptions).where(eq(pushSubscriptions.parishId, user.parishId)),
+    db.select({ count: sql`count(*)` }).from(nativePushTokens).where(eq(nativePushTokens.parishId, user.parishId)),
+  ])
+  const web = Number(webCount[0]?.count || 0)
+  const native = Number(nativeCount[0]?.count || 0)
+  return successResponse(c, { count: web + native, web, native })
 })
 
 // ─── Smart Notifications ───

@@ -159,6 +159,23 @@ describe('Server studentService Layer Unit Tests', () => {
     expect(afterDelete).toBeNull()
   })
 
+  it('returns a soft-delete tombstone only inside an incremental snapshot window', async () => {
+    const [deletedRow] = await db.select().from(students).where(eq(students.id, createdId)).limit(1)
+    expect(deletedRow.deletedAt).toBeTruthy()
+
+    const delta = await getStudents(
+      'gia-ton',
+      deletedRow.updatedAt,
+      1000,
+      1,
+      new Date(Date.parse(deletedRow.updatedAt) + 60_000).toISOString(),
+    )
+    expect(delta.data.find(row => row.id === createdId)?.deletedAt).toBeTruthy()
+
+    const full = await getStudents('gia-ton', undefined, 1000)
+    expect(full.data.some(row => row.id === createdId)).toBe(false)
+  })
+
   it('rejects createStudent with nonexistent classId', async () => {
     const data = {
       holyName: 'Test',

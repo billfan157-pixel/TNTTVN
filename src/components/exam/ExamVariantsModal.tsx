@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { AlertTriangle, Layers3, Loader2, Plus, Save, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Layers3, Loader2, LockKeyhole, Plus, Save, Trash2, WandSparkles, X } from 'lucide-react'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
 import type { ExamSession, ExamVersionCode, MultipleChoiceOption } from '../../types'
@@ -23,7 +23,9 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
   const { dialogRef: trapRef } = useAccessibleDialog(true, onClose)
   const [activeVersion, setActiveVersion] = useState<ExamVersionCode>('A')
   const [message, setMessage] = useState('')
-  const { updateAnswerVariants, saving } = useExamStore()
+  const [variantCount, setVariantCount] = useState(4)
+  const [manifestLocked, setManifestLocked] = useState(Boolean(session.variantManifests))
+  const { updateAnswerVariants, generateVariantManifests, saving } = useExamStore()
   const configured = EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
   const activeKey = variants[activeVersion] ?? {}
 
@@ -55,6 +57,10 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
   }
 
   const save = async () => {
+    if (manifestLocked) {
+      setMessage('Bộ mã đề tự động đã khóa bất biến; không thể sửa đáp án riêng lẻ.')
+      return
+    }
     if (!variants.A) {
       setMessage('Mã đề A là đáp án gốc bắt buộc.')
       return
@@ -70,6 +76,16 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
     const result = await updateAnswerVariants(variants, questionCount)
     if (!result) return
     setMessage(`Đã lưu ${configured.length} mã đề; chấm lại ${result.rescored} kết quả, bỏ qua ${result.skipped} kết quả không có dữ liệu đáp án.`)
+  }
+
+  const generate = async () => {
+    const generated = await generateVariantManifests(variantCount)
+    if (!generated) return
+    const next = normalizeAnswerVariants(generated.answerVariants, generated.answerKey, questionCount)
+    setVariants(next)
+    setActiveVersion('A')
+    setManifestLocked(true)
+    setMessage(`Đã tạo và khóa ${Object.keys(next).length} mã đề. Bản in/QR sẽ dùng đúng manifest đã lưu trên máy chủ.`)
   }
 
   return (
@@ -88,21 +104,41 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
           {configured.map(code => (
             <button key={code} type="button" onClick={() => setActiveVersion(code)} className={`min-h-10 rounded-xl border px-4 text-sm font-black ${activeVersion === code ? 'border-parish-primary bg-parish-primary text-white' : 'border-surface-border bg-surface-app text-text-main'}`}>Mã {code}</button>
           ))}
-          <button type="button" className="btn btn-secondary min-h-10" onClick={addVersion} disabled={configured.length === EXAM_VERSION_CODES.length}><Plus size={15} /> Thêm mã đề</button>
-          {activeVersion !== 'A' && <button type="button" className="btn btn-danger min-h-10" onClick={() => removeVersion(activeVersion)}><Trash2 size={15} /> Xóa mã {activeVersion}</button>}
+          {!manifestLocked && <button type="button" className="btn btn-secondary min-h-10" onClick={addVersion} disabled={configured.length === EXAM_VERSION_CODES.length}><Plus size={15} /> Thêm mã đề</button>}
+          {!manifestLocked && activeVersion !== 'A' && <button type="button" className="btn btn-danger min-h-10" onClick={() => removeVersion(activeVersion)}><Trash2 size={15} /> Xóa mã {activeVersion}</button>}
         </div>
 
         {message && <div role="status" className="mx-3 mt-3 rounded-xl border border-surface-border bg-surface-app px-3 py-2 text-sm font-semibold">{message}</div>}
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" /> Không xóa hoặc đổi một mã đề sau khi phát bài nếu chưa đối chiếu bản in. B–H hiện dùng với phiếu trả lời rời và đề đảo bên ngoài; chức năng In Đề &amp; Phiếu Gộp chưa tự đảo nội dung câu hỏi nên vẫn là mã A. Khi lưu, mọi kết quả OMR hiện có được máy chủ chấm lại theo đúng mã đề.
+            {manifestLocked ? <LockKeyhole size={16} className="mt-0.5 shrink-0" /> : <AlertTriangle size={16} className="mt-0.5 shrink-0" />}
+            {manifestLocked
+              ? 'Bộ mã đề đã được máy chủ vật chất hóa và khóa bất biến. Mỗi mã có thứ tự câu, thứ tự đáp án, answer key và content hash riêng.'
+              : 'Có thể nhập đáp án cho đề đảo bên ngoài, hoặc dùng Exam Studio để máy chủ tạo 1–8 mã đề bất biến. Sau khi tạo tự động, không thể sửa riêng answer key hay đảo lại phiên này.'}
           </div>
+          {!manifestLocked && (
+            <div className="mb-3 flex flex-col gap-2 rounded-xl border border-parish-primary/20 bg-parish-primary-light p-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-black text-parish-primary">Exam Studio — tạo đề tự động</div>
+                <div className="text-xs text-text-muted">Trộn câu trắc nghiệm và A/B/C/D; giữ phần tự luận sau phần OMR. Câu có “tất cả/không đáp án nào” sẽ bị từ chối an toàn.</div>
+              </div>
+              <label className="flex items-center gap-2 text-xs font-bold text-text-main">
+                Số mã
+                <select className="form-select min-h-10 w-20" value={variantCount} onChange={event => setVariantCount(Number(event.target.value))}>
+                  {EXAM_VERSION_CODES.map((_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+                </select>
+              </label>
+              <button type="button" className="btn btn-primary min-h-10" disabled={saving || !session.questions} onClick={() => void generate()}>
+                {saving ? <Loader2 size={15} className="animate-spin" /> : <WandSparkles size={15} />} Tạo và khóa
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: questionCount }, (_, index) => index + 1).map(question => (
               <div key={question} className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface-app p-2">
                 <span className="w-14 text-xs font-black text-text-muted">Câu {question}</span>
                 <div className="grid flex-1 grid-cols-4 gap-1">
-                  {OPTIONS.map(option => <button key={option} type="button" onClick={() => choose(question, option)} className={`min-h-10 rounded-lg border text-sm font-black ${activeKey[question] === option ? 'border-parish-primary bg-parish-primary text-white' : 'border-surface-border bg-surface-card text-text-main'}`}>{option}</button>)}
+                  {OPTIONS.map(option => <button key={option} type="button" disabled={manifestLocked} onClick={() => choose(question, option)} className={`min-h-10 rounded-lg border text-sm font-black disabled:cursor-not-allowed ${activeKey[question] === option ? 'border-parish-primary bg-parish-primary text-white' : 'border-surface-border bg-surface-card text-text-main'}`}>{option}</button>)}
                 </div>
               </div>
             ))}
@@ -111,7 +147,7 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
 
         <div className="flex flex-col gap-2 border-t border-surface-border p-3 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-xs text-text-muted">Đã cấu hình {configured.length}/8 mã đề · đang sửa mã {activeVersion}</span>
-          <button type="button" className="btn btn-primary min-h-11 justify-center" disabled={saving} onClick={() => void save()}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Lưu và chấm lại</button>
+          {!manifestLocked && <button type="button" className="btn btn-primary min-h-11 justify-center" disabled={saving} onClick={() => void save()}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Lưu và chấm lại</button>}
         </div>
       </div>
     </div>

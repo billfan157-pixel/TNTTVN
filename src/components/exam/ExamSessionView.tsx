@@ -9,27 +9,30 @@ import { useExamStore, SCORE_TYPE_LABELS, DAILY_TYPES } from '../../stores/examS
 import { api } from '../../lib/api'
 import { QuickScoreEntry } from './QuickScoreEntry'
 import { ExamResultsTable } from './ExamResultsTable'
-import { ExamScanModal } from './ExamScanModal'
-import { GuidedGradeModal, type GuidedGradeStudent } from './GuidedGradeModal'
-import { ExamImportModal } from './ExamImportModal'
+import type { GuidedGradeStudent } from './GuidedGradeModal'
 import { useToastStore } from '../../stores/toastStore'
-import { ExamPaperModal } from './ExamPaperModal'
-import { ExamBatchScanModal } from './ExamBatchScanModal'
-import { ExamAnalyticsPanel } from './ExamAnalyticsPanel'
-import { ExamVariantsModal } from './ExamVariantsModal'
 import { getConfiguredExamVersions } from '../../lib/examVariants'
 import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import {
-  ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle,
+  ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle, AlertCircle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-  Upload, School, Eye,
+  Upload, School, Eye, Zap, Grid3X3, BookOpen,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import type { ExamImportScope } from '../../utils/examParser'
+import { parseQuickAnswerString } from '../../utils/examQuickKeyParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
+
+const GuidedGradeModal = React.lazy(() => import('./GuidedGradeModal').then(module => ({ default: module.GuidedGradeModal })))
+const ExamScanModal = React.lazy(() => import('./ExamScanModal').then(module => ({ default: module.ExamScanModal })))
+const ExamImportModal = React.lazy(() => import('./ExamImportModal').then(module => ({ default: module.ExamImportModal })))
+const ExamPaperModal = React.lazy(() => import('./ExamPaperModal').then(module => ({ default: module.ExamPaperModal })))
+const ExamBatchScanModal = React.lazy(() => import('./ExamBatchScanModal').then(module => ({ default: module.ExamBatchScanModal })))
+const ExamAnalyticsPanel = React.lazy(() => import('./ExamAnalyticsPanel').then(module => ({ default: module.ExamAnalyticsPanel })))
+const ExamVariantsModal = React.lazy(() => import('./ExamVariantsModal').then(module => ({ default: module.ExamVariantsModal })))
 
 const SCORE_TYPES: { id: ExamScoreType; label: string; daily: boolean }[] = [
   { id: 'oral', label: 'Điểm Miệng', daily: true },
@@ -128,6 +131,8 @@ export const ExamSessionView: React.FC = () => {
   // parish-wide cho roster, nên workspace thi phải lọc bằng assignment marker.
   const isAdmin = can('admin')
   const classCatalog = useClassStore(s => s.classes)
+  const classLoading = useClassStore(s => s.loading)
+  const fetchClasses = useClassStore(s => s.fetchClasses)
   const assignedClasses = useMemo(
     () => scopeExamWorkspaceClasses(classCatalog, isAdmin),
     [classCatalog, isAdmin],
@@ -154,7 +159,11 @@ export const ExamSessionView: React.FC = () => {
   const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
   const [showAnswerKeyModal, setShowAnswerKeyModal] = useState(false)
   const closeAnswerKeyModal = useCallback(() => setShowAnswerKeyModal(false), [])
-  const closeCreateModal = useCallback(() => setShowCreate(false), [])
+  const closeCreateModal = useCallback(() => {
+    setShowCreate(false)
+    setQuickKeyInput('')
+    setReviewViewMode('matrix')
+  }, [])
   const { dialogRef: answerKeyTrapRef, titleId: answerKeyTitleId } = useAccessibleDialog(showAnswerKeyModal, closeAnswerKeyModal)
   const { dialogRef: createTrapRef, titleId: createTitleId } = useAccessibleDialog(showCreate, closeCreateModal)
   const [rescoreLoading, setRescoreLoading] = useState(false)
@@ -190,6 +199,25 @@ export const ExamSessionView: React.FC = () => {
   })
   const [conflictsConfirmed, setConflictsConfirmed] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [quickKeyInput, setQuickKeyInput] = useState('')
+  const [reviewViewMode, setReviewViewMode] = useState<'matrix' | 'details'>('matrix')
+
+  useEffect(() => {
+    // Tải danh sách lớp học nếu store chưa có hoặc rỗng
+    if (classCatalog.length === 0) {
+      fetchClasses()
+    }
+  }, [classCatalog.length, fetchClasses])
+
+  useEffect(() => {
+    // Khi mở modal tạo phiên, nếu chưa có classId mà danh sách lớp đã tải xong, tự động điền lớp
+    if (showCreate && !createForm.classId && assignedClasses.length > 0) {
+      const defaultId = (effectiveClassId && assignedClasses.some(c => c.id === effectiveClassId))
+        ? effectiveClassId
+        : assignedClasses[0].id
+      setCreateForm(f => ({ ...f, classId: defaultId }))
+    }
+  }, [showCreate, createForm.classId, assignedClasses, effectiveClassId])
 
   useEffect(() => {
     // Non-admin: giữ null cho chế độ “Tất cả”; chỉ reset khi class đã chọn không
@@ -231,7 +259,7 @@ export const ExamSessionView: React.FC = () => {
       ? students
           .filter(s => s.classId === activeSessionClassId && s.status === 'Đang học')
           .sort((a, b) => a.code.localeCompare(b.code))
-          .map(s => ({ id: s.id, name: `${s.fullName}`, code: s.code }))
+          .map(s => ({ id: s.id, name: s.fullName, code: s.code, holyName: s.holyName }))
       : [],
     [activeSessionClassId, students]
   )
@@ -271,11 +299,19 @@ export const ExamSessionView: React.FC = () => {
   )
 
   const handleOpenCreate = () => {
+    if (classCatalog.length === 0) {
+      fetchClasses()
+    }
+    const defaultId = (effectiveClassId && assignedClasses.some(c => c.id === effectiveClassId))
+      ? effectiveClassId
+      : (assignedClasses[0]?.id || '')
     setCreateForm(f => ({
       ...f,
-      classId: effectiveClassId || assignedClasses[0]?.id || '',
+      classId: defaultId,
     }))
     setCreateError('')
+    setQuickKeyInput('')
+    setReviewViewMode('matrix')
     setShowCreate(true)
   }
 
@@ -302,6 +338,7 @@ export const ExamSessionView: React.FC = () => {
       answerKey: data.answerKey,
       questions: mergeExamParts(part, essayPart),
     }))
+    setReviewViewMode('details')
     setCreateError('')
   }
 
@@ -318,6 +355,7 @@ export const ExamSessionView: React.FC = () => {
       examType: 'mixed',
       questions: mergeExamParts(mcPart, part),
     }))
+    setReviewViewMode('details')
     setCreateError('')
   }
 
@@ -431,6 +469,7 @@ export const ExamSessionView: React.FC = () => {
     if (session) {
       setShowCreate(false)
       setCreateError('')
+      setQuickKeyInput('')
       setMcPart(null)
       setEssayPart(null)
       setCreateForm({
@@ -508,6 +547,36 @@ export const ExamSessionView: React.FC = () => {
     ? Array.from({ length: createForm.questionCount }, (_, index) => index + 1)
         .filter(question => Boolean(createForm.answerKey[question])).length
     : 0
+
+  const missingQuestions = useMemo(() => {
+    if (!requiresAnswerKey) return []
+    const missing: number[] = []
+    for (let q = 1; q <= createForm.questionCount; q++) {
+      if (!createForm.answerKey[q]) missing.push(q)
+    }
+    return missing
+  }, [requiresAnswerKey, createForm.questionCount, createForm.answerKey])
+
+  const handleApplyQuickKey = () => {
+    if (!quickKeyInput.trim()) return
+    const parsed = parseQuickAnswerString(quickKeyInput, createForm.questionCount)
+    const count = Object.keys(parsed).length
+    if (count === 0) {
+      setCreateError('Không nhận diện được đáp án A/B/C/D từ chuỗi vừa nhập. Vui lòng kiểm tra lại (VD: ABCD... hoặc 1A 2B 3C...).')
+      return
+    }
+    setCreateForm(f => ({
+      ...f,
+      answerKey: { ...f.answerKey, ...parsed },
+    }))
+    setQuickKeyInput('')
+    setCreateError('')
+  }
+
+  const handleClearAnswerKey = () => {
+    setCreateForm(f => ({ ...f, answerKey: {} }))
+    setCreateError('')
+  }
 
   return (
     <div className="flex flex-col gap-3 sm:gap-4">
@@ -806,6 +875,7 @@ export const ExamSessionView: React.FC = () => {
       )}
 
       {showGuidedGrade && activeSession && (
+        <React.Suspense fallback={null}>
         <GuidedGradeModal
           students={classStudents}
           savedScores={activeIsMixed ? savedEssayScores : savedScores}
@@ -820,10 +890,12 @@ export const ExamSessionView: React.FC = () => {
           }}
           onClose={() => setShowGuidedGrade(false)}
         />
+        </React.Suspense>
       )}
 
       {/* Scan modal — tự động QR+OMR hoặc OMR với học sinh đã chọn. */}
       {showScanner && activeSession && (
+        <React.Suspense fallback={null}>
         <ExamScanModal
           sessionId={activeSession.id}
           maxScore={activeSession.maxScore}
@@ -834,20 +906,27 @@ export const ExamSessionView: React.FC = () => {
           fixedStudent={fixedScanStudent ?? undefined}
           onClose={() => { setShowScanner(false); setFixedScanStudent(null) }}
         />
+        </React.Suspense>
       )}
 
 
 
       {showBatchScan && activeSession && (
+        <React.Suspense fallback={null}>
         <ExamBatchScanModal session={activeSession} students={classStudents} onClose={() => setShowBatchScan(false)} />
+        </React.Suspense>
       )}
 
       {showAnalytics && activeSession && (
+        <React.Suspense fallback={null}>
         <ExamAnalyticsPanel session={activeSession} results={results} onClose={() => setShowAnalytics(false)} />
+        </React.Suspense>
       )}
 
       {showVariants && activeSession && (
+        <React.Suspense fallback={null}>
         <ExamVariantsModal session={activeSession} onClose={() => setShowVariants(false)} />
+        </React.Suspense>
       )}
 
       {/* Answer Key Viewer Modal for Active Session */}
@@ -939,402 +1018,714 @@ export const ExamSessionView: React.FC = () => {
       {/* Create modal */}
       {showCreate && (
         <ModalPortal>
-        <div role="dialog" aria-modal="true" aria-labelledby={createTitleId} className="app-modal-layer fixed inset-0 bg-black/40 flex items-end justify-center p-0 sm:items-center sm:p-4" onClick={closeCreateModal}>
-          <div ref={createTrapRef} className="bg-surface-card rounded-t-3xl sm:rounded-2xl w-full max-w-2xl shadow-xl max-h-[96dvh] sm:max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 z-10 bg-surface-card border-b border-surface-border px-4 pt-2 sm:px-5 sm:pt-0">
-              <div className="flex justify-center py-1.5 sm:hidden" aria-hidden="true">
+        <div role="dialog" aria-modal="true" aria-labelledby={createTitleId} className="app-modal-layer fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end justify-center p-0 sm:items-center sm:p-4" onClick={closeCreateModal}>
+          <div ref={createTrapRef} className="bg-surface-card rounded-t-3xl sm:rounded-2xl w-full max-w-2xl lg:max-w-5xl shadow-2xl max-h-[96dvh] sm:max-h-[92vh] lg:max-h-[88vh] overflow-hidden flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 bg-surface-card shrink-0 border-b border-surface-border px-4 pt-2 sm:px-6 sm:pt-4 pb-3">
+              <div className="flex justify-center py-1 sm:hidden" aria-hidden="true">
                 <span className="h-1 w-10 rounded-full bg-surface-border" />
               </div>
-              <div className="flex items-start justify-between gap-3 pb-3 pt-1 sm:pt-4">
-                <div className="min-w-0">
-                  <h4 id={createTitleId} className="font-extrabold text-parish-primary mb-1">Tạo Phiên Chấm</h4>
-                  <p className="text-xs text-text-muted m-0">
-                    Năm học {normalizeActiveAY(activeAY)} · Học kỳ {selectedSemester}
-                  </p>
+              <div className="flex items-start justify-between gap-3 pt-1">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center shrink-0">
+                    <Layers3 size={20} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 id={createTitleId} className="font-extrabold text-parish-primary text-base sm:text-lg m-0">Tạo Phiên Chấm</h4>
+                      <span className="badge badge-primary font-bold">Mới</span>
+                    </div>
+                    <p className="text-xs text-text-muted m-0 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span>Năm học <strong>{normalizeActiveAY(activeAY)}</strong></span>
+                      <span>·</span>
+                      <span>Học kỳ <strong>{selectedSemester}</strong></span>
+                    </p>
+                  </div>
                 </div>
                 <button type="button" onClick={closeCreateModal} className="mobile-touch-target shrink-0 rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-main flex items-center justify-center" aria-label="Đóng tạo phiên chấm">
                   <X size={20} />
                 </button>
               </div>
-            </div>
 
-            <div className="px-4 pt-3 pb-3 sm:px-5">
-            {/* Tiến độ điền form — mobile cần phản hồi nhanh, giảm bỏ dở giữa chừng */}
-            {(() => {
-              const hasClass = !!(createForm.classId || effectiveClassId)
-              const hasSubject = !!createForm.subject.trim()
-              const hasImport = createForm.examType === 'written' || !!mcPart || !!essayPart
-              const hasAnswers = !requiresAnswerKey || completedAnswerCount === createForm.questionCount
-              const filled = [hasClass, hasSubject, hasImport, hasAnswers].filter(Boolean).length
-              return (
-                <div className="mb-3 flex items-center gap-2" aria-live="polite">
-                  <div className="flex-1 h-1.5 rounded-full bg-surface-hover overflow-hidden">
-                    <div className="h-full bg-parish-primary transition-all" style={{ width: `${(filled / 4) * 100}%` }} />
+              {/* Dynamic Progress Indicator */}
+              {(() => {
+                const hasClass = !!(createForm.classId || effectiveClassId)
+                const hasSubject = !!createForm.subject.trim()
+                const hasImport = createForm.examType === 'written' || !!mcPart || !!essayPart
+                const hasAnswers = !requiresAnswerKey || completedAnswerCount === createForm.questionCount
+                const filled = [hasClass, hasSubject, hasImport, hasAnswers].filter(Boolean).length
+                const isComplete = filled === 4
+                return (
+                  <div className="mt-3 pt-2.5 border-t border-surface-border/60 flex items-center justify-between gap-3" aria-live="polite">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs font-bold text-text-secondary whitespace-nowrap">Tiến độ:</span>
+                      <span className="text-xs text-text-muted truncate">
+                        {!hasClass
+                          ? 'Chưa chọn lớp học áp dụng'
+                          : !hasSubject
+                          ? 'Chưa nhập tên bài kiểm tra'
+                          : requiresAnswerKey && completedAnswerCount < createForm.questionCount
+                          ? `Đang thiếu ${createForm.questionCount - completedAnswerCount} câu đáp án`
+                          : 'Sẵn sàng khởi tạo phiên chấm'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="w-24 sm:w-32 h-2 rounded-full bg-surface-hover overflow-hidden">
+                        <div
+                          className={`h-full transition-[width] duration-300 ${isComplete ? 'bg-emerald-500' : 'bg-parish-primary'}`}
+                          style={{ width: `${(filled / 4) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-text-muted">{filled}/4</span>
+                    </div>
                   </div>
-                  <span className="text-[11px] font-bold text-text-muted whitespace-nowrap">{filled}/4</span>
-                </div>
-              )
-            })()}
-
-            {/* Class selection in Create Modal — card nhóm */}
-            {!effectiveClassId ? (
-              <div className="mb-3 p-3 rounded-xl border border-surface-border bg-surface-card">
-                <label className="block text-xs font-bold text-text-secondary mb-1.5 flex items-center gap-1.5">
-                  <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary flex items-center justify-center"><School size={12} /></span>
-                  Lớp học <span className="text-red-500">*</span>
-                </label>
-                <select
-                  aria-label="Lớp học cho phiên chấm"
-                  value={createForm.classId || ''}
-                  onChange={e => {
-                    setCreateForm(f => ({ ...f, classId: e.target.value }))
-                    setCreateError('')
-                  }}
-                  className="w-full px-3 py-2.5 rounded-xl border border-surface-border bg-surface-hover text-text-main text-xs font-semibold focus:border-parish-primary focus:bg-surface-card focus:outline-none min-h-[44px]"
-                >
-                  <option value="">-- Chọn lớp học áp dụng --</option>
-                  {assignedClasses.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <div className="mb-3 p-3 bg-parish-primary/5 border border-parish-primary/20 rounded-xl flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-parish-primary flex items-center gap-1.5"><span className="w-6 h-6 rounded-lg bg-parish-primary text-white flex items-center justify-center"><School size={12} /></span> Lớp: <strong>{findClassById(effectiveClassId)?.name || 'Lớp'}</strong></span>
-                <span className="text-[11px] text-text-muted bg-surface-card px-2 py-1 rounded-full border border-surface-border">Theo bộ lọc</span>
-              </div>
-            )}
-
-            {/* Hình thức Bài Kiểm Tra — card nhóm, mobile 1 cột dễ chạm */}
-            <div className="mb-4 p-3 rounded-xl border border-surface-border bg-surface-card">
-              <label className="block text-xs font-bold text-text-secondary mb-2 flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary flex items-center justify-center"><Layers3 size={12} /></span>
-                Hình thức Bài Kiểm Tra
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="group" aria-label="Hình thức bài kiểm tra">
-                <button
-                  type="button"
-                  onClick={() => handleExamTypeChange('written')}
-                  aria-pressed={createForm.examType === 'written'}
-                  className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
-                    createForm.examType === 'written'
-                      ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
-                      : 'border-surface-border text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
-                  }`}
-                >
-                  <span className="block">Tự luận</span>
-                  <span className="block mt-0.5 text-[11px] font-normal opacity-80">Nhập điểm trực tiếp 0–10</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExamTypeChange('multiple_choice')}
-                  aria-pressed={createForm.examType === 'multiple_choice'}
-                  className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
-                    createForm.examType === 'multiple_choice'
-                      ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
-                      : 'border-surface-border text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
-                  }`}
-                >
-                  <span className="block">Trắc nghiệm</span>
-                  <span className="block mt-0.5 text-[11px] font-normal opacity-80">A/B/C/D · quét OMR</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExamTypeChange('mixed')}
-                  title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
-                  aria-pressed={createForm.examType === 'mixed'}
-                  className={`min-h-[52px] rounded-xl border px-3 py-2 text-left text-xs font-bold transition-colors ${
-                    createForm.examType === 'mixed'
-                      ? 'border-violet-500 bg-violet-500 text-white shadow-sm'
-                      : 'border-surface-border text-text-secondary hover:bg-surface-hover hover:border-violet-500/20'
-                  }`}
-                >
-                  <span className="block">Kết hợp TN + TL</span>
-                  <span className="block mt-0.5 text-[11px] font-normal opacity-80">Quét TN, nhập điểm TL</span>
-                </button>
-              </div>
+                )
+              })()}
             </div>
 
-            {/* UI-POLISH 2026-08-25: ô import THEO HÌNH THỨC — mixed: 2 ô TN/TL riêng;
-                multiple_choice: chỉ ô TN; written (tô điểm 0-10): không import đề. */}
-            {createForm.examType !== 'written' && (
-            <div className="mb-4">
-              <div className="flex items-center gap-1.5 mb-2">
-                <Sparkles size={14} className="text-amber-500" />
-                <span className="text-xs font-bold text-text-main">
-                  {createForm.examType === 'mixed' ? 'Import Đề Thi (2 phần) — Tự Động Phân Tích:' : 'Import Đề Trắc Nghiệm — Tự Động Phân Tích:'}
-                </span>
-              </div>
-              <div className={`grid grid-cols-1 ${createForm.examType === 'mixed' ? 'sm:grid-cols-2' : ''} gap-2`}>
-                {/* ── Ô PHẦN TRẮC NGHIỆM ── */}
-                <div className={`p-3 rounded-xl border ${mcPart ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-surface-hover/70 border-surface-border'}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
-                      <ListChecks size={12} className={mcPart ? 'text-emerald-600' : 'text-text-muted'} /> Phần Trắc Nghiệm
-                    </span>
-                    {mcPart && (
-                      <button type="button" onClick={removeMcPart} className="text-[10px] underline text-text-muted hover:text-rose-600 font-semibold">
-                        Gỡ
+            <div className="min-h-0 overflow-y-auto px-4 py-3.5 sm:px-6 sm:py-4 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4">
+              {/* CỘT TRÁI: THIẾT LẬP THÔNG TIN BÀI THI & ĐIỂM */}
+              <div className={`${createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'} flex flex-col gap-3.5 mb-3 lg:mb-0`}>
+                {/* Lớp học */}
+                <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-text-secondary flex items-center gap-1.5 m-0">
+                      <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary flex items-center justify-center">
+                        <School size={12} />
+                      </span>
+                      Lớp học áp dụng <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {effectiveClassId && createForm.classId === effectiveClassId && (
+                        <span className="text-xs text-text-muted bg-surface-card px-2 py-0.5 rounded-full border border-surface-border">
+                          Mặc định theo bộ lọc
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => fetchClasses()}
+                        disabled={classLoading}
+                        title="Tải lại danh sách lớp học"
+                        className="text-xs text-parish-primary hover:underline font-semibold flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <RefreshCw size={11} className={classLoading ? 'animate-spin' : ''} />
+                        {classLoading ? 'Đang tải...' : 'Làm mới'}
                       </button>
-                    )}
+                    </div>
                   </div>
-                  {mcPart ? (
-                    <>
-                      <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-bold m-0 mb-0.5 flex items-center gap-1">
-                        <CheckCircle2 size={12} /> {mcPart.questions.length} câu · {mcPart.totalPoints}đ — đáp án đã tự điền
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
-                        className="text-[11px] underline text-text-muted hover:text-parish-primary font-semibold"
-                      >
-                        Đổi đề trắc nghiệm
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-[11px] text-text-muted m-0 mb-1.5">Câu hỏi A/B/C/D + đáp án (dán Word/Text hoặc Excel)</p>
-                      <button
-                        type="button"
-                        onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
-                        className="btn btn-primary btn-sm text-[11px] font-bold"
-                      >
-                        <Upload size={12} /> Import Trắc Nghiệm
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {/* ── Ô PHẦN TỰ LUẬN — chỉ hiện ở hình thức Kết hợp TN + TL ── */}
-                {createForm.examType === 'mixed' && (
-                <div className={`p-3 rounded-xl border ${essayPart ? 'bg-violet-500/10 border-violet-500/30' : 'bg-surface-hover/70 border-surface-border'}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
-                      <FileText size={12} className={essayPart ? 'text-violet-600 dark:text-violet-300' : 'text-text-muted'} /> Phần Tự Luận
-                    </span>
-                    {essayPart && (
-                      <button type="button" onClick={removeEssayPart} className="text-[10px] underline text-text-muted hover:text-rose-600 font-semibold">
-                        Gỡ
-                      </button>
-                    )}
-                  </div>
-                  {essayPart ? (
-                    <>
-                      <p className="text-[11px] text-violet-700 dark:text-violet-300 font-bold m-0 mb-0.5 flex items-center gap-1">
-                        <CheckCircle2 size={12} /> {essayPart.questions.length} câu · {essayPart.totalPoints}đ — chấm bằng nhập tay
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => { setImportScope('essay'); setShowImportModal(true) }}
-                        className="text-[11px] underline text-text-muted hover:text-parish-primary font-semibold"
-                      >
-                        Đổi đề tự luận
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-[11px] text-text-muted m-0 mb-1.5">Câu hỏi + điểm từng câu (chấm nhập tay)</p>
-                      <button
-                        type="button"
-                        onClick={() => { setImportScope('essay'); setShowImportModal(true) }}
-                        className="btn btn-secondary btn-sm text-[11px] font-bold"
-                      >
-                        <Upload size={12} /> Import Tự Luận
-                      </button>
-                    </>
-                  )}
-                </div>
-                )}
-              </div>
-            </div>
-            )}
-            {createForm.examType === 'mixed' && (!mcPart || !essayPart) && (
-              <div className="mb-3 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-[11px] text-amber-700 dark:text-amber-300">
-                Đề Kết hợp cần CẢ HAI phần: {!mcPart && <><strong>Phần Trắc Nghiệm</strong> (bấm Import ở ô bên trái) </>}
-                {!mcPart && !essayPart && 'và '}
-                {!essayPart && <><strong>Phần Tự Luận</strong> (bấm Import ở ô bên phải)</>}
-                {' '}— mỗi phần nạp riêng rồi ghép tự động khi tạo phiên.
-              </div>
-            )}
-
-            <div className="mb-3 p-3 rounded-xl border border-surface-border bg-surface-card">
-              <label className="block text-xs font-bold text-text-secondary mb-2 flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-md bg-amber-500/10 text-amber-600 flex items-center justify-center"><BarChart3 size={12} /></span>
-                Loại Điểm
-              </label>
-              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0 sm:px-0 sm:mx-0 mobile-scroll-row">
-                {SCORE_TYPES.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => setCreateForm(f => ({ ...f, scoreType: t.id }))}
-                    aria-pressed={createForm.scoreType === t.id}
-                    className={`shrink-0 sm:shrink min-w-[110px] sm:min-w-0 min-h-[44px] rounded-xl border px-3 py-2 text-xs font-bold transition-colors text-left sm:text-center ${
-                      createForm.scoreType === t.id
-                        ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
-                        : 'border-surface-border bg-surface-hover/50 text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
-                    }`}
-                  >
-                    {t.label}
-                    <span className="block text-[10px] font-normal opacity-80">
-                      {t.daily ? 'vào điểm hằng ngày' : 'ghi trực tiếp'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 mb-3">
-              <div>
-                <label className="block text-xs font-bold text-text-secondary mb-1.5">Môn / Nội dung kiểm tra <span className="text-red-500">*</span></label>
-                <input
-                  aria-label="Môn hoặc nội dung kiểm tra"
-                  value={createForm.subject}
-                  onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
-                  placeholder="VD: Kiểm tra chương 3"
-                  enterKeyHint="next"
-                  className="w-full min-h-[44px] px-3 py-2.5 rounded-xl border border-surface-border bg-surface-hover focus:bg-surface-card focus:border-parish-primary focus:outline-none text-sm"
-                />
-              </div>
-              <div className="sm:w-[140px]">
-                <label className="block text-xs font-bold text-text-secondary mb-1.5">Thang điểm</label>
-                <div className="flex items-center gap-1">
-                  <button type="button" onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.max(1, f.maxScore - 1) }))} className="w-10 h-11 rounded-xl border border-surface-border bg-surface-hover text-text-secondary hover:bg-surface-card flex items-center justify-center shrink-0" aria-label="Giảm thang điểm">−</button>
-                  <input
-                    aria-label="Thang điểm phiên chấm"
-                    type="number"
-                    inputMode="decimal"
-                    pattern="[0-9]*"
-                    min={1}
-                    max={10}
-                    value={createForm.maxScore}
-                    onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
-                    className="flex-1 min-h-[44px] px-2 py-2 rounded-xl border border-surface-border bg-surface-hover focus:bg-surface-card focus:border-parish-primary focus:outline-none text-center font-bold"
-                  />
-                  <button type="button" onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.min(10, f.maxScore + 1) }))} className="w-10 h-11 rounded-xl border border-surface-border bg-surface-hover text-text-secondary hover:bg-surface-card flex items-center justify-center shrink-0" aria-label="Tăng thang điểm">+</button>
-                </div>
-              </div>
-            </div>
-
-            {(createForm.examType === 'multiple_choice' || createForm.examType === 'mixed') && (
-              <div className="mb-3">
-                <div className="flex items-center gap-3 flex-wrap mb-2">
-                  <label className="block text-xs font-bold text-text-secondary">
-                    {createForm.examType === 'mixed' ? 'Số câu trắc nghiệm' : 'Số câu hỏi'}
-                  </label>
-                  <input
-                    aria-label="Số câu hỏi trắc nghiệm"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    max={50}
-                    value={createForm.questionCount}
+                  <select
+                    aria-label="Lớp học cho phiên chấm"
+                    value={createForm.classId || ''}
                     onChange={e => {
-                      const n = Math.min(50, Math.max(1, Number(e.target.value) || 20))
-                      setCreateForm(f => {
-                        const answerKey = { ...f.answerKey }
-                        for (let q = n + 1; q <= f.questionCount; q++) delete answerKey[q]
-                        return { ...f, questionCount: n, answerKey }
-                      })
+                      setCreateForm(f => ({ ...f, classId: e.target.value }))
                       setCreateError('')
                     }}
-                    className="w-20 min-h-[44px] px-3 py-2 rounded-xl border border-surface-border focus:border-parish-primary focus:outline-none"
-                  />
-                  <span className="text-xs text-text-muted">(1–50, khớp mẫu phiếu trả lời)</span>
+                    disabled={classLoading}
+                    className="w-full px-3 py-2.5 rounded-xl border border-surface-border bg-surface-card text-text-main text-xs font-semibold focus:border-parish-primary focus:outline-none min-h-[44px]"
+                  >
+                    {classLoading ? (
+                      <option value="">Đang tải danh sách lớp học...</option>
+                    ) : assignedClasses.length === 0 ? (
+                      <option value="">
+                        {isAdmin ? '-- Chưa có lớp học nào trong hệ thống --' : '-- Bạn chưa được phân công phụ trách lớp nào --'}
+                      </option>
+                    ) : (
+                      <>
+                        <option value="">-- Chọn lớp học áp dụng ({assignedClasses.length} lớp) --</option>
+                        {assignedClasses.map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+
+                  {!classLoading && assignedClasses.length === 0 && (
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2 mt-1">
+                      <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                      <div>
+                        {isAdmin ? (
+                          <p className="m-0">
+                            Chưa tìm thấy lớp học nào trong hệ thống. Vui lòng bấm <strong>&quot;Làm mới&quot;</strong> hoặc tạo lớp mới tại mục <strong>Thiếu Nhi → Quản lý Lớp</strong>.
+                          </p>
+                        ) : (
+                          <p className="m-0">
+                            Tài khoản của bạn chưa được phân công phụ trách lớp nào. Vui lòng liên hệ Ban Quản Trị để được phân công lớp trước khi tạo phiên chấm.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  <span className="text-xs font-bold text-text-secondary">Đáp án chuẩn:</span>
-                  {(['A', 'B', 'C', 'D'] as const).map(opt => (
+                {/* Hình thức Bài Kiểm Tra */}
+                <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-2.5">
+                  <label className="text-xs font-bold text-text-secondary flex items-center gap-1.5 m-0">
+                    <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary flex items-center justify-center">
+                      <Layers3 size={12} />
+                    </span>
+                    Hình thức Bài Kiểm Tra
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="group" aria-label="Hình thức bài kiểm tra">
                     <button
-                      key={opt}
                       type="button"
-                      onClick={() => {
-                        setCreateForm(f => {
-                          const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
-                          for (let q = 1; q <= f.questionCount; q++) answerKey[q] = opt
-                          return { ...f, answerKey }
-                        })
-                        setCreateError('')
-                      }}
-                      className={`min-h-[40px] px-3 py-1 rounded-lg text-[11px] font-black transition-colors ${
-                        Object.values(createForm.answerKey).every(v => v === opt) && Object.keys(createForm.answerKey).length === createForm.questionCount
-                          ? 'bg-parish-primary text-white'
-                          : 'bg-surface-hover text-text-secondary hover:bg-parish-primary-light hover:text-parish-primary'
+                      onClick={() => handleExamTypeChange('written')}
+                      aria-pressed={createForm.examType === 'written'}
+                      className={`min-h-[54px] rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition-colors ${
+                        createForm.examType === 'written'
+                          ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                          : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-parish-primary/30'
                       }`}
                     >
-                      Toàn {opt}
+                      <span className="block text-xs font-black">Tự luận</span>
+                      <span className="block mt-0.5 text-xs font-normal opacity-85">Nhập điểm trực tiếp 0–10</span>
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => handleExamTypeChange('multiple_choice')}
+                      aria-pressed={createForm.examType === 'multiple_choice'}
+                      className={`min-h-[54px] rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition-colors ${
+                        createForm.examType === 'multiple_choice'
+                          ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                          : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-parish-primary/30'
+                      }`}
+                    >
+                      <span className="block text-xs font-black">Trắc nghiệm</span>
+                      <span className="block mt-0.5 text-xs font-normal opacity-85">A/B/C/D · quét OMR</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExamTypeChange('mixed')}
+                      title="Kết hợp phần trắc nghiệm (quét OMR tự chấm) và phần tự luận (nhập tay)"
+                      aria-pressed={createForm.examType === 'mixed'}
+                      className={`min-h-[54px] rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition-colors ${
+                        createForm.examType === 'mixed'
+                          ? 'border-violet-600 bg-violet-600 text-white shadow-sm'
+                          : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-violet-500/30'
+                      }`}
+                    >
+                      <span className="block text-xs font-black">Kết hợp TN + TL</span>
+                      <span className="block mt-0.5 text-xs font-normal opacity-85">Quét TN, nhập điểm TL</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-5 lg:grid-cols-10 gap-1.5 max-h-[46dvh] sm:max-h-56 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
-                  {Array.from({ length: createForm.questionCount }).map((_, i) => {
-                    const q = i + 1
-                    const current = createForm.answerKey[q]
-                    return (
-                      <div key={q} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-surface-card border border-surface-border sm:flex-col sm:items-center sm:gap-0.5 sm:p-1">
-                        <span className="min-w-10 text-[11px] font-bold text-text-muted sm:min-w-0 sm:text-[9px]">Câu {q}</span>
-                        <div className="flex gap-1 sm:gap-0.5">
-                          {(['A', 'B', 'C', 'D'] as const).map(opt => (
+                {/* Loại Điểm, Môn học & Thang điểm */}
+                <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-text-secondary mb-2 flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-md bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                        <BarChart3 size={12} />
+                      </span>
+                      Loại Điểm
+                    </label>
+                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0 sm:px-0 sm:mx-0 mobile-scroll-row">
+                      {SCORE_TYPES.map(t => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setCreateForm(f => ({ ...f, scoreType: t.id }))}
+                          aria-pressed={createForm.scoreType === t.id}
+                          className={`shrink-0 sm:shrink min-w-[110px] sm:min-w-0 min-h-[46px] rounded-xl border px-2.5 py-2 text-xs font-bold transition-colors text-left sm:text-center ${
+                            createForm.scoreType === t.id
+                              ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                              : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
+                          }`}
+                        >
+                          <span className="block font-black text-xs">{t.label}</span>
+                          <span className="block text-xs font-normal opacity-85">
+                            {t.daily ? 'vào điểm hằng ngày' : 'ghi trực tiếp'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-text-secondary mb-1.5">
+                        Môn / Nội dung kiểm tra <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        aria-label="Môn hoặc nội dung kiểm tra"
+                        value={createForm.subject}
+                        onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
+                        placeholder="VD: Kiểm tra chương 3"
+                        enterKeyHint="next"
+                        className="w-full min-h-[44px] px-3 py-2.5 rounded-xl border border-surface-border bg-surface-card focus:border-parish-primary focus:outline-none text-sm font-semibold"
+                      />
+                    </div>
+                    <div className="sm:w-[140px]">
+                      <label className="block text-xs font-bold text-text-secondary mb-1.5">Thang điểm</label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.max(1, f.maxScore - 1) }))}
+                          className="w-10 h-11 rounded-xl border border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover flex items-center justify-center shrink-0 font-bold"
+                          aria-label="Giảm thang điểm"
+                        >
+                          −
+                        </button>
+                        <input
+                          aria-label="Thang điểm phiên chấm"
+                          type="number"
+                          inputMode="decimal"
+                          pattern="[0-9]*"
+                          min={1}
+                          max={10}
+                          value={createForm.maxScore}
+                          onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
+                          className="flex-1 min-h-[44px] px-2 py-2 rounded-xl border border-surface-border bg-surface-card focus:border-parish-primary focus:outline-none text-center font-bold text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.min(10, f.maxScore + 1) }))}
+                          className="w-10 h-11 rounded-xl border border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover flex items-center justify-center shrink-0 font-bold"
+                          aria-label="Tăng thang điểm"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Thông báo chế độ tự luận */}
+                {createForm.examType === 'written' && (
+                  <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-200 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0 mt-0.5">
+                      <CheckCircle2 size={16} />
+                    </div>
+                    <div className="text-xs">
+                      <p className="font-black m-0 mb-1">Hình thức Tự Luận — Sẵn sàng tạo phiên</p>
+                      <p className="text-text-muted m-0">
+                        Phiên tự luận không yêu cầu ma trận đáp án. Sau khi bấm &quot;Tạo Phiên&quot;, bạn có thể nhập điểm trực tiếp từ 0–{createForm.maxScore} cho từng học sinh trên danh sách hoặc qua ô nhập nhanh.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CỘT PHẢI: VÙNG LÀM VIỆC IMPORT & MA TRẬN ĐÁP ÁN (Dành cho Trắc nghiệm & Kết hợp) */}
+              {createForm.examType !== 'written' && (
+                <div className="lg:col-span-7 flex flex-col gap-3.5">
+                  {/* Smart Import Hub */}
+                  <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-amber-500" />
+                      <span className="text-xs font-bold text-text-main">
+                        {createForm.examType === 'mixed' ? 'Import Đề Thi (2 phần) — Tự Động Phân Tích:' : 'Import Đề Trắc Nghiệm — Tự Động Phân Tích:'}
+                      </span>
+                    </div>
+                    <div className={`grid grid-cols-1 ${createForm.examType === 'mixed' ? 'sm:grid-cols-2' : ''} gap-2`}>
+                      {/* Ô PHẦN TRẮC NGHIỆM */}
+                      <div className={`p-3 rounded-xl border ${mcPart ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-surface-card border-surface-border'}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
+                            <ListChecks size={12} className={mcPart ? 'text-emerald-600 dark:text-emerald-400' : 'text-text-muted'} /> Phần Trắc Nghiệm
+                          </span>
+                          {mcPart && (
+                            <button type="button" onClick={removeMcPart} className="text-[10px] underline text-text-muted hover:text-rose-600 font-semibold">
+                              Gỡ
+                            </button>
+                          )}
+                        </div>
+                        {mcPart ? (
+                          <>
+                            <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-bold m-0 mb-0.5 flex items-center gap-1">
+                              <CheckCircle2 size={12} /> {mcPart.questions.length} câu · {mcPart.totalPoints}đ — đáp án đã tự điền
+                            </p>
                             <button
-                              key={opt}
                               type="button"
-                              onClick={() => {
-                                setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q]: opt } }))
+                              onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
+                              className="text-[11px] underline text-text-muted hover:text-parish-primary font-semibold"
+                            >
+                              Đổi đề trắc nghiệm
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[11px] text-text-muted m-0 mb-1.5">Câu hỏi A/B/C/D + đáp án (dán Word/Text hoặc Excel)</p>
+                            <button
+                              type="button"
+                              onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
+                              className="btn btn-primary btn-sm text-[11px] font-bold"
+                            >
+                              <Upload size={12} /> Import Trắc Nghiệm
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Ô PHẦN TỰ LUẬN */}
+                      {createForm.examType === 'mixed' && (
+                        <div className={`p-3 rounded-xl border ${essayPart ? 'bg-violet-500/10 border-violet-500/30' : 'bg-surface-card border-surface-border'}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-black text-text-main uppercase tracking-wide flex items-center gap-1">
+                              <FileText size={12} className={essayPart ? 'text-violet-600 dark:text-violet-300' : 'text-text-muted'} /> Phần Tự Luận
+                            </span>
+                            {essayPart && (
+                              <button type="button" onClick={removeEssayPart} className="text-[10px] underline text-text-muted hover:text-rose-600 font-semibold">
+                                Gỡ
+                              </button>
+                            )}
+                          </div>
+                          {essayPart ? (
+                            <>
+                              <p className="text-[11px] text-violet-700 dark:text-violet-300 font-bold m-0 mb-0.5 flex items-center gap-1">
+                                <CheckCircle2 size={12} /> {essayPart.questions.length} câu · {essayPart.totalPoints}đ — chấm bằng nhập tay
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => { setImportScope('essay'); setShowImportModal(true) }}
+                                className="text-[11px] underline text-text-muted hover:text-parish-primary font-semibold"
+                              >
+                                Đổi đề tự luận
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-[11px] text-text-muted m-0 mb-1.5">Câu hỏi + điểm từng câu (chấm nhập tay)</p>
+                              <button
+                                type="button"
+                                onClick={() => { setImportScope('essay'); setShowImportModal(true) }}
+                                className="btn btn-secondary btn-sm text-[11px] font-bold"
+                              >
+                                <Upload size={12} /> Import Tự Luận
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {createForm.examType === 'mixed' && (!mcPart || !essayPart) && (
+                      <div className="p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-[11px] text-amber-700 dark:text-amber-300">
+                        Đề Kết hợp cần CẢ HAI phần: {!mcPart && <><strong>Phần Trắc Nghiệm</strong> (bấm Import ở ô bên trái) </>}
+                        {!mcPart && !essayPart && 'và '}
+                        {!essayPart && <><strong>Phần Tự Luận</strong> (bấm Import ở ô bên phải)</>}
+                        {' '}— mỗi phần nạp riêng rồi ghép tự động khi tạo phiên.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Answer Key Workspace */}
+                  <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-3 lg:rounded-xl lg:border lg:border-surface-border lg:bg-surface-card lg:p-3">
+                    {/* Header Workspace */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-surface-border/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
+                          <ListChecks size={14} className="text-parish-primary" />
+                          Đáp Án Chuẩn ({completedAnswerCount}/{createForm.questionCount})
+                        </span>
+                        {Boolean(createForm.questions && createForm.questions.length > 0) && (
+                          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                            <CheckCircle2 size={11} /> {createForm.questions?.length} câu hỏi
+                          </span>
+                        )}
+                      </div>
+
+                      {Boolean(createForm.questions && createForm.questions.length > 0) && (
+                        <div className="flex items-center p-0.5 bg-surface-app rounded-lg border border-surface-border text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setReviewViewMode('matrix')}
+                            className={`px-2.5 py-1 rounded-md font-bold transition-colors flex items-center gap-1 ${
+                              reviewViewMode === 'matrix'
+                                ? 'bg-surface-card text-parish-primary shadow-xs'
+                                : 'text-text-muted hover:text-text-main'
+                            }`}
+                          >
+                            <Grid3X3 size={12} /> Ma trận nhanh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReviewViewMode('details')}
+                            className={`px-2.5 py-1 rounded-md font-bold transition-colors flex items-center gap-1 ${
+                              reviewViewMode === 'details'
+                                ? 'bg-surface-card text-parish-primary shadow-xs'
+                                : 'text-text-muted hover:text-text-main'
+                            }`}
+                          >
+                            <BookOpen size={12} /> Chi tiết câu hỏi
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Mode 1: Detailed Question List View */}
+                    {reviewViewMode === 'details' && Boolean(createForm.questions && createForm.questions.length > 0) ? (
+                      <div className="flex flex-col gap-2.5 max-h-[46dvh] sm:max-h-60 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
+                        {createForm.questions?.map((questionItem, idx) => {
+                          const qNum = questionItem.index || (idx + 1)
+                          const isEssay = questionItem.type === 'essay'
+                          const currentAnswer = createForm.answerKey[qNum]
+
+                          return (
+                            <div
+                              key={qNum}
+                              className="p-3 rounded-xl bg-surface-card border border-surface-border flex flex-col gap-2 transition-colors hover:border-parish-primary/30"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-black ${
+                                    isEssay ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-parish-primary/10 text-parish-primary'
+                                  }`}>
+                                    {isEssay ? `Câu ${qNum} (Tự luận)` : `Câu ${qNum} (Trắc nghiệm)`}
+                                  </span>
+                                  {questionItem.points !== undefined && (
+                                    <span className="text-[11px] text-text-muted font-bold">
+                                      {questionItem.points} điểm
+                                    </span>
+                                  )}
+                                </div>
+                                {!isEssay && (
+                                  <span className={`text-[11px] font-black px-2 py-0.5 rounded-md ${
+                                    currentAnswer
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  }`}>
+                                    {currentAnswer ? `Đáp án đúng: ${currentAnswer}` : 'Chưa có đáp án'}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-xs text-text-main font-semibold m-0 leading-relaxed">
+                                {questionItem.question}
+                              </p>
+
+                              {!isEssay && questionItem.options && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-1">
+                                  {(['A', 'B', 'C', 'D'] as const).map(opt => {
+                                    const optText = questionItem.options?.[opt]
+                                    if (!optText && optText !== '') return null
+                                    const isSelected = currentAnswer === opt
+                                    return (
+                                      <button
+                                        key={opt}
+                                        type="button"
+                                        onClick={() => {
+                                          setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [qNum]: opt } }))
+                                          setCreateError('')
+                                        }}
+                                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-start gap-2 ${
+                                          isSelected
+                                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100 font-bold shadow-xs'
+                                            : 'border-surface-border bg-surface-app text-text-secondary hover:bg-surface-hover hover:border-parish-primary/30'
+                                        }`}
+                                      >
+                                        <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 font-black text-xs ${
+                                          isSelected ? 'bg-emerald-600 text-white' : 'bg-surface-card text-text-muted border border-surface-border'
+                                        }`}>
+                                          {opt}
+                                        </span>
+                                        <span className="flex-1 leading-snug">{optText || `Phương án ${opt}`}</span>
+                                        {isSelected && <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      /* Mode 2: Quick Key Matrix Mode */
+                      <>
+                        {/* Controls row */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs font-bold text-text-secondary whitespace-nowrap">
+                              {createForm.examType === 'mixed' ? 'Số câu trắc nghiệm:' : 'Số câu hỏi:'}
+                            </label>
+                            <input
+                              aria-label="Số câu hỏi trắc nghiệm"
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              max={50}
+                              value={createForm.questionCount}
+                              onChange={e => {
+                                const n = Math.min(50, Math.max(1, Number(e.target.value) || 20))
+                                setCreateForm(f => {
+                                  const answerKey = { ...f.answerKey }
+                                  for (let q = n + 1; q <= f.questionCount; q++) delete answerKey[q]
+                                  return { ...f, questionCount: n, answerKey }
+                                })
                                 setCreateError('')
                               }}
-                              aria-label={`Câu ${q}, đáp án ${opt}`}
-                              aria-pressed={current === opt}
-                              className={`w-11 h-11 sm:w-5 sm:h-5 rounded text-xs sm:text-[10px] font-black transition-colors ${
-                                current === opt
-                                  ? 'bg-parish-primary text-white'
-                                  : 'bg-surface-app text-text-muted hover:bg-surface-hover'
-                              }`}
-                            >
-                              {opt}
-                            </button>
-                          ))}
+                              className="w-16 min-h-[36px] px-2 py-1 rounded-lg border border-surface-border bg-surface-card text-center font-bold text-xs focus:border-parish-primary focus:outline-none"
+                            />
+                            <span className="text-xs text-text-muted">(1–50, khớp mẫu phiếu)</span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-text-secondary mr-0.5 hidden sm:inline">Đáp án nhanh:</span>
+                            {(['A', 'B', 'C', 'D'] as const).map(opt => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => {
+                                  setCreateForm(f => {
+                                    const answerKey: Record<number, 'A' | 'B' | 'C' | 'D'> = {}
+                                    for (let q = 1; q <= f.questionCount; q++) answerKey[q] = opt
+                                    return { ...f, answerKey }
+                                  })
+                                  setCreateError('')
+                                }}
+                                className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-black transition-colors ${
+                                  Object.values(createForm.answerKey).every(v => v === opt) && Object.keys(createForm.answerKey).length === createForm.questionCount
+                                    ? 'bg-parish-primary text-white shadow-sm'
+                                    : 'bg-surface-card border border-surface-border text-text-secondary hover:bg-parish-primary-light hover:text-parish-primary'
+                                }`}
+                              >
+                                Toàn {opt}
+                              </button>
+                            ))}
+                            {completedAnswerCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={handleClearAnswerKey}
+                                title="Xóa toàn bộ đáp án đã chọn"
+                                className="min-h-[34px] px-2 py-1 rounded-lg text-xs font-semibold text-text-muted hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-1"
+                              >
+                                <RotateCcw size={12} /> Xóa hết
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+
+                        {/* ⚡ Quick Answer String Input Bar */}
+                        <div className="flex items-center gap-1.5 bg-surface-card p-1.5 rounded-xl border border-surface-border">
+                          <input
+                            type="text"
+                            value={quickKeyInput}
+                            onChange={e => setQuickKeyInput(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleApplyQuickKey() } }}
+                            placeholder="Dán chuỗi đáp án (VD: ABCD... hoặc 1A 2B 3C...)"
+                            className="flex-1 px-2.5 py-1 text-xs bg-transparent border-none text-text-main placeholder:text-text-muted focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleApplyQuickKey}
+                            disabled={!quickKeyInput.trim()}
+                            className="btn btn-primary btn-sm min-h-[32px] px-3 text-xs font-bold gap-1 disabled:opacity-40"
+                          >
+                            <Zap size={12} /> Áp dụng
+                          </button>
+                        </div>
+
+                        {/* Real-time missing questions alert */}
+                        {missingQuestions.length > 0 ? (
+                          <div className="flex items-center gap-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-semibold">
+                            <AlertCircle size={14} className="shrink-0 text-amber-600" />
+                            <span className="truncate">
+                              Còn thiếu {missingQuestions.length} câu: Câu {missingQuestions.slice(0, 8).join(', ')}{missingQuestions.length > 8 ? '…' : ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
+                            <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                            <span>Đã điền đầy đủ {createForm.questionCount}/{createForm.questionCount} đáp án chuẩn</span>
+                          </div>
+                        )}
+
+                        {/* Answer Key Matrix Grid (5 Columns on Desktop for spacious touch targets) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-[46dvh] sm:max-h-60 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
+                          {Array.from({ length: createForm.questionCount }).map((_, i) => {
+                            const q = i + 1
+                            const current = createForm.answerKey[q]
+                            const isMissing = !current
+                            return (
+                              <div
+                                key={q}
+                                className={`p-2 rounded-xl bg-surface-card border transition-colors flex flex-col gap-1.5 ${
+                                  isMissing
+                                    ? 'border-amber-500/40 bg-amber-500/[0.02]'
+                                    : 'border-surface-border/80 hover:border-parish-primary/40'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className={`text-xs font-bold ${isMissing ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-text-main'}`}>
+                                    Câu {q}
+                                  </span>
+                                  {current ? (
+                                    <span className="w-5 h-5 rounded-md bg-parish-primary/10 text-parish-primary font-black text-xs flex items-center justify-center">
+                                      {current}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                      Chưa chọn
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-4 gap-1" role="group" aria-label={`Đáp án cho câu ${q}`}>
+                                  {(['A', 'B', 'C', 'D'] as const).map(opt => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => {
+                                        setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q]: opt } }))
+                                        setCreateError('')
+                                      }}
+                                      aria-label={`Câu ${q}, đáp án ${opt}`}
+                                      aria-pressed={current === opt}
+                                      className={`w-11 h-11 sm:w-auto sm:h-7.5 rounded-lg text-xs font-black transition-colors flex items-center justify-center ${
+                                        current === opt
+                                          ? 'bg-parish-primary text-white shadow-sm ring-2 ring-parish-primary/20 scale-[1.02]'
+                                          : 'bg-surface-app border border-surface-border text-text-secondary hover:bg-parish-primary/10 hover:border-parish-primary/30 hover:text-parish-primary'
+                                      }`}
+                                    >
+                                      {opt}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {createError && (
-              <div role="alert" className="mb-3 rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3 py-2 text-xs font-semibold text-parish-warning">
-                {createError}
-              </div>
-            )}
+              {/* Thông báo lỗi nếu có */}
+              {createError && (
+                <div role="alert" className="mt-3 rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3 py-2 text-xs font-semibold text-parish-warning lg:col-span-12">
+                  {createError}
+                </div>
+              )}
 
-            <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-4 border-t border-surface-border bg-surface-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                {requiresAnswerKey ? (
-                  <p className={`m-0 text-xs font-semibold ${completedAnswerCount === createForm.questionCount ? 'text-emerald-600 dark:text-emerald-300' : 'text-text-muted'}`} aria-live="polite">
-                    Đáp án: {completedAnswerCount}/{createForm.questionCount} câu
-                  </p>
-                ) : (
-                  <p className="m-0 text-xs text-text-muted">Sẵn sàng nhập điểm trực tiếp sau khi tạo phiên.</p>
-                )}
-                <div className="flex gap-2 sm:justify-end">
-                  <button className="btn btn-secondary flex-1 min-h-[44px] sm:flex-none" onClick={closeCreateModal}>Hủy</button>
-                  <button className="btn btn-primary flex-1 min-h-[44px] sm:flex-none" onClick={handleCreate} disabled={!createForm.subject.trim()}>
-                    <Plus size={16} /> Tạo Phiên
-                  </button>
+              {/* Sticky Footer Actions */}
+              <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-4 border-t border-surface-border bg-surface-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5 lg:col-span-12 lg:mx-0 lg:rounded-b-2xl">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {requiresAnswerKey ? (
+                    <p className={`m-0 text-xs font-semibold ${completedAnswerCount === createForm.questionCount ? 'text-emerald-600 dark:text-emerald-300' : 'text-text-muted'}`} aria-live="polite">
+                      Đáp án: {completedAnswerCount}/{createForm.questionCount} câu
+                    </p>
+                  ) : (
+                    <p className="m-0 text-xs text-text-muted">Sẵn sàng nhập điểm trực tiếp sau khi tạo phiên.</p>
+                  )}
+                  <div className="flex gap-2 sm:justify-end">
+                    <button className="btn btn-secondary flex-1 min-h-[44px] sm:flex-none" onClick={closeCreateModal}>Hủy</button>
+                    <button className="btn btn-primary flex-1 min-h-[44px] sm:flex-none" onClick={handleCreate} disabled={!createForm.subject.trim()}>
+                      <Plus size={16} /> Tạo Phiên
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
         </div>
         </ModalPortal>
       )}
 
       {/* Smart Exam Import Modal — scope theo ô import đang mở (TN / TL) */}
       {showImportModal && (
+        <React.Suspense fallback={null}>
         <ExamImportModal
           isOpen={showImportModal}
           scope={importScope}
@@ -1344,10 +1735,12 @@ export const ExamSessionView: React.FC = () => {
             else handleMcImport(data)
           }}
         />
+        </React.Suspense>
       )}
 
       {/* Printable & Exportable Exam Paper Modal */}
       {showPaperModal && activeSession && (
+        <React.Suspense fallback={null}>
         <ExamPaperModal
           isOpen={showPaperModal}
           onClose={() => setShowPaperModal(false)}
@@ -1359,11 +1752,13 @@ export const ExamSessionView: React.FC = () => {
           sessionId={activeSession.id}
           answerKey={activeSession.answerKey}
           answerVariants={activeSession.answerVariants}
+          variantManifests={activeSession.variantManifests}
           examType={activeSession.examType}
           maxScore={activeSession.maxScore}
           questionCount={activeSession.questionCount}
           scoreTypeLabel={SCORE_TYPE_LABELS[activeSession.scoreType]}
         />
+        </React.Suspense>
       )}
 
       {confirmDialog}

@@ -2,7 +2,7 @@ import { useState, Suspense } from 'react'
 import { MobileGradeView } from '../components/mobile/MobileGradeView'
 import { useUIStore } from '../stores/uiStore'
 import { useEffectiveMode } from '../hooks/useEffectiveMode'
-import { Grid3X3, FileSpreadsheet, Columns3, Calculator, ClipboardList } from 'lucide-react'
+import { Grid3X3, FileSpreadsheet, Columns3, Calculator, ClipboardList, LibraryBig } from 'lucide-react'
 import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student } from '../types'
 import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
@@ -15,8 +15,9 @@ const DesktopGradeCards = lazyWithRetry<React.FC<{
 const DesktopGradeComparison = lazyWithRetry(() => import('../components/desktop/DesktopGradeComparison'), 'DesktopGradeComparison')
 const DesktopDailyGradeEntry = lazyWithRetry(() => import('../components/desktop/DesktopDailyGradeEntry'), 'DesktopDailyGradeEntry')
 const ExamSessionView = lazyWithRetry(() => import('../components/exam/ExamSessionView'), 'ExamSessionView')
+const QuestionBankView = lazyWithRetry(() => import('../components/exam/QuestionBankView'), 'QuestionBankView')
 
-type GradeViewMode = 'matrix' | 'cards' | 'comparison' | 'daily' | 'exam'
+type GradeViewMode = 'matrix' | 'cards' | 'comparison' | 'daily' | 'exam' | 'bank'
 
 const VIEW_TABS: { id: GradeViewMode; label: string; icon: React.ReactNode; desc: string }[] = [
   { id: 'matrix', label: 'Ma Trận', icon: <Grid3X3 size={16} />, desc: 'Nhập điểm hàng loạt' },
@@ -24,6 +25,7 @@ const VIEW_TABS: { id: GradeViewMode; label: string; icon: React.ReactNode; desc
   { id: 'comparison', label: 'So Sánh', icon: <Columns3 size={16} />, desc: 'HK I vs HK II' },
   { id: 'daily', label: 'Hằng Ngày', icon: <Calculator size={16} />, desc: 'Nhập nhiều lần' },
   { id: 'exam', label: 'Chấm Bài', icon: <ClipboardList size={16} />, desc: 'QR + nhập nhanh' },
+  { id: 'bank', label: 'Ngân Hàng', icon: <LibraryBig size={16} />, desc: 'Câu hỏi + ma trận đề' },
 ]
 
 export function GradesPage() {
@@ -72,6 +74,9 @@ export function GradesPage() {
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="exam" activeValue={viewMode}>
           <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><ExamSessionView /></Suspense>
+        </TabPanel>
+        <TabPanel tabsId="desktop-grade-view-tabs" value="bank" activeValue={viewMode}>
+          <Suspense fallback={<div className="flex h-64 items-center justify-center text-sm font-medium text-text-secondary">Đang tải ngân hàng câu hỏi...</div>}><QuestionBankView /></Suspense>
         </TabPanel>
       </div>
     )

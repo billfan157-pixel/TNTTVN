@@ -81,6 +81,47 @@ describe('Smart Exam Grading — exam routes & service', () => {
     sharedSessionId = res.data.id
   })
 
+  it('Exam Studio persists one immutable server-authoritative variant manifest set', async () => {
+    const questions = Array.from({ length: 4 }, (_, index) => ({
+      index: index + 1,
+      question: `Studio question ${index + 1}`,
+      type: 'multiple_choice',
+      options: { A: `A${index}`, B: `B${index}`, C: `C${index}`, D: `D${index}` },
+      correctOption: 'B',
+    }))
+    const created = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: {
+        classId: 'cl-exam-01', subject: 'Exam Studio', scoreType: 'midterm', semester: 1,
+        academicYear: '2025-2026', examType: 'multiple_choice', questionCount: 4,
+        answerKey: JSON.stringify({ 1: 'B', 2: 'B', 3: 'B', 4: 'B' }),
+        questions: JSON.stringify(questions),
+      },
+    })
+    expect(created.status).toBe(201)
+
+    const generated = await jsonReq(`/${created.data.id}/variant-manifests`, {
+      method: 'POST', token: adminToken, body: { variantCount: 3, seed: 'studio-seed-2026' },
+    })
+    expect(generated.status).toBe(200)
+    expect(Object.keys(generated.data.manifests.variants)).toEqual(['A', 'B', 'C'])
+    expect(generated.data.manifests.variants.A.sourceQuestionOrder).toEqual([1, 2, 3, 4])
+    expect(generated.data.manifests.variants.B.contentHash).not.toBe(generated.data.manifests.variants.A.contentHash)
+    expect(generated.data.session.variantManifests).toContain('catevia-variant-v1')
+
+    const regenerate = await jsonReq(`/${created.data.id}/variant-manifests`, {
+      method: 'POST', token: adminToken, body: { variantCount: 4 },
+    })
+    expect(regenerate.status).toBe(409)
+
+    const detachedKeyMutation = await jsonReq(`/${created.data.id}/answer-key`, {
+      method: 'PATCH', token: adminToken,
+      body: { answerKey: JSON.stringify({ 1: 'A', 2: 'A', 3: 'A', 4: 'A' }), questionCount: 4 },
+    })
+    expect(detachedKeyMutation.status).toBe(409)
+    expect(detachedKeyMutation.body.error.code).toBe('VARIANT_MANIFEST_LOCKED')
+  })
+
   it('barcode decode accepts compact production payload and restores full IDs', async () => {
     const compact = `TE:${sharedSessionId.slice(4).toUpperCase()}:12345678`
     const res = await jsonReq('/barcode/decode', {

@@ -423,7 +423,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 )}
                 <div className={`flex justify-between items-start ${selectionMode ? 'pl-8' : ''}`}>
                   <div className="min-w-0 overflow-hidden">
-                    <div className="text-amber-900 dark:text-amber-400 text-xs font-bold truncate">
+                    <div className="text-amber-950 dark:text-amber-400 text-xs font-bold truncate">
                       {s.holyName || '—'}
                     </div>
                     <div className="text-text-main text-[15px] font-extrabold truncate">

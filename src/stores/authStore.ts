@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Role } from '../types'
 import { setTokens, clearTokens, loadTokensFromStorage, bootstrapAccessToken, api } from '../lib/api'
-import { initPushSubscription, disablePushSubscription } from '../lib/pushManager'
+import { initPushSubscription, disablePushSubscription, isNativePushAvailable } from '../lib/pushManager'
 import { resetAllStoresToDefault } from './resetStores'
 import { rehydrateTenantStores, setTenantScope } from '../lib/tenantScope'
 import { AUTH_SNAPSHOT_KEY, clearAuthSnapshot, dexieStorage } from '../lib/db'
@@ -278,7 +278,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await activateScope(user)
       const requiresChange = user.status === 'FORCE_PASSWORD_CHANGE' || user.mustChangePassword === 1
       set({ user, isAuthenticated: true, authReady: true, requiresPasswordChange: requiresChange })
-      if (!requiresChange && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      if (!requiresChange && (isNativePushAvailable() || (typeof Notification !== 'undefined' && Notification.permission === 'granted'))) {
         initPushSubscription().catch(console.warn)
       }
     } catch {

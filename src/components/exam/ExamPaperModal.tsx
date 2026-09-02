@@ -27,7 +27,8 @@ import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../../lib/examPrintSafety'
-import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption } from '../../types'
+import { canSelectExternalExamVersion, resolvePrintableExamVersion } from '../../lib/examVersionPolicy'
+import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 
@@ -44,6 +45,7 @@ interface ExamPaperModalProps {
   sessionId?: string
   answerKey?: Record<number, MultipleChoiceOption>
   answerVariants?: Partial<ExamAnswerVariants>
+  variantManifests?: ExamVariantManifestSet | string
   examType?: ExamType
   maxScore?: number
   questionCount?: number
@@ -62,6 +64,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   sessionId = 'SESS-001',
   answerKey,
   answerVariants,
+  variantManifests,
   examType = 'multiple_choice',
   maxScore = 10,
   questionCount = 20,
@@ -114,9 +117,17 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     return list.length > 0 ? list : (['A'] as ExamVersionCode[])
   }, [variants])
 
-  const effectiveSelectedVersion = availableVersions.includes(selectedVersion)
-    ? selectedVersion
-    : (availableVersions[0] ?? 'A')
+  const manifestSet = useMemo<ExamVariantManifestSet | undefined>(() => {
+    if (!variantManifests) return undefined
+    if (typeof variantManifests !== 'string') return variantManifests
+    try { return JSON.parse(variantManifests) as ExamVariantManifestSet } catch { return undefined }
+  }, [variantManifests])
+  const manifestVersions = useMemo(
+    () => EXAM_VERSION_CODES.filter(code => Boolean(manifestSet?.variants[code])),
+    [manifestSet],
+  )
+
+  const effectiveSelectedVersion = resolvePrintableExamVersion(docType, selectedVersion, availableVersions, manifestVersions)
 
   useEffect(() => {
     if (selectedVersion !== effectiveSelectedVersion) {
@@ -143,7 +154,11 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   const effectiveQuestions = useMemo(() => {
     const activeKey = variants[effectiveSelectedVersion] || answerKey || {}
-    const sorted = [...questions].sort((a, b) => (a.index || 0) - (b.index || 0))
+    const manifestedQuestions = manifestSet?.variants[effectiveSelectedVersion]?.questions
+    const sourceQuestions = manifestedQuestions && (docType === 'exam_paper' || docType === 'question_reader')
+      ? manifestedQuestions
+      : questions
+    const sorted = [...sourceQuestions].sort((a, b) => (a.index || 0) - (b.index || 0))
     return sorted.map((q, idx) => {
       const qNum = q.index || idx + 1
       return {
@@ -152,7 +167,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         correctOption: activeKey[qNum] || q.correctOption || 'A',
       }
     })
-  }, [questions, variants, effectiveSelectedVersion, answerKey])
+  }, [questions, variants, effectiveSelectedVersion, answerKey, manifestSet, docType])
 
   const printOptions: ExamPaperPrintOptions = useMemo(() => ({
     parishName,
@@ -541,7 +556,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 )}
 
                 {/* Mã Đề Selector */}
-                {docType !== 'qr_sheet' && availableVersions.length > 1 && (
+                {canSelectExternalExamVersion(docType, manifestVersions.length > 0) && availableVersions.length > 1 && (
                   <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
                     <span className="text-[11px] text-text-muted font-bold px-1 flex items-center">
                       <Layers3 size={11} className="mr-0.5" /> Mã:
@@ -700,7 +715,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 </div>
               )}
 
-              {docType !== 'qr_sheet' && availableVersions.length > 1 && (
+              {canSelectExternalExamVersion(docType, manifestVersions.length > 0) && availableVersions.length > 1 && (
                 <div className="flex items-center gap-1.5 text-xs">
                   <span className="text-text-muted font-semibold flex items-center gap-1">
                     <Layers3 size={13} /> Mã Đề:

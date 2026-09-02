@@ -10,7 +10,7 @@ export const PURGE_CONFIRM_KEY = 'XÓA TẤT CẢ'
 export const PURGE_VERSION_KEY = 'purge_version'
 export const DEFAULT_PURGE_VERSION = 1
 
-// ─── Các bảng nghiệp vụ thuộc hợp đồng Purge v2.4 ───
+// ─── Các bảng nghiệp vụ thuộc hợp đồng Purge v2.5 ───
 // Mọi bảng đều có cột parish_id → xóa theo parish (audit P4:
 // grade_overrides + outbox_messages đã add-column migration 096/097 — bỏ join-workaround v1.0).
 export const PURGE_TABLES = [
@@ -23,7 +23,12 @@ export const PURGE_TABLES = [
   'attendance_sessions',
   'exam_result_mutations',
   'exam_results',
+  'exam_question_snapshots',
   'exam_sessions',
+  'exam_blueprint_rules',
+  'exam_blueprints',
+  'question_bank_versions',
+  'question_bank_items',
   'catechist_assignments',
   'notifications',
   'refresh_tokens',
@@ -55,7 +60,12 @@ const DELETE_ORDER: PurgeTableName[] = [
   'attendance_sessions',    // FK → classes
   'exam_result_mutations',  // FK → exam_sessions, students
   'exam_results',           // FK → exam_sessions, students
-  'exam_sessions',          // FK → classes
+  'exam_question_snapshots', // FK → exam_sessions, question bank/version
+  'exam_sessions',          // FK → classes, blueprint
+  'exam_blueprint_rules',   // FK → exam_blueprints
+  'exam_blueprints',        // FK → branches, users (giữ)
+  'question_bank_versions', // FK → question_bank_items, users (giữ)
+  'question_bank_items',    // FK → branches, users (giữ)
   'catechist_assignments',  // FK → classes, users (giữ users)
   'notifications',          // FK → students (set null), users (set null)
   'refresh_tokens',         // FK → users (cascade) — xóa phiên đăng nhập tránh ghost session
@@ -84,12 +94,13 @@ interface PurgeSnapshotOptions {
 }
 
 /**
- * PURGE v2.4 — Xóa 26 bảng nghiệp vụ thuộc hợp đồng purge trong 1 transaction.
- * Giữ nguyên: users, branches, permissions, rolePermissions, auditLogs, pushSubscriptions, systemSettings.
+ * PURGE v2.5 — Xóa 31 bảng nghiệp vụ thuộc hợp đồng purge trong 1 transaction.
+ * Giữ nguyên: users, branches, permissions, rolePermissions, auditLogs,
+ * pushSubscriptions, nativePushTokens, systemSettings.
  * - Không DROP bảng / không xóa function / trigger / schema — chỉ DELETE rows.
- * - DELETE scope theo parish_id (toàn bộ 26 bảng trong danh sách — P4: grade_overrides/outbox_messages
+ * - DELETE scope theo parish_id (toàn bộ 31 bảng trong danh sách — P4: grade_overrides/outbox_messages
  *   đã có cột parish_id từ migration 096/097, không còn special-case join).
- * - Snapshot v3.1 (26 bảng, SHA256 checksum) ghi file trước khi xóa.
+ * - Snapshot v3.2 (31 bảng, SHA256 checksum) ghi file trước khi xóa.
  * - purge_version tăng 1 → client khác phát hiện ghost data và tự reset.
  * - auditLogs ghi 1 entry 'SYSTEM_PURGE' kèm counts trước-khi-xóa.
  */
@@ -101,7 +112,7 @@ export async function purgeParishData(
   const countsBefore: Record<string, number> = {}
   const snapshotData: Record<string, any[]> = {}
 
-  // 1. Đếm + snapshot toàn bộ dữ liệu trước khi xóa (v3.1: đủ 26 bảng, scope theo parish).
+  // 1. Đếm + snapshot toàn bộ dữ liệu trước khi xóa (v3.2: đủ 31 bảng, scope theo parish).
   for (const name of DELETE_ORDER) {
     const rows = (await client.execute(
       `SELECT * FROM ${name} WHERE parish_id = ?`,
@@ -113,7 +124,7 @@ export async function purgeParishData(
 
   const snapshotPayload = {
     type: 'PURGE_SAFETY_SNAPSHOT',
-    version: '3.1',
+    version: '3.2',
     parishId,
     exportedBy: userId,
     exportedAt: new Date().toISOString(),

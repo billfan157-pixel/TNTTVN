@@ -25,6 +25,7 @@ vi.mock('../../lib/api', () => ({
 vi.mock('../../lib/pushManager', () => ({
   initPushSubscription: vi.fn().mockResolvedValue(undefined),
   disablePushSubscription: vi.fn().mockResolvedValue(undefined),
+  isNativePushAvailable: vi.fn(() => false),
 }))
 
 vi.mock('../../stores/resetStores', () => ({

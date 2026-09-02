@@ -43,7 +43,8 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260827', 130, 131),
   ...migrationRange('20260828', 132, 135),
   ...migrationRange('20260831', 136, 146),
-  '20260901-147',
+  ...migrationRange('20260901', 147, 148),
+  ...migrationRange('20260902', 149, 158),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -62,6 +63,7 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_notices_idempotency: ['parish_id', 'idempotency_key'],
   idx_classes_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],
+  idx_exam_sessions_blueprint: ['parish_id', 'blueprint_id'],
   idx_exam_result_mutations_session: ['parish_id', 'exam_session_id', 'created_at'],
   idx_parish_people_name: ['parish_id', 'full_name'],
   idx_parish_people_linked_user: ['parish_id', 'linked_user_id'],
@@ -73,6 +75,20 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_feedback_public_sender: ['parish_id', 'sender_user_id', 'created_at'],
   idx_password_reset_request_user: ['parish_id', 'user_id'],
   idx_password_reset_requests_inbox: ['parish_id', 'status', 'last_requested_at'],
+  idx_native_push_tokens_installation: ['installation_id'],
+  idx_native_push_tokens_platform_token: ['platform', 'token'],
+  idx_native_push_tokens_user: ['parish_id', 'user_id'],
+  idx_question_bank_list: ['parish_id', 'status', 'updated_at'],
+  idx_question_bank_taxonomy: ['parish_id', 'branch_id', 'curriculum_level', 'lesson_order', 'difficulty'],
+  idx_question_bank_author: ['parish_id', 'created_by', 'status'],
+  idx_question_bank_versions_number: ['parish_id', 'question_id', 'version'],
+  idx_question_bank_versions_question: ['parish_id', 'question_id', 'created_at'],
+  idx_exam_blueprints_list: ['parish_id', 'status', 'updated_at'],
+  idx_exam_blueprints_taxonomy: ['parish_id', 'branch_id', 'curriculum_level'],
+  idx_exam_blueprint_rules_order: ['parish_id', 'blueprint_id', 'ordinal'],
+  idx_exam_blueprint_rules_blueprint: ['parish_id', 'blueprint_id'],
+  idx_exam_question_snapshots_position: ['parish_id', 'exam_session_id', 'source_position'],
+  idx_exam_question_snapshots_usage: ['parish_id', 'question_id', 'created_at'],
 }
 
 const REQUIRED_TRIGGER_NAMES = [
@@ -82,6 +98,8 @@ const REQUIRED_TRIGGER_NAMES = [
   'check_outbox_messages_status_update',
   'check_grade_overrides_field_insert',
   'check_grade_overrides_field_update',
+  'check_exam_session_blueprint_insert',
+  'check_exam_session_blueprint_update',
 ] as const
 
 const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
@@ -91,7 +109,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   notifications: ['target_user_ids'],
   users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
-  exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot'],
   exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
   // A-NEW-62 (2026-08-23): production từng thiếu promotion_records.is_latest
   // (di sản migration D-04/ADR-031) → mọi SELECT phiếu điểm/khuyến thăng 500 âm thầm.
@@ -106,6 +124,12 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   parish_archive_assets: ['parish_id', 'id', 'storage_type', 'object_key', 'external_url', 'deleted_at'],
   feedback_messages: ['parish_id', 'id', 'target_type', 'target_user_id', 'visibility', 'sender_user_id', 'subject', 'content', 'status'],
   password_reset_requests: ['parish_id', 'id', 'user_id', 'status', 'request_count', 'last_requested_at', 'resolved_at', 'resolved_by'],
+  native_push_tokens: ['parish_id', 'id', 'installation_id', 'platform', 'token', 'user_id', 'created_at', 'updated_at'],
+  question_bank_items: ['parish_id', 'id', 'status', 'current_version', 'branch_id', 'curriculum_level', 'difficulty', 'provenance', 'created_by'],
+  question_bank_versions: ['parish_id', 'id', 'question_id', 'version', 'question_type', 'stem', 'answer_data', 'metadata_snapshot', 'content_hash'],
+  exam_blueprints: ['parish_id', 'id', 'name', 'status', 'total_questions', 'max_score', 'version', 'created_by'],
+  exam_blueprint_rules: ['parish_id', 'id', 'blueprint_id', 'ordinal', 'question_type', 'question_count', 'points_each'],
+  exam_question_snapshots: ['parish_id', 'id', 'exam_session_id', 'question_id', 'question_version_id', 'source_position', 'snapshot_json', 'content_hash'],
 }
 
 const REQUIRED_TABLE_SQL_FRAGMENTS: Record<string, readonly string[]> = {
@@ -142,6 +166,12 @@ const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
   parish_record_assets: ['parish_id', 'record_id', 'asset_id'],
   feedback_messages: ['parish_id', 'id'],
   password_reset_requests: ['parish_id', 'id'],
+  native_push_tokens: ['parish_id', 'id'],
+  question_bank_items: ['parish_id', 'id'],
+  question_bank_versions: ['parish_id', 'id'],
+  exam_blueprints: ['parish_id', 'id'],
+  exam_blueprint_rules: ['parish_id', 'id'],
+  exam_question_snapshots: ['parish_id', 'id'],
 }
 
 function rowValue(row: unknown, key: string, index: number): unknown {

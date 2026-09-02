@@ -1,0 +1,13 @@
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+describe('PWA lazy vendor policy', () => {
+  it('does not precache the heavy SheetJS chunk before import/export is requested', () => {
+    const config = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8')
+    const loader = readFileSync(resolve(process.cwd(), 'src/lib/xlsxLoader.ts'), 'utf8')
+
+    expect(config).toContain("globIgnores: ['**/xlsx-*.js']")
+    expect(loader).toMatch(/import\(['"]xlsx['"]\)/)
+  })
+})

@@ -34,6 +34,7 @@ workflows:
       - name: Sync Capacitor iOS
         script: |
           npx cap sync ios
+          node scripts/fix-ios-spm-paths.mjs
       - name: Build IPA (automatic signing + export options từ Codemagic)
         script: |
           cd ios/App
@@ -75,6 +76,11 @@ workflows:
         script: VITE_APP_RELEASE_ID="$CM_COMMIT" npm run build:frontend
       - name: Sync Capacitor Android
         script: |
+          if [ -z "$FIREBASE_ANDROID_CONFIG" ]; then
+            echo "FIREBASE_ANDROID_CONFIG (base64 google-services.json) is required for native push"
+            exit 1
+          fi
+          echo "$FIREBASE_ANDROID_CONFIG" | base64 --decode > android/app/google-services.json
           npx cap sync android
       - name: Build debug APK
         script: |

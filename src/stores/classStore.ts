@@ -67,6 +67,7 @@ interface ClassItem {
   createdAt: string
   updatedAt: string
   updatedBy: string | null
+  deletedAt?: string | null
   /** Only reports the signed-in staff member's own class assignment. */
   assignedToCurrentUser?: boolean
 }
@@ -146,7 +147,7 @@ interface ClassState {
   loading: boolean
   error: string | null
   setClasses: (classes: ClassItem[]) => void
-  fetchClasses: (updatedAfter?: string) => Promise<void>
+  fetchClasses: (updatedAfter?: string, updatedBefore?: string, throwOnError?: boolean) => Promise<void>
   fetchBranches: () => Promise<void>
   fetchAcademicYears: () => Promise<void>
   fetchAll: () => Promise<void>
@@ -171,11 +172,11 @@ export const useClassStore = create<ClassState>()(
 
       setClasses: (classes) => set({ classes }),
 
-      fetchClasses: async (updatedAfter?: string) => {
+      fetchClasses: async (updatedAfter?: string, updatedBefore?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
         set({ loading: true, error: null })
         try {
-          const params = updatedAfter ? { updatedAfter } : undefined
+          const params = updatedAfter ? { updatedAfter, updatedBefore } : undefined
           const fetched = await api.getClasses(params)
           if (Array.isArray(fetched)) {
             const pendingIds = await getPendingClassIds()
@@ -184,7 +185,8 @@ export const useClassStore = create<ClassState>()(
                 const merged = new Map(state.classes.map(c => [c.id, c]))
                 for (const c of fetched) {
                   if (merged.has(c.id) && pendingIds.has(c.id)) continue
-                  merged.set(c.id, c)
+                  if (c.deletedAt) merged.delete(c.id)
+                  else merged.set(c.id, c)
                 }
                 return { classes: Array.from(merged.values()) }
               })
@@ -206,6 +208,7 @@ export const useClassStore = create<ClassState>()(
         } catch (err) {
           Sentry.captureException(err)
           set({ error: (err as Error)?.message || 'Lỗi tải danh sách lớp học' })
+          if (throwOnError) throw err
         } finally {
           set({ loading: false })
         }

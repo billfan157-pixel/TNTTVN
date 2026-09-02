@@ -12,6 +12,7 @@ import { TelegramLinkCard } from '../components/common/TelegramLinkCard'
 import { PageHeader } from '../components/common/PageHeader'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { ChildAvatar, AttendanceBar, StatCard, PromotionBanner } from '../components/common/ParentWidgets'
+import { StudentName } from '../components/common/StudentName'
 import { classificationTextClass, classificationChipClass } from '../utils/parentDisplay'
 
 const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v))
@@ -101,9 +102,7 @@ export const ParentPage: React.FC = () => {
                 >
                   <ChildAvatar id={child.id} holyName={child.holyName} fullName={child.fullName} size={44} />
                   <div className="min-w-0 flex-1">
-                    <div className="font-bold text-text-main truncate">
-                      {child.holyName} {child.fullName}
-                    </div>
+                    <StudentName holyName={child.holyName} fullName={child.fullName} size="base" className="truncate" />
                     <div className="text-xs text-text-muted truncate mt-0.5">
                       {BRANCHES[child.branch as keyof typeof BRANCHES]?.name ?? child.branch} · {child.className} · {child.status}
                     </div>

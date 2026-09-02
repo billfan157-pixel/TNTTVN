@@ -333,7 +333,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     columnHelper.accessor(row => row.student.holyName || '', {
       id: 'holyName',
       header: 'Tên Thánh',
-      cell: info => <span className="font-bold text-amber-900 dark:text-amber-400 text-sm">{info.getValue() || '—'}</span>,
+      cell: info => <span className="font-bold text-amber-950 dark:text-amber-400 text-sm">{info.getValue() || '—'}</span>,
       size: 140,
     }),
     columnHelper.accessor(row => row.student.fullName, {

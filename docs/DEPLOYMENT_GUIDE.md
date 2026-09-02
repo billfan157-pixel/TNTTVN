@@ -57,6 +57,8 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `VAPID_PUBLIC_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID public key — client subscribe cần (trả qua `GET /api/notifications/vapid-public-key`); thiếu → **mới 2026-08-28**: `GET /vapid-public-key` trả 200 `{ publicKey: null, configured:false }` (không còn 501 spam, client skip debug), `/send` vẫn 501 và queue đánh `failed` (không `sent` giả) — **fail-closed đúng thiết kế** (xem §8 Web Push Setup) |
 | `VAPID_PRIVATE_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID private key — **điều kiện**: BẮT BUỘC set cùng `VAPID_PUBLIC_KEY` nếu muốn tính năng thông báo web push hoạt động (thiếu → GET 200 configured:false, client skip graceful; POST /send 501) |
 | `VAPID_SUBJECT` | ❌ No | `mailto:admin@giaoly.com` | VAPID contact subject (khuyến nghị đổi thành email quản trị thật của giáo xứ) |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | ⚠️ Required cho Android native push | Empty | Service account JSON cho FCM HTTP v1 (`project_id`, `client_email`, `private_key`). Thiếu cấu hình: Android token được đếm `skipped`, không giả là sent |
+| `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, `APNS_BUNDLE_ID`, `APNS_ENVIRONMENT` | ⚠️ Required cho iOS native push | bundle `com.tnttvn.app`, env `production` | APNs HTTP/2 token auth. `.p8` giữ trong secret manager; private key có thể dùng newline thật hoặc `\\n`. `development` chỉ dùng sandbox/dev provisioning |
 | `BACKUP_ENCRYPTION_KEY` | ⚠️ Required với Turso backup | 32 byte (64 hex hoặc base64), tách khỏi JWT/R2 keys | AES-256-GCM cho logical backup Turso trước khi upload R2 (ADR-059). Mất key = không giải mã được backup; lộ key + R2 artifact = mất tính bí mật |
 | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ⚠️ Required với Turso backup | Cloudflare R2 S3-compatible | Kho backup độc lập với Turso. Remote DB không fallback xuống disk Render ephemeral |
 | `TELEGRAM_BOT_TOKEN` | ❌ No | String | Optional Telegram bot token for alerts |
@@ -212,6 +214,16 @@ Output có dạng:
 4. Client (đã login) sẽ tự đăng ký push ở lần reload/login kế tiếp — không cần thay đổi code.
 
 > Lưu ý bảo mật: `VAPID_PRIVATE_KEY` là bí mật — không commit vào repo, không ghi vào log. Vòng đời key rò rỉ → generate lại cặp mới + set lại env: subscription cũ bị push service từ chối (signature không khớp `applicationServerKey` lúc subscribe) → `sendWebPushToParish` nhận lỗi và dọn subscription chết, client re-subscribe ở lần login/reload kế tiếp.
+
+### 8.3 Native push setup — Android FCM + iOS APNs (ADR-095)
+
+1. Firebase Console: đăng ký Android app `com.tnttvn.app`, tải `google-services.json`. Không commit file. Local đặt tạm tại `android/app/google-services.json`; Codemagic đặt base64 toàn file vào secret `FIREBASE_ANDROID_CONFIG` (workflow fail-closed nếu thiếu).
+2. Firebase/Google Cloud: tạo service account chỉ đủ quyền gửi FCM, đặt JSON vào Render secret `FIREBASE_SERVICE_ACCOUNT_JSON`. Bật FCM HTTP v1 API. Server ký OAuth assertion RS256 và gọi HTTP v1 trực tiếp, không kéo Firebase Admin/Cloud Storage runtime.
+3. Apple Developer: bật Push Notifications cho bundle `com.tnttvn.app`, tạo APNs Auth Key `.p8`, cập nhật provisioning profile dùng trong Codemagic. Set 5 biến `APNS_*` trên Render; production/TestFlight dùng `APNS_ENVIRONMENT=production`.
+4. Chạy `npm run capacitor:sync`. Script hậu xử lý chuẩn hóa SwiftPM path do Capacitor CLI trên Windows có thể sinh dấu `\\` không hợp lệ trên macOS.
+5. Verify engineering: TypeScript, tests, `cap sync`, Android `assembleDebug`. Verify acceptance bắt buộc trên thiết bị thật: Android 13 permission, app foreground/background/killed, token refresh, đổi account, logout/opt-out, click route nội bộ; iPhone sandbox trước rồi TestFlight production. Không dùng simulator để kết luận delivery APNs/FCM.
+
+Token thiết bị là credential giao vận: server phải lưu để gửi nhưng không ghi log/audit, client không persist. Khi rotate Firebase/APNs credentials, redeploy server và chạy smoke test; không xóa hàng loạt token trừ khi provider xác nhận invalid/unregistered.
 
 ---
 

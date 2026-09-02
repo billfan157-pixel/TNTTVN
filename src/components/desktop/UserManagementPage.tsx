@@ -648,7 +648,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
                       <h3 className="font-extrabold text-base text-text-main leading-tight truncate">
                         {u.fullName}
                       </h3>
-                      {u.holyName && <span className="text-xs font-semibold text-parish-primary shrink-0">Th. {u.holyName}</span>}
+                      {u.holyName && <span className="text-xs font-bold text-amber-950 dark:text-amber-400 shrink-0">Th. {u.holyName}</span>}
                     </div>
                     <p className="text-xs text-text-muted font-mono mt-0.5 truncate">
                       @{u.username}{u.phone ? ` • ${u.phone}` : ''}
@@ -771,7 +771,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
                 <td className="p-4">
                   <div className="font-semibold text-base text-text-main">
                     {u.fullName}
-                    {u.holyName && <span className="ml-2 text-sm font-medium text-parish-primary">Th. {u.holyName}</span>}
+                    {u.holyName && <span className="ml-2 text-sm font-bold text-amber-950 dark:text-amber-400">Th. {u.holyName}</span>}
                   </div>
                   <div className="text-sm text-text-muted font-mono">@{u.username}{u.phone ? ` • ${u.phone}` : ''}</div>
                 </td>

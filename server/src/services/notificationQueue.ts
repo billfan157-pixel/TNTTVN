@@ -1,6 +1,6 @@
 import { sendTelegramAlert, sendTelegramInfo } from './telegram.js'
 import { renderTemplate, type TemplateContext } from './templateEngine.js'
-import { sendWebPushToParish, sendWebPushToUsers } from './webPushService.js'
+import { sendAppPushToParish, sendAppPushToUsers } from './appPushService.js'
 import { db } from '../db/index.js'
 import { notifications } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -208,24 +208,24 @@ async function processQueue(): Promise<void> {
             }
           }
         } else {
-          // ADR S1 (Phase 2): TRƯỚC ĐÂY channel webpush bị bỏ qua nhưng vẫn
-          // đánh dấu 'sent' → gửi giả. Giờ gửi thật qua webPushService (SSOT).
+          // ADR S1 + ADR-095: channel persisted tên legacy `webpush`, nhưng
+          // bộ gửi SSOT fan-out cả browser Web Push và native FCM/APNs.
           // Có webpushUserIds → gửi CÓ CHỦ ĐÍCH tới nhóm người dùng (phụ huynh
           // theo chi đoàn); không có → gửi toàn giáo xứ như trước.
           const payload = { title: webPushTitle(item), body: message, url: '/' }
           const result = item.webpushUserIds && item.webpushUserIds.length > 0
-            ? await sendWebPushToUsers(item.parishId, item.webpushUserIds, payload)
-            : await sendWebPushToParish(item.parishId, payload)
+            ? await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)
+            : await sendAppPushToParish(item.parishId, payload)
           if (!result.configured) {
-            // VAPID chưa cấu hình → không retry vô ích, đánh failed với lý do rõ ràng.
-            item.lastError = 'VAPID_NOT_CONFIGURED'
+            // Không provider nào được cấu hình → không retry vô ích.
+            item.lastError = 'PUSH_PROVIDER_NOT_CONFIGURED'
             item.retryCount = item.maxRetries
-            await db.update(notifications).set({ status: 'failed', error: item.lastError }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId))).catch((err) => console.error(`[notificationQueue] failed to mark ${item.id} failed (VAPID):`, err))
+            await db.update(notifications).set({ status: 'failed', error: item.lastError }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId))).catch((err) => console.error(`[notificationQueue] failed to mark ${item.id} failed (push provider):`, err))
             queue.shift()
             continue
           }
           if (result.failed > 0) {
-            console.warn(`[notificationQueue] webpush ${item.id}: ${result.sent}/${result.total} sent, ${result.failed} failed, ${result.removed} dead subscriptions removed`)
+            console.warn(`[notificationQueue] app push ${item.id}: ${result.sent}/${result.total} sent, ${result.failed} failed, ${result.removed} dead subscriptions removed, ${result.skipped} skipped`)
           }
         }
 

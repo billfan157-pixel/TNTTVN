@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
+import { StudentName } from '../common/StudentName'
 
 interface QuickScoreEntryProps {
-  students: { id: string; name: string; code: string }[]
+  students: { id: string; name: string; code: string; holyName?: string | null }[]
   savedScores: Record<string, number>
   maxScore: number
   onSave: (studentId: string, score: number) => void
@@ -46,9 +47,11 @@ export const QuickScoreEntry: React.FC<QuickScoreEntryProps> = ({ students, save
           {students.map((st, i) => (
             <tr key={st.id} className="border-b border-surface-border/60 bg-surface-card hover:bg-surface-app transition-colors">
               <td className="py-2 pr-2 text-text-muted">{i + 1}</td>
-              <td className="py-2 pr-2 font-semibold text-base">
-                {st.name}
-                <span className="ml-1 text-sm text-text-muted font-normal">{st.code}</span>
+              <td className="py-2 pr-2">
+                <div className="flex items-center gap-2">
+                  <StudentName holyName={st.holyName} fullName={st.name} size="base" />
+                  <span className="text-xs text-text-muted font-mono">{st.code}</span>
+                </div>
               </td>
               <td className="py-2 pr-2">
                 {savedScores[st.id] !== undefined ? (

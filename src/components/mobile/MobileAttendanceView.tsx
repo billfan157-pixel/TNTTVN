@@ -645,8 +645,8 @@ export const MobileAttendanceView: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-extrabold uppercase tracking-wider text-text-muted">Ghi chú chuyên cần</p>
-                  <h3 id="note-dialog-title" className="text-sm font-extrabold text-text-main">
-                    {editingNoteStudent.holyName} {editingNoteStudent.fullName}
+                  <h3 id="note-dialog-title" className="text-sm font-extrabold text-text-main mt-0.5">
+                    <StudentName holyName={editingNoteStudent.holyName} fullName={editingNoteStudent.fullName} size="sm" />
                   </h3>
                 </div>
                 <button

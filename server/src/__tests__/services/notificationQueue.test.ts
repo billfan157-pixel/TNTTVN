@@ -14,9 +14,9 @@ vi.mock('../../services/telegramLinkService.js', () => ({
   getActiveTelegramLinksForUsers: vi.fn().mockResolvedValue([]),
 }))
 
-vi.mock('../../services/webPushService.js', () => ({
-  sendWebPushToParish: vi.fn().mockResolvedValue({ configured: true, sent: 0, failed: 0, total: 0, removed: 0 }),
-  sendWebPushToUsers: vi.fn().mockResolvedValue({ configured: true, sent: 0, failed: 0, total: 0, removed: 0 }),
+vi.mock('../../services/appPushService.js', () => ({
+  sendAppPushToParish: vi.fn().mockResolvedValue({ configured: true, sent: 0, failed: 0, total: 0, removed: 0, skipped: 0 }),
+  sendAppPushToUsers: vi.fn().mockResolvedValue({ configured: true, sent: 0, failed: 0, total: 0, removed: 0, skipped: 0 }),
 }))
 
 describe('notificationQueue', () => {
@@ -139,15 +139,15 @@ describe('notificationQueue', () => {
     }, { timeout: 3000 })
   })
 
-  it('webpush channel gửi THẬT qua webPushService (title theo type) rồi đánh dấu sent', async () => {
-    const { sendWebPushToParish } = await import('../../services/webPushService.js')
-    vi.mocked(sendWebPushToParish).mockResolvedValue({ configured: true, sent: 2, failed: 0, total: 2, removed: 0 })
+  it('webpush legacy channel gửi THẬT qua appPushService (title theo type) rồi đánh dấu sent', async () => {
+    const { sendAppPushToParish } = await import('../../services/appPushService.js')
+    vi.mocked(sendAppPushToParish).mockResolvedValue({ configured: true, sent: 2, failed: 0, total: 2, removed: 0, skipped: 0 } as any)
 
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
     const id = enqueueNotification('webpush', 'reminder', 'Đi Lễ đúng giờ nhé!', {}, 'gia-ton')
 
     await vi.waitFor(() => {
-      expect(sendWebPushToParish).toHaveBeenCalledWith(
+      expect(sendAppPushToParish).toHaveBeenCalledWith(
         'gia-ton',
         expect.objectContaining({ title: 'Nhắc nhở', body: 'Đi Lễ đúng giờ nhé!' }),
       )
@@ -159,20 +159,20 @@ describe('notificationQueue', () => {
     }, { timeout: 3000 })
   })
 
-  it('webpush CÓ CHỦ ĐÍCH (webpushUserIds) gửi qua sendWebPushToUsers thay vì sendWebPushToParish', async () => {
-    const { sendWebPushToParish, sendWebPushToUsers } = await import('../../services/webPushService.js')
-    vi.mocked(sendWebPushToUsers).mockResolvedValue({ configured: true, sent: 1, failed: 0, total: 1, removed: 0 })
+  it('webpush CÓ CHỦ ĐÍCH fan-out theo userIds thay vì broadcast giáo xứ', async () => {
+    const { sendAppPushToParish, sendAppPushToUsers } = await import('../../services/appPushService.js')
+    vi.mocked(sendAppPushToUsers).mockResolvedValue({ configured: true, sent: 1, failed: 0, total: 1, removed: 0, skipped: 0 } as any)
 
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
     const id = enqueueNotification('webpush', 'info', 'Thông báo cho phụ huynh', {}, 'gia-ton', undefined, { webpushUserIds: ['USR-1', 'USR-2'] })
 
     await vi.waitFor(() => {
-      expect(sendWebPushToUsers).toHaveBeenCalledWith(
+      expect(sendAppPushToUsers).toHaveBeenCalledWith(
         'gia-ton',
         ['USR-1', 'USR-2'],
         expect.objectContaining({ title: 'Thông báo Giáo Xứ', body: 'Thông báo cho phụ huynh' }),
       )
-      expect(sendWebPushToParish).not.toHaveBeenCalled()
+      expect(sendAppPushToParish).not.toHaveBeenCalled()
     }, { timeout: 3000 })
 
     await vi.waitFor(async () => {
@@ -208,29 +208,29 @@ describe('notificationQueue', () => {
 
     await recoverQueueFromDb()
 
-    const { sendWebPushToUsers } = await import('../../services/webPushService.js')
-    vi.mocked(sendWebPushToUsers).mockResolvedValue({ configured: true, sent: 1, failed: 0, total: 1, removed: 0 })
+    const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+    vi.mocked(sendAppPushToUsers).mockResolvedValue({ configured: true, sent: 1, failed: 0, total: 1, removed: 0, skipped: 0 } as any)
     // recoverQueueFromDb chỉ nạp item vào queue — cần 1 enqueue mới để kick processQueue drain.
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
     enqueueNotification('webpush', 'info', 'Kick', {}, 'gia-ton')
     await vi.waitFor(() => {
-      expect(sendWebPushToUsers).toHaveBeenCalledWith('gia-ton', ['USR-42'], expect.objectContaining({ body: 'Recovered targeted' }))
+      expect(sendAppPushToUsers).toHaveBeenCalledWith('gia-ton', ['USR-42'], expect.objectContaining({ body: 'Recovered targeted' }))
     }, { timeout: 3000 })
     await vi.waitFor(() => {
       expect(getQueueLength()).toBe(0)
     }, { timeout: 3000 })
   })
 
-  it('webpush khi VAPID chưa cấu hình → KHÔNG đánh dấu sent giả, mark failed với lý do rõ ràng', async () => {
-    const { sendWebPushToParish } = await import('../../services/webPushService.js')
-    vi.mocked(sendWebPushToParish).mockResolvedValue({ configured: false, sent: 0, failed: 0, total: 0, removed: 0 })
+  it('push khi không provider nào cấu hình → KHÔNG đánh dấu sent giả', async () => {
+    const { sendAppPushToParish } = await import('../../services/appPushService.js')
+    vi.mocked(sendAppPushToParish).mockResolvedValue({ configured: false, sent: 0, failed: 0, total: 0, removed: 0, skipped: 0 } as any)
 
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
     const id = enqueueNotification('webpush', 'info', 'Thông báo test', {}, 'gia-ton')
 
     await vi.waitFor(async () => {
       const rows = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, 'gia-ton')))
-      return rows[0]?.status === 'failed' && rows[0]?.error === 'VAPID_NOT_CONFIGURED'
+      return rows[0]?.status === 'failed' && rows[0]?.error === 'PUSH_PROVIDER_NOT_CONFIGURED'
     }, { timeout: 3000 })
   })
 })

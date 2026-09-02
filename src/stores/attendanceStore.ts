@@ -63,7 +63,7 @@ interface AttendanceState {
   batchResult: BatchAttendanceResponseDTO | null
   isSubmitting: boolean
   setAttendance: (attendance: AttendanceRecord[]) => void
-  fetchAttendance: (updatedAfter?: string) => Promise<void>
+  fetchAttendance: (updatedAfter?: string, throwOnError?: boolean) => Promise<void>
   saveAttendance: (
     studentId: string, date: string, type: AttendanceType,
     status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused', note?: string,
@@ -89,7 +89,7 @@ export const useAttendanceStore = create<AttendanceState>()(
       isSubmitting: false,
       setAttendance: (attendance) => set({ attendance }),
 
-      fetchAttendance: async (updatedAfter?: string) => {
+      fetchAttendance: async (updatedAfter?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
         try {
           const params = updatedAfter ? { updatedAfter } : undefined
@@ -119,6 +119,7 @@ export const useAttendanceStore = create<AttendanceState>()(
         } catch (err) {
           Sentry.captureException(err)
           set({ error: (err as Error)?.message || 'Lỗi tải điểm danh' })
+          if (throwOnError) throw err
         }
       },
 

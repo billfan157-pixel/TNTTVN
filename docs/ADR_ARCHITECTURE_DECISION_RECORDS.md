@@ -3089,3 +3089,141 @@ A không bảo vệ business outcome. C có isolation mạnh nhưng nhân runtim
 
 Critical suite **10/10 PASS** trong 44,7 giây từ sandbox sạch. Full Playwright **72/72 PASS** trong 5,4 phút, không skip, không flaky retry và cleanup thành công. Targeted store/sandbox/component regressions PASS; full Vitest diagnostic trước fixture fix đạt 1.943 PASS/5 FAIL, sau đó hai file từng fail chạy độc lập **21/21 PASS**. TypeScript, oxlint và design-system lint PASS sau production edits; CI workflow đã được kiểm tra. Theo yêu cầu không chạy lại test đã pass, full Vitest không được lặp lần ba sau patch chỉ ở fixture test. D3 post-check: **KEEP**, hard gates giữ 9/9/9/9. Strategy SSOT: `docs/08_E2E_TESTING_STRATEGY.md`.
 
+---
+
+## ADR-094: Phased Performance, Durable Delta Sync, and Immutable Exam Variants (2026-09-01)
+
+**Status: APPROVED / PARTIALLY IMPLEMENTED. Severity: D3. Profiles: OFFLINE/SYNC + ARCHITECTURE. Reversibility: R2.**
+
+### Problem and evidence
+
+Repository inspection confirmed four separate concerns: the Excel vendor was already dynamically loaded, but `ExamSessionView` still formed a 377.04 KB lazy-route chunk; reload bootstrap ignored the available delta boundary; student/class incremental reads omitted deletion tombstones and a bounded server snapshot; and A–H answer keys had no immutable question/option permutation manifest. Conversely, desktop roster pagination and grade-matrix keyboard/focus behavior did not provide evidence that immediate DOM virtualization was safe, while ADR-060/068/069 explicitly lack target-device artifacts proving the OMR main thread is the current bottleneck.
+
+Business classification: durable cursor/tombstone and exact answer-key-to-question binding are **CONFIRMED** data-integrity requirements. “60 FPS for 10,000 students”, Worker necessity, adaptive-threshold accuracy, and unattended OMR improvement are **NOT CONFIRMED** without device/corpus evidence.
+
+### Options and Decision Matrix
+
+| Criterion | Weight | A: implement proposal verbatim | B: phased, gated implementation | C: retain baseline |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & Privacy | 20% | 6 | 9 | 8 |
+| Data Integrity | 25% | 5 | 9 | 6 |
+| Offline Reliability | 20% | 7 | 9 | 5 |
+| Testability | 15% | 5 | 9 | 7 |
+| Maintainability | 10% | 5 | 8 | 7 |
+| Reversibility | 10% | 4 | 9 | 10 |
+| **Weighted** | **100%** | **5.55 — REJECT** | **8.85 — SELECT** | **6.75 — REJECT** |
+
+Option A violates OMR evidence gates and could silently mismatch question content and answer versions. Option C leaves confirmed sync and scoring integrity gaps. Option B implements additive safety/performance work first and leaves empirical optimizations behind explicit gates.
+
+### Decision contract
+
+1. Sync cursor is scoped by parish and user in local Dexie metadata. It contains only a server timestamp, not child data. The client obtains a server watermark, pages student/class deltas inside `updatedAfter <= row.updated_at <= updatedBefore`, uses stable `(updated_at,id)` ordering, applies soft-delete tombstones, and advances the cursor only after every store pull succeeds. A failed page/store never commits the watermark. Full pull remains bootstrap and empty-cache recovery.
+2. `navigator.locks` is the primary single-writer coordinator. The existing expiring localStorage lease remains the compatibility fallback; server idempotency and version checks remain authoritative because browser locks cannot coordinate different devices or unavailable APIs.
+3. Conflict diagnostics encrypt both local/server values. Automatic field merge remains the established conflict behavior; the UI does not offer blind “overwrite server/local” actions without a server-side per-field OCC contract.
+4. Question-bearing documents fail closed to version A unless the session contains a server-generated immutable manifest for the selected version. Detached answer sheets may retain external A–H compatibility.
+5. `POST /api/exams/:id/variant-manifests` materializes 1–8 deterministic versions, question order, option order, answer keys, source/content hashes, and seed. The set is a one-shot immutable artifact on a draft session; existing result data blocks regeneration. Positional answers such as “all/none/both of the above” and duplicate options are rejected because permutation would change semantics. Manual answer-key mutation is locked after a manifest exists.
+6. Heavy exam modals/analytics are independent React lazy chunks. The measured `ExamSessionView` route chunk falls from 377.04 KB / 116.01 KB gzip to 54.44 KB / 14.51 KB gzip. SheetJS remains a 493.22 KB / 160.65 KB gzip on-demand chunk, is excluded from PWA precache, and is runtime-cached only after first use; it is not reimplemented.
+7. DOM virtualization is deferred until a reproducible DOM/heap/interaction trace identifies a failing view and preserves table semantics, keyboard navigation, sticky layout, focus, and accessibility. OMR Worker/OffscreenCanvas/SharedArrayBuffer and adaptive thresholding remain **BLOCKED** by ADR-060/068/069 target-device and privacy-safe corpus gates; current fail-closed review, consensus, score recomputation, and offline queue are unchanged.
+
+### Schema, compatibility, risk, and rollback
+
+- Migration `20260901-148` adds nullable `exam_sessions.variant_manifests`; old sessions/clients continue to use legacy A or external detached-sheet A–H behavior. The server schema-readiness gate requires the new column after migration.
+- ADR compatibility: ADR-016 PASS WITH AMENDMENT; ADR-050 PASS WITH AMENDMENT; ADR-051 PASS; ADR-060/062/067 PASS; ADR-068/069 PASS because Worker/adaptive acceptance was not bypassed.
+- D3 gates: Security **9 PASS**, Privacy **9 PASS**, Data Integrity **9 PASS**, Testability **9 PASS**. Sync metadata contains no child PII; manifest audit logs store hashes/counts rather than the question bank; tenant/class authorization remains server-side.
+- Main residual risks: browsers without Web Locks use the legacy lease; hard-deleted non-roster entities may need a periodic/full recovery pull; a manifest cannot be edited in place; and combined one-click PDF packaging is not yet provided. Rollback is R2: revert client/server endpoint and nullable column consumers; retain the additive column/data, or create a new draft session rather than mutating a published manifest.
+
+### Verification and reassessment
+
+Targeted sync/schema/exam suites: **16 files / 177 tests PASS**; PWA lazy-vendor contract **1/1 PASS**. Full serialized regression: **284 files / 1,965 tests PASS**. Client/server TypeScript, production client/PWA/server builds, oxlint, design-system lint, and `git diff --check` PASS. Bundle artifact confirms the route-chunk reduction above; excluding SheetJS reduces install precache from 2,846.53 KiB / 223 entries to 2,364.87 KiB / 222 entries. Production-equivalent migration dry-run, physical-device performance, one-click combined PDF packaging, and OMR corpus remain external/residual gates; therefore the decision is **KEEP for phases 0–3, BLOCK phase 4**.
+
+---
+
+## ADR-095: Native Push Notifications via Capacitor + FCM/APNs (2026-09-02)
+
+**Status:** ACCEPTED — engineering implementation complete; production credentials and physical-device delivery remain external release gates. **Severity:** D3. **Profile:** SECURITY.
+
+### Evidence and decision
+
+Repository inspection confirmed Web Push is complete but deliberately native-disabled by ADR-088; `pushManager.ts` removes legacy Service Workers/PWA caches in Capacitor to prevent random WebView reloads. The existing notification queue already persists exact target user IDs, so native delivery must reuse that audience rather than introduce a second recipient resolver. Capacitor 8 provides OS permission/token callbacks; Android tokens are FCM tokens and iOS tokens are APNs device tokens.
+
+| Criterion | Weight | A — Web Push in WebView | B — official Capacitor + FCM/APNs | C — third-party unified plugin |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & privacy | 35% | 6 | 9 | 7 |
+| Data/tenant integrity | 20% | 6 | 9 | 7 |
+| Native reliability | 15% | 3 | 8 | 8 |
+| Maintainability/ops | 10% | 6 | 7 | 6 |
+| Testability/observability | 10% | 5 | 8 | 6 |
+| Reversibility | 10% | 7 | 8 | 7 |
+| **Weighted** | **100%** | **5.55 — REJECT** | **8.45 — SELECT** | **6.95 — REJECT** |
+
+Option A conflicts with ADR-088 and repeats a confirmed native reload failure mode. Option C adds a second native abstraction without evidence it improves the official plugin contract. Option B is additive, preserves web behavior, and keeps provider credentials server-only.
+
+### Decision contract
+
+1. Native uses `@capacitor/push-notifications`; Web Push/Service Worker remains web-only. Android delivery uses direct FCM HTTP v1 with a server-side service-account OAuth assertion; iOS uses direct APNs HTTP/2 token authentication. Firebase Admin was rejected after production audit showed six moderate transitive advisories in unused Cloud Storage/legacy HTTP branches.
+2. Migration `20260902-149` creates `native_push_tokens` with composite tenant PK/FK, unique opaque installation UUID, unique `(platform,token)`, and user lookup index. Registration takes parish/user only from authenticated JWT and atomically rebinds an installation/token to the current account. Unregister remains scoped to current `(parish,user,installation)`.
+3. OS token is never persisted client-side or copied into audit/application logs. Only the random installation UUID and enable/disable preference are local. Registration audit stores platform only. Account soft deletion revokes native and web bindings.
+4. `appPushService` fan-outs the existing queue recipient scope to Web Push and native providers. The persisted `notifications.target_user_ids` remains the audience SSOT; restart recovery cannot become parish-wide. Dead tokens are deleted; temporary provider failures retain tokens; an unconfigured platform is reported as skipped.
+5. Permission is requested only by explicit user action in Settings. With granted permission and no opt-out, app requests a fresh token on login/launch/resume. Logout begins authenticated server unregister before clearing the memory-only access token, then unregisters the OS provider.
+6. Notification actions accept only same-app relative routes. External/protocol-relative URLs are dropped. Foreground presentation uses the OS plugin and Android channel `catevia_general` with private lock-screen visibility.
+
+### Gates, compatibility, rollback
+
+- D3 hard gates: Security **9 PASS**, Privacy **8 PASS**, Data Integrity **9 PASS**, Testability **8 PASS**. Raw tokens remain necessary plaintext provider credentials in the server DB; encryption-at-rest depends on Turso/platform controls and is a residual privacy boundary.
+- ADR compatibility: ADR-014 PASS; ADR-022 PASS; ADR-029 PASS WITH AMENDMENT (native push backlog is now implemented); ADR-031 PASS; ADR-045 PASS; ADR-085 PASS; ADR-088 PASS because no native Service Worker is reintroduced.
+- Business-rule status: targeted audience reuse, tenant binding, account revocation, and explicit permission are **CONFIRMED**. End-to-end delivery with production Firebase/APNs credentials and real devices is **CONDITIONAL** until operational gates pass.
+- Rollback R2: disable/remove provider credentials and native settings surface first; keep additive table/migration and existing tokens until a retention-approved cleanup. Web Push continues independently.
+
+### Verification and residual gates
+
+Final serialized regression: **290 files / 1,988 tests PASS** on the frozen snapshot; focused final provider/fan-out/tenant suite **5 files / 21 tests PASS**. Frontend/PWA and server production builds, oxlint, design-system lint **0/120**, `git diff --check`, Capacitor sync (plugin discovered on Android+iOS), and Android debug build **185 tasks PASS**. `npm audit` returned **0 vulnerabilities** after replacing Firebase Admin with direct FCM HTTP v1. Remaining external gates: real `google-services.json`, Render FCM/APNs secrets, Apple capability/provisioning, iOS signed build, and physical-device foreground/background/killed/token-refresh/account-switch delivery.
+
+---
+
+## ADR-096: Versioned Question Bank, Blueprint and Immutable Exam Materialization (2026-09-02)
+
+**Status: APPROVED / IMPLEMENTED. Severity: D3. Profiles: ARCHITECTURE + OFFLINE/SYNC + SECURITY. Reversibility: R2.**
+
+### Problem and repository evidence
+
+Smart Exam already owns session lifecycle, server-authoritative scoring, A–H immutable manifests and OMR constraints, but its `exam_sessions.questions` JSON is a materialized exam document rather than a reusable curriculum catalog. The repository has `branches`, year-specific `classes` and `academic_years`, but no authoritative normalized book/chapter/lesson taxonomy. Reusing mutable bank rows directly during grading would allow a later edit to change historical exam meaning. Creating a second grading/OMR subsystem would conflict with ADR-023/051/060/094.
+
+Business classification: reusable question lifecycle, tenant isolation, exact historical content and all-or-nothing blueprint generation are **CONFIRMED**. A normalized curriculum hierarchy, AI auto-approval, client-offline authoring and OMR support for every stored question type are **NOT CONFIRMED** and are not invented by this decision.
+
+### Options and Decision Matrix
+
+| Criterion | Weight | A: extend mutable session JSON | B: versioned bank + immutable snapshot | C: separate exam service |
+| :--- | ---: | ---: | ---: | ---: |
+| Security & privacy | 20% | 6 | 9 | 7 |
+| Data integrity | 25% | 5 | 9 | 7 |
+| Tenant isolation | 15% | 6 | 9 | 7 |
+| Offline reliability | 15% | 7 | 9 | 5 |
+| Maintainability | 10% | 6 | 8 | 4 |
+| Testability | 10% | 6 | 9 | 6 |
+| Reversibility | 5% | 8 | 8 | 4 |
+| **Weighted** | **100%** | **6.05 — REJECT** | **8.80 — SELECT** | **6.05 — REJECT** |
+
+### Decision contract
+
+1. `question_bank_items` owns tenant-scoped identity, curriculum metadata and lifecycle `draft → in_review → approved → active → archived`. `question_bank_versions` is append-only content; revise creates a new immutable version and resets the item to draft. Creator may edit/submit own draft; Admin owns approve/activate/archive/reject.
+2. Stored types are MC, true/false, multiple-select, short answer, fill blank, matching and essay. Initial Exam materialization intentionally supports MC and essay only. Unsupported types return a typed 422; they are never silently coerced. OMR-compatible MC requires exactly A–D and one correct answer.
+3. Taxonomy uses optional existing `branch_id` plus versioned text metadata (`curriculum_level`, book/chapter/lesson/topic/difficulty/tags). No class/year foreign key or invented curriculum tree is added until an authoritative curriculum source exists.
+4. `exam_blueprints` and ordered `exam_blueprint_rules` define type/taxonomy/difficulty/tag/count/points and recent-use avoidance. Build uses active questions only, deterministic seeded ordering and all-or-nothing transaction. Any shortage returns `BLUEPRINT_SHORTAGE` with rule details and creates no partial session.
+5. Build materializes legacy-compatible `exam_sessions.questions`, answer key/variants and ADR-094 immutable manifests, then writes one `exam_question_snapshots` row per source position with exact question/version, points, payload and content hash. MC precedes essay to preserve mixed OMR numbering. Historical exams never dereference current bank content.
+6. Server JWT parish scope, staff role and class-access middleware remain authorization authority. Composite tenant PK/FK plus insert/update trigger reject cross-parish blueprint references. Audit stores lifecycle/hash/count metadata, not stems, answer payloads or explanations.
+7. Question authoring, review, blueprint changes and build are server-required. The UI is explicit read-only while offline. Once materialized, the existing Exam/offline result/finalization pipeline is unchanged; Question Bank does not create a parallel sync queue.
+8. Manual academic backup `2.1-question-bank`, pre-restore safety snapshot and Purge v2.5 include all five new table families. Restore remains checksum-bound and supports legacy `2.0-production` without deleting Question Bank data that the old artifact could not contain.
+
+### Gates, compatibility, risk and rollback
+
+- **D3 hard gates:** Security **9 PASS**; Privacy **9 PASS**; Data Integrity **9 PASS**; Testability **9 PASS**.
+- **ADR compatibility:** ADR-016 PASS; ADR-023/043/049/051/060 PASS; ADR-031 PASS; ADR-041/059 PASS WITH AMENDMENT for backup scope; ADR-094 PASS because its server manifest remains the variant authority.
+- Main risks: LIKE search may need FTS only after measured scale; coarse staff roles do not yet provide per-capability answer-key visibility; unsupported stored types cannot enter an Exam; no offline authoring. These boundaries are explicit, fail closed and do not weaken grading.
+- Rollback R2: hide/remove route and client surface first; retain additive migrations and immutable snapshots. Existing materialized sessions continue through Smart Exam. Never down-migrate or rewrite historical exam snapshots.
+
+### Acceptance and reassessment
+
+Final evidence on the frozen implementation snapshot: full serialized Vitest **291 files / 1,996 tests PASS**; focused Smart Exam/OMR integration **11 files / 119 tests PASS**; Question Bank/manifest/mixed-scoring post-fix **3 files / 17 tests PASS**; backup/purge/schema group **10 files / 49 tests PASS**. Client and server production builds, oxlint, design-system anti-drift **0/121**, and `git diff --check` pass. The Question Bank lazy chunk is 21.48 kB / 6.30 kB gzip. Post-implementation D3 reassessment is **KEEP** with Security/Privacy/Data Integrity/Testability at 9/9/9/9.
+
+Real curriculum taxonomy, FTS, granular capabilities, AI-assisted drafting and additional auto-gradable types require a new evidence-backed reassessment rather than implicit expansion. Production-scale search latency and physical OMR behavior remain **NOT CONFIRMED** by local tests/builds.
+

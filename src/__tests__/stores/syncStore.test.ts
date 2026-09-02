@@ -39,6 +39,7 @@ const { useSyncStore } = await import('../../stores/syncStore')
 beforeEach(() => {
   useSyncStore.setState({ status: 'idle', pendingCount: 0, lastSyncAt: null, lastError: null })
   vi.clearAllMocks()
+  localStorage.removeItem('parish_current_user')
 
   mockTable.where.mockReturnThis()
   mockTable.anyOf = vi.fn().mockReturnThis()
@@ -279,6 +280,7 @@ describe('syncStore', () => {
   })
 
   it('addConflict lưu localValue đã mã hóa; giải mã khôi phục dữ liệu gốc (A2 conflict inbox)', async () => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A' }))
     mockTable.put.mockResolvedValue(undefined)
     mockTable.toArray.mockResolvedValue([])
     mockTable.add = vi.fn().mockResolvedValue(undefined)
@@ -303,6 +305,7 @@ describe('syncStore', () => {
     const item = mockTable.add.mock.calls[0][0]
     expect(item.id).toMatch(/^CONF-/)
     expect(item.resolved).toBe(false)
+    expect(item.userId).toBe('USR-A')
     expect(item.localValue).toMatch(/^enc:v1:/)
 
     // ConflictInboxModal (A2): giải mã ở UI — ciphertext phải khôi phục được dữ liệu thật.

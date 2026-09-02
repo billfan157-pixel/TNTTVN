@@ -21,6 +21,7 @@ import { useSyncStore } from '../stores/syncStore'
 import { runSyncFlow } from '../hooks/useSyncEngine'
 import { api } from '../lib/api'
 import { PURGE_VERSION_KEY, resetClientData } from '../lib/resetClientData'
+import { setTenantScope } from '../lib/tenantScope'
 
 const resetClientDataMock = vi.mocked(resetClientData)
 
@@ -34,11 +35,13 @@ async function resetDB() {
   useSyncStore.getState().setLastError(null)
   useSyncStore.getState().setLastSync('')
   localStorage.removeItem(PURGE_VERSION_KEY)
-  localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', role: 'admin' }))
+  localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', role: 'admin', parishId: 'PARISH-TEST' }))
+  setTenantScope({ parishId: 'PARISH-TEST', userId: 'U-TEST' })
 }
 
 function mockApiMethods(purgeVersion: number) {
   vi.spyOn(api, 'probePurgeVersion').mockResolvedValue(purgeVersion)
+  vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
   vi.spyOn(api, 'getStudents').mockResolvedValue({ data: [], total: 0 })
   vi.spyOn(api, 'getGrades').mockResolvedValue([])
   vi.spyOn(api, 'getAttendance').mockResolvedValue([])
@@ -56,6 +59,7 @@ describe('Sync Engine — PURGE v2.3 trên device mới (A-NEW-46)', () => {
   })
 
   afterEach(() => {
+    setTenantScope(null)
     vi.restoreAllMocks()
   })
 

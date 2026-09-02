@@ -41,11 +41,12 @@ const studentSchema = z.object({
 studentsRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const updatedAfter = c.req.query('updatedAfter')
+  const updatedBefore = c.req.query('updatedBefore')
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10))
   const limit = Math.min(10000, Math.max(1, parseInt(c.req.query('limit') || '50', 10)))
   // Roster read scope is parish-wide for all staff. Class assignments still
   // gate every write route below and all grade/attendance/exam operations.
-  const result = await getStudents(user.parishId, updatedAfter, limit, page)
+  const result = await getStudents(user.parishId, updatedAfter, limit, page, updatedBefore)
   return listResponse(c, result.data, result.total)
 })
 

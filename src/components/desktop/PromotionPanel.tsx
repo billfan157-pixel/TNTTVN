@@ -14,6 +14,7 @@ import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload,
 import { useAuth } from '../../hooks/useAuth';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { ModalShell } from '../common/ModalShell';
+import { StudentName } from '../common/StudentName';
 import { isAuthenticated } from '../../lib/api';
 import type { Student } from '../../types';
 import type { PromotionAction } from '../../stores/studentStore';
@@ -292,8 +293,8 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
                 const curName = classList.find(c => c.id === p.student.classId)?.name || BRANCHES[p.student.branch]?.name
                 const tgtName = p.targetClass?.name || '— chưa có lớp đích —'
                 return (
-                  <div key={p.student.id} className="text-xs p-2 rounded-lg bg-surface-hover flex justify-between gap-2">
-                    <span className="font-semibold">{p.student.holyName} {p.student.fullName}</span>
+                  <div key={p.student.id} className="text-xs p-2 rounded-lg bg-surface-hover flex justify-between items-center gap-2">
+                    <StudentName holyName={p.student.holyName} fullName={p.student.fullName} size="xs" />
                     <span className="text-parish-primary font-bold text-right">
                       {curName} → {tgtName}
                     </span>
@@ -331,9 +332,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
             {canPromote.map(({ student, nextClass, targetClass }) => (
               <div key={student.id} className="flex items-center gap-3 p-3 rounded-xl bg-parish-success-bg/30 border border-parish-success/20">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-text-main truncate">
-                    {student.holyName} {student.fullName}
-                  </div>
+                  <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="truncate" />
                   <div className="text-xs text-text-muted flex items-center gap-2 mt-0.5">
                     <span className="badge shrink-0" style={{ background: BRANCHES[student.branch]?.badgeBg, color: BRANCHES[student.branch]?.textColor }}>
                       {BRANCHES[student.branch]?.name}
@@ -382,9 +381,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
             {needsReview.map(({ student, avg, promotion }) => (
               <div key={student.id} className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-text-main truncate">
-                    {student.holyName} {student.fullName}
-                  </div>
+                  <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="truncate" />
                   <div className="text-xs text-text-muted mt-0.5 flex items-center gap-2">
                     <span className="badge shrink-0" style={{ background: BRANCHES[student.branch]?.badgeBg, color: BRANCHES[student.branch]?.textColor }}>
                       {BRANCHES[student.branch]?.name}

@@ -37,7 +37,7 @@
 | 26 | `assessments` | Class assessment definitions & weights | `idx_assessments_lookup` |
 | 27 | `academic_year_snapshots` | Per-student frozen finalize snapshot (GPA, xếp loại, chuyên cần, decision) | `idx_academic_year_snapshots_student` `(parish_id, student_id, academic_year_id)` UNIQUE |
 | 28 | `refresh_tokens` | JWT refresh rotation sessions (chỉ lưu sha256 hash — không plaintext) | `token_hash` UNIQUE, `idx_refresh_tokens_parish_id`, `idx_refresh_tokens_user_id` |
-| 29 | `exam_sessions` | Smart Exam Grading session; `exam_type` ∈ `written\|multiple_choice\|mixed` (EXAM-MIXED, ADR-053 — mixed: đề TN + TL, `question_count` = số câu TN); `answer_key` là key legacy/mã A, `answer_variants` nullable JSON map A–H (ADR-050); `questions` JSON ngân hàng câu hỏi (`type`/`points` per câu); idempotency key NOT NULL | migrations cũ + `20260818-124` (`answer_variants`) + `20260815-119` (`questions`); indexes giữ nguyên |
+| 29 | `exam_sessions` | Smart Exam Grading session; `exam_type` ∈ `written\|multiple_choice\|mixed` (EXAM-MIXED, ADR-053 — mixed: đề TN + TL, `question_count` = số câu TN); `answer_key` là key legacy/mã A, `answer_variants` nullable JSON map A–H (ADR-050); `questions` JSON ngân hàng câu hỏi (`type`/`points` per câu); `variant_manifests` nullable immutable JSON set gồm materialized questions/order/options/answer keys/hash/seed (ADR-094); idempotency key NOT NULL | migrations cũ + `20260818-124` (`answer_variants`) + `20260815-119` (`questions`) + `20260901-148` (`variant_manifests`); schema readiness bắt buộc cột mới, indexes giữ nguyên |
 | 30 | `exam_results` | Per-student score; `essay_score` REAL nullable = điểm phần tự luận nhập tay (mixed; `score` = điểm TN tự chấm + essay_score — migration `20260824-129`); `answers`, `scan_metadata` aggregate không ảnh, `exam_version` A–H default A. MC scan được server tính lại bằng key theo version | migrations cũ + `20260818-123` (`scan_metadata`) + `20260818-125` (`exam_version`) + `20260824-129` (`essay_score`); unique `(exam_session_id, student_id)`, lookup tenant/session |
 | 31 | `telegram_link_tokens` | One-time link tokens (sha256 hash) để bind tài khoản Telegram với user (`token_hash` — không plaintext), có expiry/consumed | `token_hash` UNIQUE, PK `(parish_id, id)`, `idx_telegram_link_tokens_user` `(parish_id, user_id)`, `idx_telegram_link_tokens_expiry` |
 | 32 | `telegram_links` | Chat liên kết Telegram ↔ user (trạng thái `ACTIVE`/`REVOKED`, bật/tắt thông báo, last_seen) | `chat_id` UNIQUE, PK `(parish_id, id)`, `idx_telegram_links_user` `(parish_id, user_id, status)`, `idx_telegram_links_chat_status` `(chat_id, status)` |
@@ -60,6 +60,7 @@
 | 49 | `parish_record_assets` | Quan hệ nhiều-nhiều record ↔ asset | PK `(parish_id,record_id,asset_id)`; composite tenant FKs |
 | 50 | `feedback_messages` | Thư góp ý gửi Xứ đoàn/GLV chủ nhiệm; anonymous không giữ sender identity | PK `(parish_id,id)`; sender/target CHECK; `idx_feedback_inbox`, `idx_feedback_public_sender` |
 | 51 | `password_reset_requests` | Ticket quên mật khẩu hiện tại của mỗi tài khoản phụ huynh; không lưu SĐT tự khai hay credential | PK `(parish_id,id)`; UNIQUE `(parish_id,user_id)`; inbox index `(parish_id,status,last_requested_at)`; composite FKs tới `users`; resolution/count CHECK |
+| 52 | `native_push_tokens` | Binding push token native theo installation/user/parish; token chỉ dùng để giao vận, không ghi audit/client storage (ADR-095) | PK `(parish_id,id)`; UNIQUE `installation_id`, UNIQUE `(platform,token)`; index `(parish_id,user_id)`; composite FK cascade tới `users`; migration `20260902-149` |
 
 ---
 
@@ -183,3 +184,13 @@ DB CHECK bắt buộc `request_count >= 1`; `PENDING` phải chưa có resolver,
 - `role_permissions.permission_id` $\rightarrow$ `permissions.id` (`onDelete: 'cascade'`)
 - `import_batch_students.batch_id` $\rightarrow$ `import_batches.id` (`onDelete: 'cascade'`)
 - `grade_overrides.grade_id` $\rightarrow$ `grades.id` (`onDelete: 'cascade'`)
+
+## Question Bank and Blueprint Schema (ADR-096)
+
+- `question_bank_items`: tenant identity, lifecycle, current version pointer, taxonomy/provenance and reviewer metadata.
+- `question_bank_versions`: immutable content/answer/explanation/metadata snapshot and SHA-256 hash; unique `(parish_id,question_id,version)`.
+- `exam_blueprints` + `exam_blueprint_rules`: tenant-scoped reusable selection matrices and ordered constraints.
+- `exam_question_snapshots`: immutable bridge from a materialized session position to exact question/version/payload/hash.
+- `exam_sessions.source_type|blueprint_id|blueprint_snapshot`: additive provenance only; existing Smart Exam columns remain authoritative for execution.
+- Migrations `20260902-150..158` are additive and schema readiness requires tables, columns, indexes, composite PKs and the same-parish blueprint insert/update triggers.
+- Delete order is snapshots → sessions → blueprint rules → blueprints → question versions → question items. Purge v2.5 and backup v2.1 follow this order.

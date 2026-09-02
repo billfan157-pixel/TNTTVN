@@ -1,5 +1,10 @@
 {
   "appId": "com.tnttvn.app",
   "appName": "Catevia",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
 }

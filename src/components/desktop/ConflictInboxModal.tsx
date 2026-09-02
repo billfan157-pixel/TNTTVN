@@ -120,7 +120,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-black tracking-tight">Hộp Thư Xung Đột</h2>
-              <p className="text-xs text-white/80 font-medium">Xem lại các thao tác bị ghi đè bởi dữ liệu Server</p>
+              <p className="text-xs text-white/80 font-medium">Xem lại các phiên bản đã được hợp nhất và đưa vào hàng đợi thử lại</p>
             </div>
           </div>
           <button onClick={onClose} className="btn btn-icon btn-sm hover:bg-white/20 transition-colors">
@@ -167,7 +167,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
                         onClick={() => handleResolve(c.id)}
                         className="btn btn-ghost btn-sm text-[10px] font-bold text-parish-primary hover:bg-parish-primary-light px-2 py-1 rounded-lg border border-parish-primary-light transition-colors"
                       >
-                        Đã Xem
+                        Đã kiểm tra
                       </button>
                     )}
                   </div>
@@ -176,14 +176,14 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
                     <div className="space-y-1">
                       <div className="text-text-muted font-bold flex items-center gap-1">
                         <ChevronRight className="w-3 h-3" />
-                        DỮ LIỆU LOCAL (BỊ GHI ĐÈ)
+                        THAY ĐỔI TRÊN THIẾT BỊ
                       </div>
                       <ConflictValue value={c.localValue} tone="local" />
                     </div>
                     <div className="space-y-1">
                       <div className="text-text-muted font-bold flex items-center gap-1">
                         <ChevronRight className="w-3 h-3 text-[var(--color-parish-success)]" />
-                        DỮ LIỆU SERVER (CHIẾN THẮNG)
+                        PHIÊN BẢN MÁY CHỦ DÙNG LÀM NỀN
                       </div>
                       <ConflictValue value={c.serverValue} tone="server" />
                     </div>

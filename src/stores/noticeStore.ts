@@ -35,7 +35,7 @@ interface NoticeState {
   loading: boolean
   error: string | null
   setNotices: (notices: ParishNotice[]) => void
-  fetchNotices: (updatedAfter?: string) => Promise<void>
+  fetchNotices: (updatedAfter?: string, throwOnError?: boolean) => Promise<void>
   createNotice: (data: Omit<ParishNotice, 'id'>) => Promise<ParishNotice>
   updateNotice: (id: string, data: Partial<Omit<ParishNotice, 'id'>>) => Promise<ParishNotice>
   deleteNotice: (id: string) => Promise<void>
@@ -53,14 +53,14 @@ export const useNoticeStore = create<NoticeState>()(
 
       setNotices: (notices) => set({ notices }),
 
-      fetchNotices: async (updatedAfter?: string) => {
+      fetchNotices: async (updatedAfter?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
         set({ loading: true, error: null })
         try {
           const fetched = await api.getNotices(updatedAfter)
           if (Array.isArray(fetched)) {
             const pendingIds = await getPendingNoticeIds()
-            if (updatedAfter && fetched.length > 0) {
+            if (updatedAfter) {
               set((state) => {
                 const merged = new Map(state.notices.map(n => [n.id, n]))
                 for (const n of fetched) {
@@ -84,6 +84,7 @@ export const useNoticeStore = create<NoticeState>()(
         } catch (err) {
           Sentry.captureException(err)
           set({ error: (err as Error)?.message || 'Lỗi tải danh sách thông báo' })
+          if (throwOnError) throw err
         } finally {
           set({ loading: false })
         }

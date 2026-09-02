@@ -547,6 +547,30 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
    index('idx_push_subscriptions_user_id').on(table.userId),
  ])
 
+// ADR-095: native app installations are authenticated user bindings, separate
+// from browser Web Push endpoints. Tokens are required for delivery and must
+// never be copied into audit logs or client persistence.
+export const nativePushTokens = sqliteTable('native_push_tokens', {
+  id: text('id').notNull(),
+  installationId: text('installation_id').notNull(),
+  platform: text('platform', { enum: ['android', 'ios'] }).notNull(),
+  token: text('token').notNull(),
+  userId: text('user_id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({
+    columns: [table.parishId, table.userId],
+    foreignColumns: [users.parishId, users.id],
+  }).onDelete('cascade'),
+  uniqueIndex('idx_native_push_tokens_installation').on(table.installationId),
+  uniqueIndex('idx_native_push_tokens_platform_token').on(table.platform, table.token),
+  index('idx_native_push_tokens_user').on(table.parishId, table.userId),
+  check('check_native_push_tokens_platform', sql`${table.platform} IN ('android', 'ios')`),
+])
+
 export const serviceAssignments = sqliteTable('service_assignments', {
    id: text('id').notNull(),
    studentId: text('student_id').notNull(),
@@ -743,6 +767,110 @@ export const assessments = sqliteTable('assessments', {
   index('idx_assessments_lookup').on(table.parishId, table.academicYearId, table.semester),
 ])
 
+// ─── Question Bank & Exam Blueprint (ADR-096) ─────────────────────────────
+// `question_bank_items` is the mutable catalogue head used for search and
+// lifecycle. Every content edit appends an immutable `question_bank_versions`
+// row; historical exams reference the exact version through
+// `exam_question_snapshots` below.
+export const questionBankItems = sqliteTable('question_bank_items', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  status: text('status', { enum: ['draft', 'in_review', 'approved', 'active', 'archived'] }).notNull().default('draft'),
+  currentVersion: integer('current_version', { mode: 'number' }).notNull().default(1),
+  branchId: text('branch_id'),
+  curriculumLevel: text('curriculum_level'),
+  book: text('book'),
+  chapter: text('chapter'),
+  lesson: text('lesson'),
+  lessonOrder: integer('lesson_order', { mode: 'number' }),
+  topic: text('topic'),
+  difficulty: text('difficulty', { enum: ['recognition', 'understanding', 'application'] }),
+  tags: text('tags').notNull().default('[]'),
+  source: text('source'),
+  provenance: text('provenance', { enum: ['human', 'ai', 'import'] }).notNull().default('human'),
+  createdBy: text('created_by').notNull(),
+  reviewedBy: text('reviewed_by'),
+  approvedBy: text('approved_by'),
+  archivedBy: text('archived_by'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  archivedAt: text('archived_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.branchId], foreignColumns: [branches.parishId, branches.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.createdBy], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_question_bank_list').on(table.parishId, table.status, table.updatedAt),
+  index('idx_question_bank_taxonomy').on(table.parishId, table.branchId, table.curriculumLevel, table.lessonOrder, table.difficulty),
+  index('idx_question_bank_author').on(table.parishId, table.createdBy, table.status),
+])
+
+export const questionBankVersions = sqliteTable('question_bank_versions', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  questionId: text('question_id').notNull(),
+  version: integer('version', { mode: 'number' }).notNull(),
+  questionType: text('question_type', { enum: ['multiple_choice', 'true_false', 'multiple_select', 'short_answer', 'fill_blank', 'matching', 'essay'] }).notNull(),
+  stem: text('stem').notNull(),
+  answerData: text('answer_data').notNull(),
+  explanation: text('explanation'),
+  metadataSnapshot: text('metadata_snapshot').notNull(),
+  changeNote: text('change_note'),
+  contentHash: text('content_hash').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.questionId], foreignColumns: [questionBankItems.parishId, questionBankItems.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.createdBy], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  uniqueIndex('idx_question_bank_versions_number').on(table.parishId, table.questionId, table.version),
+  index('idx_question_bank_versions_question').on(table.parishId, table.questionId, table.createdAt),
+])
+
+export const examBlueprints = sqliteTable('exam_blueprints', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  name: text('name').notNull(),
+  description: text('description'),
+  status: text('status', { enum: ['draft', 'active', 'archived'] }).notNull().default('draft'),
+  branchId: text('branch_id'),
+  curriculumLevel: text('curriculum_level'),
+  totalQuestions: integer('total_questions', { mode: 'number' }).notNull(),
+  maxScore: integer('max_score', { mode: 'number' }).notNull().default(10),
+  version: integer('version', { mode: 'number' }).notNull().default(1),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.branchId], foreignColumns: [branches.parishId, branches.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.createdBy], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_exam_blueprints_list').on(table.parishId, table.status, table.updatedAt),
+  index('idx_exam_blueprints_taxonomy').on(table.parishId, table.branchId, table.curriculumLevel),
+])
+
+export const examBlueprintRules = sqliteTable('exam_blueprint_rules', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  blueprintId: text('blueprint_id').notNull(),
+  ordinal: integer('ordinal', { mode: 'number' }).notNull(),
+  questionType: text('question_type', { enum: ['multiple_choice', 'true_false', 'multiple_select', 'short_answer', 'fill_blank', 'matching', 'essay'] }).notNull(),
+  chapter: text('chapter'),
+  lessonFrom: integer('lesson_from', { mode: 'number' }),
+  lessonTo: integer('lesson_to', { mode: 'number' }),
+  topic: text('topic'),
+  difficulty: text('difficulty', { enum: ['recognition', 'understanding', 'application'] }),
+  tags: text('tags').notNull().default('[]'),
+  questionCount: integer('question_count', { mode: 'number' }).notNull(),
+  pointsEach: real('points_each').notNull().default(1),
+  avoidRecentDays: integer('avoid_recent_days', { mode: 'number' }).notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.blueprintId], foreignColumns: [examBlueprints.parishId, examBlueprints.id] }).onDelete('cascade'),
+  uniqueIndex('idx_exam_blueprint_rules_order').on(table.parishId, table.blueprintId, table.ordinal),
+  index('idx_exam_blueprint_rules_blueprint').on(table.parishId, table.blueprintId),
+])
+
 // ─── Smart Exam Grading (Phase 1) — plan exam grading plan (đã triển khai — xem ADR-023/024) §3 ───
 // Server chỉ lưu phiên chấm + kết quả. Server KHÔNG tự ghi grades —
 // mọi điểm đi qua gradeService.upsertGrade (OCC + lock + class access).
@@ -766,7 +894,11 @@ export const examSessions = sqliteTable('exam_sessions', {
   answerKey: text('answer_key'), // JSON string: {"1":"A","2":"C"}
   // JSON map mã đề A..H -> answer key đầy đủ. `answer_key` tiếp tục là mã A để tương thích.
   answerVariants: text('answer_variants'),
+  variantManifests: text('variant_manifests'), // immutable materialized A-H question/option permutations
   questions: text('questions'), // JSON string: ExamQuestion[]
+  sourceType: text('source_type').notNull().default('legacy'),
+  blueprintId: text('blueprint_id'),
+  blueprintSnapshot: text('blueprint_snapshot'),
   idempotencyKey: text('idempotency_key').notNull().default(sql`(lower(hex(randomblob(16))))`),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
@@ -775,8 +907,13 @@ export const examSessions = sqliteTable('exam_sessions', {
     columns: [table.parishId, table.classId],
     foreignColumns: [classes.parishId, classes.id],
   }).onDelete('restrict'),
+  foreignKey({
+    columns: [table.parishId, table.blueprintId],
+    foreignColumns: [examBlueprints.parishId, examBlueprints.id],
+  }).onDelete('restrict'),
   index('idx_exam_sessions_class').on(table.parishId, table.classId, table.scoreType),
   index('idx_exam_sessions_status').on(table.parishId, table.status, table.createdAt),
+  index('idx_exam_sessions_blueprint').on(table.parishId, table.blueprintId),
   // C1 (2026-08-14): UNIQUE idempotency guard (ADR-023) — rebuild 109 đánh rơi, khôi phục
   // qua migration 20260814-117 + INDICES defensive. NULL idempotency_key được phép trùng
   // (SQLite UNIQUE bỏ qua NULL) nên chỉ ràng buộc các key client gửi temp id.
@@ -834,6 +971,26 @@ export const examResultMutations = sqliteTable('exam_result_mutations', {
     foreignColumns: [students.parishId, students.id],
   }).onDelete('restrict'),
   index('idx_exam_result_mutations_session').on(table.parishId, table.examSessionId, table.createdAt),
+])
+
+export const examQuestionSnapshots = sqliteTable('exam_question_snapshots', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull().default('gia-ton'),
+  examSessionId: text('exam_session_id').notNull(),
+  questionId: text('question_id').notNull(),
+  questionVersionId: text('question_version_id').notNull(),
+  sourcePosition: integer('source_position', { mode: 'number' }).notNull(),
+  points: real('points').notNull().default(1),
+  snapshotJson: text('snapshot_json').notNull(),
+  contentHash: text('content_hash').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.examSessionId], foreignColumns: [examSessions.parishId, examSessions.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.questionId], foreignColumns: [questionBankItems.parishId, questionBankItems.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.questionVersionId], foreignColumns: [questionBankVersions.parishId, questionBankVersions.id] }).onDelete('restrict'),
+  uniqueIndex('idx_exam_question_snapshots_position').on(table.parishId, table.examSessionId, table.sourcePosition),
+  index('idx_exam_question_snapshots_usage').on(table.parishId, table.questionId, table.createdAt),
 ])
 
 // Server-side assessment ledger.  A grade row remains the fast projection used by

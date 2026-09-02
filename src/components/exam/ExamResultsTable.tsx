@@ -4,6 +4,7 @@ import { deleteScanReviewSnapshot, loadScanReviewSnapshot, purgeExpiredScanRevie
 import type { ExamResult } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
+import { StudentName } from '../common/StudentName'
 
 interface ExamResultsTableProps {
   results: ExamResult[]
@@ -74,9 +75,8 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
             <tr key={r.id} className="border-b border-surface-border/60 bg-surface-card hover:bg-surface-app transition-colors">
               <td className="py-2 pr-2 text-text-muted">{i + 1}</td>
               <td className="py-2 pr-2 font-mono text-sm">{r.studentCode}</td>
-              <td className="py-2 pr-2 font-semibold text-base">
-                {r.holyName && <span className="text-amber-900 dark:text-amber-400 mr-1">{r.holyName}</span>}
-                {r.studentName}
+              <td className="py-2 pr-2">
+                <StudentName holyName={r.holyName} fullName={r.studentName} size="base" />
               </td>
               {essayMode && (
                 <td className="py-2 pr-2 font-semibold">

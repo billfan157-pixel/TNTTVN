@@ -174,7 +174,7 @@ Client: `src/lib/api.ts` (`purgeAllData`, `probePurgeVersion`) · UI: `src/compo
 ### Purge semantics (Business Rules → `docs/BUSINESS_RULES.md` §9)
 - Chỉ admin; phải nhập đúng mật khẩu (bcrypt) + chuỗi xác nhận `XÓA TẤT CẢ`.
 - Xóa rows của 26 bảng nghiệp vụ trong hợp đồng Purge v2.4 trong 1 transaction (FK order + `PRAGMA defer_foreign_keys`), scope `parish_id`; gồm `password_reset_requests`, `feedback_messages`, và `exam_result_mutations` xóa trước result/session; KHÔNG drop bảng, KHÔNG xóa function/trigger.
-- Giữ nguyên: `users`, `branches`, `permissions`, `role_permissions`, `audit_logs`, `push_subscriptions`, `system_settings`.
+- Giữ nguyên: `users`, `branches`, `permissions`, `role_permissions`, `audit_logs`, `push_subscriptions`, `native_push_tokens`, `system_settings`.
 - Snapshot v3.1 (26 bảng) tự ghi file trước khi xóa; audit log `SYSTEM_PURGE` ghi counts.
 - Sau thành công: client gọi `resetClientData(purgeVersion)` → xóa sạch Dexie + localStorage + đăng xuất. Các thiết bị khác bị `fetchAllData` phát hiện version chênh lệch → tự reset + đăng xuất (chống ghost data).
 - **A-NEW-47 (2026-08-13)**: `fetchAllData` chỉ reset khi device ĐÃ TỪNG sync (có key `parish_purge_version` trong localStorage). Device mới/chưa có key chỉ **ghi baseline** `purge_version` hiện tại, KHÔNG wipe, KHÔNG logout — tránh đá user ra khỏi phiên hợp lệ khi `purge_version` server cao hơn từ các lần purge lịch sử (production hiện là 4). Device cũ có key < server version vẫn bị reset (ghost data).
@@ -242,7 +242,7 @@ Public response không chứng minh ticket đã được tạo và không đư�
 
 ---
 
-## 7. WEB PUSH API (`/api/notifications`)
+## 7. APP PUSH API — WEB + NATIVE (`/api/notifications`, ADR-095)
 
 Client: `src/lib/pushManager.ts` (`initPushSubscription`/`disablePushSubscription`) · SW: `public/sw.js` · Service: `server/src/services/webPushService.ts` (SSOT gửi + dọn sub chết)
 
@@ -251,8 +251,10 @@ Client: `src/lib/pushManager.ts` (`initPushSubscription`/`disablePushSubscriptio
 | `GET /api/notifications/vapid-public-key` | VAPID public key để client `PushManager.subscribe` | auth (mọi role) | `{ publicKey: string \| null, configured: boolean }` — 200 ngay cả khi chưa cấu hình (`{ publicKey: null, configured:false }` để tránh browser log 501 spam; client skip debug, không lỗi) — legacy 501 `VAPID_NOT_CONFIGURED` vẫn được client bắt để tương thích deploy cũ |
 | `POST /api/notifications/subscribe` | Lưu PushSubscription (endpoint + p256dh + auth) | auth | `{ ok: true }` | — (idempotent, endpoint UNIQUE) |
 | `POST /api/notifications/unsubscribe` | Xóa subscription theo endpoint | auth | `{ ok: true }` | — |
-| `POST /api/notifications/send` | Gửi ngay tới mọi subscription của giáo xứ (title/body/url) | admin + chunhiem | `{ sent, failed, total, removed }` | 501 `VAPID_NOT_CONFIGURED` |
-| `GET /api/notifications/subscriptions` | Danh sách push subscription của giáo xứ (admin xem/quản lý endpoints) | admin | `PushSubscription[]` | 401/403 |
+| `POST /api/notifications/native/register` | Bind token OS với installation UUID và user/parish lấy từ JWT; cùng installation/token được chuyển atomically về account hiện tại | auth | `{ ok: true }` | 400 validation |
+| `POST /api/notifications/native/unregister` | Xóa installation chỉ khi thuộc đúng user + parish hiện tại | auth | `{ ok: true }` | 400 validation |
+| `POST /api/notifications/send` | Fan-out ngay Web Push + FCM/APNs cho toàn giáo xứ; `url` bắt buộc là route nội bộ `/...` | admin | `{ configured,sent,failed,total,removed,skipped,channels }` | 501 `PUSH_PROVIDER_NOT_CONFIGURED` |
+| `GET /api/notifications/subscriptions` | Đếm binding theo giáo xứ, không trả endpoint/token | admin | `{ count, web, native }` | 401/403 |
 
 ### Smart notifications (`/api/notifications/smart/*` — F8 drift bổ sung)
 Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ đích + telegram cho staff). Tất cả dưới `use('/smart/*', roleMiddleware('admin','chunhiem'))`.
@@ -266,15 +268,16 @@ Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ 
 
 ### Client flow (pushManager)
 1. `main.tsx` → `registerServiceWorkerOnly()` là owner duy nhất của SW (`vite.config.ts: injectRegister=false`): web đăng ký `/sw.js` sớm, KHÔNG hỏi permission; Capacitor native không đăng ký, đồng thời unregister worker/cache PWA còn sót từ build cũ mà không đụng Dexie/auth/offline queue (ADR-088).
-2. Sau **login thành công** (authStore) → `initPushSubscription()`: permission 'default' → hỏi 1 lần; lấy public key → `PushManager.subscribe({ userVisibleOnly: true })` → POST `/subscribe`; có sẵn subscription (reload) → re-sync idempotent.
-3. Logout → `disablePushSubscription()`: POST `/unsubscribe` (best-effort) + `subscription.unsubscribe()`.
+2. Web sau login → `initPushSubscription()`: permission 'default' → hỏi 1 lần; lấy VAPID key → subscribe/re-sync. Endpoint upsert luôn chuyển ownership về JWT hiện tại để đổi account không giữ subscription cũ.
+3. Native chỉ hỏi quyền khi user bấm **Bật** ở Cài đặt. Khi permission đã granted và không opt-out, login/launch/resume gọi plugin register để lấy token mới rồi POST `/native/register`; client chỉ persist UUID installation + preference, không persist token.
+4. Logout → Web unsubscribe; native khởi động request `/native/unregister` trước khi access token memory-only bị xóa rồi unregister OS provider. Soft-delete user cũng xóa cả hai loại binding.
 4. SW: `push` → `showNotification(icon: /pwa-icon.svg)`; `notificationclick` → focus window hiện có hoặc `openWindow(url)`.
-- Yêu cầu: secure context (HTTPS/localhost) — web push không hoạt động trên HTTP plain. Native push vẫn là backlog riêng; không dùng Web Push/Service Worker trong WebView.
+- Yêu cầu web: secure context. Native dùng FCM/APNs và **không** dùng Web Push/Service Worker trong WebView (ADR-088).
 
 ### Delivery semantics (SSOT webPushService)
 - Gửi song song tới mọi `push_subscriptions` của parish; endpoint trả `404`/`410` (trình duyệt đã hủy) → **xóa vĩnh viễn**; lỗi tạm thời (500…) → đếm failed nhưng GIỮ subscription.
 - `sendWebPushToUsers(parishId, userIds, payload)` — gửi **có chủ đích** chỉ tới subscriptions có `user_id` trong danh sách (ví dụ: phụ huynh theo chi đoàn); subscription không thuộc nhóm (kể cả `user_id = NULL`) không bị đụng tới.
-- `notificationQueue` channel `webpush`: gửi thật qua webPushService rồi mới đánh dấu `sent`; VAPID chưa cấu hình → mark `failed` (`VAPID_NOT_CONFIGURED`), KHÔNG còn đánh dấu `sent` giả. Item có `webpushUserIds` → queue persist JSON vào `notifications.target_user_ids` (migration `20260808-082`) để recovery sau restart gửi lại ĐÚNG nhóm người nhận (không degrade thành broadcast toàn giáo xứ).
+- `notificationQueue` channel persisted legacy `webpush`: gửi thật qua `appPushService` rồi mới đánh dấu `sent`; không provider nào cấu hình → `PUSH_PROVIDER_NOT_CONFIGURED`. Item có `webpushUserIds` (tên field legacy) persist JSON vào `notifications.target_user_ids`, và cả Web/native dùng đúng tập này.
 - Smart notifications (`smartNotifications`) gửi **telegram cho staff + webpush CÓ CHỦ ĐÍCH cho phụ huynh** (`notifyParishNotice` khớp `users.phone` ↔ `students.parentPhone` qua `phoneMatchVariants`, lọc theo `targetBranch` khi thông báo nhắm vào một chi đoàn; `All`/null = toàn giáo xứ). Không còn webpush broadcast toàn parish.
 
 ---
@@ -357,6 +360,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | `DELETE /api/exams/:id` | Xóa phiên chấm **draft** (tạo nhầm) — xóa session + toàn bộ `exam_results` (chưa finalize) trong 1 transaction + audit `EXAM_DELETE_SESSION` (ADR-025) | admin / chunhiem / phuta (lớp mình) | `{ deleted: true, sessionId, resultsDeleted }` | 403 ngoài lớp, 404 không tồn tại, 409 phiên đã hoàn tất (đã ghi bảng điểm — không xóa được, admin mở lại trước nếu cần) |
 | `PATCH /api/exams/:id/answer-key` | Cập nhật answer key + re-score kết quả OMR (ADR-043) — chỉ phiên draft MC/mixed; mixed: rescore phần TN theo trọng số câu, GIỮ nguyên essay_score; giữ nguyên quick_entry thuần | admin / chunhiem / phuta (lớp mình) | `{ session, rescored, skipped }` | 403 ngoài lớp, 400 answer key không hợp lệ, 409 phiên đã hoàn tất, 400 không phải MC/mixed |
 | `PATCH /api/exams/:id/answer-variants` | Thay map đáp án A–H và re-score theo version trong transaction; A bắt buộc, không được xóa version đang có result; draft MC/mixed (mixed chỉ áp dụng phần TN) | admin / chunhiem / phuta (lớp mình) | `{ session, rescored, skipped }` | 400 JSON/key không hợp lệ, 403 ngoài lớp, 409 completed/version đang dùng |
+| `POST /api/exams/:id/variant-manifests` | Tạo và khóa 1–8 mã đề A–H từ ngân hàng câu hỏi; body `{ variantCount, seed? }`. Server materialize thứ tự câu/lựa chọn và answer key, lưu hash/seed bất biến | admin / chunhiem / phuta (lớp mình) | `ExamVariantManifestSet` + session đã cập nhật | 400 câu hỏi/đáp án không an toàn để đảo, 403 ngoài lớp, 409 không draft/đã có result/manifest đã tồn tại |
 | `POST /api/exams/barcode/decode` | Decode v3 `T3:{sessionHex8}:{studentHex8}:{I|F}:{questionCount}:{A-H}:{checksum4}`, v2 `T2:*`, compact v1 `TE:*` hoặc legacy. V3 validate checksum có mã đề. | auth | `{ sessionId, studentId, ..., protocolVersion?, templateMode?, examVersion?, formChecksum? }` | 400 format/checksum không hợp lệ, 403 ngoài lớp, 404 phiên không tồn tại |
 
 - **Finalize do server làm authority (ADR-048)**: `POST /complete` ghi finalization ledger + assessment entries + grade projection + session completed trong một transaction; client không tự commit grades. Trước bước finalize, ADR-049 còn yêu cầu server tự tính lại score MC scan ngay tại `POST /results`.
@@ -366,6 +370,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 - **Qualification v2 (ADR-070; build/client-only, không đổi API)**: build inject public non-secret `releaseId` từ `VITE_APP_RELEASE_ID` hoặc platform Git SHA; field recorder từ chối placeholder. Manifest/targets schema v2 thêm `profile.releaseId`, `runElapsedMs`, `papersPerMinuteMin` và `proposalLatencyDriftRatioMax`. CLI có thể gộp nhiều completed export nhưng không dedupe; server request/response, auth, tenant và scoring contract không đổi.
 - **`academicYear` mặc định (EXAM-GAPS, 2026-08-15)**: client `examStore.createSession` tự điền `academicYear` = **năm học đang hoạt động của giáo xứ** (`academicYearStore.resolveActiveYear()`) khi không truyền — cùng nguồn với lưới điểm; KHÔNG lấy theo ngày hiện tại (tránh phiên rơi vào năm mới khi giáo xứ đang làm năm cũ trong giai đoạn chuyển tháng 8).
 - **Trắc nghiệm bắt buộc đủ đáp án (client side)**: UI yêu cầu điền đủ `answerKey` cho toàn bộ `questionCount` câu trước khi tạo phiên MC — thiếu câu → OMR detector không chấm được (isCorrect undefined → điểm sai).
+- **Manifest lock (ADR-094)**: sau khi `variantManifests` tồn tại, hai endpoint PATCH answer key/variants trả 409 `VARIANT_MANIFEST_LOCKED`. Client chỉ cho in đề B–H bằng question set materialize của manifest; session legacy/no-manifest fail closed về đề A. Phiếu trả lời rời vẫn có thể dùng A–H cho bộ đề ngoài hệ thống.
 - **Tạo phiên trên mobile (UI-only)**: `ExamSessionView` mở form thành bottom-sheet có header/nút đóng và footer tạo phiên sticky; lựa chọn hình thức chuyển thành các hàng dễ chạm, lưới đáp án thành từng hàng với nút A/B/C/D 44px và hiện tiến độ `Đáp án: X/N`. Không đổi payload, validation, quyền, hay quy tắc cảnh báo tạo trùng.
 - **Cảnh báo tạo trùng (client side)**: nếu đã có phiên `draft` cùng lớp + môn + loại điểm (cùng học kỳ), UI yêu cầu xác nhận trước khi tạo thêm — KHÔNG chặn cứng (re-exam là nhu cầu hợp lệ, không có unique constraint server).
 - Xung đột điểm tay (`_source='manual'|'excel_import'`): client **không ghi đè** — trả vào `ExamFinalizeResult.conflicts` và chặn học sinh đó, admin xử lý qua Override (Ma Trận).
@@ -379,7 +384,7 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | **Barcode (Code128)** | `src/lib/barcode.ts` | Pure SVG generator + decoder (no deps); quiet zone 10 modules; decoder scans multiple rows in the upper camera region and validates Code128B checksum |
 | **Code Scan Pipeline v4** | `qr.ts` + `cameraFrame.ts` + `cameraStillCapture.ts` + `examCodeScanner.ts` + `examScanIdentity.ts` + `omrFrameScheduler.ts` + `omrScanConsensus.ts` + `scanQuality.ts` + `scanDiagnostics.ts` + `ExamScanModal.tsx` | Phiếu production dùng T3 khi có mã đề (template/số câu/version/checksum); T2/TE/legacy vẫn parse và map A. Live QR chạy 3 frame `live_fast`/1 frame `live_recovery`, đều normal-only; explicit capture/file/batch dùng `exhaustive` 9 normal + 4 `invertFirst`; Code128 fallback mọi mode. Identity TTL 8s/recheck 1,2s và dùng cùng recovery cadence. Auto candidate OMR 960px, QR/recheck/final 1280px; fixed still tới 2200px, upload 1400px; 2-frame consensus giữ nguyên. OMR scratch arena chỉ giữ dữ liệu dẫn xuất cho frame ≤2,5 triệu pixel trong phiên xử lý và được zeroize/release khi dừng camera hoặc kết thúc batch. RAF dùng callback cấu hình mới nhất và backpressure neo sau completion. Quality bad reject sớm; `review_required` khóa Save. Diagnostics v2 chỉ counter/histogram, không ID/ảnh. |
 | **Batch Image Grading v4** | `ExamBatchScanModal.tsx` + `examBatchScan.ts` | Chọn tối đa 500 ảnh/thư mục; xử lý tuần tự để giữ trần RAM, commit UI mỗi 8 ảnh/yield sau từng ảnh; generation token + `finally` hủy continuation/zeroize scratch khi đóng modal; fail-closed theo session/student/count/version/OMR/quality; quality bad short-circuit; chỉ accepted proposal được lưu sau xác nhận. Live batch pause analysis nhưng giữ camera stream giữa hai phiếu. |
-| **Exam Variants & Analytics** | `ExamVariantsModal.tsx` + `examAnalytics.ts` | Quản lý key A–H và server re-score; phổ điểm, item correct/blank rate và point-biserial không sửa dữ liệu. |
+| **Exam Studio & Analytics** | `ExamVariantsModal.tsx` + `server/src/services/examVariantManifest.ts` + `examAnalytics.ts` | Tạo/khóa manifest A–H bất biến; session legacy còn được quản lý key/re-score thủ công; phổ điểm, item correct/blank rate và point-biserial không sửa dữ liệu. |
 | **Local Review Snapshot** | `scanReviewStorage.ts` + scan/results UI | Opt-in, JPEG ≤960px, Dexie tenant-scoped AES-GCM, TTL 24h, không API; xem/xóa trên cùng thiết bị. |
 | **Stable Mobile Grading** | `GuidedGradeModal.tsx` + `ExamSessionView.tsx` + `ExamScanModal.tsx` | Nút **Chấm Ổn Định** mở wizard mobile: tìm/chọn học sinh trong `classStudents` của phiên, hiển thị điểm đã lưu, rồi chọn `Chỉ quét OMR` (fixed identity, không decode QR, source=`omr`) hoặc nhập điểm trực tiếp (source=`quick_entry`). Fixed-identity OMR không tự chạy trên mọi frame: người dùng phải căn phiếu và bấm **Chụp & chấm**, ngăn ghi nhận khi chưa đưa vùng đáp án vào khung. Điểm client validate 0..maxScore và server tiếp tục validate/authorize theo session class; cả hai đường dùng `examStore.saveScores`, nên giữ offline queue/upsert hiện có. Modal chỉ báo lưu thành công/đóng sau khi store trả acknowledgement khác `null`. |
 | **OMR Field Evidence Preflight** | `SystemDiagnosticsModal.tsx` + `omrSequenceEvidence.ts` + `omrSequenceQualification.ts` | Card local-only hiển thị active progress và 5 readiness check: unresolved routed, reload recovered, responsiveness observer attach thật, memory sample source, zero safety failure. Đây là preflight, không phải qualification PASS. Manifest và target scaffold tải từ UI chỉ lấy completed run có `releaseId` bằng build hiện tại; target scaffold giữ toàn bộ metric `null`, run build cũ được cảnh báo/giữ riêng. Không gọi API, không upload telemetry và không đưa ID/token/timestamp vào summary/export. |
@@ -601,6 +606,18 @@ Fast path ADR-066 xử lý các row create hợp lệ theo chunk 40 trong transa
 
 ---
 
+## 18. DURABLE DELTA SYNC API (`/api/sync`, ADR-094)
+
+| Method/path | Contract |
+| :--- | :--- |
+| `GET /api/sync/watermark` | Auth bắt buộc; trả `{ serverTime: ISO-8601, cursorVersion: 1 }`. `serverTime` là upper bound của một chu kỳ pull, không chứa PII và không nhận parish/user scope từ client. |
+| `GET /api/students?updatedAfter=&updatedBefore=&page=&limit=` | Khi có `updatedAfter`, trả cả active rows và soft-delete tombstone trong cửa sổ; thứ tự `(updated_at,id)` tăng dần. `updatedBefore` là watermark server của chu kỳ. Full pull không trả tombstone. |
+| `GET /api/classes?updatedAfter=&updatedBefore=` | Cùng snapshot/tombstone contract với students; vẫn áp tenant và class-scope server-side. |
+
+Client chỉ ghi cursor Dexie scope `parishId:userId` sau khi students/classes/grades/attendance/notices đều hoàn tất. Store pull trong sync engine chạy fail-fast; lỗi một trang không được biến thành mảng rỗng thành công. Reload sử dụng cursor bền nếu có; thiếu cursor hoặc local roster rỗng thì full bootstrap/repair. Các entity hard-delete chưa có tombstone riêng được phục hồi qua full pull định kỳ/repair, không được suy là changefeed hoàn chỉnh.
+
+---
+
 ## 19. PARISH PROFILE API (`/api/parish-profile`, ADR-081)
 
 Tất cả endpoint yêu cầu auth và tenant lấy từ JWT, không nhận `parishId` từ body. `GET` cho `admin|chunhiem|phuta`; mọi mutation chỉ `admin`; `phuhuynh` trả 403. Response snapshot gồm `profile`, `people`, `units`, `terms`, `records`, `assets`, derived `timeline`, admin-only `accounts` và `permissions`.
@@ -635,5 +652,23 @@ Mọi endpoint yêu cầu JWT và lấy tenant từ token. Admin chỉ có recei
 | `PATCH /:id/status` | `admin|chunhiem` receiver | Body `{status:'READ'|'ARCHIVED'}`; chỉ recipient hợp lệ cùng tenant được đổi. |
 
 `FeedbackMessage` response không bao giờ phát `senderUserId`. Anonymous trả `senderName='Ẩn danh'`; public trả display name. Client không retry tự động POST, không queue offline và không persist thư. Sau gửi anonymous chỉ toast xác nhận; sau gửi public refetch sent-box.
+
+## 24. Question Bank & Blueprint API (ADR-096)
+
+Base `/api/question-bank`; mọi endpoint yêu cầu JWT và role `admin|chunhiem|phuta`. Parent trả 403. Response dùng envelope chuẩn; lỗi domain trả `{code,message,details}`.
+
+| Endpoint | Contract |
+| :--- | :--- |
+| `GET /questions` | Filter `search,status,questionType,branchId,curriculumLevel,difficulty,lessonFrom,lessonTo,topic,limit,offset`; chỉ tenant hiện tại. |
+| `POST /questions` | Tạo item nháp + immutable version 1. |
+| `GET /questions/:id` | Current version, version history và usage history cùng tenant. |
+| `PUT /questions/:id` | Tạo version mới; không overwrite version cũ. |
+| `POST /questions/:id/lifecycle` | `{action: submit|reject|approve|activate|archive}` theo role/state machine. |
+| `GET|POST /blueprints` | Liệt kê hoặc tạo blueprint nháp với ordered rules. |
+| `GET /blueprints/:id` | Blueprint và rules. |
+| `POST /blueprints/:id/status` | Admin đặt `active|archived`. |
+| `POST /exams/build` | Manual `questionIds` hoặc `blueprintId`, cộng class/subject/scoreType/semester/year/maxScore/variantCount. Class access bắt buộc; trả Exam đã materialize. |
+
+`BLUEPRINT_SHORTAGE` và `QUESTION_TYPE_NOT_MATERIALIZABLE` trả 422 và không tạo partial session. Client không queue authoring/build offline; session được tạo thành công xuất hiện trong luồng Smart Exam hiện hành.
 
 

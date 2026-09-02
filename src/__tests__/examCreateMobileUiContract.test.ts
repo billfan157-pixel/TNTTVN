@@ -21,8 +21,15 @@ describe('create exam session mobile UI contract', () => {
   })
 
   it('uses touch-sized answer choices and one question row per mobile grid row', () => {
-    expect(source).toContain('grid grid-cols-1 sm:grid-cols-5 lg:grid-cols-10')
-    expect(source).toContain('w-11 h-11 sm:w-5 sm:h-5')
+    expect(source).toContain('grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5')
+    expect(source).toContain('w-11 h-11 sm:w-auto sm:h-7.5')
     expect(source).toContain('aria-label={`Câu ${q}, đáp án ${opt}`}')
+  })
+
+  it('expands into a structured desktop grid without duplicating the form', () => {
+    expect(source).toContain('max-w-2xl lg:max-w-5xl')
+    expect(source).toContain('lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4')
+    expect(source).toContain("createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'")
+    expect(source).toContain('lg:col-span-7')
   })
 })

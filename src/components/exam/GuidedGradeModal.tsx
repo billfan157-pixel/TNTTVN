@@ -2,11 +2,13 @@ import React, { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronLeft, Loader2, Save, ScanLine, Search, X } from 'lucide-react'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
+import { StudentName } from '../common/StudentName'
 
 export interface GuidedGradeStudent {
   id: string
   name: string
   code: string
+  holyName?: string | null
 }
 
 interface GuidedGradeModalProps {
@@ -48,6 +50,7 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
   const normalizedQuery = query.trim().toLocaleLowerCase('vi')
   const filteredStudents = useMemo(() => students.filter(student => (
     !normalizedQuery
+    || (student.holyName && student.holyName.toLocaleLowerCase('vi').includes(normalizedQuery))
     || student.name.toLocaleLowerCase('vi').includes(normalizedQuery)
     || student.code.toLocaleLowerCase('vi').includes(normalizedQuery)
   )), [students, normalizedQuery])
@@ -108,23 +111,23 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
       <div ref={trapRef} className="flex max-h-[94vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-card shadow-2xl" onClick={event => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div>
-            <h4 id="guided-grade-title" className="font-extrabold text-parish-primary">Chấm ổn định trên điện thoại</h4>
-            <p className="text-[11px] text-text-muted">Không cần QR · chọn đúng học sinh trước khi chấm</p>
+            <h4 id="guided-grade-title" className="m-0 font-black text-parish-primary">Chấm ổn định theo danh sách lớp</h4>
+            <p className="m-0 text-[11px] text-text-muted">Chọn học sinh trước, sau đó nhập điểm trực tiếp hoặc chỉ quét OMR cho em đó.</p>
           </div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose} aria-label="Đóng chấm ổn định">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onClose}>
             <X size={15} /> Đóng
           </button>
         </div>
 
         {message && (
-          <div role="status" className="mx-3 mt-3 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-600">
+          <div role="status" className="flex items-center gap-1.5 border-b border-surface-border bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-600">
             <CheckCircle2 size={15} /> {message}
           </div>
         )}
 
         {error && (
-          <div role="alert" className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-parish-danger/30 bg-parish-danger-bg/40 px-3 py-2 text-xs text-parish-danger">
-            <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {error}
+          <div role="alert" className="flex items-center gap-1.5 border-b border-surface-border bg-amber-500/10 px-4 py-2 text-xs font-bold text-amber-600">
+            <AlertTriangle size={15} /> {error}
           </div>
         )}
 
@@ -154,8 +157,8 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
                     className="flex min-h-14 w-full items-center justify-between gap-3 border-b border-surface-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-app"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-bold text-text-main">{student.name}</span>
-                      <span className="text-xs text-text-muted">{student.code}</span>
+                      <StudentName holyName={student.holyName} fullName={student.name} size="sm" />
+                      <span className="block text-xs text-text-muted font-mono">{student.code}</span>
                     </span>
                     <span className={saved === undefined ? 'badge badge-neutral text-xs' : 'badge badge-primary text-xs'}>
                       {saved === undefined ? 'Chưa chấm' : `${saved}/${maxScore}`}
@@ -172,8 +175,8 @@ export const GuidedGradeModal: React.FC<GuidedGradeModalProps> = ({
             </button>
 
             <div className="mb-3 rounded-xl border-2 border-parish-primary/30 bg-parish-primary-light p-3 text-center">
-              <p className="text-lg font-black text-parish-primary">{selected.name}</p>
-              <p className="text-sm font-semibold text-text-muted">Mã {selected.code}</p>
+              <StudentName holyName={selected.holyName} fullName={selected.name} size="lg" layout="stacked" className="items-center" />
+              <p className="text-xs font-bold text-text-muted font-mono mt-1">Mã {selected.code}</p>
               {localScores[selected.id] !== undefined && (
                 <p className="mt-1 text-xs font-bold text-amber-600">
                   {essayMode ? 'Điểm tự luận đang lưu' : 'Điểm đang lưu'}: {localScores[selected.id]}/{maxScore}

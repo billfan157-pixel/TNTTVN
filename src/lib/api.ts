@@ -12,6 +12,13 @@ import type {
   FeedbackMessage,
   FeedbackStatus,
   CreateFeedbackInput,
+  QuestionBankItem,
+  QuestionBankStatus,
+  QuestionBankType,
+  QuestionDifficulty,
+  ExamBlueprint,
+  ExamBlueprintRule,
+  ExamSession,
 } from '../types'
 import { clearAuthSnapshot } from './db'
 
@@ -36,6 +43,25 @@ export function setNavigateToLogin(fn: () => void): void {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+export interface QuestionBankMutationInput {
+  questionType: QuestionBankType
+  stem: string
+  answerData: Record<string, unknown>
+  explanation?: string | null
+  branchId?: string | null
+  curriculumLevel?: string | null
+  book?: string | null
+  chapter?: string | null
+  lesson?: string | null
+  lessonOrder?: number | null
+  topic?: string | null
+  difficulty?: QuestionDifficulty | null
+  tags?: string[]
+  source?: string | null
+  provenance?: 'human' | 'ai' | 'import'
+  changeNote?: string | null
+}
 
 export function getAccessToken(): string | null {
   return accessToken
@@ -484,6 +510,12 @@ export const api = {
   unsubscribePush: (endpoint: string) =>
     request<{ ok: boolean }>('POST', '/notifications/unsubscribe', { endpoint }),
 
+  registerNativePush: (registration: { installationId: string; platform: 'android' | 'ios'; token: string }) =>
+    request<{ ok: boolean }>('POST', '/notifications/native/register', registration),
+
+  unregisterNativePush: (installationId: string) =>
+    request<{ ok: boolean }>('POST', '/notifications/native/unregister', { installationId }),
+
   // ─── Parents (Cổng Phụ Huynh) ───
   getMyChildren: () => request<any[]>('GET', '/parents/my-children'),
   getStudentReportCard: (studentId: string, academicYear: string) =>
@@ -526,10 +558,31 @@ export const api = {
   cancelLeaveRequest: (id: string) =>
     request<{ ok: boolean; id: string; status: string }>('DELETE', `/leave-requests/${id}`),
 
+  // ─── Question Bank & Exam Blueprint (ADR-096) ───
+  listQuestionBank: (params?: { search?: string; status?: QuestionBankStatus; questionType?: QuestionBankType; branchId?: string; curriculumLevel?: string; difficulty?: QuestionDifficulty; lessonFrom?: number; lessonTo?: number; topic?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams()
+    Object.entries(params ?? {}).forEach(([key, value]) => { if (value !== undefined && value !== '') qs.set(key, String(value)) })
+    return request<{ items: QuestionBankItem[]; pagination: { limit: number; offset: number; nextOffset: number | null } }>('GET', `/question-bank/questions${qs.size ? `?${qs}` : ''}`)
+  },
+  getQuestionBankItem: (id: string) => request<QuestionBankItem>('GET', `/question-bank/questions/${encodeURIComponent(id)}`),
+  createQuestionBankItem: (data: QuestionBankMutationInput) => request<QuestionBankItem>('POST', '/question-bank/questions', data),
+  reviseQuestionBankItem: (id: string, data: QuestionBankMutationInput) =>
+    request<QuestionBankItem>('PUT', `/question-bank/questions/${encodeURIComponent(id)}`, data),
+  transitionQuestionBankItem: (id: string, action: 'submit' | 'reject' | 'approve' | 'activate' | 'archive') =>
+    request<QuestionBankItem>('POST', `/question-bank/questions/${encodeURIComponent(id)}/lifecycle`, { action }),
+  listExamBlueprints: () => request<ExamBlueprint[]>('GET', '/question-bank/blueprints'),
+  getExamBlueprint: (id: string) => request<ExamBlueprint>('GET', `/question-bank/blueprints/${encodeURIComponent(id)}`),
+  createExamBlueprint: (data: { name: string; description?: string | null; branchId?: string | null; curriculumLevel?: string | null; totalQuestions: number; maxScore: number; rules: ExamBlueprintRule[] }) =>
+    request<ExamBlueprint>('POST', '/question-bank/blueprints', data),
+  setExamBlueprintStatus: (id: string, status: 'active' | 'archived') =>
+    request<ExamBlueprint>('POST', `/question-bank/blueprints/${encodeURIComponent(id)}/status`, { status }),
+  buildExamFromQuestionBank: (data: { mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string; scoreType: string; semester: 1 | 2; academicYear: string; maxScore: number; variantCount: number }) =>
+    request<ExamSession>('POST', '/question-bank/exams/build', data),
+
   // ─── Smart Exam Grading (Phase 1) ───
   // A12: auto-generate Idempotency-Key khi caller không truyền (như createStudent) —
   // server dedup examSessions.idempotencyKey (examService.ts:68-72).
-  createExam: (data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; answerVariants?: string; idempotencyKey?: string }) => {
+  createExam: (data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; answerVariants?: string; questions?: string; idempotencyKey?: string }) => {
     const payload = data.idempotencyKey ? data : { ...data, idempotencyKey: newIdempotencyKey() }
     return request<any>('POST', '/exams', payload, 0, undefined, true)
   },
@@ -549,6 +602,8 @@ export const api = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
   updateAnswerVariants: (id: string, answerVariants: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
+  generateExamVariantManifests: (id: string, variantCount: number) =>
+    request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount }),
   saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string }[]) => {
     const capturedAt = new Date().toISOString()
     const withMutationIds = results.map(result => ({
@@ -614,13 +669,16 @@ export const api = {
     request<{ total: number; successCount: number; skippedCount: number; errorCount: number; results: Array<{ phone: string; fullName: string; status: string; reason?: string; username?: string; tempPassword?: string }> }>('POST', '/users/provision-parents', { adminPassword }),
 
   // ─── Students ───
-  getStudents: (params?: { updatedAfter?: string; limit?: number; page?: number }) => {
+  getStudents: (params?: { updatedAfter?: string; updatedBefore?: string; limit?: number; page?: number }) => {
     const qs = new URLSearchParams()
     if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
+    if (params?.updatedBefore) qs.set('updatedBefore', params.updatedBefore)
     if (params?.limit) qs.set('limit', String(params.limit))
     if (params?.page) qs.set('page', String(params.page))
     const q = qs.toString()
-    return request<any[]>('GET', `/students${q ? `?${q}` : ''}`).then(data => ({ data, total: data.length }))
+    return request<{ success: boolean; data: any[]; total: number }>(
+      'GET', `/students${q ? `?${q}` : ''}`, undefined, 0, undefined, false, 'json', true,
+    ).then(envelope => ({ data: envelope.data || [], total: envelope.total ?? 0 }))
   },
   getStudent: (id: string) => request<any>('GET', `/students/${id}`),
   // A12: auto-generate Idempotency-Key khi caller không truyền — key ổn định suốt chuỗi
@@ -701,9 +759,12 @@ export const api = {
     request<{ results: { studentId: string; status: 'saved' | 'skipped' | 'conflict' | 'error'; reason?: string; record?: any }[]; total: number; successCount: number; skippedCount: number; conflictCount: number; errorCount: number }>('POST', '/attendance/batch', { date, type, records }),
 
   // ─── Classes ───
-  getClasses: (params?: { updatedAfter?: string }) => {
-    const q = params?.updatedAfter ? `?updatedAfter=${encodeURIComponent(params.updatedAfter)}` : ''
-    return request<any[]>('GET', `/classes${q}`)
+  getClasses: (params?: { updatedAfter?: string; updatedBefore?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
+    if (params?.updatedBefore) qs.set('updatedBefore', params.updatedBefore)
+    const q = qs.toString()
+    return request<any[]>('GET', `/classes${q ? `?${q}` : ''}`)
   },
   getClass: (id: string) => request<any>('GET', `/classes/${id}`),
   getClassBranches: () => request<any[]>('GET', '/classes/branches'),
@@ -930,4 +991,7 @@ export const api = {
     deleteAsset: (id: string) => request('DELETE', `/parish-profile/assets/${encodeURIComponent(id)}`),
     downloadAsset: (id: string) => request<Blob>('GET', `/parish-profile/assets/${encodeURIComponent(id)}/download`, undefined, 0, undefined, false, 'blob'),
   },
+
+  // ─── Sync coordination ───
+  getSyncWatermark: () => request<{ serverTime: string; cursorVersion: number }>('GET', '/sync/watermark'),
 }

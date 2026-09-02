@@ -13,6 +13,7 @@ import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/acade
 import { calculateGradeAverage } from '../../utils/grades'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { ModalShell } from './ModalShell'
+import { StudentName } from './StudentName'
 import * as Sentry from '@sentry/react'
 
 interface Props {
@@ -606,10 +607,6 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                 </thead>
                 <tbody className="divide-y divide-surface-border bg-surface-card">
                   {parsedRows.map((r, idx) => {
-                    const name = r.matchedStudent
-                      ? `${r.matchedStudent.holyName || ''} ${r.matchedStudent.fullName || ''}`.trim()
-                      : r.studentName || `Dòng ${r.rowNum}`
-
                     const avgRes = calculateGradeAverage({
                       scoreOral: r.scoreOral,
                       score15m: r.score15m,
@@ -640,7 +637,11 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                           )}
                         </td>
                         <td className="p-2 font-semibold text-text-main whitespace-nowrap">
-                          {name}
+                          {r.matchedStudent ? (
+                            <StudentName holyName={r.matchedStudent.holyName} fullName={r.matchedStudent.fullName} size="xs" />
+                          ) : (
+                            <span>{r.studentName || `Dòng ${r.rowNum}`}</span>
+                          )}
                           {r.warnings && r.warnings.length > 0 && (
                             <div className="text-[10px] font-normal text-amber-600 dark:text-amber-400 truncate max-w-[200px]" title={r.warnings.join(', ')}>
                               {r.warnings.join(', ')}

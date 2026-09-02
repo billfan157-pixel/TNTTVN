@@ -98,6 +98,25 @@ describe('Task 2 — noticeStore Sync Pipeline Verification', () => {
     expect(currentNotices.some(n => n.id === 'NC-SERVER-100')).toBe(true)
   })
 
+  it('keeps the current projection when an incremental pull has no changes', async () => {
+    const existing = {
+      id: 'NC-EXISTING-1',
+      title: 'Thông báo hiện có',
+      content: 'Nội dung',
+      date: '2026-09-01',
+      author: 'Admin',
+      priority: 'normal',
+      createdAt: '',
+      updatedAt: '',
+    } as ParishNotice
+    useNoticeStore.setState({ notices: [existing] })
+    vi.mocked(api.getNotices).mockResolvedValue([])
+
+    await useNoticeStore.getState().fetchNotices('2026-09-01T00:00:00.000Z', true)
+
+    expect(useNoticeStore.getState().notices).toEqual([existing])
+  })
+
   it('Task 2c: deleteNotice rethrows 403 ApiError without deleting local notice or enqueueing sync op', async () => {
     const notice: ParishNotice = {
       id: 'NC-LOCKED-01',

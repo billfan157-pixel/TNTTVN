@@ -4,4 +4,5 @@
     <string name="title_activity_main">Catevia</string>
     <string name="package_name">com.tnttvn.app</string>
     <string name="custom_url_scheme">com.tnttvn.app</string>
+    <string name="default_notification_channel_id">catevia_general</string>
 </resources>

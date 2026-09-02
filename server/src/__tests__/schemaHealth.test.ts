@@ -20,6 +20,7 @@ const INDEXES: Record<string, string[]> = {
   idx_notices_idempotency: ['parish_id', 'idempotency_key'],
   idx_classes_idempotency: ['parish_id', 'idempotency_key'],
   idx_exam_sessions_idempotency: ['parish_id', 'idempotency_key'],
+  idx_exam_sessions_blueprint: ['parish_id', 'blueprint_id'],
   idx_exam_result_mutations_session: ['parish_id', 'exam_session_id', 'created_at'],
   idx_parish_people_name: ['parish_id', 'full_name'],
   idx_parish_people_linked_user: ['parish_id', 'linked_user_id'],
@@ -32,6 +33,20 @@ const INDEXES: Record<string, string[]> = {
   idx_password_reset_request_user: ['parish_id', 'user_id'],
   idx_password_reset_requests_inbox: ['parish_id', 'status', 'last_requested_at'],
   idx_users_active_role: ['parish_id', 'role', 'deleted_at'],
+  idx_native_push_tokens_installation: ['installation_id'],
+  idx_native_push_tokens_platform_token: ['platform', 'token'],
+  idx_native_push_tokens_user: ['parish_id', 'user_id'],
+  idx_question_bank_list: ['parish_id', 'status', 'updated_at'],
+  idx_question_bank_taxonomy: ['parish_id', 'branch_id', 'curriculum_level', 'lesson_order', 'difficulty'],
+  idx_question_bank_author: ['parish_id', 'created_by', 'status'],
+  idx_question_bank_versions_number: ['parish_id', 'question_id', 'version'],
+  idx_question_bank_versions_question: ['parish_id', 'question_id', 'created_at'],
+  idx_exam_blueprints_list: ['parish_id', 'status', 'updated_at'],
+  idx_exam_blueprints_taxonomy: ['parish_id', 'branch_id', 'curriculum_level'],
+  idx_exam_blueprint_rules_order: ['parish_id', 'blueprint_id', 'ordinal'],
+  idx_exam_blueprint_rules_blueprint: ['parish_id', 'blueprint_id'],
+  idx_exam_question_snapshots_position: ['parish_id', 'exam_session_id', 'source_position'],
+  idx_exam_question_snapshots_usage: ['parish_id', 'question_id', 'created_at'],
 }
 
 const TRIGGERS = [
@@ -41,6 +56,8 @@ const TRIGGERS = [
   'check_outbox_messages_status_update',
   'check_grade_overrides_field_insert',
   'check_grade_overrides_field_update',
+  'check_exam_session_blueprint_insert',
+  'check_exam_session_blueprint_update',
 ]
 
 const COMPOSITE_PK_TABLES = new Set([
@@ -60,6 +77,12 @@ const COMPOSITE_PK_TABLES = new Set([
   'parish_archive_assets',
   'feedback_messages',
   'password_reset_requests',
+  'native_push_tokens',
+  'question_bank_items',
+  'question_bank_versions',
+  'exam_blueprints',
+  'exam_blueprint_rules',
+  'exam_question_snapshots',
 ])
 
 const SPECIAL_COMPOSITE_PRIMARY_KEYS: Record<string, string[]> = {
@@ -75,7 +98,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   notifications: ['target_user_ids'],
   users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
-  exam_sessions: ['idempotency_key', 'questions', 'answer_variants'],
+  exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot'],
   exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
   promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
   grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
@@ -87,6 +110,12 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   parish_archive_assets: ['parish_id', 'id', 'storage_type', 'object_key', 'external_url', 'deleted_at'],
   feedback_messages: ['parish_id', 'id', 'target_type', 'target_user_id', 'visibility', 'sender_user_id', 'subject', 'content', 'status'],
   password_reset_requests: ['parish_id', 'id', 'user_id', 'status', 'request_count', 'last_requested_at', 'resolved_at', 'resolved_by'],
+  native_push_tokens: ['parish_id', 'id', 'installation_id', 'platform', 'token', 'user_id', 'created_at', 'updated_at'],
+  question_bank_items: ['parish_id', 'id', 'status', 'current_version', 'branch_id', 'curriculum_level', 'difficulty', 'provenance', 'created_by'],
+  question_bank_versions: ['parish_id', 'id', 'question_id', 'version', 'question_type', 'stem', 'answer_data', 'metadata_snapshot', 'content_hash'],
+  exam_blueprints: ['parish_id', 'id', 'name', 'status', 'total_questions', 'max_score', 'version', 'created_by'],
+  exam_blueprint_rules: ['parish_id', 'id', 'blueprint_id', 'ordinal', 'question_type', 'question_count', 'points_each'],
+  exam_question_snapshots: ['parish_id', 'id', 'exam_session_id', 'question_id', 'question_version_id', 'source_position', 'snapshot_json', 'content_hash'],
 }
 
 function createHealthyClient(
@@ -187,6 +216,12 @@ describe('database startup readiness gate', () => {
     await expect(
       assertDatabaseReady(createHealthyClient({ omitColumn: 'promotion_records.is_latest' })),
     ).rejects.toThrow(/missing required column promotion_records\.is_latest/)
+  })
+
+  it('fails closed when the immutable exam manifest column is missing', async () => {
+    await expect(
+      assertDatabaseReady(createHealthyClient({ omitColumn: 'exam_sessions.variant_manifests' })),
+    ).rejects.toThrow(/missing required column exam_sessions\.variant_manifests/)
   })
 
   it('fails closed when grade_overrides tenant columns drift away', async () => {

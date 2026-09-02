@@ -7,6 +7,7 @@ import { formatVND } from '../../utils/receiptGenerator'
 import { EmptyState } from '../common/StateFeedback'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalShell } from '../common/ModalShell'
+import { StudentName } from '../common/StudentName'
 import type { StudentFeeRecord, FeeType, FeeStatus } from '../../types'
 
 interface ClassFeeCollectionModalProps {
@@ -295,9 +296,8 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
                       return (
                         <tr key={st.studentId} className="hover:bg-surface-hover/50 transition-colors">
                           <td className="py-2.5 px-3 text-center typography-body-sm text-text-muted">{idx + 1}</td>
-                          <td className="py-2.5 px-3 font-medium text-text-main">
-                            <span className="text-parish-primary font-semibold mr-1">{st.holyName}</span>
-                            {st.studentName}
+                          <td className="py-2.5 px-3">
+                            <StudentName holyName={st.holyName} fullName={st.studentName} size="sm" />
                           </td>
                           <td className="py-2.5 px-3 typography-body-sm text-text-muted font-mono">{st.studentCode}</td>
                           <td className="py-2.5 px-3 text-right font-medium text-text-main">

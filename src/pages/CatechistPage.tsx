@@ -126,7 +126,7 @@ export function CatechistPage() {
               <article key={user.id} className="entity-card p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    {user.holyName && <p className="text-xs font-bold text-parish-primary">{user.holyName}</p>}
+                    {user.holyName && <p className="text-xs font-bold text-amber-950 dark:text-amber-400">{user.holyName}</p>}
                     <h2 className="truncate text-base font-bold text-text-main">{user.fullName}</h2>
                   </div>
                   <span className="badge badge-info shrink-0">{roleLabel(user.role)}</span>

@@ -5,7 +5,13 @@ import { zValidator } from '@hono/zod-validator'
 import { eq, inArray, count, getTableColumns, sql, and } from 'drizzle-orm'
 import { createHash } from 'crypto'
 import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
-import { students, grades, attendance, classes, semesterLocks, gradeOverrides, promotionRecords, examSessions, examResults, auditLogs, attendanceSessions, academicYearSnapshots, catechistAssignments } from '../db/schema.js'
+import {
+  students, grades, attendance, classes, semesterLocks, gradeOverrides,
+  promotionRecords, examSessions, examResults, auditLogs, attendanceSessions,
+  academicYearSnapshots, catechistAssignments, questionBankItems,
+  questionBankVersions, examBlueprints, examBlueprintRules,
+  examQuestionSnapshots,
+} from '../db/schema.js'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { adminReauthRateLimiter } from '../middleware/security.js'
 import { verifyAdminReauth } from '../services/userService.js'
@@ -61,7 +67,12 @@ const restoreBackupSchema = z.object({
     // dạng legacy (đời export cũ).
     promotionSnapshots: z.array(restoreRowSchema).default([]),
     promotionRecords: z.array(restoreRowSchema).default([]),
+    questionBankItems: z.array(restoreRowSchema).default([]),
+    questionBankVersions: z.array(restoreRowSchema).default([]),
+    examBlueprints: z.array(restoreRowSchema).default([]),
+    examBlueprintRules: z.array(restoreRowSchema).default([]),
     examSessions: z.array(restoreRowSchema).default([]),
+    examQuestionSnapshots: z.array(restoreRowSchema).default([]),
     examResults: z.array(restoreRowSchema).default([]),
   }),
 }).passthrough()
@@ -131,13 +142,14 @@ async function verifyActualCount(tx: DbTransaction, table: any, label: string, e
  * Sprint 3.1: REAL SERVER BACKUP ENDPOINT
  *
  * A22 (2026-08-10): sửa tuyên bố "100% of Parish LMS records" SAI LỆCH.
- * File này = snapshot dữ liệu HOẠT ĐỘNG (9 bảng): students, grades, attendance,
+ * File này = snapshot dữ liệu HOẠT ĐỘNG (14 bảng): students, grades, attendance,
  * classes, semesterLocks, gradeOverrides, promotionSnapshots (bảng
- * `promotion_records` — key payload giữ tên legacy), examSessions,
- * examResults — kèm SHA256 checksum. KHÔNG bao gồm: users, refreshTokens,
+ * `promotion_records` — key payload giữ tên legacy), questionBankItems,
+ * questionBankVersions, examBlueprints, examBlueprintRules, examSessions,
+ * examQuestionSnapshots, examResults — kèm SHA256 checksum. KHÔNG bao gồm: users, refreshTokens,
  * auditLogs, branches, academicYears, systemSettings, catechistAssignments,
  * notifications, permissions, rolePermissions, importBatches,
- * importBatchStudents, gradeImportHashes, pushSubscriptions, serviceAssignments,
+ * importBatchStudents, gradeImportHashes, pushSubscriptions, nativePushTokens, serviceAssignments,
  * mappingMemory, outboxMessages, academicYearSnapshots, attendanceSessions,
  * assessments, notices, telegramLinks, telegramLinkTokens. Auth/audit/config
  * KHÔNG nằm trong snapshot để restore
@@ -170,7 +182,7 @@ backupRouter.post('/export', roleMiddleware('admin'), adminReauthRateLimiter, zV
         await st.write(chunk)
       }
 
-      await st.write(`{"version":"2.0-production","parish":${JSON.stringify(user.parishId)},"exportedAt":${JSON.stringify(exportedAt)},"data":`)
+      await st.write(`{"version":"2.1-question-bank","parish":${JSON.stringify(user.parishId)},"exportedAt":${JSON.stringify(exportedAt)},"data":`)
       await writeData('{')
 
       const counts: Record<string, number> = {}
@@ -223,7 +235,12 @@ backupRouter.post('/export', roleMiddleware('admin'), adminReauthRateLimiter, zV
       await streamTable('gradeOverrides', overrideQuery, false)
       
       await streamTable('promotionSnapshots', db.select().from(promotionRecords).where(eq(promotionRecords.parishId, user.parishId)), false)
+      await streamTable('questionBankItems', db.select().from(questionBankItems).where(eq(questionBankItems.parishId, user.parishId)), false)
+      await streamTable('questionBankVersions', db.select().from(questionBankVersions).where(eq(questionBankVersions.parishId, user.parishId)), false)
+      await streamTable('examBlueprints', db.select().from(examBlueprints).where(eq(examBlueprints.parishId, user.parishId)), false)
+      await streamTable('examBlueprintRules', db.select().from(examBlueprintRules).where(eq(examBlueprintRules.parishId, user.parishId)), false)
       await streamTable('examSessions', db.select().from(examSessions).where(eq(examSessions.parishId, user.parishId)), false)
+      await streamTable('examQuestionSnapshots', db.select().from(examQuestionSnapshots).where(eq(examQuestionSnapshots.parishId, user.parishId)), false)
       
       const sessionRecords = await db.select({id: examSessions.id}).from(examSessions).where(eq(examSessions.parishId, user.parishId))
       const sessionIds = sessionRecords.map(s => s.id)
@@ -291,7 +308,8 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
 
     // Lưu ý: zod đã normalize/strip data — phải dựng lại object ĐÚNG cấu trúc
     // dataPayload lúc export (cùng key + cùng thứ tự) trước khi băm SHA256.
-    const normalizedData = {
+    const includeQuestionBank = payload.version === '2.1-question-bank'
+    const legacyNormalizedData = {
       students: payload.data.students,
       grades: payload.data.grades,
       attendance: payload.data.attendance,
@@ -302,6 +320,22 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       examSessions: payload.data.examSessions,
       examResults: payload.data.examResults,
     }
+    const normalizedData = includeQuestionBank ? {
+      students: payload.data.students,
+      grades: payload.data.grades,
+      attendance: payload.data.attendance,
+      classes: payload.data.classes,
+      semesterLocks: payload.data.semesterLocks,
+      gradeOverrides: payload.data.gradeOverrides,
+      promotionSnapshots: payload.data.promotionSnapshots.length > 0 ? payload.data.promotionSnapshots : (payload.data.promotionRecords ?? []),
+      questionBankItems: payload.data.questionBankItems,
+      questionBankVersions: payload.data.questionBankVersions,
+      examBlueprints: payload.data.examBlueprints,
+      examBlueprintRules: payload.data.examBlueprintRules,
+      examSessions: payload.data.examSessions,
+      examQuestionSnapshots: payload.data.examQuestionSnapshots,
+      examResults: payload.data.examResults,
+    } : legacyNormalizedData
     const calculatedHash = computeChecksum(normalizedData)
     if (calculatedHash !== payload.checksum) {
       return c.json({ error: 'File sao lưu bị hỏng hoặc đã bị chỉnh sửa (Lỗi SHA256 Checksum Mismatch)' }, 400)
@@ -321,7 +355,12 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       (payload.data.semesterLocks?.length ?? 0) +
       (payload.data.gradeOverrides?.length ?? 0) +
       (payload.data.promotionSnapshots?.length ?? 0) +
+      (includeQuestionBank ? payload.data.questionBankItems.length : 0) +
+      (includeQuestionBank ? payload.data.questionBankVersions.length : 0) +
+      (includeQuestionBank ? payload.data.examBlueprints.length : 0) +
+      (includeQuestionBank ? payload.data.examBlueprintRules.length : 0) +
       (payload.data.examSessions?.length ?? 0) +
+      (includeQuestionBank ? payload.data.examQuestionSnapshots.length : 0) +
       (payload.data.examResults?.length ?? 0)
     if (totalRows > MAX_RESTORE_ROWS) {
       return c.json({ error: `File sao lưu quá lớn (${totalRows} dòng — giới hạn ${MAX_RESTORE_ROWS}) — không thể khôi phục`, }, 400)
@@ -339,7 +378,12 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       const currentLocks = await db.select().from(semesterLocks).where(eq(semesterLocks.parishId, user.parishId))
       const currentOverrides = await db.select().from(gradeOverrides).where(eq(gradeOverrides.parishId, user.parishId))
       const currentPromotions = await db.select().from(promotionRecords).where(eq(promotionRecords.parishId, user.parishId))
+      const currentQuestionBankItems = await db.select().from(questionBankItems).where(eq(questionBankItems.parishId, user.parishId))
+      const currentQuestionBankVersions = await db.select().from(questionBankVersions).where(eq(questionBankVersions.parishId, user.parishId))
+      const currentExamBlueprints = await db.select().from(examBlueprints).where(eq(examBlueprints.parishId, user.parishId))
+      const currentExamBlueprintRules = await db.select().from(examBlueprintRules).where(eq(examBlueprintRules.parishId, user.parishId))
       const currentExamSessions = await db.select().from(examSessions).where(eq(examSessions.parishId, user.parishId))
+      const currentExamQuestionSnapshots = await db.select().from(examQuestionSnapshots).where(eq(examQuestionSnapshots.parishId, user.parishId))
       const currentSessionIds = currentExamSessions.map((s) => s.id)
       const currentExamResults = currentSessionIds.length > 0
         ? await db.select().from(examResults).where(and(
@@ -351,8 +395,9 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       const currentYearSnapshots = await db.select().from(academicYearSnapshots).where(eq(academicYearSnapshots.parishId, user.parishId))
       const currentAssignments = await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, user.parishId))
 
-      // A-NEW-37 (2026-08-11): snapshot ĐỦ 12 bảng mà restore xóa (trước đây chỉ 4:
-      // students/grades/attendance/classes — file "safety" thiếu 8 bảng còn lại nên
+      // A-NEW-37 + Question Bank: snapshot ĐỦ 17 bảng mà restore hiện đại có thể xóa
+      // (trước đây chỉ 4: students/grades/attendance/classes — file "safety" thiếu
+      // các bảng còn lại nên
       // không thể khôi phục tay toàn bộ state trước restore).
       safetyData = {
         students: currentStudents,
@@ -362,7 +407,12 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
         semesterLocks: currentLocks,
         gradeOverrides: currentOverrides,
         promotionRecords: currentPromotions,
+        questionBankItems: currentQuestionBankItems,
+        questionBankVersions: currentQuestionBankVersions,
+        examBlueprints: currentExamBlueprints,
+        examBlueprintRules: currentExamBlueprintRules,
         examSessions: currentExamSessions,
+        examQuestionSnapshots: currentExamQuestionSnapshots,
         examResults: currentExamResults,
         attendanceSessions: currentAttendanceSessions,
         academicYearSnapshots: currentYearSnapshots,
@@ -405,7 +455,12 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       semesterLocks: restoredSemesterLocks,
       gradeOverrides: restoredGradeOverrides,
       promotionSnapshots: restoredPromotionSnapshots,
+      questionBankItems: restoredQuestionBankItems,
+      questionBankVersions: restoredQuestionBankVersions,
+      examBlueprints: restoredExamBlueprints,
+      examBlueprintRules: restoredExamBlueprintRules,
       examSessions: restoredExamSessions,
+      examQuestionSnapshots: restoredExamQuestionSnapshots,
       examResults: restoredExamResults,
     } = payload.data
 
@@ -431,7 +486,14 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       await tx.delete(semesterLocks).where(eq(semesterLocks.parishId, user.parishId))
       await tx.delete(attendance).where(eq(attendance.parishId, user.parishId))
       await tx.delete(grades).where(eq(grades.parishId, user.parishId))
+      await tx.delete(examQuestionSnapshots).where(eq(examQuestionSnapshots.parishId, user.parishId))
       await tx.delete(examSessions).where(eq(examSessions.parishId, user.parishId))
+      if (includeQuestionBank) {
+        await tx.delete(examBlueprintRules).where(eq(examBlueprintRules.parishId, user.parishId))
+        await tx.delete(examBlueprints).where(eq(examBlueprints.parishId, user.parishId))
+        await tx.delete(questionBankVersions).where(eq(questionBankVersions.parishId, user.parishId))
+        await tx.delete(questionBankItems).where(eq(questionBankItems.parishId, user.parishId))
+      }
       await tx.delete(students).where(eq(students.parishId, user.parishId))
       await tx.delete(classes).where(eq(classes.parishId, user.parishId))
 
@@ -443,7 +505,16 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       await upsertAll(tx, semesterLocks, restoredSemesterLocks as any[], 'semesterLocks', user.parishId)
       await upsertAll(tx, gradeOverrides, restoredGradeOverrides as any[], 'gradeOverrides', user.parishId)
       await upsertAll(tx, promotionRecords, restoredPromotionSnapshots as any[], 'promotionSnapshots', user.parishId)
+      if (includeQuestionBank) {
+        await upsertAll(tx, questionBankItems, restoredQuestionBankItems as any[], 'questionBankItems', user.parishId)
+        await upsertAll(tx, questionBankVersions, restoredQuestionBankVersions as any[], 'questionBankVersions', user.parishId)
+        await upsertAll(tx, examBlueprints, restoredExamBlueprints as any[], 'examBlueprints', user.parishId)
+        await upsertAll(tx, examBlueprintRules, restoredExamBlueprintRules as any[], 'examBlueprintRules', user.parishId)
+      }
       await upsertAll(tx, examSessions, restoredExamSessions as any[], 'examSessions', user.parishId)
+      if (includeQuestionBank) {
+        await upsertAll(tx, examQuestionSnapshots, restoredExamQuestionSnapshots as any[], 'examQuestionSnapshots', user.parishId)
+      }
       await upsertAll(tx, examResults, restoredExamResults as any[], 'examResults', user.parishId)
 
       // ── 3. Verify "expected state == actual state" — lệch → rollback ──
@@ -454,7 +525,16 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       await verifyActualCount(tx, semesterLocks, 'semesterLocks', (restoredSemesterLocks ?? []).length, eq(semesterLocks.parishId, user.parishId))
       await verifyActualCount(tx, gradeOverrides, 'gradeOverrides', (restoredGradeOverrides ?? []).length, eq(gradeOverrides.parishId, user.parishId))
       await verifyActualCount(tx, promotionRecords, 'promotionSnapshots', (restoredPromotionSnapshots ?? []).length, eq(promotionRecords.parishId, user.parishId))
+      if (includeQuestionBank) {
+        await verifyActualCount(tx, questionBankItems, 'questionBankItems', restoredQuestionBankItems.length, eq(questionBankItems.parishId, user.parishId))
+        await verifyActualCount(tx, questionBankVersions, 'questionBankVersions', restoredQuestionBankVersions.length, eq(questionBankVersions.parishId, user.parishId))
+        await verifyActualCount(tx, examBlueprints, 'examBlueprints', restoredExamBlueprints.length, eq(examBlueprints.parishId, user.parishId))
+        await verifyActualCount(tx, examBlueprintRules, 'examBlueprintRules', restoredExamBlueprintRules.length, eq(examBlueprintRules.parishId, user.parishId))
+      }
       await verifyActualCount(tx, examSessions, 'examSessions', (restoredExamSessions ?? []).length, eq(examSessions.parishId, user.parishId))
+      if (includeQuestionBank) {
+        await verifyActualCount(tx, examQuestionSnapshots, 'examQuestionSnapshots', restoredExamQuestionSnapshots.length, eq(examQuestionSnapshots.parishId, user.parishId))
+      }
       await verifyActualCount(tx, examResults, 'examResults', (restoredExamResults ?? []).length, and(
         eq(examResults.parishId, user.parishId),
         esIds.length > 0 ? inArray(examResults.examSessionId, esIds) : eq(examResults.examSessionId, '__none__'),
@@ -475,7 +555,12 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
           semesterLocks: restoredSemesterLocks?.length ?? 0,
           gradeOverrides: restoredGradeOverrides?.length ?? 0,
           promotionSnapshots: restoredPromotionSnapshots?.length ?? 0,
+          questionBankItems: includeQuestionBank ? restoredQuestionBankItems.length : 'preserved-legacy-backup',
+          questionBankVersions: includeQuestionBank ? restoredQuestionBankVersions.length : 'preserved-legacy-backup',
+          examBlueprints: includeQuestionBank ? restoredExamBlueprints.length : 'preserved-legacy-backup',
+          examBlueprintRules: includeQuestionBank ? restoredExamBlueprintRules.length : 'preserved-legacy-backup',
           examSessions: restoredExamSessions?.length ?? 0,
+          examQuestionSnapshots: includeQuestionBank ? restoredExamQuestionSnapshots.length : 0,
           examResults: restoredExamResults?.length ?? 0,
         },
         verified: true,
@@ -492,6 +577,7 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
         students: restoredStudents.length,
         grades: restoredGrades?.length || 0,
         attendance: restoredAttendance?.length || 0,
+        questionBankItems: includeQuestionBank ? restoredQuestionBankItems.length : undefined,
         examSessions: restoredExamSessions?.length || 0,
       },
       verified: true,

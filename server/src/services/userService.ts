@@ -7,6 +7,7 @@ import {
   catechistAssignments,
   passwordResetRequests,
   pushSubscriptions,
+  nativePushTokens,
   telegramLinkTokens,
   telegramLinks,
   parishPeople,
@@ -516,6 +517,7 @@ export async function deleteUserAccount(
     await revokeAllSessionsWith(tx, id, parishId)
     await tx.delete(catechistAssignments).where(and(eq(catechistAssignments.userId, id), eq(catechistAssignments.parishId, parishId)))
     await tx.delete(pushSubscriptions).where(and(eq(pushSubscriptions.userId, id), eq(pushSubscriptions.parishId, parishId)))
+    await tx.delete(nativePushTokens).where(and(eq(nativePushTokens.userId, id), eq(nativePushTokens.parishId, parishId)))
     await tx.delete(telegramLinkTokens).where(and(eq(telegramLinkTokens.userId, id), eq(telegramLinkTokens.parishId, parishId)))
     await tx.update(telegramLinks).set({ status: 'REVOKED', revokedAt: now, updatedAt: now }).where(and(eq(telegramLinks.userId, id), eq(telegramLinks.parishId, parishId)))
     await tx.delete(passwordResetRequests).where(and(eq(passwordResetRequests.userId, id), eq(passwordResetRequests.parishId, parishId)))

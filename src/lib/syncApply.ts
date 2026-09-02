@@ -62,6 +62,21 @@ export async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: 
   const fields = entity === 'grade' ? GRADE_SCORE_FIELDS : entity === 'attendance' ? ATTENDANCE_FIELDS : []
   const merged = mergeRecordWithLocalEdits(localPayload, serverRecord, fields)
 
+  // Keep an encrypted, user-scoped diagnostic record. The engine has already
+  // merged local edited fields over the latest server base and retries with the
+  // server version; the inbox never grants an unconditional overwrite action.
+  try {
+    await store.addConflict({
+      entity,
+      entityId: String(serverRecord?.id || op.entityId),
+      operation: 'UPDATE',
+      localValue: op.payload,
+      serverValue: JSON.stringify(serverRecord),
+    })
+  } catch (error) {
+    Sentry.captureException(error)
+  }
+
   await store.removeOp(op.id)
   await applyServerResultAsync(op, merged)
   await store.addOp({

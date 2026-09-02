@@ -49,6 +49,19 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      # ─── Native push (ADR-095): FCM Android + APNs iOS ───
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: APNS_KEY_ID
+        sync: false
+      - key: APNS_TEAM_ID
+        sync: false
+      - key: APNS_PRIVATE_KEY
+        sync: false
+      - key: APNS_BUNDLE_ID
+        value: com.tnttvn.app
+      - key: APNS_ENVIRONMENT
+        value: production
       # ─── Backup Turso độc lập, mã hóa phía ứng dụng (ADR-059) ───
       - key: AUTO_BACKUP_ENABLED
         value: true

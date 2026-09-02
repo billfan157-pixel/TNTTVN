@@ -18,6 +18,7 @@ import { SystemDiagnosticsModal } from '../components/desktop/SystemDiagnosticsM
 import { BackupRestoreModal } from '../components/common/BackupRestoreModal'
 import { PurgeDataModal } from '../components/common/PurgeDataModal'
 import { BiometricLockSettings } from '../components/auth/BiometricLockSettings'
+import { NativePushSettings } from '../components/auth/NativePushSettings'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Quản trị viên',
@@ -213,6 +214,7 @@ const SettingsPage: React.FC = () => {
           </section>
 
           <BiometricLockSettings />
+          <NativePushSettings />
         </div>
 
         {/* ─── CỘT PHẢI: giao diện & tiện ích ─── */}

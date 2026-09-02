@@ -154,7 +154,7 @@ body {
 
 /* ─── Student Identity Typography (DS §17: Tên Thánh & Họ và Tên) ─── */
 .student-holy-name {
-  color: #78350F; /* Nâu đậm trang nghiêm / Deep Rich Brown (Amber 900) */
+  color: #451a03; /* Nâu sẫm trang nghiêm / Deep Espresso Brown (Amber 950) */
   font-weight: 700;
   letter-spacing: -0.01em;
   font-variant-ligatures: contextual;

@@ -12,9 +12,10 @@ import { useNoticeStore } from '../stores/noticeStore'
 import { useClassStore } from '../stores/classStore'
 import { useExamStore } from '../stores/examStore'
 import { decryptQueueValue } from '../lib/offlineCipher'
-import { acquireSyncLease, releaseSyncLease } from '../lib/syncLease'
+import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
 import { getTenantScope } from '../lib/tenantScope'
+import { readSyncCursor, writeSyncCursor } from '../lib/syncCursor'
 import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'
 import * as Sentry from '@sentry/react'
 import {
@@ -40,6 +41,11 @@ export { pruneStaleQueueItems, promoteTransientFailedOps } from '../lib/syncQueu
 export { extractZodBadIndexes, flushGradeBatchWithIsolation, flushAttendanceBatchWithIsolation } from '../lib/syncApply'
 
 const SYNC_INTERVAL_MS = 30000
+
+async function commitPullCursor(serverTime: string): Promise<void> {
+  await writeSyncCursor(serverTime)
+  useSyncStore.getState().setLastSync(serverTime)
+}
 
 /**
  * FE-F1 (audit 2026-08-21): hoàn tác optimistic "Hoàn tất phiên" offline.
@@ -131,10 +137,12 @@ export function useSyncEngine() {
         // Có pending ops — push lên server trước, rồi runSyncFlow sẽ fetch incremental
         await runSyncFlow()
       } else {
-        // Không có pending ops — fetch full data ngay
-        const pullResult = await fetchAllData()
+        // Không có pending ops — dùng delta bền nếu đã có cursor, nếu chưa thì bootstrap full.
+        // Reuse the durable tenant/user cursor after reload. When no cursor exists,
+        // fetchAllData automatically performs a full bootstrap pull.
+        const pullResult = await fetchAllData(true)
         if (pullResult.ok && pullResult.queryTime) {
-          useSyncStore.getState().setLastSync(pullResult.queryTime)
+          await commitPullCursor(pullResult.queryTime)
         }
       }
 
@@ -145,9 +153,11 @@ export function useSyncEngine() {
       // RỖNG ⇒ không có chỉnh sửa local nào để bị ghi đè.
       const studentCount = useStudentStore.getState().students.length
       if (studentCount === 0 && navigator.onLine) {
-        const healResult = await fetchAllData(true)
+        // An empty local roster with a durable cursor is not a valid delta base.
+        // Force a full pull so a partially-cleared IndexedDB cannot stay empty.
+        const healResult = await fetchAllData(false)
         if (healResult.ok && healResult.queryTime) {
-          useSyncStore.getState().setLastSync(healResult.queryTime)
+          await commitPullCursor(healResult.queryTime)
         }
       }
     })
@@ -171,7 +181,7 @@ export function useSyncEngine() {
   }, [isAuthed])
 }
 
-export async function runSyncFlow() {
+export async function runSyncFlow(leaseHeld = false) {
   const store = useSyncStore.getState()
   if (store.status === 'syncing') return
 
@@ -187,7 +197,10 @@ export async function runSyncFlow() {
     return
   }
 
-  if (!acquireSyncLease()) return
+  if (!leaseHeld) {
+    await runWithSyncLease(() => runSyncFlow(true))
+    return
+  }
 
   store.setStatus('syncing')
   store.setLastError(null)
@@ -407,7 +420,7 @@ export async function runSyncFlow() {
     if (finalCount === 0) {
       const pullResult = await fetchAllData(true)
       if (pullResult.ok && pullResult.queryTime) {
-        s.setLastSync(pullResult.queryTime)
+        await commitPullCursor(pullResult.queryTime)
       }
       s.setStatus(navigator.onLine ? 'idle' : 'offline')
 
@@ -433,8 +446,6 @@ export async function runSyncFlow() {
       s.setStatus('idle')
       s.setLastError((err as Error).message || 'Sync failed')
     }
-  } finally {
-    releaseSyncLease()
   }
 }
 
@@ -443,8 +454,8 @@ async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string;
     if (!isAuthenticated()) return { queryTime: '', ok: false }
 
     const syncStore = useSyncStore.getState()
-    const queryTime = new Date().toISOString()
-    const lastSync = incremental && syncStore.lastSyncAt ? syncStore.lastSyncAt : undefined
+    const persistedCursor = incremental ? await readSyncCursor() : null
+    const lastSync = incremental ? (syncStore.lastSyncAt || persistedCursor || undefined) : undefined
 
     // PURGE v2.3 (ghost data): nếu server đã purge (purge_version > bản local) thì toàn bộ
     // dữ liệu offline của thiết bị này là GHOST DATA → reset sạch + đăng xuất ngay,
@@ -483,12 +494,13 @@ async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string;
       // Mạng lỗi / server không phản hồi → bỏ qua check, pull delta vẫn chạy bình thường.
     }
 
+    const { serverTime: queryTime } = await api.getSyncWatermark()
     const results = await Promise.allSettled([
-      useStudentStore.getState().fetchStudents(lastSync ? { updatedAfter: lastSync } : undefined),
-      useGradeStore.getState().fetchGrades(lastSync),
-      useAttendanceStore.getState().fetchAttendance(lastSync),
-      useClassStore.getState().fetchClasses(lastSync),
-      useNoticeStore.getState().fetchNotices(),
+      useStudentStore.getState().fetchStudents(lastSync ? { updatedAfter: lastSync, updatedBefore: queryTime, throwOnError: true } : { throwOnError: true }),
+      useGradeStore.getState().fetchGrades(lastSync, true),
+      useAttendanceStore.getState().fetchAttendance(lastSync, true),
+      useClassStore.getState().fetchClasses(lastSync, queryTime, true),
+      useNoticeStore.getState().fetchNotices(lastSync, true),
     ])
     const ok = results.every(r => r.status === 'fulfilled')
     if (!ok) {

@@ -1,6 +1,6 @@
 import { db, runDbTransaction } from '../db/index.js'
 import { classes, branches, academicYears, auditLogs, users, catechistAssignments, students, mappingMemory } from '../db/schema.js'
-import { eq, and, desc, isNull, inArray, like, or, sql } from 'drizzle-orm'
+import { eq, and, desc, isNull, inArray, like, or, sql, gte, lte, asc } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 
@@ -51,7 +51,11 @@ async function enrichClassList(classList: any[], parishId: string) {
   })
 }
 
-export async function getClasses(parishId: string) {
+export async function getClasses(parishId: string, updatedAfter?: string, updatedBefore?: string) {
+  const conditions = [eq(classes.parishId, parishId)]
+  if (updatedAfter) conditions.push(gte(classes.updatedAt, updatedAfter))
+  else conditions.push(isNull(classes.deletedAt))
+  if (updatedBefore) conditions.push(lte(classes.updatedAt, updatedBefore))
   const classList = await db
     .select({
       id: classes.id,
@@ -66,6 +70,7 @@ export async function getClasses(parishId: string) {
       createdAt: classes.createdAt,
       updatedAt: classes.updatedAt,
       updatedBy: classes.updatedBy,
+      deletedAt: classes.deletedAt,
     })
     .from(classes)
     .leftJoin(branches, and(
@@ -76,9 +81,13 @@ export async function getClasses(parishId: string) {
       eq(classes.academicYearId, academicYears.id),
       eq(classes.parishId, academicYears.parishId),
     ))
-    .where(and(eq(classes.parishId, parishId), isNull(classes.deletedAt)))
-    .orderBy(desc(classes.createdAt))
-  return enrichClassList(classList, parishId)
+    .where(and(...conditions))
+    .orderBy(updatedAfter ? asc(classes.updatedAt) : desc(classes.createdAt), asc(classes.id))
+  const active = classList.filter(item => !item.deletedAt)
+  const enriched = await enrichClassList(active, parishId)
+  if (!updatedAfter) return enriched
+  const enrichedById = new Map(enriched.map(item => [item.id, item]))
+  return classList.map(item => item.deletedAt ? item : enrichedById.get(item.id)!)
 }
 
 export async function getClassById(id: string, parishId: string) {

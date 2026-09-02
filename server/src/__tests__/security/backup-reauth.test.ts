@@ -172,7 +172,7 @@ describe('A07 — Backup Export/Restore Re-Authentication', () => {
     const res = await exportRequest({ adminPassword: ADMIN_PASSWORD })
     expect(res.status).toBe(200)
     const json = (await res.json()) as any
-    expect(json.version).toBe('2.0-production')
+    expect(json.version).toBe('2.1-question-bank')
     expect(json.checksum).toBeTruthy()
     expect(json.data.students.some((s: any) => s.id === `ST-${PREFIX}-1`)).toBe(true)
     expect(await auditActions()).toContain('EXPORT_BACKUP')

@@ -5,6 +5,7 @@ import { getDefaultDate } from '../../utils/getDefaultDate'
 import type { LeaveRequestSessionType } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from './ModalPortal'
+import { StudentName } from './StudentName'
 
 interface LeaveRequestModalProps {
   isOpen: boolean
@@ -100,8 +101,8 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
             </div>
             <div>
               <h2 id={titleId} className="text-base font-bold text-text-main m-0">Đơn Xin Phép Nghỉ</h2>
-              <p className="text-xs text-text-muted m-0 mt-0.5">
-                Thiếu nhi: <span className="font-semibold text-text-main">{holyName} {studentName}</span> {className ? `(${className})` : ''}
+              <p className="text-xs text-text-muted m-0 mt-0.5 flex items-center gap-1">
+                Thiếu nhi: <StudentName holyName={holyName} fullName={studentName} size="xs" /> {className ? `(${className})` : ''}
               </p>
             </div>
           </div>

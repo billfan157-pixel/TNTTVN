@@ -85,7 +85,7 @@ interface GradeState {
   grades: GradeRecord[]
   error: string | null
   setGrades: (grades: GradeRecord[]) => void
-  fetchGrades: (updatedAfter?: string) => Promise<void>
+  fetchGrades: (updatedAfter?: string, throwOnError?: boolean) => Promise<void>
   upsertGrade: (gradeData: Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync?: boolean) => void
   batchSaveGrades: (gradesList: (Partial<GradeRecord> & { studentId: string; semester: 1 | 2 })[], skipSync?: boolean) => void
   overrideScore: (
@@ -116,7 +116,7 @@ export const useGradeStore = create<GradeState>()(
       error: null,
       setGrades: (grades) => set({ grades }),
 
-      fetchGrades: async (updatedAfter?: string) => {
+      fetchGrades: async (updatedAfter?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
         try {
           const params = updatedAfter ? { updatedAfter } : undefined
@@ -147,6 +147,7 @@ export const useGradeStore = create<GradeState>()(
         } catch (err) {
           Sentry.captureException(err)
           set({ error: (err as Error)?.message || 'Lỗi tải điểm số' })
+          if (throwOnError) throw err
         }
       },
 

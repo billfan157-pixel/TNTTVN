@@ -13,6 +13,7 @@ import {
   parishPeople,
   passwordResetRequests,
   pushSubscriptions,
+  nativePushTokens,
   refreshTokens,
   telegramLinks,
   telegramLinkTokens,
@@ -62,6 +63,7 @@ describe('D3 admin-only soft deletion of user accounts', () => {
     await db.insert(classes).values({ id: classId, code: `DEL-${stamp}`, name: 'Lớp Xóa', branchId, academicYearId, parishId: parishA, createdAt: now })
     await db.insert(catechistAssignments).values({ id: `asg-delete-${stamp}`, userId: targetId, classId, roleInClass: 'chunhiem', parishId: parishA, createdAt: now, updatedAt: now })
     await db.insert(pushSubscriptions).values({ id: `push-delete-${stamp}`, endpoint: `https://push.example/${stamp}`, p256dh: 'p256dh', auth: 'auth', userId: targetId, parishId: parishA, createdAt: now })
+    await db.insert(nativePushTokens).values({ id: `native-push-delete-${stamp}`, installationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', platform: 'android', token: `native-delete-token-${stamp}`, userId: targetId, parishId: parishA, createdAt: now, updatedAt: now })
     await db.insert(telegramLinkTokens).values({ id: `tlt-delete-${stamp}`, userId: targetId, tokenHash: `hash-delete-${stamp}`, expiresAt: '2099-01-01T00:00:00.000Z', parishId: parishA, createdAt: now })
     await db.insert(telegramLinks).values({ id: `tgl-delete-${stamp}`, userId: targetId, chatId: `chat-delete-${stamp}`, status: 'ACTIVE', notificationsEnabled: 1, parishId: parishA, linkedAt: now, createdAt: now, updatedAt: now })
     await db.insert(passwordResetRequests).values({ id: `pwr-delete-${stamp}`, userId: targetId, status: 'PENDING', requestCount: 1, lastRequestedAt: now, parishId: parishA, createdAt: now, updatedAt: now })
@@ -80,6 +82,7 @@ describe('D3 admin-only soft deletion of user accounts', () => {
     await db.delete(telegramLinkTokens).where(eq(telegramLinkTokens.parishId, parishA))
     await db.delete(telegramLinks).where(eq(telegramLinks.parishId, parishA))
     await db.delete(pushSubscriptions).where(eq(pushSubscriptions.parishId, parishA))
+    await db.delete(nativePushTokens).where(eq(nativePushTokens.parishId, parishA))
     await db.delete(refreshTokens).where(eq(refreshTokens.parishId, parishA))
     await db.delete(catechistAssignments).where(eq(catechistAssignments.parishId, parishA))
     await db.delete(classes).where(eq(classes.parishId, parishA))
@@ -160,6 +163,7 @@ describe('D3 admin-only soft deletion of user accounts', () => {
 
     expect(await db.select().from(catechistAssignments).where(eq(catechistAssignments.userId, targetId))).toHaveLength(0)
     expect(await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, targetId))).toHaveLength(0)
+    expect(await db.select().from(nativePushTokens).where(eq(nativePushTokens.userId, targetId))).toHaveLength(0)
     const targetSessions = await db.select().from(refreshTokens).where(eq(refreshTokens.userId, targetId))
     expect(targetSessions).toHaveLength(1)
     expect(targetSessions[0].revokedAt).toBeTruthy()

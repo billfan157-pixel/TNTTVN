@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import {  ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { Button } from '../components/common/ui/Button'
+import { StudentName } from '../components/common/StudentName'
 
 export default function VerificationPage() {
   const [params, setParams] = useState<{ studentId?: string; academicYear?: string; certId?: string; sig?: string }>({})
@@ -98,19 +99,19 @@ export default function VerificationPage() {
 
                 {result.student && (
                   <div className="p-4 rounded-2xl bg-[var(--color-surface-hover)] border border-[var(--color-surface-border)] space-y-2 text-xs">
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="typography-body-sm text-[var(--color-text-muted)]">Họ và Tên:</span>
-                      <span className="font-bold text-[var(--color-text-main)]">{result.student.holyName} {result.student.fullName}</span>
+                      <StudentName holyName={result.student.holyName} fullName={result.student.fullName} size="sm" />
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="typography-body-sm text-[var(--color-text-muted)]">Mã Thiếu Nhi:</span>
-                      <span className="font-bold text-[var(--color-text-main)]">{result.student.code}</span>
+                      <span className="font-bold text-[var(--color-text-main)] font-mono">{result.student.code}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="typography-body-sm text-[var(--color-text-muted)]">Lớp:</span>
                       <span className="font-bold text-[var(--color-text-main)]">{result.student.className}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between items-center">
                       <span className="typography-body-sm text-[var(--color-text-muted)]">Năm Học:</span>
                       <span className="font-bold text-[var(--color-text-main)]">{result.academicYear}</span>
                     </div>

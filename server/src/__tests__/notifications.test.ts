@@ -20,6 +20,21 @@ describe('Server Notifications Route Handler Tests', () => {
     expect(res.status).toBe(401)
   })
 
+  it('blocks unauthenticated native token registration and removal with 401', async () => {
+    const registration = await notificationsApp.request('/native/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installationId: '11111111-1111-4111-8111-111111111111', platform: 'android', token: 'native-token-1234567890' }),
+    })
+    const removal = await notificationsApp.request('/native/unregister', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ installationId: '11111111-1111-4111-8111-111111111111' }),
+    })
+    expect(registration.status).toBe(401)
+    expect(removal.status).toBe(401)
+  })
+
   it('blocks unauthenticated POST /send with 401', async () => {
     const res = await notificationsApp.request('/send', {
       method: 'POST',

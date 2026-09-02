@@ -8,17 +8,19 @@ import { useExamStore } from '../../stores/examStore'
 import type { ExamSession, ExamVersionCode } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
+import { StudentName } from '../common/StudentName'
 
 interface BatchItem extends BatchScanAnalysis {
   id: string
   fileName: string
   studentName?: string
+  holyName?: string | null
   overwritesExisting?: boolean
 }
 
 interface ExamBatchScanModalProps {
   session: ExamSession
-  students: Array<{ id: string; code: string; name: string }>
+  students: Array<{ id: string; code: string; name: string; holyName?: string | null }>
   onClose: () => void
 }
 
@@ -105,7 +107,8 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
           ...analysis,
           id: `${file.name}-${file.lastModified}-${index}`,
           fileName: file.webkitRelativePath || file.name,
-          studentName: student ? `${student.name} (${student.code})` : undefined,
+          studentName: student ? student.name : undefined,
+          holyName: student ? student.holyName : undefined,
           overwritesExisting: Boolean(analysis.studentId && existingIds.has(analysis.studentId)),
         })
         const done = index + 1
@@ -188,7 +191,14 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
               <tbody>{items.map(item => (
                 <tr key={item.id} className="border-t border-surface-border align-top">
                   <td className="max-w-64 break-all p-2 text-xs">{item.fileName}</td>
-                  <td className="p-2 font-semibold">{item.studentName ?? item.studentId ?? '—'}{item.overwritesExisting && <div className="text-[10px] text-amber-600">Sẽ cập nhật điểm cũ</div>}</td>
+                  <td className="p-2 font-semibold">
+                    {item.studentName ? (
+                      <StudentName holyName={item.holyName} fullName={item.studentName} size="sm" />
+                    ) : (
+                      item.studentId ?? '—'
+                    )}
+                    {item.overwritesExisting && <div className="text-[10px] text-amber-600 font-bold">Sẽ cập nhật điểm cũ</div>}
+                  </td>
                   <td className="p-2 font-black">{item.examVersion ?? '—'}</td>
                   <td className="p-2 font-black text-parish-primary">{item.score ?? '—'}</td>
                   <td className="p-2"><span className={`inline-flex items-center gap-1 font-bold ${item.status === 'accepted' ? 'text-emerald-600' : item.status === 'review_required' ? 'text-amber-600' : 'text-red-600'}`}>{item.status === 'accepted' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}{item.reason}</span></td>

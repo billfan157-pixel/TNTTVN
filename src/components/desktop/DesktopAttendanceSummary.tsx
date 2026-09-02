@@ -35,6 +35,7 @@ import { AttendanceHistoryModal } from './AttendanceHistoryModal'
 import { PageHeader } from '../common/PageHeader'
 import { NoResultState } from '../common/StateFeedback'
 import { Badge, Button, FilterChips, SegmentedControl, Select, TextInput } from '../common/ui'
+import { StudentName } from '../common/StudentName'
 import { BRANCHES } from '../../constants/branches'
 
 export const DesktopAttendanceSummary: React.FC = () => {
@@ -441,11 +442,8 @@ export const DesktopAttendanceSummary: React.FC = () => {
                   key={idx}
                   className="p-3 bg-rose-500/5 rounded-xl border border-rose-500/20 flex flex-col gap-1.5 hover:border-rose-500/40 transition-colors"
                 >
-                  <div className="flex justify-between items-center">
-                    <span className="font-extrabold text-xs text-text-main">
-                      {item.student.holyName ? `${item.student.holyName} ` : ''}
-                      {item.student.fullName}
-                    </span>
+                  <div className="flex justify-between items-center gap-2">
+                    <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="xs" />
                     <span className="text-[11px] font-black text-rose-600 bg-rose-500/10 px-1.5 py-0.5 rounded">
                       {item.summary.overall.rate}%
                     </span>
@@ -649,10 +647,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
 
                       {/* Học viên */}
                       <td className="p-3 border-r border-surface-border">
-                        <div className="font-extrabold text-text-main text-xs">
-                          {item.student.holyName ? `${item.student.holyName} ` : ''}
-                          {item.student.fullName}
-                        </div>
+                        <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="xs" />
                         <div className="text-[11px] text-text-muted font-mono">{item.student.code}</div>
                       </td>
 

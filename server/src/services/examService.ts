@@ -1,12 +1,13 @@
 import { db, runDbTransaction, type DbExecutor, type DbTransaction } from '../db/index.js'
 import { examSessions, examResults, examResultMutations, examFinalizations, examFinalizationItems, assessmentEntries, auditLogs, students, classes, grades, gradeOverrides } from '../db/schema.js'
 import { eq, and, inArray, isNull, notInArray } from 'drizzle-orm'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { generateId } from '../utils/id.js'
 import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { upsertGrade } from './gradeService.js'
 import { getActiveAcademicYearId } from './academicYearService.js'
+import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
 
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
@@ -452,6 +453,76 @@ async function assertSessionAccess(sessionId: string, parishId: string, allowedC
     throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
   }
   return session
+}
+
+export async function createImmutableVariantManifests(params: {
+  sessionId: string
+  parishId: string
+  userId: string
+  ip: string
+  userAgent: string
+  allowedClassIds: string[] | null
+  variantCount: number
+  seed?: string
+}) {
+  return runDbTransaction(async (tx) => {
+    const session = await assertSessionAccess(params.sessionId, params.parishId, params.allowedClassIds, tx)
+    if (session.status !== 'draft') throw new ExamStateError('Chỉ phiên nháp mới được tạo bộ mã đề.')
+    if (session.variantManifests) throw new ExamStateError('Bộ mã đề đã được khóa bất biến; hãy tạo phiên mới nếu cần một phép đảo khác.')
+    if (!session.questions || !session.questionCount) {
+      const error = new Error('Phiên chưa có ngân hàng câu hỏi trắc nghiệm đầy đủ.') as Error & { status?: number }
+      error.status = 400
+      throw error
+    }
+    const [existingResult] = await tx.select({ id: examResults.id }).from(examResults)
+      .where(and(eq(examResults.parishId, params.parishId), eq(examResults.examSessionId, params.sessionId))).limit(1)
+    if (existingResult) throw new ExamStateError('Phiên đã có kết quả; không được thay đổi cấu trúc mã đề.')
+
+    let questions: VariantQuestion[]
+    try {
+      const parsed = JSON.parse(session.questions)
+      if (!Array.isArray(parsed)) throw new Error('not-array')
+      questions = parsed as VariantQuestion[]
+    } catch {
+      const error = new Error('Ngân hàng câu hỏi của phiên không phải JSON hợp lệ.') as Error & { status?: number }
+      error.status = 400
+      throw error
+    }
+
+    const manifest = generateExamVariantManifest({
+      questions,
+      questionCount: session.questionCount,
+      variantCount: params.variantCount,
+      seed: params.seed?.trim() || randomUUID(),
+    })
+    const answerVariants = Object.fromEntries(Object.entries(manifest.variants).map(([version, entry]) => [version, entry!.answerKey]))
+    const manifestJson = JSON.stringify(manifest)
+    await tx.update(examSessions).set({
+      answerKey: JSON.stringify(manifest.variants.A!.answerKey),
+      answerVariants: JSON.stringify(answerVariants),
+      variantManifests: manifestJson,
+    }).where(and(eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId)))
+    await audit(tx, {
+      userId: params.userId,
+      parishId: params.parishId,
+      ip: params.ip,
+      userAgent: params.userAgent,
+      action: 'EXAM_VARIANTS_GENERATE',
+      entityType: 'exam_session',
+      entityId: params.sessionId,
+      oldValue: JSON.stringify({ variantManifests: null }),
+      newValue: JSON.stringify({
+        schemaVersion: manifest.schemaVersion,
+        algorithmVersion: manifest.algorithmVersion,
+        sourceHash: manifest.sourceHash,
+        versions: Object.keys(manifest.variants),
+        contentHashes: Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.contentHash])),
+      }),
+    })
+    const [updated] = await tx.select().from(examSessions)
+      .where(and(eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId))).limit(1)
+    return { session: updated, manifests: manifest }
+  })
 }
 
 export async function upsertExamResults(

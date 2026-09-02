@@ -25,7 +25,7 @@ interface StudentState {
   error: string | null
   pagination: { total: number; page: number; limit: number }
 
-  fetchStudents: (params?: { updatedAfter?: string; limit?: number; page?: number }) => Promise<void>
+  fetchStudents: (params?: { updatedAfter?: string; updatedBefore?: string; limit?: number; page?: number; throwOnError?: boolean }) => Promise<void>
   setStudents: (students: Student[]) => void
   reconcileImportedStudents: (changes: ServerStudentChange[]) => void
   addStudent: (student: Omit<Student, 'id' | 'code'>) => Promise<void>
@@ -49,15 +49,25 @@ export const useStudentStore = create<StudentState>()(
       pagination: { total: 0, page: 1, limit: 50 },
 
       fetchStudents: async (params) => {
-        const { updatedAfter, page, limit } = params || {}
-        const safeLimit = limit || 10000
+        const { updatedAfter, updatedBefore, page, limit, throwOnError } = params || {}
+        const safeLimit = limit || (updatedAfter ? 1000 : 10000)
         const safePage = page || 1
         if (!isAuthenticated()) return
         set({ isLoading: true, error: null })
         try {
-          const remote = await api.getStudents({ updatedAfter, page: safePage, limit: safeLimit })
-          const data = Array.isArray(remote?.data) ? remote.data : []
+          let remote = await api.getStudents({ updatedAfter, updatedBefore, page: safePage, limit: safeLimit })
+          let data = Array.isArray(remote?.data) ? remote.data : []
           const total = typeof remote?.total === 'number' ? remote.total : data.length
+          // A delta window is bounded by the server watermark, so offset pages
+          // remain stable for the duration of this pull. Read every page before
+          // returning success; otherwise advancing the cursor could skip rows.
+          if (updatedAfter && page === undefined) {
+            const pageCount = Math.ceil(total / safeLimit)
+            for (let nextPage = 2; nextPage <= pageCount; nextPage++) {
+              remote = await api.getStudents({ updatedAfter, updatedBefore, page: nextPage, limit: safeLimit })
+              data = data.concat(Array.isArray(remote?.data) ? remote.data : [])
+            }
+          }
           if (safePage > 1) {
             set((state) => {
               const base = state.students
@@ -93,6 +103,7 @@ export const useStudentStore = create<StudentState>()(
           return
         } catch (err) {
           set({ isLoading: false, error: (err as Error)?.message || 'Lỗi tải danh sách học sinh' })
+          if (throwOnError) throw err
         }
       },
 

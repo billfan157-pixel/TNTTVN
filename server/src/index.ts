@@ -93,6 +93,8 @@ import parishEventsRouter from './routes/parishEvents.js'
 import parishProfileRouter from './routes/parishProfile.js'
 import feedbackRouter from './routes/feedback.js'
 import passwordResetRequestsRouter from './routes/passwordResetRequests.js'
+import syncRouter from './routes/sync.js'
+import questionBankRouter from './routes/questionBank.js'
 import { loggerMiddleware } from './middleware/logger.js'
 import { metricsMiddleware } from './middleware/metrics.js'
 
@@ -133,6 +135,8 @@ app.route('/api/parish-events', parishEventsRouter)
 app.route('/api/parish-profile', parishProfileRouter)
 app.route('/api/feedback', feedbackRouter)
 app.route('/api/password-reset-requests', passwordResetRequestsRouter)
+app.route('/api/sync', syncRouter)
+app.route('/api/question-bank', questionBankRouter)
 
 // A-NEW-49 (2026-08-17): Railway injects PORT env at runtime và DÙNG giá trị này
 // cho healthcheck + public routing. Code cũ (3f01bd0) đọc process.env.PORT → bind

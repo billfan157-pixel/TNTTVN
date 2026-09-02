@@ -140,7 +140,7 @@ describe('A-NEW-25/26 — export single-serialization + restore scale (bulk, cap
     expect(res.headers.get('content-disposition')).toContain('parish-lms-backup-')
 
     const body = JSON.parse(await res.text())
-    expect(body.version).toBe('2.0-production')
+    expect(body.version).toBe('2.1-question-bank')
     expect(body.parish).toBe(PARISH)
     expect(body.counts.students).toBe(2)
     expect(body.data.students).toHaveLength(2)

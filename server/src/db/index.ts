@@ -267,6 +267,19 @@ await client.executeMultiple(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS native_push_tokens (
+    id TEXT NOT NULL,
+    installation_id TEXT NOT NULL,
+    platform TEXT NOT NULL CHECK(platform IN ('android', 'ios')),
+    token TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (parish_id, id),
+    FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS import_batches (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
@@ -443,6 +456,9 @@ await client.executeMultiple(`
 
 const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_users_parish_id ON users(parish_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_native_push_tokens_installation ON native_push_tokens(installation_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_native_push_tokens_platform_token ON native_push_tokens(platform, token)',
+  'CREATE INDEX IF NOT EXISTS idx_native_push_tokens_user ON native_push_tokens(parish_id, user_id)',
   'CREATE INDEX IF NOT EXISTS idx_students_parish_id ON students(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_students_class_id ON students(class_id)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_students_idempotency ON students(parish_id, idempotency_key)',
@@ -489,7 +505,19 @@ const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_semester_locks_lookup ON semester_locks(parish_id, academic_year, semester)',
   'CREATE INDEX IF NOT EXISTS idx_promotion_records_lookup ON promotion_records(parish_id, student_id, academic_year)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_sessions_idempotency ON exam_sessions(parish_id, idempotency_key)',
+  'CREATE INDEX IF NOT EXISTS idx_exam_sessions_blueprint ON exam_sessions(parish_id, blueprint_id)',
   'CREATE INDEX IF NOT EXISTS idx_exam_result_mutations_session ON exam_result_mutations(parish_id, exam_session_id, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_question_bank_list ON question_bank_items(parish_id, status, updated_at)',
+  'CREATE INDEX IF NOT EXISTS idx_question_bank_taxonomy ON question_bank_items(parish_id, branch_id, curriculum_level, lesson_order, difficulty)',
+  'CREATE INDEX IF NOT EXISTS idx_question_bank_author ON question_bank_items(parish_id, created_by, status)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_question_bank_versions_number ON question_bank_versions(parish_id, question_id, version)',
+  'CREATE INDEX IF NOT EXISTS idx_question_bank_versions_question ON question_bank_versions(parish_id, question_id, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_exam_blueprints_list ON exam_blueprints(parish_id, status, updated_at)',
+  'CREATE INDEX IF NOT EXISTS idx_exam_blueprints_taxonomy ON exam_blueprints(parish_id, branch_id, curriculum_level)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_blueprint_rules_order ON exam_blueprint_rules(parish_id, blueprint_id, ordinal)',
+  'CREATE INDEX IF NOT EXISTS idx_exam_blueprint_rules_blueprint ON exam_blueprint_rules(parish_id, blueprint_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_question_snapshots_position ON exam_question_snapshots(parish_id, exam_session_id, source_position)',
+  'CREATE INDEX IF NOT EXISTS idx_exam_question_snapshots_usage ON exam_question_snapshots(parish_id, question_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_parish_events_parish_date ON parish_events(parish_id, date)',
   'CREATE INDEX IF NOT EXISTS idx_parish_events_parish_category ON parish_events(parish_id, category)',
   `CREATE TRIGGER IF NOT EXISTS check_grade_scores_insert BEFORE INSERT ON grades BEGIN SELECT CASE WHEN NEW.score_oral IS NOT NULL AND (NEW.score_oral < 0 OR NEW.score_oral > 10) THEN RAISE(ABORT, 'score_oral out of range 0-10') WHEN NEW.score_15m IS NOT NULL AND (NEW.score_15m < 0 OR NEW.score_15m > 10) THEN RAISE(ABORT, 'score_15m out of range 0-10') WHEN NEW.score_1_period IS NOT NULL AND (NEW.score_1_period < 0 OR NEW.score_1_period > 10) THEN RAISE(ABORT, 'score_1_period out of range 0-10') WHEN NEW.score_midterm IS NOT NULL AND (NEW.score_midterm < 0 OR NEW.score_midterm > 10) THEN RAISE(ABORT, 'score_midterm out of range 0-10') WHEN NEW.score_final IS NOT NULL AND (NEW.score_final < 0 OR NEW.score_final > 10) THEN RAISE(ABORT, 'score_final out of range 0-10') WHEN NEW.score_dao_duc IS NOT NULL AND (NEW.score_dao_duc < 0 OR NEW.score_dao_duc > 10) THEN RAISE(ABORT, 'score_dao_duc out of range 0-10') END; END`,
@@ -1803,6 +1831,170 @@ ALTER TABLE users ADD COLUMN deleted_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_users_active_role
 ON users(parish_id, role, deleted_at);
 ` },
+  { version: '20260901-148', sql: `ALTER TABLE exam_sessions ADD COLUMN variant_manifests TEXT` },
+  { version: '20260902-149', sql: `
+CREATE TABLE IF NOT EXISTS native_push_tokens (
+  id TEXT NOT NULL,
+  installation_id TEXT NOT NULL,
+  platform TEXT NOT NULL CHECK(platform IN ('android', 'ios')),
+  token TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id, id),
+  FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_native_push_tokens_installation
+ON native_push_tokens(installation_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_native_push_tokens_platform_token
+ON native_push_tokens(platform, token);
+CREATE INDEX IF NOT EXISTS idx_native_push_tokens_user
+ON native_push_tokens(parish_id, user_id);
+` },
+  { version: '20260902-150', sql: `ALTER TABLE exam_sessions ADD COLUMN source_type TEXT NOT NULL DEFAULT 'legacy'` },
+  { version: '20260902-151', sql: `ALTER TABLE exam_sessions ADD COLUMN blueprint_id TEXT` },
+  { version: '20260902-152', sql: `ALTER TABLE exam_sessions ADD COLUMN blueprint_snapshot TEXT` },
+  { version: '20260902-153', sql: `
+CREATE TABLE IF NOT EXISTS question_bank_items (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','in_review','approved','active','archived')),
+  current_version INTEGER NOT NULL DEFAULT 1 CHECK(current_version >= 1),
+  branch_id TEXT,
+  curriculum_level TEXT,
+  book TEXT,
+  chapter TEXT,
+  lesson TEXT,
+  lesson_order INTEGER,
+  topic TEXT,
+  difficulty TEXT CHECK(difficulty IS NULL OR difficulty IN ('recognition','understanding','application')),
+  tags TEXT NOT NULL DEFAULT '[]',
+  source TEXT,
+  provenance TEXT NOT NULL DEFAULT 'human' CHECK(provenance IN ('human','ai','import')),
+  created_by TEXT NOT NULL,
+  reviewed_by TEXT,
+  approved_by TEXT,
+  archived_by TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  archived_at TEXT,
+  PRIMARY KEY (parish_id,id),
+  FOREIGN KEY (parish_id,branch_id) REFERENCES branches(parish_id,id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id,created_by) REFERENCES users(parish_id,id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_question_bank_list ON question_bank_items(parish_id,status,updated_at);
+CREATE INDEX IF NOT EXISTS idx_question_bank_taxonomy ON question_bank_items(parish_id,branch_id,curriculum_level,lesson_order,difficulty);
+CREATE INDEX IF NOT EXISTS idx_question_bank_author ON question_bank_items(parish_id,created_by,status);
+` },
+  { version: '20260902-154', sql: `
+CREATE TABLE IF NOT EXISTS question_bank_versions (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  question_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version >= 1),
+  question_type TEXT NOT NULL CHECK(question_type IN ('multiple_choice','true_false','multiple_select','short_answer','fill_blank','matching','essay')),
+  stem TEXT NOT NULL,
+  answer_data TEXT NOT NULL,
+  explanation TEXT,
+  metadata_snapshot TEXT NOT NULL,
+  change_note TEXT,
+  content_hash TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id,id),
+  FOREIGN KEY (parish_id,question_id) REFERENCES question_bank_items(parish_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (parish_id,created_by) REFERENCES users(parish_id,id) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_question_bank_versions_number ON question_bank_versions(parish_id,question_id,version);
+CREATE INDEX IF NOT EXISTS idx_question_bank_versions_question ON question_bank_versions(parish_id,question_id,created_at);
+` },
+  { version: '20260902-155', sql: `
+CREATE TABLE IF NOT EXISTS exam_blueprints (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','active','archived')),
+  branch_id TEXT,
+  curriculum_level TEXT,
+  total_questions INTEGER NOT NULL CHECK(total_questions BETWEEN 1 AND 50),
+  max_score INTEGER NOT NULL DEFAULT 10 CHECK(max_score BETWEEN 1 AND 10),
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id,id),
+  FOREIGN KEY (parish_id,branch_id) REFERENCES branches(parish_id,id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id,created_by) REFERENCES users(parish_id,id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_exam_blueprints_list ON exam_blueprints(parish_id,status,updated_at);
+CREATE INDEX IF NOT EXISTS idx_exam_blueprints_taxonomy ON exam_blueprints(parish_id,branch_id,curriculum_level);
+` },
+  { version: '20260902-156', sql: `
+CREATE TABLE IF NOT EXISTS exam_blueprint_rules (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  blueprint_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK(ordinal >= 1),
+  question_type TEXT NOT NULL CHECK(question_type IN ('multiple_choice','true_false','multiple_select','short_answer','fill_blank','matching','essay')),
+  chapter TEXT,
+  lesson_from INTEGER,
+  lesson_to INTEGER,
+  topic TEXT,
+  difficulty TEXT CHECK(difficulty IS NULL OR difficulty IN ('recognition','understanding','application')),
+  tags TEXT NOT NULL DEFAULT '[]',
+  question_count INTEGER NOT NULL CHECK(question_count >= 1),
+  points_each REAL NOT NULL DEFAULT 1 CHECK(points_each > 0),
+  avoid_recent_days INTEGER NOT NULL DEFAULT 0 CHECK(avoid_recent_days >= 0),
+  PRIMARY KEY (parish_id,id),
+  FOREIGN KEY (parish_id,blueprint_id) REFERENCES exam_blueprints(parish_id,id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_blueprint_rules_order ON exam_blueprint_rules(parish_id,blueprint_id,ordinal);
+CREATE INDEX IF NOT EXISTS idx_exam_blueprint_rules_blueprint ON exam_blueprint_rules(parish_id,blueprint_id);
+` },
+  { version: '20260902-157', sql: `
+CREATE TABLE IF NOT EXISTS exam_question_snapshots (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+  exam_session_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  question_version_id TEXT NOT NULL,
+  source_position INTEGER NOT NULL CHECK(source_position >= 1),
+  points REAL NOT NULL DEFAULT 1 CHECK(points > 0),
+  snapshot_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (parish_id,id),
+  FOREIGN KEY (parish_id,exam_session_id) REFERENCES exam_sessions(parish_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (parish_id,question_id) REFERENCES question_bank_items(parish_id,id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id,question_version_id) REFERENCES question_bank_versions(parish_id,id) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_question_snapshots_position ON exam_question_snapshots(parish_id,exam_session_id,source_position);
+CREATE INDEX IF NOT EXISTS idx_exam_question_snapshots_usage ON exam_question_snapshots(parish_id,question_id,created_at);
+` },
+  { version: '20260902-158', sql: `
+CREATE INDEX IF NOT EXISTS idx_exam_sessions_blueprint ON exam_sessions(parish_id,blueprint_id);
+CREATE TRIGGER IF NOT EXISTS check_exam_session_blueprint_insert
+BEFORE INSERT ON exam_sessions
+WHEN NEW.blueprint_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM exam_blueprints
+  WHERE parish_id = NEW.parish_id AND id = NEW.blueprint_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'exam session blueprint must belong to the same parish');
+END;
+CREATE TRIGGER IF NOT EXISTS check_exam_session_blueprint_update
+BEFORE UPDATE OF parish_id,blueprint_id ON exam_sessions
+WHEN NEW.blueprint_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM exam_blueprints
+  WHERE parish_id = NEW.parish_id AND id = NEW.blueprint_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'exam session blueprint must belong to the same parish');
+END;
+` },
 ]
 
 // Root-cause remediation: migration execution itself now fails closed. The separate
@@ -1818,6 +2010,10 @@ try { await client.execute(`ALTER TABLE import_batches ADD COLUMN created_class_
 try { await client.execute(`ALTER TABLE import_batch_students ADD COLUMN rollback_snapshot TEXT`) } catch {}
 try { await client.execute(`ALTER TABLE exam_results ADD COLUMN essay_score REAL`) } catch {}
 try { await client.execute(`ALTER TABLE notices ADD COLUMN target_audience TEXT NOT NULL DEFAULT 'all'`) } catch {}
+try { await client.execute(`ALTER TABLE exam_sessions ADD COLUMN variant_manifests TEXT`) } catch {}
+try { await client.execute(`ALTER TABLE exam_sessions ADD COLUMN source_type TEXT NOT NULL DEFAULT 'legacy'`) } catch {}
+try { await client.execute(`ALTER TABLE exam_sessions ADD COLUMN blueprint_id TEXT`) } catch {}
+try { await client.execute(`ALTER TABLE exam_sessions ADD COLUMN blueprint_snapshot TEXT`) } catch {}
 
 for (const statement of INDICES) {
   try { await client.execute(statement) } catch {}

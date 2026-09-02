@@ -1,6 +1,6 @@
 import { db, runDbTransaction } from '../db/index.js'
 import { students, auditLogs, classes, academicYears } from '../db/schema.js'
-import { eq, and, gte, isNull, inArray, sql } from 'drizzle-orm'
+import { eq, and, gte, lte, isNull, inArray, sql, asc } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
 import type { InferInsertModel } from 'drizzle-orm'
@@ -45,28 +45,33 @@ function pickStudentWritable(data: Record<string, unknown>): CreateStudentData {
   return out as CreateStudentData
 }
 
-export async function getStudents(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1) {
-  const conditions = [eq(students.parishId, parishId), isNull(students.deletedAt)]
+export async function getStudents(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1, updatedBefore?: string) {
+  const conditions = [eq(students.parishId, parishId)]
+  // Full snapshots contain active rows only. Incremental windows deliberately
+  // include soft-deleted rows as tombstones so clients can evict ghost records.
+  if (!updatedAfter) conditions.push(isNull(students.deletedAt))
   if (updatedAfter) {
     conditions.push(gte(students.updatedAt, updatedAfter))
   }
+  if (updatedBefore) conditions.push(lte(students.updatedAt, updatedBefore))
   const offset = (page - 1) * limit
   const [data, [{ total }]] = await Promise.all([
-    db.select().from(students).where(and(...conditions)).orderBy(students.createdAt).limit(limit).offset(offset),
+    db.select().from(students).where(and(...conditions)).orderBy(asc(students.updatedAt), asc(students.id)).limit(limit).offset(offset),
     db.select({ total: sql<number>`count(*)` }).from(students).where(and(...conditions)),
   ])
   return { data, total: Number(total) }
 }
 
-export async function getStudentsByClassIds(parishId: string, classIds: string[], updatedAfter?: string, limit: number = 50, page: number = 1) {
+export async function getStudentsByClassIds(parishId: string, classIds: string[], updatedAfter?: string, limit: number = 50, page: number = 1, updatedBefore?: string) {
   if (!classIds.length) return { data: [], total: 0 }
   const conditions = [eq(students.parishId, parishId), isNull(students.deletedAt), inArray(students.classId, classIds)]
   if (updatedAfter) {
     conditions.push(gte(students.updatedAt, updatedAfter))
   }
+  if (updatedBefore) conditions.push(lte(students.updatedAt, updatedBefore))
   const offset = (page - 1) * limit
   const [data, [{ total }]] = await Promise.all([
-    db.select().from(students).where(and(...conditions)).orderBy(students.createdAt).limit(limit).offset(offset),
+    db.select().from(students).where(and(...conditions)).orderBy(asc(students.updatedAt), asc(students.id)).limit(limit).offset(offset),
     db.select({ total: sql<number>`count(*)` }).from(students).where(and(...conditions)),
   ])
   return { data, total: Number(total) }

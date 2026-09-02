@@ -6,7 +6,26 @@
 > - **Product Name**: `Catevia`
 >
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.4 | Last reviewed: 2026-09-01 | Status: ✅ Current | Prerequisites: none
+> Version: 3.5 | Last reviewed: 2026-09-02 | Status: ✅ Current | Prerequisites: none
+
+### Module: Exam Creation Workspace Optimization & Smart Key Input (2026-09-02)
+
+- **Decision:** D1/GENERAL, R1. Tối ưu toàn diện giao diện & bố cục cửa sổ "Tạo Phiên Chấm" (Create Exam Session modal) trong Catevia (`ExamSessionView.tsx`):
+  1. Loại bỏ "Nested Container Syndrome" bằng cách gom nhóm các trường thành các bề mặt thẻ chức năng (`surface-card` / `surface-hover/40`) rõ ràng: Thiết lập Lớp & Hình thức thi, Loại Điểm & Thang điểm, và Vùng Ma trận đáp án.
+  2. Kiến trúc Split Workspace 2 cột (`lg:col-span-5` / `lg:col-span-7` cho Trắc nghiệm & Kết hợp TN+TL, `lg:col-span-12` cho Tự luận) tối ưu không gian màn hình Desktop; trên Mobile áp dụng Bottom Sheet công thái học với chiều cao tối đa `96dvh` và cuộn độc lập.
+  3. Header & Dynamic Progress Indicator: Thanh tiến độ trực quan `0..4/4` kèm thông điệp gợi ý hành động tiếp theo theo thời gian thực (real-time guidance text) giúp người dùng không bị bỡ ngỡ.
+  4. Cơ chế chọn lớp và nạp danh sách lớp tự động: Luôn render dropdown `<select>` chọn lớp học cho Admin và GLV (không bị giấu khi có filter ngoài trang), tự động gọi `fetchClasses()` khi mount và khi mở modal nếu store rỗng, tự động chọn lớp mặc định khi dữ liệu lớp tải xong, kèm nút "Làm mới" (`RefreshCw`) và thông báo hướng dẫn khi xứ đoàn chưa tạo lớp hoặc tài khoản chưa được phân công.
+  5. Tái thiết kế toàn diện khu vực Review Đáp Án (Dual-Mode Answer & Question Review):
+     - **Chế độ Ma Trận Nhanh (5 Cột thông thoáng)**: Sửa triệt để lỗi ép 10 cột làm tràn/vỡ 4 nút A/B/C/D. Từng thẻ câu hỏi có kích thước chuẩn ~105px, nhãn câu hỏi rõ ràng, huy hiệu đáp án đã chọn (hoặc nhãn cảnh báo "Chưa chọn"), 4 nút A/B/C/D vuông vức rộng rãi với hiệu ứng active ring và hover tinh tế.
+     - **Chế độ Xem Trước Chi Tiết Đề (Detailed Question List)**: Khi đã nạp đề thi từ Word/Excel, hỗ trợ xem trước đầy đủ nội dung câu hỏi, các phương án lựa chọn, điểm số thành phần và đáp án đúng được làm nổi bật với viền xanh lá & icon checkmark; cho phép click chọn/đổi đáp án đúng trực tiếp trên từng phương án.
+  6. Tính năng Gõ/Dán chuỗi đáp án siêu tốc (`parseQuickAnswerString` tại `src/utils/examQuickKeyParser.ts`): Nhận diện cả chuỗi liền (`ABCDABCD...`) và chuỗi có đánh số (`1A 2B 3C...`, `câu 1: A, câu 2: B...`) kèm nút áp dụng 1-chạm (`Zap`).
+  8. Đồng bộ hóa tiêu chuẩn Font & Format Họ Tên học viên (StudentName Component SSOT):
+     - Đồng bộ 100% các thành phần trong module Exam (`ExamResultsTable.tsx`, `QuickScoreEntry.tsx`, `GuidedGradeModal.tsx`, `ExamBatchScanModal.tsx`, `ExamSessionView.tsx`) sử dụng canonical component `<StudentName holyName={...} fullName={...} size="..." />` tuân thủ Design System §17.
+     - Tên Thánh được format nổi bật với màu nâu sẫm trang nghiêm `text-amber-950 dark:text-amber-400 font-bold`, Họ và Tên theo font hệ thống tương phản cao `text-text-main font-bold`, và mã thiếu nhi font monospace rõ ràng.
+- **Code truth:** `src/components/exam/ExamSessionView.tsx`, `src/components/exam/ExamResultsTable.tsx`, `src/components/exam/QuickScoreEntry.tsx`, `src/components/exam/GuidedGradeModal.tsx`, `src/components/exam/ExamBatchScanModal.tsx`, `src/utils/examQuickKeyParser.ts`, `src/__tests__/examQuickKeyParser.test.ts`, `src/__tests__/examCreateMobileUiContract.test.ts`.
+- **Quality gates:** 26/26 exam test files / 229 tests PASS, Design System Anti-drift lint PASS (0 violations), oxlint PASS (0 warnings, 0 errors), TypeScript strict typecheck PASS.
+
+---
 
 ### Module: Risk-based Business E2E System (ADR-093, 2026-09-01)
 
@@ -188,9 +207,9 @@
 ### Module: Student Identity Typography & Name Formatting Standard (2026-08-29)
 
 - **Decision**: D1/GENERAL, R0. Comprehensive unification of Tên Thánh (Holy Name) & Họ và Tên (Full Name) across desktop and mobile views.
-- **Code truth**: `src/components/common/StudentName.tsx` (`<StudentName />`, `<StudentHolyName />`, `<StudentFullName />`), `src/index.css` (`.student-holy-name`, `.student-full-name`, `.student-name-group`), `src/components/desktop/DesktopStudentList.tsx`, `src/components/desktop/DesktopGradeMatrix.tsx`, `src/components/desktop/DesktopDailyGradeEntry.tsx`, `src/components/desktop/DesktopAttendanceGrid.tsx`, `src/components/desktop/DesktopGradeCards.tsx`, `src/components/desktop/DesktopReports.tsx`, `src/components/desktop/DesktopLeaveRequests.tsx`, `src/components/mobile/MobileStudentsView.tsx`, `src/components/mobile/MobileGradeView.tsx`, `src/components/mobile/MobileGradeMatrix.tsx`, `src/components/mobile/MobileDailyGradeEntry.tsx`, `src/components/mobile/MobileGradeComparison.tsx`, `src/components/mobile/MobileAttendanceSummaryView.tsx`, `src/components/mobile/MobileLeaveRequests.tsx`.
+- **Code truth**: `src/components/common/StudentName.tsx` (`<StudentName />`, `<StudentHolyName />`, `<StudentFullName />`), `src/index.css` (`.student-holy-name`, `.student-full-name`, `.student-name-group`), `src/components/desktop/DesktopStudentList.tsx`, `src/components/desktop/DesktopGradeMatrix.tsx`, `src/components/desktop/DesktopDailyGradeEntry.tsx`, `src/components/desktop/DesktopAttendanceGrid.tsx`, `src/components/desktop/DesktopGradeCards.tsx`, `src/components/desktop/DesktopReports.tsx`, `src/components/desktop/DesktopLeaveRequests.tsx`, `src/components/desktop/PromotionPanel.tsx`, `src/components/finance/ClassFeeCollectionModal.tsx`, `src/components/common/LeaveRequestModal.tsx`, `src/components/common/ExcelGradeImportModal.tsx`, `src/components/mobile/MobileStudentsView.tsx`, `src/components/mobile/MobileGradeView.tsx`, `src/components/mobile/MobileGradeMatrix.tsx`, `src/components/mobile/MobileDailyGradeEntry.tsx`, `src/components/mobile/MobileGradeComparison.tsx`, `src/components/mobile/MobileAttendanceSummaryView.tsx`, `src/components/mobile/MobileLeaveRequests.tsx`.
 - **Contracts**:
-  - `holyName`: `text-amber-900 dark:text-amber-400` / `#78350F` (Amber 900 — nâu đậm trang nghiêm), `font-semibold` (weight 600), sentence case.
+  - `holyName`: `text-amber-950 dark:text-amber-400` / `#451a03` (Amber 950 — nâu sẫm đậm trang nghiêm), `font-semibold` (weight 600), sentence case.
   - `fullName`: `text-text-main` (`var(--color-text-main)`), `font-extrabold` (weight 800), high contrast slate. Never blue (`text-parish-primary`).
 - **Scope**: Typography standardization, Catholic patron saint spiritual dignity, and design system synchronization (`docs/03_DESIGN_SYSTEM.md §17`).
 
@@ -640,6 +659,32 @@ server/src/                         ─ Backend Hono Application
 - **Privacy invariant:** `feedback_messages.visibility='ANONYMOUS'` bắt buộc `sender_user_id IS NULL` bằng DB CHECK. Không sender audit, không app-log user/IP/user-agent, không sent-box, receipt token hay offline persistence cho anonymous.
 - **Known boundary:** application admin không thể truy sender qua Catevia/DB/API/audit/app logs. Reverse proxy/cloud transport logs nằm ngoài quyền admin ứng dụng và chưa được xác minh/xóa; UI công bố giới hạn này.
 - **Data/recovery:** migration `20260831-145`, composite tenant PK/FK + inbox/sender indexes, schema readiness fail-closed. Purge v2.4/snapshot v3.1 gồm `feedback_messages`.
+
+### Module: Durable Delta Sync + Immutable Exam Studio (ADR-094, 2026-09-01)
+
+- **Sync orchestration:** `src/hooks/useSyncEngine.ts`; cursor policy `src/lib/syncCursor.ts`; multi-tab boundary `src/lib/syncLease.ts`; merge/apply diagnostics `src/lib/syncApply.ts` + `src/stores/syncStore.ts`.
+- **Sync API/server:** `GET /api/sync/watermark` in `server/src/routes/sync.ts`; bounded student/class delta parsing in `server/src/routes/{students,classes}.ts`; stable paging/tombstones in `server/src/services/{studentService,classService}.ts`.
+- **Store pull contract:** `{student,class,grade,attendance,notice}Store.fetch*` accepts fail-fast mode for the engine. UI fetch callers retain their user-facing fallback behavior. A cursor commit is invalid if any page/store failed.
+- **Exam manifest authority:** generator `server/src/services/examVariantManifest.ts`; persistence and immutable command in `server/src/services/examService.ts`; endpoint `POST /api/exams/:id/variant-manifests`; schema column `exam_sessions.variant_manifests` migration `20260901-148`.
+- **Exam client/print:** `src/components/exam/ExamVariantsModal.tsx` creates/locks manifests; `ExamPaperModal.tsx` renders the materialized version; `src/lib/examVersionPolicy.ts` keeps legacy question documents on A. `ExamSessionView.tsx` owns only lazy orchestration, not heavy modal implementations.
+- **Do not infer:** an A–H answer-key map alone is not proof that question content was permuted; browser Web Locks are not a cross-device lock; build chunk size is not physical-device FPS; Worker/adaptive threshold remains blocked by ADR-060/068/069 evidence gates.
+
+### Module: Native App Push (ADR-095, 2026-09-02)
+
+- **Client authority:** `src/lib/pushManager.ts` branches by `Capacitor.isNativePlatform()`. Web retains VAPID + `/sw.js`; native uses Capacitor Push Notifications, channel `catevia_general`, launch/resume token refresh, explicit Settings opt-in, logout unregister and internal-route-only actions. `NativePushSettings.tsx` is native-only UI.
+- **Server authority:** `/api/notifications/native/register|unregister` binds UUID installation to authenticated user/parish. `appPushService.ts` combines `webPushService.ts` + `nativePushService.ts`; Android provider `fcmPushProvider.ts` signs service-account OAuth and calls FCM HTTP v1 directly (no Firebase Admin), iOS provider is `apnsPushProvider.ts`. Queue type/field names `webpush`/`webpushUserIds` are legacy persistence compatibility, not transport exclusivity.
+- **Data:** `native_push_tokens`, migration `20260902-149`, composite tenant FK, unique installation and platform/token. Token is required server-side plaintext for provider delivery; never audit/log/client-persist it. User soft delete removes binding; parish purge preserves it with account/system tables.
+- **Native projects:** Android notification permission/icon/channel metadata; `google-services.json` is external secret. iOS AppDelegate forwards APNs callbacks and target uses `App.entitlements`; Codemagic signing must have Push capability. `scripts/fix-ios-spm-paths.mjs` repairs Windows Capacitor SwiftPM paths.
+- **Do not infer:** cap sync/build or simulator evidence does not prove provider credentials, APNs environment, background/killed delivery, OEM battery behavior, or physical-device notification actions.
+
+### Module: Versioned Question Bank & Exam Blueprint (ADR-096, 2026-09-02)
+
+- **Frontend:** `src/components/exam/QuestionBankView.tsx`, integrated as desktop/mobile Grades tab; `src/lib/api.ts` and `src/types/index.ts` own client contract. Existing navy–gold primitives are reused.
+- **Server:** `/api/question-bank` in `server/src/routes/questionBank.ts`; `questionBankService.ts` owns validation, lifecycle, immutable versions, deterministic blueprint selection, all-or-nothing Exam materialization and metadata-only audit.
+- **Data:** migrations `20260902-150..158`; tables `question_bank_items`, `question_bank_versions`, `exam_blueprints`, `exam_blueprint_rules`, `exam_question_snapshots`; additive Exam provenance columns and same-parish blueprint triggers.
+- **Exam boundary:** materialization writes legacy-compatible questions/keys plus ADR-094 manifests; `exam_question_snapshots` freezes exact source/version. Existing OMR/scoring/finalization remains authority. Only MC A–D and essay materialize initially.
+- **Recovery/offline:** backup `2.1-question-bank`, legacy restore preservation and Purge v2.5 cover new records. Authoring/review/build require server; existing post-materialization Exam offline pipeline is unchanged.
+- **Do not infer:** text metadata is not a normalized curriculum hierarchy; stored support for seven types is not Exam/OMR support for seven types; local builds do not prove production data scale or physical OMR quality.
 
 
 

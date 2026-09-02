@@ -336,6 +336,7 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - `aria-label` cho icon-only buttons: HeaderBar 6 nút, DesktopStudentList 5 nút, AuditLogPage Eye (+`aria-expanded`), ParentLoginPage show/hide. UserManagementPage không còn reveal-password (ADR-058).
 - `ModalShell` mở rộng props optional: `icon` (icon tile), `subtitle`, `headerActions` (như PrintReceiptModal); `title` kiểu `ReactNode` (icon trong title). **Batch 1 migrate (finance 4/4)**: `FundManageModal`, `TransactionModal`, `PrintReceiptModal`, `ClassFeeCollectionModal` — shell full-bleed (toolbar `-mt-4 -mx-6`) giữ nguyên visual. **Batch 2 migrate (desktop 16 modal)**: `AttendanceHistoryModal`, `DesktopCalendarView` ×2, `DesktopClasses` ×2 (confirmDelete → `ConfirmDialog`), `DesktopLeaveRequests` review, `PromotionPanel` confirm, `UserManagementPage` 8/8.
 - **Quy ước Tier B** (modal giữ shell custom — header brand/màu, tabs, sticky footer, camera/print): thêm trực tiếp `role="dialog"|"alertdialog"` + `aria-modal` + `aria-labelledby` (id trên heading) + Escape + scroll-lock. Đã áp: `ConflictInboxModal`, `GradeFormulaConfigModal`, `SystemDiagnosticsModal`, `ExcelImportModal`, `ExcelGradeImportModal`, `ConflictResolutionModal`, `BackupRestoreModal`, `PurgeDataModal` (alertdialog), `ForcePasswordChangeModal` (gate — chỉ scroll-lock, không Escape), `ParentForgotPasswordModal`, `ExamPaperModal`, `ExamImportModal`, `AnswerSheetModal`, `ExamScanModal`, `ExamSessionView` ×2.
+- **Modal tạo phiên chấm trên desktop**: giữ bottom-sheet một cột và touch target 44px ở mobile; từ desktop breakpoint mở rộng tối đa `max-w-5xl`, dùng lưới 12 cột để đặt Lớp/Hình thức và Import/Thông tin điểm theo cặp, còn đáp án chuẩn chiếm toàn chiều ngang. Khung modal `overflow-hidden`, body là vùng cuộn duy nhất và footer hành động sticky; không nhân đôi form hoặc thay đổi validation/nghiệp vụ tạo phiên.
 - **Lưu ý kỹ thuật**: effect a11y (Escape/scroll-lock) phải đặt TRƯỚC early-return `if (!isOpen) return null` (guard bên trong effect) — nếu không, oxlint `rules-of-hooks` báo error.
 
 **UX/UI Layout Standardization (Hoàn thành 2026-08-16)**:
@@ -543,7 +544,7 @@ Nhằm đảm bảo tính tôn nghiêm Công Giáo (Catholic Spiritual Identity)
 
 | Thành phần | Ý nghĩa nghiệp vụ | Token màu & Phông chữ | CSS Class | Ví dụ hiển thị |
 |:---|:---|:---|:---|:---|
-| **Tên Thánh (Holy Name)** | Tôn nghiêm Kitô giáo, Tên quan thầy bảo trợ | `text-amber-900 dark:text-amber-400` (`#78350F` / Amber 900 — nâu đậm trang nghiêm), `font-semibold` (weight 600) | `.student-holy-name` | *Phêrô*, *Maria*, *Giuse*, *Têrêsa* |
+| **Tên Thánh (Holy Name)** | Tôn nghiêm Kitô giáo, Tên quan thầy bảo trợ | `text-amber-950 dark:text-amber-400` (`#451a03` / Amber 950 — nâu sẫm đậm trang nghiêm), `font-semibold` (weight 600) | `.student-holy-name` | *Phêrô*, *Maria*, *Giuse*, *Têrêsa* |
 | **Họ và Tên (Full Legal Name)** | Định danh pháp lý & học vụ chính | `text-text-main` (`var(--color-text-main)`: Slate 900 `#0F172A` / Dark `#F1F5F9`), `font-extrabold` (weight 800) | `.student-full-name` | **Phan Bảo**, **Nguyễn Văn An** |
 
 ### 17.2 Quy Tắc Hiển Thị Bất Biến:
