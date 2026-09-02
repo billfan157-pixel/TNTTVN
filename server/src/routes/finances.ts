@@ -16,6 +16,7 @@ import {
   deleteTransaction,
   updateStudentFee,
 } from '../services/FinanceApplicationService.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 export const financesRouter = new Hono()
 
@@ -42,7 +43,7 @@ const createTransactionSchema = z.object({
   studentId: z.string().optional(),
   classId: z.string().optional(),
   academicYear: z.string().optional(),
-  transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày giao dịch định dạng YYYY-MM-DD').optional(),
+  transactionDate: z.string().refine(isValidIsoDate, 'Ngày giao dịch phải là ngày YYYY-MM-DD có thật').optional(),
   receiptNumber: z.string().max(50).optional(),
   proofUrl: z.string().max(500).optional(),
   targetFundId: z.string().optional(),

@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { notices, auditLogs } from '../db/schema.js'
 import { eq, and, desc, gte, or, isNull } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
@@ -28,73 +28,86 @@ export async function getNotices(parishId: string, updatedAfter?: string, limit:
 }
 
 export async function createNotice(data: CreateNoticeData, userId: string, parishId: string, ip: string, userAgent: string) {
-  if (data.idempotencyKey) {
-    const [existing] = await db
-      .select()
-      .from(notices)
-      .where(and(eq(notices.idempotencyKey, data.idempotencyKey), eq(notices.parishId, parishId)))
-      .limit(1)
-    if (existing) {
-      return existing
+  const result = await runDbTransaction(async (tx) => {
+    if (data.idempotencyKey) {
+      const [existing] = await tx
+        .select()
+        .from(notices)
+        .where(and(eq(notices.idempotencyKey, data.idempotencyKey), eq(notices.parishId, parishId)))
+        .limit(1)
+      if (existing) return { notice: existing, created: false }
     }
+
+    const id = generateId('NC')
+    const now = new Date().toISOString()
+    const [created] = await tx.insert(notices).values({
+      id,
+      ...data,
+      idempotencyKey: data.idempotencyKey || null,
+      parishId,
+      updatedBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    }).returning()
+
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId,
+      action: 'CREATE',
+      entityType: 'notice',
+      entityId: id,
+      newValue: JSON.stringify({
+        priority: data.priority,
+        targetBranch: data.targetBranch,
+        targetAudience: data.targetAudience,
+        date: data.date,
+      }),
+      ip,
+      userAgent,
+      parishId,
+    })
+    return { notice: created, created: true }
+  })
+
+  // Delivery is post-commit and best-effort. A provider/queue failure must not
+  // turn an already committed, idempotent notice into a false failure/retry.
+  if (result.created) {
+    await notifyParishNotice(parishId, data.title, data.content, data.author, data.targetBranch ?? undefined, (data as any).targetAudience ?? 'all')
+      .catch((error) => console.error('[noticeService] notification enqueue failed:', error))
   }
 
-  const id = generateId('NC')
-  const now = new Date().toISOString()
-
-  await db.insert(notices).values({
-    id,
-    ...data,
-    idempotencyKey: data.idempotencyKey || null,
-    parishId,
-    updatedBy: userId,
-    createdAt: now,
-    updatedAt: now,
-  })
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId,
-    action: 'CREATE',
-    entityType: 'notice',
-    entityId: id,
-    newValue: JSON.stringify(data),
-    ip,
-    userAgent,
-    parishId,
-  })
-
-  // Send notifications to users after successful creation
-  await notifyParishNotice(parishId, data.title, data.content, data.author, data.targetBranch ?? undefined, (data as any).targetAudience ?? 'all')
-
-  const [created] = await db.select().from(notices).where(and(eq(notices.id, id), eq(notices.parishId, parishId))).limit(1)
-  return created
+  return result.notice
 }
 
 export async function deleteNotice(id: string, userId: string, parishId: string, ip: string, userAgent: string) {
-  const [existing] = await db
-    .select()
-    .from(notices)
-    .where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
-    .limit(1)
+  return runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(notices)
+      .where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
+      .limit(1)
 
-  if (!existing) return false
+    if (!existing) return false
 
-  await db.delete(notices).where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId,
-    action: 'DELETE',
-    entityType: 'notice',
-    entityId: id,
-    oldValue: JSON.stringify(existing),
-    ip,
-    userAgent,
-    parishId,
+    await tx.delete(notices).where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId,
+      action: 'DELETE',
+      entityType: 'notice',
+      entityId: id,
+      oldValue: JSON.stringify({
+        priority: existing.priority,
+        targetBranch: existing.targetBranch,
+        targetAudience: existing.targetAudience,
+        date: existing.date,
+      }),
+      ip,
+      userAgent,
+      parishId,
+    })
+    return true
   })
-
-  return true
 }
 
 export async function updateNotice(
@@ -105,39 +118,45 @@ export async function updateNotice(
   ip: string,
   userAgent: string
 ) {
-  const [existing] = await db
-    .select()
-    .from(notices)
-    .where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
-    .limit(1)
+  return runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(notices)
+      .where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
+      .limit(1)
 
-  if (!existing) return null
+    if (!existing) return null
 
-  const now = new Date().toISOString()
-  await db
-    .update(notices)
-    .set({
-      ...data,
-      updatedAt: now,
-      updatedBy: userId,
+    const now = new Date().toISOString()
+    const [updated] = await tx
+      .update(notices)
+      .set({
+        ...data,
+        updatedAt: now,
+        updatedBy: userId,
+      })
+      .where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
+      .returning()
+
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId,
+      action: 'UPDATE',
+      entityType: 'notice',
+      entityId: id,
+      oldValue: JSON.stringify({
+        priority: existing.priority,
+        targetBranch: existing.targetBranch,
+        targetAudience: existing.targetAudience,
+        date: existing.date,
+      }),
+      newValue: JSON.stringify({ changedFields: Object.keys(data).filter(key => key !== 'title' && key !== 'content' && key !== 'author') }),
+      ip,
+      userAgent,
+      parishId,
+      createdAt: now,
     })
-    .where(and(eq(notices.id, id), eq(notices.parishId, parishId)))
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId,
-    action: 'UPDATE',
-    entityType: 'notice',
-    entityId: id,
-    oldValue: JSON.stringify(existing),
-    newValue: JSON.stringify(data),
-    ip,
-    userAgent,
-    parishId,
-    createdAt: now,
+    return updated
   })
-
-  const [updated] = await db.select().from(notices).where(and(eq(notices.id, id), eq(notices.parishId, parishId))).limit(1)
-  return updated
 }
 

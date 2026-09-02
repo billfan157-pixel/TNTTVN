@@ -15,7 +15,11 @@ import { decryptQueueValue } from '../lib/offlineCipher'
 import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
 import { getTenantScope } from '../lib/tenantScope'
-import { readSyncCursor, writeSyncCursor } from '../lib/syncCursor'
+import {
+  captureSyncCursorScope,
+  readSyncCursor,
+  writeSyncCursorIfScopeMatches,
+} from '../lib/syncCursor'
 import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'
 import * as Sentry from '@sentry/react'
 import {
@@ -42,9 +46,10 @@ export { extractZodBadIndexes, flushGradeBatchWithIsolation, flushAttendanceBatc
 
 const SYNC_INTERVAL_MS = 30000
 
-async function commitPullCursor(serverTime: string): Promise<void> {
-  await writeSyncCursor(serverTime)
-  useSyncStore.getState().setLastSync(serverTime)
+async function commitPullCursor(serverTime: string, expectedScopeKey: string | null): Promise<boolean> {
+  const committed = await writeSyncCursorIfScopeMatches(serverTime, expectedScopeKey)
+  if (committed) useSyncStore.getState().setLastSync(serverTime)
+  return committed
 }
 
 /**
@@ -140,9 +145,10 @@ export function useSyncEngine() {
         // Không có pending ops — dùng delta bền nếu đã có cursor, nếu chưa thì bootstrap full.
         // Reuse the durable tenant/user cursor after reload. When no cursor exists,
         // fetchAllData automatically performs a full bootstrap pull.
+        const pullScopeKey = captureSyncCursorScope()
         const pullResult = await fetchAllData(true)
         if (pullResult.ok && pullResult.queryTime) {
-          await commitPullCursor(pullResult.queryTime)
+          await commitPullCursor(pullResult.queryTime, pullScopeKey)
         }
       }
 
@@ -155,9 +161,10 @@ export function useSyncEngine() {
       if (studentCount === 0 && navigator.onLine) {
         // An empty local roster with a durable cursor is not a valid delta base.
         // Force a full pull so a partially-cleared IndexedDB cannot stay empty.
+        const healScopeKey = captureSyncCursorScope()
         const healResult = await fetchAllData(false)
         if (healResult.ok && healResult.queryTime) {
-          await commitPullCursor(healResult.queryTime)
+          await commitPullCursor(healResult.queryTime, healScopeKey)
         }
       }
     })
@@ -418,9 +425,10 @@ export async function runSyncFlow(leaseHeld = false) {
     const failedCount = await db.syncQueue.where('status').equals('failed').count()
     const totalConflicts = syncState.mergedConflictCount
     if (finalCount === 0) {
+      const pullScopeKey = captureSyncCursorScope()
       const pullResult = await fetchAllData(true)
       if (pullResult.ok && pullResult.queryTime) {
-        await commitPullCursor(pullResult.queryTime)
+        await commitPullCursor(pullResult.queryTime, pullScopeKey)
       }
       s.setStatus(navigator.onLine ? 'idle' : 'offline')
 

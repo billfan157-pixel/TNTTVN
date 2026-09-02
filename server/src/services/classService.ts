@@ -299,6 +299,9 @@ export async function assignUserToClass(
       .limit(1)
     if (!user) return { error: 'NOT_FOUND', message: 'Người dùng không tồn tại' }
     if (user.status !== 'ACTIVE') return { error: 'USER_INACTIVE', message: 'Tài khoản đã bị vô hiệu hóa' }
+    if (!['admin', 'chunhiem', 'phuta'].includes(user.role)) {
+      return { error: 'ASSIGNMENTS_NOT_ALLOWED', message: 'Chỉ tài khoản nhân sự được phân công lớp' }
+    }
 
     if (roleInClass === 'chunhiem') {
       const [existingCn] = await tx
@@ -310,7 +313,9 @@ export async function assignUserToClass(
           eq(catechistAssignments.roleInClass, 'chunhiem'),
         ))
         .limit(1)
-      if (existingCn) return { error: 'ALREADY_HAS_CN', message: 'Lớp này đã có giáo viên chủ nhiệm' }
+      if (existingCn && existingCn.userId !== userId) {
+        return { error: 'ALREADY_HAS_CN', message: 'Lớp này đã có giáo viên chủ nhiệm' }
+      }
 
       const [userIsCnElsewhere] = await tx
         .select()
@@ -321,7 +326,9 @@ export async function assignUserToClass(
           eq(catechistAssignments.roleInClass, 'chunhiem'),
         ))
         .limit(1)
-      if (userIsCnElsewhere) return { error: 'USER_ALREADY_CN', message: 'Người dùng này đã là chủ nhiệm của lớp khác' }
+      if (userIsCnElsewhere && userIsCnElsewhere.classId !== classId) {
+        return { error: 'USER_ALREADY_CN', message: 'Người dùng này đã là chủ nhiệm của lớp khác' }
+      }
     }
 
     const [existing] = await tx
@@ -388,6 +395,127 @@ export async function assignUserToClass(
   })
 
   return result
+}
+
+export async function replaceClassAssignments(
+  classId: string,
+  selection: { homeroomTeacherId: string | null; assistantTeacherIds: string[] },
+  adminUserId: string,
+  parishId: string,
+  ip: string,
+  userAgent: string,
+) {
+  const assistantTeacherIds = [...new Set(selection.assistantTeacherIds)]
+  if (selection.homeroomTeacherId && assistantTeacherIds.includes(selection.homeroomTeacherId)) {
+    return { error: 'DUPLICATE_ASSIGNMENT_ROLE', message: 'Một nhân sự không thể đồng thời là chủ nhiệm và phụ tá của cùng lớp' }
+  }
+
+  return runDbTransaction(async (tx) => {
+    const [cls] = await tx
+      .select({ id: classes.id })
+      .from(classes)
+      .where(and(eq(classes.id, classId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      .limit(1)
+    if (!cls) return { error: 'NOT_FOUND', message: 'Lớp học không tồn tại' }
+
+    const requestedUserIds = [
+      ...(selection.homeroomTeacherId ? [selection.homeroomTeacherId] : []),
+      ...assistantTeacherIds,
+    ]
+    const requestedUsers = requestedUserIds.length === 0
+      ? []
+      : await tx
+          .select({ id: users.id, role: users.role, status: users.status })
+          .from(users)
+          .where(and(eq(users.parishId, parishId), inArray(users.id, requestedUserIds)))
+
+    if (requestedUsers.length !== requestedUserIds.length) {
+      return { error: 'NOT_FOUND', message: 'Có nhân sự không tồn tại trong giáo xứ hiện tại' }
+    }
+    if (requestedUsers.some(user => user.status !== 'ACTIVE')) {
+      return { error: 'USER_INACTIVE', message: 'Có tài khoản nhân sự đã bị vô hiệu hóa' }
+    }
+    if (requestedUsers.some(user => !['admin', 'chunhiem', 'phuta'].includes(user.role))) {
+      return { error: 'ASSIGNMENTS_NOT_ALLOWED', message: 'Chỉ tài khoản nhân sự được phân công lớp' }
+    }
+
+    if (selection.homeroomTeacherId) {
+      const [otherHomeroom] = await tx
+        .select({ classId: catechistAssignments.classId })
+        .from(catechistAssignments)
+        .where(and(
+          eq(catechistAssignments.parishId, parishId),
+          eq(catechistAssignments.userId, selection.homeroomTeacherId),
+          eq(catechistAssignments.roleInClass, 'chunhiem'),
+        ))
+        .limit(1)
+      if (otherHomeroom && otherHomeroom.classId !== classId) {
+        return { error: 'USER_ALREADY_CN', message: 'Người dùng này đã là chủ nhiệm của lớp khác' }
+      }
+    }
+
+    const previous = await tx
+      .select({ userId: catechistAssignments.userId, roleInClass: catechistAssignments.roleInClass })
+      .from(catechistAssignments)
+      .where(and(eq(catechistAssignments.classId, classId), eq(catechistAssignments.parishId, parishId)))
+
+    await tx.delete(catechistAssignments).where(and(
+      eq(catechistAssignments.classId, classId),
+      eq(catechistAssignments.parishId, parishId),
+    ))
+
+    const now = new Date().toISOString()
+    const nextAssignments: Array<{
+      id: string
+      userId: string
+      classId: string
+      roleInClass: 'chunhiem' | 'phuta'
+      parishId: string
+      createdAt: string
+      updatedAt: string
+      updatedBy: string
+    }> = []
+    if (selection.homeroomTeacherId) {
+      nextAssignments.push({
+        id: generateId('ASG'),
+        userId: selection.homeroomTeacherId,
+        classId,
+        roleInClass: 'chunhiem',
+        parishId,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: adminUserId,
+      })
+    }
+    for (const userId of assistantTeacherIds) {
+      nextAssignments.push({
+        id: generateId('ASG'),
+        userId,
+        classId,
+        roleInClass: 'phuta',
+        parishId,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: adminUserId,
+      })
+    }
+    if (nextAssignments.length > 0) await tx.insert(catechistAssignments).values(nextAssignments)
+
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: adminUserId,
+      action: 'REPLACE_CLASS_ASSIGNMENTS',
+      entityType: 'class',
+      entityId: classId,
+      oldValue: JSON.stringify(previous),
+      newValue: JSON.stringify(nextAssignments.map(({ userId, roleInClass }) => ({ userId, roleInClass }))),
+      ip,
+      userAgent,
+      parishId,
+    })
+
+    return { ok: true }
+  })
 }
 
 export async function removeUserFromClass(

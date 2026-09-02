@@ -2942,6 +2942,17 @@ B tái sử dụng component, giữ URL state/deep link và không đổi API/sc
 
 - Baseline consolidation trước amendment: targeted role-tab + route policy/migration contract **4 files / 29 tests PASS**. Amendment + ADR-092 parent boundary được xác minh lại trong security-critical **7 files / 72 tests PASS** và full serialized/coverage **279 files / 1,944 tests PASS**; client/server TypeScript, production build và design-system lint **0/119** PASS. Post-implementation D2 scores Security 9, Privacy 9, Data Integrity 9, Testability 9 — **KEEP**.
 
+### Amendment 2026-09-02 — một index drill-down, giữ lưới lớp cũ
+
+Yêu cầu sản phẩm mới là `CONFIRMED`: bỏ hai cửa sổ/tab lặp nhưng giữ thiết kế dạng lưới lớp. Phương án được chọn là **B2 — single drill-down index**: trong mục `Danh Sách & Lớp`, trạng thái toàn bộ lớp render catalog card grid; chọn lớp mới render roster. Đây không phải phương án C bị loại phía trên vì class form và roster không cùng hiển thị đồng thời; mutation vẫn nằm trong modal và server giữ authority.
+
+1. Desktop và mobile bỏ tab `Lớp Học`; legacy `view=classes` normalize về `view=students` và reset về catalog để deep link cũ không vỡ.
+2. `DesktopClasses` thêm presentation option `layout='grid'`; default standalone responsive-table vẫn tương thích. Grid giữ visual navy–gold cũ, 2/3/4 cột theo viewport, dùng class-card button semantic và action edit/delete độc lập.
+3. Admin có CRUD/phân công; GLV dùng cùng catalog read-only để duyệt roster. Không mở thêm API hoặc write scope.
+4. Audit luồng đồng bộ phát hiện `fetchClasses(updatedAfter)` từng full-replace khi response delta rỗng, làm mất catalog client. Contract được sửa thành mọi incremental response đều merge; empty delta là no-op, full pull mới replace.
+5. ADR compatibility: ADR-030/063/079 **PASS**; ADR-016 incremental sync **PASS WITH AMENDMENT**; ADR-031/045 tenant/minimization **PASS**; ADR-092 RBAC **PASS**. D2 hậu kiểm: Security & Privacy **9**, Data Integrity **9**, Testability **9** — hard gates **PASS / KEEP**. Rollback R1, không schema/data migration.
+6. Evidence trước final CI: UI/store component tests **4 files / 30 tests PASS**; Playwright affected paths **3/3 PASS**, gồm protected viewport/theme WCAG subset, create-class persistence và grid → roster → create-student persistence. Final serialized/coverage/build evidence được ghi ở ADR-099 sau khi hoàn tất cùng snapshot.
+
 ---
 
 ## ADR-091: Superfast 2D Keyboard Navigation, Cross-Platform Tactile Haptics & Accessible Ergonomics (2026-09-01)
@@ -3237,4 +3248,108 @@ This is a D2 extension under the ARCHITECTURE + SECURITY profiles. Option A (new
 - The user must select branch and class, review parser errors/warnings and preview normalized questions before import. `POST /questions/import` accepts 1–100 normalized rows, validates the complete payload and every branch against the JWT parish, then inserts all draft items, immutable version 1 rows and metadata-only audits in one transaction. Provenance is forced to `import`; client input cannot publish or masquerade as AI/human provenance.
 - Mammoth and SheetJS remain user-triggered lazy chunks and are excluded from PWA install-time precache. Rollback R1 removes the import button/route and dependency while retaining any already imported draft/version records under the normal lifecycle.
 - Focused acceptance on this amendment: Question Bank API, DOCX conversion, draft modal and PWA lazy policy **4 files / 13 tests PASS**; server and frontend production builds PASS. Full-suite, physical-device and hostile DOCX corpus claims are not made by this focused evidence.
+
+---
+
+## ADR-098: Tenant-safe Parish Activity Cache and Server-Acknowledged Event Mutations (2026-09-02)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profile: SECURITY. Reversibility: R1.**
+
+### Problem, evidence and business classification
+
+`parishEventStore` previously read and wrote one plaintext `localStorage` key (`parish_calendar_events_v1`) for every account/tenant. Hydration returned every row and even assigned missing tenant IDs from current auth/default. When create/update/delete API calls failed, the store fabricated a local event, changed a local row or removed it, then returned success. This creates two confirmed risks from E3 source evidence: an offline/account-switch path can project a previous parish's events, and UI success can represent a mutation never committed by the server.
+
+Tenant isolation and no false-success data loss are **CONFIRMED hard requirements** from project priority, ADR-031 and the professional parish-portal objective. Liturgical calculation remaining offline is **CONFIRMED**. Durable offline mutation of parish events is **NOT CONFIRMED**; the old local fallback had no queue, receipt, idempotency or reconciliation and therefore was not evidence of reliable offline writes.
+
+### Options and Decision Matrix
+
+| Criterion | Weight | A: shared local fallback | B: scoped read cache + server-ack writes | C: full event sync queue |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 4 | 9 | 8 |
+| Privacy | 15% | 4 | 9 | 8 |
+| Data Integrity | 20% | 3 | 9 | 9 |
+| Reliability | 15% | 3 | 8 | 9 |
+| Testability | 10% | 4 | 9 | 7 |
+| Maintainability | 10% | 7 | 9 | 6 |
+| Operational Fit | 5% | 6 | 9 | 7 |
+| Reversibility | 5% | 9 | 9 | 6 |
+| **Weighted** | **100%** | **4.15 — REJECT** | **8.80 — SELECT** | **7.85 — DEFER** |
+
+A fails D3 Security, Privacy and Data Integrity. C is viable only after adding server idempotency/receipt semantics and sync reconciliation; implementing a client queue against the current non-idempotent POST would preserve duplicate risk. B removes the confirmed violation now without schema migration or pretending offline writes exist.
+
+### Decision contract
+
+1. Active tenant comes only from `tenantScope`. Event store starts empty and is cleared on session reset; it never guesses `'gia-ton'` or assigns tenant IDs to legacy rows.
+2. Read cache uses encrypted `dexieStorage`, automatically scoped by `parishId:userId`. Only rows whose `parishId` exactly matches active scope are accepted. The old plaintext global key is removed; migration accepts exact-tenant rows only.
+3. A server list containing any foreign-tenant row is rejected as a whole. A pending response is ignored after request sequence or tenant scope changes.
+4. Create/update/delete project into memory/cache only after API acknowledgement. Network/server failure keeps prior state, records an error and throws to the UI. No temporary event, optimistic delete or false success toast is allowed.
+5. Backend roles remain authority: `admin|chunhiem` mutate, authenticated roles read. Desktop/mobile controls mirror this fail-closed; workspace/title/term never grants permission.
+6. Organization dashboard uses a pure local-calendar read model: fourteen dates starting today (today is day 1), stable sort by date/time/title, maximum four results. Cached/unavailable data receives an explicit semantic warning.
+7. Liturgical engine and already cached read/export remain available offline. Durable offline event mutation requires a future D3 decision with idempotency key/receipt, owned queue item, retry and server reconciliation.
+
+### Gates, compatibility, risk and rollback
+
+- **D3 hard gates:** Security **9 PASS** (exact scope + stale response guard); Privacy **9 PASS** (encrypted per-user/tenant cache and removal of global plaintext); Data Integrity **9 PASS** (server acknowledgement before projection); Testability **9 PASS** (store/range/RBAC regressions). Confidence HIGH from E2/E3 evidence.
+- **ADR compatibility:** ADR-016 PASS (no unsupported queue entity added); ADR-031 PASS; ADR-045 PASS; ADR-081 PASS (server authority/no fake Parish Memory mutation); ADR-082 PASS (workspace is still IA only). The historical calendar local-only write rule is superseded by this safer contract; the offline liturgical engine is unchanged.
+- **Risks:** losing uncommitted convenience while offline (medium probability/low impact) is mitigated by explicit error and read cache; cache encryption/storage failure (low/low) falls back to server without affecting committed data; production device/account-switch behavior remains an external smoke gate.
+- **Rollback:** R1 for code and docs, no API/schema/data migration. Reverting to the shared plaintext/fake-success behavior is not an acceptable rollback while the finding remains valid; safe rollback is server-only reads/writes with no event cache.
+
+### Verification and reassessment
+
+Focused regression **5 files / 26 tests PASS**, covering exact tenant filter, mixed response fail-closed, stale account/tenant switch, encrypted-cache fallback, failed mutation state preservation, 14-day boundaries and RBAC mapping. Final serialized Vitest **295 files / 2,008 tests PASS**. Frontend TypeScript, Vite production/PWA build, server TypeScript, oxlint, design-system lint **0/127** and `git diff --check` PASS. Physical-device multi-account/offline UX remains NOT CONFIRMED. Post-implementation result: **KEEP**; Security/Privacy/Data Integrity/Testability remain 9/9/9/9.
+
+---
+
+## ADR-099: Operational State, Audit and HTML Output Hardening (2026-09-02)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profiles: SECURITY + ARCHITECTURE. Reversibility: R1.**
+
+### Problem, evidence and classification
+
+A repository-wide E3 audit after ADR-098 confirmed multiple defects sharing the same failure mode:
+
+1. Grade-import undo metadata and native-push enable/disable flags were device-global, so another account on the same device could inherit operational state. Explicit native push disable also used `Promise.allSettled`, reporting off even when server unlink failed.
+2. Personnel paste import issued sequential per-person requests. A mid-loop failure left a partial batch; a successful write followed by failed refetch was reported as failure and encouraged duplicate retry.
+3. Financial receipt HTML interpolated business/user strings into an about:blank `document.write` sink. Other exam `srcDoc` previews had no capability sandbox; print popups retained an opener unless explicitly cleared.
+4. Question create/revise/blueprint did not consistently validate optional branch ownership. Exam build checked class assignment and selected mutable bank rows before its materialization transaction, leaving a TOCTOU boundary.
+5. Attendance, parish events, native token binding, notices, leave requests, settings, semester locks and promotion could commit the domain mutation separately from audit. Several accepted regex-shaped but impossible dates. Class UI swallowed assignment request failures and could leave partial teacher selection while showing success; the legacy assignment API did not reject parent accounts.
+
+Tenant isolation, truthful acknowledgement, immutable audit pairing, answer-key integrity and output escaping are **CONFIRMED** requirements. Durable offline editing for Question Bank/events, AI generation, shared question marketplace and automatic external asset proxying are **NOT CONFIRMED** and remain outside this decision.
+
+### Options and Decision Matrix
+
+| Criterion | Weight | A — keep local/separate writes | B — targeted scoped state + atomic authority | C — rewrite all modules/event sourcing |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 4 | 9 | 9 |
+| Privacy | 15% | 4 | 9 | 9 |
+| Data Integrity | 20% | 4 | 9 | 9 |
+| Reliability | 15% | 5 | 9 | 8 |
+| Testability | 10% | 5 | 9 | 6 |
+| Maintainability | 10% | 6 | 8 | 5 |
+| Operational Fit | 5% | 5 | 9 | 4 |
+| Reversibility | 5% | 9 | 9 | 3 |
+| **Weighted** | **100%** | **4.75 — REJECT** | **8.85 — SELECT** | **7.55 — DEFER** |
+
+A fails D3 Security, Privacy and Data Integrity gates. C would replace proven Exam/sync/domain paths without evidence that the migration risk is justified. B repairs the confirmed boundaries while retaining existing server RBAC, schemas and user workflows.
+
+### Decision contract
+
+1. Operational client markers that vary by account use exact `parishId:userId` scope. Grade undo uses encrypted `dexieStorage`, TTL/schema/count validation and discards unscoped legacy data. Native push keeps only the installation UUID device-global; preference/success markers are account-scoped, in-flight token registration is invalidated on scope change, and explicit disable succeeds only after server unlink succeeds.
+2. Personnel import parses quoted CSV/TSV, accepts only exact statuses and real birth-year bounds, blocks when any row is invalid, caps at 100 and calls one admin-only all-or-nothing service transaction. A post-commit refresh failure marks the projection stale but does not report the write as failed.
+3. HTML builders escape every user/business field. Print content loads through Blob URLs rather than `document.write`; new windows sever `opener`; every `srcDoc` preview is sandboxed with no capabilities. External Parish Profile images do not passive-load from arbitrary hosts and explicit viewing uses no referrer.
+4. Every optional Question Bank branch reference is verified inside the corresponding tenant-scoped write transaction. Exam build uses one transaction for class existence/assignment, blueprint/current ACTIVE version selection, shortage/type gates, session, immutable snapshots, variants and audit.
+5. Date-only business fields reject calendar-impossible values through one strict UTC-safe `isValidIsoDate` helper. Attendance note/reason/content PII remains in its domain table and is not copied into new audit metadata.
+6. Attendance, parish-event, native-token, notice, leave-request, settings, semester-lock and promotion writes pair domain change with redacted audit in the same retry-aware transaction. Notification delivery remains post-commit best-effort and cannot turn a committed notice/leave review into a false write failure. Partial-success batch summaries are diagnostic; the item transaction is authoritative.
+7. Class assignments are replaced through one admin-only endpoint and transaction after validating active staff roles and tenant ownership. A parent cannot be assigned even via the legacy single endpoint. UI reports success only after class and full assignment selection are acknowledged; after a newly created class commits, retry continues against that ID instead of creating a duplicate.
+
+### Gates, compatibility, risk and rollback
+
+- **D3 hard gates:** Security **9 PASS**, Privacy **9 PASS**, Data Integrity **9 PASS**, Testability **9 PASS** from source inspection and direct regressions. Full-suite/device gates are reported separately and cannot upgrade unverified physical behavior.
+- **ADR compatibility:** ADR-009 PASS (attendance remains partial-success per item); ADR-013 PASS WITH CLARIFICATION (external notification side effects stay outside domain transaction; mandatory audit is part of the state-change integrity boundary); ADR-016 PASS; ADR-028 PASS WITH AMENDMENT; ADR-031 PASS; ADR-045 PASS; ADR-081 PASS; ADR-094 PASS; ADR-095/096/098 PASS WITH HARDENING.
+- **Risk:** larger atomic sections may expose latent DB contention (low/medium, mitigated by `runDbTransaction` retry and bounded batches); old device-global flags are intentionally not migrated (low/low, user may opt in again); class assignment replace is all-or-nothing and UI currently submits at most one assistant (low/low, matching existing UI contract).
+- **Rollback:** code/docs are R1 and schema-free. Safe rollback may disable affected UI commands or fall back to server-only behavior; restoring plaintext/global state, unsandboxed HTML or split domain/audit commits is prohibited while findings remain valid.
+
+### Verification and reassessment
+
+Frozen-snapshot `npm run verify:ci` PASS: oxlint sạch; design-system lint **0/127**; client/server TypeScript và production frontend/PWA/server build PASS (**2,789 modules**, **233 precache entries**); serialized coverage **301/301 files, 2,054/2,054 tests PASS** với Statements **70.16%**, Branches **59.42%**, Functions **63.46%**, Lines **72.74%**. Critical browser suite đạt **10/10** theo run ban đầu và targeted rerun của hai failure đã sửa; sau amendment lưới lớp, affected E2E **3/3 PASS** gồm viewport/theme accessibility, class persistence và class-grid → roster → student persistence. Capacitor Android sync tìm đúng 3 plugin; `assembleDebug` **BUILD SUCCESSFUL / 185 tasks**, APK 12,943,542 bytes. Production dependency audit **0 vulnerability** và `git diff --check` PASS. Production credentials, physical-device push/biometric/camera behavior, OMR field accuracy và restore drills vẫn là external gates và không được suy ra từ automated build.
 

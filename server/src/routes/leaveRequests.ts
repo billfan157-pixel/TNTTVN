@@ -2,22 +2,23 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { eq, and, desc, inArray } from 'drizzle-orm'
-import { authMiddleware,  getUserClassIds, checkUserClassAccess, isAdmin } from '../middleware/auth.js'
+import { authMiddleware, getUserClassIds, isAdmin } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, errorResponse, listResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
-import { db } from '../db/index.js'
-import { leaveRequests, students, classes, attendance, users, auditLogs, telegramLinks } from '../db/schema.js'
+import { db, runDbTransaction } from '../db/index.js'
+import { leaveRequests, students, classes, attendance, users, auditLogs, telegramLinks, catechistAssignments } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { getMyChildren } from '../services/parentService.js'
 import { sendTelegramMessageToChat } from '../services/telegram.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const leaveRequestsRouter = new Hono()
 leaveRequestsRouter.use('*', authMiddleware)
 
 const createLeaveRequestSchema = z.object({
   studentId: z.string().min(1, 'studentId không được để trống'),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải theo định dạng YYYY-MM-DD'),
+  date: z.string().refine(isValidIsoDate, 'Ngày phải là ngày YYYY-MM-DD có thật'),
   sessionTypes: z.array(z.enum(['SundayMass', 'CatechismClass', 'EucharisticAdoration'])).min(1, 'Phải chọn ít nhất một buổi cần xin phép'),
   reason: z.string().trim().min(3, 'Lý do xin nghỉ phải có ít nhất 3 ký tự').max(500),
   parentName: z.string().trim().optional(),
@@ -92,39 +93,34 @@ leaveRequestsRouter.post('/', zValidator('json', createLeaveRequestSchema), asyn
   const now = new Date().toISOString()
   const sessionTypesJson = JSON.stringify(body.sessionTypes)
 
-  await db.insert(leaveRequests).values({
-    id: requestId,
-    parishId: user.parishId,
-    studentId: student.id,
-    classId: student.classId,
-    parentId,
-    parentName,
-    parentPhone,
-    date: body.date,
-    sessionTypes: sessionTypesJson,
-    reason: body.reason,
-    status: 'PENDING',
-    createdAt: now,
-    updatedAt: now,
-  })
-
-  // Audit log
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'CREATE_LEAVE_REQUEST',
-    entityType: 'leave_request',
-    entityId: requestId,
-    newValue: JSON.stringify({
+  await runDbTransaction(async (tx) => {
+    await tx.insert(leaveRequests).values({
+      id: requestId,
+      parishId: user.parishId,
       studentId: student.id,
-      studentName: student.fullName,
+      classId: student.classId,
+      parentId,
+      parentName,
+      parentPhone,
       date: body.date,
-      sessionTypes: body.sessionTypes,
+      sessionTypes: sessionTypesJson,
       reason: body.reason,
-    }),
-    ip,
-    userAgent,
-    parishId: user.parishId,
+      status: 'PENDING',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'CREATE_LEAVE_REQUEST',
+      entityType: 'leave_request',
+      entityId: requestId,
+      // Privacy: reason/name/phone remain in the domain row, not duplicated in audit.
+      newValue: JSON.stringify({ studentId: student.id, classId: student.classId, date: body.date, sessionTypes: body.sessionTypes, status: 'PENDING' }),
+      ip,
+      userAgent,
+      parishId: user.parishId,
+    })
   })
 
   return successResponse(c, {
@@ -273,14 +269,6 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
     return errorResponse(c, 'INVALID_STATE', `Đơn xin nghỉ này đã được xử lý (${request.status})`, 400)
   }
 
-  // Kiểm tra quyền đối với lớp học
-  if (!isAdmin(user)) {
-    const hasAccess = await checkUserClassAccess(user.userId, user.parishId, request.classId)
-    if (!hasAccess) {
-      return errorResponse(c, 'FORBIDDEN', 'Bạn không được phân công quản lý lớp học của thiếu nhi này', 403)
-    }
-  }
-
   const now = new Date().toISOString()
   const [userDb] = await db
     .select({ fullName: users.fullName, holyName: users.holyName })
@@ -299,9 +287,22 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
     parsedSessionTypes = ['SundayMass']
   }
 
-  // Cập nhật trạng thái đơn và đồng bộ điểm danh trong 1 transaction
-  await db.transaction(async (tx) => {
-    await tx
+  // State/authorization, domain writes and audit share one transaction. The
+  // PENDING predicate makes concurrent reviewers deterministic: only one wins.
+  const reviewResult = await runDbTransaction(async (tx) => {
+    if (!isAdmin(user)) {
+      const [assignment] = await tx.select({ id: catechistAssignments.id })
+        .from(catechistAssignments)
+        .where(and(
+          eq(catechistAssignments.userId, user.userId),
+          eq(catechistAssignments.parishId, user.parishId),
+          eq(catechistAssignments.classId, request.classId),
+        ))
+        .limit(1)
+      if (!assignment) return 'forbidden' as const
+    }
+
+    const updated = await tx
       .update(leaveRequests)
       .set({
         status,
@@ -311,7 +312,13 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
         reviewedAt: now,
         updatedAt: now,
       })
-      .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.parishId, user.parishId)))
+      .where(and(
+        eq(leaveRequests.id, requestId),
+        eq(leaveRequests.parishId, user.parishId),
+        eq(leaveRequests.status, 'PENDING'),
+      ))
+      .returning({ id: leaveRequests.id })
+    if (updated.length === 0) return 'conflict' as const
 
     // Nếu DUYỆT (APPROVED): Tự động đồng bộ sang bảng attendance (AbsentExcused)
     if (status === 'APPROVED') {
@@ -355,25 +362,27 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
         }
       }
     }
+
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'REVIEW_LEAVE_REQUEST',
+      entityType: 'leave_request',
+      entityId: requestId,
+      newValue: JSON.stringify({ status, sessionTypes: parsedSessionTypes }),
+      ip,
+      userAgent,
+      parishId: user.parishId,
+    })
+    return 'ok' as const
   })
 
-  // Audit log
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'REVIEW_LEAVE_REQUEST',
-    entityType: 'leave_request',
-    entityId: requestId,
-    newValue: JSON.stringify({
-      status,
-      reviewerName,
-      reviewNote,
-      sessionTypes: parsedSessionTypes,
-    }),
-    ip,
-    userAgent,
-    parishId: user.parishId,
-  })
+  if (reviewResult === 'forbidden') {
+    return errorResponse(c, 'FORBIDDEN', 'Bạn không được phân công quản lý lớp học của thiếu nhi này', 403)
+  }
+  if (reviewResult === 'conflict') {
+    return errorResponse(c, 'INVALID_STATE', 'Đơn xin nghỉ vừa được xử lý bởi người khác', 409)
+  }
 
   // Telegram notification nếu phụ huynh đã liên kết
   if (request.parentId) {
@@ -426,36 +435,54 @@ leaveRequestsRouter.delete('/:id', async (c) => {
     return errorResponse(c, 'FORBIDDEN', 'Bạn chỉ có thể hủy đơn xin nghỉ do chính mình nộp', 403)
   }
 
-  if (user.role !== 'admin' && user.role !== 'phuhuynh') {
-    const hasClassAccess = await checkUserClassAccess(user.userId, user.parishId, request.classId)
-    if (!hasClassAccess) {
-      return errorResponse(c, 'FORBIDDEN', 'Bạn không được phân công quản lý lớp học của thiếu nhi này', 403)
-    }
-  }
-
   if (request.status !== 'PENDING') {
     return errorResponse(c, 'INVALID_STATE', 'Chỉ có thể hủy đơn đang ở trạng thái chờ duyệt', 400)
   }
 
-  await db
-    .update(leaveRequests)
-    .set({
-      status: 'CANCELLED',
-      updatedAt: new Date().toISOString(),
-    })
-    .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.parishId, user.parishId)))
+  const cancelResult = await runDbTransaction(async (tx) => {
+    if (user.role !== 'admin' && user.role !== 'phuhuynh') {
+      const [assignment] = await tx.select({ id: catechistAssignments.id })
+        .from(catechistAssignments)
+        .where(and(
+          eq(catechistAssignments.userId, user.userId),
+          eq(catechistAssignments.parishId, user.parishId),
+          eq(catechistAssignments.classId, request.classId),
+        ))
+        .limit(1)
+      if (!assignment) return 'forbidden' as const
+    }
 
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'CANCEL_LEAVE_REQUEST',
-    entityType: 'leave_request',
-    entityId: requestId,
-    newValue: JSON.stringify({ status: 'CANCELLED' }),
-    ip,
-    userAgent,
-    parishId: user.parishId,
+    const updated = await tx
+      .update(leaveRequests)
+      .set({ status: 'CANCELLED', updatedAt: new Date().toISOString() })
+      .where(and(
+        eq(leaveRequests.id, requestId),
+        eq(leaveRequests.parishId, user.parishId),
+        eq(leaveRequests.status, 'PENDING'),
+      ))
+      .returning({ id: leaveRequests.id })
+    if (updated.length === 0) return 'conflict' as const
+
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'CANCEL_LEAVE_REQUEST',
+      entityType: 'leave_request',
+      entityId: requestId,
+      newValue: JSON.stringify({ status: 'CANCELLED' }),
+      ip,
+      userAgent,
+      parishId: user.parishId,
+    })
+    return 'ok' as const
   })
+
+  if (cancelResult === 'forbidden') {
+    return errorResponse(c, 'FORBIDDEN', 'Bạn không được phân công quản lý lớp học của thiếu nhi này', 403)
+  }
+  if (cancelResult === 'conflict') {
+    return errorResponse(c, 'INVALID_STATE', 'Đơn xin nghỉ vừa được xử lý bởi người khác', 409)
+  }
 
   return successResponse(c, { ok: true, id: requestId, status: 'CANCELLED' })
 })

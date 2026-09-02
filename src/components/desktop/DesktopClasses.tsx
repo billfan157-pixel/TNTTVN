@@ -13,6 +13,7 @@ import { DesktopAppShell } from './DesktopAppShell'
 import { FormField } from '../common/FormField'
 import { PageHeader } from '../common/PageHeader'
 import { sortClassesByHierarchy } from '../../utils/classSort'
+import { BRANCHES } from '../../constants/branches'
 
 interface TeacherOption {
   id: string
@@ -20,7 +21,9 @@ interface TeacherOption {
   username: string
 }
 
-export function DesktopClasses({ embedded = false, onViewClassStudents }: { embedded?: boolean; onViewClassStudents?: (classId: string) => void } = {}) {
+type DesktopClassesLayout = 'responsive-table' | 'grid'
+
+export function DesktopClasses({ embedded = false, layout = 'responsive-table', onViewClassStudents }: { embedded?: boolean; layout?: DesktopClassesLayout; onViewClassStudents?: (classId: string) => void } = {}) {
   const navigate = useNavigate()
   const { classes, branches, academicYears, loading, fetchClasses, fetchBranches, fetchAcademicYears, createClass, updateClass, deleteClass } = useClassStore()
   const { role } = useAuth()
@@ -51,8 +54,6 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
   const [teachers, setTeachers] = useState<TeacherOption[]>([])
   const [homeroomTeacherId, setHomeroomTeacherId] = useState('')
   const [assistantTeacherId, setAssistantTeacherId] = useState('')
-  const [prevHomeroom, setPrevHomeroom] = useState('')
-  const [prevAssistants, setPrevAssistants] = useState<string[]>([])
 
   useEffect(() => {
     fetchClasses()
@@ -65,8 +66,6 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
     setForm({ code: '', name: '', branchId: branches[0]?.id || '', academicYearId: academicYears[0]?.id || '', room: '' })
     setHomeroomTeacherId('')
     setAssistantTeacherId('')
-    setPrevHomeroom('')
-    setPrevAssistants([])
     api.getAvailableTeachers().then(setTeachers).catch(() => setTeachers([]))
     setShowModal(true)
   }
@@ -77,26 +76,15 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
     setForm({ code: c.code, name: c.name, branchId: c.branchId, academicYearId: c.academicYearId, room: c.room || '' })
     setHomeroomTeacherId(c.homeroomTeacher?.id || '')
     setAssistantTeacherId(c.assistants?.[0]?.id || '')
-    setPrevHomeroom(c.homeroomTeacher?.id || '')
-    setPrevAssistants((c.assistants || []).map(a => a.id))
     api.getAvailableTeachers().then(setTeachers).catch(() => setTeachers([]))
     setShowModal(true)
   }
 
   const reconcileAssignments = async (classId: string) => {
-    if (prevHomeroom && prevHomeroom !== homeroomTeacherId) {
-      await api.unassignClassTeacher(classId, prevHomeroom).catch(() => {})
-    }
-    if (homeroomTeacherId && homeroomTeacherId !== prevHomeroom) {
-      await api.assignClassTeacher(classId, homeroomTeacherId, 'chunhiem').catch(() => {})
-    }
-    const removed = prevAssistants.filter(id => id !== assistantTeacherId && id !== homeroomTeacherId)
-    for (const rid of removed) {
-      await api.unassignClassTeacher(classId, rid).catch(() => {})
-    }
-    if (assistantTeacherId && !prevAssistants.includes(assistantTeacherId) && assistantTeacherId !== homeroomTeacherId) {
-      await api.assignClassTeacher(classId, assistantTeacherId, 'phuta').catch(() => {})
-    }
+    await api.replaceClassAssignments(classId, {
+      homeroomTeacherId: homeroomTeacherId || null,
+      assistantTeacherIds: assistantTeacherId && assistantTeacherId !== homeroomTeacherId ? [assistantTeacherId] : [],
+    })
   }
 
   const handleSave = async () => {
@@ -112,14 +100,16 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
       if (editingId) {
         await updateClass(editingId, form)
         savedId = editingId
-        useToastStore.getState().addToast('Đã cập nhật lớp học thành công!', 'success')
       } else {
         const created = await createClass(form)
         savedId = created.id
-        useToastStore.getState().addToast('Đã tạo lớp học mới thành công!', 'success')
+        // Nếu phân công thất bại sau khi class đã commit, lần thử lại phải update
+        // đúng class vừa tạo thay vì tạo thêm một class mới.
+        setEditingId(savedId)
       }
       await reconcileAssignments(savedId)
       await fetchClasses()
+      useToastStore.getState().addToast(editingId ? 'Đã cập nhật lớp học thành công!' : 'Đã tạo lớp học mới thành công!', 'success')
       setShowModal(false)
     } catch {
       useToastStore.getState().addToast('Có lỗi xảy ra khi lưu lớp học. Vui lòng thử lại!', 'error')
@@ -200,17 +190,26 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
         }
       />}
 
-      {embedded && canEdit && (
-        <div className="flex justify-end">
-          {academicYears.length === 0 ? (
-            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5" onClick={() => navigate({ to: '/academic-years' })}>
+      {embedded && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-parish-primary-light text-parish-primary">
+              <BookOpen aria-hidden="true" size={20} />
+            </span>
+            <div>
+              <h2 className="m-0 text-base font-black text-text-main">Lớp Học</h2>
+              <p className="m-0 mt-0.5 text-xs font-medium text-text-muted">Chọn lớp để xem thiếu nhi; admin có thể tạo và phân công ngay tại đây.</p>
+            </div>
+          </div>
+          {canEdit && (academicYears.length === 0 ? (
+            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5 self-start sm:self-auto" onClick={() => navigate({ to: '/academic-years' })}>
               <Calendar size={16} /> Tạo Năm Học Trước
             </button>
           ) : (
-            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5" onClick={openCreate}>
+            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5 self-start sm:self-auto" onClick={openCreate}>
               <Plus size={16} /> Thêm Lớp
             </button>
-          )}
+          ))}
         </div>
       )}
 
@@ -231,6 +230,91 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
         </div>
       )}
 
+      {layout === 'grid' ? (
+        loading ? (
+          <SkeletonTable rows={4} cols={2} />
+        ) : sortedClasses.length === 0 ? (
+          <EmptyState
+            icon={School}
+            title="Chưa có lớp học nào"
+            description="Hãy tạo lớp học đầu tiên cho niên khóa hiện tại để bắt đầu xếp danh sách thiếu nhi."
+            actionLabel={canEdit ? "Thêm lớp học" : undefined}
+            onAction={canEdit ? openCreate : undefined}
+          />
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+            {sortedClasses.map(c => {
+              const branch = BRANCHES[c.branchId as keyof typeof BRANCHES]
+              return (
+                <article
+                  key={c.id}
+                  className="group relative overflow-hidden rounded-2xl border border-surface-border bg-surface-card transition-[border-color,box-shadow,transform] hover:border-parish-primary/30 hover:shadow-md"
+                >
+                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-parish-primary/0 via-parish-primary/40 to-parish-gold/40 opacity-0 transition-opacity group-hover:opacity-100" />
+                  <button
+                    type="button"
+                    onClick={() => viewClassStudents(c.id)}
+                    aria-label={`Xem danh sách lớp ${c.name}`}
+                    className="flex w-full flex-col gap-3 bg-transparent p-3 text-left active:scale-[0.99] sm:p-4"
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-xs font-black sm:h-10 sm:w-10"
+                        style={{
+                          background: branch?.badgeBg || 'var(--color-parish-primary-light)',
+                          color: branch?.textColor || 'var(--color-parish-primary)',
+                          borderColor: branch?.scarfColor ? `${branch.scarfColor}40` : 'var(--color-surface-border)',
+                        }}
+                      >
+                        {c.name.slice(0, 2).toUpperCase()}
+                      </span>
+                      <span className="rounded-full border border-surface-border bg-surface-hover px-2 py-1 text-xs font-black text-text-main transition-colors group-hover:border-parish-primary group-hover:bg-parish-primary group-hover:text-text-inverse sm:px-2.5">
+                        {c.studentCount ?? 0} em
+                      </span>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-extrabold leading-tight text-text-main" title={c.name}>{c.name}</span>
+                      <span className="mt-1 flex items-center gap-1.5 text-xs text-text-muted">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: branch?.scarfColor || 'var(--color-parish-success)' }} />
+                        <span className="truncate">{c.branchName || branch?.name || c.branchId}{c.room ? ` • ${c.room}` : ''}</span>
+                      </span>
+                      {c.homeroomTeacher && (
+                        <span className="mt-1 flex items-center gap-1 truncate text-xs text-text-muted">
+                          <Users aria-hidden="true" size={10} /> {c.homeroomTeacher.fullName}
+                        </span>
+                      )}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-parish-primary">
+                      Xem danh sách <Eye aria-hidden="true" size={13} />
+                    </span>
+                  </button>
+                  {canEdit && (
+                    <div className="flex items-center justify-end gap-1 border-t border-surface-border px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(c)}
+                        className="btn btn-ghost btn-sm inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2"
+                        aria-label={`Sửa lớp ${c.name}`}
+                      >
+                        <Pencil aria-hidden="true" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(c.id)}
+                        className="btn btn-ghost btn-sm inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2 text-parish-danger hover:bg-parish-danger-bg"
+                        aria-label={`Xóa lớp ${c.name}`}
+                      >
+                        <Trash2 aria-hidden="true" size={14} />
+                      </button>
+                    </div>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+        )
+      ) : (
+      <>
       {/* Mobile Card List View (< md) */}
       <div className="block md:hidden space-y-3">
         {loading ? (
@@ -398,18 +482,23 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
                 </tr>
               ) : (
                 sortedClasses.map((c, idx) => (
-                  <tr key={c.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors cursor-pointer" onClick={() => viewClassStudents(c.id)}>
+                  <tr key={c.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                     <td className="py-2.5 px-3 font-semibold text-text-muted">{idx + 1}</td>
                     <td className="py-2.5 px-3">
                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-parish-primary-light text-parish-primary text-xs font-bold">
                         <Hash size={12} /> {c.code}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-semibold text-parish-primary hover:underline text-base">
-                      <span className="inline-flex items-center gap-1">
+                    <td className="py-2.5 px-3 font-semibold text-parish-primary text-base">
+                      <button
+                        type="button"
+                        onClick={() => viewClassStudents(c.id)}
+                        aria-label={`Xem danh sách lớp ${c.name}`}
+                        className="inline-flex items-center gap-1 bg-transparent p-0 font-semibold text-parish-primary hover:underline"
+                      >
                         {c.name}
                         <Eye size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </span>
+                      </button>
                     </td>
                     <td className="py-2.5 px-3 text-text-muted">{c.branchName || getBranchName(c.branchId)}</td>
                     <td className="py-2.5 px-3 text-text-muted">
@@ -454,6 +543,8 @@ export function DesktopClasses({ embedded = false, onViewClassStudents }: { embe
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {showModal && (
         <ModalShell

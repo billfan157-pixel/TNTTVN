@@ -251,8 +251,8 @@ Client: `src/lib/pushManager.ts` (`initPushSubscription`/`disablePushSubscriptio
 | `GET /api/notifications/vapid-public-key` | VAPID public key để client `PushManager.subscribe` | auth (mọi role) | `{ publicKey: string \| null, configured: boolean }` — 200 ngay cả khi chưa cấu hình (`{ publicKey: null, configured:false }` để tránh browser log 501 spam; client skip debug, không lỗi) — legacy 501 `VAPID_NOT_CONFIGURED` vẫn được client bắt để tương thích deploy cũ |
 | `POST /api/notifications/subscribe` | Lưu PushSubscription (endpoint + p256dh + auth) | auth | `{ ok: true }` | — (idempotent, endpoint UNIQUE) |
 | `POST /api/notifications/unsubscribe` | Xóa subscription theo endpoint | auth | `{ ok: true }` | — |
-| `POST /api/notifications/native/register` | Bind token OS với installation UUID và user/parish lấy từ JWT; cùng installation/token được chuyển atomically về account hiện tại | auth | `{ ok: true }` | 400 validation |
-| `POST /api/notifications/native/unregister` | Xóa installation chỉ khi thuộc đúng user + parish hiện tại | auth | `{ ok: true }` | 400 validation |
+| `POST /api/notifications/native/register` | Bind token OS với installation UUID và user/parish lấy từ JWT; token write + redacted audit commit trong cùng transaction; cùng installation/token được chuyển atomically về account hiện tại | auth | `{ ok: true }` | 400 validation |
+| `POST /api/notifications/native/unregister` | Xóa installation chỉ khi thuộc đúng user + parish hiện tại; delete + audit cùng transaction | auth | `{ ok: true }` | 400 validation |
 | `POST /api/notifications/send` | Fan-out ngay Web Push + FCM/APNs cho toàn giáo xứ; `url` bắt buộc là route nội bộ `/...` | admin | `{ configured,sent,failed,total,removed,skipped,channels }` | 501 `PUSH_PROVIDER_NOT_CONFIGURED` |
 | `GET /api/notifications/subscriptions` | Đếm binding theo giáo xứ, không trả endpoint/token | admin | `{ count, web, native }` | 401/403 |
 
@@ -269,9 +269,9 @@ Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ 
 ### Client flow (pushManager)
 1. `main.tsx` → `registerServiceWorkerOnly()` là owner duy nhất của SW (`vite.config.ts: injectRegister=false`): web đăng ký `/sw.js` sớm, KHÔNG hỏi permission; Capacitor native không đăng ký, đồng thời unregister worker/cache PWA còn sót từ build cũ mà không đụng Dexie/auth/offline queue (ADR-088).
 2. Web sau login → `initPushSubscription()`: permission 'default' → hỏi 1 lần; lấy VAPID key → subscribe/re-sync. Endpoint upsert luôn chuyển ownership về JWT hiện tại để đổi account không giữ subscription cũ.
-3. Native chỉ hỏi quyền khi user bấm **Bật** ở Cài đặt. Khi permission đã granted và không opt-out, login/launch/resume gọi plugin register để lấy token mới rồi POST `/native/register`; client chỉ persist UUID installation + preference, không persist token.
-4. Logout → Web unsubscribe; native khởi động request `/native/unregister` trước khi access token memory-only bị xóa rồi unregister OS provider. Soft-delete user cũng xóa cả hai loại binding.
-4. SW: `push` → `showNotification(icon: /pwa-icon.svg)`; `notificationclick` → focus window hiện có hoặc `openWindow(url)`.
+3. Native chỉ hỏi quyền khi user bấm **Bật** ở Cài đặt. Khi permission đã granted và không opt-out, login/launch/resume gọi plugin register để lấy token mới rồi POST `/native/register`; client chỉ persist UUID installation + preference scope `parishId:userId`, không persist token. Scope đổi trong khi chờ token phải fail-closed.
+4. Người dùng bấm **Tắt** chỉ được đánh dấu disabled sau khi `/native/unregister` thành công; lỗi server phải nổi lỗi và giữ trạng thái bật để tránh false-success. Logout vẫn cố unregister best-effort trước khi access token memory-only bị xóa, rồi unregister OS provider. Soft-delete user cũng xóa cả hai loại binding.
+5. SW: `push` → `showNotification(icon: /pwa-icon.svg)`; `notificationclick` → focus window hiện có hoặc `openWindow(url)`.
 - Yêu cầu web: secure context. Native dùng FCM/APNs và **không** dùng Web Push/Service Worker trong WebView (ADR-088).
 
 ### Delivery semantics (SSOT webPushService)
@@ -505,7 +505,7 @@ Client: `src/lib/api.ts` (`undoGradeImport`) · Server: `server/src/routes/grade
 - **Status per item**: `restored` (UPDATE → về trạng thái trước import), `deleted` (CREATE → xóa bảng điểm mới), `not-found` (không có học sinh/bảng điểm), `no-audit` (không có audit để restore), `not-clean` (entry mới nhất không phải CREATE/UPDATE — đã có thay đổi/undo sau đợt nhập → từ chối), `expired` (quá 7 ngày), `forbidden` (chunhiem không có lớp), `locked` (học kỳ đã khóa sổ).
 - **Điều kiện áp dụng**: trong vòng **7 ngày** kể từ lần ghi gần nhất; mỗi item 1 transaction riêng (pattern `upsertGradeBatch`); version +1 sau restore (client phải refetch).
 - **Audit**: mỗi item ghi `GRADE_UNDO` (entityType `grade`, oldValue = trạng thái trước undo, newValue = trạng thái sau / `null` khi xóa).
-- **Client flow**: sau import thành công, `ExcelGradeImportModal` lưu snapshot `{ studentIds, semester, academicYear, at, count }` vào localStorage (`gradeImportSnapshot`) → hiển thị nút "Hoàn Tác Đợt Nhập Trước (N)" (ẩn sau 7 ngày) → xác nhận qua dialog tùy chỉnh (A4 — không còn native confirm/alert) → gọi API → dialog kết quả số bản ghi khôi phục được → xóa snapshot → `useGradeStore.fetchGrades()`. Nếu không có bản ghi nào khôi phục được (hết hạn / đã thay đổi), dialog hiển thị lý do đầu tiên và hướng dẫn sửa tay.
+- **Client flow**: sau import thành công, `ExcelGradeImportModal` lưu marker `{ studentIds, semester, academicYear, at, count }` mã hóa qua `dexieStorage`, scope `parishId:userId`, cap 500 ID và TTL 7 ngày → hiển thị nút "Hoàn Tác Đợt Nhập Trước (N)" → xác nhận qua dialog tùy chỉnh → gọi API → dialog kết quả → xóa marker → `useGradeStore.fetchGrades()`. Snapshot sai schema/tenant, trùng ID, quá hạn hoặc plaintext legacy đều bị bỏ fail-closed. Nếu không có bản ghi nào khôi phục được, dialog hiển thị lý do đầu tiên và hướng dẫn sửa tay.
 
 ## 14. LEAVE REQUESTS API (`/api/leave-requests`) — ADR-033 (2026-08-14)
 
@@ -545,7 +545,7 @@ Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`)
 | `POST` | `/api/classes` | Trùng `(parish, code, academicYear)` hoặc FK sai trả rõ nghĩa thay vì 500 | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
 | `PUT` | `/api/classes/:id` | Như trên | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
 
-UI canonical (ADR-090): admin quản lý lớp tại tab `/students?view=classes` trên desktop/mobile. GLV không được render tab/mutation controls; server `POST|PUT|DELETE /api/classes` và assignment endpoints vẫn là authority admin-only. `/classes` được giữ làm deep-link admin tương thích.
+UI canonical (ADR-090, amendment 2026-09-02): desktop/mobile dùng một mục `/students?view=students` có nhãn `Danh Sách & Lớp`. Khi `selectedClassId='all'`, UI render lưới thẻ lớp; bấm `Xem danh sách` đặt class filter và render roster của lớp trong cùng mục. Admin thấy create/edit/delete/phân công; GLV không thấy mutation controls. `view=classes` cũ normalize về index kết hợp, `/classes` vẫn là deep-link admin tương thích, và server `POST|PUT|DELETE /api/classes` cùng assignment endpoints vẫn là authority admin-only. Với `GET /api/classes?updatedAfter=...`, mảng rỗng là delta rỗng và client phải giữ catalog hiện có; chỉ full pull không có `updatedAfter` mới thay thế toàn bộ catalog.
 | `POST` | `/api/academic-years/:id/copy` · `/:id/promote` | Năm đích bắt buộc định dạng `YYYY-YYYY` | 400 `COPY_YEAR_ERROR` / `PROMOTE_ERROR` kèm message định dạng |
 
 `PromoteSummary` (response của `/promote`) thêm trường `warnings: { studentId, reason }[]` — học sinh không được chuyển lớp do thiếu lớp cùng `code` ở năm mới (PRM-F4); năm học vẫn `PROMOTED`, admin xử lý thủ công.
@@ -589,8 +589,13 @@ Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/khô
 | `POST /api/students/validate` + `/import` | `rows ≤ 2000` | 400 zod validation |
 | `POST /api/grades/batch` | `grades ≤ 2000` | 400 zod validation |
 | `POST /api/attendance/batch` | `records ≤ 500` | 400 zod validation |
+| `POST /api/parish-profile/people/import` | `people 1..100` | 400 zod/domain validation; cả batch rollback nếu một row lỗi |
 
 > Lưu ý sync client: sync engine gửi toàn bộ pending grades trong 1 call — cap 2000 đủ dư địa nhiều lớp; nếu tương lai vượt cần chunk phía client.
+
+### Atomic class assignments (ADR-099)
+
+`PUT /api/classes/:id/assignments` (admin-only) nhận `{ homeroomTeacherId: string|null, assistantTeacherIds: string[0..20] }` và thay toàn bộ selection trong một transaction cùng audit. ID phải thuộc account active cùng tenant với role `admin|chunhiem|phuta`; một người không thể giữ hai vai trò trong cùng lớp, chủ nhiệm không thể đồng thời chủ nhiệm lớp khác. Lỗi trả 400/404 và giữ nguyên assignment cũ. `POST`/`DELETE` single-assignment được giữ tương thích nhưng cũng áp role/tenant guard.
 
 ### Student roster import contract (ADR-064, 2026-08-28)
 
@@ -618,6 +623,23 @@ Client chỉ ghi cursor Dexie scope `parishId:userId` sau khi students/classes/g
 
 ---
 
+## 18A. PARISH EVENTS API (`/api/parish-events`, ADR-098)
+
+Tenant luôn lấy từ JWT; client không gửi `parishId`. `GET` dành cho authenticated roles; `POST|PUT|DELETE` chỉ `admin|chunhiem` tại server. Mọi lookup/update/delete mang `(parish_id,id)` và soft-delete không được trả trong list.
+
+| Method/path | Contract |
+| :--- | :--- |
+| `GET /api/parish-events?from=&to=&category=` | Trả events cùng tenant, có thể giới hạn ngày/category; client từ chối toàn response nếu có row khác tenant. |
+| `POST /api/parish-events` | Server sinh ID/timestamps; event + redacted audit commit cùng transaction rồi mới trả row. Client chỉ thêm row sau response thành công. |
+| `PUT /api/parish-events/:id` | Tenant-scoped read-before-write/read-back + audit trong cùng transaction; client giữ row cũ nếu request lỗi. |
+| `DELETE /api/parish-events/:id` | Soft delete + audit cùng transaction và tenant scope; client chỉ bỏ row sau acknowledgement. |
+
+Cache sự kiện là read-only encrypted Dexie projection scope `parishId:userId`. Khi API đọc lỗi, UI có thể hiển thị cache kèm trạng thái stale; khi mutation lỗi phải báo thất bại, không tạo ID tạm, không ghi local-only và không xóa optimistic. Key plaintext global `parish_calendar_events_v1` bị loại bỏ an toàn; legacy row thiếu exact `parishId` không được migrate. Lịch phụng vụ tính toán không phụ thuộc API và vẫn hoạt động offline.
+
+Mọi `date`/`from`/`to` phải là ngày `YYYY-MM-DD` tồn tại thật; chuỗi đúng regex nhưng bất khả thi như `2026-02-30` trả 400.
+
+---
+
 ## 19. PARISH PROFILE API (`/api/parish-profile`, ADR-081)
 
 Tất cả endpoint yêu cầu auth và tenant lấy từ JWT, không nhận `parishId` từ body. `GET` cho `admin|chunhiem|phuta`; mọi mutation chỉ `admin`; `phuhuynh` trả 403. Response snapshot gồm `profile`, `people`, `units`, `terms`, `records`, `assets`, derived `timeline`, admin-only `accounts` và `permissions`.
@@ -627,6 +649,7 @@ Tất cả endpoint yêu cầu auth và tenant lấy từ JWT, không nhận `pa
 | `GET /api/parish-profile` | Admin nhận draft/archived/restricted; staff chỉ nhận active/published/STAFF projection. |
 | `PUT /profile` | Upsert tên, bổn mạng, ngày thành lập, khẩu hiệu, giới thiệu. |
 | `POST|PUT|DELETE /people[/:id]` | Hồ sơ identity tổ chức. `linkedUserId` phải cùng tenant và unique trên active profile. |
+| `POST /people/import` | Admin-only; `{ people: ParishPersonInput[1..100] }`; năm sinh 1900..năm hiện tại, trạng thái enum exact. Tạo people + audit trong một transaction, một lỗi rollback cả batch; trả `{ importedCount, people }`. |
 | `POST|PUT|DELETE /units[/:id]` | Đơn vị/cây tổ chức; service chặn parent cross-tenant và cycle. |
 | `POST|PUT|DELETE /terms[/:id]` | Nhiệm kỳ, chức vụ, cấp bậc; references tenant-scoped, date range hợp lệ. |
 | `POST|PUT|DELETE /records[/:id]` | Cột mốc/hoạt động/thành tích; person/asset links commit atomically. |
@@ -660,17 +683,17 @@ Base `/api/question-bank`; mọi endpoint yêu cầu JWT và role `admin|chunhie
 | Endpoint | Contract |
 | :--- | :--- |
 | `GET /questions` | Filter `search,status,questionType,branchId,curriculumLevel,difficulty,lessonFrom,lessonTo,topic,limit,offset`; chỉ tenant hiện tại. |
-| `POST /questions` | Tạo item nháp + immutable version 1. |
+| `POST /questions` | Tạo item nháp + immutable version 1; optional `branchId` phải cùng tenant và được kiểm trong transaction. |
 | `POST /questions/import` | Body `{items: QuestionContent[1..100]}`. Server ép `provenance=import`, xác minh mọi `branchId` cùng JWT parish và ghi toàn batch thành draft/version 1 trong một transaction. Trả `{importedCount,questionIds,status:'draft'}`; một dòng lỗi không tạo partial rows. |
 | `GET /questions/:id` | Current version, version history và usage history cùng tenant. |
-| `PUT /questions/:id` | Tạo version mới; không overwrite version cũ. |
+| `PUT /questions/:id` | Tạo version mới; không overwrite version cũ; optional `branchId` được kiểm cùng tenant trong transaction. |
 | `POST /questions/:id/lifecycle` | `{action: submit|reject|approve|activate|archive}` theo role/state machine. |
-| `GET|POST /blueprints` | Liệt kê hoặc tạo blueprint nháp với ordered rules. |
+| `GET|POST /blueprints` | Liệt kê hoặc tạo blueprint nháp với ordered rules; optional `branchId` phải cùng tenant trong transaction. |
 | `GET /blueprints/:id` | Blueprint và rules. |
 | `POST /blueprints/:id/status` | Admin đặt `active|archived`. |
-| `POST /exams/build` | Manual `questionIds` hoặc `blueprintId`, cộng class/subject/scoreType/semester/year/maxScore/variantCount. Class access bắt buộc; trả Exam đã materialize. |
+| `POST /exams/build` | Manual `questionIds` hoặc `blueprintId`, cộng class/subject/scoreType/semester/year/maxScore/variantCount. Một transaction bao trọn class-access hiện thời, selection/current versions, session/snapshot/manifest/audit; trả Exam đã materialize. |
 
-`BLUEPRINT_SHORTAGE` và `QUESTION_TYPE_NOT_MATERIALIZABLE` trả 422 và không tạo partial session. Client không queue authoring/build offline; session được tạo thành công xuất hiện trong luồng Smart Exam hiện hành.
+`QUESTION_BRANCH_INVALID` trả 400 cho branch không thuộc tenant. `BLUEPRINT_SHORTAGE` và `QUESTION_TYPE_NOT_MATERIALIZABLE` trả 422 và không tạo partial session. Client không queue authoring/build offline; session được tạo thành công xuất hiện trong luồng Smart Exam hiện hành.
 
 Client import không upload file binary lên API. `QuestionBankImportModal` đọc `.xlsx|.xls|.csv|.docx` tối đa 5 MB tại thiết bị, dùng parser hiện hữu/Mammoth raw text, giới hạn 50 câu/file, hiển thị preview rồi ánh xạ lớp đã chọn thành `branchId + curriculumLevel=class.name`. `.doc`, ảnh và object nhúng không thuộc contract. Nút tạo câu hỏi chỉ mount `QuestionEditorModal` khi mở; form nháp không còn chiếm chỗ thường trực trong trang.
 

@@ -47,7 +47,12 @@ describe('MobileViewsEnhancement Tests', () => {
     useClassStore.setState({
       classes: [
         { id: 'cls-1', name: 'Ấu Nhi 1', branchId: 'AuNhi', room: 'Phòng 1', activeYear: '2026-2027', order: 1 } as any
-      ]
+      ],
+      branches: [{ id: 'AuNhi', name: 'Ấu Nhi' }] as any,
+      academicYears: [{ id: '2026-2027', startDate: '2026-09-01', endDate: '2027-05-31', status: 'OPEN' }] as any,
+      fetchClasses: vi.fn(),
+      fetchBranches: vi.fn(),
+      fetchAcademicYears: vi.fn(),
     })
     useStudentStore.setState({
       students: [
@@ -152,6 +157,7 @@ describe('MobileViewsEnhancement Tests', () => {
 
   describe('MobileStudentsView', () => {
     it('shows class management only for admin and keeps phuta read-only', () => {
+      useFilterStore.setState({ selectedClassId: 'all' })
       const dummyHandlers = {
         workspace: 'students' as const,
         onWorkspaceChange: vi.fn(),
@@ -166,10 +172,13 @@ describe('MobileViewsEnhancement Tests', () => {
 
       const { rerender } = render(<MobileStudentsView {...dummyHandlers} />)
       expect(screen.getByText('Thăng Tiến')).toBeInTheDocument()
-      expect(screen.getByText('Lớp Học')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Danh Sách & Lớp' })).toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: 'Lớp Học' })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Lớp Học' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Thêm Lớp/i })).toBeInTheDocument()
 
-      fireEvent.click(screen.getByText('Lớp Học'))
-      expect(dummyHandlers.onWorkspaceChange).toHaveBeenCalledWith('classes')
+      fireEvent.click(screen.getAllByRole('button', { name: /Xem Danh Sách/i })[0])
+      expect(dummyHandlers.onViewClassStudents).toHaveBeenCalled()
 
       // Switch to phuta role
       useAuthStore.setState({
@@ -178,14 +187,15 @@ describe('MobileViewsEnhancement Tests', () => {
 
       rerender(<MobileStudentsView {...dummyHandlers} />)
       expect(screen.queryByText('Thăng Tiến')).not.toBeInTheDocument()
-      expect(screen.queryByText('Lớp Học')).not.toBeInTheDocument()
+      expect(screen.queryByRole('tab', { name: 'Lớp Học' })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Lớp Học' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Thêm Lớp/i })).not.toBeInTheDocument()
       expect(screen.queryByText('Thêm em')).not.toBeInTheDocument()
       expect(screen.queryByText('Nhập Excel')).not.toBeInTheDocument()
       expect(screen.queryByText('Gửi KQ')).not.toBeInTheDocument()
 
-      useFilterStore.setState({ selectedClassId: 'all' })
+      useFilterStore.setState({ selectedClassId: 'cls-1' })
       rerender(<MobileStudentsView {...dummyHandlers} />)
-      fireEvent.click(screen.getByRole('button', { name: /Ấu Nhi 1/ }))
       expect(useFilterStore.getState().selectedClassId).toBe('cls-1')
       expect(screen.getByText('Nguyễn Văn A')).toBeInTheDocument()
     })

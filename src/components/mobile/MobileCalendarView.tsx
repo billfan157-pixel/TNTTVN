@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { useParishEventStore } from '../../stores/parishEventStore'
+import { useAuthStore } from '../../stores/authStore'
 import { useToastStore } from '../../stores/toastStore'
 import {
   getLiturgicalDay,
@@ -32,11 +33,14 @@ import type { ParishEvent } from '../../stores/parishEventStore'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { ModalPortal } from '../common/ModalPortal'
+import { canManageParishEvents } from '../../utils/parishPortal'
 
 export const MobileCalendarView: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [selectedDay, setSelectedDay] = useState<LiturgicalDay>(getLiturgicalDay(new Date()))
   const { events: parishEvents, fetchEvents, createEvent, updateEvent, deleteEvent } = useParishEventStore()
+  const role = useAuthStore(state => state.user?.role)
+  const canManageEvents = canManageParishEvents(role)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingEvent, setEditingEvent] = useState<ParishEvent | null>(null)
   const [formDate, setFormDate] = useState(() => getLiturgicalDay(new Date()).date)
@@ -139,8 +143,12 @@ export const MobileCalendarView: React.FC = () => {
       variant: 'danger',
     })
     if (!confirmed) return
-    await deleteEvent(ev.id)
-    useToastStore.getState().addToast('Đã xóa', 'success')
+    try {
+      await deleteEvent(ev.id)
+      useToastStore.getState().addToast('Đã xóa', 'success')
+    } catch (error) {
+      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Không thể xóa sự kiện', 'error')
+    }
   }
 
   const dayHeaders = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
@@ -335,7 +343,7 @@ export const MobileCalendarView: React.FC = () => {
                 description: `${selectedDay.seasonName} • Bậc lễ: ${selectedDay.rankName}\n${selectedDay.readings?.gospelVerse ? `Lời Chúa: "${selectedDay.readings.gospelVerse}"` : ''}`,
                 location: 'Giáo Xứ Gia Tôn',
               })
-              window.open(url, '_blank')
+              window.open(url, '_blank', 'noopener,noreferrer')
             }}
             className="btn btn-secondary text-xs font-bold w-full flex items-center justify-center gap-1.5 py-2"
           >
@@ -351,12 +359,16 @@ export const MobileCalendarView: React.FC = () => {
           <h5 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
             <CalendarIcon size={13} className="text-parish-primary" /> Sự Kiện Xứ Đoàn ({selectedDayParishEvents.length})
           </h5>
-          <button onClick={handleOpenAdd} className="px-2.5 py-1 rounded-full bg-parish-primary text-white text-xs font-bold flex items-center gap-1 min-h-[44px]">
-            <Plus size={12} /> Thêm
-          </button>
+          {canManageEvents && (
+            <button onClick={handleOpenAdd} className="px-2.5 py-1 rounded-full bg-parish-primary text-white text-xs font-bold flex items-center gap-1 min-h-[44px]">
+              <Plus size={12} /> Thêm
+            </button>
+          )}
         </div>
         {selectedDayParishEvents.length === 0 ? (
-          <p className="text-xs text-text-muted italic py-2">Chưa có sự kiện — bấm Thêm để tạo.</p>
+          <p className="text-xs text-text-muted italic py-2">
+            {canManageEvents ? 'Chưa có sự kiện — bấm Thêm để tạo.' : 'Chưa có sự kiện Xứ đoàn trong ngày này.'}
+          </p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {selectedDayParishEvents.map((ev) => (
@@ -365,8 +377,8 @@ export const MobileCalendarView: React.FC = () => {
                   <span className="font-bold text-text-main flex-1 truncate">{ev.title}</span>
                   <span className="flex items-center gap-1 shrink-0">
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">{ev.categoryName || ev.category}</span>
-                    <button onClick={() => handleOpenEdit(ev)} className="p-1 rounded-md hover:bg-surface-card" aria-label="Sửa"><Pencil size={12} /></button>
-                    <button onClick={() => handleDelete(ev)} className="p-1 rounded-md hover:bg-rose-50 text-text-muted hover:text-rose-600" aria-label="Xóa"><Trash2 size={12} /></button>
+                    {canManageEvents && <button onClick={() => handleOpenEdit(ev)} className="p-1 rounded-md hover:bg-surface-card" aria-label="Sửa"><Pencil size={12} /></button>}
+                    {canManageEvents && <button onClick={() => handleDelete(ev)} className="p-1 rounded-md hover:bg-rose-50 text-text-muted hover:text-rose-600" aria-label="Xóa"><Trash2 size={12} /></button>}
                   </span>
                 </div>
                 {(ev.time || ev.location) && (

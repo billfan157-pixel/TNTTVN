@@ -15,54 +15,17 @@ import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { ModalShell } from './ModalShell'
 import { StudentName } from './StudentName'
 import * as Sentry from '@sentry/react'
+import {
+  clearGradeImportUndoSnapshot,
+  loadGradeImportUndoSnapshot,
+  saveGradeImportUndoSnapshot,
+  type GradeImportUndoSnapshot,
+} from '../../lib/gradeImportUndoStorage'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
   semester: 1 | 2
-}
-
-// ADR-028 (2026-08-12): Snapshot đợt nhập điểm gần nhất (localStorage) — cho phép
-// hoàn tác trong vòng UNDO_IMPORT_WINDOW_MS kể cả sau khi đóng modal. Server giữ
-// cửa sổ 7 ngày (UNDO_GRADE_WINDOW_DAYS); client chỉ hiện nút khi còn hạn.
-const UNDO_IMPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-const UNDO_SNAPSHOT_KEY = 'gradeImportSnapshot'
-
-interface UndoSnapshot {
-  studentIds: string[]
-  semester: 1 | 2
-  academicYear: string
-  at: number
-  count: number
-}
-
-function loadUndoSnapshot(): UndoSnapshot | null {
-  try {
-    const raw = localStorage.getItem(UNDO_SNAPSHOT_KEY)
-    if (!raw) return null
-    const snap = JSON.parse(raw) as UndoSnapshot
-    if (Date.now() - snap.at > UNDO_IMPORT_WINDOW_MS) return null
-    if (!Array.isArray(snap.studentIds) || snap.studentIds.length === 0) return null
-    return snap
-  } catch {
-    return null
-  }
-}
-
-function saveUndoSnapshot(snap: UndoSnapshot) {
-  try {
-    localStorage.setItem(UNDO_SNAPSHOT_KEY, JSON.stringify(snap))
-  } catch {
-    // localStorage đầy/bị chặn — best-effort, không chặn import
-  }
-}
-
-function clearUndoSnapshot() {
-  try {
-    localStorage.removeItem(UNDO_SNAPSHOT_KEY)
-  } catch {
-    // ignore
-  }
 }
 
 export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semester }) => {
@@ -71,7 +34,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
   const [pastedText, setPastedText] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [importPhase, setImportPhase] = useState<'idle' | 'local' | 'syncing' | 'done'>('idle')
-  const [undoSnapshot, setUndoSnapshot] = useState<UndoSnapshot | null>(null)
+  const [undoSnapshot, setUndoSnapshot] = useState<GradeImportUndoSnapshot | null>(null)
   const [isUndoing, setIsUndoing] = useState(false)
   const [diagnosticWarnings, setDiagnosticWarnings] = useState<string[]>([])
   const [detectedColumns, setDetectedColumns] = useState<{ field: string; headerName: string; score: number }[]>([])
@@ -100,7 +63,13 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
   }, [importPhase, syncPendingCount, syncStatus])
 
   useEffect(() => {
-    if (isOpen) setUndoSnapshot(loadUndoSnapshot())
+    let cancelled = false
+    if (isOpen) {
+      void loadGradeImportUndoSnapshot().then(snapshot => {
+        if (!cancelled) setUndoSnapshot(snapshot)
+      })
+    }
+    return () => { cancelled = true }
   }, [isOpen])
 
   if (!isOpen) return null
@@ -286,14 +255,15 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
 
       // ADR-028: Ghi snapshot cho nút "Hoàn tác" — cần studentIds của đợt nhập
       // (client không biết server gradeId; server tra studentId + HK + năm).
-      saveUndoSnapshot({
+      const snapshot: GradeImportUndoSnapshot = {
         studentIds: records.map((r) => r.studentId),
         semester,
         academicYear: yearNorm,
         at: Date.now(),
         count: records.length,
-      })
-      setUndoSnapshot(loadUndoSnapshot())
+      }
+      const snapshotSaved = await saveGradeImportUndoSnapshot(snapshot)
+      setUndoSnapshot(snapshotSaved ? snapshot : null)
 
       if (online) {
         setImportPhase('syncing')
@@ -371,7 +341,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
           variant: 'info',
           showCancel: false,
         })
-        clearUndoSnapshot()
+        await clearGradeImportUndoSnapshot()
         setUndoSnapshot(null)
         useGradeStore.getState().fetchGrades()
         onClose()

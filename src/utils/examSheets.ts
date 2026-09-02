@@ -69,6 +69,7 @@ export function printQrSheet(title: string, qrSvgs: { payload: string; svg: stri
   const win = window.open('', '_blank', 'width=900,height=700')
   if (!win) return
   try {
+    try { win.opener = null } catch {}
     const url = URL.createObjectURL(new Blob([buildQrSheetHtml(title, qrSvgs)], { type: 'text/html;charset=utf-8' }))
     let printed = false
     win.location.href = url

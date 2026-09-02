@@ -8,6 +8,9 @@ import { buildQrSheetHtml, printQrSheet } from '../../utils/examSheets'
 import { ReportExportService } from '../../services/reportExportService'
 import { getCurrentAcademicYear } from '../../utils/academicYear'
 import type { Student, GradeRecord, AttendanceRecord } from '../../types'
+import { buildReceiptHtml, printReceipt, type ReceiptPrintData } from '../../utils/receiptGenerator'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 // SECURITY_AUDIT_A01 Phase 2 — các builder HTML cho popup/print phải neutral hóa
 // dữ liệu user (escapeHtml), KHÔNG document.write dữ liệu thô, popup dùng Blob URL.
@@ -16,6 +19,14 @@ vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 
 const EVIL = '<script>alert(1)</script>'
 const activeAY = getCurrentAcademicYear()
+
+function makeReceipt(overrides: Partial<ReceiptPrintData> = {}): ReceiptPrintData {
+  return {
+    type: 'INCOME', receiptNumber: 'PT-001', date: '2026-09-02', personName: 'Nguyễn Văn A',
+    amount: 100_000, category: 'Đoàn phí', title: 'Thu đoàn phí', fundName: 'Quỹ chung',
+    recordedByName: 'Thủ quỹ', ...overrides,
+  }
+}
 
 function makeStudent(overrides: Partial<Student> = {}): Student {
   return {
@@ -77,6 +88,59 @@ describe('A01 Phase 2 — popup HTML builders không nhúng dữ liệu user th�
     expect(html).toContain('&lt;script&gt;')
     // SVG do app sinh (qrcode-generator) vẫn được giữ nguyên — chỉ có <rect>
     expect(html).toContain('<rect width="1"/>')
+  })
+
+  it('buildReceiptHtml escapes every financial and identity field and contains no script', () => {
+    const html = buildReceiptHtml(makeReceipt({
+      receiptNumber: EVIL, personName: EVIL, personPhone: EVIL, className: EVIL,
+      category: EVIL, title: EVIL, description: EVIL, fundName: EVIL,
+      targetFundName: EVIL, recordedByName: EVIL, parishName: EVIL,
+      dioceseName: EVIL, unitName: EVIL, pastorName: EVIL, leaderName: EVIL,
+    }))
+    expect(html).not.toContain('<script>')
+    expect(html).not.toContain(EVIL)
+    expect(html).toContain('&lt;script&gt;')
+  })
+})
+
+describe('FIN-XSS-1 — receipt printing avoids the about:blank document.write sink', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:mock-receipt'), revokeObjectURL: vi.fn() })
+  })
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('loads escaped receipt HTML through a Blob URL and never writes the popup document', () => {
+    const fakePopup = {
+      document: { write: vi.fn(), close: vi.fn(), open: vi.fn() },
+      location: { href: '' }, opener: {} as unknown, focus: vi.fn(), print: vi.fn(),
+      onload: null as (() => void) | null,
+    }
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup as unknown as Window)
+
+    printReceipt(makeReceipt({ title: EVIL }))
+
+    expect(fakePopup.document.write).not.toHaveBeenCalled()
+    expect(fakePopup.document.open).not.toHaveBeenCalled()
+    expect(fakePopup.location.href).toBe('blob:mock-receipt')
+    expect(fakePopup.opener).toBeNull()
+    fakePopup.onload?.()
+    expect(fakePopup.print).toHaveBeenCalledOnce()
+  })
+})
+
+describe('HTML-PREVIEW-XSS-1 — srcDoc previews are capability sandboxed', () => {
+  it.each([
+    'src/components/finance/PrintReceiptModal.tsx',
+    'src/components/exam/ExamExportModal.tsx',
+    'src/components/exam/ExamPaperModal.tsx',
+  ])('%s keeps an empty sandbox on its srcDoc iframe', (relativePath) => {
+    const source = readFileSync(resolve(process.cwd(), relativePath), 'utf8')
+    const iframe = source.match(/<iframe[\s\S]*?\/>/)?.[0]
+    expect(iframe).toBeTruthy()
+    expect(iframe).toContain('srcDoc=')
+    expect(iframe).toContain('sandbox=""')
   })
 })
 

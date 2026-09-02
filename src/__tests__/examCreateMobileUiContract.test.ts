@@ -32,4 +32,10 @@ describe('create exam session mobile UI contract', () => {
     expect(source).toContain("createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'")
     expect(source).toContain('lg:col-span-7')
   })
+
+  it('renders each session card as a keyboard-operable button', () => {
+    expect(source).toContain('as="button"')
+    expect(source).toContain('type="button"')
+    expect(source).toContain("aria-label={`${s.subject} — ${sessionClass?.name || 'chưa xếp lớp'}")
+  })
 })

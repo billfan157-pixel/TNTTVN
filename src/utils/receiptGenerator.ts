@@ -3,6 +3,7 @@
  */
 import { useToastStore } from '../stores/toastStore'
 import { PARISH_LOGO_DATA_URI } from './parishLogo'
+import { escapeHtml } from './grades'
 
 export function numberToVietnameseWords(n: number): string {
   if (n === 0) return 'Không đồng'
@@ -96,6 +97,7 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
   const voucherTitle = isIncome ? 'PHIẾU THU' : isTransfer ? 'PHIẾU CHUYỂN QUỸ' : 'PHIẾU CHI'
   const personLabel = isIncome ? 'Họ và tên người nộp:' : isTransfer ? 'Người thực hiện chuyển:' : 'Họ và tên người nhận:'
   const amountWords = numberToVietnameseWords(data.amount)
+  const safe = (value: string | null | undefined) => escapeHtml(value)
 
   const formattedDate = (() => {
     try {
@@ -110,7 +112,7 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <title>${voucherTitle} - ${data.receiptNumber}</title>
+  <title>${voucherTitle} - ${safe(data.receiptNumber)}</title>
   <style>
     @page {
       size: A4 portrait;
@@ -268,14 +270,14 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
         <td class="header-left with-logo">
           <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:52px;height:52px;object-fit:contain;" />
           <div class="header-left-text">
-            <div>${data.dioceseName || 'GIÁO PHẬN'} — ${data.parishName || 'GIÁO XỨ GIA TÔN'}</div>
-            <div class="unit">${data.unitName || 'XỨ ĐOÀN ĐỨC MẸ FATIMA'}</div>
-            <div>Số sổ: <strong>${data.fundName}</strong></div>
+            <div>${safe(data.dioceseName || 'GIÁO PHẬN')} — ${safe(data.parishName || 'GIÁO XỨ GIA TÔN')}</div>
+            <div class="unit">${safe(data.unitName || 'XỨ ĐOÀN ĐỨC MẸ FATIMA')}</div>
+            <div>Số sổ: <strong>${safe(data.fundName)}</strong></div>
           </div>
         </td>
         <td class="header-right">
           <div><strong>Mẫu số: 01-${isIncome ? 'TT' : 'TC'}</strong></div>
-          <div>Số phiếu: <strong style="color: #b91c1c;">${data.receiptNumber}</strong></div>
+          <div>Số phiếu: <strong style="color: #b91c1c;">${safe(data.receiptNumber)}</strong></div>
           <div>Niên khóa: <strong>2025-2026</strong></div>
         </td>
       </tr>
@@ -285,31 +287,31 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
     <div class="voucher-title">
       <h1>${voucherTitle}</h1>
     </div>
-    <div class="voucher-date">${formattedDate}</div>
+    <div class="voucher-date">${safe(formattedDate)}</div>
 
     <!-- Content -->
     <table class="content-table">
       <tr>
         <td class="label">${personLabel}</td>
-        <td class="dots">${data.personName || '(Chưa xác định)'} ${data.className ? `— ${data.className}` : ''} ${data.personPhone ? `(SĐT: ${data.personPhone})` : ''}</td>
+        <td class="dots">${safe(data.personName || '(Chưa xác định)')} ${data.className ? `— ${safe(data.className)}` : ''} ${data.personPhone ? `(SĐT: ${safe(data.personPhone)})` : ''}</td>
       </tr>
       <tr>
         <td class="label">Hạng mục thu/chi:</td>
-        <td class="dots">${data.category}</td>
+        <td class="dots">${safe(data.category)}</td>
       </tr>
       <tr>
         <td class="label">Lý do / Trích yếu:</td>
-        <td class="dots">${data.title}</td>
+        <td class="dots">${safe(data.title)}</td>
       </tr>
       ${data.description ? `
       <tr>
         <td class="label">Diễn giải chi tiết:</td>
-        <td class="dots">${data.description}</td>
+        <td class="dots">${safe(data.description)}</td>
       </tr>` : ''}
       ${isTransfer && data.targetFundName ? `
       <tr>
         <td class="label">Chuyển đến quỹ:</td>
-        <td class="dots"><strong>${data.targetFundName}</strong></td>
+        <td class="dots"><strong>${safe(data.targetFundName)}</strong></td>
       </tr>` : ''}
     </table>
 
@@ -334,19 +336,13 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
         <th>${isIncome ? 'Người nộp tiền' : 'Người nhận tiền'}</th>
       </tr>
       <tr>
-        <td>${data.pastorName || '(Ký & ghi rõ họ tên)'}</td>
-        <td>${data.leaderName || '(Ký & ghi rõ họ tên)'}</td>
-        <td>${data.recordedByName || '(Ký & ghi rõ họ tên)'}</td>
-        <td>${data.personName || '(Ký & ghi rõ họ tên)'}</td>
+        <td>${safe(data.pastorName || '(Ký & ghi rõ họ tên)')}</td>
+        <td>${safe(data.leaderName || '(Ký & ghi rõ họ tên)')}</td>
+        <td>${safe(data.recordedByName || '(Ký & ghi rõ họ tên)')}</td>
+        <td>${safe(data.personName || '(Ký & ghi rõ họ tên)')}</td>
       </tr>
     </table>
   </div>
-
-  <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      // Auto print trigger if needed
-    })
-  </script>
 </body>
 </html>`
 }
@@ -358,11 +354,17 @@ export function printReceipt(data: ReceiptPrintData): void {
     useToastStore.getState().addToast('Trình duyệt đang chặn cửa sổ pop-up. Vui lòng cho phép pop-up để in phiếu.', 'info', 6000)
     return
   }
-  printWindow.document.open()
-  printWindow.document.write(html)
-  printWindow.document.close()
-  setTimeout(() => {
-    printWindow.focus()
-    printWindow.print()
-  }, 350)
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+  try { printWindow.opener = null } catch {}
+  printWindow.location.href = url
+  let printed = false
+  printWindow.onload = () => {
+    if (printed) return
+    printed = true
+    try {
+      printWindow.focus()
+      printWindow.print()
+    } catch {}
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }

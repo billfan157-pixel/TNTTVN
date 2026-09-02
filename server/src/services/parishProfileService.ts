@@ -330,31 +330,46 @@ export async function updateParishProfile(input: ParishProfileInput, context: Mu
   })
 }
 
+async function createParishPersonInTransaction(tx: DbTransaction, input: ParishPersonInput, context: MutationContext) {
+  await requireLinkedUser(tx, context.parishId, input.linkedUserId)
+  await assertLinkedUserAvailable(tx, context.parishId, input.linkedUserId)
+  const id = generateId('PPE')
+  const now = new Date().toISOString()
+  const row = {
+    id,
+    parishId: context.parishId,
+    linkedUserId: nullableText(input.linkedUserId),
+    holyName: nullableText(input.holyName),
+    fullName: input.fullName.trim(),
+    birthYear: input.birthYear ?? null,
+    biography: nullableText(input.biography),
+    serviceStatus: input.serviceStatus,
+    visibility: input.visibility,
+    createdBy: context.userId,
+    updatedBy: context.userId,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  }
+  await tx.insert(parishPeople).values(row)
+  await audit(tx, context, 'PARISH_PERSON_CREATE', 'parish_person', id, ['serviceStatus', 'visibility'])
+  return row
+}
+
 export async function createParishPerson(input: ParishPersonInput, context: MutationContext) {
+  return runDbTransaction(tx => createParishPersonInTransaction(tx, input, context))
+}
+
+export async function createParishPeople(inputs: ParishPersonInput[], context: MutationContext) {
+  if (inputs.length < 1 || inputs.length > 100) {
+    parishError(400, 'PARISH_PEOPLE_IMPORT_LIMIT', 'Mỗi lần chỉ được nhập từ 1 đến 100 hồ sơ nhân sự')
+  }
   return runDbTransaction(async tx => {
-    await requireLinkedUser(tx, context.parishId, input.linkedUserId)
-    await assertLinkedUserAvailable(tx, context.parishId, input.linkedUserId)
-    const id = generateId('PPE')
-    const now = new Date().toISOString()
-    const row = {
-      id,
-      parishId: context.parishId,
-      linkedUserId: nullableText(input.linkedUserId),
-      holyName: nullableText(input.holyName),
-      fullName: input.fullName.trim(),
-      birthYear: input.birthYear ?? null,
-      biography: nullableText(input.biography),
-      serviceStatus: input.serviceStatus,
-      visibility: input.visibility,
-      createdBy: context.userId,
-      updatedBy: context.userId,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
+    const people = []
+    for (const input of inputs) {
+      people.push(await createParishPersonInTransaction(tx, input, context))
     }
-    await tx.insert(parishPeople).values(row)
-    await audit(tx, context, 'PARISH_PERSON_CREATE', 'parish_person', id, ['serviceStatus', 'visibility'])
-    return row
+    return people
   })
 }
 

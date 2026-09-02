@@ -50,3 +50,20 @@ Xây dựng Organization workspace `Xứ đoàn & Giáo xứ` trong cùng Catevi
 - Modal bản ghi dùng vertical `.form-group`; layout containment và label/control overlap được kiểm tra ở 1440/390/320.
 - Playwright Axe + visual/layout + CRUD + role: **41/41 tests PASS**; Axe và visual/layout đều đạt **78/78 observations** trên ma trận mở rộng.
 - Final serialized `npm run verify:ci`: **PASS**; Vitest **264/264 files, 1,864/1,864 tests**, `lint:ds` **0/115**, client/server TypeScript và production/PWA build đều xanh.
+
+## Cập nhật Phase 2 — Cổng điều hành và độ tin cậy hoạt động (2026-09-02)
+
+### Đã triển khai
+
+- `/parish` trở thành read model điều hành: căn tính Xứ đoàn, KPI cơ cấu/nhân sự/hoạt động/tư liệu, Ban Trị Sự đương nhiệm, lịch 14 ngày, thông báo và phím tắt nghiệp vụ; vẫn dùng chung shell/token navy–gold.
+- `/parish-profile` có tìm kiếm/lọc theo phân khu, sơ đồ cơ cấu, hồ sơ nhân sự/nhiệm kỳ, lightbox tư liệu và nhập danh sách nhân sự có preview.
+- ADR-098 khóa boundary sự kiện: cache mã hóa theo tenant+user, server acknowledgement trước khi project mutation, stale/mixed-tenant response fail-closed, UI event RBAC khớp backend, portal phân biệt live/cache/unavailable.
+- Focused gate ADR-098: **5 files / 26 tests PASS**; final serialized Vitest **295 files / 2,008 tests PASS**; frontend TypeScript/Vite/PWA build, server TypeScript, oxlint, design-system lint **0/127** và diff check PASS. Real-device account-switch/offline smoke vẫn chưa chạy.
+
+### Backlog cần quyết định riêng, chưa được coi là hoàn thành
+
+1. **Vòng đời hoạt động `plan → execute → archive`**: UI chọn trực tiếp `parish_event` đã qua để tạo `parish_record.source_event_id`, tránh nhập raw ID; cần quyết định duplicate/link semantics và test transaction/reference.
+2. **Phân quyền capability chi tiết**: thay coarse role cho quyền xuất bản, kho tư liệu, duyệt hoạt động và xem đáp án; phải là additive server-authoritative ADR, không suy quyền từ chức danh/nhiệm kỳ.
+3. **Cổng truyền thông cho phụ huynh/công khai**: cần policy consent ảnh trẻ em, visibility, retention, moderation, CDN/public URL và withdrawal trước khi mở Parish Memory ra ngoài staff.
+4. **Durable offline event mutation**: chỉ thực hiện khi có yêu cầu sản phẩm xác nhận; cần idempotency receipt, queue ownership, retry/reconcile và không duplicate sau timeout.
+5. **Đo vận hành**: production R2/restore drill, multi-account device smoke, accessibility/screen-reader/physical-device và latency với dữ liệu hoạt động thực tế vẫn là release gates bên ngoài focused code evidence.

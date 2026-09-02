@@ -1,3 +1,7 @@
+import { afterAll, describe, expect, it } from 'vitest'
+import { and, eq } from 'drizzle-orm'
+import { db } from '../../db/index.js'
+import { auditLogs } from '../../db/schema.js'
 import { getNotices, createNotice, updateNotice, deleteNotice } from '../../services/noticeService.js'
 
 describe('Server noticeService Layer Unit Tests', () => {
@@ -17,12 +21,28 @@ describe('Server noticeService Layer Unit Tests', () => {
     expect(created).not.toBeNull()
     expect(created?.title).toBe('Thông báo Kiểm Tra Đầu Năm')
     createdNoticeId = created!.id
+
+    const [audit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, 'thanh-gia'),
+      eq(auditLogs.entityId, createdNoticeId),
+      eq(auditLogs.action, 'CREATE'),
+    ))
+    expect(audit).toBeDefined()
+    expect(audit.newValue).not.toContain(noticeData.title)
+    expect(audit.newValue).not.toContain(noticeData.content)
   })
 
   it('updateNotice modifies existing parish notice', async () => {
     const updated = await updateNotice(createdNoticeId, { title: 'Thông báo Đã Đổi Tên' }, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
     expect(updated).not.toBeNull()
     expect(updated?.title).toBe('Thông báo Đã Đổi Tên')
+
+    const [audit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, 'thanh-gia'),
+      eq(auditLogs.entityId, createdNoticeId),
+      eq(auditLogs.action, 'UPDATE'),
+    ))
+    expect(audit.newValue).not.toContain('Thông báo Đã Đổi Tên')
   })
 
   it('getNotices fetches list of notices for parish', async () => {
@@ -35,6 +55,10 @@ describe('Server noticeService Layer Unit Tests', () => {
   it('deleteNotice removes specified notice by id', async () => {
     const deleted = await deleteNotice(createdNoticeId, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
     expect(deleted).toBe(true)
+  })
+
+  afterAll(async () => {
+    if (createdNoticeId) await db.delete(auditLogs).where(and(eq(auditLogs.parishId, 'thanh-gia'), eq(auditLogs.entityId, createdNoticeId)))
   })
 })
 

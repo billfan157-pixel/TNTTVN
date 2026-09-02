@@ -371,7 +371,8 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - **OrganizationDashboardPage (Cổng Xứ Đoàn & Giáo Xứ - `/parish`)**:
   - *Hero Căn Tính Xứ Đoàn*: Tên Xứ đoàn & Giáo xứ, huy hiệu Bổn Mạng, Khẩu hiệu châm ngôn ("motto"), ngày thành lập và mô tả truyền thống.
   - *Executive KPI Strip*: 4 thẻ chỉ số tổng quan (Huynh trưởng/GLV đang phục vụ vs tổng số, Đơn vị trực thuộc, Hoạt động & Cột mốc, Tư liệu truyền thống).
-  - *Desktop 2-Cột (8/4 Grid)*: Cột trái (8-col) kết nối dữ liệu sống với widget Ban Trị Sự đương nhiệm (trích xuất từ terms/people đang hoạt động), Lịch sự kiện & Phụng vụ sắp tới trong 14 ngày (từ `parishEventStore`), Hoạt động & Cột mốc tiêu biểu; Cột phải (4-col) hiển thị Thông báo điều hành mới nhất (từ `noticeStore`) và Lưới phím tắt Công việc Xứ đoàn tương tác cao cấp.
+  - *Desktop 2-Cột (8/4 Grid)*: Cột trái (8-col) kết nối dữ liệu sống với widget Ban Trị Sự đương nhiệm (trích xuất từ terms/people đang hoạt động), Lịch sự kiện & Phụng vụ đúng cửa sổ 14 ngày lịch địa phương (từ `parishEventStore`), Hoạt động & Cột mốc tiêu biểu; Cột phải (4-col) hiển thị Thông báo điều hành mới nhất (từ `noticeStore`) và Lưới phím tắt Công việc Xứ đoàn tương tác cao cấp. Nếu API lịch lỗi, widget dùng warning semantic để phân biệt cache đã lưu với trạng thái không có dữ liệu; không trình bày cache như dữ liệu live.
+  - *Calendar RBAC*: desktop/mobile chỉ render Thêm/Sửa/Xóa sự kiện cho `admin|chunhiem`, khớp server route; `phuta|phuhuynh` giữ trải nghiệm đọc. Ẩn control là UX fail-closed, không thay server authorization.
 - **ParishProfilePage (Hồ Sơ Xứ Đoàn - `/parish-profile`)**:
   - *Loại bỏ màu thô*: Chuyển đổi toàn bộ `text-amber-950` sang semantic tokens `text-parish-primary`, banner đồng bộ tài khoản dùng `bg-parish-info-bg border-parish-info/30 text-parish-info`.
   - *Bộ lọc thông minh theo Tab*: Tích hợp tìm kiếm tên/tên thánh và bộ lọc trạng thái (`ACTIVE`, `FORMER`, `DECEASED`) trong Tab Huynh trưởng/GLV; tìm kiếm trong Tab Hoạt động, Lịch sử, Thành tích; tìm kiếm và lọc loại tệp (Ảnh, Video, Tài liệu, Giấy khen) trong Tab Kho tư liệu.
@@ -400,6 +401,12 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 | `narrow` | `.responsive-page-shell--narrow` | Form/summary cần nhịp đọc hẹp; touch là 760px, desktop là 48rem (768px) và canh giữa. |
 
 `DesktopAppShell` là owner duy nhất của ba tier trên. Child render bên trong `/management` hoặc shell cha truyền `embedded`; `.embedded-page-section` chỉ tạo column/gap, không tạo thêm gutter hay max-width.
+
+### Lưới lớp trong `Danh Sách & Lớp` (ADR-090 amendment 2026-09-02)
+
+- Giữ visual card navy–gold cũ làm index chung của trang Thiếu Nhi: 2 cột trên touch, 3 cột desktop và 4 cột tại `xl`; không thay bằng bảng ở surface kết hợp.
+- Thẻ giữ badge ngành, tên lớp, phòng, GLV và số thiếu nhi. Toàn vùng nội dung là button có tên accessible `Xem danh sách lớp {name}`; edit/delete là các icon-button độc lập và chỉ hiện cho admin.
+- Chọn lớp chuyển cùng surface sang roster; nút quay lại `Tất cả lớp` trả về lưới. Empty state và dark mode phải dùng semantic surface/text tokens, không dùng cặp amber hard-code thiếu tương phản.
 
 ### Shell & Sidebar desktop (UI-POLISH 2026-08-25)
 
@@ -700,6 +707,7 @@ Mỗi file chỉ được giữ nguyên hoặc giảm; file mới/missing baseli
 - Full Playwright baseline trước khi thêm Organization matrix: **61/61 tests chạy PASS**, **1 offline tenant-reload test được skip có chủ đích**; gồm Axe **60/60 observations**, visual/layout **60/60 observations**, mobile-bottom-nav, role, tenant isolation và attendance save. Không còn unhandled View Transition log. CI lưu `playwright-report/` và `test-results/` trong artifact `playwright-runtime-evidence` 7 ngày, kể cả khi job fail.
 - Organization remediation gate 2026-08-31: **41/41 Playwright tests PASS** trong nhóm Axe + visual/layout + CRUD + role. Axe **78/78 observations** và visual/layout **78/78 observations** bao gồm `/parish`, `/parish-profile` và modal bản ghi ở desktop/390/320, light/dark; finite animations được chờ hoàn tất trước khi đo contrast trạng thái ổn định.
 - Final serialized `npm run verify:ci` 2026-08-31: **PASS** — lint zero-warning; `lint:ds` **0/115**; client/server TypeScript + Vite/PWA build; Vitest **264/264 files, 1,864/1,864 tests PASS**. Coverage: statements **69.44%**, branches **59.59%**, functions **61.96%**, lines **71.79%**.
+- ADR-098 activity-cache hardening 2026-09-02: focused **5 files / 26 tests PASS**; final serialized Vitest **295 files / 2,008 tests PASS**; frontend production/PWA build, server TypeScript, oxlint, `lint:ds` **0/127** và diff check PASS. Đây là static/unit/build evidence; chưa thay thế real-device/account-switch/screen-reader gate.
 
 ---
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
-import { attendance, semesterLocks, users, students, classes, branches, academicYears } from '../../db/schema.js'
+import { attendance, auditLogs, semesterLocks, users, students, classes, branches, academicYears } from '../../db/schema.js'
 import { attendanceApplicationService } from '../../services/AttendanceApplicationService.js'
 import { drizzleAttendanceRepository } from '../../repositories/DrizzleAttendanceRepository.js'
 import { drizzleSemesterLockRepository } from '../../repositories/DrizzleSemesterLockRepository.js'
@@ -45,6 +45,7 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
   beforeEach(async () => {
     await db.delete(attendance)
     await db.delete(semesterLocks)
+    await db.delete(auditLogs).where(eq(auditLogs.parishId, testParish))
   })
 
   it('1. markAttendance creates new attendance record successfully', async () => {
@@ -65,6 +66,22 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
     const saved = await drizzleAttendanceRepository.findByStudentAndSession(studentId, '2025-10-05', 'CatechismClass', testParish)
     expect(saved).not.toBeNull()
     expect(saved?.status).toBe('Present')
+    const rows = await db.select().from(auditLogs).where(eq(auditLogs.parishId, testParish))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ action: 'MARK_ATTENDANCE', entityId: record.id })
+  })
+
+  it('rejects an impossible calendar date before opening a write transaction', async () => {
+    await expect(attendanceApplicationService.markAttendance({
+      studentId,
+      date: '2025-02-31',
+      type: 'CatechismClass',
+      status: 'Present',
+      userId: teacherUserId,
+      parishId: testParish,
+    })).rejects.toThrow(/ngày YYYY-MM-DD có thật/i)
+    expect(await db.select().from(attendance)).toHaveLength(0)
+    expect(await db.select().from(auditLogs).where(eq(auditLogs.parishId, testParish))).toHaveLength(0)
   })
 
   it('2. Status correction increments version to version 2', async () => {

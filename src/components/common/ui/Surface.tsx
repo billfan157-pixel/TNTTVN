@@ -1,13 +1,14 @@
 import { createElement } from 'react'
-import type { HTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, HTMLAttributes } from 'react'
 
 export type SurfaceVariant = 'panel' | 'card' | 'entity' | 'sunken' | 'plain'
-export type SurfaceElement = 'div' | 'section' | 'article' | 'aside'
+export type SurfaceElement = 'div' | 'section' | 'article' | 'aside' | 'button'
 
 export interface SurfaceProps extends HTMLAttributes<HTMLElement> {
   as?: SurfaceElement
   variant?: SurfaceVariant
   interactive?: boolean
+  type?: ButtonHTMLAttributes<HTMLButtonElement>['type']
 }
 
 const VARIANT_CLASSES: Record<SurfaceVariant, string> = {

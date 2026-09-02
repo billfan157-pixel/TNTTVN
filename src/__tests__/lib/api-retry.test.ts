@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { api, setTokens } from '../../lib/api'
+import { api, clearTokens, setTokens } from '../../lib/api'
 
 // A12 (2026-08-10): retry tự động chỉ áp cho method idempotent (GET/HEAD/PUT/DELETE)
 // hoặc mutation có Idempotency-Key. POST/PATCH không key → KHÔNG bao giờ retry mù:
@@ -37,6 +37,21 @@ describe('A12 — method-aware retry (api request)', () => {
     await vi.advanceTimersByTimeAsync(1000)
     await expect(p).resolves.toEqual({ data: [], total: 0 })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('discards an old-session response that resolves after logout', async () => {
+    let resolveFetch!: (response: ReturnType<typeof fakeResponse>) => void
+    fetchMock.mockImplementationOnce(() => new Promise(resolve => { resolveFetch = resolve }))
+
+    const pending = api.getStudents()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    clearTokens()
+    resolveFetch(fakeResponse(200, { success: true, data: [{ id: 'ST-OLD' }] }))
+
+    await expect(pending).rejects.toMatchObject({
+      status: 401,
+      message: 'Authentication session changed while request was in flight',
+    })
   })
 
   it('POST không có Idempotency-Key: network error → KHÔNG retry (1 lần)', async () => {

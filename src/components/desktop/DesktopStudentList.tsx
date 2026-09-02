@@ -10,7 +10,7 @@ import {
 import {
   UserPlus, Search,   Edit2, Trash2,
   FileText, Camera, Upload, CheckCircle2,  ChevronLeft,
-  ChevronRight,  School,   CheckSquare, Square,
+  ChevronRight, CheckSquare, Square,
   Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA, X
 } from 'lucide-react';
 import { useClassStore } from '../../stores/classStore';
@@ -18,7 +18,6 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { useAuth } from '../../hooks/useAuth';
-import { BRANCHES } from '../../constants/branches';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
@@ -26,6 +25,7 @@ import { compareClassHierarchy } from '../../utils/classSort';
 import type { Student } from '../../types';
 import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
+import { DesktopClasses } from './DesktopClasses';
 
 interface DesktopStudentListProps {
   onOpenAddStudent?: () => void;
@@ -33,7 +33,6 @@ interface DesktopStudentListProps {
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onViewPhotoCard: (student: Student) => void;
-  onManageClasses?: () => void;
 }
 
 const columnHelper = createColumnHelper<Student>();
@@ -44,7 +43,6 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   onEditStudent,
   onViewReport,
   onViewPhotoCard,
-  onManageClasses,
 }) => {
   const { isAdmin, isChunhiem, isPhuta } = useAuth();
   const canEdit = isAdmin || isChunhiem || isPhuta;
@@ -58,7 +56,6 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const searchQuery = useFilterStore((s) => s.searchQuery);
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery);
   const classes = useClassStore((s) => s.classes);
-  const hasClasses = classes.length > 0;
 
   // 2026-08-22: mặc định xếp theo cấp bậc lớp (Chiến Con → Ấu Nhi → Thiếu Nhi →
   // Nghĩa Sĩ → Hiệp Sĩ; trong lớp theo tên) thay vì thứ tự nhập từ server
@@ -419,67 +416,11 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         }
       />
 
-      {/* Warning if no classes */}
-      {!hasClasses && (
-        <div className="bg-amber-50/80 backdrop-blur-sm border border-amber-200/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
-            <School size={20} />
-          </div>
-          <div>
-            <p className="text-sm font-black text-amber-900 m-0 uppercase tracking-wide">Chưa có lớp học</p>
-            <p className="text-xs text-amber-800 mt-1 m-0 font-bold">
-              {isAdmin ? 'Bạn cần tạo lớp học trước khi thêm thiếu nhi.' : 'Giáo xứ chưa có lớp học nào để hiển thị.'}
-              {isAdmin && onManageClasses && (
-                <button className="ml-2 text-parish-primary underline decoration-2 underline-offset-2" onClick={onManageClasses}>
-                  Quản lý lớp học →
-                </button>
-              )}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Lưới lớp — khi đang xem "Tất cả", hiển thị các lớp để bấm vào xem học viên từng lớp */}
-      {selectedClassId === 'all' && hasClasses && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {[...classes]
-            .sort((a, b) => {
-              const order: Record<string, number> = { ChienCon: 1, AuNhi: 2, ThieuNhi: 3, NghiaSi: 4, HiepSi: 5 }
-              const ao = order[a.branchId] ?? 99
-              const bo = order[b.branchId] ?? 99
-              if (ao !== bo) return ao - bo
-              return a.name.localeCompare(b.name, 'vi')
-            })
-            .map((c) => (
-              <button
-                key={c.id}
-                onClick={() => handleSelectClass(c.id)}
-                className="group text-left bg-surface-card border border-surface-border rounded-2xl p-4 flex flex-col gap-3 hover:border-parish-primary/30 hover:shadow-md transition-[border-color,box-shadow,transform] active:scale-[0.98] relative overflow-hidden"
-              >
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-parish-primary/0 via-parish-primary/40 to-parish-gold/40 opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="flex items-center justify-between">
-                        <span className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: BRANCHES[c.branchId as keyof typeof BRANCHES]?.badgeBg || 'var(--color-parish-primary-light)', color: BRANCHES[c.branchId as keyof typeof BRANCHES]?.textColor || 'var(--color-parish-primary)', borderColor: BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor ? `${BRANCHES[c.branchId as keyof typeof BRANCHES]?.scarfColor}40` : 'var(--color-surface-border)' }}>
-                    {c.name.slice(0, 2).toUpperCase()}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-full bg-surface-hover border border-surface-border text-xs font-black text-text-main group-hover:bg-parish-primary group-hover:text-text-inverse group-hover:border-parish-primary transition-colors">
-                    {c.studentCount ?? 0} em
-                  </span>
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-text-main text-sm leading-tight truncate" title={c.name}>{c.name}</h4>
-                  <p className="text-xs text-text-muted mt-1 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: (BRANCHES as any)[c.branchId]?.scarfColor || 'var(--color-parish-success)' }}></span>
-                    {c.branchName || (BRANCHES as any)[c.branchId]?.name || c.branchId} {c.room ? `• ${c.room}` : ''}
-                  </p>
-                  {c.homeroomTeacher && (
-                    <p className="text-[11px] text-text-muted mt-1 truncate flex items-center gap-1">
-                      <Users size={10} /> {c.homeroomTeacher.fullName}
-                    </p>
-                  )}
-                </div>
-              </button>
-            ))}
-        </div>
+      {/* Một index duy nhất: catalog/CRUD lớp ở cấp đầu, roster khi drill-down. */}
+      {selectedClassId === 'all' && (
+        <section aria-label="Lớp học và phân lớp">
+          <DesktopClasses embedded layout="grid" onViewClassStudents={handleSelectClass} />
+        </section>
       )}
 
       {/* Khi đã chọn 1 lớp cụ thể, hiện danh sách học viên của lớp đó */}

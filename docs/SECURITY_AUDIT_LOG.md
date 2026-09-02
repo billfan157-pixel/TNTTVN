@@ -3482,6 +3482,18 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 
 ---
 
+## Audit PARISH-EVENT-CACHE-1 — Tenant-safe activity cache and acknowledged writes — ✅ ENGINEERING VERIFIED (2026-09-02, ADR-098)
+
+- **Finding:** `parishEventStore` dùng plaintext key chung `parish_calendar_events_v1`, hydrate không lọc exact tenant và khi API mutation lỗi vẫn tạo/sửa/xóa local rồi trả success. Trên thiết bị đổi account/parish, fetch lỗi có thể project lịch tenant trước; mutation offline có thể biến mất ở lần authoritative fetch sau. **CONFIRMED** bằng E3 source; Security/Privacy/Data Integrity hard gates không đạt nếu giữ nguyên.
+- **Selected control:** event cache chuyển sang encrypted `dexieStorage` scope `parishId:userId`; exact-tenant filter áp cho cache và server response, mixed response fail-closed, request cũ bị bỏ khi scope đổi, reset session xóa memory projection. Global legacy key bị xóa sau migration chỉ những row có exact parish.
+- **Mutation integrity:** create/update/delete chỉ cập nhật store/cache sau response server; lỗi giữ nguyên state và throw để UI báo error. Không tạo temp ID, không optimistic delete và không phát toast success giả. Durable offline event writes chưa có receipt/idempotency nên không được quảng bá.
+- **RBAC/UX:** desktop/mobile chỉ hiện event controls cho `admin|chunhiem`, khớp backend role middleware; `phuta|phuhuynh` read-only. Frontend hide không thay server authority.
+- **Portal correctness:** upcoming widget giới hạn đúng 14 ngày lịch địa phương, stable sort, tối đa bốn mục và công bố rõ cache/stale state.
+- **Evidence:** focused **5 files / 26 tests PASS**; final serialized Vitest **295 files / 2,008 tests PASS**; frontend TypeScript/Vite/PWA production build, server TypeScript, oxlint, design-system lint **0/127** và `git diff --check` PASS. Production multi-account device smoke và physical-device offline UX chưa được chạy; không ảnh hưởng code-level hard gate verdict.
+- **Rollback:** R1 code/docs, không schema. Rollback về shared plaintext cache bị cấm khi tenant finding còn hợp lệ; muốn durable offline mutations phải mở D3 reassessment với idempotency receipt + sync reconciliation.
+
+---
+
 ## Audit NATIVE-LOCK-1 — Biometric app lock — ✅ ENGINEERING VERIFIED / DEVICE CONDITIONAL (2026-08-31, ADR-085)
 
 - **Finding:** native shell có refresh session/offline cache nhưng chưa có local privacy gate khi app cold-start hoặc quay lại từ background — **CONFIRMED** bằng E3 bootstrap/root source.
@@ -3529,9 +3541,10 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 ## Audit FE-10 — Student/class workspace role boundary — ✅ ENGINEERING VERIFIED (2026-09-01, ADR-090)
 
 - **Finding:** đưa class-management component vào `/students` (route dùng chung staff) có thể vô tình phát nút create/edit/delete cho GLV vì component trước đây đặt `canEdit = admin || chunhiem` dù deep route `/classes` chỉ admin.
-- **Controls:** `DesktopClasses.canEdit` đổi thành admin-only; tab `view=classes` chỉ được đưa vào desktop/mobile items và render khi admin; GLV ép query bị normalize về roster. Catalog `GET /api/classes` parish-wide của GLV che `homeroomTeacher`/`assistants` và chỉ thêm `assignedToCurrentUser` cho chính user; `ExamSessionView` lọc class chips/form tạo phiên bằng marker này, tránh dùng nhầm toàn catalog làm assignment. Server `POST|PUT|DELETE /api/classes`, available-teachers, assignment endpoints và mọi exam read/write vẫn giữ `roleMiddleware` + `getUserClassIds` authority.
-- **Integrity/navigation:** typed search giữ `classId/branchId/semester/search`; chọn “Xem Danh Sách” chuyển tab nhưng giữ class filter. `/classes` vẫn admin-only compatibility route.
+- **Controls:** `DesktopClasses.canEdit` là admin-only. Amendment 2026-09-02 bỏ tab lớp riêng và dùng một catalog grid trong `Danh Sách & Lớp`; admin thấy mutation actions, GLV dùng cùng lưới read-only. Catalog `GET /api/classes` parish-wide của GLV che `homeroomTeacher`/`assistants` và chỉ thêm `assignedToCurrentUser` cho chính user; `ExamSessionView` lọc class chips/form tạo phiên bằng marker này. Server `POST|PUT|DELETE /api/classes`, available-teachers, assignment endpoints và mọi exam read/write vẫn giữ `roleMiddleware` + `getUserClassIds` authority.
+- **Integrity/navigation:** chọn `Xem danh sách` đặt class filter và drill-down tới roster trong cùng mục; legacy `view=classes` normalize về index kết hợp, `/classes` vẫn admin-only compatibility route. Empty incremental class response được merge no-op thay vì xóa catalog cache.
 - **Evidence:** targeted class-workspace role/tab/route tests **4 files / 29 tests PASS**; security-critical gate **7 files / 72 tests PASS**; full serialized + coverage trên snapshot hardening trước các thay đổi E2E song song **279 files / 1,944 tests PASS**. `scopeExamWorkspaceClasses` giữ legacy pre-scoped response nhưng fail-closed khi marker contract hiện diện. Client/server TypeScript + frontend/server production build PASS, oxlint PASS, DS lint **0/119**. D2 hậu kiểm **KEEP / HARD GATES PASS**: Security & Privacy 9, Data Integrity 9, Testability 9; attribution của stack `VM…reportAllChanges` cho application vẫn **NOT CONFIRMED**.
+- **Amendment evidence 2026-09-02:** component/store contract **4 files / 30 tests PASS**; affected Playwright **3/3 PASS** gồm WCAG viewport/theme matrix, class persistence và grid → roster → student persistence. Full final snapshot evidence theo Audit OPERATIONAL-INTEGRITY-2.
 
 ---
 
@@ -3585,5 +3598,15 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - **Supply chain/performance:** `mammoth@1.12.1` is exact-pinned and lazy. Mammoth and SheetJS production chunks are excluded from PWA precache; the verified production output emitted `mammoth-*.js` separately. Immediate `npm audit --json` reported 0 vulnerabilities on the implementation snapshot.
 - **Residual:** compressed DOCX can still be adversarial inside the 5 MB envelope; parsing happens in the user's browser, but a hostile-corpus/worker-timeout qualification is not claimed. Legacy `.doc`, images, macros and embedded objects are unsupported. Import requires network for the atomic server commit.
 - **Evidence:** focused **4 files / 13 tests PASS** covering transaction/tenant/audit behavior, DOCX normalization and limits, modal hidden/open contract, and lazy PWA policy. Frontend and server production builds PASS. Full regression and physical-device behavior were not rerun for this amendment.
+
+---
+
+## Audit OPERATIONAL-INTEGRITY-2 — Account scope, atomic audit and HTML output boundaries — ✅ ENGINEERING VERIFIED / EXTERNAL GATES EXPLICIT (2026-09-02, ADR-099)
+
+- **Confirmed findings:** global undo/push preference state; explicit native disable false-success; partial personnel import; post-commit refetch false-failure; receipt `document.write` stored-XSS; unsandboxed exam `srcDoc`; Question Bank cross-tenant branch/TOCTOU; impossible date acceptance; split domain/audit commits; swallowed partial class assignment and parent assignment via legacy API.
+- **Controls:** encrypted `parishId:userId` markers; server-ack disable; 1–100 transactional personnel import; stale projection; escaped Blob HTML, detached opener and empty iframe sandbox; branch/class/current-version validation in transaction; strict calendar validator; domain+redacted-audit transactions; post-commit notification delivery; atomic full class assignment replacement with active-staff/tenant checks.
+- **Privacy:** new audit metadata excludes attendance note, leave reason/review note and notice title/content/author. External asset thumbnails no longer passive-fetch third-party URLs; explicit lightbox requests use `referrerPolicy=no-referrer`.
+- **D3 post-verdict:** Security 9, Privacy 9, Data Integrity 9, Testability 9 — hard gates PASS / KEEP. Frozen-snapshot `verify:ci`: lint sạch, DS **0/127**, production client/PWA/server build PASS (**2,789 modules**, **233 precache entries**), serialized coverage **301 files / 2,054 tests PASS**; coverage 70.16% statements, 59.42% branches, 63.46% functions, 72.74% lines. Critical E2E **10/10** qua run ban đầu + targeted fixes; affected final class-grid paths **3/3 PASS**. Capacitor Android sync nhận 3 plugin; Android debug **185 tasks PASS**, APK 12,943,542 bytes. Production audit 0 vulnerability; diff-check PASS.
+- **External gates:** production provider credentials/delivery, multi-account physical-device smoke, biometric/camera behavior, OMR privacy-safe field corpus and restore drill remain NOT CONFIRMED.
 
 ---

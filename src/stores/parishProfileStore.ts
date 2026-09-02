@@ -17,9 +17,11 @@ interface ParishProfileState {
   isLoading: boolean
   isSaving: boolean
   error: string | null
+  isStale: boolean
   fetchSnapshot: () => Promise<void>
   saveProfile: (data: ParishProfileInput) => Promise<boolean>
   createPerson: (data: ParishPersonInput) => Promise<boolean>
+  createPeople: (data: ParishPersonInput[]) => Promise<boolean>
   updatePerson: (id: string, data: ParishPersonInput) => Promise<boolean>
   deletePerson: (id: string) => Promise<boolean>
   createUnit: (data: ParishUnitInput) => Promise<boolean>
@@ -38,16 +40,16 @@ interface ParishProfileState {
   clear: () => void
 }
 
-export const useParishProfileStore = create<ParishProfileState>((set) => {
+export const useParishProfileStore = create<ParishProfileState>((set, get) => {
   const load = async (showLoading: boolean) => {
     if (showLoading) set({ isLoading: true, error: null })
     try {
       const snapshot = await api.parishProfile.getSnapshot()
-      set({ snapshot, isLoading: false, error: null })
+      set({ snapshot, isLoading: false, error: null, isStale: false })
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể tải Hồ sơ Xứ đoàn'
-      set({ isLoading: false, error: message })
+      set({ isLoading: false, error: message, isStale: get().snapshot !== null })
       return false
     }
   }
@@ -56,9 +58,12 @@ export const useParishProfileStore = create<ParishProfileState>((set) => {
     set({ isSaving: true, error: null })
     try {
       await action()
-      const refreshed = await load(false)
+      await load(false)
       set({ isSaving: false })
-      return refreshed
+      // The server mutation has committed. A failed refresh makes the visible
+      // snapshot stale, but must not be reported as a failed write (which could
+      // prompt a duplicate retry).
+      return true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể lưu thay đổi Hồ sơ Xứ đoàn'
       set({ isSaving: false, error: message })
@@ -71,9 +76,11 @@ export const useParishProfileStore = create<ParishProfileState>((set) => {
     isLoading: false,
     isSaving: false,
     error: null,
+    isStale: false,
     fetchSnapshot: () => load(true).then(() => undefined),
     saveProfile: data => mutate(() => api.parishProfile.updateProfile(data)),
     createPerson: data => mutate(() => api.parishProfile.createPerson(data)),
+    createPeople: data => mutate(() => api.parishProfile.createPeople(data)),
     updatePerson: (id, data) => mutate(() => api.parishProfile.updatePerson(id, data)),
     deletePerson: id => mutate(() => api.parishProfile.deletePerson(id)),
     createUnit: data => mutate(() => api.parishProfile.createUnit(data)),
@@ -89,6 +96,6 @@ export const useParishProfileStore = create<ParishProfileState>((set) => {
     uploadAsset: data => mutate(() => api.parishProfile.uploadAsset(data)),
     updateAsset: (id, data) => mutate(() => api.parishProfile.updateAsset(id, data)),
     deleteAsset: id => mutate(() => api.parishProfile.deleteAsset(id)),
-    clear: () => set({ snapshot: null, isLoading: false, isSaving: false, error: null }),
+    clear: () => set({ snapshot: null, isLoading: false, isSaving: false, error: null, isStale: false }),
   }
 })

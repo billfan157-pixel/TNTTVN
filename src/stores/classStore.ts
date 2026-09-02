@@ -180,7 +180,7 @@ export const useClassStore = create<ClassState>()(
           const fetched = await api.getClasses(params)
           if (Array.isArray(fetched)) {
             const pendingIds = await getPendingClassIds()
-            if (updatedAfter && fetched.length > 0) {
+            if (updatedAfter) {
               set((state) => {
                 const merged = new Map(state.classes.map(c => [c.id, c]))
                 for (const c of fetched) {

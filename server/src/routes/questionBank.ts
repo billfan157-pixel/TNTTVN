@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { authMiddleware, checkUserClassAccess, isAdmin, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
+import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { errorResponse, successResponse } from '../utils/response.js'
 import { parseAcademicYear } from '../utils/academicYear.js'
 import {
@@ -185,10 +185,10 @@ router.post('/exams/build', zValidator('json', buildExamInput), async c => {
   try {
     const user = c.get('user') as JwtPayload
     const input = c.req.valid('json')
-    if (!isAdmin(user) && !await checkUserClassAccess(user.userId, user.parishId, input.classId)) {
-      return errorResponse(c, 'FORBIDDEN', 'Bạn không có quyền tạo đề cho lớp này.', 403)
-    }
-    return successResponse(c, await buildExamFromBank({ ...input, semester: input.semester as 1 | 2 }, { userId: user.userId, parishId: user.parishId }), 201)
+    return successResponse(c, await buildExamFromBank(
+      { ...input, semester: input.semester as 1 | 2 },
+      { userId: user.userId, parishId: user.parishId, role: user.role },
+    ), 201)
   } catch (error) { return handleError(c, error) }
 })
 

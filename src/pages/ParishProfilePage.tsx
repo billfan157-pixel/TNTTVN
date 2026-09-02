@@ -97,6 +97,7 @@ export default function ParishProfilePage() {
   const snapshot = useParishProfileStore(state => state.snapshot)
   const isLoading = useParishProfileStore(state => state.isLoading)
   const error = useParishProfileStore(state => state.error)
+  const isStale = useParishProfileStore(state => state.isStale)
   const fetchSnapshot = useParishProfileStore(state => state.fetchSnapshot)
   const store = useParishProfileStore()
   const addToast = useToastStore(state => state.addToast)
@@ -153,7 +154,7 @@ export default function ParishProfilePage() {
       anchor.href = url
       anchor.download = asset.originalFilename || asset.title
       anchor.click()
-      URL.revokeObjectURL(url)
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     } catch (downloadError) {
       addToast(downloadError instanceof Error ? downloadError.message : 'Không thể tải tư liệu', 'error')
     }
@@ -168,10 +169,12 @@ export default function ParishProfilePage() {
 
   const handleSyncAccounts = async () => {
     if (!unlinkedAccounts.length) return
+    if (unlinkedAccounts.length > 100) {
+      addToast('Mỗi lần chỉ đồng bộ tối đa 100 tài khoản. Hãy liên hệ quản trị kỹ thuật để chia đợt dữ liệu.', 'error')
+      return
+    }
     setIsSyncing(true)
-    let createdCount = 0
-    for (const acc of unlinkedAccounts) {
-      const ok = await store.createPerson({
+    const ok = await store.createPeople(unlinkedAccounts.map(acc => ({
         linkedUserId: acc.id,
         holyName: acc.holyName || null,
         fullName: acc.fullName,
@@ -179,11 +182,9 @@ export default function ParishProfilePage() {
         biography: null,
         serviceStatus: 'ACTIVE',
         visibility: 'STAFF',
-      })
-      if (ok) createdCount++
-    }
+      })))
     setIsSyncing(false)
-    addToast(`Đã đồng bộ thành công ${createdCount} hồ sơ nhân sự từ tài khoản GLV`, 'success')
+    addToast(ok ? `Đã đồng bộ thành công ${unlinkedAccounts.length} hồ sơ nhân sự từ tài khoản GLV` : useParishProfileStore.getState().error || 'Không thể đồng bộ hồ sơ nhân sự', ok ? 'success' : 'error')
   }
 
   // Dữ liệu lọc cho Tab Huynh trưởng / GLV
@@ -263,6 +264,15 @@ export default function ParishProfilePage() {
         icon={<Landmark aria-hidden="true" className="h-5 w-5" />}
         actions={canManage ? <Button size="sm" variant="secondary" leadingIcon={<Pencil aria-hidden="true" className="h-4 w-4" />} onClick={() => setEditor({ kind: 'profile' })}>Cập nhật</Button> : undefined}
       />
+
+      {isStale && (
+        <Surface role="status" className="flex flex-wrap items-center justify-between gap-3 border-parish-warning/40 bg-parish-warning-bg p-3">
+          <p className="m-0 text-sm font-semibold text-text-main">
+            Thay đổi đã được lưu trên máy chủ nhưng dữ liệu hiển thị chưa tải lại được. Không thực hiện lại thao tác vừa rồi.
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => void fetchSnapshot()}>Tải lại dữ liệu</Button>
+        </Surface>
+      )}
 
       <section aria-label="Tổng quan Xứ đoàn" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Thành lập" value={snapshot.profile.foundedDate ? formatDate(snapshot.profile.foundedDate) : 'Chưa cập nhật'} />
@@ -752,21 +762,16 @@ function AssetCard({ asset, canManage, onOpen, onEdit, onDelete }: { asset: Pari
           {canManage && <ActionButtons label={asset.title} onEdit={onEdit} onDelete={onDelete} />}
         </div>
 
-        {/* Thumbnail Preview nếu là ảnh ngoài */}
+        {/* External images are loaded only after an intentional click so an
+            admin-provided host cannot passively track staff page views. */}
         {isImage && asset.externalUrl && (
           <div
-            className="w-full h-36 bg-surface-sunken rounded-lg overflow-hidden border border-surface-border cursor-pointer group relative"
+            className="w-full h-28 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-surface-app transition-colors text-text-muted"
             onClick={onOpen}
-            title="Bấm để xem ảnh phóng to"
+            title="Bấm để tải ảnh từ liên kết ngoài"
           >
-            <img
-              src={asset.externalUrl}
-              alt={asset.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-            />
-            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-              <Eye className="h-5 w-5 drop-shadow" />
-            </div>
+            <ExternalLink className="h-6 w-6 text-parish-primary" />
+            <span className="text-xs font-semibold">Ảnh từ liên kết ngoài</span>
           </div>
         )}
 

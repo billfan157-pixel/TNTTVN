@@ -1031,6 +1031,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                   <iframe
                     srcDoc={previewHtml}
                     title="Xem trước tài liệu kiểm tra"
+                    sandbox=""
                     className="w-[794px] min-w-[794px] h-[1123px] border-none bg-white block"
                   />
                 </div>

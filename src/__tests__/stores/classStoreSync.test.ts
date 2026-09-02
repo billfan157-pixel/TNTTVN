@@ -125,4 +125,18 @@ describe('Task 1 — classStore Sync & Race Condition Verification', () => {
     expect(currentClasses.some(c => c.id === 'CLS-TEMP-99')).toBe(true)
     expect(currentClasses.some(c => c.id === 'cls-server-01')).toBe(true)
   })
+
+  it('keeps the existing catalog when an incremental pull has no class changes', async () => {
+    const existingClass = { id: 'cls-existing', code: 'CE', name: 'Ấu Nhi 1', branchId: 'AuNhi', branchName: 'Ấu Nhi', academicYearId: '2026-2027', academicYear: null, room: null, homeroomTeacher: null, assistants: [], studentCount: 12, parishId: 'p1', createdAt: '', updatedAt: '', updatedBy: null }
+    useClassStore.setState({ classes: [existingClass] })
+    vi.mocked(api.getClasses).mockResolvedValue([])
+
+    await useClassStore.getState().fetchClasses('2026-09-02T00:00:00.000Z', '2026-09-02T00:01:00.000Z', true)
+
+    expect(useClassStore.getState().classes).toEqual([existingClass])
+    expect(api.getClasses).toHaveBeenCalledWith({
+      updatedAfter: '2026-09-02T00:00:00.000Z',
+      updatedBefore: '2026-09-02T00:01:00.000Z',
+    })
+  })
 })

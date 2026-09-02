@@ -77,22 +77,8 @@ promotionRouter.post('/approve', roleMiddleware('admin', 'chunhiem'), zValidator
       userId: user.userId,
       parishId: user.parishId,
       user,
-    })
-
-    // P2.3 Audit Logging
-    const action = snapshot.isOverridden ? 'OVERRIDE_PROMOTION' : 'APPROVE_PROMOTION'
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.userId,
-      action,
-      entityType: 'promotion_record',
-      entityId: snapshot.id,
-      oldValue: null,
-      newValue: JSON.stringify(snapshot),
       ip,
       userAgent,
-      parishId: user.parishId,
-      createdAt: new Date().toISOString(),
     })
 
     return successResponse(c, snapshot)
@@ -124,6 +110,8 @@ promotionRouter.post('/batch-approve', roleMiddleware('admin', 'chunhiem'), zVal
       userId: user.userId,
       parishId: user.parishId,
       user,
+      ip,
+      userAgent,
     }))
 
     const batchResult = await batchPromotionApplicationService.approveBatch(commands, chunkSize)
@@ -146,7 +134,7 @@ promotionRouter.post('/batch-approve', roleMiddleware('admin', 'chunhiem'), zVal
       userAgent,
       parishId: user.parishId,
       createdAt: new Date().toISOString(),
-    })
+    }).catch((error) => console.error('[promotion] failed to write diagnostic batch summary:', error))
 
     return successResponse(c, batchResult)
   } catch (err: any) {

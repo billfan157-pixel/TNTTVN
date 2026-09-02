@@ -6,6 +6,7 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { getNotices, createNotice, updateNotice, deleteNotice } from '../services/noticeService.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const noticesRouter = new Hono()
 noticesRouter.use('*', authMiddleware)
@@ -13,7 +14,7 @@ noticesRouter.use('*', authMiddleware)
 const noticeSchema = z.object({
   title: z.string().trim().min(1).max(200),
   content: z.string().trim().min(1).max(5000),
-  date: z.string(),
+  date: z.string().refine(isValidIsoDate, 'Ngày thông báo phải là ngày YYYY-MM-DD có thật'),
   author: z.string().trim().min(1).max(100),
   priority: z.enum(['normal', 'important', 'urgent']).default('normal'),
   targetBranch: z.string().trim().optional(),

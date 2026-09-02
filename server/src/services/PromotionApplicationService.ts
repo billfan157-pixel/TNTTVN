@@ -1,5 +1,5 @@
 import { db, type DbTransaction } from '../db/index.js'
-import { students, classes, grades, attendance, gradeOverrides } from '../db/schema.js'
+import { students, classes, grades, attendance, gradeOverrides, auditLogs } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
 import { drizzlePromotionRepository, DrizzlePromotionRepository } from '../repositories/DrizzlePromotionRepository.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
@@ -30,6 +30,8 @@ export interface ApprovePromotionCommand {
   parishId: string
   user?: JwtPayload
   policy?: { minGpa: number; minAttendance: number }
+  ip?: string
+  userAgent?: string
 }
 
 export class PromotionApplicationService {
@@ -349,6 +351,19 @@ export class PromotionApplicationService {
       }
 
       await this.promotionRepo.saveSnapshot(newSnapshot, tx)
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: cmd.userId,
+        action: newSnapshot.isOverridden ? 'OVERRIDE_PROMOTION' : 'APPROVE_PROMOTION',
+        entityType: 'promotion_record',
+        entityId: newSnapshot.id,
+        oldValue: null,
+        newValue: JSON.stringify(newSnapshot),
+        ip: cmd.ip || '',
+        userAgent: cmd.userAgent || '',
+        parishId: cmd.parishId,
+        createdAt: now,
+      })
       return newSnapshot
     }
 

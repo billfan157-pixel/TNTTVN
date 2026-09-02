@@ -6,12 +6,13 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { notifyAbsence, notifyBatchReportCards, notifySundayMassReminder, notifyClassReminder } from '../services/smartNotifications.js'
 import { isVapidConfigured, getVapidPublicKey } from '../services/webPushService.js'
 import { sendAppPushToParish } from '../services/appPushService.js'
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { pushSubscriptions, nativePushTokens, students, classes, auditLogs } from '../db/schema.js'
 import { and, eq, sql, isNull, inArray, or } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
 import { successResponse, errorResponse } from '../utils/response.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const notificationsRouter = new Hono()
 
@@ -50,7 +51,7 @@ const absenceSchema = z.object({
   studentName: z.string().trim().min(1).max(200),
   holyName: z.string().trim().min(1).max(200),
   className: z.string().trim().min(1).max(100),
-  date: z.string(),
+  date: z.string().refine(isValidIsoDate, 'Ngày vắng phải là ngày YYYY-MM-DD có thật'),
   status: z.enum(['Present', 'AbsentExcused', 'AbsentUnexcused']),
   parentName: z.string().trim().min(1).max(200),
   parentPhone: z.string().trim().min(1).max(20),
@@ -76,7 +77,7 @@ const reportCardsSchema = z.object({
 const classReminderSchema = z.object({
   classId: z.string().trim().min(1).max(100).optional(),
   className: z.string().trim().min(1).max(100),
-  date: z.string(),
+  date: z.string().refine(isValidIsoDate, 'Ngày nhắc phải là ngày YYYY-MM-DD có thật'),
 })
 
 notificationsRouter.post('/subscribe', zValidator('json', subscribeSchema), async (c) => {
@@ -105,7 +106,7 @@ notificationsRouter.post('/native/register', zValidator('json', nativeRegistrati
   const user = c.get('user') as JwtPayload
   const body = c.req.valid('json')
   const now = new Date().toISOString()
-  await db.transaction(async tx => {
+  await runDbTransaction(async tx => {
     await tx.delete(nativePushTokens).where(or(
       eq(nativePushTokens.installationId, body.installationId),
       and(eq(nativePushTokens.platform, body.platform), eq(nativePushTokens.token, body.token)),
@@ -120,17 +121,17 @@ notificationsRouter.post('/native/register', zValidator('json', nativeRegistrati
       createdAt: now,
       updatedAt: now,
     })
-  })
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'NATIVE_PUSH_REGISTER',
-    entityType: 'native_push_installation',
-    entityId: user.userId,
-    newValue: JSON.stringify({ platform: body.platform }),
-    ip: getClientIp(c),
-    userAgent: c.req.header('user-agent') || '',
-    parishId: user.parishId,
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'NATIVE_PUSH_REGISTER',
+      entityType: 'native_push_installation',
+      entityId: user.userId,
+      newValue: JSON.stringify({ platform: body.platform }),
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
   })
   return successResponse(c, { ok: true })
 })
@@ -138,20 +139,22 @@ notificationsRouter.post('/native/register', zValidator('json', nativeRegistrati
 notificationsRouter.post('/native/unregister', zValidator('json', nativeUnregisterSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const { installationId } = c.req.valid('json')
-  await db.delete(nativePushTokens).where(and(
-    eq(nativePushTokens.installationId, installationId),
-    eq(nativePushTokens.parishId, user.parishId),
-    eq(nativePushTokens.userId, user.userId),
-  ))
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'NATIVE_PUSH_UNREGISTER',
-    entityType: 'native_push_installation',
-    entityId: user.userId,
-    ip: getClientIp(c),
-    userAgent: c.req.header('user-agent') || '',
-    parishId: user.parishId,
+  await runDbTransaction(async tx => {
+    await tx.delete(nativePushTokens).where(and(
+      eq(nativePushTokens.installationId, installationId),
+      eq(nativePushTokens.parishId, user.parishId),
+      eq(nativePushTokens.userId, user.userId),
+    ))
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'NATIVE_PUSH_UNREGISTER',
+      entityType: 'native_push_installation',
+      entityId: user.userId,
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
   })
   return successResponse(c, { ok: true })
 })

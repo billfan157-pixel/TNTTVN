@@ -6,10 +6,11 @@ import { authMiddleware, roleMiddleware, getUserClassIds, isAdmin } from '../mid
 import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
-import { getClasses, getClassById, createClass, updateClass, deleteClass, getAvailableTeachers, assignUserToClass, removeUserFromClass } from '../services/classService.js'
+import { getClasses, getClassById, createClass, updateClass, deleteClass, getAvailableTeachers, assignUserToClass, removeUserFromClass, replaceClassAssignments } from '../services/classService.js'
 import { db } from '../db/index.js'
 import { academicYears } from '../db/schema.js'
 import { normalizeAcademicYear, computeAcademicYearDateRange, parseAcademicYear } from '../utils/academicYear.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const classesRouter = new Hono()
 classesRouter.use('*', authMiddleware)
@@ -65,6 +66,28 @@ classesRouter.post('/:id/assignments', roleMiddleware('admin'), zValidator('json
   return successResponse(c, { ok: true, classId: id, userId, roleInClass })
 })
 
+classesRouter.put('/:id/assignments', roleMiddleware('admin'), zValidator('json', z.object({
+  homeroomTeacherId: z.string().trim().min(1).nullable(),
+  assistantTeacherIds: z.array(z.string().trim().min(1)).max(20),
+})), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const id = c.req.param('id')
+  const selection = c.req.valid('json')
+  const result = await replaceClassAssignments(
+    id,
+    selection,
+    user.userId,
+    user.parishId,
+    getClientIp(c),
+    c.req.header('user-agent') || '',
+  )
+  if ('error' in result) {
+    const status = result.error === 'NOT_FOUND' ? 404 : 400
+    return errorResponse(c, result.error as string, result.message as string, status)
+  }
+  return successResponse(c, { ok: true, classId: id })
+})
+
 classesRouter.delete('/:id/assignments/:userId', roleMiddleware('admin'), async (c) => {
   const user = c.get('user') as JwtPayload
   const id = c.req.param('id')
@@ -105,14 +128,6 @@ const academicYearSchema = z.object({
 // Trước đây normalizeAcademicYear giữ nguyên chuỗi lạ và computeAcademicYearDateRange
 // trả range 2000-2099 cho năm không parse được → getOpenSemester (match theo khoảng
 // ngày) và bounding chuyên cần ADR-017-F2 bị lệch.
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-function isValidDateString(value: string): boolean {
-  if (!DATE_RE.test(value)) return false
-  const d = new Date(`${value}T00:00:00Z`)
-  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value
-}
-
 /**
  * F7 (audit): Tạo năm học server-side. Trước đây "Mở Năm Học Mới" chỉ set local
  * (AcademicYearPage → setCurrentYear) → các thiết bị khác không thấy năm học mới,
@@ -131,7 +146,7 @@ classesRouter.post('/academic-years', roleMiddleware('admin'), zValidator('json'
   const range = computeAcademicYearDateRange(normId)
   const effectiveStart = startDate || range.startDate
   const effectiveEnd = endDate || range.endDate
-  if (!isValidDateString(effectiveStart) || !isValidDateString(effectiveEnd)) {
+  if (!isValidIsoDate(effectiveStart) || !isValidIsoDate(effectiveEnd)) {
     return errorResponse(c, 'ACADEMIC_YEAR_INVALID', 'Ngày bắt đầu/kết thúc phải đúng định dạng YYYY-MM-DD', 400)
   }
   if (effectiveStart >= effectiveEnd) {

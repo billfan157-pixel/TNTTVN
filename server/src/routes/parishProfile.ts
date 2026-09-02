@@ -7,6 +7,7 @@ import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/a
 import { deleteObject, getObject, isR2Enabled, putObject } from '../services/blobStorage.js'
 import {
   createExternalParishAsset,
+  createParishPeople,
   createParishPerson,
   createParishRecord,
   createParishTerm,
@@ -29,16 +30,19 @@ import {
 import type { MutationContext, ParishProfileRole } from '../types/parishProfile.js'
 import { getClientIp } from '../utils/ip.js'
 import { errorResponse, successResponse } from '../utils/response.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const parishProfileRouter = new Hono()
 parishProfileRouter.use('*', authMiddleware)
 parishProfileRouter.use('*', roleMiddleware('admin', 'chunhiem', 'phuta'))
 
 const dateField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải có định dạng YYYY-MM-DD')
+  .refine(isValidIsoDate, 'Ngày không tồn tại trong lịch')
 const nullableDateField = z.union([dateField, z.literal(''), z.null()]).optional()
 const nullableText = (max: number) => z.union([z.string().trim().max(max), z.null()]).optional()
 const idList = z.array(z.string().trim().min(1).max(80)).max(50).default([])
 const visibility = z.enum(['STAFF', 'ADMIN'])
+const currentYear = new Date().getUTCFullYear()
 
 const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(150),
@@ -52,11 +56,12 @@ const personSchema = z.object({
   linkedUserId: nullableText(80),
   holyName: nullableText(100),
   fullName: z.string().trim().min(1).max(200),
-  birthYear: z.number().int().min(1900).max(2100).nullable().optional(),
+  birthYear: z.number().int().min(1900).max(currentYear).nullable().optional(),
   biography: nullableText(5000),
   serviceStatus: z.enum(['ACTIVE', 'FORMER', 'DECEASED']),
   visibility,
 })
+const peopleImportSchema = z.object({ people: z.array(personSchema).min(1).max(100) })
 
 const unitSchema = z.object({
   parentId: nullableText(80),
@@ -175,6 +180,10 @@ parishProfileRouter.put('/profile', roleMiddleware('admin'), zValidator('json', 
 
 parishProfileRouter.post('/people', roleMiddleware('admin'), zValidator('json', personSchema), async c => {
   try { return successResponse(c, await createParishPerson(c.req.valid('json'), mutationContext(c)), 201) }
+  catch (error) { return serviceFailure(c, error) }
+})
+parishProfileRouter.post('/people/import', roleMiddleware('admin'), zValidator('json', peopleImportSchema), async c => {
+  try { return successResponse(c, { people: await createParishPeople(c.req.valid('json').people, mutationContext(c)) }, 201) }
   catch (error) { return serviceFailure(c, error) }
 })
 parishProfileRouter.put('/people/:id', roleMiddleware('admin'), zValidator('json', personSchema), async c => {

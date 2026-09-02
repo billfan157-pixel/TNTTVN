@@ -13,6 +13,7 @@ import { useAuthStore } from '../stores/authStore'
 import { useParishProfileStore } from '../stores/parishProfileStore'
 import { useParishEventStore } from '../stores/parishEventStore'
 import { useNoticeStore } from '../stores/noticeStore'
+import { selectUpcomingPortalEvents } from '../utils/parishPortal'
 
 function formatDate(value: string | null | undefined) {
   if (!value) return 'Chưa cập nhật'
@@ -37,6 +38,8 @@ export default function OrganizationDashboardPage() {
   const fetchSnapshot = useParishProfileStore(state => state.fetchSnapshot)
 
   const events = useParishEventStore(state => state.events)
+  const eventsError = useParishEventStore(state => state.error)
+  const eventsSource = useParishEventStore(state => state.source)
   const fetchEvents = useParishEventStore(state => state.fetchEvents)
   const notices = useNoticeStore(state => state.notices)
   const fetchNotices = useNoticeStore(state => state.fetchNotices)
@@ -64,11 +67,7 @@ export default function OrganizationDashboardPage() {
 
   // Sự kiện sắp diễn ra trong 14 ngày tới
   const upcomingEvents = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10)
-    return [...events]
-      .filter(e => e.date >= todayStr)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(0, 4)
+    return selectUpcomingPortalEvents(events)
   }, [events])
 
   // Thông báo mới nhất
@@ -96,7 +95,7 @@ export default function OrganizationDashboardPage() {
   const activeUnitsCount = snapshot.units.filter(item => item.isActive).length
 
   return (
-    <DesktopAppShell width="wide" className="space-y-5">
+    <DesktopAppShell width="wide" className="space-y-3 sm:space-y-3.5">
       {/* Page Header hợp nhất Căn Tính Xứ Đoàn */}
       <PageHeader
         title={
@@ -282,6 +281,14 @@ export default function OrganizationDashboardPage() {
                 Xem lịch đầy đủ
               </Button>
             </div>
+
+            {eventsError && (
+              <p role="status" className="m-0 rounded-xl border border-parish-warning/30 bg-parish-warning-bg/40 px-3 py-2 text-xs font-semibold text-parish-warning">
+                {eventsSource === 'cache'
+                  ? 'Đang hiển thị lịch đã lưu trên thiết bị; thay đổi sự kiện cần kết nối máy chủ.'
+                  : 'Chưa thể tải lịch Xứ đoàn từ máy chủ. Vui lòng thử lại khi có kết nối.'}
+              </p>
+            )}
 
             {upcomingEvents.length === 0 ? (
               <div className="py-6 text-center text-xs text-text-muted">

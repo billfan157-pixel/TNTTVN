@@ -16,18 +16,24 @@ import {
 import { db } from '../db/index.js'
 import { classes } from '../db/schema.js'
 import { and, eq, isNull } from 'drizzle-orm'
+import { isValidIsoDate } from '../utils/date.js'
 
 const studentsRouter = new Hono()
 studentsRouter.use('*', authMiddleware)
+
+const optionalDateSchema = z.union([
+  z.string().refine(isValidIsoDate, 'Ngày phải là ngày YYYY-MM-DD có thật'),
+  z.literal(''),
+]).optional()
 
 const studentSchema = z.object({
   holyName: z.string().trim().min(1).max(100),
   fullName: z.string().trim().min(1).max(200),
   gender: z.enum(['Nam', 'Nữ']),
-  dateOfBirth: z.string(),
-  baptismDate: z.string().trim().optional(),
-  firstCommunionDate: z.string().trim().optional(),
-  confirmationDate: z.string().trim().optional(),
+  dateOfBirth: z.union([z.string().refine(isValidIsoDate, 'Ngày sinh phải là ngày YYYY-MM-DD có thật'), z.literal('')]),
+  baptismDate: optionalDateSchema,
+  firstCommunionDate: optionalDateSchema,
+  confirmationDate: optionalDateSchema,
   parentName: z.string().trim().max(200).default(''),
   parentPhone: z.string().trim().max(20).refine(val => !val || /^(\+84|0)\d{9,10}$/.test(val), 'Số điện thoại không hợp lệ').default(''),
   address: z.string().trim().max(500).default(''),

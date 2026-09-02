@@ -108,6 +108,7 @@ export function ParishAssetLightboxModal({ asset, onClose }: Props) {
             <img
               src={imageUrl}
               alt={asset.title}
+              referrerPolicy={asset.storageType === 'EXTERNAL' ? 'no-referrer' : undefined}
               className="max-w-full max-h-[540px] object-contain rounded-lg"
             />
           ) : (

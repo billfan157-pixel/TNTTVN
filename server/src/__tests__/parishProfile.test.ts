@@ -9,6 +9,7 @@ import { generateTokens } from '../middleware/auth.js'
 import parishProfileRouter from '../routes/parishProfile.js'
 import {
   createParishPerson,
+  createParishPeople,
   createParishRecord,
   createParishUnit,
   getParishProfileSnapshot,
@@ -115,6 +116,20 @@ describe('ADR-081 parish profile domain boundary', () => {
     }, ctx(PARISH_A))).rejects.toMatchObject({ status: 409, code: 'PARISH_LINKED_USER_DUPLICATE' })
   })
 
+  it('rolls back an entire personnel batch when one linked account is invalid', async () => {
+    const marker = `Atomic batch ${Date.now()}`
+    await expect(createParishPeople([
+      { fullName: `${marker} valid`, serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+      { linkedUserId: adminId, fullName: `${marker} invalid`, serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+    ], ctx(PARISH_B))).rejects.toMatchObject({ status: 404, code: 'PARISH_LINKED_USER_INVALID' })
+
+    const rows = await db.select().from(parishPeople).where(and(
+      eq(parishPeople.parishId, PARISH_B),
+      eq(parishPeople.fullName, `${marker} valid`),
+    ))
+    expect(rows).toHaveLength(0)
+  })
+
   it('rejects organization cycles and keeps audit payloads free of biography values', async () => {
     const root = await createParishUnit({ name: 'Ban Trị Sự', unitType: 'BOARD', sortOrder: 0, isActive: true }, ctx(PARISH_A))
     const child = await createParishUnit({ parentId: root.id, name: 'Ban Nghiên Huấn', unitType: 'COMMITTEE', sortOrder: 1, isActive: true }, ctx(PARISH_A))
@@ -183,5 +198,27 @@ describe('ADR-081 parish profile HTTP RBAC and upload guards', () => {
     const json = await response.json() as { data: { id: string } }
     const rows = await db.select().from(parishPeople).where(and(eq(parishPeople.parishId, PARISH_A), eq(parishPeople.id, json.data.id)))
     expect(rows).toHaveLength(1)
+  })
+
+  it('creates a validated personnel batch atomically and enforces the 100-row boundary', async () => {
+    const marker = `Route batch ${Date.now()}`
+    const response = await app.request('/api/parish-profile/people/import', {
+      method: 'POST', headers: { ...auth(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ people: [
+        { fullName: `${marker} A`, serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+        { fullName: `${marker} B`, serviceStatus: 'FORMER', visibility: 'STAFF' },
+      ] }),
+    })
+    expect(response.status).toBe(201)
+    const rows = await db.select().from(parishPeople).where(eq(parishPeople.parishId, PARISH_A))
+    expect(rows.filter(row => row.fullName.startsWith(marker))).toHaveLength(2)
+
+    const tooLarge = await app.request('/api/parish-profile/people/import', {
+      method: 'POST', headers: { ...auth(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ people: Array.from({ length: 101 }, (_, index) => ({
+        fullName: `${marker} overflow ${index}`, serviceStatus: 'ACTIVE', visibility: 'STAFF',
+      })) }),
+    })
+    expect(tooLarge.status).toBe(400)
   })
 })

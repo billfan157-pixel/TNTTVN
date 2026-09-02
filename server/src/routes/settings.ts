@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, errorResponse } from '../utils/response.js'
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { systemSettings, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
@@ -188,68 +188,62 @@ settingsRouter.put('/', roleMiddleware('admin'), zValidator('json', updateSettin
   const payload = c.req.valid('json')
 
   try {
-    const [existing] = await db
-      .select()
-      .from(systemSettings)
-      .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, user.parishId)))
-      .limit(1)
-
-    let currentVal: ParishSettingsValue = DEFAULT_PARISH_SETTINGS
-    if (existing && existing.value) {
-      try { currentVal = { ...DEFAULT_PARISH_SETTINGS, ...JSON.parse(existing.value) } } catch {}
-    }
-
-    const now = new Date().toISOString()
-    const updatedVal = {
-      ...currentVal,
-      ...payload,
-      gradeWeights: { ...currentVal.gradeWeights, ...payload.gradeWeights },
-      attendancePolicy: { ...currentVal.attendancePolicy, ...payload.attendancePolicy },
-      promotionPolicy: { ...currentVal.promotionPolicy, ...payload.promotionPolicy },
-      gradePolicyAudit: buildGradePolicyAudit(
-        currentVal.gradeWeights,
-        { ...currentVal.gradeWeights, ...payload.gradeWeights },
-        user.userId,
-        payload.gradeWeights ? 'Approved policy update for grade weights and thresholds.' : 'Settings updated.',
-        currentVal.gradePolicyAudit?.currentPolicyVersion,
-        now,
-      ),
-    }
-
     const ip = getClientIp(c)
     const userAgent = c.req.header('user-agent') || ''
-
-    if (existing) {
-      await db
-        .update(systemSettings)
-        .set({
-          value: JSON.stringify(updatedVal),
-          updatedBy: user.userId,
-          updatedAt: now,
-        })
+    const updatedVal = await runDbTransaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(systemSettings)
         .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, user.parishId)))
-    } else {
-      await db.insert(systemSettings).values({
+        .limit(1)
+
+      let currentVal: ParishSettingsValue = DEFAULT_PARISH_SETTINGS
+      if (existing?.value) {
+        try { currentVal = { ...DEFAULT_PARISH_SETTINGS, ...JSON.parse(existing.value) } } catch {}
+      }
+
+      const now = new Date().toISOString()
+      const nextValue = {
+        ...currentVal,
+        ...payload,
+        gradeWeights: { ...currentVal.gradeWeights, ...payload.gradeWeights },
+        attendancePolicy: { ...currentVal.attendancePolicy, ...payload.attendancePolicy },
+        promotionPolicy: { ...currentVal.promotionPolicy, ...payload.promotionPolicy },
+        gradePolicyAudit: buildGradePolicyAudit(
+          currentVal.gradeWeights,
+          { ...currentVal.gradeWeights, ...payload.gradeWeights },
+          user.userId,
+          payload.gradeWeights ? 'Approved policy update for grade weights and thresholds.' : 'Settings updated.',
+          currentVal.gradePolicyAudit?.currentPolicyVersion,
+          now,
+        ),
+      }
+
+      await tx.insert(systemSettings).values({
         key: 'parish_system_settings',
-        value: JSON.stringify(updatedVal),
+        value: JSON.stringify(nextValue),
         description: 'Parish System Configuration',
         updatedBy: user.userId,
         updatedAt: now,
         parishId: user.parishId,
+      }).onConflictDoUpdate({
+        target: [systemSettings.key, systemSettings.parishId],
+        set: { value: JSON.stringify(nextValue), updatedBy: user.userId, updatedAt: now },
       })
-    }
 
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.userId,
-      action: 'UPDATE',
-      entityType: 'settings',
-      entityId: 'parish_system_settings',
-      oldValue: JSON.stringify(currentVal),
-      newValue: JSON.stringify(updatedVal),
-      ip,
-      userAgent,
-      parishId: user.parishId,
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: user.userId,
+        action: 'UPDATE',
+        entityType: 'settings',
+        entityId: 'parish_system_settings',
+        oldValue: JSON.stringify(currentVal),
+        newValue: JSON.stringify(nextValue),
+        ip,
+        userAgent,
+        parishId: user.parishId,
+      })
+      return nextValue
     })
 
     settingsCache = null

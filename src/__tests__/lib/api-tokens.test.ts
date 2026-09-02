@@ -60,4 +60,21 @@ describe('A01 + A-NEW-01 — token storage (client, cookie-only)', () => {
     await expect(bootstrapAccessToken()).resolves.toBe(false)
     expect(fetchMock).toHaveBeenCalledOnce()
   })
+
+  it('không phục hồi phiên từ refresh response cũ sau khi logout', async () => {
+    let resolveRefresh!: (response: Response) => void
+    const fetchMock = vi.fn(() => new Promise<Response>(resolve => { resolveRefresh = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const pending = bootstrapAccessToken()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    clearTokens()
+    resolveRefresh(new Response(JSON.stringify({ data: { accessToken: 'stale-access' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await expect(pending).resolves.toBe(false)
+    expect(getAccessToken()).toBeNull()
+  })
 })

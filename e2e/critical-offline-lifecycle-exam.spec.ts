@@ -117,7 +117,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     await page.goto('/grades')
     await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible()
     await page.getByRole('tab', { name: /Chấm Bài:/ }).click()
-    await page.getByRole('button', { name: 'Tạo Phiên Chấm' }).click()
+    await page.getByRole('button', { name: 'Tạo Phiên Chấm', exact: true }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Tạo Phiên Chấm' })
     await dialog.getByRole('combobox', { name: 'Lớp học cho phiên chấm' }).selectOption('CLS-TN-1')

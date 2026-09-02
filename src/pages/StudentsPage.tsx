@@ -9,8 +9,8 @@ import { useEffectiveMode } from '../hooks/useEffectiveMode'
 import { useClassStore } from '../stores/classStore'
 import { useToastStore } from '../stores/toastStore'
 import { api, ApiError } from '../lib/api'
-import { useState, useCallback, Suspense, useMemo } from 'react'
-import { TrendingUp, Users, Send, AlertCircle, CheckCircle, BookOpen } from 'lucide-react'
+import { useState, useCallback, Suspense, useEffect, useMemo } from 'react'
+import { TrendingUp, Users, Send, AlertCircle, CheckCircle } from 'lucide-react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student, StudentWorkspace } from '../types'
@@ -19,7 +19,7 @@ import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
 import { useAuth } from '../hooks/useAuth'
 
 const STUDENT_WORKSPACE_TABS = [
-  { value: 'students' as const, label: 'Danh Sách', icon: <Users aria-hidden="true" size={14} /> },
+  { value: 'students' as const, label: 'Danh Sách & Lớp', icon: <Users aria-hidden="true" size={14} /> },
   { value: 'promotions' as const, label: 'Thăng Tiến', icon: <TrendingUp aria-hidden="true" size={14} /> },
 ]
 
@@ -29,13 +29,7 @@ const DesktopStudentList = lazyWithRetry<React.FC<{
   onEditStudent: (student: Student) => void
   onViewReport: (student: Student) => void
   onViewPhotoCard: (student: Student) => void
-  onManageClasses?: () => void
 }>>(() => import('../components/desktop/DesktopStudentList'), 'DesktopStudentList')
-
-const DesktopClasses = lazyWithRetry<React.FC<{
-  embedded?: boolean
-  onViewClassStudents?: (classId: string) => void
-}>>(() => import('../components/desktop/DesktopClasses').then(module => ({ default: module.DesktopClasses })), 'DesktopClasses')
 
 const PromotionPanel = lazyWithRetry<React.FC<{
   onViewPhotoCard?: (student: Student) => void
@@ -60,12 +54,9 @@ export function StudentsPage() {
   const [cardSuccess, setCardSuccess] = useState<string | null>(null)
   const [showConfirmSend, setShowConfirmSend] = useState(false)
   const requestedWorkspace = search.view || 'students'
-  const activeWorkspace: StudentWorkspace = requestedWorkspace === 'classes' && role !== 'admin'
-    ? 'students'
-    : requestedWorkspace
-  const workspaceTabs = role === 'admin'
-    ? [...STUDENT_WORKSPACE_TABS, { value: 'classes' as const, label: 'Lớp Học', icon: <BookOpen aria-hidden="true" size={14} /> }]
-    : STUDENT_WORKSPACE_TABS
+  // `view=classes` remains a backward-compatible deep link, but class management
+  // now shares the roster index instead of owning a duplicate top-level tab.
+  const activeWorkspace: StudentWorkspace = requestedWorkspace === 'classes' ? 'students' : requestedWorkspace
   const setActiveWorkspace = useCallback((view: StudentWorkspace) => {
     navigate({ to: '/students', search: previous => ({ ...previous, view }), replace: true })
   }, [navigate])
@@ -82,6 +73,12 @@ export function StudentsPage() {
   const selectedSemester = useFilterStore(s => s.selectedSemester)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const findClassById = useClassStore(s => s.findClassById)
+
+  useEffect(() => {
+    if (requestedWorkspace === 'classes') {
+      useFilterStore.getState().setSelectedClassId('all')
+    }
+  }, [requestedWorkspace])
 
   const filteredStudentsForSend = useMemo(() => {
     let list = students.filter(s => s.status === 'Đang học')
@@ -164,7 +161,7 @@ export function StudentsPage() {
           <Tabs
             id="students-workspace-tabs"
             ariaLabel="Không gian quản lý thiếu nhi"
-            items={workspaceTabs}
+            items={STUDENT_WORKSPACE_TABS}
             value={activeWorkspace}
             onValueChange={setActiveWorkspace}
             className="w-fit"
@@ -209,17 +206,9 @@ export function StudentsPage() {
               onEditStudent={openEditStudent}
               onViewReport={openReport}
               onViewPhotoCard={openPhotoCard}
-              onManageClasses={isAdmin ? () => setActiveWorkspace('classes') : undefined}
             />
           </Suspense>
         </TabPanel>
-        {role === 'admin' && (
-          <TabPanel tabsId="students-workspace-tabs" value="classes" activeValue={activeWorkspace}>
-            <Suspense fallback={<div className="flex h-64 items-center justify-center text-sm font-medium text-text-secondary">Đang tải lớp học...</div>}>
-              <DesktopClasses embedded onViewClassStudents={openClassRoster} />
-            </Suspense>
-          </TabPanel>
-        )}
       </div>
 
       {showImportModal && (

@@ -463,6 +463,7 @@ export const ExamExportModal: React.FC<ExamExportModalProps> = ({
                     <iframe
                       srcDoc={previewContent}
                       title="Xem trước đề thi"
+                      sandbox=""
                       className="w-full h-full border-none bg-white"
                     />
                   </div>

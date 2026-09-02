@@ -28,14 +28,18 @@ import type { LiturgicalDay } from '../../types/liturgical'
 import type { ParishEvent } from '../../stores/parishEventStore'
 import { PageHeader } from '../common/PageHeader'
 import { useParishEventStore } from '../../stores/parishEventStore'
+import { useAuthStore } from '../../stores/authStore'
 import { useToastStore } from '../../stores/toastStore'
 import { Trash2 } from 'lucide-react'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
+import { canManageParishEvents } from '../../utils/parishPortal'
 
 export const DesktopCalendarView: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [selectedDay, setSelectedDay] = useState<LiturgicalDay>(getLiturgicalDay(new Date()))
   const { events: parishEvents, fetchEvents, createEvent, updateEvent, deleteEvent } = useParishEventStore()
+  const role = useAuthStore(state => state.user?.role)
+  const canManageEvents = canManageParishEvents(role)
   const [showAddEventModal, setShowAddEventModal] = useState(false)
   const [editingEvent, setEditingEvent] = useState<ParishEvent | null>(null)
   const [newEventDate, setNewEventDate] = useState(() => getLiturgicalDay(new Date()).date)
@@ -115,7 +119,7 @@ export const DesktopCalendarView: React.FC = () => {
       description: `${selectedDay.seasonName} • Bậc lễ: ${selectedDay.rankName}\n${selectedDay.readings?.gospelVerse ? `Lời Chúa: "${selectedDay.readings.gospelVerse}"` : ''}`,
       location: 'Giáo Xứ Gia Tôn',
     })
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const selectedDayColorMeta = LITURGICAL_COLORS[selectedDay.color] || LITURGICAL_COLORS.GREEN
@@ -182,8 +186,12 @@ export const DesktopCalendarView: React.FC = () => {
       variant: 'danger',
     })
     if (!confirmed) return
-    await deleteEvent(ev.id)
-    useToastStore.getState().addToast('Đã xóa sự kiện', 'success')
+    try {
+      await deleteEvent(ev.id)
+      useToastStore.getState().addToast('Đã xóa sự kiện', 'success')
+    } catch (error) {
+      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Không thể xóa sự kiện', 'error')
+    }
   }
 
   const handleOpenAddEventModal = () => {
@@ -461,12 +469,14 @@ export const DesktopCalendarView: React.FC = () => {
                 <span className="text-xs font-extrabold text-text-secondary uppercase tracking-wider">
                   Sự Kiện Xứ Đoàn ({selectedDayParishEvents.length})
                 </span>
-                <button
-                  onClick={handleOpenAddEventModal}
-                  className="px-2 py-1 rounded-lg text-xs font-bold bg-parish-primary text-white hover:bg-parish-primary-hover flex items-center gap-1 transition-all"
-                >
-                  <Plus size={12} /> Thêm
-                </button>
+                {canManageEvents && (
+                  <button
+                    onClick={handleOpenAddEventModal}
+                    className="px-2 py-1 rounded-lg text-xs font-bold bg-parish-primary text-white hover:bg-parish-primary-hover flex items-center gap-1 transition-colors"
+                  >
+                    <Plus size={12} /> Thêm
+                  </button>
+                )}
               </div>
 
               {selectedDayParishEvents.length === 0 ? (
@@ -486,22 +496,26 @@ export const DesktopCalendarView: React.FC = () => {
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">
                             {ev.categoryName}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditEventModal(ev)}
-                            className="p-1 rounded-md text-text-muted hover:text-parish-primary hover:bg-surface-card transition-colors border border-transparent hover:border-surface-border cursor-pointer"
-                            title="Chỉnh sửa sự kiện"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteEvent(ev)}
-                            className="p-1 rounded-md text-text-muted hover:text-rose-600 hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
-                            title="Xóa sự kiện"
-                          >
-                            <Trash2 size={12} />
-                          </button>
+                          {canManageEvents && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditEventModal(ev)}
+                              className="p-1 rounded-md text-text-muted hover:text-parish-primary hover:bg-surface-card transition-colors border border-transparent hover:border-surface-border cursor-pointer"
+                              title="Chỉnh sửa sự kiện"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                          {canManageEvents && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEvent(ev)}
+                              className="p-1 rounded-md text-text-muted hover:text-rose-600 hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+                              title="Xóa sự kiện"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
                         </span>
                       </div>
                       {(ev.time || ev.location) && (

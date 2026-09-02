@@ -75,6 +75,7 @@ describe('Leave Requests Route & Attendance Auto-Sync Integration Tests', () => 
     await db.delete(classes).where(eq(classes.id, classId))
     await db.delete(academicYears).where(eq(academicYears.id, yearId))
     await db.delete(branches).where(eq(branches.id, branchId))
+    await db.delete(auditLogs).where(eq(auditLogs.parishId, parishId))
     await db.delete(users).where(eq(users.parishId, parishId))
   })
 
@@ -98,6 +99,15 @@ describe('Leave Requests Route & Attendance Auto-Sync Integration Tests', () => 
     expect(json.data.status).toBe('PENDING')
     expect(json.data.sessionTypes).toEqual(['SundayMass', 'CatechismClass', 'EucharisticAdoration'])
     createdRequestId = json.data.id
+
+    const [audit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishId),
+      eq(auditLogs.entityId, createdRequestId),
+      eq(auditLogs.action, 'CREATE_LEAVE_REQUEST'),
+    ))
+    expect(audit).toBeDefined()
+    expect(audit.newValue).not.toContain('sốt xuất huyết')
+    expect(audit.newValue).not.toContain('Nguyễn Thị Hoa')
   })
 
   it('2. Teacher gets pending count and requests list scoped to assigned class', async () => {
@@ -167,6 +177,45 @@ describe('Leave Requests Route & Attendance Auto-Sync Integration Tests', () => 
       expect(r.status).toBe('AbsentExcused')
       expect(r.note).toContain('[Đơn online]')
     })
+
+    const [audit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishId),
+      eq(auditLogs.entityId, createdRequestId),
+      eq(auditLogs.action, 'REVIEW_LEAVE_REQUEST'),
+    ))
+    expect(audit).toBeDefined()
+    expect(audit.newValue).not.toContain('chúc em mau khỏe')
+    expect(audit.newValue).not.toContain('GLV Nguyễn Văn B')
+  })
+
+  it('5. Concurrent reviewers cannot both commit or duplicate review audit', async () => {
+    const createResponse = await leaveRequestsRouter.request('/', {
+      method: 'POST',
+      headers: parentHeaders(),
+      body: JSON.stringify({
+        studentId,
+        date: '2026-08-23',
+        sessionTypes: ['SundayMass'],
+        reason: 'Em có việc gia đình cần xin nghỉ',
+      }),
+    })
+    const requestId = ((await createResponse.json()) as any).data.id as string
+    const makeReview = () => leaveRequestsRouter.request(`/${requestId}/review`, {
+      method: 'PATCH',
+      headers: teacherHeaders(),
+      body: JSON.stringify({ status: 'APPROVED', reviewNote: 'Đồng ý' }),
+    })
+    const responses = await Promise.all([makeReview(), makeReview()])
+    const statuses = responses.map(response => response.status)
+    expect(statuses.filter(status => status === 200)).toHaveLength(1)
+    expect(statuses.filter(status => status === 400 || status === 409)).toHaveLength(1)
+
+    const audits = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishId),
+      eq(auditLogs.entityId, requestId),
+      eq(auditLogs.action, 'REVIEW_LEAVE_REQUEST'),
+    ))
+    expect(audits).toHaveLength(1)
   })
 })
 

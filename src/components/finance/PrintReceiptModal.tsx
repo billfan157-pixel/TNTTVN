@@ -52,9 +52,10 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${transaction.type}_${receiptData.receiptNumber}.html`
+    const safeReceiptNumber = receiptData.receiptNumber.replace(/[<>:"/\\|?*]/g, '_').trim() || 'receipt'
+    a.download = `${transaction.type}_${safeReceiptNumber}.html`
     a.click()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
   }
 
   return (
@@ -89,6 +90,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         <iframe
           title="Receipt Preview"
           srcDoc={html}
+          sandbox=""
           className="w-full h-[70vh] border border-surface-border rounded-lg bg-white shadow-md"
         />
       </div>

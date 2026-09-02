@@ -31,6 +31,18 @@ import { clearAuthSnapshot } from './db'
 //   — xem bootstrapAccessToken().
 // - clearTokens: xóa memory + dọn mọi legacy key phòng trường hợp version cũ để sót.
 let accessToken: string | null = null
+// Monotonic identity boundary for in-flight requests. It changes on explicit
+// login/logout, but not on an access-token rotation for the same session.
+let authSessionGeneration = 0
+
+function removeLegacyTokenStorage(): void {
+  try {
+    localStorage.removeItem('parish_access_token')
+    localStorage.removeItem('parish_refresh_token')
+  } catch {
+    // Ignore storage issues
+  }
+}
 
 // A-NEW-27 (2026-08-11): KHÔNG import static { router } từ '../router' — tạo chu kỳ
 // import tròn (api → router → stores → api) → stores gọi isAuthenticated() lúc module
@@ -95,14 +107,10 @@ function newIdempotencyKey(): string {
 // tồn tại trong JS state — nguồn duy nhất là HttpOnly cookie (server set/rotate).
 export function setTokens(access: string) {
   accessToken = access
+  authSessionGeneration++
   // SECURITY (2026-08-11): KHÔNG persist access token vào localStorage nữa — chỉ
   // memory. Xóa key cũ nếu còn sót từ version trước (dọn dẹp phòng thủ).
-  try {
-    localStorage.removeItem('parish_access_token')
-    localStorage.removeItem('parish_refresh_token')
-  } catch {
-    // Ignore storage issues
-  }
+  removeLegacyTokenStorage()
 }
 
 export function loadTokensFromStorage() {
@@ -121,12 +129,8 @@ export const loadTokens = loadTokensFromStorage
 
 export function clearTokens() {
   accessToken = null
-  try {
-    localStorage.removeItem('parish_access_token')
-    localStorage.removeItem('parish_refresh_token')
-  } catch {
-    // Ignore
-  }
+  authSessionGeneration++
+  removeLegacyTokenStorage()
 }
 
 type RefreshResult = 'success' | 'auth_failed' | 'network_offline'
@@ -154,6 +158,7 @@ async function refreshAccessToken(): Promise<RefreshResult> {
 }
 
 async function doRefresh(): Promise<RefreshResult> {
+  const refreshSessionGeneration = authSessionGeneration
   // A01 Phase 1 + A-NEW-01/02: token chỉ nằm trong HttpOnly cookie (credentials:
   // 'include' gửi kèm). KHÔNG gửi refresh token trong body — JS không có token này.
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -175,7 +180,14 @@ async function doRefresh(): Promise<RefreshResult> {
     }
     const data = await res.json()
     const tokens = data.data || data
-    setTokens(tokens.accessToken)
+    // Logout/account switch won the race: never let a stale refresh response
+    // resurrect the old browser session.
+    if (authSessionGeneration !== refreshSessionGeneration) return 'auth_failed'
+
+    const wasUnauthenticated = accessToken === null
+    accessToken = tokens.accessToken
+    if (wasUnauthenticated) authSessionGeneration++
+    removeLegacyTokenStorage()
     return 'success'
   } catch {
     return 'network_offline'
@@ -286,6 +298,7 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
   const headers: Record<string, string> = { ...(isMultipart ? {} : { 'Content-Type': 'application/json' }), ...(customHeaders || {}) }
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
   const serializedBody = body === undefined ? undefined : isMultipart ? body : JSON.stringify(body)
+  let requestSessionGeneration = authSessionGeneration
 
   let res: Response
   try {
@@ -299,12 +312,19 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
       signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS),
     })
   } catch {
+    if (authSessionGeneration !== requestSessionGeneration) {
+      throw new ApiError(401, 'Authentication session changed while request was in flight', path)
+    }
     // Network error — A12: chỉ retry method idempotent (hoặc có Idempotency-Key)
     if (canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
       await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
       return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope)
     }
     throw new ApiError(0, 'Network error — unable to reach server', path)
+  }
+
+  if (authSessionGeneration !== requestSessionGeneration) {
+    throw new ApiError(401, 'Authentication session changed while request was in flight', path)
   }
 
   // Handle 401 with mutex refresh or redirect to login (trừ auth routes như /auth/login, /auth/refresh)
@@ -314,7 +334,11 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
     const refreshRes = await refreshAccessToken()
     if (refreshRes === 'success') {
       headers['Authorization'] = `Bearer ${accessToken}`
+      requestSessionGeneration = authSessionGeneration
       res = await fetch(url, { method, headers, body: serializedBody, credentials: 'include', signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS) })
+      if (authSessionGeneration !== requestSessionGeneration) {
+        throw new ApiError(401, 'Authentication session changed while request was in flight', path)
+      }
     } else if (refreshRes === 'auth_failed') {
       redirectToLogin()
       throw new ApiError(401, 'Session expired — redirecting to login', path)
@@ -338,6 +362,9 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
       throw new ApiError(res.status, BACKEND_UNAVAILABLE_MESSAGE, path)
     }
     const text = await res.text().catch(() => '')
+    if (authSessionGeneration !== requestSessionGeneration) {
+      throw new ApiError(401, 'Authentication session changed while request was in flight', path)
+    }
     let details: any = undefined
     let issues: any[] | undefined
     let customMessage: string | undefined
@@ -378,9 +405,16 @@ async function request<T>(method: string, path: string, body?: unknown, retryCou
 
   if (res.status === 204) return undefined as T
   if (responseType === 'blob') {
-    return res.blob() as Promise<T>
+    const blob = await res.blob()
+    if (authSessionGeneration !== requestSessionGeneration) {
+      throw new ApiError(401, 'Authentication session changed while request was in flight', path)
+    }
+    return blob as T
   }
   const json = await res.json()
+  if (authSessionGeneration !== requestSessionGeneration) {
+    throw new ApiError(401, 'Authentication session changed while request was in flight', path)
+  }
   // AUDIT-F8 fix (2026-08-22): keepEnvelope=true dành cho endpoint phân trang
   // (paginatedResponse) — caller cần cả `meta` (total/totalPages) chứ không chỉ
   // `data`. Trước đây envelope luôn bị bóc → AuditLogPage nhận mảng trần, đọc
@@ -784,6 +818,8 @@ export const api = {
   deleteClass: (id: string) => request<{ success: boolean }>('DELETE', `/classes/${id}`),
   assignClassTeacher: (classId: string, userId: string, roleInClass: 'chunhiem' | 'phuta') =>
     request<{ ok: boolean }>('POST', `/classes/${classId}/assignments`, { userId, roleInClass }),
+  replaceClassAssignments: (classId: string, data: { homeroomTeacherId: string | null; assistantTeacherIds: string[] }) =>
+    request<{ ok: boolean; classId: string }>('PUT', `/classes/${classId}/assignments`, data),
   unassignClassTeacher: (classId: string, userId: string) =>
     request<{ ok: boolean }>('DELETE', `/classes/${classId}/assignments/${userId}`),
 
@@ -966,6 +1002,7 @@ export const api = {
     getSnapshot: () => request<import('../types/parishProfile').ParishProfileSnapshot>('GET', '/parish-profile'),
     updateProfile: (data: import('../types/parishProfile').ParishProfileInput) => request('PUT', '/parish-profile/profile', data),
     createPerson: (data: import('../types/parishProfile').ParishPersonInput) => request('POST', '/parish-profile/people', data),
+    createPeople: (people: import('../types/parishProfile').ParishPersonInput[]) => request<{ people: import('../types/parishProfile').ParishPerson[] }>('POST', '/parish-profile/people/import', { people }),
     updatePerson: (id: string, data: import('../types/parishProfile').ParishPersonInput) => request('PUT', `/parish-profile/people/${encodeURIComponent(id)}`, data),
     deletePerson: (id: string) => request('DELETE', `/parish-profile/people/${encodeURIComponent(id)}`),
     createUnit: (data: import('../types/parishProfile').ParishUnitInput) => request('POST', '/parish-profile/units', data),

@@ -3,20 +3,24 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { parishEvents, auditLogs } from '../db/schema.js'
 import { and, eq, isNull, gte, lte } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
 import { successResponse, errorResponse, listResponse } from '../utils/response.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const parishEventsRouter = new Hono()
 parishEventsRouter.use('*', authMiddleware)
 
 const categoryEnum = z.enum(['FEAST_DAY', 'CAMP', 'TRAINING', 'SACRAMENT', 'RETREAT', 'MEETING', 'OTHER'])
 
+const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải định dạng YYYY-MM-DD')
+  .refine(isValidIsoDate, 'Ngày không tồn tại trong lịch')
+
 const createSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải định dạng YYYY-MM-DD'),
+  date: dateSchema,
   title: z.string().trim().min(1, 'Tiêu đề không được để trống').max(200, 'Tiêu đề tối đa 200 ký tự'),
   category: categoryEnum,
   categoryName: z.string().trim().max(100).optional(),
@@ -25,7 +29,7 @@ const createSchema = z.object({
 })
 
 const updateSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày phải định dạng YYYY-MM-DD').optional(),
+  date: dateSchema.optional(),
   title: z.string().trim().min(1).max(200).optional(),
   category: categoryEnum.optional(),
   categoryName: z.string().trim().max(100).optional(),
@@ -83,18 +87,19 @@ parishEventsRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('js
     deletedAt: null,
   }
 
-  await db.insert(parishEvents).values(row as any)
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'CREATE',
-    entityType: 'parish_event',
-    entityId: id,
-    newValue: JSON.stringify(row),
-    ip: getClientIp(c),
-    userAgent: c.req.header('user-agent') || '',
-    parishId: user.parishId,
+  await runDbTransaction(async tx => {
+    await tx.insert(parishEvents).values(row as any)
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'CREATE',
+      entityType: 'parish_event',
+      entityId: id,
+      newValue: JSON.stringify(row),
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
   })
 
   return successResponse(c, row, 201)
@@ -106,40 +111,41 @@ parishEventsRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('
   const id = c.req.param('id')
   const body = c.req.valid('json')
 
-  const [existing] = await db.select().from(parishEvents).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId), isNull(parishEvents.deletedAt))).limit(1)
-  if (!existing) return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy sự kiện', 404)
+  const updated = await runDbTransaction(async tx => {
+    const [existing] = await tx.select().from(parishEvents).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId), isNull(parishEvents.deletedAt))).limit(1)
+    if (!existing) return null
 
-  const now = new Date().toISOString()
-  const updates: any = { updatedAt: now }
-  if (body.date !== undefined) updates.date = body.date
-  if (body.title !== undefined) updates.title = body.title.trim()
-  if (body.category !== undefined) updates.category = body.category
-  if (body.categoryName !== undefined) updates.categoryName = body.categoryName.trim()
-  if (body.time !== undefined) updates.time = body.time?.trim() || null
-  if (body.location !== undefined) updates.location = body.location?.trim() || null
+    const now = new Date().toISOString()
+    const updates: any = { updatedAt: now }
+    if (body.date !== undefined) updates.date = body.date
+    if (body.title !== undefined) updates.title = body.title.trim()
+    if (body.category !== undefined) updates.category = body.category
+    if (body.categoryName !== undefined) updates.categoryName = body.categoryName.trim()
+    if (body.time !== undefined) updates.time = body.time?.trim() || null
+    if (body.location !== undefined) updates.location = body.location?.trim() || null
 
-  // Auto-update categoryName if category changed and no explicit name
-  if (body.category && !body.categoryName) {
-    const names: Record<string,string> = { FEAST_DAY: 'Lễ Bổn Mạng', CAMP: 'Trại Hè / Sa Mạc', TRAINING: 'Huấn Luyện', SACRAMENT: 'Bí Tích', RETREAT: 'Tĩnh Tâm', MEETING: 'Họp Xứ Đoàn', OTHER: 'Sự Kiện Khác' }
-    updates.categoryName = names[body.category] || body.category
-  }
+    if (body.category && !body.categoryName) {
+      const names: Record<string,string> = { FEAST_DAY: 'Lễ Bổn Mạng', CAMP: 'Trại Hè / Sa Mạc', TRAINING: 'Huấn Luyện', SACRAMENT: 'Bí Tích', RETREAT: 'Tĩnh Tâm', MEETING: 'Họp Xứ Đoàn', OTHER: 'Sự Kiện Khác' }
+      updates.categoryName = names[body.category] || body.category
+    }
 
-  await db.update(parishEvents).set(updates).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId)))
-
-  const [updated] = await db.select().from(parishEvents).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId))).limit(1)
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'UPDATE',
-    entityType: 'parish_event',
-    entityId: id,
-    oldValue: JSON.stringify(existing),
-    newValue: JSON.stringify(updated),
-    ip: getClientIp(c),
-    userAgent: c.req.header('user-agent') || '',
-    parishId: user.parishId,
+    await tx.update(parishEvents).set(updates).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId)))
+    const [next] = await tx.select().from(parishEvents).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId))).limit(1)
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'UPDATE',
+      entityType: 'parish_event',
+      entityId: id,
+      oldValue: JSON.stringify(existing),
+      newValue: JSON.stringify(next),
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
+    return next
   })
+  if (!updated) return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy sự kiện', 404)
 
   return successResponse(c, updated)
 })
@@ -149,23 +155,25 @@ parishEventsRouter.delete('/:id', roleMiddleware('admin', 'chunhiem'), async (c)
   const user = c.get('user') as JwtPayload
   const id = c.req.param('id')
 
-  const [existing] = await db.select().from(parishEvents).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId), isNull(parishEvents.deletedAt))).limit(1)
-  if (!existing) return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy sự kiện', 404)
-
-  const now = new Date().toISOString()
-  await db.update(parishEvents).set({ deletedAt: now, updatedAt: now }).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId)))
-
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.userId,
-    action: 'DELETE',
-    entityType: 'parish_event',
-    entityId: id,
-    oldValue: JSON.stringify(existing),
-    ip: getClientIp(c),
-    userAgent: c.req.header('user-agent') || '',
-    parishId: user.parishId,
+  const deleted = await runDbTransaction(async tx => {
+    const [existing] = await tx.select().from(parishEvents).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId), isNull(parishEvents.deletedAt))).limit(1)
+    if (!existing) return false
+    const now = new Date().toISOString()
+    await tx.update(parishEvents).set({ deletedAt: now, updatedAt: now }).where(and(eq(parishEvents.id, id), eq(parishEvents.parishId, user.parishId)))
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'DELETE',
+      entityType: 'parish_event',
+      entityId: id,
+      oldValue: JSON.stringify(existing),
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
+    return true
   })
+  if (!deleted) return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy sự kiện', 404)
 
   return successResponse(c, { deleted: true, id })
 })

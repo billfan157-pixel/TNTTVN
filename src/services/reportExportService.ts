@@ -73,6 +73,7 @@ export class ReportExportService {
         useToastStore.getState().addToast('Cửa sổ Xem trước bị trình duyệt chặn (Popup Blocked). Vui lòng cho phép Popup cho trang web này!', 'info', 6000)
         return false
       }
+      try { previewWindow.opener = null } catch {}
       const url = htmlBlobUrl(prepareOutput(htmlContent))
       previewWindow.location.href = url
       try {
@@ -128,6 +129,7 @@ export class ReportExportService {
       }
 
       let printed = false
+      try { printWindow.opener = null } catch {}
       printWindow.location.href = url
       try {
         printWindow.focus()

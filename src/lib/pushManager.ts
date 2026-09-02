@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { App } from '@capacitor/app'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { api } from './api'
+import { getTenantScopeKey } from './tenantScope'
 
 const SW_PATH = '/sw.js'
 const PUSH_FLAG_KEY = 'push_subscription_active'
@@ -134,7 +135,34 @@ let registrationWaiter: {
   resolve: () => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+  scopeKey: string
 } | null = null
+
+interface NativePreferenceKeys {
+  scopeKey: string
+  active: string
+  disabled: string
+}
+
+function clearLegacyNativePreferenceFlags(): void {
+  try {
+    // These legacy device-global flags cannot be assigned to an authenticated
+    // account safely and otherwise leak opt-out state across account switches.
+    localStorage.removeItem(NATIVE_PUSH_FLAG_KEY)
+    localStorage.removeItem(NATIVE_PUSH_DISABLED_KEY)
+  } catch {}
+}
+
+function getNativePreferenceKeys(): NativePreferenceKeys | null {
+  clearLegacyNativePreferenceFlags()
+  const scopeKey = getTenantScopeKey()
+  if (!scopeKey) return null
+  return {
+    scopeKey,
+    active: `${NATIVE_PUSH_FLAG_KEY}:${scopeKey}`,
+    disabled: `${NATIVE_PUSH_DISABLED_KEY}:${scopeKey}`,
+  }
+}
 
 function nativePlatform(): 'android' | 'ios' | null {
   if (!Capacitor.isNativePlatform()) return null
@@ -166,13 +194,23 @@ async function ensureNativeListeners(): Promise<void> {
     await PushNotifications.addListener('registration', async registration => {
       const platform = nativePlatform()
       if (!platform) return
+      const scopeKey = getTenantScopeKey()
+      if (!scopeKey || (registrationWaiter && registrationWaiter.scopeKey !== scopeKey)) {
+        registrationWaiter?.reject(new Error('Phiên đăng nhập đã thay đổi khi nhận push token'))
+        return
+      }
       try {
         await api.registerNativePush({
           installationId: getInstallationId(),
           platform,
           token: registration.value,
         })
-        localStorage.setItem(NATIVE_PUSH_FLAG_KEY, '1')
+        if (getTenantScopeKey() !== scopeKey) {
+          registrationWaiter?.reject(new Error('Phiên đăng nhập đã thay đổi khi đăng ký thông báo'))
+          return
+        }
+        const keys = getNativePreferenceKeys()
+        if (keys) localStorage.setItem(keys.active, '1')
         registrationWaiter?.resolve()
       } catch (error) {
         registrationWaiter?.reject(error instanceof Error ? error : new Error('Không thể đăng ký thông báo'))
@@ -213,11 +251,15 @@ async function ensureAndroidChannel(): Promise<void> {
   })
 }
 
-async function registerNativeWithProvider(): Promise<void> {
+async function registerNativeWithProvider(scopeKey: string): Promise<void> {
+  if (getTenantScopeKey() !== scopeKey) throw new Error('Phiên đăng nhập đã thay đổi khi đăng ký thông báo')
   await ensureNativeListeners()
   await ensureNativeLifecycle()
   await ensureAndroidChannel()
-  if (registrationWaiter) return registrationWaiter.promise
+  if (registrationWaiter) {
+    if (registrationWaiter.scopeKey !== scopeKey) throw new Error('Một tài khoản khác đang đăng ký thông báo')
+    return registrationWaiter.promise
+  }
 
   let resolvePromise!: () => void
   let rejectPromise!: (error: Error) => void
@@ -226,7 +268,7 @@ async function registerNativeWithProvider(): Promise<void> {
     rejectPromise = reject
   })
   const timer = setTimeout(() => rejectPromise(new Error('Hết thời gian chờ thiết bị cấp push token')), 15_000)
-  registrationWaiter = { promise, resolve: resolvePromise, reject: rejectPromise, timer }
+  registrationWaiter = { promise, resolve: resolvePromise, reject: rejectPromise, timer, scopeKey }
   try {
     await PushNotifications.register()
     await promise
@@ -242,7 +284,9 @@ export function isNativePushAvailable(): boolean {
 
 export async function getNativePushStatus(): Promise<NativePushStatus> {
   if (!isNativePushAvailable()) return { available: false, permission: 'prompt', active: false }
+  const keys = getNativePreferenceKeys()
   const permission = await PushNotifications.checkPermissions()
+  if (keys && getTenantScopeKey() !== keys.scopeKey) return { available: true, permission: 'prompt', active: false }
   const normalized = permission.receive === 'granted'
     ? 'granted'
     : permission.receive === 'denied'
@@ -251,25 +295,29 @@ export async function getNativePushStatus(): Promise<NativePushStatus> {
   return {
     available: true,
     permission: normalized,
-    active: normalized === 'granted' && localStorage.getItem(NATIVE_PUSH_FLAG_KEY) === '1',
+    active: normalized === 'granted' && !!keys && localStorage.getItem(keys.active) === '1',
   }
 }
 
 export async function enableNativePushNotifications(): Promise<void> {
   if (!isNativePushAvailable()) return
+  const keys = getNativePreferenceKeys()
+  if (!keys) throw new Error('Cần đăng nhập lại trước khi bật thông báo')
   let permission = await PushNotifications.checkPermissions()
   if (permission.receive !== 'granted') permission = await PushNotifications.requestPermissions()
   if (permission.receive !== 'granted') throw new Error('Bạn chưa cấp quyền thông báo cho Catevia')
-  await registerNativeWithProvider()
-  localStorage.removeItem(NATIVE_PUSH_DISABLED_KEY)
+  await registerNativeWithProvider(keys.scopeKey)
+  if (getTenantScopeKey() !== keys.scopeKey) throw new Error('Phiên đăng nhập đã thay đổi khi đăng ký thông báo')
+  localStorage.removeItem(keys.disabled)
 }
 
 export async function restoreNativePushSubscription(): Promise<void> {
   if (!isNativePushAvailable()) return
-  if (localStorage.getItem(NATIVE_PUSH_DISABLED_KEY) === '1') return
+  const keys = getNativePreferenceKeys()
+  if (!keys || localStorage.getItem(keys.disabled) === '1') return
   const permission = await PushNotifications.checkPermissions()
   if (permission.receive !== 'granted') return
-  await registerNativeWithProvider()
+  await registerNativeWithProvider(keys.scopeKey)
 }
 
 /**
@@ -365,12 +413,27 @@ export async function disablePushSubscription(userInitiated = false): Promise<vo
   if (isNativePushAvailable()) {
     // Start the authenticated server request before authStore clears its
     // memory-only access token. Provider unregister then removes the OS token.
+    const keys = getNativePreferenceKeys()
     const installationId = getInstallationId()
     const serverRequest = api.unregisterNativePush(installationId)
-    await Promise.allSettled([serverRequest, PushNotifications.unregister()])
+    if (userInitiated) {
+      try {
+        await serverRequest
+      } catch (error) {
+        await PushNotifications.unregister().catch(() => {})
+        throw error
+      }
+      await PushNotifications.unregister().catch(error => {
+        console.warn('[pushManager] provider unregister failed after server unlink:', error)
+      })
+    } else {
+      await Promise.allSettled([serverRequest, PushNotifications.unregister()])
+    }
     try {
-      localStorage.removeItem(NATIVE_PUSH_FLAG_KEY)
-      if (userInitiated) localStorage.setItem(NATIVE_PUSH_DISABLED_KEY, '1')
+      if (keys) {
+        localStorage.removeItem(keys.active)
+        if (userInitiated) localStorage.setItem(keys.disabled, '1')
+      }
     } catch {}
     return
   }

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import { and, asc, desc, eq, gte, inArray, like, lte, notInArray, or, sql } from 'drizzle-orm'
-import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbExecutor, type DbTransaction } from '../db/index.js'
 import {
   auditLogs,
   branches,
+  catechistAssignments,
   classes,
   examBlueprintRules,
   examBlueprints,
@@ -152,6 +153,15 @@ function canEditQuestion(item: typeof questionBankItems.$inferSelect, userId: st
   return role === 'admin' || (item.createdBy === userId && item.status === 'draft')
 }
 
+async function assertBranchInParish(executor: DbExecutor, parishId: string, branchId?: string | null): Promise<void> {
+  if (!branchId) return
+  const [branch] = await executor.select({ id: branches.id }).from(branches).where(and(
+    eq(branches.parishId, parishId),
+    eq(branches.id, branchId),
+  )).limit(1)
+  if (!branch) throw new QuestionBankError('Ngành được chọn không tồn tại trong giáo xứ hiện tại.', 400, 'QUESTION_BRANCH_INVALID')
+}
+
 export async function createQuestion(input: QuestionContentInput, userId: string, parishId: string) {
   validateAnswerData(input.questionType, input.answerData)
   const id = generateId('QBI')
@@ -160,6 +170,7 @@ export async function createQuestion(input: QuestionContentInput, userId: string
   const meta = metadata(input)
   const contentHash = hash({ questionType: input.questionType, stem: input.stem.trim(), answerData: input.answerData, explanation: clean(input.explanation), metadata: meta })
   await runDbTransaction(async tx => {
+    await assertBranchInParish(tx, parishId, input.branchId)
     await tx.insert(questionBankItems).values({
       id, parishId, status: 'draft', currentVersion: 1,
       ...meta, tags: JSON.stringify(meta.tags), provenance: input.provenance ?? 'human',
@@ -187,15 +198,6 @@ export async function importQuestions(
   for (const input of inputs) validateAnswerData(input.questionType, input.answerData)
 
   const branchIds = [...new Set(inputs.map(input => input.branchId).filter((id): id is string => Boolean(id)))]
-  if (branchIds.length > 0) {
-    const existing = await db.select({ id: branches.id }).from(branches).where(and(
-      eq(branches.parishId, actor.parishId),
-      inArray(branches.id, branchIds),
-    ))
-    if (existing.length !== branchIds.length) {
-      throw new QuestionBankError('Ngành được chọn không tồn tại trong giáo xứ hiện tại.', 400, 'QUESTION_IMPORT_BRANCH_INVALID')
-    }
-  }
 
   const now = new Date().toISOString()
   const prepared = inputs.map(input => {
@@ -213,6 +215,15 @@ export async function importQuestions(
   })
 
   await runDbTransaction(async tx => {
+    if (branchIds.length > 0) {
+      const existing = await tx.select({ id: branches.id }).from(branches).where(and(
+        eq(branches.parishId, actor.parishId),
+        inArray(branches.id, branchIds),
+      ))
+      if (existing.length !== branchIds.length) {
+        throw new QuestionBankError('Ngành được chọn không tồn tại trong giáo xứ hiện tại.', 400, 'QUESTION_IMPORT_BRANCH_INVALID')
+      }
+    }
     await tx.insert(questionBankItems).values(prepared.map(({ id, meta }) => ({
       id,
       parishId: actor.parishId,
@@ -344,6 +355,7 @@ export async function reviseQuestion(id: string, input: QuestionContentInput, ac
     if (!item) throw new QuestionBankError('Không tìm thấy câu hỏi.', 404, 'QUESTION_NOT_FOUND')
     if (!canEditQuestion(item, actor.userId, actor.role)) throw new QuestionBankError('Bạn chỉ được sửa câu hỏi nháp do mình tạo.', 403, 'FORBIDDEN')
     if (item.status === 'archived') throw new QuestionBankError('Câu hỏi đã lưu trữ; hãy tạo câu hỏi mới thay vì sửa lịch sử.', 409, 'QUESTION_ARCHIVED')
+    await assertBranchInParish(tx, actor.parishId, input.branchId)
     const meta = metadata(input)
     const nextVersion = item.currentVersion + 1
     const contentHash = hash({ questionType: input.questionType, stem: input.stem.trim(), answerData: input.answerData, explanation: clean(input.explanation), metadata: meta })
@@ -405,6 +417,7 @@ export async function createBlueprint(input: BlueprintInput, userId: string, par
   const id = generateId('EBP')
   const now = new Date().toISOString()
   await runDbTransaction(async tx => {
+    await assertBranchInParish(tx, parishId, input.branchId)
     await tx.insert(examBlueprints).values({ id, parishId, name: input.name.trim(), description: clean(input.description), branchId: input.branchId ?? null, curriculumLevel: clean(input.curriculumLevel), totalQuestions: input.totalQuestions, maxScore: input.maxScore, createdBy: userId, updatedBy: userId, createdAt: now, updatedAt: now })
     await tx.insert(examBlueprintRules).values(input.rules.map((rule, index) => ({
       id: generateId('EBR'), parishId, blueprintId: id, ordinal: index + 1, questionType: rule.questionType,
@@ -421,10 +434,10 @@ export async function listBlueprints(parishId: string) {
   return db.select().from(examBlueprints).where(eq(examBlueprints.parishId, parishId)).orderBy(desc(examBlueprints.updatedAt))
 }
 
-export async function getBlueprint(id: string, parishId: string) {
-  const [blueprint] = await db.select().from(examBlueprints).where(and(eq(examBlueprints.parishId, parishId), eq(examBlueprints.id, id))).limit(1)
+export async function getBlueprint(id: string, parishId: string, executor: DbExecutor = db) {
+  const [blueprint] = await executor.select().from(examBlueprints).where(and(eq(examBlueprints.parishId, parishId), eq(examBlueprints.id, id))).limit(1)
   if (!blueprint) throw new QuestionBankError('Không tìm thấy ma trận đề.', 404, 'BLUEPRINT_NOT_FOUND')
-  const rules = await db.select().from(examBlueprintRules).where(and(eq(examBlueprintRules.parishId, parishId), eq(examBlueprintRules.blueprintId, id))).orderBy(asc(examBlueprintRules.ordinal))
+  const rules = await executor.select().from(examBlueprintRules).where(and(eq(examBlueprintRules.parishId, parishId), eq(examBlueprintRules.blueprintId, id))).orderBy(asc(examBlueprintRules.ordinal))
   return { ...blueprint, rules: rules.map(rule => ({ ...rule, tags: parseJson<string[]>(rule.tags) })) }
 }
 
@@ -457,10 +470,10 @@ function toExamQuestion(row: VersionRow, index: number): VariantQuestion & { sou
   return { index, question: row.version.stem, type: 'multiple_choice', options: optionMap, correctOption: String(correct[0]) as 'A'|'B'|'C'|'D', explanation: row.version.explanation ?? undefined, points: row.points, sourceQuestionId: row.item.id, sourceVersionId: row.version.id }
 }
 
-async function currentVersionRows(parishId: string, questionIds?: string[]) {
+async function currentVersionRows(parishId: string, questionIds?: string[], executor: DbExecutor = db) {
   const conditions = [eq(questionBankItems.parishId, parishId), eq(questionBankItems.status, 'active'), eq(questionBankVersions.version, questionBankItems.currentVersion)]
   if (questionIds) conditions.push(inArray(questionBankItems.id, questionIds))
-  return db.select({ item: questionBankItems, version: questionBankVersions }).from(questionBankItems)
+  return executor.select({ item: questionBankItems, version: questionBankVersions }).from(questionBankItems)
     .innerJoin(questionBankVersions, and(eq(questionBankVersions.parishId, questionBankItems.parishId), eq(questionBankVersions.questionId, questionBankItems.id), eq(questionBankVersions.version, questionBankItems.currentVersion)))
     .where(and(...conditions))
 }
@@ -468,9 +481,18 @@ async function currentVersionRows(parishId: string, questionIds?: string[]) {
 export async function buildExamFromBank(input: {
   mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string;
   scoreType: 'oral'|'15m'|'1period'|'midterm'|'final'; semester: 1|2; academicYear: string; maxScore: number; variantCount: number; seed?: string;
-}, actor: { userId: string; parishId: string }) {
-  const [classRow] = await db.select({ id: classes.id }).from(classes).where(and(eq(classes.parishId, actor.parishId), eq(classes.id, input.classId))).limit(1)
+}, actor: { userId: string; parishId: string; role: string }) {
+  return runDbTransaction(async tx => {
+  const [classRow] = await tx.select({ id: classes.id }).from(classes).where(and(eq(classes.parishId, actor.parishId), eq(classes.id, input.classId))).limit(1)
   if (!classRow) throw new QuestionBankError('Lớp học không tồn tại.', 404, 'CLASS_NOT_FOUND')
+  if (actor.role !== 'admin') {
+    const [assignment] = await tx.select({ id: catechistAssignments.id }).from(catechistAssignments).where(and(
+      eq(catechistAssignments.parishId, actor.parishId),
+      eq(catechistAssignments.userId, actor.userId),
+      eq(catechistAssignments.classId, input.classId),
+    )).limit(1)
+    if (!assignment) throw new QuestionBankError('Bạn không có quyền tạo đề cho lớp này.', 403, 'FORBIDDEN')
+  }
   const seed = input.seed?.trim() || generateId('EXS')
   let resolvedMaxScore = input.maxScore
   let selected: VersionRow[] = []
@@ -478,7 +500,7 @@ export async function buildExamFromBank(input: {
   if (input.mode === 'manual') {
     const ids = [...new Set(input.questionIds ?? [])]
     if (ids.length < 1 || ids.length > 50) throw new QuestionBankError('Chọn từ 1 đến 50 câu hỏi.')
-    const rows = await currentVersionRows(actor.parishId, ids)
+    const rows = await currentVersionRows(actor.parishId, ids, tx)
     if (rows.length !== ids.length) throw new QuestionBankError('Một số câu không tồn tại, chưa Active hoặc không thuộc giáo xứ.', 422, 'QUESTION_SELECTION_INVALID')
     const byId = new Map(rows.map(row => [row.item.id, row]))
     // Distribute integer cents so the immutable per-question points add up to
@@ -492,7 +514,7 @@ export async function buildExamFromBank(input: {
     }))
   } else {
     if (!input.blueprintId) throw new QuestionBankError('Thiếu ma trận đề.')
-    const blueprint = await getBlueprint(input.blueprintId, actor.parishId)
+    const blueprint = await getBlueprint(input.blueprintId, actor.parishId, tx)
     if (blueprint.status !== 'active') throw new QuestionBankError('Chỉ ma trận Active mới được sinh đề.', 409, 'BLUEPRINT_NOT_ACTIVE')
     resolvedMaxScore = blueprint.maxScore
     const used = new Set<string>()
@@ -512,12 +534,12 @@ export async function buildExamFromBank(input: {
       if (used.size) conditions.push(notInArray(questionBankItems.id, [...used]))
       if (rule.avoidRecentDays > 0) {
         const cutoff = new Date(Date.now() - rule.avoidRecentDays * 86_400_000).toISOString()
-        const recent = await db.select({ id: examQuestionSnapshots.questionId }).from(examQuestionSnapshots)
+        const recent = await tx.select({ id: examQuestionSnapshots.questionId }).from(examQuestionSnapshots)
           .where(and(eq(examQuestionSnapshots.parishId, actor.parishId), gte(examQuestionSnapshots.createdAt, cutoff)))
         const recentIds = [...new Set(recent.map(row => row.id))]
         if (recentIds.length) conditions.push(notInArray(questionBankItems.id, recentIds))
       }
-      let candidates = await db.select({ item: questionBankItems, version: questionBankVersions }).from(questionBankItems)
+      let candidates = await tx.select({ item: questionBankItems, version: questionBankVersions }).from(questionBankItems)
         .innerJoin(questionBankVersions, and(eq(questionBankVersions.parishId, questionBankItems.parishId), eq(questionBankVersions.questionId, questionBankItems.id), eq(questionBankVersions.version, questionBankItems.currentVersion)))
         .where(and(...conditions)).limit(1000)
       const requiredTags = rule.tags
@@ -543,23 +565,22 @@ export async function buildExamFromBank(input: {
   const answerVariants = manifest ? Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.answerKey])) : null
   const sessionId = generateId('EXS')
   const now = new Date().toISOString()
-  await runDbTransaction(async tx => {
-    await tx.insert(examSessions).values({
+  await tx.insert(examSessions).values({
       id: sessionId, parishId: actor.parishId, classId: input.classId, subject: input.subject.trim(), scoreType: input.scoreType,
       maxScore: resolvedMaxScore, semester: input.semester, academicYear: input.academicYear, status: 'draft', createdBy: actor.userId,
       examType, questionCount: questionCount || null, answerKey: questionCount ? JSON.stringify(manifest?.variants.A?.answerKey ?? answerKey) : null,
       answerVariants: answerVariants ? JSON.stringify(answerVariants) : null, variantManifests: manifest ? JSON.stringify(manifest) : null,
       questions: JSON.stringify(questions), sourceType: input.mode === 'manual' ? 'question_bank' : 'blueprint', blueprintId: input.blueprintId ?? null,
       blueprintSnapshot: blueprintSnapshot ? JSON.stringify(blueprintSnapshot) : null, idempotencyKey: `question-bank:${sessionId}`, createdAt: now,
-    })
-    await tx.insert(examQuestionSnapshots).values(ordered.map((row, index) => ({
+  })
+  await tx.insert(examQuestionSnapshots).values(ordered.map((row, index) => ({
       id: generateId('EQS'), parishId: actor.parishId, examSessionId: sessionId, questionId: row.item.id, questionVersionId: row.version.id,
       sourcePosition: index + 1, points: row.points,
       snapshotJson: JSON.stringify({ ...questions[index], metadata: parseJson(row.version.metadataSnapshot), answerData: parseJson(row.version.answerData) }),
       contentHash: row.version.contentHash, createdAt: now,
-    })))
-    await audit(tx, { userId: actor.userId, parishId: actor.parishId, action: 'EXAM_BUILD_FROM_BANK', entityType: 'exam_session', entityId: sessionId, summary: { mode: input.mode, blueprintId: input.blueprintId ?? null, questionCount: selected.length, mcQuestionCount: questionCount, variantCount: manifest ? Object.keys(manifest.variants).length : 0, sourceHashes: ordered.map(row => row.version.contentHash) } })
-  })
-  const [session] = await db.select().from(examSessions).where(and(eq(examSessions.parishId, actor.parishId), eq(examSessions.id, sessionId))).limit(1)
+  })))
+  await audit(tx, { userId: actor.userId, parishId: actor.parishId, action: 'EXAM_BUILD_FROM_BANK', entityType: 'exam_session', entityId: sessionId, summary: { mode: input.mode, blueprintId: input.blueprintId ?? null, questionCount: selected.length, mcQuestionCount: questionCount, variantCount: manifest ? Object.keys(manifest.variants).length : 0, sourceHashes: ordered.map(row => row.version.contentHash) } })
+  const [session] = await tx.select().from(examSessions).where(and(eq(examSessions.parishId, actor.parishId), eq(examSessions.id, sessionId))).limit(1)
   return session
+  })
 }

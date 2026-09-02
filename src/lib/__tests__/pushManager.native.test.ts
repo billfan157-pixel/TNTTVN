@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const native = vi.hoisted(() => ({
   listeners: new Map<string, (event: any) => unknown>(),
@@ -49,10 +49,12 @@ import {
   getNativePushStatus,
   restoreNativePushSubscription,
 } from '../pushManager'
+import { setTenantScope } from '../tenantScope'
 
 describe('pushManager native lifecycle', () => {
   beforeEach(() => {
     localStorage.clear()
+    setTenantScope({ parishId: 'parish-a', userId: 'user-a' })
     native.permission = 'granted'
     native.register.mockReset().mockImplementation(async () => {
       await native.listeners.get('registration')?.({ value: 'FCM_TOKEN_MUST_NOT_BE_PERSISTED' })
@@ -63,6 +65,10 @@ describe('pushManager native lifecycle', () => {
     native.registerApi.mockReset().mockResolvedValue({ ok: true })
     native.unregisterApi.mockReset().mockResolvedValue({ ok: true })
     native.navigate.mockReset().mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    setTenantScope(null)
   })
 
   it('registers the OS token against an opaque installation without persisting the token', async () => {
@@ -87,6 +93,27 @@ describe('pushManager native lifecycle', () => {
     expect(native.unregister).toHaveBeenCalledTimes(1)
     expect(native.register).toHaveBeenCalledTimes(1)
     expect((await getNativePushStatus()).active).toBe(false)
+  })
+
+  it('does not carry one account opt-out into another account on the same installation', async () => {
+    await enableNativePushNotifications()
+    await disablePushSubscription(true)
+
+    setTenantScope({ parishId: 'parish-b', userId: 'user-b' })
+    await restoreNativePushSubscription()
+    expect(native.register).toHaveBeenCalledTimes(2)
+    expect((await getNativePushStatus()).active).toBe(true)
+
+    setTenantScope({ parishId: 'parish-a', userId: 'user-a' })
+    expect((await getNativePushStatus()).active).toBe(false)
+  })
+
+  it('does not report explicit opt-out success when the server unlink fails', async () => {
+    await enableNativePushNotifications()
+    native.unregisterApi.mockRejectedValueOnce(new Error('network failed'))
+
+    await expect(disablePushSubscription(true)).rejects.toThrow('network failed')
+    expect((await getNativePushStatus()).active).toBe(true)
   })
 
   it('opens only internal routes from notification actions', async () => {

@@ -7,13 +7,16 @@ import { listResponse, successResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { getAttendance } from '../services/attendanceService.js'
 import { getStudentsByClassIds } from '../services/studentService.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 const attendanceRouter = new Hono()
 attendanceRouter.use('*', authMiddleware)
 
+const attendanceDateSchema = z.string().refine(isValidIsoDate, 'Ngày điểm danh phải là ngày YYYY-MM-DD có thật')
+
 const attendanceSchema = z.object({
   studentId: z.string().trim().min(1),
-  date: z.string(),
+  date: attendanceDateSchema,
   type: z.enum(['SundayMass', 'CatechismClass']),
   status: z.enum(['Present', 'AbsentExcused', 'AbsentUnexcused']),
   note: z.string().trim().max(500).optional(),
@@ -65,21 +68,8 @@ attendanceRouter.post('/', roleMiddleware('admin', 'chunhiem', 'phuta'), zValida
       userId: user.userId,
       parishId: user.parishId,
       allowedClassIds,
-    })
-
-    // Audit Logging
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.userId,
-      action: 'MARK_ATTENDANCE',
-      entityType: 'attendance',
-      entityId: record.id,
-      oldValue: null,
-      newValue: JSON.stringify(record),
       ip,
       userAgent,
-      parishId: user.parishId,
-      createdAt: new Date().toISOString(),
     })
 
     return successResponse(c, record, 201)
@@ -111,7 +101,7 @@ attendanceRouter.post(
           version: z.coerce.number().int().min(0).optional(),
         }),
       ).max(500),
-      date: z.string(),
+      date: attendanceDateSchema,
       type: z.enum(['SundayMass', 'CatechismClass']),
     }),
   ),
@@ -135,6 +125,9 @@ attendanceRouter.post(
       userId: user.userId,
       parishId: user.parishId,
       allowedClassIds,
+      ip,
+      userAgent,
+      auditAction: 'BATCH_MARK_ATTENDANCE_ITEM' as const,
     }))
 
     const batchResult = await batchAttendanceApplicationService.markAttendanceBatch(items, 10, allowedClassIds)
@@ -158,6 +151,11 @@ attendanceRouter.post(
       userAgent,
       parishId: user.parishId,
       createdAt: new Date().toISOString(),
+    }).catch(error => {
+      // Each successful item already committed with its own atomic audit row.
+      // A diagnostic batch summary must not turn acknowledged partial-success
+      // work into an apparent total failure that users may retry blindly.
+      console.error('[attendance] failed to write batch summary audit', error)
     })
 
     return successResponse(c, batchResult)

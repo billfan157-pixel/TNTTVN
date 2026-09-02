@@ -6,7 +6,7 @@ import { authMiddleware, roleMiddleware } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { semesterLocks, academicYears, auditLogs } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
@@ -52,64 +52,58 @@ semesterLocksRouter.post('/', roleMiddleware('admin'), zValidator('json', setLoc
 
   const normYear = normalizeAcademicYear(academicYear)
   try {
+    // Policy metadata is observational; the lock state and its audit below are
+    // the atomic authority.
+    const policyVersionId = await getCurrentPolicyVersionId(user.parishId)
     // AYL-02 (audit): gate theo state machine — API không được phá vỡ chuỗi
     // trạng thái mà AcademicYearLifecycleService đang bảo vệ.
-    const [year] = await db
-      .select({ status: academicYears.status, isLocked: academicYears.isLocked, currentSemester: academicYears.currentSemester })
-      .from(academicYears)
-      .where(and(eq(academicYears.id, normYear), eq(academicYears.parishId, user.parishId)))
-      .limit(1)
-    if (!year) {
-      return errorResponse(c, 'ACADEMIC_YEAR_NOT_FOUND', `Không tìm thấy năm học ${normYear}`, 404)
-    }
+    const result = await runDbTransaction(async (tx) => {
+      const [year] = await tx
+        .select({ status: academicYears.status, isLocked: academicYears.isLocked, currentSemester: academicYears.currentSemester })
+        .from(academicYears)
+        .where(and(eq(academicYears.id, normYear), eq(academicYears.parishId, user.parishId)))
+        .limit(1)
+      if (!year) return { error: 'ACADEMIC_YEAR_NOT_FOUND', message: `Không tìm thấy năm học ${normYear}`, status: 404 as const }
 
-    const hk1Locked = await drizzleSemesterLockRepository.isLocked(normYear, 1, user.parishId)
-    const hk2Locked = await drizzleSemesterLockRepository.isLocked(normYear, 2, user.parishId)
-    const status = deriveAcademicYearStatus(year, { semester1Locked: hk1Locked, semester2Locked: hk2Locked })
+      const hk1Locked = await drizzleSemesterLockRepository.isLocked(normYear, 1, user.parishId, tx)
+      const hk2Locked = await drizzleSemesterLockRepository.isLocked(normYear, 2, user.parishId, tx)
+      const status = deriveAcademicYearStatus(year, { semester1Locked: hk1Locked, semester2Locked: hk2Locked })
 
-    if (isTerminalStatus(status) || year.isLocked === 1) {
-      return errorResponse(c, 'SEMESTER_LOCK_STATE_CONFLICT', `Năm học ${normYear} đã chốt/đóng sổ (${status}) — không thể khóa hoặc mở khóa học kỳ`, 409)
-    }
-    if (semester === 2 && isLocked && !hk1Locked) {
-      return errorResponse(c, 'SEMESTER_LOCK_STATE_CONFLICT', `Phải khóa sổ điểm HK1 của năm học ${normYear} trước khi khóa HK2`, 403)
-    }
-    if (semester === 1 && !isLocked && hk2Locked) {
-      return errorResponse(c, 'SEMESTER_LOCK_STATE_CONFLICT', `Không thể mở khóa HK1 khi HK2 của năm học ${normYear} đang khóa`, 403)
-    }
+      if (isTerminalStatus(status) || year.isLocked === 1) {
+        return { error: 'SEMESTER_LOCK_STATE_CONFLICT', message: `Năm học ${normYear} đã chốt/đóng sổ (${status}) — không thể khóa hoặc mở khóa học kỳ`, status: 409 as const }
+      }
+      if (semester === 2 && isLocked && !hk1Locked) {
+        return { error: 'SEMESTER_LOCK_STATE_CONFLICT', message: `Phải khóa sổ điểm HK1 của năm học ${normYear} trước khi khóa HK2`, status: 403 as const }
+      }
+      if (semester === 1 && !isLocked && hk2Locked) {
+        return { error: 'SEMESTER_LOCK_STATE_CONFLICT', message: `Không thể mở khóa HK1 khi HK2 của năm học ${normYear} đang khóa`, status: 403 as const }
+      }
 
-    await drizzleSemesterLockRepository.setLockState(
-      normYear,
-      semester,
-      isLocked,
-      user.userId,
-      user.parishId,
-      unlockReason
-    )
-
-    // ADR-047: Capture policy version at lock time for audit trail
-    const policyVersionId = await getCurrentPolicyVersionId(user.parishId)
-    const auditMetadata = {
-      academicYear: normYear,
-      semester,
-      isLocked,
-      unlockReason: unlockReason || null,
-      policyVersionIdAtLock: policyVersionId,
-      lockedReason: isLocked ? `Semester ${semester} locked for finalization` : `Semester ${semester} unlocked for re-grading`,
-    }
-
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.userId,
-      action: isLocked ? 'LOCK_SEMESTER' : 'UNLOCK_SEMESTER',
-      entityType: 'semester_lock',
-      entityId: `${normYear}-${semester}`,
-      oldValue: null,
-      newValue: JSON.stringify(auditMetadata),
-      ip,
-      userAgent,
-      parishId: user.parishId,
-      createdAt: new Date().toISOString(),
+      await drizzleSemesterLockRepository.setLockState(normYear, semester, isLocked, user.userId, user.parishId, unlockReason, tx)
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: user.userId,
+        action: isLocked ? 'LOCK_SEMESTER' : 'UNLOCK_SEMESTER',
+        entityType: 'semester_lock',
+        entityId: `${normYear}-${semester}`,
+        oldValue: JSON.stringify({ isLocked: semester === 1 ? hk1Locked : hk2Locked }),
+        newValue: JSON.stringify({
+          academicYear: normYear,
+          semester,
+          isLocked,
+          unlockReason: unlockReason || null,
+          policyVersionIdAtLock: policyVersionId,
+          lockedReason: isLocked ? `Semester ${semester} locked for finalization` : `Semester ${semester} unlocked for re-grading`,
+        }),
+        ip,
+        userAgent,
+        parishId: user.parishId,
+        createdAt: new Date().toISOString(),
+      })
+      return { ok: true as const }
     })
+
+    if ('error' in result) return errorResponse(c, result.error, result.message, result.status)
 
     return successResponse(c, { academicYear: normYear, semester, isLocked })
   } catch (err: any) {

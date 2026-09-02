@@ -1,5 +1,5 @@
-import { db } from '../db/index.js'
-import { students } from '../db/schema.js'
+import { runDbTransaction } from '../db/index.js'
+import { auditLogs, students } from '../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
 import { drizzleAttendanceRepository, DrizzleAttendanceRepository } from '../repositories/DrizzleAttendanceRepository.js'
 import { semesterLockSpecification, SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
@@ -8,6 +8,7 @@ import type { AttendanceStatus, AttendanceSessionType } from '../domain/Attendan
 import { generateId } from '../utils/id.js'
 import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
 import { VersionConflictError } from './gradeService.js'
+import { isValidIsoDate } from '../utils/date.js'
 
 export interface MarkAttendanceCommand {
   studentId: string
@@ -23,6 +24,9 @@ export interface MarkAttendanceCommand {
   parishId: string
   /** ADR-016 (S24): Class IDs mà user được phân công — check trong tx để đóng TOCTOU (audit #12). */
   allowedClassIds?: string[] | null
+  ip?: string
+  userAgent?: string
+  auditAction?: 'MARK_ATTENDANCE' | 'BATCH_MARK_ATTENDANCE_ITEM'
 }
 
 export class AttendanceApplicationService {
@@ -41,6 +45,11 @@ export class AttendanceApplicationService {
    * Single-use case: Mark or correct attendance status for a student session.
    */
   public async markAttendance(cmd: MarkAttendanceCommand): Promise<AttendanceRecord> {
+    if (!isValidIsoDate(cmd.date)) {
+      const err = new Error('Ngày điểm danh phải là ngày YYYY-MM-DD có thật') as any
+      err.status = 400
+      throw err
+    }
     const todayStr = new Date().toISOString().substring(0, 10)
     if (cmd.date > todayStr) {
       const err = new Error(`Không thể điểm danh cho ngày trong tương lai (${cmd.date}).`) as any
@@ -51,7 +60,7 @@ export class AttendanceApplicationService {
     const academicYear = cmd.academicYear || resolveAcademicYear(cmd.date)
     const semester = cmd.semester || resolveSemester(cmd.date)
 
-    return db.transaction(async (tx) => {
+    return runDbTransaction(async (tx) => {
       // 1. Verify student exists and is active
       const [student] = await tx
         .select({ id: students.id, classId: students.classId })
@@ -74,7 +83,7 @@ export class AttendanceApplicationService {
       }
 
       // 2. Check Semester Lock Specification
-      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(academicYear, semester, cmd.parishId)
+      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(academicYear, semester, cmd.parishId, tx)
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${semester} năm học ${academicYear} đã bị khóa sổ điểm. Không thể điểm danh.`) as any
         err.status = 403
@@ -89,6 +98,7 @@ export class AttendanceApplicationService {
         cmd.parishId,
         tx
       )
+      const oldValue = existing ? existing.toJSON() : null
 
       // ADR-016 (S21): Client-version conflict detection. Trước đây client không
       // gửi version → hai thiết bị sửa cùng bản ghi offline = last-write-wins im
@@ -121,6 +131,26 @@ export class AttendanceApplicationService {
 
       // 3. Save Entity via Repository with SQL Optimistic Locking
       await this.attendanceRepo.save(record, cmd.userId, cmd.parishId, tx)
+      const current = record.toJSON()
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: cmd.userId,
+        action: cmd.auditAction ?? 'MARK_ATTENDANCE',
+        entityType: 'attendance',
+        entityId: record.id,
+        oldValue: oldValue ? JSON.stringify({
+          studentId: oldValue.studentId, date: oldValue.date, type: oldValue.type,
+          status: oldValue.status, version: oldValue.version,
+        }) : null,
+        newValue: JSON.stringify({
+          studentId: current.studentId, date: current.date, type: current.type,
+          status: current.status, version: current.version,
+        }),
+        ip: cmd.ip ?? '',
+        userAgent: cmd.userAgent ?? '',
+        parishId: cmd.parishId,
+        createdAt: new Date().toISOString(),
+      })
       return record
     })
   }

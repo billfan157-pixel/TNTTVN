@@ -776,8 +776,12 @@ export const ExamSessionView: React.FC = () => {
                 return (
                   <Surface
                     key={s.id}
+                    as="button"
+                    type="button"
                     variant="card"
-                    className="p-4 flex flex-col justify-between gap-4 border border-surface-border hover:border-parish-primary/50 hover:shadow-card transition-colors cursor-pointer group"
+                    interactive
+                    aria-label={`${s.subject} — ${sessionClass?.name || 'chưa xếp lớp'} — ${s.status === 'draft' ? 'Vào Chấm Điểm' : 'Xem Kết Quả'}`}
+                    className="p-4 w-full text-left flex flex-col justify-between gap-4 border border-surface-border hover:border-parish-primary/50 hover:shadow-card transition-colors cursor-pointer group"
                     onClick={() => selectSession(s.id)}
                   >
                     <div className="space-y-2.5">

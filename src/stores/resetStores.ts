@@ -6,6 +6,7 @@ import { useSacramentStore } from './sacramentStore'
 import { useClassStore } from './classStore'
 import { useFilterStore } from './filterStore'
 import { useParishProfileStore } from './parishProfileStore'
+import { useParishEventStore } from './parishEventStore'
 
 import { db } from '../lib/db'
 
@@ -26,6 +27,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
     viewMode: 'auto',
   })
   useParishProfileStore.getState().clear()
+  useParishEventStore.getState().clear()
 
   if (!clearPersisted) return
 

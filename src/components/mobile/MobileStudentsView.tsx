@@ -15,7 +15,7 @@ const PromotionPanel = lazyWithRetry<React.FC<{
 }>>(() => import('../desktop/PromotionPanel'), 'PromotionPanel')
 import { 
   Phone, UserPlus, Search, Edit3, 
-  Trash2, Printer, Upload, ChevronLeft, ChevronRight, School, CheckSquare,
+  Trash2, Printer, Upload, ChevronLeft, ChevronRight, CheckSquare,
   Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA
 } from 'lucide-react';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
@@ -60,7 +60,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const deleteStudent = useStudentStore(s => s.deleteStudent)
   const deleteStudents = useStudentStore(s => s.deleteStudents)
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
-  const classList = useClassStore(s => s.getClassList)()
+  const classList = useClassStore(s => s.classes)
   const findClassById = useClassStore(s => s.findClassById)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
@@ -74,8 +74,6 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
   const [pageSize, setPageSize] = React.useState(pagination.limit || 50)
   const [page, setPage] = React.useState(pagination.page || 1)
-
-  const hasClasses = useClassStore(s => s.classes.length > 0)
 
   React.useEffect(() => {
     setPage(1)
@@ -163,17 +161,14 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const clearSelection = () => setSelectedIds(new Set());
 
   const selectedStudents = students.filter(s => selectedIds.has(s.id));
-  const activeWorkspace: StudentWorkspace = (workspace === 'classes' && !canDelete)
+  const activeWorkspace: StudentWorkspace = workspace === 'classes'
     || (workspace === 'promotions' && !canPromoteAction)
     ? 'students'
     : workspace;
   const workspaceItems = [
-    { value: 'students' as const, label: 'Danh Sách', icon: <Users aria-hidden="true" size={14} /> },
+    { value: 'students' as const, label: 'Danh Sách & Lớp', icon: <Users aria-hidden="true" size={14} /> },
     ...(canPromoteAction
       ? [{ value: 'promotions' as const, label: 'Thăng Tiến', icon: <TrendingUp aria-hidden="true" size={14} /> }]
-      : []),
-    ...(canDelete
-      ? [{ value: 'classes' as const, label: 'Lớp Học', icon: <School aria-hidden="true" size={14} /> }]
       : []),
   ];
 
@@ -212,11 +207,6 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
         </Suspense>
       </TabPanel>
-      {canDelete && (
-        <TabPanel tabsId="mobile-students-workspace-tabs" value="classes" activeValue={activeWorkspace}>
-          <DesktopClasses embedded onViewClassStudents={onViewClassStudents} />
-        </TabPanel>
-      )}
       <TabPanel
         tabsId="mobile-students-workspace-tabs"
         value="students"
@@ -294,43 +284,11 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </div>}
       </div>
 
-      {!hasClasses && (
-        <div className="flex items-start gap-2 p-2.5 rounded-xl bg-[var(--color-parish-warning-bg)] border border-[var(--color-parish-warning)]">
-          <School size={16} className="text-parish-secondary shrink-0 mt-0.5" />
-          <p className="m-0 text-xs font-semibold text-[var(--color-parish-warning-hover)] leading-relaxed">
-            {canDelete
-              ? <>Chưa có lớp học nào. Import Excel sẽ tự động tạo lớp mới từ cột "Lớp", hoặc <button type="button" onClick={() => onWorkspaceChange('classes')} className="text-parish-primary font-bold underline cursor-pointer inline p-0 bg-transparent border-0 font-inherit text-xs">tạo lớp thủ công →</button></>
-              : 'Giáo xứ chưa có lớp học nào để hiển thị.'}
-          </p>
-        </div>
-      )}
-
-      {/* Lưới lớp — khi đang xem Tất cả, hiển thị các lớp để bấm vào xem học viên */}
-      {selectedClassId === 'all' && classList.length > 0 && (
-        <div className="mt-3.5 grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setSelectedClassId('all')}
-            className="text-left rounded-2xl p-3 bg-gradient-to-br from-parish-primary to-parish-primary-hover text-text-inverse flex flex-col gap-2 border border-parish-primary"
-          >
-            <span className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center"><Users size={16} /></span>
-            <span className="font-black text-sm">Tất cả</span>
-            <span className="text-xs opacity-80">{students.length} em • Toàn xứ</span>
-          </button>
-          {classList.map(c => {
-            const count = students.filter(s => s.classId === c.id).length
-            return (
-              <button
-                key={c.id}
-                onClick={() => setSelectedClassId(c.id)}
-                className="text-left rounded-2xl p-3 bg-surface-card border border-surface-border flex flex-col gap-2 active:scale-[0.98] transition-transform"
-              >
-                <span className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs border" style={{ background: (BRANCHES as any)[c.branch]?.badgeBg || 'var(--color-parish-primary-light)', color: (BRANCHES as any)[c.branch]?.textColor || 'var(--color-parish-primary)', borderColor: (BRANCHES as any)[c.branch]?.scarfColor ? `${(BRANCHES as any)[c.branch].scarfColor}40` : 'var(--color-surface-border)' }}>{c.name.slice(0,2).toUpperCase()}</span>
-                <span className="font-bold text-sm text-text-main truncate">{c.name}</span>
-                <span className="text-xs text-text-muted">{count} em • {(BRANCHES as any)[c.branch]?.name || c.branch}</span>
-              </button>
-            )
-          })}
-        </div>
+      {/* Catalog lớp và roster dùng chung một workspace, không còn tab lặp. */}
+      {selectedClassId === 'all' && (
+        <section aria-label="Lớp học và phân lớp" className="mt-3.5">
+          <DesktopClasses embedded layout="grid" onViewClassStudents={onViewClassStudents} />
+        </section>
       )}
       {selectedClassId !== 'all' && (
         <button onClick={() => setSelectedClassId('all')} className="flex items-center gap-1.5 text-xs font-bold text-parish-primary">

@@ -150,6 +150,31 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     expect(JSON.stringify(audits)).not.toContain('"correctOptionIds"')
   })
 
+  it('rejects cross-tenant branch metadata for single questions, revisions and blueprints', async () => {
+    const crossQuestion = await req('/questions', {
+      method: 'POST', auth: teacherToken, body: { ...mc('Sai ngành khi tạo'), branchId: branchB },
+    })
+    expect(crossQuestion.status).toBe(400)
+    expect(crossQuestion.error.code).toBe('QUESTION_BRANCH_INVALID')
+
+    const draft = await req('/questions', {
+      method: 'POST', auth: teacherToken, body: { ...mc('Nháp đúng ngành'), branchId: branchA },
+    })
+    expect(draft.status).toBe(201)
+    const crossRevision = await req(`/questions/${draft.data.id}`, {
+      method: 'PUT', auth: teacherToken, body: { ...mc('Sửa sang ngành khác'), branchId: branchB },
+    })
+    expect(crossRevision.status).toBe(400)
+    expect(crossRevision.error.code).toBe('QUESTION_BRANCH_INVALID')
+
+    const crossBlueprint = await req('/blueprints', { method: 'POST', auth: adminToken, body: {
+      name: 'Ma trận sai tenant', branchId: branchB, totalQuestions: 1, maxScore: 10,
+      rules: [{ questionType: 'multiple_choice', questionCount: 1, pointsEach: 10 }],
+    } })
+    expect(crossBlueprint.status).toBe(400)
+    expect(crossBlueprint.error.code).toBe('QUESTION_BRANCH_INVALID')
+  })
+
   it('database trigger rejects a cross-parish blueprint reference', async () => {
     const blueprintId = `qb-blueprint-b-${suffix}`
     await db.insert(examBlueprints).values({
@@ -182,6 +207,15 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
   })
 
   let sessionId = ''
+  it('checks staff class assignment inside the exam materialization transaction', async () => {
+    const built = await req('/exams/build', { method: 'POST', auth: teacherToken, body: {
+      mode: 'manual', questionIds: [mcId], classId: classA, subject: 'Không được tạo', scoreType: '15m',
+      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 1,
+    } })
+    expect(built.status).toBe(403)
+    expect(built.error.code).toBe('FORBIDDEN')
+  })
+
   it('builds a mixed exam atomically with source IDs, immutable snapshots and variant manifests', async () => {
     const built = await req('/exams/build', { method: 'POST', auth: adminToken, body: {
       mode: 'manual', questionIds: [mcId, essayId, essayId2], classId: classA, subject: 'Kiểm tra Question Bank', scoreType: '1period',

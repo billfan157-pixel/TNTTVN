@@ -14,7 +14,6 @@ test.describe('Critical persisted business outcomes', () => {
     const className = `Lớp ${key}`
 
     await page.goto('/students')
-    await page.getByRole('tab', { name: 'Lớp Học' }).click()
     await page.getByRole('button', { name: 'Thêm Lớp' }).click()
     const dialog = page.getByRole('dialog', { name: 'Thêm Lớp Học Mới' })
     await dialog.getByLabel('Mã Lớp').fill(key.toUpperCase())
@@ -42,10 +41,9 @@ test.describe('Critical persisted business outcomes', () => {
       parishId: 'gia-ton',
     })
 
-    await expect(page.getByRole('table').getByText(className, { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: `Xem danh sách lớp ${className}` })).toBeVisible()
     await page.reload()
-    await page.getByRole('tab', { name: 'Lớp Học' }).click()
-    await expect(page.getByRole('table').getByText(className, { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: `Xem danh sách lớp ${className}` })).toBeVisible()
   })
 
   test('@critical admin creates a student through UI and reload reads the committed record', async ({ page }, testInfo) => {
@@ -74,7 +72,7 @@ test.describe('Critical persisted business outcomes', () => {
     expect((await readBack.json()).data).toMatchObject({ fullName, classId: 'CLS-AN-1', parishId: 'gia-ton' })
 
     await page.goto('/students')
-    await page.getByRole('button', { name: /Ấu Nhi 1/ }).click()
+    await page.getByRole('button', { name: 'Xem danh sách lớp Ấu Nhi 1' }).click()
     await expect(page.getByText(fullName, { exact: true })).toBeVisible()
     await page.reload()
     await expect(page.getByText(fullName, { exact: true })).toBeVisible()
@@ -148,6 +146,8 @@ test.describe('Critical persisted business outcomes', () => {
     expect(transactions).toContainEqual(expect.objectContaining({ title: `Khoản thu ${key}`, amount, type: 'INCOME' }))
 
     await page.reload()
-    await expect(page.getByLabel('Sổ quỹ giao dịch').getByText(`Khoản thu ${key}`, { exact: true })).toBeVisible()
+    const ledger = page.getByLabel('Sổ quỹ giao dịch')
+    await expect(ledger).toBeVisible({ timeout: 15_000 })
+    await expect(ledger.getByText(`Khoản thu ${key}`, { exact: true })).toBeVisible()
   })
 })

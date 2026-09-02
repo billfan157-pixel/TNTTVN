@@ -4,17 +4,10 @@ import { ModalShell } from '../common/ModalShell'
 import { Badge, Button, TextArea } from '../common/ui'
 import { useParishProfileStore } from '../../stores/parishProfileStore'
 import { useToastStore } from '../../stores/toastStore'
-import type { ParishPersonInput } from '../../types/parishProfile'
+import { parseParishPersonImport } from '../../utils/parishPersonImport'
 
 interface Props {
   onClose: () => void
-}
-
-interface ParsedRow {
-  raw: string
-  valid: boolean
-  error?: string
-  data?: ParishPersonInput
 }
 
 const EXAMPLE_TEXT = `Giuse, Nguyễn Văn An, 1995, Đang phục vụ, Phục vụ ngành Thiếu từ năm 2018
@@ -26,96 +19,20 @@ export function ParishBulkImportModal({ onClose }: Props) {
   const addToast = useToastStore(state => state.addToast)
   const [inputText, setInputText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [progress, setProgress] = useState(0)
-
-  const parsedRows: ParsedRow[] = useMemo(() => {
-    if (!inputText.trim()) return []
-    const lines = inputText.split('\n').map(l => l.trim()).filter(Boolean)
-
-    return lines.map(line => {
-      // Tách theo dấu phẩy hoặc tab
-      const parts = line.includes('\t') ? line.split('\t') : line.split(',')
-      const cleaned = parts.map(p => p.trim())
-
-      if (cleaned.length === 1 && !cleaned[0]) {
-        return { raw: line, valid: false, error: 'Dòng trống' }
-      }
-
-      // Xử lý các trường
-      // Format 1 (3-5 cột): Tên thánh, Họ và tên, Năm sinh, Trạng thái, Tiểu sử
-      // Format 2 (1-2 cột): [Tên thánh] Họ và tên
-      let holyName: string | null = null
-      let fullName = ''
-      let birthYear: number | null = null
-      let serviceStatus: 'ACTIVE' | 'FORMER' | 'DECEASED' = 'ACTIVE'
-      let biography: string | null = null
-
-      if (cleaned.length >= 2) {
-        holyName = cleaned[0] || null
-        fullName = cleaned[1] || ''
-
-        if (cleaned[2]) {
-          const y = parseInt(cleaned[2], 10)
-          if (!isNaN(y) && y > 1900 && y < 2100) {
-            birthYear = y
-          }
-        }
-
-        if (cleaned[3]) {
-          const st = cleaned[3].toLowerCase()
-          if (st.includes('mãn') || st.includes('cựu') || st.includes('former')) {
-            serviceStatus = 'FORMER'
-          } else if (st.includes('chết') || st.includes('qua đời') || st.includes('deceased')) {
-            serviceStatus = 'DECEASED'
-          }
-        }
-
-        if (cleaned[4]) {
-          biography = cleaned[4]
-        }
-      } else {
-        fullName = cleaned[0] || ''
-      }
-
-      if (!fullName) {
-        return { raw: line, valid: false, error: 'Thiếu họ và tên' }
-      }
-
-      return {
-        raw: line,
-        valid: true,
-        data: {
-          linkedUserId: null,
-          holyName,
-          fullName,
-          birthYear,
-          biography,
-          serviceStatus,
-          visibility: 'STAFF',
-        },
-      }
-    })
-  }, [inputText])
+  const parsedRows = useMemo(() => parseParishPersonImport(inputText), [inputText])
 
   const validRows = useMemo(() => parsedRows.filter(r => r.valid && r.data), [parsedRows])
 
   const handleImport = async () => {
     if (validRows.length === 0) return
     setIsSubmitting(true)
-    setProgress(0)
-
-    let successCount = 0
-    for (let i = 0; i < validRows.length; i++) {
-      const row = validRows[i]
-      if (row.data) {
-        const ok = await store.createPerson(row.data)
-        if (ok) successCount++
-      }
-      setProgress(Math.round(((i + 1) / validRows.length) * 100))
-    }
-
+    const ok = await store.createPeople(validRows.flatMap(row => row.data ? [row.data] : []))
     setIsSubmitting(false)
-    addToast(`Đã nhập thành công ${successCount}/${validRows.length} hồ sơ nhân sự`, 'success')
+    if (!ok) {
+      addToast(useParishProfileStore.getState().error || 'Không thể nhập danh sách nhân sự', 'error')
+      return
+    }
+    addToast(`Đã nhập thành công ${validRows.length} hồ sơ nhân sự`, 'success')
     onClose()
   }
 
@@ -139,10 +56,10 @@ export function ParishBulkImportModal({ onClose }: Props) {
             <Button
               size="sm"
               leadingIcon={isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-              disabled={validRows.length === 0 || isSubmitting}
+              disabled={validRows.length === 0 || validRows.length !== parsedRows.length || isSubmitting}
               onClick={handleImport}
             >
-              {isSubmitting ? `Đang nhập (${progress}%)…` : `Nhập ${validRows.length} hồ sơ`}
+              {isSubmitting ? 'Đang nhập an toàn…' : `Nhập ${validRows.length} hồ sơ`}
             </Button>
           </div>
         </div>
@@ -205,7 +122,7 @@ export function ParishBulkImportModal({ onClose }: Props) {
                     ) : (
                       <AlertCircle size={15} className="text-parish-danger shrink-0" />
                     )}
-                    <span className="font-bold text-text-main truncate">
+                    <span className="font-bold text-text-main truncate" title={`Dòng ${row.lineNumber}: ${row.raw}`}>
                       {row.data?.holyName && (
                         <span className="text-parish-primary mr-1">{row.data.holyName}</span>
                       )}
@@ -219,10 +136,10 @@ export function ParishBulkImportModal({ onClose }: Props) {
                   <div className="shrink-0 flex items-center gap-1.5">
                     {row.valid ? (
                       <Badge tone={row.data?.serviceStatus === 'ACTIVE' ? 'success' : 'neutral'}>
-                        {row.data?.serviceStatus === 'ACTIVE' ? 'Đang phục vụ' : 'Mãn nhiệm'}
+                        {row.data?.serviceStatus === 'ACTIVE' ? 'Đang phục vụ' : row.data?.serviceStatus === 'FORMER' ? 'Mãn nhiệm' : 'Qua đời'}
                       </Badge>
                     ) : (
-                      <span className="text-xs font-bold text-parish-danger">{row.error}</span>
+                      <span className="text-xs font-bold text-parish-danger">Dòng {row.lineNumber}: {row.error}</span>
                     )}
                   </div>
                 </div>
