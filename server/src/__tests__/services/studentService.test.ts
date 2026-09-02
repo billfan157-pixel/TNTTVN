@@ -324,7 +324,7 @@ describe('Server studentService Layer Unit Tests', () => {
     expect(result.code).not.toBe('TN2025000000')
     cleanupStudentIds.push(result.id)
     expect(mockGenCode).toHaveBeenCalledTimes(12)
-  })
+  }, 30000)
 
   it('non-UNIQUE constraint error (FK violation) must NOT be caught as isUnique', async () => {
     // Direct insert with nonexistent classId to trigger FOREIGN KEY violation

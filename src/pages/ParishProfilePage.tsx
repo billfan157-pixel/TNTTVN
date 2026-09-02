@@ -13,11 +13,14 @@ import {
   Plus,
   Trash2,
   UserRound,
+  Search,
+  X,
+  Filter,
 } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
 import { EmptyState, ErrorState, SkeletonCardGrid } from '../components/common/StateFeedback'
-import { Button, Surface, TabPanel, Tabs } from '../components/common/ui'
+import { Button, Surface, TabPanel, Tabs, Badge } from '../components/common/ui'
 import { ParishProfileEditorModal, type ParishEditorRequest } from '../components/parish/ParishProfileEditorModal'
 import { useConfirmDialog } from '../hooks/useConfirmDialog'
 import { api } from '../lib/api'
@@ -67,7 +70,7 @@ function PersonName({ person }: { person?: ParishPerson }) {
   if (!person) return <span>Nhân sự không xác định</span>
   return (
     <span>
-      {person.holyName && <span className="font-bold text-amber-950 dark:text-amber-400 mr-1.5">{person.holyName}</span>}
+      {person.holyName && <span className="font-bold text-parish-primary mr-1.5">{person.holyName}</span>}
       <span className="font-extrabold text-text-main">{person.fullName}</span>
     </span>
   )
@@ -96,6 +99,17 @@ export default function ParishProfilePage() {
   const { askConfirm, dialog } = useConfirmDialog()
   const [activeTab, setActiveTab] = useState<ProfileTab>('history')
   const [editor, setEditor] = useState<ParishEditorRequest | null>(null)
+
+  // Bộ lọc Tab Nhân sự
+  const [peopleQuery, setPeopleQuery] = useState('')
+  const [peopleStatus, setPeopleStatus] = useState<'ALL' | 'ACTIVE' | 'FORMER' | 'DECEASED'>('ALL')
+
+  // Bộ lọc Tab Hoạt động & Cột mốc & Thành tích
+  const [recordQuery, setRecordQuery] = useState('')
+
+  // Bộ lọc Tab Tư liệu
+  const [assetQuery, setAssetQuery] = useState('')
+  const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | ParishArchiveAsset['assetType']>('ALL')
 
   useEffect(() => { void fetchSnapshot() }, [fetchSnapshot])
 
@@ -162,6 +176,65 @@ export default function ParishProfilePage() {
     addToast(`Đã đồng bộ thành công ${createdCount} hồ sơ nhân sự từ tài khoản GLV`, 'success')
   }
 
+  // Dữ liệu lọc cho Tab Huynh trưởng / GLV
+  const filteredPeople = useMemo(() => {
+    if (!snapshot) return []
+    return snapshot.people.filter(person => {
+      if (peopleStatus !== 'ALL' && person.serviceStatus !== peopleStatus) return false
+      if (peopleQuery.trim()) {
+        const q = peopleQuery.toLowerCase().trim()
+        const matchName = person.fullName.toLowerCase().includes(q)
+        const matchHoly = (person.holyName || '').toLowerCase().includes(q)
+        const matchBio = (person.biography || '').toLowerCase().includes(q)
+        if (!matchName && !matchHoly && !matchBio) return false
+      }
+      return true
+    })
+  }, [snapshot?.people, peopleStatus, peopleQuery])
+
+  // Dữ liệu lọc cho các tab bản ghi
+  const milestones = useMemo(() => snapshot?.records.filter(item => item.recordType === 'MILESTONE') ?? [], [snapshot?.records])
+  const activities = useMemo(() => snapshot?.records.filter(item => item.recordType === 'ACTIVITY') ?? [], [snapshot?.records])
+  const achievements = useMemo(() => snapshot?.records.filter(item => item.recordType === 'ACHIEVEMENT') ?? [], [snapshot?.records])
+
+  const filteredMilestones = useMemo(() => {
+    return milestones.filter(item => {
+      if (!recordQuery.trim()) return true
+      const q = recordQuery.toLowerCase().trim()
+      return item.title.toLowerCase().includes(q) || (item.summary || '').toLowerCase().includes(q)
+    })
+  }, [milestones, recordQuery])
+
+  const filteredActivities = useMemo(() => {
+    return activities.filter(item => {
+      if (!recordQuery.trim()) return true
+      const q = recordQuery.toLowerCase().trim()
+      return item.title.toLowerCase().includes(q) || (item.summary || '').toLowerCase().includes(q)
+    })
+  }, [activities, recordQuery])
+
+  const filteredAchievements = useMemo(() => {
+    return achievements.filter(item => {
+      if (!recordQuery.trim()) return true
+      const q = recordQuery.toLowerCase().trim()
+      return item.title.toLowerCase().includes(q) || (item.summary || '').toLowerCase().includes(q)
+    })
+  }, [achievements, recordQuery])
+
+  const filteredAssets = useMemo(() => {
+    if (!snapshot) return []
+    return snapshot.assets.filter(asset => {
+      if (assetTypeFilter !== 'ALL' && asset.assetType !== assetTypeFilter) return false
+      if (assetQuery.trim()) {
+        const q = assetQuery.toLowerCase().trim()
+        const matchTitle = asset.title.toLowerCase().includes(q)
+        const matchDesc = (asset.description || '').toLowerCase().includes(q)
+        if (!matchTitle && !matchDesc) return false
+      }
+      return true
+    })
+  }, [snapshot?.assets, assetTypeFilter, assetQuery])
+
   if (isLoading && !snapshot) {
     return <DesktopAppShell width="wide"><SkeletonCardGrid count={6} /></DesktopAppShell>
   }
@@ -169,9 +242,6 @@ export default function ParishProfilePage() {
     return <DesktopAppShell width="wide"><ErrorState message={error || undefined} onRetry={() => void fetchSnapshot()} /></DesktopAppShell>
   }
 
-  const milestones = snapshot.records.filter(item => item.recordType === 'MILESTONE')
-  const activities = snapshot.records.filter(item => item.recordType === 'ACTIVITY')
-  const achievements = snapshot.records.filter(item => item.recordType === 'ACHIEVEMENT')
   const canManage = snapshot.permissions.canManage
   const personnelCount = snapshot.people.length > 0 ? snapshot.people.length : (snapshot.accounts?.length || 0)
 
@@ -204,7 +274,26 @@ export default function ParishProfilePage() {
 
       <TabPanel tabsId="parish-profile-tabs" value="history" activeValue={activeTab}>
         <SectionHeading title="Lịch sử Xứ đoàn" description="Ngày thành lập, các đời Ban Trị Sự, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
-        <RecordList records={milestones} empty="Chưa có cột mốc lịch sử" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
+        {milestones.length > 0 && (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="search"
+                value={recordQuery}
+                onChange={e => setRecordQuery(e.target.value)}
+                placeholder="Tìm cột mốc lịch sử..."
+                className="h-9 pl-8 pr-3 text-xs bg-surface-card border border-surface-border rounded-lg text-text-main focus:outline-none focus:border-parish-primary"
+              />
+            </div>
+            {recordQuery && (
+              <Button variant="ghost" size="sm" onClick={() => setRecordQuery('')} className="text-xs text-text-muted">
+                Xóa tìm kiếm
+              </Button>
+            )}
+          </div>
+        )}
+        <RecordList records={filteredMilestones} empty="Chưa có cột mốc lịch sử" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="organization" activeValue={activeTab}>
@@ -220,8 +309,8 @@ export default function ParishProfilePage() {
         <SectionHeading title="Hồ sơ Huynh trưởng / GLV" description="Quá trình phục vụ, nhiệm vụ, cấp bậc, thời gian hoạt động và thành tích liên quan." action={canManage ? () => setEditor({ kind: 'person' }) : undefined} actionLabel="Thêm hồ sơ" />
 
         {unlinkedAccounts.length > 0 && canManage && (
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-sky-500/10 border border-sky-500/30 rounded-xl mb-4">
-            <div className="text-xs text-sky-950 dark:text-sky-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-parish-info-bg border border-parish-info/30 rounded-xl mb-4">
+            <div className="text-xs text-parish-info">
               <p className="font-bold">Tìm thấy {unlinkedAccounts.length} tài khoản Huynh trưởng / GLV chưa có trong Hồ sơ nhân sự.</p>
               <p className="text-text-muted mt-0.5">Tự động khởi tạo hồ sơ nhân sự cho các tài khoản này chỉ với 1 click.</p>
             </div>
@@ -237,30 +326,147 @@ export default function ParishProfilePage() {
           </div>
         )}
 
-        {snapshot.people.length === 0 ? <EmptyState icon={UserRound} title="Chưa có hồ sơ nhân sự" description="Tạo hồ sơ Huynh trưởng / GLV hoặc bấm đồng bộ từ các tài khoản GLV hiện có." /> : (
+        {snapshot.people.length > 0 && (
+          <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                <input
+                  type="search"
+                  value={peopleQuery}
+                  onChange={e => setPeopleQuery(e.target.value)}
+                  placeholder="Tìm theo tên, tên thánh..."
+                  className="h-9 pl-8 pr-3 text-xs bg-surface-card border border-surface-border rounded-lg text-text-main focus:outline-none focus:border-parish-primary"
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-surface-sunken p-0.5 rounded-lg border border-surface-border">
+                {(['ALL', 'ACTIVE', 'FORMER', 'DECEASED'] as const).map(st => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setPeopleStatus(st)}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
+                      peopleStatus === st
+                        ? 'bg-surface-card text-parish-primary shadow-sm'
+                        : 'text-text-muted hover:text-text-main'
+                    }`}
+                  >
+                    {st === 'ALL' ? 'Tất cả' : st === 'ACTIVE' ? 'Đang phục vụ' : st === 'FORMER' ? 'Mãn nhiệm' : 'Qua đời'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="text-xs text-text-muted">
+              Hiển thị {filteredPeople.length}/{snapshot.people.length} hồ sơ
+            </span>
+          </div>
+        )}
+
+        {snapshot.people.length === 0 ? (
+          <EmptyState icon={UserRound} title="Chưa có hồ sơ nhân sự" description="Tạo hồ sơ Huynh trưởng / GLV hoặc bấm đồng bộ từ các tài khoản GLV hiện có." />
+        ) : filteredPeople.length === 0 ? (
+          <EmptyState icon={UserRound} title="Không tìm thấy nhân sự phù hợp" description="Thử thay đổi từ khóa tìm kiếm hoặc bỏ chọn bộ lọc trạng thái." />
+        ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {snapshot.people.map(person => <PersonCard key={person.id} person={person} terms={snapshot.terms.filter(term => term.personId === person.id)} unitsById={unitsById} canManage={canManage} onEdit={() => setEditor({ kind: 'person', value: person })} onDelete={() => void remove('person', person.id, person.fullName)} onAddTerm={() => setEditor({ kind: 'term', personId: person.id })} onEditTerm={term => setEditor({ kind: 'term', value: term })} />)}
+            {filteredPeople.map(person => <PersonCard key={person.id} person={person} terms={snapshot.terms.filter(term => term.personId === person.id)} unitsById={unitsById} canManage={canManage} onEdit={() => setEditor({ kind: 'person', value: person })} onDelete={() => void remove('person', person.id, person.fullName)} onAddTerm={() => setEditor({ kind: 'term', personId: person.id })} onEditTerm={term => setEditor({ kind: 'term', value: term })} />)}
           </div>
         )}
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="activities" activeValue={activeTab}>
         <SectionHeading title="Nhật ký hoạt động" description="Trại, lễ bổn mạng, khai giảng, tổng kết, diễn nguyện và chương trình lớn." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACTIVITY' }) : undefined} />
-        <RecordList records={activities} empty="Chưa có hoạt động được ghi nhận" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
+        {activities.length > 0 && (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="search"
+                value={recordQuery}
+                onChange={e => setRecordQuery(e.target.value)}
+                placeholder="Tìm kiếm hoạt động..."
+                className="h-9 pl-8 pr-3 text-xs bg-surface-card border border-surface-border rounded-lg text-text-main focus:outline-none focus:border-parish-primary"
+              />
+            </div>
+            {recordQuery && (
+              <Button variant="ghost" size="sm" onClick={() => setRecordQuery('')} className="text-xs text-text-muted">
+                Xóa tìm kiếm
+              </Button>
+            )}
+          </div>
+        )}
+        <RecordList records={filteredActivities} empty="Chưa có hoạt động được ghi nhận" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="archive" activeValue={activeTab}>
         <SectionHeading title="Kho tư liệu" description="Ảnh, video, poster, tài liệu, biên bản, chương trình và giấy khen." action={canManage ? () => setEditor({ kind: 'asset' }) : undefined} actionLabel="Thêm tư liệu" />
-        {snapshot.assets.length === 0 ? <EmptyState icon={Archive} title="Kho tư liệu đang trống" /> : (
+        {snapshot.assets.length > 0 && (
+          <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                <input
+                  type="search"
+                  value={assetQuery}
+                  onChange={e => setAssetQuery(e.target.value)}
+                  placeholder="Tìm tư liệu..."
+                  className="h-9 pl-8 pr-3 text-xs bg-surface-card border border-surface-border rounded-lg text-text-main focus:outline-none focus:border-parish-primary"
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-surface-sunken p-0.5 rounded-lg border border-surface-border overflow-x-auto">
+                {(['ALL', 'IMAGE', 'DOCUMENT', 'VIDEO', 'CERTIFICATE'] as const).map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setAssetTypeFilter(type)}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors shrink-0 ${
+                      assetTypeFilter === type
+                        ? 'bg-surface-card text-parish-primary shadow-sm'
+                        : 'text-text-muted hover:text-text-main'
+                    }`}
+                  >
+                    {type === 'ALL' ? 'Tất cả' : assetLabels[type] || type}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="text-xs text-text-muted">
+              Hiển thị {filteredAssets.length}/{snapshot.assets.length} tư liệu
+            </span>
+          </div>
+        )}
+        {snapshot.assets.length === 0 ? (
+          <EmptyState icon={Archive} title="Kho tư liệu đang trống" />
+        ) : filteredAssets.length === 0 ? (
+          <EmptyState icon={Archive} title="Không tìm thấy tư liệu phù hợp" description="Thử thay đổi từ khóa hoặc loại tư liệu lọc." />
+        ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {snapshot.assets.map(asset => <AssetCard key={asset.id} asset={asset} canManage={canManage} onOpen={() => void downloadAsset(asset)} onEdit={() => setEditor({ kind: 'asset', value: asset })} onDelete={() => void remove('asset', asset.id, asset.title)} />)}
+            {filteredAssets.map(asset => <AssetCard key={asset.id} asset={asset} canManage={canManage} onOpen={() => void downloadAsset(asset)} onEdit={() => setEditor({ kind: 'asset', value: asset })} onDelete={() => void remove('asset', asset.id, asset.title)} />)}
           </div>
         )}
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="achievements" activeValue={activeTab}>
         <SectionHeading title="Khen thưởng & thành tích" description="Ghi nhận cá nhân, tập thể và những mốc đáng nhớ." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACHIEVEMENT' }) : undefined} />
-        <RecordList records={achievements} empty="Chưa có thành tích được ghi nhận" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
+        {achievements.length > 0 && (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="search"
+                value={recordQuery}
+                onChange={e => setRecordQuery(e.target.value)}
+                placeholder="Tìm thành tích..."
+                className="h-9 pl-8 pr-3 text-xs bg-surface-card border border-surface-border rounded-lg text-text-main focus:outline-none focus:border-parish-primary"
+              />
+            </div>
+            {recordQuery && (
+              <Button variant="ghost" size="sm" onClick={() => setRecordQuery('')} className="text-xs text-text-muted">
+                Xóa tìm kiếm
+              </Button>
+            )}
+          </div>
+        )}
+        <RecordList records={filteredAchievements} empty="Chưa có thành tích được ghi nhận" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="timeline" activeValue={activeTab}>

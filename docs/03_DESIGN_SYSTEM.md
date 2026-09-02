@@ -360,8 +360,10 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - **Modals**: Chuẩn hóa `QuestionEditorModal` và `QuestionBankImportModal` với 100% token CSS, `FormField` labels đầy đủ, touch target ≥40px, drag & drop tinh tế và 0 lỗi `lint:ds`.
 
 **ExamSessionView Layout & Workspace Standardization (Hoàn thành 2026-09-02, ADR-055, ADR-072)**:
-- **Macro-layout**: Chuẩn hóa `PageHeader` (`ClipboardList` tile + tiêu đề + phụ đề lớp/năm học + nút tạo phiên `btn-primary`) và thanh 4 thẻ KPI metrics (Tổng phiên, Đang chấm, Đã hoàn tất, Tiến độ % của phiên đang mở).
-- **Master-Detail 2 Cột (Desktop ≥1024px)**: Chuyển đổi từ mô hình dồn 1 cột dài sang 2 cột song song (Cột trái 4-col: Session Navigator với tìm kiếm trực tiếp, bộ lọc trạng thái Tất cả/Đang chấm/Đã xong, danh sách thẻ phiên có highlight `surface-selected`; Cột phải 8-col: Active Grading Workspace với 3 cụm nút hành động phân cấp: Chấm bài & OMR, Tiện ích & Tài liệu, Quản trị phiên).
+- **Macro-layout**: Chuẩn hóa `PageHeader` (`ClipboardList` tile + tiêu đề + phụ đề lớp/năm học + nút tạo phiên `btn-primary`) và thanh 4 thẻ KPI metrics (Tổng phiên, Đang chấm, Đã hoàn tất, Phiên đang chọn).
+- **Mô hình Chuyển đổi Catalog & Workspace (Desktop Full-Width)**:
+  - *Catalog View*: Lưới thẻ phiên chấm 3 cột rộng rãi (`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3`), thanh tìm kiếm & bộ lọc trạng thái (Tất cả / Đang chấm / Đã xong), hiển thị đầy đủ thông tin loại điểm, môn, lớp, thang điểm và CTA rõ ràng ("Vào Chấm Điểm" / "Xem Kết Quả").
+  - *Workspace View*: Không gian chấm bài chiếm trọn **100% bề rộng toàn màn hình (Full-Width)** khi click chọn phiên, giải phóng tối đa không gian cho bảng điểm 40+ học sinh, có nút quay lại `← Danh sách phiên` và dropdown chuyển nhanh giữa các phiên trên toolbar.
 - **Sub-components**: `ExamResultsTable` & `QuickScoreEntry` tuân thủ thead DS §6, tích hợp bộ lọc tìm kiếm theo tên/mã thiếu nhi, lọc nguồn điểm (QR/OMR/Nhập tay) và lọc các em chưa có điểm.
 - **Test Contracts & Anti-Drift**: Bảo toàn 100% 13 chuỗi kiểm thử trong `examCreateMobileUiContract.test.ts` và `mobileLayoutContract.test.ts`; 0 lỗi vi phạm `npm run lint:ds`.
 
