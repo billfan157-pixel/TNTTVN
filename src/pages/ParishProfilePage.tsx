@@ -6,20 +6,26 @@ import {
   CalendarDays,
   Download,
   ExternalLink,
+  Eye,
   FileClock,
   History,
+  Image as ImageIcon,
   Landmark,
   Pencil,
   Plus,
+  Search,
   Trash2,
   UserRound,
-  Search,
 } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
 import { EmptyState, ErrorState, SkeletonCardGrid } from '../components/common/StateFeedback'
 import { Button, Surface, TabPanel, Tabs } from '../components/common/ui'
 import { ParishProfileEditorModal, type ParishEditorRequest } from '../components/parish/ParishProfileEditorModal'
+import { ParishAssetLightboxModal } from '../components/parish/ParishAssetLightboxModal'
+import { ParishPersonDetailModal } from '../components/parish/ParishPersonDetailModal'
+import { ParishOrgChart } from '../components/parish/ParishOrgChart'
+import { ParishBulkImportModal } from '../components/parish/ParishBulkImportModal'
 import { useConfirmDialog } from '../hooks/useConfirmDialog'
 import { api } from '../lib/api'
 import { useParishProfileStore } from '../stores/parishProfileStore'
@@ -97,6 +103,12 @@ export default function ParishProfilePage() {
   const { askConfirm, dialog } = useConfirmDialog()
   const [activeTab, setActiveTab] = useState<ProfileTab>('history')
   const [editor, setEditor] = useState<ParishEditorRequest | null>(null)
+
+  // Modals mở rộng nâng cao
+  const [selectedPerson, setSelectedPerson] = useState<ParishPerson | null>(null)
+  const [viewingAsset, setViewingAsset] = useState<ParishArchiveAsset | null>(null)
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [orgViewMode, setOrgViewMode] = useState<'grid' | 'tree'>('grid')
 
   // Bộ lọc Tab Nhân sự
   const [peopleQuery, setPeopleQuery] = useState('')
@@ -295,16 +307,87 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="organization" activeValue={activeTab}>
-        <SectionHeading title="Cơ cấu tổ chức" description="Ban Trị Sự, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách." action={canManage ? () => setEditor({ kind: 'unit' }) : undefined} actionLabel="Thêm đơn vị" secondaryAction={canManage && snapshot.people.length ? () => setEditor({ kind: 'term' }) : undefined} secondaryLabel="Thêm nhiệm kỳ" />
-        {snapshot.units.length === 0 ? <EmptyState icon={Building2} title="Chưa có cơ cấu tổ chức" description="Tạo Ban Trị Sự hoặc một đơn vị đầu tiên để bắt đầu." /> : (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <SectionHeading
+            title="Cơ cấu tổ chức"
+            description="Ban Trị Sự, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách."
+            action={canManage ? () => setEditor({ kind: 'unit' }) : undefined}
+            actionLabel="Thêm đơn vị"
+            secondaryAction={canManage && snapshot.people.length ? () => setEditor({ kind: 'term' }) : undefined}
+            secondaryLabel="Thêm nhiệm kỳ"
+          />
+
+          {snapshot.units.length > 0 && (
+            <div className="flex items-center gap-1 bg-surface-sunken p-0.5 rounded-lg border border-surface-border shrink-0 self-start sm:self-center">
+              <button
+                type="button"
+                onClick={() => setOrgViewMode('grid')}
+                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
+                  orgViewMode === 'grid'
+                    ? 'bg-surface-card text-parish-primary shadow-sm'
+                    : 'text-text-muted hover:text-text-main'
+                }`}
+              >
+                Dạng thẻ
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrgViewMode('tree')}
+                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
+                  orgViewMode === 'tree'
+                    ? 'bg-surface-card text-parish-primary shadow-sm'
+                    : 'text-text-muted hover:text-text-main'
+                }`}
+              >
+                Sơ đồ phân cấp
+              </button>
+            </div>
+          )}
+        </div>
+
+        {snapshot.units.length === 0 ? (
+          <EmptyState icon={Building2} title="Chưa có cơ cấu tổ chức" description="Tạo Ban Trị Sự hoặc một đơn vị đầu tiên để bắt đầu." />
+        ) : orgViewMode === 'tree' ? (
+          <ParishOrgChart
+            units={snapshot.units}
+            terms={snapshot.terms}
+            peopleById={peopleById}
+            unitsById={unitsById}
+            canManage={canManage}
+            onEdit={unit => setEditor({ kind: 'unit', value: unit })}
+            onDelete={unit => void remove('unit', unit.id, unit.name)}
+            onEditTerm={term => setEditor({ kind: 'term', value: term })}
+            onDeleteTerm={term => void remove('term', term.id, term.positionTitle)}
+          />
+        ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {snapshot.units.map(unit => <UnitCard key={unit.id} unit={unit} terms={snapshot.terms.filter(term => term.unitId === unit.id)} peopleById={peopleById} unitsById={unitsById} canManage={canManage} onEdit={() => setEditor({ kind: 'unit', value: unit })} onDelete={() => void remove('unit', unit.id, unit.name)} onEditTerm={term => setEditor({ kind: 'term', value: term })} onDeleteTerm={term => void remove('term', term.id, term.positionTitle)} />)}
+            {snapshot.units.map(unit => (
+              <UnitCard
+                key={unit.id}
+                unit={unit}
+                terms={snapshot.terms.filter(term => term.unitId === unit.id)}
+                peopleById={peopleById}
+                unitsById={unitsById}
+                canManage={canManage}
+                onEdit={() => setEditor({ kind: 'unit', value: unit })}
+                onDelete={() => void remove('unit', unit.id, unit.name)}
+                onEditTerm={term => setEditor({ kind: 'term', value: term })}
+                onDeleteTerm={term => void remove('term', term.id, term.positionTitle)}
+              />
+            ))}
           </div>
         )}
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="people" activeValue={activeTab}>
-        <SectionHeading title="Hồ sơ Huynh trưởng / GLV" description="Quá trình phục vụ, nhiệm vụ, cấp bậc, thời gian hoạt động và thành tích liên quan." action={canManage ? () => setEditor({ kind: 'person' }) : undefined} actionLabel="Thêm hồ sơ" />
+        <SectionHeading
+          title="Hồ sơ Huynh trưởng / GLV"
+          description="Quá trình phục vụ, nhiệm vụ, cấp bậc, thời gian hoạt động và thành tích liên quan."
+          action={canManage ? () => setEditor({ kind: 'person' }) : undefined}
+          actionLabel="Thêm hồ sơ"
+          secondaryAction={canManage ? () => setShowBulkImport(true) : undefined}
+          secondaryLabel="Nhập từ Excel"
+        />
 
         {unlinkedAccounts.length > 0 && canManage && (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-parish-info-bg border border-parish-info/30 rounded-xl mb-4">
@@ -366,7 +449,20 @@ export default function ParishProfilePage() {
           <EmptyState icon={UserRound} title="Không tìm thấy nhân sự phù hợp" description="Thử thay đổi từ khóa tìm kiếm hoặc bỏ chọn bộ lọc trạng thái." />
         ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {filteredPeople.map(person => <PersonCard key={person.id} person={person} terms={snapshot.terms.filter(term => term.personId === person.id)} unitsById={unitsById} canManage={canManage} onEdit={() => setEditor({ kind: 'person', value: person })} onDelete={() => void remove('person', person.id, person.fullName)} onAddTerm={() => setEditor({ kind: 'term', personId: person.id })} onEditTerm={term => setEditor({ kind: 'term', value: term })} />)}
+            {filteredPeople.map(person => (
+              <PersonCard
+                key={person.id}
+                person={person}
+                terms={snapshot.terms.filter(term => term.personId === person.id)}
+                unitsById={unitsById}
+                canManage={canManage}
+                onSelect={() => setSelectedPerson(person)}
+                onEdit={() => setEditor({ kind: 'person', value: person })}
+                onDelete={() => void remove('person', person.id, person.fullName)}
+                onAddTerm={() => setEditor({ kind: 'term', personId: person.id })}
+                onEditTerm={term => setEditor({ kind: 'term', value: term })}
+              />
+            ))}
           </div>
         )}
       </TabPanel>
@@ -438,7 +534,22 @@ export default function ParishProfilePage() {
           <EmptyState icon={Archive} title="Không tìm thấy tư liệu phù hợp" description="Thử thay đổi từ khóa hoặc loại tư liệu lọc." />
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {filteredAssets.map(asset => <AssetCard key={asset.id} asset={asset} canManage={canManage} onOpen={() => void downloadAsset(asset)} onEdit={() => setEditor({ kind: 'asset', value: asset })} onDelete={() => void remove('asset', asset.id, asset.title)} />)}
+            {filteredAssets.map(asset => (
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                canManage={canManage}
+                onOpen={() => {
+                  if (asset.assetType === 'IMAGE' || asset.assetType === 'POSTER') {
+                    setViewingAsset(asset)
+                  } else {
+                    void downloadAsset(asset)
+                  }
+                }}
+                onEdit={() => setEditor({ kind: 'asset', value: asset })}
+                onDelete={() => void remove('asset', asset.id, asset.title)}
+              />
+            ))}
           </div>
         )}
       </TabPanel>
@@ -473,6 +584,18 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       {editor && <ParishProfileEditorModal editor={editor} snapshot={snapshot} onClose={() => setEditor(null)} />}
+      {viewingAsset && <ParishAssetLightboxModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
+      {selectedPerson && (
+        <ParishPersonDetailModal
+          person={selectedPerson}
+          terms={snapshot.terms.filter(t => t.personId === selectedPerson.id)}
+          records={snapshot.records}
+          unitsById={unitsById}
+          onClose={() => setSelectedPerson(null)}
+          onEdit={canManage ? () => { setEditor({ kind: 'person', value: selectedPerson }); setSelectedPerson(null); } : undefined}
+        />
+      )}
+      {showBulkImport && <ParishBulkImportModal onClose={() => setShowBulkImport(false)} />}
       {dialog}
     </DesktopAppShell>
   )
@@ -488,22 +611,215 @@ function SectionHeading({ title, description, action, actionLabel = 'Thêm bản
 
 function RecordList({ records, empty, canManage, onEdit, onDelete, peopleById }: { records: ParishRecord[]; empty: string; canManage: boolean; onEdit: (item: ParishRecord) => void; onDelete: (item: ParishRecord) => void; peopleById: Map<string, ParishPerson> }) {
   if (records.length === 0) return <EmptyState icon={FileClock} title={empty} />
-  return <div className="space-y-3">{records.map(record => <Surface as="article" variant="entity" key={record.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="badge badge-info">{recordLabels[record.recordType]}</span>{record.status !== 'PUBLISHED' && <span className="badge badge-warning">{statusLabels[record.status]}</span>}{record.visibility === 'ADMIN' && <span className="badge badge-neutral">Chỉ Admin</span>}</div><h3 className="mt-2 typography-card-title">{record.title}</h3><p className="mt-1 text-xs font-semibold text-text-muted">{formatDate(record.occurredOn)}{record.endedOn ? ` – ${formatDate(record.endedOn)}` : ''}{record.location ? ` · ${record.location}` : ''}</p></div>{canManage && <ActionButtons label={record.title} onEdit={() => onEdit(record)} onDelete={() => onDelete(record)} />}</div>{record.summary && <p className="mt-3 typography-body text-text-secondary">{record.summary}</p>}{record.content && <p className="mt-2 whitespace-pre-wrap typography-body-sm text-text-muted">{record.content}</p>}{record.personIds.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{record.personIds.map(id => <span key={id} className="badge badge-neutral"><PersonName person={peopleById.get(id)} /></span>)}</div>}</Surface>)}</div>
+  return (
+    <div className="space-y-3">
+      {records.map(record => (
+        <Surface as="article" variant="entity" key={record.id} className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="badge badge-info">{recordLabels[record.recordType]}</span>
+                {record.status !== 'PUBLISHED' && <span className="badge badge-warning">{statusLabels[record.status]}</span>}
+                {record.visibility === 'ADMIN' && <span className="badge badge-neutral">Chỉ Admin</span>}
+              </div>
+              <h3 className="mt-2 typography-card-title">{record.title}</h3>
+              <p className="mt-1 text-xs font-semibold text-text-muted">
+                {formatDate(record.occurredOn)}
+                {record.endedOn ? ` – ${formatDate(record.endedOn)}` : ''}
+                {record.location ? ` · ${record.location}` : ''}
+              </p>
+            </div>
+            {canManage && <ActionButtons label={record.title} onEdit={() => onEdit(record)} onDelete={() => onDelete(record)} />}
+          </div>
+          {record.summary && <p className="mt-3 typography-body text-text-secondary">{record.summary}</p>}
+          {record.content && <p className="mt-2 whitespace-pre-wrap typography-body-sm text-text-muted">{record.content}</p>}
+          {record.personIds.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {record.personIds.map(id => (
+                <span key={id} className="badge badge-neutral"><PersonName person={peopleById.get(id)} /></span>
+              ))}
+            </div>
+          )}
+        </Surface>
+      ))}
+    </div>
+  )
 }
 
 function UnitCard({ unit, terms, peopleById, unitsById, canManage, onEdit, onDelete, onEditTerm, onDeleteTerm }: { unit: ParishOrganizationUnit; terms: ParishServiceTerm[]; peopleById: Map<string, ParishPerson>; unitsById: Map<string, ParishOrganizationUnit>; canManage: boolean; onEdit: () => void; onDelete: () => void; onEditTerm: (term: ParishServiceTerm) => void; onDeleteTerm: (term: ParishServiceTerm) => void }) {
-  return <Surface as="article" variant="entity" className="p-4"><div className="flex items-start justify-between gap-3"><div><span className="badge badge-info">{unitLabels[unit.unitType]}</span><h3 className="mt-2 typography-card-title">{unit.name}</h3>{unit.parentId && <p className="mt-1 typography-caption text-text-muted">Trực thuộc {unitsById.get(unit.parentId)?.name || 'đơn vị cấp trên'}</p>}</div>{canManage && <ActionButtons label={unit.name} onEdit={onEdit} onDelete={onDelete} />}</div>{unit.description && <p className="mt-3 typography-body-sm text-text-secondary">{unit.description}</p>}<div className="mt-3 border-t border-surface-border pt-3"><div className="text-xs font-bold uppercase tracking-wide text-text-muted">Nhiệm kỳ</div>{terms.length === 0 ? <p className="mt-2 typography-body-sm text-text-muted">Chưa có người giữ chức vụ.</p> : <div className="mt-2 space-y-2">{terms.map(term => <div key={term.id} className="flex items-start justify-between gap-2 rounded-lg bg-surface-sunken p-3"><div><div className="text-sm font-bold text-text-main"><PersonName person={peopleById.get(term.personId)} /></div><div className="mt-0.5 text-xs text-text-muted">{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</div></div>{canManage && <ActionButtons label={term.positionTitle} onEdit={() => onEditTerm(term)} onDelete={() => onDeleteTerm(term)} />}</div>)}</div>}</div></Surface>
+  return (
+    <Surface as="article" variant="entity" className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <span className="badge badge-info">{unitLabels[unit.unitType]}</span>
+          <h3 className="mt-2 typography-card-title">{unit.name}</h3>
+          {unit.parentId && <p className="mt-1 typography-caption text-text-muted">Trực thuộc {unitsById.get(unit.parentId)?.name || 'đơn vị cấp trên'}</p>}
+        </div>
+        {canManage && <ActionButtons label={unit.name} onEdit={onEdit} onDelete={onDelete} />}
+      </div>
+      {unit.description && <p className="mt-3 typography-body-sm text-text-secondary">{unit.description}</p>}
+      <div className="mt-3 border-t border-surface-border pt-3">
+        <div className="text-xs font-bold uppercase tracking-wide text-text-muted">Nhiệm kỳ</div>
+        {terms.length === 0 ? (
+          <p className="mt-2 typography-body-sm text-text-muted">Chưa có người giữ chức vụ.</p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {terms.map(term => (
+              <div key={term.id} className="flex items-start justify-between gap-2 rounded-lg bg-surface-sunken p-3">
+                <div>
+                  <div className="text-sm font-bold text-text-main"><PersonName person={peopleById.get(term.personId)} /></div>
+                  <div className="mt-0.5 text-xs text-text-muted">{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</div>
+                </div>
+                {canManage && <ActionButtons label={term.positionTitle} onEdit={() => onEditTerm(term)} onDelete={() => onDeleteTerm(term)} />}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Surface>
+  )
 }
 
-function PersonCard({ person, terms, unitsById, canManage, onEdit, onDelete, onAddTerm, onEditTerm }: { person: ParishPerson; terms: ParishServiceTerm[]; unitsById: Map<string, ParishOrganizationUnit>; canManage: boolean; onEdit: () => void; onDelete: () => void; onAddTerm: () => void; onEditTerm: (term: ParishServiceTerm) => void }) {
-  return <Surface as="article" variant="entity" className="p-4"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap gap-2"><span className={`badge ${person.serviceStatus === 'ACTIVE' ? 'badge-success' : 'badge-neutral'}`}>{person.serviceStatus === 'ACTIVE' ? 'Đang phục vụ' : person.serviceStatus === 'FORMER' ? 'Đã mãn nhiệm' : 'Đã qua đời'}</span>{person.visibility === 'ADMIN' && <span className="badge badge-warning">Chỉ Admin</span>}</div><h3 className="mt-2 typography-card-title"><PersonName person={person} /></h3>{person.birthYear && <p className="typography-caption text-text-muted">Sinh năm {person.birthYear}</p>}</div>{canManage && <ActionButtons label={person.fullName} onEdit={onEdit} onDelete={onDelete} />}</div>{person.biography && <p className="mt-3 whitespace-pre-wrap typography-body-sm text-text-secondary">{person.biography}</p>}<div className="mt-3 border-t border-surface-border pt-3"><div className="flex items-center justify-between gap-2"><span className="text-xs font-bold uppercase tracking-wide text-text-muted">Quá trình phục vụ</span>{canManage && <Button size="sm" variant="quiet" onClick={onAddTerm}>Thêm nhiệm kỳ</Button>}</div>{terms.length === 0 ? <p className="mt-2 typography-body-sm text-text-muted">Chưa có nhiệm kỳ.</p> : <div className="mt-2 space-y-2">{terms.map(term => <button key={term.id} type="button" disabled={!canManage} onClick={() => canManage && onEditTerm(term)} className="block min-h-11 w-full rounded-lg bg-surface-sunken p-3 text-left disabled:cursor-default"><span className="block text-sm font-bold text-text-main">{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''}</span><span className="block text-xs text-text-muted">{term.unitId ? unitsById.get(term.unitId)?.name : 'Toàn Xứ đoàn'} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</span></button>)}</div>}</div></Surface>
+function PersonCard({ person, terms, unitsById, canManage, onSelect, onEdit, onDelete, onAddTerm, onEditTerm: _onEditTerm }: { person: ParishPerson; terms: ParishServiceTerm[]; unitsById: Map<string, ParishOrganizationUnit>; canManage: boolean; onSelect?: () => void; onEdit: () => void; onDelete: () => void; onAddTerm: () => void; onEditTerm: (term: ParishServiceTerm) => void }) {
+  return (
+    <Surface as="article" variant="entity" className="p-4 flex flex-col justify-between gap-3">
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap gap-2">
+              <span className={`badge ${person.serviceStatus === 'ACTIVE' ? 'badge-success' : 'badge-neutral'}`}>
+                {person.serviceStatus === 'ACTIVE' ? 'Đang phục vụ' : person.serviceStatus === 'FORMER' ? 'Đã mãn nhiệm' : 'Đã qua đời'}
+              </span>
+              {person.visibility === 'ADMIN' && <span className="badge badge-warning">Chỉ Admin</span>}
+            </div>
+            <h3
+              className="mt-2 typography-card-title hover:text-parish-primary transition-colors cursor-pointer"
+              onClick={onSelect}
+              title="Xem chi tiết tiểu sử"
+            >
+              <PersonName person={person} />
+            </h3>
+            {person.birthYear && <p className="typography-caption text-text-muted">Sinh năm {person.birthYear}</p>}
+          </div>
+          {canManage && <ActionButtons label={person.fullName} onEdit={onEdit} onDelete={onDelete} />}
+        </div>
+        {person.biography && <p className="mt-3 whitespace-pre-wrap typography-body-sm text-text-secondary line-clamp-2">{person.biography}</p>}
+      </div>
+
+      <div className="border-t border-surface-border pt-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-bold uppercase tracking-wide text-text-muted">Quá trình phục vụ</span>
+          <div className="flex items-center gap-1">
+            {onSelect && (
+              <Button size="sm" variant="quiet" className="h-7 text-xs" onClick={onSelect}>
+                Xem chi tiết
+              </Button>
+            )}
+            {canManage && <Button size="sm" variant="quiet" className="h-7 text-xs" onClick={onAddTerm}>Thêm nhiệm kỳ</Button>}
+          </div>
+        </div>
+        {terms.length === 0 ? <p className="typography-body-sm text-text-muted m-0">Chưa có nhiệm kỳ.</p> : (
+          <div className="space-y-1.5">
+            {terms.slice(0, 2).map(term => (
+              <div key={term.id} className="block rounded-lg bg-surface-sunken p-2 text-left">
+                <span className="block text-xs font-bold text-text-main">{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''}</span>
+                <span className="block text-xs text-text-muted">{term.unitId ? unitsById.get(term.unitId)?.name : 'Toàn Xứ đoàn'} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</span>
+              </div>
+            ))}
+            {terms.length > 2 && (
+              <button
+                type="button"
+                onClick={onSelect}
+                className="text-xs font-bold text-parish-primary hover:underline block pt-0.5"
+              >
+                + Xem thêm {terms.length - 2} nhiệm kỳ khác…
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Surface>
+  )
 }
 
 function AssetCard({ asset, canManage, onOpen, onEdit, onDelete }: { asset: ParishArchiveAsset; canManage: boolean; onOpen: () => void; onEdit: () => void; onDelete: () => void }) {
-  return <Surface as="article" variant="entity" className="flex flex-col p-4"><div className="flex items-start justify-between gap-2"><span className="badge badge-info">{assetLabels[asset.assetType]}</span>{canManage && <ActionButtons label={asset.title} onEdit={onEdit} onDelete={onDelete} />}</div><h3 className="mt-3 typography-card-title">{asset.title}</h3>{asset.capturedOn && <p className="mt-1 typography-caption text-text-muted">{formatDate(asset.capturedOn)}</p>}{asset.description && <p className="mt-2 flex-1 typography-body-sm text-text-secondary">{asset.description}</p>}<Button className="mt-4" size="sm" variant="secondary" leadingIcon={asset.externalUrl ? <ExternalLink aria-hidden="true" className="h-4 w-4" /> : <Download aria-hidden="true" className="h-4 w-4" />} onClick={onOpen}>{asset.externalUrl ? 'Mở liên kết' : 'Tải xuống'}</Button></Surface>
+  const isImage = asset.assetType === 'IMAGE' || asset.assetType === 'POSTER'
+  return (
+    <Surface as="article" variant="entity" className="flex flex-col justify-between p-4">
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <span className="badge badge-info">{assetLabels[asset.assetType]}</span>
+          {canManage && <ActionButtons label={asset.title} onEdit={onEdit} onDelete={onDelete} />}
+        </div>
+
+        {/* Thumbnail Preview nếu là ảnh ngoài */}
+        {isImage && asset.externalUrl && (
+          <div
+            className="w-full h-36 bg-surface-sunken rounded-lg overflow-hidden border border-surface-border cursor-pointer group relative"
+            onClick={onOpen}
+            title="Bấm để xem ảnh phóng to"
+          >
+            <img
+              src={asset.externalUrl}
+              alt={asset.title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+            />
+            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+              <Eye className="h-5 w-5 drop-shadow" />
+            </div>
+          </div>
+        )}
+
+        {/* Placeholder nếu là ảnh tải lên */}
+        {isImage && !asset.externalUrl && (
+          <div
+            className="w-full h-28 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-surface-app transition-colors text-text-muted"
+            onClick={onOpen}
+            title="Bấm để xem ảnh phóng to"
+          >
+            <ImageIcon className="h-6 w-6 text-parish-primary" />
+            <span className="text-xs font-semibold">Xem hình ảnh tư liệu</span>
+          </div>
+        )}
+
+        <h3 className="typography-card-title m-0 mt-1 cursor-pointer hover:text-parish-primary transition-colors" onClick={onOpen}>
+          {asset.title}
+        </h3>
+
+        {asset.capturedOn && <p className="typography-caption text-text-muted m-0">{formatDate(asset.capturedOn)}</p>}
+        {asset.description && <p className="typography-body-sm text-text-secondary line-clamp-2 m-0">{asset.description}</p>}
+      </div>
+
+      <Button
+        className="mt-3"
+        size="sm"
+        variant="secondary"
+        leadingIcon={isImage ? <Eye aria-hidden="true" className="h-4 w-4" /> : asset.externalUrl ? <ExternalLink aria-hidden="true" className="h-4 w-4" /> : <Download aria-hidden="true" className="h-4 w-4" />}
+        onClick={onOpen}
+      >
+        {isImage ? 'Xem phóng to' : asset.externalUrl ? 'Mở liên kết' : 'Tải xuống'}
+      </Button>
+    </Surface>
+  )
 }
 
 function Timeline({ items }: { items: ParishTimelineItem[] }) {
   if (items.length === 0) return <EmptyState icon={History} title="Timeline chưa có dữ liệu" description="Cập nhật ngày thành lập, nhiệm kỳ hoặc chọn hiển thị một bản ghi trên timeline." />
-  return <ol className="relative ml-3 border-l-2 border-parish-primary/30 pl-6">{items.map(item => <li key={`${item.kind}-${item.id}`} className="relative pb-6 last:pb-0"><span className="absolute -left-[31px] top-1.5 h-3 w-3 rounded-full border-2 border-surface-card bg-parish-primary" aria-hidden="true" /><Surface as="article" variant="entity" className="p-4"><div className="flex flex-wrap items-center gap-2"><time className="text-xs font-extrabold text-parish-primary">{formatDate(item.date)}</time>{item.recordType && <span className="badge badge-neutral">{recordLabels[item.recordType]}</span>}</div><h3 className="mt-1 typography-card-title">{item.title}</h3>{item.summary && <p className="mt-1 typography-body-sm text-text-secondary">{item.summary}</p>}</Surface></li>)}</ol>
+  return (
+    <ol className="relative ml-3 border-l-2 border-parish-primary/30 pl-6">
+      {items.map(item => (
+        <li key={`${item.kind}-${item.id}`} className="relative pb-6 last:pb-0">
+          <span className="absolute -left-[31px] top-1.5 h-3 w-3 rounded-full border-2 border-surface-card bg-parish-primary" aria-hidden="true" />
+          <Surface as="article" variant="entity" className="p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <time className="text-xs font-extrabold text-parish-primary">{formatDate(item.date)}</time>
+              {item.recordType && <span className="badge badge-neutral">{recordLabels[item.recordType]}</span>}
+            </div>
+            <h3 className="mt-1 typography-card-title">{item.title}</h3>
+            {item.summary && <p className="mt-1 typography-body-sm text-text-secondary">{item.summary}</p>}
+          </Surface>
+        </li>
+      ))}
+    </ol>
+  )
 }

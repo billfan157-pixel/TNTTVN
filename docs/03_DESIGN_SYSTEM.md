@@ -375,7 +375,11 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - **ParishProfilePage (Hồ Sơ Xứ Đoàn - `/parish-profile`)**:
   - *Loại bỏ màu thô*: Chuyển đổi toàn bộ `text-amber-950` sang semantic tokens `text-parish-primary`, banner đồng bộ tài khoản dùng `bg-parish-info-bg border-parish-info/30 text-parish-info`.
   - *Bộ lọc thông minh theo Tab*: Tích hợp tìm kiếm tên/tên thánh và bộ lọc trạng thái (`ACTIVE`, `FORMER`, `DECEASED`) trong Tab Huynh trưởng/GLV; tìm kiếm trong Tab Hoạt động, Lịch sử, Thành tích; tìm kiếm và lọc loại tệp (Ảnh, Video, Tài liệu, Giấy khen) trong Tab Kho tư liệu.
-- **Anti-Drift & Contracts**: Đạt 0 lỗi vi phạm `lint:ds` trên 123 TSX files; bảo đảm 100% test contract trong `ParishProfilePage.test.tsx` và `parishProfile.test.ts`.
+  - *Tư Liệu Trực Quan & Lightbox Gallery*: Tích hợp `ParishAssetLightboxModal` hỗ trợ xem ảnh/poster thu nhỏ (thumbnail) và phóng to toàn màn hình với tải xuống an toàn.
+  - *Sơ Đồ Phân Cấp Cơ Cấu Tổ Chức*: Tích hợp `ParishOrgChart` với nút chuyển đổi Dạng thẻ / Sơ đồ phân cấp 3 tầng (Ban Trị Sự ➔ Ban Chuyên Môn ➔ Ngành & Chi đoàn).
+  - *Chi Tiết Hồ Sơ Huynh Trưởng*: Tích hợp `ParishPersonDetailModal` hiển thị toàn diện tiểu sử, dòng thời gian các nhiệm kỳ và sự kiện liên quan khi bấm vào thẻ nhân sự.
+  - *Nhập Danh Sách Hàng Loạt*: Tích hợp `ParishBulkImportModal` hỗ trợ dán dữ liệu Excel/CSV với bản xem trước kiểm tra tính hợp lệ trước khi lưu.
+- **Anti-Drift & Contracts**: Đạt 0 lỗi vi phạm `lint:ds` trên 127 TSX files; bảo đảm 100% test contract trong `ParishProfilePage.test.tsx` và `parishProfile.test.ts`.
 
 ## §13. Desktop Layout Contract (2026-08-22)
 

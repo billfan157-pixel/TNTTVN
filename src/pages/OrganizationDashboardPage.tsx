@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   Archive, Award, CalendarDays, Landmark, Megaphone, Users, Wallet,
-  ChevronRight, Sparkles, Clock, MapPin, UserCheck,
+  ChevronRight, Clock, MapPin, UserCheck,
   Bell, Building2,
 } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
@@ -97,13 +97,45 @@ export default function OrganizationDashboardPage() {
 
   return (
     <DesktopAppShell width="wide" className="space-y-5">
-      {/* Page Header */}
+      {/* Page Header hợp nhất Căn Tính Xứ Đoàn */}
       <PageHeader
-        title="Cổng Xứ Đoàn & Giáo Xứ"
-        description={`${snapshot.profile.displayName} · Trung tâm tổ chức, vận hành và bộ nhớ số`}
-        icon={<Landmark aria-hidden="true" className="h-5 w-5" />}
+        title={
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold uppercase tracking-wider text-parish-primary">
+                Phong trào Thiếu Nhi Thánh Thể Việt Nam
+              </span>
+              {snapshot.profile.patronName && (
+                <Badge tone="primary">Bổn mạng {snapshot.profile.patronName}</Badge>
+              )}
+              {snapshot.profile.foundedDate && (
+                <span className="text-xs text-text-muted">
+                  · Thành lập {formatDate(snapshot.profile.foundedDate)}
+                </span>
+              )}
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-text-main tracking-tight">
+              {snapshot.profile.displayName}
+            </div>
+          </div>
+        }
+        description={
+          <div className="space-y-1 mt-1">
+            {snapshot.profile.motto && (
+              <p className="text-sm font-extrabold text-parish-primary italic m-0">
+                “{snapshot.profile.motto}”
+              </p>
+            )}
+            {snapshot.profile.description && (
+              <p className="text-xs text-text-secondary line-clamp-2 m-0">
+                {snapshot.profile.description}
+              </p>
+            )}
+          </div>
+        }
+        icon={<Landmark aria-hidden="true" className="h-6 w-6" />}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="secondary"
               size="sm"
@@ -122,59 +154,6 @@ export default function OrganizationDashboardPage() {
           </div>
         }
       />
-
-      {/* Hero: Căn Tính Xứ Đoàn */}
-      <Surface variant="card" className="p-5 sm:p-6 relative overflow-hidden border border-surface-border shadow-card">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-2 max-w-2xl">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold uppercase tracking-wider text-parish-primary">
-                Phong trào Thiếu Nhi Thánh Thể Việt Nam
-              </span>
-              {snapshot.profile.patronName && (
-                <Badge tone="primary">Bổn mạng {snapshot.profile.patronName}</Badge>
-              )}
-              {snapshot.profile.foundedDate && (
-                <span className="text-xs text-text-muted">
-                  · Thành lập {formatDate(snapshot.profile.foundedDate)}
-                </span>
-              )}
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-black text-text-main m-0 tracking-tight">
-              {snapshot.profile.displayName}
-            </h1>
-
-            {snapshot.profile.motto && (
-              <p className="text-sm font-extrabold text-parish-primary italic m-0">
-                “{snapshot.profile.motto}”
-              </p>
-            )}
-
-            {snapshot.profile.description && (
-              <p className="text-xs sm:text-sm text-text-secondary line-clamp-2 mt-1 m-0">
-                {snapshot.profile.description}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-row md:flex-col items-center md:items-end justify-between gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-surface-border">
-            <div className="text-left md:text-right">
-              <span className="text-xs font-bold text-text-muted block">Không gian tổ chức</span>
-              <span className="text-sm font-black text-text-main">Chính thức</span>
-            </div>
-            <Button
-              variant="plain"
-              size="sm"
-              className="bg-surface-app border border-surface-border text-xs font-bold hover:bg-surface-hover"
-              leadingIcon={<Sparkles className="h-3.5 w-3.5 text-parish-primary" />}
-              onClick={() => navigate({ to: '/parish-profile' })}
-            >
-              Xem Chi Tiết Hồ Sơ
-            </Button>
-          </div>
-        </div>
-      </Surface>
 
       {/* Thống Kê Tổng Quan (Executive KPI Strip) */}
       <section aria-label="Số liệu Xứ đoàn" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
