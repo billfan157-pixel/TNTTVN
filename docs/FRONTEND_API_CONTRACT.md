@@ -661,6 +661,7 @@ Base `/api/question-bank`; mọi endpoint yêu cầu JWT và role `admin|chunhie
 | :--- | :--- |
 | `GET /questions` | Filter `search,status,questionType,branchId,curriculumLevel,difficulty,lessonFrom,lessonTo,topic,limit,offset`; chỉ tenant hiện tại. |
 | `POST /questions` | Tạo item nháp + immutable version 1. |
+| `POST /questions/import` | Body `{items: QuestionContent[1..100]}`. Server ép `provenance=import`, xác minh mọi `branchId` cùng JWT parish và ghi toàn batch thành draft/version 1 trong một transaction. Trả `{importedCount,questionIds,status:'draft'}`; một dòng lỗi không tạo partial rows. |
 | `GET /questions/:id` | Current version, version history và usage history cùng tenant. |
 | `PUT /questions/:id` | Tạo version mới; không overwrite version cũ. |
 | `POST /questions/:id/lifecycle` | `{action: submit|reject|approve|activate|archive}` theo role/state machine. |
@@ -670,5 +671,7 @@ Base `/api/question-bank`; mọi endpoint yêu cầu JWT và role `admin|chunhie
 | `POST /exams/build` | Manual `questionIds` hoặc `blueprintId`, cộng class/subject/scoreType/semester/year/maxScore/variantCount. Class access bắt buộc; trả Exam đã materialize. |
 
 `BLUEPRINT_SHORTAGE` và `QUESTION_TYPE_NOT_MATERIALIZABLE` trả 422 và không tạo partial session. Client không queue authoring/build offline; session được tạo thành công xuất hiện trong luồng Smart Exam hiện hành.
+
+Client import không upload file binary lên API. `QuestionBankImportModal` đọc `.xlsx|.xls|.csv|.docx` tối đa 5 MB tại thiết bị, dùng parser hiện hữu/Mammoth raw text, giới hạn 50 câu/file, hiển thị preview rồi ánh xạ lớp đã chọn thành `branchId + curriculumLevel=class.name`. `.doc`, ảnh và object nhúng không thuộc contract. Nút tạo câu hỏi chỉ mount `QuestionEditorModal` khi mở; form nháp không còn chiếm chỗ thường trực trong trang.
 
 

@@ -3576,3 +3576,14 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - **Evidence cuối:** full serialized regression **291 files / 1.996 tests PASS**; focused Smart Exam/OMR **11 files / 119 tests PASS**; final Question Bank/manifest/mixed scoring **3 files / 17 tests PASS**; backup/purge/schema **10 files / 49 tests PASS**; frontend/server production build, oxlint, DS anti-drift **0/121** và diff check PASS. Physical OMR and production-scale search remain outside local evidence.
 
 ---
+
+## Audit QUESTION-BANK-IMPORT-1 — Direct Excel/Word import and taxonomy selectors — ✅ FOCUSED VERIFIED (2026-09-02, ADR-096 amendment)
+
+- **Threat model:** cross-tenant branch injection, partial batch creation, client-forged provenance/publication, answer leakage in audit, server-side malicious document parsing, browser/PWA startup bloat and stale class/year coupling.
+- **Controls:** binary file never reaches server; client accepts `.xlsx|.xls|.csv|.docx` up to 5 MB and previews parser findings. Server accepts normalized 1–100 rows, validates every answer and parish-scoped branch before one transaction, forces `draft` + `import`, and audits only IDs/count/type/hash. Parent remains blocked by router middleware.
+- **Data model:** class choice is a transient UI lookup and persists as branch + curriculum-level text, avoiding a reusable-question FK to a year-specific roster class. Academic year is shown in option labels to disambiguate duplicate class names.
+- **Supply chain/performance:** `mammoth@1.12.1` is exact-pinned and lazy. Mammoth and SheetJS production chunks are excluded from PWA precache; the verified production output emitted `mammoth-*.js` separately. Immediate `npm audit --json` reported 0 vulnerabilities on the implementation snapshot.
+- **Residual:** compressed DOCX can still be adversarial inside the 5 MB envelope; parsing happens in the user's browser, but a hostile-corpus/worker-timeout qualification is not claimed. Legacy `.doc`, images, macros and embedded objects are unsupported. Import requires network for the atomic server commit.
+- **Evidence:** focused **4 files / 13 tests PASS** covering transaction/tenant/audit behavior, DOCX normalization and limits, modal hidden/open contract, and lazy PWA policy. Frontend and server production builds PASS. Full regression and physical-device behavior were not rerun for this amendment.
+
+---

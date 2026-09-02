@@ -679,12 +679,12 @@ server/src/                         ─ Backend Hono Application
 
 ### Module: Versioned Question Bank & Exam Blueprint (ADR-096, 2026-09-02)
 
-- **Frontend:** `src/components/exam/QuestionBankView.tsx`, integrated as desktop/mobile Grades tab; `src/lib/api.ts` and `src/types/index.ts` own client contract. Existing navy–gold primitives are reused.
-- **Server:** `/api/question-bank` in `server/src/routes/questionBank.ts`; `questionBankService.ts` owns validation, lifecycle, immutable versions, deterministic blueprint selection, all-or-nothing Exam materialization and metadata-only audit.
+- **Frontend:** `QuestionBankView.tsx` lists tenant branches and dependent classes across question filters/authoring/blueprint/build. `QuestionEditorModal.tsx` mounts the draft form only after the button opens it. `QuestionBankImportModal.tsx` + `questionBankImport.ts` parse/preview Excel or DOCX locally; class selection maps to `branchId + curriculumLevel=class.name`. Existing navy–gold modal primitives are reused.
+- **Server:** `/api/question-bank` in `server/src/routes/questionBank.ts`; `questionBankService.ts` owns validation, lifecycle, immutable versions, deterministic blueprint selection, all-or-nothing Exam materialization and metadata-only audit. `POST /questions/import` validates 1–100 rows and tenant branches, forces draft/import provenance and commits the batch atomically.
 - **Data:** migrations `20260902-150..158`; tables `question_bank_items`, `question_bank_versions`, `exam_blueprints`, `exam_blueprint_rules`, `exam_question_snapshots`; additive Exam provenance columns and same-parish blueprint triggers.
 - **Exam boundary:** materialization writes legacy-compatible questions/keys plus ADR-094 manifests; `exam_question_snapshots` freezes exact source/version. Existing OMR/scoring/finalization remains authority. Only MC A–D and essay materialize initially.
-- **Recovery/offline:** backup `2.1-question-bank`, legacy restore preservation and Purge v2.5 cover new records. Authoring/review/build require server; existing post-materialization Exam offline pipeline is unchanged.
-- **Do not infer:** text metadata is not a normalized curriculum hierarchy; stored support for seven types is not Exam/OMR support for seven types; local builds do not prove production data scale or physical OMR quality.
+- **Recovery/offline/performance:** backup `2.1-question-bank`, legacy restore preservation and Purge v2.5 cover new records. Authoring/review/import/build require server; existing post-materialization Exam offline pipeline is unchanged. Mammoth/SheetJS are lazy and excluded from PWA precache.
+- **Do not infer:** a selected class ID is not stored as a Question Bank FK; text metadata is not a normalized curriculum hierarchy. `.doc`/images/embedded Word objects are not imported. Stored support for seven types is not Exam/OMR support for seven types; focused builds/tests do not prove hostile-DOCX resilience, production data scale or physical OMR quality.
 
 
 

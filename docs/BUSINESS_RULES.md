@@ -799,5 +799,10 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
 7. Staff phải có quyền với lớp đích; parent không được truy cập module. Audit chỉ ghi hash, version, trạng thái và số lượng, không sao chép câu hỏi/đáp án/lời giải.
 8. Authoring/review/blueprint/build cần mạng; offline chỉ đọc dữ liệu đã tải trong bộ nhớ UI. Sau khi đề được materialize, quy tắc offline hiện hữu của Exam vẫn giữ nguyên.
 9. Backup học vụ `2.1-question-bank` và Purge v2.5/snapshot v3.2 gồm `question_bank_items`, `question_bank_versions`, `exam_blueprints`, `exam_blueprint_rules`, `exam_question_snapshots`. Restore file `2.0-production` cũ giữ nguyên ngân hàng hiện tại vì file cũ không chứa dữ liệu này.
+10. Dropdown ngành/lớp phải lấy từ danh mục tenant hiện hành. Vì `classes` là lớp roster theo năm học còn câu hỏi là nội dung tái sử dụng, lựa chọn lớp được lưu thành `branch_id + curriculum_level=class.name`; không tạo FK từ câu hỏi sang lớp/năm học. Nhãn UI kèm năm học để người dùng phân biệt các lớp trùng tên.
+11. Import trực tiếp hỗ trợ `.xlsx`, `.xls`, `.csv`, `.docx`, tối đa 5 MB và tối đa 50 câu được parser nhận diện mỗi file. `.doc` cũ, ảnh và object nhúng không được chuyển thành câu hỏi. File được đọc tại thiết bị; server chỉ nhận payload câu hỏi đã chuẩn hóa.
+12. Import bắt buộc chọn ngành và lớp, hiển thị preview cùng errors/warnings trước khi gửi. Mọi câu import bắt đầu ở `DRAFT`, provenance do server ép thành `import`; import không được bỏ qua workflow duyệt.
+13. Một batch import có 1–100 câu phải all-or-nothing: server validate toàn bộ answer data và branch cùng tenant trước khi ghi, sau đó tạo item + immutable version 1 + audit trong một transaction. Một dòng lỗi hoặc branch khác giáo xứ làm batch không ghi câu nào.
+14. Audit import chỉ chứa id, số lượng, type và content hash; không chứa stem, lựa chọn, đáp án hoặc lời giải. Parser DOCX/Excel là lazy chunk và không nằm trong PWA install-time precache.
 
 

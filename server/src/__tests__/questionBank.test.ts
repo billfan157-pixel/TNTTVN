@@ -103,6 +103,45 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     for (const action of ['submit', 'approve', 'activate'] as const) await req(`/questions/${essayId2}/lifecycle`, { method: 'POST', auth: adminToken, body: { action } })
   })
 
+  it('imports a mixed batch atomically as tenant-scoped drafts', async () => {
+    const countBefore = (await db.select().from(questionBankItems).where(eq(questionBankItems.parishId, parishA))).length
+    const imported = await req('/questions/import', { method: 'POST', auth: teacherToken, body: {
+      items: [
+        { ...mc('Câu trắc nghiệm import bí mật'), branchId: branchA, curriculumLevel: 'Thiếu Nhi 1A', provenance: 'ai' },
+        { questionType: 'essay', stem: 'Câu tự luận import', branchId: branchA, curriculumLevel: 'Thiếu Nhi 1A', answerData: { rubric: null }, difficulty: 'application' },
+      ],
+    } })
+    expect(imported.status).toBe(201)
+    expect(imported.data).toMatchObject({ importedCount: 2, status: 'draft' })
+
+    const rows = await db.select().from(questionBankItems).where(eq(questionBankItems.parishId, parishA))
+    const importedRows = rows.filter(row => imported.data.questionIds.includes(row.id))
+    expect(importedRows).toHaveLength(2)
+    expect(importedRows.every(row => row.status === 'draft' && row.provenance === 'import' && row.branchId === branchA)).toBe(true)
+
+    const audits = await db.select().from(auditLogs).where(eq(auditLogs.parishId, parishA))
+    const importAudits = audits.filter(row => imported.data.questionIds.includes(row.entityId))
+    expect(importAudits.some(row => row.action === 'QUESTION_IMPORT_BATCH')).toBe(true)
+    expect(JSON.stringify(importAudits)).not.toContain('Câu trắc nghiệm import bí mật')
+    expect(JSON.stringify(importAudits)).not.toContain('correctOptionIds')
+
+    const invalid = await req('/questions/import', { method: 'POST', auth: teacherToken, body: {
+      items: [
+        { ...mc('Dòng hợp lệ không được ghi riêng'), branchId: branchA },
+        { ...mc('Dòng lỗi'), branchId: branchA, answerData: { options: [{ id: 'A', text: 'Một' }], correctOptionIds: ['Z'] } },
+      ],
+    } })
+    expect(invalid.status).toBe(400)
+    expect((await db.select().from(questionBankItems).where(eq(questionBankItems.parishId, parishA))).length).toBe(countBefore + 2)
+
+    const foreignBranch = await req('/questions/import', { method: 'POST', auth: teacherToken, body: {
+      items: [{ ...mc('Không được vượt tenant'), branchId: branchB }],
+    } })
+    expect(foreignBranch.status).toBe(400)
+    expect(foreignBranch.error.code).toBe('QUESTION_IMPORT_BRANCH_INVALID')
+    expect((await db.select().from(questionBankItems).where(eq(questionBankItems.parishId, parishA))).length).toBe(countBefore + 2)
+  })
+
   it('keeps tenant queries isolated and never writes answer content to audit', async () => {
     const other = await req('/questions', { auth: otherTenantToken })
     expect(other.data.items).toHaveLength(0)

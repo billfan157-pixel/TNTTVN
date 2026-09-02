@@ -13,6 +13,7 @@ import {
   createQuestion,
   getBlueprint,
   getQuestion,
+  importQuestions,
   listBlueprints,
   listQuestions,
   reviseQuestion,
@@ -96,6 +97,19 @@ router.post('/questions', zValidator('json', questionContent), async c => {
   try {
     const user = c.get('user') as JwtPayload
     return successResponse(c, await createQuestion(c.req.valid('json'), user.userId, user.parishId), 201)
+  } catch (error) { return handleError(c, error) }
+})
+
+router.post('/questions/import', zValidator('json', z.object({
+  items: z.array(questionContent).min(1).max(100),
+})), async c => {
+  try {
+    const user = c.get('user') as JwtPayload
+    const { items } = c.req.valid('json')
+    return successResponse(c, await importQuestions(
+      items.map(item => ({ ...item, provenance: 'import' as const })),
+      { userId: user.userId, parishId: user.parishId },
+    ), 201)
   } catch (error) { return handleError(c, error) }
 })
 

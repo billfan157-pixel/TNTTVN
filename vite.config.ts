@@ -76,6 +76,17 @@ export default defineConfig({
       '@aparajita/capacitor-biometric-auth',
     ],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalized = id.replaceAll('\\', '/')
+          const docxPackages = ['mammoth', '@xmldom/xmldom', 'base64-js', 'bluebird', 'dingbat-to-unicode', 'jszip', 'lop', 'path-is-absolute', 'underscore', 'xmlbuilder']
+          if (docxPackages.some(name => normalized.includes(`/node_modules/${name}/`))) return 'mammoth'
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     tailwindHmrFix(),
@@ -89,11 +100,10 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      // SheetJS is a user-triggered import/export capability. Precaching every
-      // generated chunk would otherwise download the 493 KB vendor during PWA
-      // installation even though application code imports it lazily.
+      // SheetJS and Mammoth are user-triggered document capabilities. Keep
+      // their lazy vendor chunks out of the install-time PWA precache.
       injectManifest: {
-        globIgnores: ['**/xlsx-*.js'],
+        globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js'],
       },
       includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.png'],
       manifest: {

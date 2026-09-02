@@ -566,6 +566,8 @@ export const api = {
   },
   getQuestionBankItem: (id: string) => request<QuestionBankItem>('GET', `/question-bank/questions/${encodeURIComponent(id)}`),
   createQuestionBankItem: (data: QuestionBankMutationInput) => request<QuestionBankItem>('POST', '/question-bank/questions', data),
+  importQuestionBankItems: (items: QuestionBankMutationInput[]) =>
+    request<{ importedCount: number; questionIds: string[]; status: 'draft' }>('POST', '/question-bank/questions/import', { items }),
   reviseQuestionBankItem: (id: string, data: QuestionBankMutationInput) =>
     request<QuestionBankItem>('PUT', `/question-bank/questions/${encodeURIComponent(id)}`, data),
   transitionQuestionBankItem: (id: string, action: 'submit' | 'reject' | 'approve' | 'activate' | 'archive') =>

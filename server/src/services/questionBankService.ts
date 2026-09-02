@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, like, lte, notInArray, or, sql } from
 import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
 import {
   auditLogs,
+  branches,
   classes,
   examBlueprintRules,
   examBlueprints,
@@ -172,6 +173,94 @@ export async function createQuestion(input: QuestionContentInput, userId: string
     await audit(tx, { userId, parishId, action: 'QUESTION_CREATE', entityType: 'question_bank_item', entityId: id, summary: { version: 1, questionType: input.questionType, contentHash, provenance: input.provenance ?? 'human' } })
   })
   return getQuestion(id, parishId)
+}
+
+export async function importQuestions(
+  inputs: QuestionContentInput[],
+  actor: { userId: string; parishId: string },
+) {
+  if (inputs.length < 1 || inputs.length > 100) {
+    throw new QuestionBankError('Mỗi lần import cần từ 1 đến 100 câu hỏi.', 400, 'QUESTION_IMPORT_SIZE_INVALID')
+  }
+  // Validate the complete payload before opening the transaction so a bad row
+  // can never leave a partially imported bank.
+  for (const input of inputs) validateAnswerData(input.questionType, input.answerData)
+
+  const branchIds = [...new Set(inputs.map(input => input.branchId).filter((id): id is string => Boolean(id)))]
+  if (branchIds.length > 0) {
+    const existing = await db.select({ id: branches.id }).from(branches).where(and(
+      eq(branches.parishId, actor.parishId),
+      inArray(branches.id, branchIds),
+    ))
+    if (existing.length !== branchIds.length) {
+      throw new QuestionBankError('Ngành được chọn không tồn tại trong giáo xứ hiện tại.', 400, 'QUESTION_IMPORT_BRANCH_INVALID')
+    }
+  }
+
+  const now = new Date().toISOString()
+  const prepared = inputs.map(input => {
+    const id = generateId('QBI')
+    const versionId = generateId('QBV')
+    const meta = metadata(input)
+    const contentHash = hash({
+      questionType: input.questionType,
+      stem: input.stem.trim(),
+      answerData: input.answerData,
+      explanation: clean(input.explanation),
+      metadata: meta,
+    })
+    return { input, id, versionId, meta, contentHash }
+  })
+
+  await runDbTransaction(async tx => {
+    await tx.insert(questionBankItems).values(prepared.map(({ id, meta }) => ({
+      id,
+      parishId: actor.parishId,
+      status: 'draft' as const,
+      currentVersion: 1,
+      ...meta,
+      tags: JSON.stringify(meta.tags),
+      provenance: 'import' as const,
+      createdBy: actor.userId,
+      createdAt: now,
+      updatedAt: now,
+    })))
+    await tx.insert(questionBankVersions).values(prepared.map(({ input, id, versionId, meta, contentHash }) => ({
+      id: versionId,
+      parishId: actor.parishId,
+      questionId: id,
+      version: 1,
+      questionType: input.questionType,
+      stem: input.stem.trim(),
+      answerData: JSON.stringify(input.answerData),
+      explanation: clean(input.explanation),
+      metadataSnapshot: JSON.stringify(meta),
+      changeNote: clean(input.changeNote) ?? 'Imported into Question Bank',
+      contentHash,
+      createdBy: actor.userId,
+      createdAt: now,
+    })))
+    for (const item of prepared) {
+      await audit(tx, {
+        userId: actor.userId,
+        parishId: actor.parishId,
+        action: 'QUESTION_IMPORT',
+        entityType: 'question_bank_item',
+        entityId: item.id,
+        summary: { version: 1, questionType: item.input.questionType, contentHash: item.contentHash, provenance: 'import' },
+      })
+    }
+    await audit(tx, {
+      userId: actor.userId,
+      parishId: actor.parishId,
+      action: 'QUESTION_IMPORT_BATCH',
+      entityType: 'question_bank',
+      entityId: prepared[0].id,
+      summary: { count: prepared.length, questionIds: prepared.map(item => item.id) },
+    })
+  })
+
+  return { importedCount: prepared.length, questionIds: prepared.map(item => item.id), status: 'draft' as const }
 }
 
 export async function listQuestions(parishId: string, filters: {
