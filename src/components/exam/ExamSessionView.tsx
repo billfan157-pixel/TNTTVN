@@ -17,7 +17,7 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle, AlertCircle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-  Upload, School, Eye, Zap, Grid3X3, BookOpen,
+  Upload, School, Eye, Zap, Grid3X3, BookOpen, Search, ChevronRight,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
 import type { ExamImportScope } from '../../utils/examParser'
@@ -25,6 +25,9 @@ import { parseQuickAnswerString } from '../../utils/examQuickKeyParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
+import { PageHeader } from '../common/PageHeader'
+import { Badge, Button, Surface } from '../common/ui'
+import { Tabs, TabPanel } from '../common/ui/SelectionControls'
 
 const GuidedGradeModal = React.lazy(() => import('./GuidedGradeModal').then(module => ({ default: module.GuidedGradeModal })))
 const ExamScanModal = React.lazy(() => import('./ExamScanModal').then(module => ({ default: module.ExamScanModal })))
@@ -42,10 +45,6 @@ const SCORE_TYPES: { id: ExamScoreType; label: string; daily: boolean }[] = [
   { id: 'final', label: 'Cuối Kỳ', daily: false },
 ]
 
-const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
-  draft: { label: 'Đang chấm', cls: 'badge-primary' },
-  completed: { label: 'Đã hoàn tất', cls: 'badge-neutral' },
-}
 
 /** Hiển thị năm học an toàn — tránh năm rỗng trong UI. */
 function normalizeActiveAY(ay: string): string {
@@ -201,6 +200,9 @@ export const ExamSessionView: React.FC = () => {
   const [createError, setCreateError] = useState('')
   const [quickKeyInput, setQuickKeyInput] = useState('')
   const [reviewViewMode, setReviewViewMode] = useState<'matrix' | 'details'>('matrix')
+  const [sessionSearch, setSessionSearch] = useState('')
+  const [sessionStatusFilter, setSessionStatusFilter] = useState<'all' | 'draft' | 'completed'>('all')
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'grade' | 'results'>('grade')
 
   useEffect(() => {
     // Tải danh sách lớp học nếu store chưa có hoặc rỗng
@@ -254,6 +256,22 @@ export const ExamSessionView: React.FC = () => {
     })
   }, [sessions, selectedSemester, effectiveClassId])
 
+  const filteredSessions = useMemo(() => {
+    const q = sessionSearch.trim().toLowerCase()
+    return displayedSessions.filter(s => {
+      if (sessionStatusFilter !== 'all' && s.status !== sessionStatusFilter) return false
+      if (!q) return true
+      const subject = s.subject.toLowerCase()
+      const className = (findClassById(s.classId)?.name || '').toLowerCase()
+      const scoreType = (SCORE_TYPE_LABELS[s.scoreType] || '').toLowerCase()
+      return subject.includes(q) || className.includes(q) || scoreType.includes(q)
+    })
+  }, [displayedSessions, sessionSearch, sessionStatusFilter, findClassById])
+
+  const totalSessionsCount = displayedSessions.length
+  const draftSessionsCount = useMemo(() => displayedSessions.filter(s => s.status === 'draft').length, [displayedSessions])
+  const completedSessionsCount = useMemo(() => displayedSessions.filter(s => s.status === 'completed').length, [displayedSessions])
+
   const classStudents = useMemo(
     () => activeSessionClassId
       ? students
@@ -263,6 +281,10 @@ export const ExamSessionView: React.FC = () => {
       : [],
     [activeSessionClassId, students]
   )
+
+  const gradedStudentCount = results.length
+  const totalStudentsInClass = classStudents.length
+  const gradingProgressPercent = totalStudentsInClass > 0 ? Math.round((gradedStudentCount / totalStudentsInClass) * 100) : 0
 
   const savedScores = useMemo(() => {
     const map: Record<string, number> = {}
@@ -579,27 +601,66 @@ export const ExamSessionView: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-3 sm:gap-4">
+    <div className="flex flex-col gap-4">
       {/* Header */}
-      <div className="bg-surface-card rounded-2xl p-3 sm:p-4 border border-surface-border shadow-card flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center">
-            <ClipboardList size={20} />
+      <PageHeader
+        title="Chấm Bài Kiểm Tra"
+        description={
+          effectiveClassId
+            ? `Lớp: ${findClassById(effectiveClassId)?.name || 'Lớp'} — QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
+            : `Tất cả các lớp — QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
+        }
+        icon={<ClipboardList className="h-5 w-5" />}
+        actions={
+          canManage ? (
+            <Button
+              size="sm"
+              leadingIcon={<Plus className="h-4 w-4" />}
+              onClick={handleOpenCreate}
+            >
+              Tạo Phiên Chấm
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {/* KPI Metrics Summary */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Tổng số phiên</span>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-2xl font-black text-text-main">{totalSessionsCount}</span>
+            <span className="text-xs text-text-muted">Học kỳ {selectedSemester}</span>
           </div>
-          <div>
-            <h3 className="font-extrabold text-lg text-parish-primary m-0">Chấm Bài Kiểm Tra</h3>
-            <p className="text-xs text-text-muted m-0">
-              {effectiveClassId
-                ? `Lớp: ${findClassById(effectiveClassId)?.name || 'Lớp'} — QR + nhập nhanh tự đồng bộ điểm`
-                : 'Tất cả các lớp — QR + nhập nhanh tự đồng bộ điểm'}
-            </p>
+        </Surface>
+
+        <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Đang chấm (Draft)</span>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-2xl font-black text-parish-primary">{draftSessionsCount}</span>
+            <Badge tone="primary">Đang mở</Badge>
           </div>
-        </div>
-        {canManage && (
-          <button className="btn btn-primary btn-sm min-h-11 w-full justify-center sm:w-auto" onClick={handleOpenCreate}>
-            <Plus size={14} /> Tạo Phiên Chấm
-          </button>
-        )}
+        </Surface>
+
+        <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Đã hoàn tất</span>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-2xl font-black text-parish-success">{completedSessionsCount}</span>
+            <Badge tone="success">Khóa sổ</Badge>
+          </div>
+        </Surface>
+
+        <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Tiến độ phiên chọn</span>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-2xl font-black text-text-main">
+              {activeSession ? `${gradingProgressPercent}%` : '—'}
+            </span>
+            <span className="text-xs text-text-muted">
+              {activeSession ? `${results.length}/${classStudents.length} em` : 'Chưa chọn'}
+            </span>
+          </div>
+        </Surface>
       </div>
 
       {/* Class chips for catechists */}
@@ -609,7 +670,7 @@ export const ExamSessionView: React.FC = () => {
             type="button"
             onClick={() => setViewClassId(null)}
             className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
-              viewClassId === null ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'
+              viewClassId === null ? 'bg-parish-primary text-white shadow-2xs' : 'bg-surface-hover text-text-secondary'
             }`}
           >
             Tất cả ({assignedClasses.length} lớp)
@@ -620,7 +681,7 @@ export const ExamSessionView: React.FC = () => {
               type="button"
               onClick={() => setViewClassId(c.id)}
               className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors ${
-                viewClassId === c.id ? 'bg-parish-primary text-white' : 'bg-surface-hover text-text-secondary'
+                viewClassId === c.id ? 'bg-parish-primary text-white shadow-2xs' : 'bg-surface-hover text-text-secondary'
               }`}
             >
               {c.name}
@@ -630,249 +691,420 @@ export const ExamSessionView: React.FC = () => {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+        <div className="rounded-xl border border-parish-danger/30 bg-parish-danger-bg/40 px-4 py-3 text-sm text-parish-danger flex items-center gap-2">
           <AlertTriangle size={16} />
-          <span className="flex-1">{error}</span>
-          <button className="text-xs underline" onClick={clearError}>Đóng</button>
+          <span className="flex-1 font-semibold">{error}</span>
+          <button type="button" className="text-xs underline font-bold" onClick={clearError}>Đóng</button>
         </div>
       )}
 
-      {/* Session list */}
-      <div className="bg-surface-card rounded-2xl p-3 sm:p-4 border border-surface-border shadow-card">
-        <div className="flex flex-col gap-1.5 mb-3 sm:flex-row sm:items-center sm:justify-between">
-          <h4 className="font-bold text-sm text-text-secondary m-0">
-            Danh sách phiên chấm {displayedSessions.length > 0 && `(${displayedSessions.length})`}
-          </h4>
-          {!effectiveClassId && (
-            <span className="text-xs text-text-muted">Đang xem tất cả các lớp</span>
-          )}
-        </div>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-text-muted py-4">
-            <Loader2 size={16} className="animate-spin" /> Đang tải danh sách phiên chấm…
+      {/* Master-Detail Workspace Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* CỘT TRÁI: ĐIỀU HƯỚNG DANH SÁCH PHIÊN CHẤM (lg:col-span-4) */}
+        <Surface variant="card" className="lg:col-span-4 p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-extrabold text-sm text-text-main m-0 flex items-center gap-1.5">
+              <Layers3 size={16} className="text-parish-primary" />
+              Danh sách phiên ({displayedSessions.length})
+            </h3>
+            {canManage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs px-2"
+                leadingIcon={<Plus size={13} />}
+                onClick={handleOpenCreate}
+              >
+                Tạo mới
+              </Button>
+            )}
           </div>
-        ) : displayedSessions.length === 0 ? (
-          <div className="text-sm text-text-muted py-6 text-center">
-            {effectiveClassId
-              ? `Chưa có phiên chấm nào cho ${findClassById(effectiveClassId)?.name || 'lớp này'}`
-              : 'Chưa có phiên chấm nào trong học kỳ này'}
-            {canManage ? ' — bấm "Tạo Phiên Chấm" để bắt đầu' : ''}.
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {displayedSessions.map(s => {
-              const sessionClass = findClassById(s.classId)
-              return (
+
+          {/* Search and status filter */}
+          <div className="space-y-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="text"
+                placeholder="Tìm phiên chấm, môn, lớp..."
+                value={sessionSearch}
+                onChange={e => setSessionSearch(e.target.value)}
+                className="form-input min-h-9 w-full pl-8 pr-3 text-xs"
+              />
+              {sessionSearch && (
                 <button
-                  key={s.id}
-                  onClick={() => selectSession(s.id)}
-                  className={`w-full min-h-[72px] text-left rounded-xl border px-3 py-3 flex items-center justify-between gap-3 transition-colors active:scale-[0.99] ${
-                    selectedSessionId === s.id
-                      ? 'border-parish-primary bg-parish-primary/5 shadow-2xs'
-                      : 'border-surface-border hover:bg-surface-hover'
+                  type="button"
+                  onClick={() => setSessionSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1">
+              {(['all', 'draft', 'completed'] as const).map(st => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setSessionStatusFilter(st)}
+                  className={`flex-1 py-1 rounded-lg text-xs font-bold transition-colors text-center ${
+                    sessionStatusFilter === st
+                      ? 'bg-parish-primary text-white shadow-2xs'
+                      : 'bg-surface-app border border-surface-border text-text-secondary hover:bg-surface-hover'
                   }`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0 mb-1">
-                      <span className="badge badge-primary text-xs shrink-0">{SCORE_TYPE_LABELS[s.scoreType]}</span>
-                      {sessionClass && (
-                        <span className="badge badge-neutral text-[11px] font-bold shrink-0 max-w-24 truncate">
-                          {sessionClass.name}
+                  {st === 'all' ? 'Tất cả' : st === 'draft' ? 'Đang chấm' : 'Đã xong'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Session Cards List */}
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 text-xs text-text-muted py-8">
+              <Loader2 size={16} className="animate-spin text-parish-primary" /> Đang tải danh sách phiên chấm…
+            </div>
+          ) : filteredSessions.length === 0 ? (
+            <div className="text-center py-8 text-xs text-text-muted">
+              {displayedSessions.length === 0
+                ? (effectiveClassId
+                    ? `Chưa có phiên chấm nào cho ${findClassById(effectiveClassId)?.name || 'lớp này'}`
+                    : 'Chưa có phiên chấm nào trong học kỳ này')
+                : 'Không có phiên nào khớp với bộ lọc.'}
+              {canManage && displayedSessions.length === 0 && (
+                <div className="mt-3">
+                  <Button size="sm" onClick={handleOpenCreate}>
+                    + Tạo phiên đầu tiên
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+              {filteredSessions.map(s => {
+                const sessionClass = findClassById(s.classId)
+                const isSelected = selectedSessionId === s.id
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => selectSession(s.id)}
+                    className={`w-full text-left rounded-xl border p-3 flex flex-col gap-1.5 transition-colors active:scale-[0.99] ${
+                      isSelected
+                        ? 'border-parish-primary bg-surface-selected ring-2 ring-parish-primary shadow-xs'
+                        : 'border-surface-border hover:bg-surface-hover/80 hover:border-surface-border'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Badge tone="primary">{SCORE_TYPE_LABELS[s.scoreType]}</Badge>
+                        {sessionClass && (
+                          <Badge tone="neutral" className="truncate max-w-[120px]">
+                            {sessionClass.name}
+                          </Badge>
+                        )}
+                      </div>
+                      <Badge tone={s.status === 'draft' ? 'primary' : 'success'}>
+                        {s.status === 'draft' ? 'Đang chấm' : 'Đã hoàn tất'}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-extrabold text-sm text-text-main truncate">{s.subject}</span>
+                      {s.maxScore !== 10 && <span className="text-xs text-text-muted shrink-0">/{s.maxScore}đ</span>}
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-text-muted pt-0.5">
+                      <span>HK {s.semester === 2 ? 'II' : 'I'} · {s.academicYear}</span>
+                      <span className="font-medium text-parish-primary flex items-center gap-0.5">
+                        {isSelected ? 'Đang chọn' : 'Xem chi tiết'}
+                        <ChevronRight size={12} />
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </Surface>
+
+        {/* CỘT PHẢI: KHÔNG GIAN TÁC NGHIỆP PHIÊN CHẤM (lg:col-span-8) */}
+        <div className="lg:col-span-8 flex flex-col gap-4">
+          {!activeSession ? (
+            <Surface variant="card" className="p-8 text-center flex flex-col items-center justify-center min-h-[360px]">
+              <div className="w-14 h-14 rounded-2xl bg-parish-primary/10 text-parish-primary flex items-center justify-center mb-3">
+                <ClipboardList size={28} />
+              </div>
+              <h3 className="font-black text-base text-text-main m-0 mb-1">Chưa chọn phiên chấm</h3>
+              <p className="text-xs text-text-muted max-w-sm m-0 mb-4">
+                Chọn một phiên chấm từ danh sách bên trái để quét phiếu OMR, nhập điểm nhanh hoặc in phiếu thi.
+              </p>
+              {canManage && (
+                <Button leadingIcon={<Plus size={15} />} onClick={handleOpenCreate}>
+                  Tạo Phiên Chấm Mới
+                </Button>
+              )}
+            </Surface>
+          ) : (
+            <Surface variant="card" className="p-4 sm:p-5 flex flex-col gap-4">
+              {/* Active Session Header Banner */}
+              <div className="flex flex-col gap-3 pb-3 border-b border-surface-border">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      {findClassById(activeSession.classId) && (
+                        <Badge tone="neutral">
+                          {findClassById(activeSession.classId)?.name}
+                        </Badge>
+                      )}
+                      <Badge tone="primary">
+                        {SCORE_TYPE_LABELS[activeSession.scoreType]}
+                      </Badge>
+                      <Badge tone={activeSession.status === 'draft' ? 'primary' : 'success'}>
+                        {activeSession.status === 'draft' ? 'Đang chấm' : 'Đã hoàn tất'}
+                      </Badge>
+                      {activeSession.examType && (
+                        <span className="text-xs font-semibold text-text-muted">
+                          ({activeSession.examType === 'mixed' ? 'Kết hợp TN+TL' : activeSession.examType === 'multiple_choice' ? 'Trắc nghiệm OMR' : 'Tự luận'})
                         </span>
                       )}
                     </div>
-                    <div className="flex items-baseline gap-1 min-w-0">
-                      <span className="font-semibold text-sm truncate">{s.subject}</span>
-                      {s.maxScore !== 10 && <span className="text-xs text-text-muted shrink-0">/{s.maxScore}</span>}
+                    <h3 className="font-black text-lg text-text-main m-0">
+                      {activeSession.subject}
+                    </h3>
+                    <p className="text-xs text-text-muted mt-0.5 m-0">
+                      {DAILY_TYPES.includes(activeSession.scoreType as any)
+                        ? 'Điểm vào cột hằng ngày (tính trung bình)'
+                        : 'Điểm ghi thẳng vào cột Giữa Kỳ / Cuối Kỳ'}
+                      {' · '}Học kỳ {activeSession.semester === 2 ? 'II' : 'I'} · {activeSession.academicYear} · Thang điểm {activeSession.maxScore}
+                    </p>
+                  </div>
+
+                  {/* Quick Action Badges / Stat */}
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-text-muted block">Đã có điểm</span>
+                      <span className="text-sm font-black text-parish-primary">
+                        {results.length}/{classStudents.length} em ({gradingProgressPercent}%)
+                      </span>
                     </div>
                   </div>
-                  <span className={`badge text-xs shrink-0 ${STATUS_LABELS[s.status].cls}`}>
-                    {STATUS_LABELS[s.status].label}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Active session panel */}
-      {activeSession && (
-        <div className="bg-surface-card rounded-2xl p-3 sm:p-4 border border-surface-border shadow-card">
-          <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <h4 className="font-bold text-sm flex items-center gap-2 flex-wrap">
-                {findClassById(activeSession.classId) && (
-                  <span className="badge badge-neutral text-xs">
-                    {findClassById(activeSession.classId)?.name}
-                  </span>
-                )}
-                <span>{SCORE_TYPE_LABELS[activeSession.scoreType]} — {activeSession.subject}</span>
-                <span className={`badge text-xs ${STATUS_LABELS[activeSession.status].cls}`}>{STATUS_LABELS[activeSession.status].label}</span>
-              </h4>
-              <p className="text-xs text-text-muted mt-0.5">
-                {DAILY_TYPES.includes(activeSession.scoreType as any)
-                  ? 'Điểm vào cột hằng ngày (tính trung bình)'
-                  : 'Điểm ghi thẳng vào cột Giữa Kỳ / Cuối Kỳ'}
-                {' · '}Học kỳ {activeSession.semester === 2 ? 'II' : 'I'} · {' '}
-                {activeSession.academicYear}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-              {canScan && activeSession.status === 'draft' && (
-                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
-                  <button className="btn btn-primary btn-sm min-h-11 justify-center" onClick={() => setShowGuidedGrade(true)} disabled={classStudents.length === 0}>
-                    <ListChecks size={15} /> Chấm Ổn Định
-                  </button>
-                  <button className="btn btn-secondary btn-sm min-h-11 justify-center" onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}>
-                    <ScanLine size={15} /> Quét QR + OMR
-                  </button>
                 </div>
-              )}
-              <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
-                {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canScan && activeSession.status === 'draft' && (
-                  <button className="btn btn-secondary btn-sm min-h-10 text-xs justify-center" onClick={() => setShowBatchScan(true)} title="Chấm nhiều ảnh cùng lúc">
-                    <Images size={14} /> Chấm Nhiều Ảnh
-                  </button>
-                )}
-                {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canManage && activeSession.status === 'draft' && (
-                  <button className="btn btn-secondary btn-sm min-h-10 text-xs justify-center" onClick={() => setShowVariants(true)} title="Quản lý các mã đề">
-                    <Layers3 size={14} /> Mã Đề ({activeExamVersions.length})
-                  </button>
-                )}
-                <button className="btn btn-secondary btn-sm min-h-10 text-xs justify-center" onClick={() => setShowAnalytics(true)} disabled={results.length === 0} title="Xem phân tích phổ điểm">
-                  <BarChart3 size={14} /> Phân Tích
-                </button>
-                <button
-                  className="btn btn-secondary btn-sm min-h-10 text-xs justify-center"
-                  onClick={() => setShowPaperModal(true)}
-                  title={
-                    effectiveMode === 'mobile'
-                      ? 'Xem trước nội dung đề thi, câu hỏi và đáp án'
-                      : 'Trung tâm In & Xuất tài liệu: Đề thi gộp OMR, Phiếu trả lời trắc nghiệm A4, Thẻ mã QR học sinh'
-                  }
-                >
-                  {effectiveMode === 'mobile' ? (
-                    <>
-                      <Eye size={14} /> Xem Đề Thi
-                    </>
-                  ) : (
-                    <>
-                      <Printer size={14} /> In Đề & Phiếu
-                    </>
+
+                {/* Primary Action Clusters */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  {/* Nhóm Chấm Bài & Quét OMR */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {canScan && activeSession.status === 'draft' && (
+                      <>
+                        <Button
+                          size="sm"
+                          leadingIcon={<ListChecks size={15} />}
+                          onClick={() => setShowGuidedGrade(true)}
+                          disabled={classStudents.length === 0}
+                        >
+                          Chấm Ổn Định
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          leadingIcon={<ScanLine size={15} />}
+                          onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}
+                        >
+                          Quét QR + OMR
+                        </Button>
+                        {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            leadingIcon={<Images size={14} />}
+                            onClick={() => setShowBatchScan(true)}
+                            title="Chấm nhiều ảnh cùng lúc"
+                          >
+                            Chấm Nhiều Ảnh
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Nhóm Tiện Ích & Quản Trị */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canManage && activeSession.status === 'draft' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm min-h-9 text-xs"
+                        onClick={() => setShowVariants(true)}
+                        title="Quản lý các mã đề hoán vị"
+                      >
+                        <Layers3 size={13} /> Mã Đề ({activeExamVersions.length})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm min-h-9 text-xs"
+                      onClick={() => setShowAnalytics(true)}
+                      disabled={results.length === 0}
+                      title="Xem phân tích phổ điểm"
+                    >
+                      <BarChart3 size={13} /> Phân Tích
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm min-h-9 text-xs"
+                      onClick={() => setShowPaperModal(true)}
+                      title={effectiveMode === 'mobile' ? 'Xem trước nội dung đề thi' : 'In đề thi & phiếu trả lời OMR'}
+                    >
+                      {effectiveMode === 'mobile' ? <Eye size={13} /> : <Printer size={13} />}
+                      {effectiveMode === 'mobile' ? 'Xem Đề Thi' : 'In Đề & Phiếu'}
+                    </button>
+                    {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm min-h-9 text-xs"
+                        onClick={() => setShowAnswerKeyModal(true)}
+                        title="Xem đáp án chuẩn của bài kiểm tra"
+                      >
+                        <ListChecks size={13} /> Đáp Án
+                      </button>
+                    )}
+
+                    {canManage && activeSession.status === 'completed' && can('admin') && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm min-h-9 text-xs text-parish-warning"
+                        onClick={async () => {
+                          const ok = await askConfirm({
+                            title: 'Mở lại phiên chấm',
+                            message: 'Mở lại phiên chấm? Điểm đã ghi vào bảng điểm sẽ giữ nguyên; kết quả mới sẽ ghi đè theo ma trận xung đột.',
+                            confirmText: 'Mở lại',
+                            variant: 'warning',
+                          })
+                          if (ok) await reopenSession()
+                        }}
+                      >
+                        <RotateCcw size={13} /> Mở Lại
+                      </button>
+                    )}
+
+                    {canManage && activeSession.status === 'draft' && (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm min-h-9 text-xs"
+                        onClick={handleDeleteSession}
+                        title="Xóa phiên chấm này"
+                      >
+                        <Trash2 size={13} /> Xóa
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Conflicts Alert */}
+              {hasBlockedConflicts && (
+                <div className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg/40 p-4">
+                  <div className="flex items-center gap-2 font-bold text-sm text-parish-warning mb-1">
+                    <AlertTriangle size={16} /> {lastFinalize!.conflicts.length} học sinh bị chặn ghi đè điểm tay
+                  </div>
+                  <ul className="text-xs text-text-secondary list-disc ml-5 space-y-1">
+                    {lastFinalize!.conflicts.map(c => (
+                      <li key={c.studentId}>
+                        {c.studentName}: điểm hiện tại <b>{c.existingScore ?? '—'}</b> (nguồn {c.existingSource === 'excel_import' ? 'nhập Excel' : c.existingSource === 'override' ? 'ghi đè chính thức' : 'nhập tay'}) — điểm scan <b>{c.scannedScore}</b>. Không tự ghi đè — xử lý qua Ghi Đè Điểm ở Ma Trận.
+                      </li>
+                    ))}
+                  </ul>
+                  {conflictsConfirmed && (
+                    <div className="mt-2 flex items-center gap-2 text-xs font-bold text-parish-success">
+                      <CheckCircle2 size={15} /> Phiên đã đóng. Những em bị chặn nằm ngoài finalize — không bị ảnh hưởng điểm tay.
+                    </div>
                   )}
-                </button>
-                {canManage && activeSession.status === 'completed' && can('admin') && (
-                  <button
-                    className="btn btn-secondary btn-sm min-h-10 text-xs justify-center"
-                    onClick={async () => {
-                      const ok = await askConfirm({
-                        title: 'Mở lại phiên chấm',
-                        message: 'Mở lại phiên chấm? Điểm đã ghi vào bảng điểm sẽ giữ nguyên; kết quả mới sẽ ghi đè theo ma trận xung đột.',
-                        confirmText: 'Mở lại',
-                        variant: 'warning',
-                      })
-                      if (ok) await reopenSession()
-                    }}
-                  >
-                    <RotateCcw size={14} /> Mở Lại
-                  </button>
-                )}
-                {canManage && activeSession.status === 'draft' && (
-                  <button
-                    className="btn btn-danger btn-sm min-h-10 text-xs justify-center"
-                    onClick={handleDeleteSession}
-                    title="Xóa phiên chấm này"
-                  >
-                    <Trash2 size={14} /> Xóa
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Conflicts from last finalize */}
-          {hasBlockedConflicts && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
-              <div className="flex items-center gap-2 font-bold text-sm text-amber-800 mb-1">
-                <AlertTriangle size={16} /> {lastFinalize!.conflicts.length} học sinh bị chặn ghi đè điểm tay
-              </div>
-              <ul className="text-sm text-amber-800 list-disc ml-5">
-                {lastFinalize!.conflicts.map(c => (
-                  <li key={c.studentId}>
-                    {c.studentName}: điểm hiện tại <b>{c.existingScore ?? '—'}</b> (nguồn {c.existingSource === 'excel_import' ? 'nhập Excel' : c.existingSource === 'override' ? 'ghi đè chính thức' : 'nhập tay'}) — điểm scan <b>{c.scannedScore}</b>. Không tự ghi đè — xử lý qua Ghi Đè Điểm ở Ma Trận.
-                  </li>
-                ))}
-              </ul>
-              {conflictsConfirmed && (
-                <div className="mt-2 flex items-center gap-2 text-sm text-emerald-700">
-                  <CheckCircle2 size={16} /> Phiên đã đóng. Những em bị chặn nằm ngoài finalize — không bị ảnh hưởng điểm tay.
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Finalize success */}
-          {lastFinalize && lastFinalize.conflicts.length === 0 && conflictsConfirmed && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4 flex items-start gap-2 text-sm text-emerald-800">
-              <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
-              <div>
-                Hoàn tất phiên chấm thành công:{' '}
-                <b>{lastFinalize.dailyCount}</b> học sinh vào điểm hằng ngày,
-                <b> {lastFinalize.directCount}</b> học sinh ghi trực tiếp (Giữa Kỳ/Cuối Kỳ).
+              {/* Finalize Success Alert */}
+              {lastFinalize && lastFinalize.conflicts.length === 0 && conflictsConfirmed && (
+                <div className="rounded-xl border border-parish-success/30 bg-parish-success-bg/40 p-4 flex items-start gap-2 text-xs text-parish-success font-medium">
+                  <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
+                  <div>
+                    Hoàn tất phiên chấm thành công:{' '}
+                    <b>{lastFinalize.dailyCount}</b> học sinh vào điểm hằng ngày,
+                    <b> {lastFinalize.directCount}</b> học sinh ghi trực tiếp (Giữa Kỳ/Cuối Kỳ).
+                  </div>
+                </div>
+              )}
+
+              {/* Tabs: Nhập Điểm Nhanh / Bảng Kết Quả */}
+              <div className="space-y-3">
+                <Tabs
+                  id="active-session-tabs"
+                  ariaLabel="Nội dung phiên chấm"
+                  items={[
+                    {
+                      value: 'grade',
+                      label: activeIsMixed
+                        ? `Nhập Điểm Tự Luận (0–${activeEssayMaxPoints}đ)`
+                        : 'Nhập Điểm Nhanh',
+                      icon: <Save size={14} />,
+                    },
+                    {
+                      value: 'results',
+                      label: `Kết quả đã lưu (${results.length})`,
+                      icon: <QrCode size={14} />,
+                    },
+                  ]}
+                  value={activeWorkspaceTab}
+                  onValueChange={v => setActiveWorkspaceTab(v as 'grade' | 'results')}
+                />
+
+                <TabPanel tabsId="active-session-tabs" value="grade" activeValue={activeWorkspaceTab}>
+                  {canScan && activeSession.status === 'draft' ? (
+                    <QuickScoreEntry
+                      students={classStudents}
+                      savedScores={activeIsMixed ? savedEssayScores : savedScores}
+                      maxScore={activeIsMixed ? activeEssayMaxPoints : activeSession.maxScore}
+                      onSave={(studentId, score) => handleSaveScore(studentId, score, { essay: activeIsMixed })}
+                      disabled={saving}
+                      essayMode={activeIsMixed}
+                      totalScores={activeIsMixed ? savedScores : undefined}
+                    />
+                  ) : (
+                    <div className="p-6 text-center text-xs text-text-muted bg-surface-app rounded-xl border border-surface-border">
+                      Phiên chấm này đã hoàn tất hoặc bạn không có quyền nhập điểm. Vui lòng chuyển sang tab &quot;Kết quả đã lưu&quot; để xem chi tiết.
+                    </div>
+                  )}
+                </TabPanel>
+
+                <TabPanel tabsId="active-session-tabs" value="results" activeValue={activeWorkspaceTab}>
+                  <ExamResultsTable
+                    results={results}
+                    sessionId={activeSession.id}
+                    essayMode={activeIsMixed}
+                    onRemove={canScan && activeSession.status === 'draft' ? handleRemoveResult : () => {}}
+                  />
+                </TabPanel>
               </div>
-            </div>
-          )}
 
-          {canScan && activeSession.status === 'draft' && (
-            <div className="mb-4">
-              <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2 flex-wrap">
-                <Save size={14} />
-                {activeIsMixed
-                  ? `Nhập Điểm Tự Luận (0–${activeEssayMaxPoints}đ) — Enter để lưu, điểm TN tự cộng sau khi quét phiếu`
-                  : 'Nhập Điểm Nhanh (Enter để lưu)'}
-              </div>
-              <QuickScoreEntry
-                students={classStudents}
-                savedScores={activeIsMixed ? savedEssayScores : savedScores}
-                maxScore={activeIsMixed ? activeEssayMaxPoints : activeSession.maxScore}
-                onSave={(studentId, score) => handleSaveScore(studentId, score, { essay: activeIsMixed })}
-                disabled={saving}
-                essayMode={activeIsMixed}
-                totalScores={activeIsMixed ? savedScores : undefined}
-              />
-            </div>
-          )}
-
-          <div className="mb-4">
-            <div className="flex items-center gap-2 font-bold text-sm text-text-secondary mb-2">
-              <QrCode size={14} /> Kết quả đã lưu ({results.length})
-            </div>
-            <ExamResultsTable
-              results={results}
-              sessionId={activeSession.id}
-              essayMode={activeIsMixed}
-              onRemove={canScan && activeSession.status === 'draft' ? handleRemoveResult : () => {}}
-            />
-          </div>
-
-          {canManage && activeSession.status === 'draft' && (
-            <div className="flex flex-col gap-2 border-t border-surface-border pt-3 sm:flex-row sm:items-center sm:justify-end">
-              <span className="text-xs text-text-muted sm:mr-auto">
-                {results.length} học sinh có điểm — hoàn tất sẽ đóng phiên và ghi vào bảng điểm (không thể sửa trực tiếp).
-              </span>
-              <button
-                className="btn btn-primary min-h-11 w-full justify-center sm:w-auto"
-                onClick={handleFinalize}
-                disabled={finalizing || results.length === 0}
-              >
-                {finalizing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                {finalizing ? 'Đang hoàn tất…' : 'Hoàn Tất Phiên Chấm'}
-              </button>
-            </div>
+              {/* Finalize Action Bar */}
+              {canManage && activeSession.status === 'draft' && (
+                <div className="flex flex-col gap-2 border-t border-surface-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-xs text-text-muted">
+                    {results.length}/{classStudents.length} học sinh có điểm — hoàn tất sẽ đóng phiên và ghi vào bảng điểm (không thể sửa trực tiếp).
+                  </span>
+                  <Button
+                    size="md"
+                    onClick={handleFinalize}
+                    disabled={finalizing || results.length === 0}
+                    leadingIcon={finalizing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                  >
+                    {finalizing ? 'Đang hoàn tất…' : 'Hoàn Tất Phiên Chấm'}
+                  </Button>
+                </div>
+              )}
+            </Surface>
           )}
         </div>
-      )}
+      </div>
 
       {showGuidedGrade && activeSession && (
         <React.Suspense fallback={null}>
@@ -1004,7 +1236,7 @@ export const ExamSessionView: React.FC = () => {
                   Chấm Lại Điểm
                 </button>
                 {rescoreResult && (
-                  <span className="text-xs font-bold text-green-600">
+                  <span className="text-xs font-bold text-parish-success">
                     Đã chấm lại {rescoreResult.rescored} kết quả · giữ nguyên {rescoreResult.skipped} kết quả nhập tay
                   </span>
                 )}

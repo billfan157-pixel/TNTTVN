@@ -352,6 +352,19 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - **SettingsPage**: `narrow` → `wide` grid `lg:grid-cols-12` (7/5) — form `max-w-lg`; FormField ×5 (htmlFor/aria-describedby); autoComplete `name/tel/current-password/new-password`; eye + theme + view-mode `aria-pressed`; hint quy tắc mật khẩu; Vùng Nguy Hiểm về cột phải; SectionTitle tile `w-8 h-8` icon `w-4 h-4`. Đóng finding MED a11y Settings (desktop audit 2026-08-22 §2).
 - Verify: tsc 0 · oxlint 0 · lint:ds 0/135 · HeaderBar+CommonComponents 20/20 · build pass.
 
+**QuestionBankView Layout & UI Optimization (Hoàn thành 2026-09-02, ADR-096)**:
+- **Macro-layout**: Chuẩn hóa `PageHeader` (icon tile + tiêu đề + server badge + quick actions), thanh 4 KPI cards (Tổng số câu hỏi, Đang dùng, Chờ duyệt, Bản nháp) và typed `Tabs` / `TabPanel` (DS §1.9) thay thế các button tab thô.
+- **Master-Detail Workspace**: Tái thiết kế bộ lọc mượt mà (debounce search, filter reset, counter), danh sách câu hỏi với line-clamp, highlight câu hỏi đang mở (`surface-selected`, border-primary), thanh tác vụ nổi (Sticky Batch Action Bar) khi chọn câu hỏi sinh đề, và Master-Detail 2 cột (Desktop sticky preview, Mobile/Tablet slide-over modal).
+- **Exam Blueprint Builder**: Bổ sung nút xóa dòng quy tắc (`Trash2`), nhãn trường rõ ràng cho số câu & điểm, validator thang điểm 10 thời gian thực, cùng modal kiểm tra cấu trúc ma trận chi tiết.
+- **Exam Builder**: Phân nhóm 2 bước rõ ràng (Thông tin kỳ thi & Nguồn câu hỏi), hỗ trợ duyệt danh sách câu hỏi đã chọn thủ công và chuyển nhanh sang tab Chấm bài sau khi tạo đề thành công.
+- **Modals**: Chuẩn hóa `QuestionEditorModal` và `QuestionBankImportModal` với 100% token CSS, `FormField` labels đầy đủ, touch target ≥40px, drag & drop tinh tế và 0 lỗi `lint:ds`.
+
+**ExamSessionView Layout & Workspace Standardization (Hoàn thành 2026-09-02, ADR-055, ADR-072)**:
+- **Macro-layout**: Chuẩn hóa `PageHeader` (`ClipboardList` tile + tiêu đề + phụ đề lớp/năm học + nút tạo phiên `btn-primary`) và thanh 4 thẻ KPI metrics (Tổng phiên, Đang chấm, Đã hoàn tất, Tiến độ % của phiên đang mở).
+- **Master-Detail 2 Cột (Desktop ≥1024px)**: Chuyển đổi từ mô hình dồn 1 cột dài sang 2 cột song song (Cột trái 4-col: Session Navigator với tìm kiếm trực tiếp, bộ lọc trạng thái Tất cả/Đang chấm/Đã xong, danh sách thẻ phiên có highlight `surface-selected`; Cột phải 8-col: Active Grading Workspace với 3 cụm nút hành động phân cấp: Chấm bài & OMR, Tiện ích & Tài liệu, Quản trị phiên).
+- **Sub-components**: `ExamResultsTable` & `QuickScoreEntry` tuân thủ thead DS §6, tích hợp bộ lọc tìm kiếm theo tên/mã thiếu nhi, lọc nguồn điểm (QR/OMR/Nhập tay) và lọc các em chưa có điểm.
+- **Test Contracts & Anti-Drift**: Bảo toàn 100% 13 chuỗi kiểm thử trong `examCreateMobileUiContract.test.ts` và `mobileLayoutContract.test.ts`; 0 lỗi vi phạm `npm run lint:ds`.
+
 ## §13. Desktop Layout Contract (2026-08-22)
 
 > Nguồn: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` và audit ADR-072. Áp dụng cho desktop mode (viewport ≥ 1024px).
