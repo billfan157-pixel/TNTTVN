@@ -14,13 +14,11 @@ import {
   Trash2,
   UserRound,
   Search,
-  X,
-  Filter,
 } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
 import { EmptyState, ErrorState, SkeletonCardGrid } from '../components/common/StateFeedback'
-import { Button, Surface, TabPanel, Tabs, Badge } from '../components/common/ui'
+import { Button, Surface, TabPanel, Tabs } from '../components/common/ui'
 import { ParishProfileEditorModal, type ParishEditorRequest } from '../components/parish/ParishProfileEditorModal'
 import { useConfirmDialog } from '../hooks/useConfirmDialog'
 import { api } from '../lib/api'
@@ -190,7 +188,7 @@ export default function ParishProfilePage() {
       }
       return true
     })
-  }, [snapshot?.people, peopleStatus, peopleQuery])
+  }, [snapshot, peopleStatus, peopleQuery])
 
   // Dữ liệu lọc cho các tab bản ghi
   const milestones = useMemo(() => snapshot?.records.filter(item => item.recordType === 'MILESTONE') ?? [], [snapshot?.records])
@@ -233,7 +231,7 @@ export default function ParishProfilePage() {
       }
       return true
     })
-  }, [snapshot?.assets, assetTypeFilter, assetQuery])
+  }, [snapshot, assetTypeFilter, assetQuery])
 
   if (isLoading && !snapshot) {
     return <DesktopAppShell width="wide"><SkeletonCardGrid count={6} /></DesktopAppShell>

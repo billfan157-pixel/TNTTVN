@@ -367,6 +367,16 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 - **Sub-components**: `ExamResultsTable` & `QuickScoreEntry` tuân thủ thead DS §6, tích hợp bộ lọc tìm kiếm theo tên/mã thiếu nhi, lọc nguồn điểm (QR/OMR/Nhập tay) và lọc các em chưa có điểm.
 - **Test Contracts & Anti-Drift**: Bảo toàn 100% 13 chuỗi kiểm thử trong `examCreateMobileUiContract.test.ts` và `mobileLayoutContract.test.ts`; 0 lỗi vi phạm `npm run lint:ds`.
 
+**Organization Workspace & Parish Portal Standardization (Hoàn thành 2026-09-02, ADR-072, ADR-081/082)**:
+- **OrganizationDashboardPage (Cổng Xứ Đoàn & Giáo Xứ - `/parish`)**:
+  - *Hero Căn Tính Xứ Đoàn*: Tên Xứ đoàn & Giáo xứ, huy hiệu Bổn Mạng, Khẩu hiệu châm ngôn ("motto"), ngày thành lập và mô tả truyền thống.
+  - *Executive KPI Strip*: 4 thẻ chỉ số tổng quan (Huynh trưởng/GLV đang phục vụ vs tổng số, Đơn vị trực thuộc, Hoạt động & Cột mốc, Tư liệu truyền thống).
+  - *Desktop 2-Cột (8/4 Grid)*: Cột trái (8-col) kết nối dữ liệu sống với widget Ban Trị Sự đương nhiệm (trích xuất từ terms/people đang hoạt động), Lịch sự kiện & Phụng vụ sắp tới trong 14 ngày (từ `parishEventStore`), Hoạt động & Cột mốc tiêu biểu; Cột phải (4-col) hiển thị Thông báo điều hành mới nhất (từ `noticeStore`) và Lưới phím tắt Công việc Xứ đoàn tương tác cao cấp.
+- **ParishProfilePage (Hồ Sơ Xứ Đoàn - `/parish-profile`)**:
+  - *Loại bỏ màu thô*: Chuyển đổi toàn bộ `text-amber-950` sang semantic tokens `text-parish-primary`, banner đồng bộ tài khoản dùng `bg-parish-info-bg border-parish-info/30 text-parish-info`.
+  - *Bộ lọc thông minh theo Tab*: Tích hợp tìm kiếm tên/tên thánh và bộ lọc trạng thái (`ACTIVE`, `FORMER`, `DECEASED`) trong Tab Huynh trưởng/GLV; tìm kiếm trong Tab Hoạt động, Lịch sử, Thành tích; tìm kiếm và lọc loại tệp (Ảnh, Video, Tài liệu, Giấy khen) trong Tab Kho tư liệu.
+- **Anti-Drift & Contracts**: Đạt 0 lỗi vi phạm `lint:ds` trên 123 TSX files; bảo đảm 100% test contract trong `ParishProfilePage.test.tsx` và `parishProfile.test.ts`.
+
 ## §13. Desktop Layout Contract (2026-08-22)
 
 > Nguồn: `docs/desktop-ui-audit-and-improvement-plan-2026-08-22.md` và audit ADR-072. Áp dụng cho desktop mode (viewport ≥ 1024px).
