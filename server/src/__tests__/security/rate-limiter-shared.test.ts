@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest'
 import { loginRateLimiter, rateLimiter } from '../../middleware/security.js'
 import { client } from '../../db/index.js'
 import { LibsqlError } from '@libsql/client'
+import type { ResultSet } from '@libsql/client'
 
 /**
  * A-NEW-23 (2026-08-11): rate limit state nằm trong DB (bảng rate_limits) —
@@ -118,11 +119,11 @@ describe('CI-root-cause — rate limiter retry SQLITE_BUSY thoáng qua', () => {
 
   it('BUSY 2 lần rồi thành công → request qua, count đúng (không 500 oan)', async () => {
     await client.execute({ sql: 'DELETE FROM rate_limits WHERE key = ?', args: [key] })
-    const original = client.execute.bind(client)
+    const original = client.execute.bind(client) as (...args: any[]) => Promise<ResultSet>
     const spy = vi.spyOn(client, 'execute')
     spy.mockRejectedValueOnce(busyErr())
     spy.mockRejectedValueOnce(busyErr())
-    spy.mockImplementation(((...args: [unknown]) => original(...args)) as typeof client.execute)
+    spy.mockImplementation((...args: any[]) => original(...args))
     try {
       const ctx = makeContext({}, ip)
       await runMiddleware(loginRateLimiter, ctx)
