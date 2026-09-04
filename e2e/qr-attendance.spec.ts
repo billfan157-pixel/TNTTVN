@@ -1,9 +1,15 @@
-import { test, expect, devices } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { loginAsRole } from './helpers'
 
+// CI-root-cause (2026-09-04): file này từng dùng devices['iPhone 13'] (cần
+// engine webkit) trong khi CI chỉ cài chromium → browserType.launch fail.
+// Mục đích test là viewport/touch mobile, không phải engine Safari — emulate
+// mobile trên chromium (390x844 + touch), giữ nguyên hành vi cần kiểm.
 test.use({
-  ...devices['iPhone 13'],
   viewport: { width: 390, height: 844 },
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  hasTouch: true,
+  isMobile: true,
 })
 
 test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {

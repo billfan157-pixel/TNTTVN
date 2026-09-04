@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest'
 import { loginRateLimiter, rateLimiter } from '../../middleware/security.js'
 import { client } from '../../db/index.js'
+import { LibsqlError } from '@libsql/client'
 
 /**
  * A-NEW-23 (2026-08-11): rate limit state nằm trong DB (bảng rate_limits) —
@@ -104,4 +105,45 @@ describe('A-NEW-23 — rate limit state chia sẻ qua DB (shared store)', () => 
     expect(Number(ctx.headers['X-RateLimit-Remaining'])).toBe(999)
     expect(Number(ctx.headers['X-RateLimit-Reset'])).toBeGreaterThan(Date.now())
   })
+})
+
+describe('CI-root-cause — rate limiter retry SQLITE_BUSY thoáng qua', () => {
+  const ip = `10.9.${Math.floor(Math.random() * 200) + 10}.${Math.floor(Math.random() * 200) + 10}`
+  const key = `login:${ip}`
+  const busyErr = () => new LibsqlError('database is locked', 'SQLITE_BUSY')
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('BUSY 2 lần rồi thành công → request qua, count đúng (không 500 oan)', async () => {
+    await client.execute({ sql: 'DELETE FROM rate_limits WHERE key = ?', args: [key] })
+    const original = client.execute.bind(client)
+    const spy = vi.spyOn(client, 'execute')
+    spy.mockRejectedValueOnce(busyErr())
+    spy.mockRejectedValueOnce(busyErr())
+    spy.mockImplementation(((...args: [unknown]) => original(...args)) as typeof client.execute)
+    try {
+      const ctx = makeContext({}, ip)
+      await runMiddleware(loginRateLimiter, ctx)
+      expect(ctx._response.status).toBe(200)
+      expect((await dbRow(key))!.count).toBe(1)
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(3)
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('lỗi không phải BUSY → throw ngay (giữ fail-closed)', async () => {
+    const spy = vi.spyOn(client, 'execute').mockRejectedValueOnce(new Error('disk I/O error'))
+    const ctx = makeContext({}, ip)
+    await expect(runMiddleware(loginRateLimiter, ctx)).rejects.toThrow('disk I/O error')
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('BUSY kéo dài quá retry → throw (giữ fail-closed, không fail-open)', async () => {
+    vi.spyOn(client, 'execute').mockRejectedValue(busyErr())
+    const ctx = makeContext({}, ip)
+    await expect(runMiddleware(loginRateLimiter, ctx)).rejects.toThrow('database is locked')
+  }, 15000)
 })

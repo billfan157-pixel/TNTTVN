@@ -1,4 +1,5 @@
 import { createMiddleware } from 'hono/factory'
+import { LibsqlError } from '@libsql/client'
 import { getClientIp } from '../utils/ip.js'
 import { client } from '../db/index.js'
 
@@ -53,18 +54,33 @@ const MAX_REQUESTS = 1000
 // Kiến trúc chuyển sang "fail-closed": Nếu DB sập, API trả về HTTP 500 thay vì
 // fail-open (bypass rate limit) như trước đây, bảo đảm Security > Availability.
 
+const RATE_LIMIT_BUSY_RETRIES = 8
+
 async function getRateLimitEntry(key: string): Promise<RateLimitEntry> {
   const now = Date.now()
-  const res = await client.execute({
-    sql: `INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
-          ON CONFLICT(key) DO UPDATE SET
-            count = CASE WHEN rate_limits.reset_at < ? THEN 1 ELSE rate_limits.count + 1 END,
-            reset_at = CASE WHEN rate_limits.reset_at < ? THEN ? ELSE rate_limits.reset_at END
-          RETURNING count, reset_at`,
-    args: [key, now + WINDOW_MS, now, now, now + WINDOW_MS],
-  })
-  const row = res.rows[0] as unknown as { count: number | bigint; reset_at: number | bigint } | undefined
-  return { count: Number(row?.count ?? 1), resetAt: Number(row?.reset_at ?? now + WINDOW_MS) }
+  // CI-root-cause (2026-09-04): raw client.execute mở connection riêng không có
+  // busy_timeout (xem A-NEW-13) → login đồng loạt + writes khác (audit/session)
+  // gây SQLITE_BUSY thoáng qua → 500 hàng loạt → E2E login fail dây chuyền.
+  // Retry BUSY thoáng qua với backoff (cùng công thức runDbTransaction);
+  // hết retry hoặc lỗi khác vẫn throw → giữ nguyên fail-closed.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await client.execute({
+        sql: `INSERT INTO rate_limits (key, count, reset_at) VALUES (?, 1, ?)
+              ON CONFLICT(key) DO UPDATE SET
+                count = CASE WHEN rate_limits.reset_at < ? THEN 1 ELSE rate_limits.count + 1 END,
+                reset_at = CASE WHEN rate_limits.reset_at < ? THEN ? ELSE rate_limits.reset_at END
+              RETURNING count, reset_at`,
+        args: [key, now + WINDOW_MS, now, now, now + WINDOW_MS],
+      })
+      const row = res.rows[0] as unknown as { count: number | bigint; reset_at: number | bigint } | undefined
+      return { count: Number(row?.count ?? 1), resetAt: Number(row?.reset_at ?? now + WINDOW_MS) }
+    } catch (err) {
+      const busy = err instanceof LibsqlError && err.code === 'SQLITE_BUSY'
+      if (!busy || attempt >= RATE_LIMIT_BUSY_RETRIES) throw err
+      await new Promise((r) => setTimeout(r, 25 * 2 ** attempt))
+    }
+  }
 }
 
 const cleanupInterval = setInterval(() => {

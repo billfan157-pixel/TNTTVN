@@ -29,7 +29,35 @@ const formatViolations = (violations: AxeResults['violations']) => (
   }).join('\n')
 )
 
-const runAxe = async (page: Page, testInfo: TestInfo, artifactName: string) => {
+const isContextDestroyedError = (err: unknown): boolean =>
+  /execution context was destroyed/i.test(err instanceof Error ? err.message : String(err))
+
+/**
+ * CI-root-cause (2026-09-04): axe scan dài vài giây; nếu SPA điều hướng giữa
+ * chừng (race hạ tầng — quan sát 1 lần/~200 observations), analyze nổ
+ * "Execution context was destroyed" và CI `failOnFlakyTests` đỏ cả build dù
+ * retry pass. Không dùng test-retry (vẫn đỏ gate) — settle trước scan, và nếu
+ * context chết thì dựng LẠI ĐÚNG observation rồi scan một lần. Violations vẫn
+ * fail thật; lỗi thứ hai vẫn throw. Không che instability của route.
+ */
+const runAxeStable = async (
+  page: Page,
+  testInfo: TestInfo,
+  artifactName: string,
+  reopen: () => Promise<unknown>,
+) => {
+  // Đóng cửa sổ race phổ biến: request đang bay hoàn tất rồi mới scan.
+  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {})
+  try {
+    return await analyzeOnce(page, testInfo, artifactName)
+  } catch (err) {
+    if (!isContextDestroyedError(err)) throw err
+    await reopen()
+    return await analyzeOnce(page, testInfo, `${artifactName}-reopened`)
+  }
+}
+
+const analyzeOnce = async (page: Page, testInfo: TestInfo, artifactName: string) => {
   const results = await new AxeBuilder({ page })
     .withTags(wcagTags)
     // ADR-072/077/078: owner-accepted native-app zoom lock. This explicit
@@ -59,7 +87,8 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
           await openProtectedObservation(page, route, viewportName, `${viewportName}/${theme}`)
           await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
           const artifactName = `${route.slice(1)}-${viewportName}-${theme}`
-          const results = await runAxe(page, testInfo, artifactName)
+          const results = await runAxeStable(page, testInfo, artifactName,
+            () => openProtectedObservation(page, route, viewportName, `${viewportName}/${theme}`))
           if (results.violations.length > 0) {
             failedObservations.push(`[${artifactName}]\n${formatViolations(results.violations)}`)
           }
@@ -67,7 +96,8 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
           if (route === '/parish-profile') {
             const dialog = await openParishRecordEditor(page)
             await assertParishRecordEditorLayout(page)
-            const modalResults = await runAxe(page, testInfo, `${artifactName}-record-editor`)
+            const modalResults = await runAxeStable(page, testInfo, `${artifactName}-record-editor`,
+              () => openParishRecordEditor(page))
             if (modalResults.violations.length > 0) {
               failedObservations.push(`[${artifactName}-record-editor]\n${formatViolations(modalResults.violations)}`)
             }
@@ -105,13 +135,18 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
           await installUiBoot(page, theme as MatrixTheme)
           await openPublicObservation(page, publicRoute, `${viewportName}/${theme}`)
           const artifactName = `${publicRoute.artifact}-${viewportName}-${theme}`
-          const results = await runAxe(page, testInfo, artifactName)
+          const results = await runAxeStable(page, testInfo, artifactName,
+            () => openPublicObservation(page, publicRoute, `${viewportName}/${theme}`))
           expect(results.violations, formatViolations(results.violations)).toEqual([])
 
           if (publicRoute.route === '/login/phuhuynh') {
             await page.getByRole('button', { name: 'Quên mật khẩu?' }).click()
             await expect(page.getByRole('dialog', { name: 'Khôi Phục Tài Khoản An Toàn' })).toBeVisible()
-            const modalResults = await runAxe(page, testInfo, `parent-forgot-password-${viewportName}-${theme}`)
+            const modalResults = await runAxeStable(page, testInfo, `parent-forgot-password-${viewportName}-${theme}`,
+              async () => {
+                await page.getByRole('button', { name: 'Quên mật khẩu?' }).click()
+                await expect(page.getByRole('dialog', { name: 'Khôi Phục Tài Khoản An Toàn' })).toBeVisible()
+              })
             expect(modalResults.violations, formatViolations(modalResults.violations)).toEqual([])
           }
         })
