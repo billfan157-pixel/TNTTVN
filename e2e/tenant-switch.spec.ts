@@ -94,7 +94,9 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await seedUser(page, 'A')
 
     await page.goto('/students')
-    await page.getByRole('button', { name: /Class Only A/ }).click()
+    // StudentsPage consolidated: mỗi thẻ lớp có nhiều nút chứa tên lớp
+    // (xem/sửa/xóa) — dùng đúng nút drill-down roster.
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only A' }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('Student Only B')).not.toBeVisible()
 
@@ -106,7 +108,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     }, users.B)
     await page.reload()
 
-    await page.getByRole('button', { name: /Class Only B/ }).click()
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only B' }).click()
     await expect(page.getByText('Student Only B')).toBeVisible()
     await expect(page.getByText('Student Only A')).not.toBeVisible()
     await expect(page.getByText('Class Only A')).not.toBeVisible()
@@ -118,7 +120,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await seedUser(page, 'A')
 
     await page.goto('/students')
-    await page.getByRole('button', { name: /Class Only A/ }).click()
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only A' }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
 
     tenant = 'B'
@@ -126,13 +128,19 @@ test.describe('Frontend tenant transition and cache isolation', () => {
       localStorage.removeItem('parish_current_user')
       localStorage.setItem('parish_current_user', JSON.stringify(user))
     }, users.B)
-    await page.route('**/api/students**', async (route) => {
+    // Predicate chính xác theo pathname: glob '**/api/students**' còn khớp cả
+    // module Vite '/src/lib/api/students.ts' (tách api.ts) → trả JSON thay JS,
+    // app không boot (trang trắng, MIME error).
+    await page.route((url) => new URL(url).pathname === '/api/students', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) })
     })
     await page.reload()
 
     await expect(page.getByText('Student Only A')).not.toBeVisible()
-    await expect(page.locator('body')).toContainText(/0\s*em|Không có dữ liệu|Chưa có thiếu nhi/i, { timeout: 10000 })
+    // UI consolidated: roster theo lớp — drill vào lớp của B, danh sách trống
+    // (authoritative empty đã xóa cache A) hiện empty-state.
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only B' }).click()
+    await expect(page.getByText('Chưa có thiếu nhi nào')).toBeVisible({ timeout: 10000 })
   })
 
   test('offline reload under tenant B does not hydrate tenant A, then online sync loads B', async ({ page }) => {
@@ -142,7 +150,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await seedUser(page, 'A')
 
     await page.goto('/students')
-    await page.getByRole('button', { name: /Class Only A/ }).click()
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only A' }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
 
     tenant = 'B'
@@ -157,7 +165,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await expect(page.getByText('Student Only A')).not.toBeVisible()
     apiOffline = false
     await page.reload()
-    await page.getByRole('button', { name: /Class Only B/ }).click()
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only B' }).click()
     await expect(page.getByText('Student Only B')).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('Student Only A')).not.toBeVisible()
   })
@@ -167,7 +175,7 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await installTenantApi(page, () => tenant)
     await seedUser(page, 'A')
     await page.goto('/students')
-    await page.getByRole('button', { name: /Class Only A/ }).click()
+    await page.getByRole('button', { name: 'Xem danh sách lớp Class Only A' }).click()
     await expect(page.getByText('Student Only A')).toBeVisible({ timeout: 15000 })
 
     const keys = await page.evaluate(async () => {

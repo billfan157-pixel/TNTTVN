@@ -11,6 +11,9 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
   test('navigates to students page and sees student list', async ({ page }) => {
     await page.goto('/students')
     await expect(page.getByRole('heading', { name: 'Danh Sách Thiếu Nhi' })).toBeVisible()
+    // StudentsPage consolidated (một mục Danh Sách & Lớp): roster theo lớp,
+    // phải drill-down vào lớp của học sinh seed (CLS-TN-1 = Thiếu Nhi 1).
+    await page.getByRole('button', { name: 'Xem danh sách lớp Thiếu Nhi 1' }).click()
     await expect(page.getByText('Thiếu Nhi E2E')).toBeVisible()
   })
 
