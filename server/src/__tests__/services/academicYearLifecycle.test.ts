@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
 import { db } from '../../db/index.js'
 import {
   academicYears,
@@ -16,6 +16,7 @@ import {
 import { eq, and } from 'drizzle-orm'
 import { academicYearLifecycleService } from '../../services/AcademicYearLifecycleService.js'
 import { drizzleSemesterLockRepository } from '../../repositories/DrizzleSemesterLockRepository.js'
+import { promotionApplicationService } from '../../services/PromotionApplicationService.js'
 
 describe('Academic Year Lifecycle — State Machine & Wizard', () => {
   const testParish = 'parish-ayl-test'
@@ -38,7 +39,7 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     await db.delete(assessments).where(eq(assessments.parishId, testParish))
     await db.delete(classes).where(eq(classes.parishId, testParish))
     await db.delete(academicYears).where(and(eq(academicYears.id, nextYearId), eq(academicYears.parishId, testParish)))
-    await db.update(academicYears).set({ isLocked: 0, status: 'OPEN', currentSemester: 1 }).where(and(eq(academicYears.id, yearId), eq(academicYears.parishId, testParish)))
+    await db.update(academicYears).set({ isLocked: 0, status: 'OPEN', currentSemester: 1, promotionTargetYearId: null }).where(and(eq(academicYears.id, yearId), eq(academicYears.parishId, testParish)))
   }
 
   async function seedBaseData(): Promise<void> {
@@ -156,6 +157,31 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     const listed = list.find((y) => y.id === yearId)
     expect(listed?.status).toBe('FINALIZED')
     expect(listed?.snapshotCount).toBe(2)
+  })
+
+  it('5b. D1: finalizeYear keeps every read and promotion specification on the transaction executor', async () => {
+    await lockBothSemesters()
+    await seedGrade(studentGood, 9, 1)
+    await seedGrade(studentGood, 9, 2)
+    await seedGrade(studentLow, 3, 1)
+    await seedGrade(studentLow, 3, 2)
+
+    const globalSelectSpy = vi.spyOn(db, 'select')
+    const evaluationSpy = vi.spyOn(promotionApplicationService, 'evaluateStudent')
+    try {
+      const res = await academicYearLifecycleService.finalizeYear(yearId, adminUserId, testParish)
+
+      expect(res.status).toBe('FINALIZED')
+      expect(globalSelectSpy).not.toHaveBeenCalled()
+      expect(evaluationSpy).toHaveBeenCalledTimes(2)
+      for (const call of evaluationSpy.mock.calls) {
+        expect(call[1]).toBeDefined()
+        expect(call[1]).not.toBe(db)
+      }
+    } finally {
+      globalSelectSpy.mockRestore()
+      evaluationSpy.mockRestore()
+    }
   })
 
   it('6. copyAcademicYear creates new year and copies classes + assessments (no grades)', async () => {
@@ -323,5 +349,49 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     await expect(
       academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish)
     ).rejects.toThrow(/đã được lưu trữ/)
+  })
+
+  it('10. D8: partial error persists as reconciliation, blocks archive, then retry only unresolved item', async () => {
+    await lockBothSemesters()
+    await seedGrade(studentGood, 9, 1)
+    await seedGrade(studentGood, 9, 2)
+    await seedGrade(studentLow, 3, 1)
+    await seedGrade(studentLow, 3, 2)
+    await academicYearLifecycleService.finalizeYear(yearId, adminUserId, testParish)
+
+    const approve = promotionApplicationService.approvePromotion.bind(promotionApplicationService)
+    let failGoodStudent = true
+    const spy = vi.spyOn(promotionApplicationService, 'approvePromotion').mockImplementation(async (cmd, tx) => {
+      if (cmd.studentId === studentGood && failGoodStudent) throw new Error('forced partial promotion failure')
+      return approve(cmd, tx)
+    })
+
+    try {
+      const promoted = await academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)
+      expect(promoted.errors).toEqual([{ studentId: studentGood, reason: 'forced partial promotion failure' }])
+      expect(promoted.unresolvedCount).toBe(1)
+
+      const [year] = await db.select().from(academicYears).where(and(eq(academicYears.id, yearId), eq(academicYears.parishId, testParish)))
+      expect(year.status).toBe('PROMOTED')
+      expect(year.promotionTargetYearId).toBe(nextYearId)
+
+      const reconciliation = await academicYearLifecycleService.getPromotionReconciliation(yearId, testParish)
+      expect(reconciliation.targetYearId).toBe(nextYearId)
+      expect(reconciliation.unresolved.map((item) => item.studentId)).toEqual([studentGood])
+
+      const archiveError: any = await academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish).catch((error) => error)
+      expect(archiveError.status).toBe(409)
+      expect(archiveError.details?.unresolvedCount).toBe(1)
+
+      failGoodStudent = false
+      const retried = await academicYearLifecycleService.retryPromotion(yearId, adminUserId, testParish)
+      expect(retried.attempted).toBe(1)
+      expect(retried.unresolvedCount).toBe(0)
+      expect(spy.mock.calls.filter(([cmd]) => cmd.studentId === studentLow)).toHaveLength(1)
+
+      await expect(academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish)).resolves.toMatchObject({ status: 'ARCHIVED' })
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

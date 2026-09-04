@@ -4,7 +4,7 @@ vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 vi.mock('../router', () => ({ router: {} }))
 
 import { initDB, getDB } from '../lib/db'
-import { promoteTransientFailedOps, pruneStaleQueueItems } from '../hooks/useSyncEngine'
+import { promoteTransientFailedOps, pruneStaleQueueItems } from '../lib/syncCoordinator'
 
 const OWNER = { userId: 'U-TEST', parishId: 'PARISH-TEST' }
 

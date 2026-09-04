@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import {
   Moon, Sun, Monitor, Smartphone, LogOut, Database, Activity, ChevronRight, Key,
   Loader2, CheckCircle2, AlertCircle, Eye, EyeOff, UserCog, Calendar, BookOpen,
-  AlertTriangle, Trash2, Settings, ShieldCheck, Palette, Info, Users
+  AlertTriangle, Trash2, Settings, ShieldCheck, Palette, Info, Users, BellRing
 } from 'lucide-react'
 import { PageHeader } from '../components/common/PageHeader'
 import { FormField } from '../components/common/FormField'
@@ -19,6 +19,7 @@ import { BackupRestoreModal } from '../components/common/BackupRestoreModal'
 import { PurgeDataModal } from '../components/common/PurgeDataModal'
 import { BiometricLockSettings } from '../components/auth/BiometricLockSettings'
 import { NativePushSettings } from '../components/auth/NativePushSettings'
+import { useSettingsStore } from '../stores/settingsStore'
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Quản trị viên',
@@ -34,6 +35,9 @@ const SettingsPage: React.FC = () => {
   const setViewMode = useFilterStore(s => s.setViewMode)
   const { user, role } = useAuth()
   const authStore = useAuthStore()
+  const parishSettings = useSettingsStore(s => s.settings)
+  const settingsLoading = useSettingsStore(s => s.isLoading)
+  const updateParishSettings = useSettingsStore(s => s.updateSettings)
   const [showBackup, setShowBackup] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [showPurge, setShowPurge] = useState(false)
@@ -51,6 +55,9 @@ const SettingsPage: React.FC = () => {
   const [pfLoading, setPfLoading] = useState(false)
   const [pfError, setPfError] = useState('')
   const [pfSuccess, setPfSuccess] = useState(false)
+  const [sundayMassTime, setSundayMassTime] = useState(parishSettings.sundayMassTime)
+  const [reminderError, setReminderError] = useState('')
+  const [reminderSuccess, setReminderSuccess] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -58,6 +65,18 @@ const SettingsPage: React.FC = () => {
       setPfPhone((user as any).phone || '')
     }
   }, [user])
+
+  useEffect(() => {
+    setSundayMassTime(parishSettings.sundayMassTime)
+  }, [parishSettings.sundayMassTime])
+
+  const handleSaveSundayReminder = async (enabled = parishSettings.sundayReminderEnabled) => {
+    setReminderError('')
+    setReminderSuccess(false)
+    const saved = await updateParishSettings({ sundayReminderEnabled: enabled, sundayMassTime })
+    if (saved) setReminderSuccess(true)
+    else setReminderError('Không thể lưu cấu hình nhắc lễ. Vui lòng thử lại.')
+  }
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -274,6 +293,45 @@ const SettingsPage: React.FC = () => {
               </div>
             </div>
           </section>
+
+          {role === 'admin' && (
+            <section className="app-panel p-5 space-y-4">
+              <SectionTitle icon={<BellRing className="w-4 h-4" />} text="Nhắc Lễ Chúa Nhật" />
+              <p className="text-xs text-text-muted m-0">
+                Chỉ giáo xứ bật tùy chọn này mới được scheduler gửi nhắc tự động; cấu hình được lưu riêng theo giáo xứ.
+              </p>
+              <label className="flex items-center justify-between gap-4 rounded-xl border border-surface-border p-3">
+                <span>
+                  <span className="block text-sm font-semibold text-text-main">Bật nhắc lễ tự động</span>
+                  <span className="block text-xs text-text-muted mt-0.5">Gửi tới các phụ huynh đã liên kết trong giáo xứ này</span>
+                </span>
+                <input
+                  aria-label="Bật nhắc lễ tự động"
+                  type="checkbox"
+                  checked={parishSettings.sundayReminderEnabled}
+                  disabled={settingsLoading}
+                  onChange={(event) => void handleSaveSundayReminder(event.target.checked)}
+                  className="h-5 w-5 accent-parish-primary"
+                />
+              </label>
+              <FormField label="Giờ Thánh Lễ" htmlFor="sunday-mass-time" hint="Theo múi giờ cấu hình của máy chủ">
+                <input
+                  id="sunday-mass-time"
+                  type="time"
+                  value={sundayMassTime}
+                  onChange={event => setSundayMassTime(event.target.value)}
+                  className={inputCls}
+                />
+              </FormField>
+              {reminderSuccess && <div className="flex items-center gap-2 text-xs text-emerald-600"><CheckCircle2 size={14} />Đã lưu cấu hình nhắc lễ.</div>}
+              {reminderError && <div className="flex items-center gap-2 text-xs text-rose-600"><AlertCircle size={14} />{reminderError}</div>}
+              <button type="button" disabled={settingsLoading} onClick={() => void handleSaveSundayReminder()} className="btn btn-primary disabled:opacity-50">
+                {settingsLoading && <Loader2 size={14} className="animate-spin" />}
+                <BellRing size={14} />
+                <span>Lưu Giờ Nhắc Lễ</span>
+              </button>
+            </section>
+          )}
 
           {role === 'admin' && (
             <section className="app-panel p-5 space-y-1">

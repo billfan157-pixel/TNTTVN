@@ -3,7 +3,7 @@ import { grades, auditLogs, gradeOverrides, students, academicYears } from '../d
 import { runDbTransaction } from '../db/index.js'
 import { eq, and, gte, inArray, isNull, desc } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
-import { semesterLockSpecification } from './policyAdapters.js'
+import { createSemesterLockSpecification } from './policyAdapters.js'
 import { type ScoreField } from '../domain/GradeAggregate.js'
 import { SCORE_FIELDS, buildSourceMapping } from '../domain/ScoreFields.js'
 import { drizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
@@ -115,7 +115,7 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
   const manualEntriesForNotice = externalTx ? [] : collectManualOverrideEntries(data)
   const executeFn = async (tx: DbTransaction) => {
     // Get current policy version for audit trail
-    const policyVersionId = await getCurrentPolicyVersionId(parishId)
+    const policyVersionId = await getCurrentPolicyVersionId(parishId, tx)
 
     // ADR-016 (S24): Payload thiếu academicYear → lấy năm học hiện tại theo quy tắc
     // tháng ≥ 8 (khớp client). Trước đây normalizeAcademicYear(undefined) rơi về
@@ -166,7 +166,7 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
     }
 
     if (data.semester) {
-      const isSemesterUnlocked = await semesterLockSpecification.isSatisfiedBy(normYear, data.semester, parishId, tx)
+      const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(normYear, data.semester, parishId)
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${data.semester} năm học ${normYear} đã bị khóa sổ điểm. Không thể chỉnh sửa điểm.`) as any
         err.status = 403
@@ -410,9 +410,6 @@ export async function undoGradeImport(
   const normYear = normalizeAcademicYear(academicYear)
   if (!normYear) throw new Error('Năm học không hợp lệ')
 
-  // ADR-047: Capture policy version at undo time for audit trail
-  const policyVersionIdAtUndo = await getCurrentPolicyVersionId(parishId)
-
   const results: UndoGradeImportResult[] = []
   for (const item of items) {
     const result = await (async (): Promise<UndoGradeImportResult> => {
@@ -433,7 +430,7 @@ export async function undoGradeImport(
             return { studentId: item.studentId, status: 'forbidden', message: 'Bạn không có quyền khôi phục điểm cho thiếu nhi này' }
           }
 
-          const isSemesterUnlocked = await semesterLockSpecification.isSatisfiedBy(normYear, semester, parishId, tx)
+          const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(normYear, semester, parishId)
           if (!isSemesterUnlocked) {
             return { studentId: item.studentId, status: 'locked', message: `Học kỳ ${semester} năm học ${normYear} đã bị khóa sổ điểm` }
           }
@@ -498,6 +495,11 @@ export async function undoGradeImport(
           if (Date.now() - new Date(entry.createdAt).getTime() > windowMs) {
             return { studentId: item.studentId, status: 'expired', message: `Chỉ có thể hoàn tác trong ${UNDO_GRADE_WINDOW_DAYS} ngày kể từ khi nhập điểm` }
           }
+
+          // ADR-047 / ADR-104: policy version is audit evidence for this exact
+          // mutation. Resolve it through the same executor so a retry or a
+          // concurrent settings change cannot produce a mixed-snapshot audit.
+          const policyVersionIdAtUndo = await getCurrentPolicyVersionId(parishId, tx)
 
           if (entry.action === 'CREATE') {
             // Xóa row tạo ra bởi đợt import (grade_overrides đi kèm).

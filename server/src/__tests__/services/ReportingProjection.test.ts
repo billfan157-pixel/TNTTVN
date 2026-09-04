@@ -1,8 +1,20 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
 import { db } from '../../db/index.js'
 import { students, classes, branches, academicYears, grades, attendance, promotionRecords, users } from '../../db/schema.js'
 import { reportCardProjectionRepository } from '../../repositories/ReportCardProjectionRepository.js'
 import { classSummaryProjectionRepository } from '../../repositories/ClassSummaryProjectionRepository.js'
+import { getAcademicYearDateRange } from '../../services/academicYearService.js'
+import { getParishAttendancePolicy, getParishGradeWeights } from '../../services/parishSettingsService.js'
+import { reportingApplicationService } from '../../services/ReportingApplicationService.js'
+
+async function reportingContext(parishId: string, academicYear: string) {
+  return {
+    executor: db,
+    academicYearRange: await getAcademicYearDateRange(parishId, academicYear),
+    gradeWeights: await getParishGradeWeights(parishId),
+    attendancePolicy: await getParishAttendancePolicy(parishId),
+  }
+}
 
 describe('Reporting CQRS Projection Repositories Micro-Step R2 Tests', () => {
   const testParish = 'parish-rpt-test'
@@ -79,7 +91,12 @@ describe('Reporting CQRS Projection Repositories Micro-Step R2 Tests', () => {
   })
 
   it('1. ReportCardProjectionRepository returns compiled report card (Pure CQRS SELECT)', async () => {
-    const reportCard = await reportCardProjectionRepository.getStudentReportCard(studentId, academicYear, testParish)
+    const reportCard = await reportCardProjectionRepository.getStudentReportCard(
+      studentId,
+      academicYear,
+      testParish,
+      await reportingContext(testParish, academicYear),
+    )
 
     expect(reportCard).not.toBeNull()
     expect(reportCard?.student.fullName).toBe('Nguyen Van Report')
@@ -91,7 +108,12 @@ describe('Reporting CQRS Projection Repositories Micro-Step R2 Tests', () => {
   })
 
   it('2. ClassSummaryProjectionRepository returns class roster summary (Pure CQRS SELECT)', async () => {
-    const classSummary = await classSummaryProjectionRepository.getClassSummary(classId, academicYear, testParish)
+    const classSummary = await classSummaryProjectionRepository.getClassSummary(
+      classId,
+      academicYear,
+      testParish,
+      await reportingContext(testParish, academicYear),
+    )
 
     expect(classSummary).not.toBeNull()
     expect(classSummary?.className).toBe('Lớp Reporting')
@@ -99,5 +121,20 @@ describe('Reporting CQRS Projection Repositories Micro-Step R2 Tests', () => {
     expect(classSummary?.promotedCount).toBe(1)
     expect(classSummary?.averageGpa).toBe(9.0)
     expect(classSummary?.averageAttendanceRate).toBe(100.0)
+  })
+
+  it('D5: application service owns one transaction snapshot for authorization, policy and projection reads', async () => {
+    const globalSelect = vi.spyOn(db, 'select')
+    try {
+      const reportCard = await reportingApplicationService.getStudentReportCard(
+        { userId: 'usr-admin-rpt', role: 'admin', parishId: testParish },
+        studentId,
+        academicYear,
+      )
+      expect(reportCard?.student.id).toBe(studentId)
+      expect(globalSelect).not.toHaveBeenCalled()
+    } finally {
+      globalSelect.mockRestore()
+    }
   })
 })

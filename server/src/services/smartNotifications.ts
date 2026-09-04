@@ -200,7 +200,12 @@ export async function notifySundayMassReminder(parishId: string): Promise<void> 
   const sundayMassTime = await getSundayMassTime(parishId)
   const ctx = buildContext({ sundayMassTime })
   const webpushUserIds = await resolveRecipients(() => getAllParentUserIds(parishId))
-  await enqueueBoth('reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, webpushUserIds)
+  // Scheduled tenant reminders never fall back to a global Telegram admin chat.
+  if (webpushUserIds.length === 0) return
+  await Promise.all([
+    enqueueNotification('telegram', 'reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, undefined, { telegramUserIds: webpushUserIds }),
+    enqueueNotification('webpush', 'reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, undefined, { webpushUserIds }),
+  ])
 }
 
 export async function notifyClassReminder(parishId: string, className: string, date: string, classId?: string): Promise<void> {

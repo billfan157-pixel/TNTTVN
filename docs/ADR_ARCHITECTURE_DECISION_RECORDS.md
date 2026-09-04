@@ -3490,3 +3490,95 @@ Focused evidence on the implementation snapshot: exact/immutable sync ownership 
 
 Notification queue, strict Telegram and schema-readiness tests passed **32/32**, including partial-push failure, malformed-target fail-closed behavior and delivery-kind recovery. Composite broad regression evidence is **302/303 files and 2,064 tests PASS**, followed by **29/29 PASS** for the corrected tenant-aware fixtures; security-critical **73/73**, lint, design guard **0/127**, diff check and full frontend/server production build passed. D3 post-verdict: **KEEP** with Security/Data Integrity/Testability at 9; real-provider and multi-replica soak remain **NOT CONFIRMED**.
 
+---
+
+## ADR-103: Transactional Academic Finalization and Fail-Closed Policy/Backup Reads (2026-09-04)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profiles: DATA INTEGRITY + ARCHITECTURE + RECOVERY. Reversibility: R1 for executor propagation, R2 for backup failure semantics.**
+
+### Problem and evidence
+
+Architecture audit trên base `62e1199` xác nhận ba P1 boundary defects: `finalizeYear` đọc guard/checklist/grades/attendance/policy trước transaction rồi chỉ transaction hóa output; parish policy readers bắt cả query exception và biến thành defaults/`null`; local backup raw-copy riêng main SQLite file khi checkpoint và `VACUUM INTO` lỗi nhưng vẫn báo success. Cả ba đều có thể tạo authoritative-looking output từ input không nhất quán hoặc không được đọc thành công.
+
+### Decision
+
+1. `AcademicYearLifecycleService.finalizeYear` chạy toàn bộ terminal/semester-lock guard, completeness checklist, class/student/grade/override/attendance/date-range/policy reads, promotion specification, snapshot upsert, compare-and-set year lock và audit trong một `runDbTransaction`. `getYearOrThrow`, checklist, date-range, classification policy và evaluation nhận cùng executor; không helper nào trong path được quay về global DB.
+2. Missing settings row, malformed settings JSON và invalid individual policy fields tiếp tục dùng documented business defaults. Database/query failures nằm ngoài parse catch và phải propagate. Missing policy-version row trả `null`; query failure không được masquerade thành `null`.
+3. Local backup dùng `VACUUM INTO` trên unique partial path rồi rename để publish. Checkpoint failure chỉ là degraded preparation nếu `VACUUM INTO` vẫn thành công. Nếu snapshot hoặc rename lỗi, partial artifact được xóa, run trả failure và không upload, rotate retention hoặc ghi daily-success marker. Raw main-file fallback bị loại bỏ; Turso logical-backup path không đổi.
+
+Không thêm service, broker, schema hoặc public API. Đây là targeted repair trong modular monolith hiện tại.
+
+### Compatibility, recovery and residual risk
+
+- Business thresholds/default values không đổi; chỉ infrastructure failure đổi từ silent fallback sang explicit operation failure. HTTP caller hiện dùng error boundary hiện hữu và có thể trả 500/retry thay vì commit bằng policy giả định.
+- Full finalization transaction có thể giữ read snapshot lâu hơn path cũ; `SQLITE_BUSY` retry hiện hữu sẽ replay callback. Callback không phát external side effect trước commit; IDs/timestamps có thể đổi giữa retry nhưng chỉ committed attempt tồn tại.
+- Local backup failure có thể làm mất một lịch backup nhưng không tạo artifact giả hợp lệ. Scheduler thử lại ở lần check sau vì marker không được ghi.
+- Production concurrent-finalize incidence, disk-failure behavior và remote Turso transaction semantics chưa được đo bằng telemetry/credentialed drill; các invariant được chứng minh bằng code path, local libSQL integration tests và failure injection.
+
+### Verification and reassessment
+
+Focused plus affected-caller regression: **14/14 files, 80/80 tests PASS**. Tests gồm transaction-executor guard cho finalize, malformed/missing configuration defaults, injected database failure propagation, backup `PRAGMA integrity_check`, forced checkpoint + `VACUUM INTO` failure, no partial artifact và no success marker. Server TypeScript build PASS. Broader lint/build/regression được ghi theo evidence cuối của change set, không suy diễn từ focused run này.
+
+---
+
+## ADR-104: Grade, Reporting, Retry and Runtime Lifecycle Boundary Hardening (2026-09-04)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profiles: DATA INTEGRITY + ARCHITECTURE + RECOVERY. Reversibility: R1.**
+
+### Problem and evidence
+
+Architecture audit trên base `62e1199` xác nhận bốn boundary defects còn lại sau ADR-103: base grade upsert/undo đọc policy-version ngoài write transaction; reporting repositories import ngược policy/date services và dùng nhiều global reads; batch-promotion transaction callback mutate response trước khi retry wrapper hoàn tất; reporting route đăng ký process signal trong khi root exit trước khi coordinated resource cleanup hoàn tất.
+
+### Decision
+
+1. Mọi grade policy-version attribution được đọc qua đúng executor của mutation. Base `upsertGrade`, undo, explicit override và restore cùng chia sẻ nguyên tắc này; infrastructure error phải rollback/fail item.
+2. `ReportingApplicationService` sở hữu authorization, academic-year range, parish policy và transaction snapshot. Projection repositories chỉ nhận `ReportingProjectionContext` gồm executor + immutable inputs, không import services hoặc global DB. Read model vẫn là query projection, không thêm materialized table/cache.
+3. Callback được `runDbTransaction` retry không mutate response/counter. `BatchPromotionApplicationService` nhận transaction runner qua constructor để regression có thể replay callback; state ngoài transaction chỉ đổi một lần sau wrapper resolve.
+4. `server/src/index.ts` là composition root duy nhất sở hữu `SIGTERM/SIGINT`. Shutdown idempotent: dừng producers và HTTP intake, await active backup/Sunday ticks, drain active notification delivery, đóng Puppeteer/Telegram, checkpoint và đóng DB, rồi mới exit. Deadline 10 giây giữ fail-safe cho hung external resource. Route imports không có process lifecycle side effect.
+5. Executable architecture tests chặn repository → service runtime edge và `process.on` trong routes, đồng thời kiểm root sở hữu các cleanup calls.
+
+Không đổi schema, HTTP contract, business threshold, batch partial-success semantics hoặc notification at-least-once authority. Không thêm microservice, event broker hoặc generic repository layer.
+
+### Compatibility, recovery and residual risk
+
+- Reporting có thể giữ DB transaction lâu hơn chuỗi global reads cũ; đây là cost có chủ đích để tránh torn report. Chưa có production latency/concurrency evidence yêu cầu materialized projection.
+- Batch callback vẫn có thể chạy lại khi commit-time `SQLITE_BUSY`; DB idempotency/transaction rollback tiếp tục là authority, còn HTTP response không còn duplicate result.
+- Shutdown deadline có thể force-exit nếu provider/browser không đóng trong 10 giây. Durable notification row + lease cho phép startup recovery nhưng không nâng delivery thành exactly-once.
+- Sunday scheduler vẫn là single-parish theo `PARISH_ID`; multi-parish topology là unknown riêng, không được ADR này tự suy diễn.
+
+### Verification and reassessment
+
+Targeted D4–D7 regression: **9/9 files, 59/59 tests PASS**; reporting/PDF/grade-audit expansion **6/6 files, 26/26 tests PASS**. Tests gồm grade/undo global-executor spies, reporting transaction context, architecture dependency/lifecycle gates, double callback replay với exactly-one response result, active notification-delivery drain, existing batch partial-success/rollback, Sunday scheduler và backup lifecycle. Final gate: lint zero-warning PASS, server TypeScript build PASS, full Vitest **315/315 files, 2.141/2.141 tests PASS** in 865,87 seconds. Production traffic, credentialed Turso concurrency and forced shutdown soak remain NOT CONFIRMED.
+
+---
+
+## ADR-105: Promotion Recovery, Multi-Parish Scheduling, Restore Gates and Dependency Seams (2026-09-04)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profiles: DATA INTEGRITY + AUTHORIZATION + RECOVERY + ARCHITECTURE. Reversibility: R1 except schema column R2.**
+
+### Problem and evidence
+
+Deep follow-up của architecture audit xác nhận: promotion year có partial-error response nhưng không có durable worklist/archive gate; Sunday producer chỉ chạy một parish hardcode trong topology shared process/database; restore CLI thiếu second target confirmation, empty/schema preflight và post-restore integrity read-back; domain policy types biết `DbExecutor`/JWT, còn application services gọi class authorization nằm trong HTTP middleware. Client sync coordinator đồng thời là React hook tạo store↔hook cycles, và client `GradeAggregate` không có production caller nhưng vẫn vào bundle với semantics không sở hữu server audit/lock policy.
+
+### Decision
+
+1. **Promotion recovery:** khi bắt đầu promote, transition `FINALIZED → PROMOTED` và `promotion_target_year_id` commit atomically trước item processing. Reconciliation được derive tenant-scoped từ `academic_year_snapshots` thiếu active/latest `promotion_records`; retry chỉ xử lý item unresolved bằng target đã persist, skip item đã resolve. Archive trả 409 khi worklist còn item. Partial success theo từng student của ADR-008 không đổi.
+2. **Sunday tenant coverage:** scheduler enumerate duy nhất parish có `parish_system_settings.sundayReminderEnabled=true` (default false), chạy và ghi marker độc lập theo parish, isolate failure. Audience không có parent IDs thì fail closed thành no-send, không fallback global Telegram admin. Admin Settings là control plane cho opt-in và giờ lễ.
+3. **Remote restore gate:** CLI yêu cầu `RESTORE_TARGET_FINGERPRINT` là SHA-256 normalized target URL, target khác production, rỗng/disposable và có exact table-column compatibility. Sau insert, read-back per-table counts, `PRAGMA foreign_key_check` và `assertDatabaseReady` phải pass; command in machine-readable manifest. Validation failure sau commit buộc discard target, không sửa/cutover.
+4. **Authorization/domain dependency:** `ActorContext` chỉ chứa `userId/role/parishId`; JWT transport type extends context nhưng domain/application không import middleware. Class-access query chuyển sang service không biết Hono/JWT. Policy adapters bind Drizzle executor vào port closures; domain port/spec methods không nhận hoặc import `DbExecutor`. Critical services tạo specs từ active transaction. Architecture gates cấm domain import DB/middleware và application-service runtime import middleware ngoài auth-infrastructure allowlist.
+5. **Client dependency cleanup:** `syncCoordinator` sở hữu imperative sync orchestration, `syncTrigger` không import stores/hooks, React `useSyncEngine` chỉ sở hữu lifecycle. Stores không import hooks. Client GradeAggregate/adapter, unused store actions/types và tests của dead API bị xóa; server GradeAggregate/commands tiếp tục sole write authority.
+
+Không thêm workflow engine, external queue, materialized reporting projection, microservice hay generic repository. `ParishSummaryProjection` vẫn cần product quyết định riêng; không được tự động code từ documentation drift.
+
+### Compatibility, recovery and residual risk
+
+- Migration chỉ thêm nullable `promotion_target_year_id`; year cũ ở `PROMOTED` không có target không thể retry tự động và cần operator/data review nếu reconciliation còn thiếu. Year mới luôn persist target trước processing.
+- Sunday reminder chuyển từ implicit single-parish behavior sang explicit opt-in; parish chưa bật sẽ không nhận background reminder. Đây là fail-closed rollout, không silent broadcast.
+- Local/unit restore validation không chứng minh credentialed Turso/R2 drill, production RPO/RTO hoặc cutover. External drill vẫn là release/operations gate.
+- Notification provider delivery vẫn at-least-once theo ADR-102. Multi-parish producer không thay đổi duplicate window.
+- T6/DR5 (projection thứ ba) và field performance/maintainability SLO chưa có product authority; không phải code defect được giải quyết bởi ADR này.
+
+### Verification and reassessment
+
+Targeted evidence: D8/schema **3 files, 27 tests PASS**; D9/settings/notification **4 files, 42 tests PASS**; restore **1 file, 5 tests PASS**; sync seam **8 files, 60 tests PASS**; authorization/domain/T5 regression **7 files, 51 tests PASS**; Settings/T5 follow-up **5 files, 42 tests PASS**. Final gate trên complete change set: lint zero-warning PASS, server và frontend production builds PASS, full serialized Vitest **313/313 files, 2.138/2.138 tests PASS** trong 823,00 giây. T5 bundle literals đã biến mất và gradeStore chunk giảm từ khoảng 11,75 kB xuống 8,04 kB. Credentialed Turso/R2 restore drill vẫn NOT CONFIRMED.
+

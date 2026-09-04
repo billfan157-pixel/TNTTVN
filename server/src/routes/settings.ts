@@ -37,6 +37,9 @@ export const DEFAULT_PARISH_SETTINGS = {
   // Giờ Thánh Lễ Thiếu Nhi Chúa Nhật (HH:MM) — dùng cho reminder web push/telegram
   // tự động (sundayReminderScheduler) + render template + client useSundayReminder.
   sundayMassTime: '08:00',
+  // Background fan-out is explicit opt-in. Client-local reminder remains
+  // independent; this flag controls only the server scheduler.
+  sundayReminderEnabled: false,
   academicYear: '2025-2026',
   currentSemester: 1,
 }
@@ -179,6 +182,7 @@ const updateSettingsSchema = z.object({
     minAttendance: z.number().min(0).max(100).default(80),
   }).partial().optional(),
   sundayMassTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'sundayMassTime phải có định dạng HH:MM').optional(),
+  sundayReminderEnabled: z.boolean().optional(),
   academicYear: z.string().optional(),
   currentSemester: z.number().int().min(1).max(2).optional(),
 })

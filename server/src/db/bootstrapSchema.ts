@@ -37,6 +37,7 @@ export const BOOTSTRAP_DDL = `
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     is_locked INTEGER NOT NULL DEFAULT 0,
+    promotion_target_year_id TEXT,
     parish_id TEXT NOT NULL DEFAULT 'gia-ton',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

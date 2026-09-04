@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import { db, client, dbConfig } from '../db/index.js'
 import { systemSettings } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
@@ -17,10 +18,6 @@ function getBackupDir(): string {
   return process.env.BACKUP_DIR || path.join(process.cwd(), 'backups')
 }
 
-function getDbFile(): string {
-  return process.env.DB_PATH || path.join(process.cwd(), 'server/data/parish.db')
-}
-
 function getRetentionCount(): number {
   return Number(process.env.BACKUP_RETENTION_COUNT) || 5
 }
@@ -31,6 +28,7 @@ function getTargetHour(): number {
 
 let timer: NodeJS.Timeout | null = null
 let running = false
+let activeRun: Promise<boolean> | null = null
 
 function dateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -55,7 +53,6 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
 
   try {
     const backupDir = getBackupDir()
-    const dbFile = getDbFile()
     const retentionCount = getRetentionCount()
 
     if (!fs.existsSync(backupDir)) {
@@ -64,26 +61,29 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const destFile = path.join(backupDir, `parish-backup-${timestamp}.sqlite`)
+    const partialFile = `${destFile}.partial-${process.pid}-${randomUUID()}`
 
     // 1. Flush WAL pages to main database file
     try {
       await client.execute('PRAGMA wal_checkpoint(TRUNCATE)')
     } catch (e: any) {
-      console.warn('[BACKUP WARNING] Pre-backup WAL checkpoint failed:', e?.message || e)
+      console.warn('[BACKUP WARNING] Pre-backup WAL checkpoint failed; continuing with VACUUM INTO snapshot:', e?.message || e)
     }
 
-    // 2. Snapshot-safe backup via VACUUM INTO
-    const normalizedDest = path.resolve(destFile).replace(/\\/g, '/')
+    // 2. Snapshot-safe backup via VACUUM INTO. Never fall back to copying only
+    // the main SQLite file: committed pages may still live in WAL. Write to a
+    // unique partial path and publish the artifact only after VACUUM succeeds.
+    const normalizedPartial = path.resolve(partialFile).replace(/\\/g, '/').replace(/'/g, "''")
     try {
-      await client.execute(`VACUUM INTO '${normalizedDest}'`)
+      await client.execute(`VACUUM INTO '${normalizedPartial}'`)
+      fs.renameSync(partialFile, destFile)
     } catch (vacuumErr: any) {
-      console.warn('[BACKUP WARNING] VACUUM INTO failed, falling back to safe file copy:', vacuumErr?.message || vacuumErr)
-      if (fs.existsSync(dbFile)) {
-        const buf = fs.readFileSync(dbFile)
-        fs.writeFileSync(destFile, buf)
-      } else {
-        throw new Error(`Database file ${dbFile} not found`)
+      try {
+        if (fs.existsSync(partialFile)) fs.unlinkSync(partialFile)
+      } catch (cleanupErr: any) {
+        console.warn('[BACKUP WARNING] Failed to remove incomplete backup artifact:', cleanupErr?.message || cleanupErr)
       }
+      throw new Error(`Snapshot-safe VACUUM INTO failed; backup aborted: ${vacuumErr?.message || vacuumErr}`)
     }
 
     console.log(`[BACKUP SUCCESS] Automatic backup created at ${destFile}`)
@@ -171,24 +171,23 @@ export function initBackupScheduler(intervalMs = CHECK_INTERVAL_MS): void {
   }
 
   if (timer) clearInterval(timer)
-  timer = setInterval(async () => {
+  timer = setInterval(() => {
     if (running) return
     running = true
-    try {
-      await runAutoBackupCheck()
-    } finally {
+    activeRun = runAutoBackupCheck().finally(() => {
       running = false
-    }
+      activeRun = null
+    })
   }, intervalMs)
 
   if (typeof timer.unref === 'function') timer.unref()
   console.log(`[BACKUP SCHEDULER] Started automated daily backup scheduler (target hour: ${getTargetHour()}:00 AM)`)
 }
 
-export function stopBackupScheduler(): void {
+export async function stopBackupScheduler(): Promise<void> {
   if (timer) {
     clearInterval(timer)
     timer = null
   }
-  running = false
+  if (activeRun) await activeRun
 }

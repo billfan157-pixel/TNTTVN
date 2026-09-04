@@ -18,7 +18,7 @@ vi.mock('../lib/resetClientData', async (importOriginal) => {
 
 import { initDB, getDB } from '../lib/db'
 import { useSyncStore } from '../stores/syncStore'
-import { runSyncFlow } from '../hooks/useSyncEngine'
+import { runSyncFlow } from '../lib/syncCoordinator'
 import { api } from '../lib/api'
 import { PURGE_VERSION_KEY, resetClientData } from '../lib/resetClientData'
 import { setTenantScope } from '../lib/tenantScope'

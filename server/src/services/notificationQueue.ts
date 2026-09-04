@@ -45,6 +45,9 @@ const POLL_MS = 30 * 1000
 const WORKER_ID = `${process.pid}-${randomUUID()}`
 let recovered = false
 let workerPollTimer: ReturnType<typeof setInterval> | null = null
+let stopping = false
+let processingPromise: Promise<void> | null = null
+const retryTimers = new Set<ReturnType<typeof setTimeout>>()
 
 async function ensureRecovered(): Promise<void> {
   if (!recovered) {
@@ -61,6 +64,7 @@ async function ensureRecovered(): Promise<void> {
  * server restart và không có hoạt động mới.)
  */
 export async function initNotificationQueue(): Promise<void> {
+  stopping = false
   recovered = true
   await recoverQueueFromDb()
   void processQueue().catch((error) => console.error('[notificationQueue] initial drain failed:', error))
@@ -206,8 +210,6 @@ export function getFailedItems(): NotificationQueueItem[] {
   return [...failedItems]
 }
 
-let isProcessing = false
-
 async function claimNotification(item: NotificationQueueItem): Promise<{ attemptCount: number; maxAttempts: number } | null> {
   const now = new Date()
   const nowIso = now.toISOString()
@@ -238,20 +240,21 @@ function rememberFailed(item: NotificationQueueItem): void {
 }
 
 function scheduleRetry(delayMs: number): void {
+  if (stopping) return
   const timer = setTimeout(() => {
+    retryTimers.delete(timer)
+    if (stopping) return
     recoverQueueFromDb()
       .then(() => processQueue())
       .catch((error) => console.error('[notificationQueue] retry wake-up failed:', error))
   }, delayMs)
+  retryTimers.add(timer)
   timer.unref?.()
 }
 
-async function processQueue(): Promise<void> {
-  if (isProcessing) return
-  isProcessing = true
-  try {
-    await ensureRecovered()
-    while (queue.length > 0) {
+async function drainQueue(): Promise<void> {
+  await ensureRecovered()
+  while (queue.length > 0) {
       const item = queue[0]
       const claim = await claimNotification(item)
       if (!claim) {
@@ -366,14 +369,31 @@ async function processQueue(): Promise<void> {
         queue.shift()
         scheduleRetry(backoff)
       }
-    }
-  } finally {
-    isProcessing = false
+  }
+}
+
+function processQueue(): Promise<void> {
+  if (stopping) return Promise.resolve()
+  if (processingPromise) return processingPromise
+  processingPromise = drainQueue().finally(() => {
+    processingPromise = null
     // An enqueue can land after the while condition was evaluated but before
-    // this finally block. Re-kick once so that hand-off window cannot strand a
-    // durable row until the next 30-second poll.
-    if (queue.length > 0) {
+    // this hand-off. Re-kick once so the durable row is not stranded.
+    if (!stopping && queue.length > 0) {
       void processQueue().catch((error) => console.error('[notificationQueue] hand-off drain failed:', error))
     }
+  })
+  return processingPromise
+}
+
+/** Stop new polls/retries and wait for the currently claimed/in-memory work. */
+export async function stopNotificationQueue(): Promise<void> {
+  stopping = true
+  if (workerPollTimer) {
+    clearInterval(workerPollTimer)
+    workerPollTimer = null
   }
+  for (const timer of retryTimers) clearTimeout(timer)
+  retryTimers.clear()
+  if (processingPromise) await processingPromise
 }

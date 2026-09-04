@@ -261,6 +261,32 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
     })
   }
 
+  const handleRetryPromotion = (year: AcademicYearLifecycleDTO) => {
+    setModal({
+      type: 'confirm',
+      year,
+      title: `Retry Xét Lên Lớp — ${year.id}`,
+      message: `Hệ thống chỉ retry ${year.unresolvedPromotionCount} học sinh chưa có promotion record hợp lệ; các item đã thành công sẽ được bỏ qua.`,
+      variant: 'warning',
+      confirmText: 'Retry Item Lỗi',
+      onConfirm: () => run(
+        () => academicYearsApiClient.retryPromotion(year.id),
+        (res: PromoteSummary) => {
+          setModal({
+            type: 'result',
+            resultTitle: `Đã retry promotion ${res.yearId}`,
+            resultLines: [
+              { icon: res.unresolvedCount === 0 ? 'ok' : 'warn', text: res.unresolvedCount === 0 ? 'Tất cả snapshot đã có promotion record hợp lệ.' : `Còn ${res.unresolvedCount} học sinh chưa hoàn tất.` },
+              ...res.errors.map((e) => ({ icon: 'err' as const, text: `Lỗi học sinh ${e.studentId}: ${e.reason}` })),
+            ],
+          })
+          refresh()
+        },
+        (err) => setError(err?.message || 'Không thể retry xét lên lớp'),
+      ),
+    })
+  }
+
   const handleCreateBare = () => {
     if (!newYearName.trim()) return
     run(
@@ -451,7 +477,16 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                           <GraduationCap className="w-3.5 h-3.5" /> Xét Lên Lớp
                         </button>
                       )}
-                      {item.status === 'PROMOTED' && (
+                      {item.status === 'PROMOTED' && item.unresolvedPromotionCount > 0 && (
+                        <button
+                          onClick={() => handleRetryPromotion(item)}
+                          disabled={busy || !item.promotionTargetYearId}
+                          className="btn btn-primary btn-sm min-h-[40px] text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" /> Retry {item.unresolvedPromotionCount} Item Lỗi
+                        </button>
+                      )}
+                      {item.status === 'PROMOTED' && item.unresolvedPromotionCount === 0 && (
                         <button
                           onClick={() => handleArchive(item)}
                           disabled={busy}
@@ -472,6 +507,13 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                     </>
                   )}
                 </div>
+
+                {isAdmin && item.status === 'PROMOTED' && item.unresolvedPromotionCount > 0 && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    Chưa thể lưu trữ: còn {item.unresolvedPromotionCount} snapshot chưa có promotion record ACTIVE/LATEST.
+                    {item.promotionTargetYearId ? ` Năm đích cố định: ${item.promotionTargetYearId}.` : ' Thiếu năm đích durable; cần xử lý dữ liệu trước khi retry.'}
+                  </div>
+                )}
 
                 {isAdmin && (
                   <div className="mt-4 pt-3 border-t border-surface-border">

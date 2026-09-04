@@ -1510,4 +1510,7 @@ END;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_assessment_entries_exam_student ON assessment_entries(parish_id, exam_session_id, student_id);
     CREATE INDEX IF NOT EXISTS idx_assessment_entries_lookup ON assessment_entries(parish_id, student_id, academic_year, semester, score_type);
   ` },
+  // ADR-105 / D8: persist the intended target of a partial academic-year
+  // promotion so unresolved snapshots can be retried deterministically.
+  { version: '20260904-169', sql: `ALTER TABLE academic_years ADD COLUMN promotion_target_year_id TEXT` },
 ]

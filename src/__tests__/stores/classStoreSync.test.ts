@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import * as syncService from '../../lib/syncService'
-import * as syncEngine from '../../hooks/useSyncEngine'
+import * as syncTrigger from '../../lib/syncTrigger'
 import { api, ApiError } from '../../lib/api'
 
 vi.mock('../../lib/api', () => ({
@@ -37,8 +37,8 @@ vi.mock('../../lib/syncService', () => ({
   syncDeleteClass: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('../../hooks/useSyncEngine', () => ({
-  runSyncFlow: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../lib/syncTrigger', () => ({
+  requestSync: vi.fn().mockResolvedValue(undefined),
 }))
 
 const mockSyncQueue = {
@@ -74,7 +74,7 @@ describe('Task 1 — classStore Sync & Race Condition Verification', () => {
     vi.mocked(api.createClass).mockRejectedValue(new TypeError('Failed to fetch'))
     await useClassStore.getState().createClass({ name: 'Ấu Nhi 1', branchId: 'br-1', academicYearId: 'ay-1' })
     expect(vi.mocked(syncService.syncCreateClass)).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(syncEngine.runSyncFlow)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(syncTrigger.requestSync)).toHaveBeenCalledTimes(1)
   })
 
   it('Task 1a: updateClass calls runSyncFlow exactly once on offline update', async () => {
@@ -82,7 +82,7 @@ describe('Task 1 — classStore Sync & Race Condition Verification', () => {
     vi.mocked(api.updateClass).mockRejectedValue(new TypeError('Failed to fetch'))
     await useClassStore.getState().updateClass('cls-1', { name: 'Lớp 1 Đã Sửa' })
     expect(vi.mocked(syncService.syncUpdateClass)).toHaveBeenCalledWith('cls-1', { name: 'Lớp 1 Đã Sửa' })
-    expect(vi.mocked(syncEngine.runSyncFlow)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(syncTrigger.requestSync)).toHaveBeenCalledTimes(1)
   })
 
   it('Task 1a & 2c: deleteClass calls runSyncFlow on offline delete, but rethrows non-network 403 error without local deletion or sync enqueue', async () => {
@@ -99,7 +99,7 @@ describe('Task 1 — classStore Sync & Race Condition Verification', () => {
     expect(useClassStore.getState().classes[0].id).toBe('cls-locked')
     // Sync queue must NOT be called
     expect(vi.mocked(syncService.syncDeleteClass)).not.toHaveBeenCalled()
-    expect(vi.mocked(syncEngine.runSyncFlow)).not.toHaveBeenCalled()
+    expect(vi.mocked(syncTrigger.requestSync)).not.toHaveBeenCalled()
   })
 
   it('Task 1b: fetchClasses preserves offline pending class in state when server returns list without it', async () => {

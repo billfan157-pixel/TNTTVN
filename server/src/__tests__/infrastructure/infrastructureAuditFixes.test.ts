@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import { runBackupNow, runAutoBackupCheck,  stopBackupScheduler } from '../../services/backupScheduler.js'
-import { db } from '../../db/index.js'
+import { client, db } from '../../db/index.js'
 import { systemSettings } from '../../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import healthRouter from '../../routes/health.js'
@@ -13,13 +13,15 @@ describe('Infrastructure Audit Fixes (INF-01 .. INF-06)', () => {
   beforeEach(() => {
     process.env.BACKUP_DIR = TEST_BACKUP_DIR
     process.env.BACKUP_RETENTION_COUNT = '3'
-    if (!fs.existsSync(TEST_BACKUP_DIR)) {
-      fs.mkdirSync(TEST_BACKUP_DIR, { recursive: true })
+    if (fs.existsSync(TEST_BACKUP_DIR)) {
+      fs.rmSync(TEST_BACKUP_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     }
+    fs.mkdirSync(TEST_BACKUP_DIR, { recursive: true })
   })
 
   afterEach(async () => {
-    stopBackupScheduler()
+    await stopBackupScheduler()
+    vi.restoreAllMocks()
     if (fs.existsSync(TEST_BACKUP_DIR)) {
       fs.rmSync(TEST_BACKUP_DIR, {
         recursive: true,
@@ -45,6 +47,47 @@ describe('Infrastructure Audit Fixes (INF-01 .. INF-06)', () => {
     expect(buffer.length).toBeGreaterThan(0)
     const header = buffer.slice(0, 16).toString('utf8')
     expect(header).toContain('SQLite format 3')
+
+    const snapshotPath = path.resolve(res.destFile!).replace(/\\/g, '/').replace(/'/g, "''")
+    await client.execute(`ATTACH DATABASE '${snapshotPath}' AS backup_verify`)
+    try {
+      const integrity = await client.execute('PRAGMA backup_verify.integrity_check')
+      expect((integrity.rows[0] as Record<string, unknown>).integrity_check).toBe('ok')
+    } finally {
+      await client.execute('DETACH DATABASE backup_verify')
+    }
+  })
+
+  it('D2: aborts without publishing or marking success when checkpoint and VACUUM INTO fail', async () => {
+    const originalExecute = client.execute.bind(client)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(client, 'execute').mockImplementation((async (statement: any) => {
+      const sqlText = typeof statement === 'string' ? statement : String(statement?.sql || '')
+      if (sqlText.startsWith('PRAGMA wal_checkpoint') || sqlText.startsWith('VACUUM INTO')) {
+        throw new Error(`forced backup failure: ${sqlText}`)
+      }
+      return originalExecute(statement)
+    }) as any)
+
+    const direct = await runBackupNow()
+    expect(direct.success).toBe(false)
+    expect(direct.error).toMatch(/VACUUM INTO failed; backup aborted/)
+
+    const now = new Date()
+    now.setHours(2, 15, 0, 0)
+    expect(await runAutoBackupCheck(now)).toBe(false)
+
+    const [marker] = await db
+      .select()
+      .from(systemSettings)
+      .where(and(eq(systemSettings.key, 'auto_backup_last_date'), eq(systemSettings.parishId, 'gia-ton')))
+      .limit(1)
+    expect(marker).toBeUndefined()
+
+    const artifacts = fs.readdirSync(TEST_BACKUP_DIR)
+      .filter((name) => name.endsWith('.sqlite') || name.includes('.partial-'))
+    expect(artifacts).toEqual([])
   })
 
   it('INF-03: enforces retention policy keeping only latest N backup files', async () => {

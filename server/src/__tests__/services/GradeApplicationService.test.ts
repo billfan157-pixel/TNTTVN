@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
 import { grades, gradeOverrides, notifications, auditLogs, students, branches, academicYears, classes, users, catechistAssignments } from '../../db/schema.js'
 import { gradeApplicationService } from '../../services/GradeApplicationService.js'
-import { canOverrideGradeSpecification } from '../../services/policyAdapters.js'
-import { semesterLockSpecification } from '../../services/policyAdapters.js'
+import { createCanOverrideGradeSpecification, createSemesterLockSpecification } from '../../services/policyAdapters.js'
 import { eq } from 'drizzle-orm'
 
 describe('GradeApplicationService Integration Tests (Pilot B)', () => {
@@ -110,28 +109,15 @@ describe('GradeApplicationService Integration Tests (Pilot B)', () => {
     expect(notices[0].message).toContain('9\\.5')
   })
 
-  it('evaluates semester lock and class authorization through the active write transaction', async () => {
-    const lockSpy = vi.spyOn(semesterLockSpecification, 'isSatisfiedBy')
-    const authorizationSpy = vi.spyOn(canOverrideGradeSpecification, 'isSatisfiedBy')
+  it('binds semester-lock and class-authorization policies to the supplied transaction', async () => {
+    await db.transaction(async (tx) => {
+      const lockSpec = createSemesterLockSpecification(tx)
+      const authorizationSpec = createCanOverrideGradeSpecification(tx)
 
-    try {
-      await gradeApplicationService.overrideScore({
-        gradeId: gradeAId,
-        studentId: studentAId,
-        scoreField: 'scoreFinal',
-        manualValue: 8.5,
-        userId: catechistAUserId,
-        parishId: testParish,
-        ip: '127.0.0.1',
-        userAgent: 'vitest',
-      })
-
-      expect(lockSpy).toHaveBeenCalledWith('2025-2026', 1, testParish, expect.anything())
-      expect(authorizationSpy).toHaveBeenCalledWith(catechistAUserId, studentAId, testParish, expect.anything())
-    } finally {
-      lockSpy.mockRestore()
-      authorizationSpy.mockRestore()
-    }
+      await expect(lockSpec.isSatisfiedBy('2025-2026', 1, testParish)).resolves.toBe(true)
+      await expect(authorizationSpec.isSatisfiedBy(catechistAUserId, studentAId, testParish)).resolves.toBe(true)
+      await expect(authorizationSpec.isSatisfiedBy(catechistBUserId, studentAId, testParish)).resolves.toBe(false)
+    })
   })
 
   it('Optimistic Lock Failure -> Throws VersionConflictError (409) when concurrent version mismatches', async () => {

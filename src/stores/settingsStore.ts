@@ -22,6 +22,8 @@ export interface ParishSettings {
   promotionPolicy: PromotionPolicyConfig
   /** Giờ Thánh Lễ Thiếu Nhi Chúa Nhật (HH:MM) — nguồn cho useSundayReminder. */
   sundayMassTime: string
+  /** Explicit opt-in for the server-side multi-parish Sunday scheduler. */
+  sundayReminderEnabled: boolean
   academicYear: string
   currentSemester: 1 | 2
 }
@@ -33,6 +35,7 @@ const DEFAULT_SETTINGS: ParishSettings = {
   attendancePolicy: { excusedWeight: 1.0, minRateForExam: 80 },
   promotionPolicy: { minGpa: 5.0, minAttendance: 80 },
   sundayMassTime: '08:00',
+  sundayReminderEnabled: false,
   academicYear: '2025-2026',
   currentSemester: 1,
 }

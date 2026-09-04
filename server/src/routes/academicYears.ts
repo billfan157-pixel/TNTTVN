@@ -102,6 +102,28 @@ academicYearsRouter.post('/:id/promote', roleMiddleware('admin'), zValidator('js
   }
 })
 
+academicYearsRouter.get('/:id/promotion-reconciliation', roleMiddleware('admin'), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const id = normalizeAcademicYear(c.req.param('id'))
+  try {
+    return successResponse(c, await academicYearLifecycleService.getPromotionReconciliation(id, user.parishId))
+  } catch (err: any) {
+    const status = err.status || 400
+    return errorResponse(c, status === 404 ? 'NOT_FOUND' : 'PROMOTION_RECONCILIATION_ERROR', err.message || 'Lỗi khi kiểm tra promotion', status)
+  }
+})
+
+academicYearsRouter.post('/:id/promotion-retry', roleMiddleware('admin'), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const id = normalizeAcademicYear(c.req.param('id'))
+  try {
+    return successResponse(c, await academicYearLifecycleService.retryPromotion(id, user.userId, user.parishId))
+  } catch (err: any) {
+    const status = err.status || 400
+    return sendError(c, status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : status === 409 ? 'PROMOTION_RETRY_CONFLICT' : 'PROMOTION_RETRY_ERROR', err.message || 'Lỗi khi retry promotion', status, err.details)
+  }
+})
+
 academicYearsRouter.post('/:id/archive', roleMiddleware('admin'), async (c) => {
   const user = c.get('user') as JwtPayload
   const id = normalizeAcademicYear(c.req.param('id'))
@@ -110,7 +132,7 @@ academicYearsRouter.post('/:id/archive', roleMiddleware('admin'), async (c) => {
     return successResponse(c, result)
   } catch (err: any) {
     const status = err.status || 400
-    return errorResponse(c, status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : status === 409 ? 'ALREADY_ARCHIVED' : 'ARCHIVE_ERROR', err.message || 'Lỗi khi lưu trữ năm học', status)
+    return sendError(c, status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : status === 409 ? 'ARCHIVE_CONFLICT' : 'ARCHIVE_ERROR', err.message || 'Lỗi khi lưu trữ năm học', status, err.details)
   }
 })
 

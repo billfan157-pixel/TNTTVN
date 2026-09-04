@@ -12,6 +12,7 @@ import { attendanceApiClient, BatchAttendanceResponseDTO } from '../lib/api/atte
 import * as Sentry from '@sentry/react'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { isOwnOp } from './syncStore'
+import { requestSync } from '../lib/syncTrigger'
 
 /** Natural key của attendance: studentId:date:type. */
 function attendanceNaturalKey(a: { studentId?: string; date?: string; type?: string }): string {
@@ -43,16 +44,10 @@ async function getPendingAttendanceNaturalKeys(): Promise<Set<string>> {
   }
 }
 
-// ADR-016 (S1): Lazy import to break the circular dependency:
-// attendanceStore → useSyncEngine → router → @tanstack/react-router.
-// Importing runSyncFlow at module top-level pulls router.tsx into every test
-// that transitively imports attendanceStore, breaking mocks that don't expose
-// createRootRoute. Deferring to call-time avoids loading router until sync
-// actually runs.
+// Store only signals a framework-neutral trigger; it never imports a hook.
 async function triggerSyncFlow() {
   try {
-    const { runSyncFlow } = await import('../hooks/useSyncEngine')
-    await runSyncFlow()
+    await requestSync()
   } catch {
     // Sync engine not available (e.g. during SSR/test teardown) — the queued
     // op will still be flushed by the periodic interval or online event.

@@ -18,11 +18,12 @@ import { client } from './db/index.js'
 import { assertDatabaseReady } from './db/schemaHealth.js'
 import { seedIfEmpty } from './seed.js'
 import { isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
-import { initTelegramBot, sendTelegramInfo, sendTelegramAlert } from './services/telegram.js'
-import { initNotificationQueue } from './services/notificationQueue.js'
-import { initSundayReminderScheduler } from './services/sundayReminderScheduler.js'
+import { initTelegramBot, sendTelegramInfo, sendTelegramAlert, stopTelegramBot } from './services/telegram.js'
+import { initNotificationQueue, stopNotificationQueue } from './services/notificationQueue.js'
+import { initSundayReminderScheduler, stopSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
 import { startImportRollbackSnapshotCleanup } from './services/importService.js'
+import { closeBrowser } from './services/pdfService.js'
 import cspReportRouter from './routes/cspReport.js'
 import { initSentryNode, captureServerException } from './utils/observability.js'
 
@@ -181,17 +182,47 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST })
 console.log(`Server running at http://${HOST}:${PORT}`)
 const stopImportRollbackCleanup = startImportRollbackSnapshotCleanup()
 
-const gracefulShutdown = async (signal: string) => {
-  console.log(`[shutdown] Received ${signal}, shutting down gracefully...`)
-  try { await client.execute('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}
-  stopBackupScheduler()
-  stopImportRollbackCleanup()
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(1), 10000)
+let shutdownPromise: Promise<void> | null = null
+const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
+  if (shutdownPromise) return shutdownPromise
+
+  shutdownPromise = (async () => {
+    console.log(`[shutdown] Received ${signal}, shutting down gracefully...`)
+    const forceExitTimer = setTimeout(() => {
+      console.error('[shutdown] Graceful shutdown deadline exceeded')
+      process.exit(1)
+    }, 10000)
+
+    try {
+      // Stop every producer first, then stop accepting requests. Active work is
+      // awaited before draining delivery infrastructure and closing resources.
+      stopImportRollbackCleanup()
+      const backupStopped = stopBackupScheduler()
+      const sundayStopped = stopSundayReminderScheduler()
+      const httpClosed = new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve())
+      })
+
+      await Promise.all([backupStopped, sundayStopped, httpClosed])
+      await stopNotificationQueue()
+      await closeBrowser()
+      await stopTelegramBot()
+      try { await client.execute('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}
+      client.close()
+      clearTimeout(forceExitTimer)
+      process.exit(exitCode)
+    } catch (error) {
+      clearTimeout(forceExitTimer)
+      console.error('[shutdown] Resource cleanup failed:', error)
+      process.exit(1)
+    }
+  })()
+
+  return shutdownPromise
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
-process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM') })
+process.on('SIGINT', () => { void gracefulShutdown('SIGINT') })
 
 // OBS-1 (2026-08-24): process-level error visibility. Trước đây unhandledRejection
 // / uncaughtException chỉ phụ thuộc default behavior của Node — log rải rác,
@@ -225,7 +256,7 @@ if (process.env.NODE_ENV !== 'test') {
     captureServerException(err, { kind: 'uncaughtException' })
     void sendTelegramAlert(`Uncaught exception — container sẽ thoát: ${String(err?.message || err).slice(0, 500)}`)
     // Cho Telegram/log flush trước khi thoát; WAL checkpoint trong gracefulShutdown.
-    setTimeout(() => { try { gracefulShutdown('uncaughtException') } catch { process.exit(1) } }, 1000)
+    setTimeout(() => { void gracefulShutdown('uncaughtException', 1) }, 1000)
   })
 }
 

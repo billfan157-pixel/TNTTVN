@@ -3,7 +3,7 @@ import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/a
 import { successResponse, errorResponse } from '../utils/response.js'
 import { reportingApplicationService } from '../services/ReportingApplicationService.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
-import { generatePDFFromHTML, closeBrowser } from '../services/pdfService.js'
+import { generatePDFFromHTML } from '../services/pdfService.js'
 
 const reportingRouter = new Hono()
 reportingRouter.use('*', authMiddleware)
@@ -95,15 +95,6 @@ reportingRouter.post('/generate-pdf', roleMiddleware('admin', 'chunhiem', 'phuta
     console.error('[PDF Generation Error]:', err)
     return errorResponse(c, 'PDF_GENERATION_FAILED', err.message || 'Không thể tạo file PDF', 500)
   }
-})
-
-// Graceful shutdown for browser
-process.on('SIGTERM', async () => {
-  await closeBrowser()
-})
-
-process.on('SIGINT', async () => {
-  await closeBrowser()
 })
 
 export default reportingRouter

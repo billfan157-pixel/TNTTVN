@@ -133,9 +133,10 @@ $$\text{Attendance Rate (\%)} = \frac{\text{Present} + (\text{AbsentExcused} \ti
 - 0 DB Mutations (`INSERT`, `UPDATE`, `DELETE` are strictly forbidden).
 - 0 Write Aggregates, 0 Domain Events, 0 ACID Write Transactions.
 - Pure SQL `SELECT` projections joining `students`, `grades`, `attendance`, `promotion_records`, `classes`, and `academic_years`.
+- Authorization, academic-year range and parish policy inputs are resolved by `ReportingApplicationService` through the same database transaction snapshot as all projection queries. Repositories receive this immutable context and must not call application services or global DB state themselves (ADR-104).
 
 ### 3.2 MVP Report Projections
-The Reporting subsystem defines 3 core MVP projections for parish administrators and catechists:
+The Reporting subsystem defines 2 core MVP projections for parish administrators and catechists, plus 1 deferred candidate (Projection 3 — not in current MVP scope, DR5):
 
 #### Projection 1: Student Report Card Projection (`ReportCardProjection`)
 - **Target**: Individual Student Academic & Conduct Certificate / Report Card.
@@ -151,7 +152,8 @@ The Reporting subsystem defines 3 core MVP projections for parish administrators
   - Total Students, Class Average GPA, Class Attendance Rate.
   - Ranked Student Roster with individual GPA, Attendance %, and Promotion Status.
 
-#### Projection 3: Parish Promotion & Attendance Statistics (`ParishSummaryProjection`)
+#### Projection 3 [DEFERRED CANDIDATE]: Parish Promotion & Attendance Statistics (`ParishSummaryProjection`)
+- **Status**: DEFERRED — no server projection, API contract, or acceptance criteria in the current MVP. The R1–R4 roadmap below covers Projections 1–2 only. Client-side KPI aggregates are not this projection. Implementation requires explicit product approval defining users, metrics, year range, pagination, freshness, and acceptance criteria.
 - **Target**: Parish Administrator / Pastor high-level academic year report.
 - **Fields**:
   - Total Students across all branches (Ấu Nhi, Thiếu Nhi, Nghĩa Sĩ, Hiệp Sĩ).
@@ -206,6 +208,7 @@ Action (per active student, `status = 'Đang học'`):
   `classification` (thresholds from settings, `getClassificationLabel`), `attendanceRate` (chuyên cần theo policy).
 - Evaluate decision via `PromotionApplicationService.evaluateStudent` → upsert **`academic_year_snapshots`** (immutable per finalize; re-finalize after unlock overwrites).
 - Set `is_locked=1, status='FINALIZED'` + audit log.
+- Toàn bộ pre-condition, checklist, source/policy read, evaluation, snapshot write, year lock và audit phải dùng **cùng một database transaction/executor**. Lỗi query policy/date-range phải rollback và báo lỗi; chỉ row cấu hình vắng hoặc JSON/field cấu hình không hợp lệ mới dùng business default.
 
 ### 4.5 Promote Year (Xét Lên Lớp)
 Pre-conditions: status must be `FINALIZED` (403); already `PROMOTED` → 409; năm đích phải định dạng `YYYY-YYYY` (400 — AY-F5).
@@ -213,8 +216,9 @@ Pre-conditions: status must be `FINALIZED` (403); already `PROMOTED` → 409; n�
 - Per snapshot: `approvePromotion(...)` with `manualDecision = snapshot.promotionStatus` (lớp mapping by class `code`; class id = `<nextYearId>-<code>`), move student to next-year class.
 - **PRM-F4 (2026-08-21)**: học sinh không tìm được lớp cùng `code` ở năm mới (hoặc không có lớp nguồn) → ghi vào `summary.warnings[]` (kèm lý do), KHÔNG chuyển lớp, KHÔNG tính lỗi — năm học vẫn `PROMOTED`, admin tự xử lý thủ công. Trước đây trường hợp này im lặng.
 - Snapshot GPA ÁP grade overrides (AYL-F2, 2026-08-21) — khớp `computeAuthoritativeMetrics` lúc verify promote và báo cáo phiếu điểm; HS có override không còn bị 409 `DATA_MISMATCH`.
-- Summary: `total`, `movedToNextYear`, `retained` (RETAINED), `graduated` (GRADUATED/TRANSFERRED), `errors`, `warnings`.
-- Partial success per student (ADR-008); set `status='PROMOTED'` + audit log.
+- Summary: `total`, `attempted`, `movedToNextYear`, `retained` (RETAINED), `graduated` (GRADUATED/TRANSFERRED), `unresolvedCount`, `errors`, `warnings`.
+- Partial success per student (ADR-008) được giữ. Khi bắt đầu promote, source year chuyển atomically sang `PROMOTED` và persist `promotion_target_year_id`; từng item sau đó vẫn transaction riêng. Snapshot chưa có active/latest `promotion_record` tạo durable reconciliation worklist, không chỉ tồn tại trong response/modal.
+- `POST /api/academic-years/:id/promotion-retry` chỉ retry item unresolved với chính target year đã persist và skip item đã resolve. `GET /api/academic-years/:id/promotion-reconciliation` cho phép UI tải lại worklist sau reload/crash.
 
 ### 4.6 Create / Copy Next Academic Year
 `POST /api/academic-years/:id/copy` (idempotent; returns existing year with `copiedClasses=0` if present):
@@ -225,6 +229,7 @@ Pre-conditions: status must be `FINALIZED` (403); already `PROMOTED` → 409; n�
 
 ### 4.7 Archive Year (Lưu Trữ)
 `POST /api/academic-years/:id/archive` — chỉ hợp lệ khi status = `PROMOTED` (403 nếu chưa xét lên lớp, 409 nếu đã ARCHIVED):
+- Archive phải fail closed với 409 và danh sách item nếu promotion reconciliation còn unresolved. Warning “không có lớp đích” vẫn là explicit warning theo quy tắc PRM-F4, không tự động biến thành error.
 - Set `status='ARCHIVED'` + audit log. Dữ liệu (điểm, snapshot, promotion_records) được GIỮ để báo cáo lịch sử.
 - Năm học đã lưu trữ KHÔNG được chọn làm năm học hiện tại; không còn thao tác khóa/chốt/xét lên lớp.
 
@@ -311,10 +316,12 @@ Enforcement:
 - Native chỉ hỏi quyền khi người dùng chủ động bật tại Cài đặt. Khi đã cấp quyền và không opt-out, app xin token mới ở launch/resume rồi đồng bộ server; logout unregister provider + server. Notification action chỉ điều hướng đường dẫn nội bộ dạng `/...`; URL ngoài app bị loại.
 
 ### 10.7 Nhắc Lễ Chủ Nhật tự động — `sundayReminderScheduler` (SSOT: `server/src/services/sundayReminderScheduler.ts`)
-- **Giờ lễ KHÔNG hardcode**: `sundayMassTime` nằm trong parish settings (`GET/PUT /api/settings`, định dạng `HH:MM`, mặc định `08:00`). Client hiển thị qua `useSundayReminder` (đọc `settingsStore.settings.sundayMassTime`); server render template qua `getSundayMassTime(parishId)` (SSOT đọc `system_settings` key `parish_system_settings`, fallback `'08:00'`).
-- **Scheduler** chạy trong tiến trình server (`initSundayReminderScheduler()` khởi động trong `server/src/index.ts`): check mỗi 60s, chỉ xử lý **Chúa Nhật** (`getDay() === 0`), cửa sổ gửi `[sundayMassTime, sundayMassTime + 120 phút]`.
-- **Idempotent**: mỗi Chúa Nhật gửi đúng **1 lần** — marker `sunday_reminder_last_sent` (YYYY-MM-DD) trong `system_settings`; marker đã có cho ngày hôm nay → bỏ qua. Quá cửa sổ 2h → bỏ qua hôm đó (không gửi trễ, không gửi lại).
-- Test: `server/src/__tests__/services/sundayReminderScheduler.test.ts` (mock `notifySundayMassReminder` + `getSundayMassTime`; `PARISH_ID` đọc tại module import nên set env trước `import()`).
+- **Explicit parish opt-in**: background reminder chỉ chạy cho row `parish_system_settings` có `sundayReminderEnabled=true`; default `false`. Admin bật/tắt và đặt giờ tại Cài đặt. Client-local reminder không bị cờ background này cấp thêm quyền.
+- **Giờ lễ KHÔNG hardcode**: `sundayMassTime` nằm trong parish settings (`GET/PUT /api/settings`, định dạng `HH:MM`, mặc định `08:00`). Server render template qua `getSundayMassTime(parishId)`.
+- **Scheduler multi-parish** chạy trong tiến trình server: mỗi 60s enumerate toàn bộ parish đã opt-in, xử lý **Chúa Nhật** (`getDay() === 0`) trong cửa sổ `[sundayMassTime, sundayMassTime + 120 phút]`; failure một parish được ghi nhận nhưng không chặn parish khác.
+- **Idempotent theo tenant**: marker `sunday_reminder_last_sent` dùng composite `(key, parishId)`; marker cùng ngày của parish khác không ảnh hưởng. Quá cửa sổ 2h thì bỏ qua hôm đó.
+- **Audience fail closed**: chỉ enqueue Telegram/Web/native tới user IDs phụ huynh được resolve trong đúng parish. Không có phụ huynh đích thì không gửi và không fallback sang global Telegram admin.
+- Test: `sundayReminderScheduler.test.ts` cover hai parish/giờ/marker độc lập và failure isolation; `smartNotifications.test.ts` cover no-target + explicit target channels.
 
 ### 10.8 Cấp tài khoản phụ huynh hàng loạt — Parent Provisioning (ADR-026)
 - **Nguồn dữ liệu**: `students.parentPhone` của học sinh **cùng giáo xứ, chưa soft-delete**. SĐT được chuẩn hóa (`phone.ts`) và phải hợp lệ VN (`^0\d{9}$` sau chuẩn hóa). `'Chưa cập nhật'` (placeholder của import) và SĐT sai định dạng → **bỏ qua** (không tạo tài khoản).
@@ -442,7 +449,7 @@ Quy chiếu: quyền `exam.create`/`exam.delete` cho `phuta`/`chunhiem` (ADR-025
   - `CREATE` → xóa bảng điểm mới tạo (kèm `grade_overrides`).
   - `UPDATE` → khôi phục các cột về `oldValue` (trạng thái trước import), version +1.
   - Entry mới nhất KHÔNG phải CREATE/UPDATE (VD: đã undo trước đó, hoặc thao tác khác) → **từ chối** (`not-clean`): không được phép undo 2 lần, không mất sửa tay sau import.
-- **Audit**: mỗi bảng điểm được undo ghi 1 dòng `GRADE_UNDO` vào nhật ký hệ thống (trạng thái trước/sau).
+- **Audit**: mỗi bảng điểm được undo ghi 1 dòng `GRADE_UNDO` vào nhật ký hệ thống (trạng thái trước/sau); policy version tại thời điểm undo phải được đọc bằng cùng transaction executor với mutation. Quy tắc executor này cũng áp dụng cho base grade upsert và explicit override/restore (ADR-104).
 - **Offline**: undo cần kết nối mạng (thao tác server-side); sau undo client refetch lại điểm từ server.
 
 ### 12.4 Phân Quyền Điều Chỉnh Hệ Số & Ghi Đè Điểm (Mobile vs Desktop RBAC - ADR-075)

@@ -9,6 +9,7 @@ import {
   classes,
   gradeOverrides,
   grades,
+  promotionRecords,
   semesterLocks,
   students,
 } from '../db/schema.js'
@@ -62,6 +63,7 @@ export interface PromoteSummary {
   nextYearId: string
   status: AcademicYearStatus
   total: number
+  attempted: number
   movedToNextYear: number
   retained: number
   graduated: number
@@ -72,6 +74,22 @@ export interface PromoteSummary {
    * `code` hoặc HS không tìm thấy lớp nguồn. Giờ ghi rõ để admin xử lý thủ công.
    */
   warnings: { studentId: string; reason: string }[]
+  unresolvedCount: number
+}
+
+export interface PromotionReconciliationItem {
+  studentId: string
+  promotionStatus: string | null
+  reason: string
+}
+
+export interface PromotionReconciliation {
+  yearId: string
+  targetYearId: string | null
+  total: number
+  resolved: number
+  unresolvedCount: number
+  unresolved: PromotionReconciliationItem[]
 }
 
 function httpError(message: string, status: number): Error & { status: number; details?: unknown } {
@@ -190,9 +208,31 @@ export class AcademicYearLifecycleService {
       .where(eq(academicYearSnapshots.parishId, parishId))
       .groupBy(academicYearSnapshots.academicYearId)
 
+    const promotionCoverageRows = await db
+      .select({
+        yearId: academicYearSnapshots.academicYearId,
+        studentId: academicYearSnapshots.studentId,
+        promotionRecordId: promotionRecords.id,
+      })
+      .from(academicYearSnapshots)
+      .leftJoin(promotionRecords, and(
+        eq(promotionRecords.parishId, academicYearSnapshots.parishId),
+        eq(promotionRecords.studentId, academicYearSnapshots.studentId),
+        eq(promotionRecords.academicYear, academicYearSnapshots.academicYearId),
+        eq(promotionRecords.status, 'ACTIVE'),
+        eq(promotionRecords.isLatest, 1),
+      ))
+      .where(eq(academicYearSnapshots.parishId, parishId))
+
     const classCountMap = new Map(classCountRows.map((r) => [r.yearId, Number(r.count)]))
     const studentCountMap = new Map(studentCountRows.map((r) => [r.yearId, Number(r.count)]))
     const snapshotCountMap = new Map(snapshotCountRows.map((r) => [r.yearId, Number(r.count)]))
+    const unresolvedPromotionCountMap = new Map<string, number>()
+    for (const row of promotionCoverageRows) {
+      if (!row.promotionRecordId) {
+        unresolvedPromotionCountMap.set(row.yearId, (unresolvedPromotionCountMap.get(row.yearId) || 0) + 1)
+      }
+    }
 
     return yearRows.map((year) => {
       const locks = lockMap.get(year.id) || { semester1Locked: false, semester2Locked: false }
@@ -208,14 +248,16 @@ export class AcademicYearLifecycleService {
         classCount: classCountMap.get(year.id) || 0,
         studentCount: studentCountMap.get(year.id) || 0,
         snapshotCount: snapshotCountMap.get(year.id) || 0,
+        promotionTargetYearId: year.promotionTargetYearId || null,
+        unresolvedPromotionCount: unresolvedPromotionCountMap.get(year.id) || 0,
         createdAt: year.createdAt,
         updatedAt: year.updatedAt,
       }
     })
   }
 
-  private async getYearOrThrow(yearId: string, parishId: string) {
-    const [year] = await db
+  private async getYearOrThrow(yearId: string, parishId: string, executor: DbExecutor = db) {
+    const [year] = await executor
       .select()
       .from(academicYears)
       .where(and(eq(academicYears.id, yearId), eq(academicYears.parishId, parishId)))
@@ -225,31 +267,31 @@ export class AcademicYearLifecycleService {
   }
 
   /** Bước ① — Check Data Completeness (read-only, không ghi DB). */
-  public async getCompletenessChecklist(yearId: string, parishId: string): Promise<CompletenessChecklist> {
-    const year = await this.getYearOrThrow(yearId, parishId)
-    const hk1Locked = await drizzleSemesterLockRepository.isLocked(year.id, 1, parishId)
-    const hk2Locked = await drizzleSemesterLockRepository.isLocked(year.id, 2, parishId)
+  public async getCompletenessChecklist(yearId: string, parishId: string, executor: DbExecutor = db): Promise<CompletenessChecklist> {
+    const year = await this.getYearOrThrow(yearId, parishId, executor)
+    const hk1Locked = await drizzleSemesterLockRepository.isLocked(year.id, 1, parishId, executor)
+    const hk2Locked = await drizzleSemesterLockRepository.isLocked(year.id, 2, parishId, executor)
 
-    const classRows = await db
+    const classRows = await executor
       .select()
       .from(classes)
       .where(and(eq(classes.academicYearId, year.id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
 
     const classIds = classRows.map((c) => c.id)
     const studentRows = classIds.length > 0
-      ? await db
+      ? await executor
           .select()
           .from(students)
           .where(and(inArray(students.classId, classIds), eq(students.parishId, parishId), isNull(students.deletedAt)))
       : []
 
-    const gradeRows = await db
+    const gradeRows = await executor
       .select()
       .from(grades)
       .where(and(eq(grades.academicYear, normalizeAcademicYear(year.id)), eq(grades.parishId, parishId)))
 
     const sessionRows = classIds.length > 0
-      ? await db
+      ? await executor
           .select()
           .from(attendanceSessions)
           .where(and(inArray(attendanceSessions.classId, classIds), eq(attendanceSessions.parishId, parishId)))
@@ -387,93 +429,86 @@ export class AcademicYearLifecycleService {
 
   /** Bước ③ — Finalize Academic Year: checklist → snapshot → khóa năm học. */
   public async finalizeYear(yearId: string, userId: string, parishId: string): Promise<FinalizeSummary> {
-    const year = await this.getYearOrThrow(yearId, parishId)
-    // AYL-06 (audit 2026-08-09): guard dùng deriveAcademicYearState — 1 chỗ suy
-    // trạng thái terminal (trước đây tự ghép isTerminalStatus && isLocked === 1).
-    const { status, terminal } = deriveAcademicYearState(year, { semester1Locked: false, semester2Locked: false })
-    if (terminal) {
-      throw httpError(`Năm học ${year.id} đã chốt sổ điểm (${status})`, 409)
-    }
+    const { finalizedYearId, snapshotCount, finalizedAt } = await runDbTransaction(async (tx: DbTransaction) => {
+      // AYL-07 (architecture audit 2026-09-04): toàn bộ guard, completeness,
+      // source reads, policy/specification evaluation và writes dùng cùng tx.
+      // Transaction vì vậy bảo vệ cả input snapshot lẫn output, không chỉ vòng
+      // upsert + year lock như remediation AYL-03 trước đây.
+      const year = await this.getYearOrThrow(yearId, parishId, tx)
+      const { status, terminal } = deriveAcademicYearState(year, { semester1Locked: false, semester2Locked: false })
+      if (terminal) {
+        throw httpError(`Năm học ${year.id} đã chốt sổ điểm (${status})`, 409)
+      }
 
-    const hk1Locked = await drizzleSemesterLockRepository.isLocked(year.id, 1, parishId)
-    const hk2Locked = await drizzleSemesterLockRepository.isLocked(year.id, 2, parishId)
-    if (!hk1Locked || !hk2Locked) {
-      throw httpError(
-        `Phải khóa sổ điểm cả HK1 và HK2 của năm học ${year.id} trước khi chốt năm học. HK1: ${hk1Locked ? 'đã khóa' : 'chưa khóa'}, HK2: ${hk2Locked ? 'đã khóa' : 'chưa khóa'}`,
-        403
-      )
-    }
+      const hk1Locked = await drizzleSemesterLockRepository.isLocked(year.id, 1, parishId, tx)
+      const hk2Locked = await drizzleSemesterLockRepository.isLocked(year.id, 2, parishId, tx)
+      if (!hk1Locked || !hk2Locked) {
+        throw httpError(
+          `Phải khóa sổ điểm cả HK1 và HK2 của năm học ${year.id} trước khi chốt năm học. HK1: ${hk1Locked ? 'đã khóa' : 'chưa khóa'}, HK2: ${hk2Locked ? 'đã khóa' : 'chưa khóa'}`,
+          403
+        )
+      }
 
-    const checklist = await this.getCompletenessChecklist(yearId, parishId)
-    if (!checklist.ready) {
-      const err = httpError(
-        `Chưa thể chốt năm học ${year.id}: còn ${checklist.issues.length} vấn đề dữ liệu (${checklist.issues.map((i) => i.label).join('; ')})`,
-        400
-      )
-      err.details = checklist
-      throw err
-    }
+      const checklist = await this.getCompletenessChecklist(year.id, parishId, tx)
+      if (!checklist.ready) {
+        const err = httpError(
+          `Chưa thể chốt năm học ${year.id}: còn ${checklist.issues.length} vấn đề dữ liệu (${checklist.issues.map((i) => i.label).join('; ')})`,
+          400
+        )
+        err.details = checklist
+        throw err
+      }
 
-    const classRows = await db
-      .select()
-      .from(classes)
-      .where(and(eq(classes.academicYearId, year.id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
-    const classIds = classRows.map((c) => c.id)
-    const studentRows = classIds.length > 0
-      ? await db
-          .select()
-          .from(students)
-          .where(and(inArray(students.classId, classIds), eq(students.parishId, parishId), isNull(students.deletedAt)))
-      : []
+      const classRows = await tx
+        .select()
+        .from(classes)
+        .where(and(eq(classes.academicYearId, year.id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      const classIds = classRows.map((c) => c.id)
+      const studentRows = classIds.length > 0
+        ? await tx
+            .select()
+            .from(students)
+            .where(and(inArray(students.classId, classIds), eq(students.parishId, parishId), isNull(students.deletedAt)))
+        : []
 
-    const normYear = normalizeAcademicYear(year.id)
-    const gradeRows = await db
-      .select()
-      .from(grades)
-      .where(and(eq(grades.academicYear, normYear), eq(grades.parishId, parishId)))
+      const normYear = normalizeAcademicYear(year.id)
+      const gradeRows = await tx
+        .select()
+        .from(grades)
+        .where(and(eq(grades.academicYear, normYear), eq(grades.parishId, parishId)))
 
-    // AYL-F2 (audit 2026-08-21): snapshot GPA phải ÁP grade overrides để khớp
-    // với bước verify authoritative lúc promote (PromotionApplicationService.
-    // computeAuthoritativeMetrics — G-02 có áp override) và với báo cáo
-    // (ReportCardProjectionRepository). Trước đây finalize dùng điểm thô → học
-    // sinh có override active bị 409 DATA_MISMATCH khi promoteYear chạy
-    // approvePromotion. Override lookup 1 lần cho cả năm (perf), filter theo
-    // gradeId + parish + chưa xóa — cùng ngữ nghĩa G-02.
-    const gradeIds = gradeRows.map((g) => g.id)
-    const activeOverrides = gradeIds.length > 0
-      ? await db
-          .select()
-          .from(gradeOverrides)
-          .where(and(
-            inArray(gradeOverrides.gradeId, gradeIds),
-            eq(gradeOverrides.parishId, parishId),
-            isNull(gradeOverrides.deletedAt),
-          ))
-      : []
+      // Snapshot GPA phải áp active overrides để khớp promotion/reporting.
+      const gradeIds = gradeRows.map((g) => g.id)
+      const activeOverrides = gradeIds.length > 0
+        ? await tx
+            .select()
+            .from(gradeOverrides)
+            .where(and(
+              inArray(gradeOverrides.gradeId, gradeIds),
+              eq(gradeOverrides.parishId, parishId),
+              isNull(gradeOverrides.deletedAt),
+            ))
+        : []
 
-    const range = await getAcademicYearDateRange(parishId, year.id)
-    const attendanceRows = await db
-      .select()
-      .from(attendance)
-      .where(and(eq(attendance.parishId, parishId), gte(attendance.date, range.startDate), lte(attendance.date, range.endDate)))
+      const range = await getAcademicYearDateRange(parishId, year.id, tx)
+      const attendanceRows = await tx
+        .select()
+        .from(attendance)
+        .where(and(eq(attendance.parishId, parishId), gte(attendance.date, range.startDate), lte(attendance.date, range.endDate)))
 
-    const weights = await getParishGradeWeights(parishId)
-    const attendancePolicy = await getParishAttendancePolicy(parishId)
-    const policy = await getParishPromotionPolicy(parishId)
-    const thresholds = await getParishClassificationThresholds(parishId)
+      const weights = await getParishGradeWeights(parishId, tx)
+      const attendancePolicy = await getParishAttendancePolicy(parishId, tx)
+      const policy = await getParishPromotionPolicy(parishId, tx)
+      const thresholds = await getParishClassificationThresholds(parishId, tx)
 
-    const effectiveGpa = (g: typeof gradeRows[number] | undefined): number | null => {
-      if (!g || isEmptyGrade(g)) return null
-      return computeWeightedGpa(
-        applyOverridesToGrade(g as any, activeOverrides as any[]) as any,
-        weights,
-      )
-    }
+      const effectiveGpa = (g: typeof gradeRows[number] | undefined): number | null => {
+        if (!g || isEmptyGrade(g)) return null
+        return computeWeightedGpa(
+          applyOverridesToGrade(g as any, activeOverrides as any[]) as any,
+          weights,
+        )
+      }
 
-    // AYL-03 (audit 2026-08-09): vòng snapshot + khóa năm + audit trong 1
-    // transaction — trước đây đứt đoạn giữa loop và UPDATE isLocked nên lỗi giữa
-    // chừng để lại snapshots partial + năm chưa chốt. Re-run vẫn an toàn (upsert).
-    const { snapshotCount, finalizedAt } = await runDbTransaction(async (tx: DbTransaction) => {
       const now = new Date().toISOString()
       let count = 0
 
@@ -506,7 +541,7 @@ export class AcademicYearLifecycleService {
           gpa: yearGpa,
           attendanceRate,
           policy,
-        })
+        }, tx)
 
         const existing = await tx
           .select({ id: academicYearSnapshots.id })
@@ -556,10 +591,18 @@ export class AcademicYearLifecycleService {
         count++
       }
 
-      await tx
+      const finalized = await tx
         .update(academicYears)
         .set({ isLocked: 1, status: 'FINALIZED', updatedAt: now, updatedBy: userId })
-        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+        .where(and(
+          eq(academicYears.id, year.id),
+          eq(academicYears.parishId, parishId),
+          eq(academicYears.isLocked, 0),
+        ))
+
+      if (Number(finalized.rowsAffected ?? 0) !== 1) {
+        throw httpError(`Năm học ${year.id} đã thay đổi trong lúc chốt; vui lòng tải lại và thử lại`, 409)
+      }
 
       await this.writeAuditLog(
         'FINALIZE_ACADEMIC_YEAR',
@@ -572,30 +615,69 @@ export class AcademicYearLifecycleService {
         tx
       )
 
-      return { snapshotCount: count, finalizedAt: now }
+      return { finalizedYearId: year.id, snapshotCount: count, finalizedAt: now }
     })
 
-    return { yearId: year.id, status: 'FINALIZED', snapshotCount, finalizedAt }
+    return { yearId: finalizedYearId, status: 'FINALIZED', snapshotCount, finalizedAt }
   }
 
-  /** Bước ④+⑤ — Promote: sinh promotion_records + chuyển học sinh sang năm mới (tự copy năm mới nếu chưa có). */
+  /** Durable worklist: snapshot chỉ được xem là resolved khi có active/latest promotion record. */
+  public async getPromotionReconciliation(
+    yearId: string,
+    parishId: string,
+    executor: DbExecutor = db,
+  ): Promise<PromotionReconciliation> {
+    const year = await this.getYearOrThrow(yearId, parishId, executor)
+    const rows = await executor
+      .select({
+        studentId: academicYearSnapshots.studentId,
+        promotionStatus: academicYearSnapshots.promotionStatus,
+        promotionRecordId: promotionRecords.id,
+      })
+      .from(academicYearSnapshots)
+      .leftJoin(promotionRecords, and(
+        eq(promotionRecords.parishId, academicYearSnapshots.parishId),
+        eq(promotionRecords.studentId, academicYearSnapshots.studentId),
+        eq(promotionRecords.academicYear, academicYearSnapshots.academicYearId),
+        eq(promotionRecords.status, 'ACTIVE'),
+        eq(promotionRecords.isLatest, 1),
+      ))
+      .where(and(
+        eq(academicYearSnapshots.parishId, parishId),
+        eq(academicYearSnapshots.academicYearId, year.id),
+      ))
+
+    const unresolved = rows
+      .filter((row) => !row.promotionRecordId)
+      .map((row) => ({
+        studentId: row.studentId,
+        promotionStatus: row.promotionStatus,
+        reason: 'Chưa có promotion record ACTIVE/LATEST cho snapshot năm học',
+      }))
+
+    return {
+      yearId: year.id,
+      targetYearId: year.promotionTargetYearId || null,
+      total: rows.length,
+      resolved: rows.length - unresolved.length,
+      unresolvedCount: unresolved.length,
+      unresolved,
+    }
+  }
+
+  /** Bước ④+⑤ — ghi target + chuyển PROMOTED trước, rồi xử lý partial items có durable reconciliation gate. */
   public async promoteYear(yearId: string, nextYearId: string, userId: string, parishId: string): Promise<PromoteSummary> {
     const year = await this.getYearOrThrow(yearId, parishId)
-    if (year.status === 'PROMOTED') {
-      throw httpError(`Năm học ${year.id} đã xét lên lớp`, 409)
-    }
     const status = deriveAcademicYearStatus(year, { semester1Locked: false, semester2Locked: false })
     if (status !== 'FINALIZED') {
+      if (year.status === 'PROMOTED') {
+        throw httpError(`Năm học ${year.id} đã xét lên lớp hoặc đang có item cần Retry`, 409)
+      }
       throw httpError(`Năm học ${year.id} chưa chốt (${status}) — phải Finalize trước khi xét lên lớp`, 403)
     }
 
     const normNextYear = normalizeAcademicYear(nextYearId)
-    if (normNextYear === year.id) {
-      throw httpError('Năm học mới phải khác năm học hiện tại', 400)
-    }
-    // AY-F5 (audit 2026-08-21): chặn năm đích tự do — năm không parse được sẽ nhận
-    // range 2000-2099 (computeAcademicYearDateRange) làm hỏng getOpenSemester và
-    // bounding chuyên cần ADR-017-F2.
+    if (normNextYear === year.id) throw httpError('Năm học mới phải khác năm học hiện tại', 400)
     if (!parseAcademicYear(normNextYear)) {
       throw httpError(`Định dạng năm học mới không hợp lệ (phải là YYYY-YYYY): "${normNextYear}"`, 400)
     }
@@ -606,20 +688,83 @@ export class AcademicYearLifecycleService {
       nextYear = await this.getYearOrThrow(copied.year.id, parishId)
     }
 
+    const startedAt = new Date().toISOString()
+    await runDbTransaction(async (tx) => {
+      const [current] = await tx.select().from(academicYears)
+        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+        .limit(1)
+      if (!current || current.status !== 'FINALIZED') {
+        throw httpError(`Năm học ${year.id} đã thay đổi trong lúc bắt đầu xét lên lớp`, 409)
+      }
+      if (current.promotionTargetYearId && current.promotionTargetYearId !== nextYear.id) {
+        throw httpError(`Năm học ${year.id} đã gắn với năm đích ${current.promotionTargetYearId}`, 409)
+      }
+      const claimed = await tx.update(academicYears)
+        .set({ status: 'PROMOTED', promotionTargetYearId: nextYear.id, updatedAt: startedAt, updatedBy: userId })
+        .where(and(
+          eq(academicYears.id, year.id),
+          eq(academicYears.parishId, parishId),
+          eq(academicYears.status, 'FINALIZED'),
+        ))
+      if (Number(claimed.rowsAffected ?? 0) !== 1) {
+        throw httpError(`Năm học ${year.id} đã được process khác bắt đầu xét lên lớp`, 409)
+      }
+      await this.writeAuditLog(
+        'START_PROMOTE_ACADEMIC_YEAR',
+        'academic_year',
+        year.id,
+        JSON.stringify({ status: 'FINALIZED' }),
+        JSON.stringify({ status: 'PROMOTED', nextYearId: nextYear.id }),
+        userId,
+        parishId,
+        tx,
+      )
+    })
+
+    return this.processPromotionItems(year.id, nextYear.id, userId, parishId, 'PROMOTE_ACADEMIC_YEAR')
+  }
+
+  public async retryPromotion(yearId: string, userId: string, parishId: string): Promise<PromoteSummary> {
+    const year = await this.getYearOrThrow(yearId, parishId)
+    if (year.status !== 'PROMOTED') {
+      throw httpError(`Năm học ${year.id} không ở trạng thái PROMOTED`, 403)
+    }
+    if (!year.promotionTargetYearId) {
+      throw httpError(`Năm học ${year.id} thiếu promotion target; không thể retry an toàn`, 409)
+    }
+    const reconciliation = await this.getPromotionReconciliation(year.id, parishId)
+    if (reconciliation.unresolvedCount === 0) {
+      throw httpError(`Năm học ${year.id} không còn item promotion cần retry`, 409)
+    }
+    await this.getYearOrThrow(year.promotionTargetYearId, parishId)
+    return this.processPromotionItems(year.id, year.promotionTargetYearId, userId, parishId, 'RETRY_PROMOTE_ACADEMIC_YEAR')
+  }
+
+  private async processPromotionItems(
+    yearId: string,
+    nextYearId: string,
+    userId: string,
+    parishId: string,
+    auditAction: 'PROMOTE_ACADEMIC_YEAR' | 'RETRY_PROMOTE_ACADEMIC_YEAR',
+  ): Promise<PromoteSummary> {
     const oldClasses = await db
       .select()
       .from(classes)
-      .where(and(eq(classes.academicYearId, year.id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      .where(and(eq(classes.academicYearId, yearId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     const newClasses = await db
       .select()
       .from(classes)
-      .where(and(eq(classes.academicYearId, nextYear.id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      .where(and(eq(classes.academicYearId, nextYearId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     const classCodeMap = new Map(newClasses.map((c) => [c.code, c.id]))
 
-    const snapshotRows = await db
+    const allSnapshotRows = await db
       .select()
       .from(academicYearSnapshots)
-      .where(and(eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.academicYearId, year.id)))
+      .where(and(eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.academicYearId, yearId)))
+
+    const before = await this.getPromotionReconciliation(yearId, parishId)
+    const unresolvedIds = new Set(before.unresolved.map((item) => item.studentId))
+    const snapshotRows = allSnapshotRows.filter((snapshot) => unresolvedIds.has(snapshot.studentId))
 
     const studentIds = snapshotRows.map((s) => s.studentId)
     const studentRows = studentIds.length > 0
@@ -629,21 +774,23 @@ export class AcademicYearLifecycleService {
 
     const now = new Date().toISOString()
     const summary: PromoteSummary = {
-      yearId: year.id,
-      nextYearId: nextYear.id,
+      yearId,
+      nextYearId,
       status: 'PROMOTED',
-      total: snapshotRows.length,
+      total: allSnapshotRows.length,
+      attempted: snapshotRows.length,
       movedToNextYear: 0,
       retained: 0,
       graduated: 0,
       errors: [],
       warnings: [],
+      unresolvedCount: before.unresolvedCount,
     }
 
     for (const snap of snapshotRows) {
       const student = studentMap.get(snap.studentId)
       if (!student) {
-        summary.warnings.push({ studentId: snap.studentId, reason: 'Không tìm thấy học sinh tương ứng snapshot' })
+        summary.errors.push({ studentId: snap.studentId, reason: 'Không tìm thấy học sinh tương ứng snapshot' })
         continue
       }
       const sourceClass = oldClasses.find((c) => c.id === student.classId)
@@ -703,7 +850,7 @@ export class AcademicYearLifecycleService {
         await runDbTransaction(async (tx) => {
           await promotionApplicationService.approvePromotion({
             studentId: snap.studentId,
-            academicYear: normalizeAcademicYear(year.id),
+            academicYear: normalizeAcademicYear(yearId),
             targetClassId,
             nextClassId,
             gpa: snap.yearGpa ?? 0,
@@ -733,20 +880,16 @@ export class AcademicYearLifecycleService {
       }
     }
 
-    // ADR-008 intentionally preserves per-student partial success. The terminal
-    // year status and its audit record, however, are still one state transition.
-    await runDbTransaction(async (tx) => {
-      await tx
-        .update(academicYears)
-        .set({ status: 'PROMOTED', updatedAt: now, updatedBy: userId })
-        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+    const reconciliation = await this.getPromotionReconciliation(yearId, parishId)
+    summary.unresolvedCount = reconciliation.unresolvedCount
 
+    await runDbTransaction(async (tx) => {
       await this.writeAuditLog(
-        'PROMOTE_ACADEMIC_YEAR',
+        auditAction,
         'academic_year',
-        year.id,
+        yearId,
         null,
-        JSON.stringify({ nextYearId: nextYear.id, total: summary.total, movedToNextYear: summary.movedToNextYear, retained: summary.retained, graduated: summary.graduated, errorCount: summary.errors.length, warningCount: summary.warnings.length }),
+        JSON.stringify({ nextYearId, total: summary.total, attempted: summary.attempted, movedToNextYear: summary.movedToNextYear, retained: summary.retained, graduated: summary.graduated, errorCount: summary.errors.length, warningCount: summary.warnings.length, unresolvedCount: summary.unresolvedCount }),
         userId,
         parishId,
         tx,
@@ -756,21 +899,26 @@ export class AcademicYearLifecycleService {
     return summary
   }
 
-  /** Bước ⑥ — Lưu trữ năm học (chỉ sau khi đã xét lên lớp). */
+  /** Bước ⑥ — chỉ archive khi durable reconciliation không còn unresolved item. */
   public async archiveYear(yearId: string, userId: string, parishId: string): Promise<{ yearId: string; status: AcademicYearStatus; archivedAt: string }> {
-    const year = await this.getYearOrThrow(yearId, parishId)
-    if (year.status === 'ARCHIVED') {
-      throw httpError(`Năm học ${year.id} đã được lưu trữ`, 409)
-    }
-    if (year.status !== 'PROMOTED') {
-      throw httpError(`Năm học ${year.id} chưa được xét lên lớp (${year.status || 'OPEN'}) — chỉ lưu trữ sau khi Xét Lên Lớp`, 403)
-    }
     const now = new Date().toISOString()
     await runDbTransaction(async (tx) => {
-      await tx
+      const year = await this.getYearOrThrow(yearId, parishId, tx)
+      if (year.status === 'ARCHIVED') throw httpError(`Năm học ${year.id} đã được lưu trữ`, 409)
+      if (year.status !== 'PROMOTED') {
+        throw httpError(`Năm học ${year.id} chưa được xét lên lớp (${year.status || 'OPEN'}) — chỉ lưu trữ sau khi Xét Lên Lớp`, 403)
+      }
+      const reconciliation = await this.getPromotionReconciliation(year.id, parishId, tx)
+      if (reconciliation.unresolvedCount > 0) {
+        const err = httpError(`Còn ${reconciliation.unresolvedCount} học sinh chưa hoàn tất xét lên lớp`, 409)
+        err.details = reconciliation
+        throw err
+      }
+      const archived = await tx
         .update(academicYears)
         .set({ status: 'ARCHIVED', updatedAt: now, updatedBy: userId })
-        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId)))
+        .where(and(eq(academicYears.id, year.id), eq(academicYears.parishId, parishId), eq(academicYears.status, 'PROMOTED')))
+      if (Number(archived.rowsAffected ?? 0) !== 1) throw httpError(`Năm học ${year.id} đã thay đổi trong lúc lưu trữ`, 409)
       await this.writeAuditLog(
         'ARCHIVE_ACADEMIC_YEAR',
         'academic_year',
@@ -782,7 +930,7 @@ export class AcademicYearLifecycleService {
         tx,
       )
     })
-    return { yearId: year.id, status: 'ARCHIVED', archivedAt: now }
+    return { yearId, status: 'ARCHIVED', archivedAt: now }
   }
 
   /** Bước ⑤ — Tạo năm học mới: copy lớp + assessments, KHÔNG copy điểm/điểm danh/báo cáo. */

@@ -3,7 +3,7 @@ import { examSessions, examResults, examResultMutations, examFinalizations, exam
 import { eq, and, inArray, isNull, notInArray } from 'drizzle-orm'
 import { createHash, randomUUID } from 'node:crypto'
 import { generateId } from '../utils/id.js'
-import { semesterLockSpecification } from './policyAdapters.js'
+import { createSemesterLockSpecification } from './policyAdapters.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { upsertGrade } from './gradeService.js'
 import { getActiveAcademicYearId } from './academicYearService.js'
@@ -985,7 +985,7 @@ export async function finalizeExamSession(
       ))
       .returning({ id: assessmentEntries.id })
 
-    const isUnlocked = await semesterLockSpecification.isSatisfiedBy(session.academicYear, session.semester, parishId, tx)
+    const isUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(session.academicYear, session.semester, parishId)
     if (!isUnlocked) {
       const err = new Error(`Học kỳ ${session.semester} năm học ${session.academicYear} đã bị khóa sổ điểm. Không thể hoàn tất phiên chấm.`) as any
       err.status = 403
@@ -1163,7 +1163,7 @@ export async function reopenExamSession(sessionId: string, userId: string, paris
       return session
     }
 
-    const isUnlocked = await semesterLockSpecification.isSatisfiedBy(session.academicYear, session.semester, parishId, tx)
+    const isUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(session.academicYear, session.semester, parishId)
     if (!isUnlocked) {
       const err = new Error(`Học kỳ ${session.semester} năm học ${session.academicYear} đã bị khóa sổ điểm. Không thể mở lại phiên chấm.`) as any
       err.status = 403

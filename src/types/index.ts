@@ -396,45 +396,6 @@ export interface ExamFinalizeResult {
 
 export type ViewMode = 'auto' | 'desktop' | 'mobile';
 
-export type OverrideReasonCode =
-  | 'TeacherAdjustment'
-  | 'SpecialAssignment'
-  | 'Appeal'
-  | 'DataCorrection'
-  | 'PrincipalApproval';
-
-export interface GradeOverride {
-  id: string;
-  gradeId: string;
-  scoreField: string;
-  manualValue: number;
-  reasonCode: OverrideReasonCode;
-  reasonNote?: string | null;
-  overriddenBy: string;
-  overriddenAt: string;
-  version: number;
-  deletedAt?: string | null;
-}
-
-export type EffectiveGradeState =
-  | 'AUTO'
-  | 'PENDING_OVERRIDE'
-  | 'MANUAL_OVERRIDDEN'
-  | 'AUTO_UPDATED_WHILE_OVERRIDDEN'
-  | 'SYNC_FAILED'
-  | 'CONFLICT_NEEDS_RESOLUTION'
-  | 'RESTORED';
-
-export interface EffectiveGradeView {
-  effectiveValue: number | null;
-  autoCalculatedValue: number | null;
-  manualValue: number | null;
-  state: EffectiveGradeState;
-  override?: GradeOverride | null;
-  badge?: string;
-  tooltip?: string;
-}
-
 // ─── Cổng Phụ Huynh (server ReportCardDTO — ReportCardProjectionRepository) ───
 export interface ParentChild {
   id: string;

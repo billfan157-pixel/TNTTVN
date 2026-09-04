@@ -1,10 +1,15 @@
-import { db } from '../db/index.js'
+import type { DbExecutor } from '../db/index.js'
 import { students, classes, grades, attendance, promotionRecords, gradeOverrides } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
-import { computeWeightedGpa } from '../utils/gradeCalculation.js'
+import { computeWeightedGpa, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
-import { getAcademicYearDateRange } from '../services/academicYearService.js'
-import { getParishGradeWeights, getParishAttendancePolicy } from '../services/parishSettingsService.js'
+
+export interface ReportingProjectionContext {
+  executor: DbExecutor
+  gradeWeights: GradeWeightsConfig
+  attendancePolicy: { excusedWeight: number }
+  academicYearRange: { startDate: string; endDate: string }
+}
 
 export interface ReportCardDTO {
   student: {
@@ -50,10 +55,12 @@ export class ReportCardProjectionRepository {
   public async getStudentReportCard(
     studentId: string,
     academicYear: string,
-    parishId: string
+    parishId: string,
+    context: ReportingProjectionContext,
   ): Promise<ReportCardDTO | null> {
+    const { executor, gradeWeights, attendancePolicy, academicYearRange } = context
     // 1. Fetch Student Profile (excluding soft-deleted)
-    const [studentRow] = await db
+    const [studentRow] = await executor
       .select({
         id: students.id,
         code: students.code,
@@ -71,7 +78,7 @@ export class ReportCardProjectionRepository {
     if (!studentRow) return null
 
     // 2. Fetch Grade Rows
-    const gradeRows = await db
+    const gradeRows = await executor
       .select()
       .from(grades)
       .where(
@@ -84,7 +91,7 @@ export class ReportCardProjectionRepository {
 
     // G-02: Load Active Grade Overrides for these gradeRows
     const gradeIds = gradeRows.map(g => g.id)
-    const activeOverrides = gradeIds.length > 0 ? await db
+    const activeOverrides = gradeIds.length > 0 ? await executor
       .select()
       .from(gradeOverrides)
       .where(
@@ -96,12 +103,11 @@ export class ReportCardProjectionRepository {
       ) : []
 
     // ADR-017 (F3): Trọng số từ parish settings.
-    const weights = await getParishGradeWeights(parishId)
     const formattedGrades = gradeRows.map((g) => {
       // G-02: Apply overrides to raw grade fields to form effective grade
       // Casting to any to resolve pre-existing type mismatch between Drizzle row and GradeRecordDTO Partial
       const effectiveGrade = applyOverridesToGrade(g as any, activeOverrides as any[])
-      const gpa = computeWeightedGpa(effectiveGrade as any, weights)
+      const gpa = computeWeightedGpa(effectiveGrade as any, gradeWeights)
 
       return {
         semester: effectiveGrade.semester!,
@@ -116,15 +122,14 @@ export class ReportCardProjectionRepository {
 
     // 3. Fetch Attendance Summary — ADR-017 (F2): chỉ đếm attendance trong năm
     // học đang xét (trước đây đếm all-time → % lệch với client ReportViewModelFactory).
-    const range = await getAcademicYearDateRange(parishId, academicYear)
-    const attendanceRows = await db
+    const attendanceRows = await executor
       .select()
       .from(attendance)
       .where(and(
         eq(attendance.studentId, studentId),
         eq(attendance.parishId, parishId),
-        gte(attendance.date, range.startDate),
-        lte(attendance.date, range.endDate)
+        gte(attendance.date, academicYearRange.startDate),
+        lte(attendance.date, academicYearRange.endDate)
       ))
 
     const massRows = attendanceRows.filter((a) => a.type === 'SundayMass')
@@ -136,7 +141,6 @@ export class ReportCardProjectionRepository {
     const totalSessions = attendanceRows.length
     // F3: Rate dùng excusedWeight từ attendancePolicy (giống AttendanceRateSpecification
     // & client RecreationFactory) — count fields vẫn là số raw cho hiển thị.
-    const attendancePolicy = await getParishAttendancePolicy(parishId)
     const excusedWeight = Math.min(Math.max(attendancePolicy.excusedWeight, 0), 1)
     const totalPresent = attendanceRows.reduce((acc, a) => {
       if (a.status === 'Present') return acc + 1
@@ -146,7 +150,7 @@ export class ReportCardProjectionRepository {
     const overallRate = totalSessions > 0 ? Number(((totalPresent / totalSessions) * 100).toFixed(1)) : 100.0
 
     // 4. Fetch Promotion Snapshot Record
-    const [prmRow] = await db
+    const [prmRow] = await executor
       .select()
       .from(promotionRecords)
       .where(

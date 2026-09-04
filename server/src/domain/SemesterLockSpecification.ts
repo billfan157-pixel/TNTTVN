@@ -1,4 +1,3 @@
-import type { DbExecutor } from '../db/index.js'
 import type { LockStatePort } from './ports.js'
 
 /**
@@ -13,8 +12,8 @@ export class SemesterLockSpecification {
     this.lockReader = lockReader
   }
 
-  public async isSatisfiedBy(academicYear: string, semester: number, parishId: string, tx?: DbExecutor): Promise<boolean> {
-    const isLocked = await this.lockReader.isLocked(academicYear, semester, parishId, tx)
+  public async isSatisfiedBy(academicYear: string, semester: number, parishId: string): Promise<boolean> {
+    const isLocked = await this.lockReader.isLocked(academicYear, semester, parishId)
     // Specification returns TRUE if operation is PERMITTED (i.e. semester is UNLOCKED)
     return !isLocked
   }

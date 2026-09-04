@@ -2,8 +2,7 @@ import { runDbTransaction } from '../db/index.js'
 import { auditLogs, students } from '../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
 import { drizzleAttendanceRepository, DrizzleAttendanceRepository } from '../repositories/DrizzleAttendanceRepository.js'
-import { semesterLockSpecification } from './policyAdapters.js'
-import type { SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import { createSemesterLockSpecification } from './policyAdapters.js'
 import { AttendanceRecord } from '../domain/AttendanceRecord.js'
 import type { AttendanceStatus, AttendanceSessionType } from '../domain/AttendanceRecord.js'
 import { generateId } from '../utils/id.js'
@@ -32,14 +31,10 @@ export interface MarkAttendanceCommand {
 
 export class AttendanceApplicationService {
   private attendanceRepo: DrizzleAttendanceRepository
-  private semesterLockSpec: SemesterLockSpecification
-
   constructor(
     attendanceRepo: DrizzleAttendanceRepository = drizzleAttendanceRepository,
-    semesterLockSpec: SemesterLockSpecification = semesterLockSpecification
   ) {
     this.attendanceRepo = attendanceRepo
-    this.semesterLockSpec = semesterLockSpec
   }
 
   /**
@@ -84,7 +79,7 @@ export class AttendanceApplicationService {
       }
 
       // 2. Check Semester Lock Specification
-      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(academicYear, semester, cmd.parishId, tx)
+      const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(academicYear, semester, cmd.parishId)
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${semester} năm học ${academicYear} đã bị khóa sổ điểm. Không thể điểm danh.`) as any
         err.status = 403

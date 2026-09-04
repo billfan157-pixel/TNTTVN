@@ -4,7 +4,7 @@ import { dexieStorage } from '../lib/db'
 import type { Student, BranchType } from '../types'
 
 import { syncCreateStudent, syncUpdateStudent, syncDeleteStudent } from '../lib/syncService'
-import { runSyncFlow } from '../hooks/useSyncEngine'
+import { requestSync as runSyncFlow } from '../lib/syncTrigger'
 import { api, isAuthenticated } from '../lib/api'
 import { getTenantScope } from '../lib/tenantScope'
 

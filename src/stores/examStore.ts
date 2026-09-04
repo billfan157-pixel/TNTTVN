@@ -15,7 +15,7 @@ import { normalizeAnswerKey, normalizeAnswerVariants } from '../lib/examVariants
 import { useGradeStore } from './gradeStore'
 import { useStudentStore } from './studentStore'
 import { useAcademicYearStore } from './academicYearStore'
-import { runSyncFlow } from '../hooks/useSyncEngine'
+import { requestSync as runSyncFlow } from '../lib/syncTrigger'
 import { evaluateExamFinalizeConflictsAndRoute, mapServerFinalizationToResult } from '../services/examFinalizeService'
 import { getTenantScope } from '../lib/tenantScope'
 import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'

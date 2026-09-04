@@ -338,6 +338,11 @@ export const academicYears = sqliteTable('academic_years', {
      enum: ['OPEN', 'SEMESTER_1_LOCKED', 'SEMESTER_2_OPEN', 'SEMESTER_2_LOCKED', 'FINALIZED', 'PROMOTED', 'ARCHIVED'],
    }).notNull().default('OPEN'),
    currentSemester: integer('current_semester', { mode: 'number' }).notNull().default(1),
+   // D8 (architecture audit 2026-09-04): durable target for partial promotion
+   // recovery. The unresolved worklist is derived from year snapshots versus
+   // active promotion records; this field makes retry deterministic even when
+   // the first attempt produced zero successful records.
+   promotionTargetYearId: text('promotion_target_year_id'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
    updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),

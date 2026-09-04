@@ -4,7 +4,7 @@ import { dexieStorage, getDB } from '../lib/db'
 import type { ParishNotice } from '../types'
 import { api, isAuthenticated } from '../lib/api'
 import { syncCreateNotice, syncUpdateNotice, syncDeleteNotice } from '../lib/syncService'
-import { runSyncFlow } from '../hooks/useSyncEngine'
+import { requestSync as runSyncFlow } from '../lib/syncTrigger'
 import { generateId } from '../lib/id'
 
 import * as Sentry from '@sentry/react'

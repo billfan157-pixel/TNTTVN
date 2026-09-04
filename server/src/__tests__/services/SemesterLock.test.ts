@@ -172,12 +172,12 @@ describe('Semester Lock Micro-Step S4 Integration Tests', () => {
     expect(restored?.deletedAt).not.toBeNull()
   })
 
-  it('verifies semesterLockSpecification.isSatisfiedBy accepts tx handle inside transaction (Fix F11)', async () => {
-      const { semesterLockSpecification } = await import('../../services/policyAdapters.js')
+  it('verifies a semester-lock specification can be bound to the active transaction (Fix F11)', async () => {
+    const { createSemesterLockSpecification } = await import('../../services/policyAdapters.js')
     await drizzleSemesterLockRepository.setLockState('2025-2026', 2, true, adminUserId, testParish)
 
     await db.transaction(async (tx) => {
-      const isPermitted = await semesterLockSpecification.isSatisfiedBy('2025-2026', 2, testParish, tx)
+      const isPermitted = await createSemesterLockSpecification(tx).isSatisfiedBy('2025-2026', 2, testParish)
       expect(isPermitted).toBe(false)
     })
 

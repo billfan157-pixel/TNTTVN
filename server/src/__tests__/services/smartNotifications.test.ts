@@ -63,10 +63,7 @@ describe('smartNotifications', () => {
 
   it('notifySundayMassReminder fails closed when parish has no parent accounts', async () => {
     await notifySundayMassReminder('parish-1')
-    expect(enqueueNotification).toHaveBeenCalledTimes(1)
-    expect(telegramCalls()[0][1]).toBe('reminder')
-    expect(telegramCalls()[0][2]).toContain('{sundayMassTime}')
-    expect(telegramCalls()[0][2]).not.toContain('8h00')
+    expect(enqueueNotification).not.toHaveBeenCalled()
   })
 
   it('notifyClassReminder fails closed when class has no parent accounts', async () => {
@@ -120,6 +117,15 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
   it('notifyClassReminder targets parents in the requested class only', async () => {
     await notifyClassReminder(parishId, 'Lớp TN1', '15/01/2025')
     expect(webpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
+  })
+
+  it('notifySundayMassReminder uses explicit parent targets for both channels', async () => {
+    await notifySundayMassReminder(parishId)
+    expect(webpushCalls()).toHaveLength(1)
+    expect(telegramCalls()).toHaveLength(1)
+    expect(webpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
+    const telegramOptions = telegramCalls()[0][6] as { telegramUserIds?: string[] }
+    expect(telegramOptions.telegramUserIds).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
   })
 
   it('targetBranch cụ thể → chỉ webpush tới phụ huynh có con trong chi đoàn đó (khớp phone chuẩn hóa)', async () => {

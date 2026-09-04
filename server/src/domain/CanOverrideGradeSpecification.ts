@@ -1,4 +1,3 @@
-import type { DbExecutor } from '../db/index.js'
 import type { ClassAccessPort, StudentClassPort } from './ports.js'
 
 /**
@@ -19,11 +18,10 @@ export class CanOverrideGradeSpecification {
     userId: string,
     targetStudentId: string,
     userParishId: string,
-    executor?: DbExecutor,
   ): Promise<boolean> {
-    const studentClassId = await this.classes.getClassId(targetStudentId, userParishId, executor)
+    const studentClassId = await this.classes.getClassId(targetStudentId, userParishId)
     if (!studentClassId) return false
-    const hasAccess = await this.access.hasAccess(userId, userParishId, studentClassId, executor)
+    const hasAccess = await this.access.hasAccess(userId, userParishId, studentClassId)
     return hasAccess
   }
 }

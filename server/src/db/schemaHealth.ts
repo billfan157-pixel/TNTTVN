@@ -106,6 +106,7 @@ const REQUIRED_TRIGGER_NAMES = [
 ] as const
 
 const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
+  academic_years: ['promotion_target_year_id'],
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],

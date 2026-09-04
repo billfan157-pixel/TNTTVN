@@ -1,4 +1,4 @@
-import {  runDbTransaction } from '../db/index.js'
+import { runDbTransaction, type DbTransaction } from '../db/index.js'
 import { students } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { promotionApplicationService, PromotionApplicationService } from './PromotionApplicationService.js'
@@ -28,14 +28,18 @@ export interface BatchPromotionResponse {
  * enforce bên trong approvePromotion (403 nếu HK2 chưa khóa).
  */
 export type BatchApproveItem = ApprovePromotionCommand & { newBranch?: string | null }
+export type BatchTransactionRunner = <T>(operation: (tx: DbTransaction) => Promise<T>) => Promise<T>
 
 export class BatchPromotionApplicationService {
   private promotionAppService: PromotionApplicationService
+  private runTransaction: BatchTransactionRunner
 
   constructor(
-    promotionAppService: PromotionApplicationService = promotionApplicationService
+    promotionAppService: PromotionApplicationService = promotionApplicationService,
+    runTransaction: BatchTransactionRunner = runDbTransaction,
   ) {
     this.promotionAppService = promotionAppService
+    this.runTransaction = runTransaction
   }
 
   public async approveBatch(
@@ -56,7 +60,10 @@ export class BatchPromotionApplicationService {
 
       for (const item of chunk) {
         try {
-          await runDbTransaction(async (tx) => {
+          // The retryable transaction callback must not mutate response state.
+          // runDbTransaction can replay this callback after commit-time BUSY;
+          // only account for the item after the wrapper has returned once.
+          const itemResult = await this.runTransaction(async (tx): Promise<BatchItemResult> => {
             const snapshot = await this.promotionAppService.approvePromotion(item, tx)
             const approvedTime = new Date(snapshot.approvedAt).getTime()
 
@@ -74,22 +81,22 @@ export class BatchPromotionApplicationService {
 
             // If approvedAt was generated prior to this batch execution, it was an idempotent skip
             if (approvedTime < batchStartTime) {
-              results.push({
+              return {
                 studentId: item.studentId,
                 status: 'skipped',
                 reason: 'Already approved with identical decision and snapshot data',
                 snapshot,
-              })
-              skippedCount++
-            } else {
-              results.push({
-                studentId: item.studentId,
-                status: 'saved',
-                snapshot,
-              })
-              successCount++
+              }
+            }
+            return {
+              studentId: item.studentId,
+              status: 'saved',
+              snapshot,
             }
           })
+          results.push(itemResult)
+          if (itemResult.status === 'saved') successCount++
+          else skippedCount++
         } catch (err: any) {
           errorCount++
           results.push({

@@ -3,8 +3,7 @@ import { students, classes, grades, attendance, gradeOverrides, auditLogs } from
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
 import { drizzlePromotionRepository, DrizzlePromotionRepository } from '../repositories/DrizzlePromotionRepository.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
-import { PromotionEligibilitySpecification } from '../domain/PromotionSpecifications.js'
-import { promotionEligibilitySpecification } from './policyAdapters.js'
+import { createCanAccessStudentSpecification, createPromotionEligibilitySpecification } from './policyAdapters.js'
 import type { EvaluationInput } from '../domain/PromotionSpecifications.js'
 import { PromotionDecision } from '../domain/PromotionDecision.js'
 import type { PromotionStatus } from '../domain/PromotionDecision.js'
@@ -14,8 +13,8 @@ import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import { getAcademicYearDateRange } from './academicYearService.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getCurrentPolicyVersionId } from './parishSettingsService.js'
 
-import { canAccessStudentSpecification } from './policyAdapters.js'
-import { checkUserClassAccess, type JwtPayload } from '../middleware/auth.js'
+import { checkUserClassAccess } from './classAccessQueryService.js'
+import type { ActorContext } from '../types/actor.js'
 
 export interface ApprovePromotionCommand {
   studentId: string
@@ -29,7 +28,7 @@ export interface ApprovePromotionCommand {
   overrideReason?: string | null
   userId: string
   parishId: string
-  user?: JwtPayload
+  user?: ActorContext
   policy?: { minGpa: number; minAttendance: number }
   ip?: string
   userAgent?: string
@@ -37,14 +36,11 @@ export interface ApprovePromotionCommand {
 
 export class PromotionApplicationService {
   private promotionRepo: DrizzlePromotionRepository
-  private eligibilitySpec: PromotionEligibilitySpecification
 
   constructor(
     promotionRepo: DrizzlePromotionRepository = drizzlePromotionRepository,
-    eligibilitySpec: PromotionEligibilitySpecification = promotionEligibilitySpecification
   ) {
     this.promotionRepo = promotionRepo
-    this.eligibilitySpec = eligibilitySpec
   }
 
   /**
@@ -138,12 +134,12 @@ export class PromotionApplicationService {
     studentId: string
     academicYear: string
     parishId: string
-    user?: JwtPayload
+    user?: ActorContext
   }): Promise<PromotionDecision> {
     const { studentId, academicYear, parishId, user } = params
 
     if (user && user.role !== 'admin') {
-      const isAuthorized = await canAccessStudentSpecification.isSatisfiedBy(user, studentId)
+      const isAuthorized = await createCanAccessStudentSpecification(db).isSatisfiedBy(user, studentId)
       if (!isAuthorized) {
         const err = new Error('Bạn không có quyền đánh giá xét lên lớp cho thiếu nhi này') as any
         err.status = 403
@@ -184,7 +180,7 @@ export class PromotionApplicationService {
   }
 
   public async evaluateStudent(input: EvaluationInput, executor: DbExecutor = db): Promise<PromotionDecision> {
-    const res = await this.eligibilitySpec.evaluate(input, executor)
+    const res = await createPromotionEligibilitySpecification(executor).evaluate(input)
     return new PromotionDecision({
       studentId: input.studentId,
       academicYear: input.academicYear,
@@ -208,7 +204,7 @@ export class PromotionApplicationService {
 
     return runInTx(async (tx) => {
       if (cmd.user && cmd.user.role !== 'admin') {
-        const isAuthorized = await canAccessStudentSpecification.isSatisfiedBy(cmd.user, cmd.studentId, tx)
+        const isAuthorized = await createCanAccessStudentSpecification(tx).isSatisfiedBy(cmd.user, cmd.studentId)
         if (!isAuthorized) {
           const err = new Error('Bạn không có quyền phê duyệt xét lên lớp cho thiếu nhi này') as any
           err.status = 403
@@ -285,14 +281,14 @@ export class PromotionApplicationService {
 
       const parishPolicy = await getParishPromotionPolicy(cmd.parishId, tx)
       const policy = cmd.policy || parishPolicy
-      const evalRes = await this.eligibilitySpec.evaluate({
+      const evalRes = await createPromotionEligibilitySpecification(tx).evaluate({
         studentId: cmd.studentId,
         academicYear: cmd.academicYear,
         parishId: cmd.parishId,
         gpa: authoritativeGpa,
         attendanceRate: authoritative.attendanceRate,
         policy,
-      }, tx)
+      })
 
       // If HK2 is not locked, evaluation MUST fail
       if (evalRes.rejectionReasons.some((r) => r.includes('chưa được khóa'))) {

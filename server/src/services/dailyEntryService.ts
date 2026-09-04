@@ -2,7 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { runDbTransaction, db, type DbTransaction } from '../db/index.js'
 import { assessmentEntries, auditLogs, classes, students } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
-import { semesterLockSpecification } from './policyAdapters.js'
+import { createSemesterLockSpecification } from './policyAdapters.js'
 import { getStudentClassId } from './studentService.js'
 
 /**
@@ -98,7 +98,7 @@ async function assertWritable(
   if (!classId || (params.allowedClassIds && !params.allowedClassIds.includes(classId))) {
     throw new DailyEntryAccessError('Bạn không có quyền thao tác điểm của lớp này')
   }
-  const unlocked = await semesterLockSpecification.isSatisfiedBy(params.academicYear, params.semester, params.parishId, tx)
+  const unlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(params.academicYear, params.semester, params.parishId)
   if (!unlocked) {
     const err = new Error(`Học kỳ ${params.semester} năm học ${params.academicYear} đã bị khóa sổ điểm. Không thể ghi điểm hằng ngày.`) as Error & { status: number }
     err.status = 403

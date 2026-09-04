@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { getGrades, upsertGrade, upsertGradeBatch } from '../../services/gradeService.js'
 import { createStudent } from '../../services/studentService.js'
 import { db } from '../../db/index.js'
@@ -10,6 +10,7 @@ describe('Server gradeService Layer Unit Tests', () => {
   let studentB: string
   let studentC: string
   let studentP5: string
+  let studentTx: string
 
 beforeAll(async () => {
      const now = new Date().toISOString()
@@ -39,10 +40,12 @@ beforeAll(async () => {
      const b = await createWithRetry({ holyName: 'B', fullName: 'B', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '000', address: 'X', branch: 'AuNhi', classId: 'AU1' })
      const c = await createWithRetry({ holyName: 'C', fullName: 'C', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '000', address: 'X', branch: 'AuNhi', classId: 'AU1' })
      const p5 = await createWithRetry({ holyName: 'P5', fullName: 'P5', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '000', address: 'X', branch: 'AuNhi', classId: 'AU1' })
+     const tx = await createWithRetry({ holyName: 'TX', fullName: 'TX', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '000', address: 'X', branch: 'AuNhi', classId: 'AU1' })
      studentA = a!.id
      studentB = b!.id
      studentC = c!.id
      studentP5 = p5!.id
+     studentTx = tx!.id
    })
 
   it('upsertGrade inserts or updates a grade record', async () => {
@@ -61,6 +64,22 @@ beforeAll(async () => {
     const res = await upsertGrade(gradeData, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
     expect(res).not.toBeNull()
     expect(res?.scoreFinal).toBe(10)
+  })
+
+  it('D4: resolves policy version through the grade transaction executor', async () => {
+    const globalSelect = vi.spyOn(db, 'select')
+    try {
+      const result = await upsertGrade({
+        studentId: studentTx,
+        academicYear: '2025-2026',
+        semester: 1,
+        scoreFinal: 8,
+      }, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
+      expect(result.studentId).toBe(studentTx)
+      expect(globalSelect).not.toHaveBeenCalled()
+    } finally {
+      globalSelect.mockRestore()
+    }
   })
 
   it('getGrades fetches list of grade records for parish', async () => {

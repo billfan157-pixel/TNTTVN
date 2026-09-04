@@ -55,6 +55,7 @@ describe('Settings — sundayMassTime', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
     expect(body.data.sundayMassTime).toBe('08:00')
+    expect(body.data.sundayReminderEnabled).toBe(false)
   })
 
   it('PUT /settings cập nhật sundayMassTime + GET lại thấy giá trị mới', async () => {
@@ -62,11 +63,12 @@ describe('Settings — sundayMassTime', () => {
     const put = await settingsRouter.request('/', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ sundayMassTime: '09:30' }),
+      body: JSON.stringify({ sundayMassTime: '09:30', sundayReminderEnabled: true }),
     })
     expect(put.status).toBe(200)
     const putBody = (await put.json()) as any
     expect(putBody.data.sundayMassTime).toBe('09:30')
+    expect(putBody.data.sundayReminderEnabled).toBe(true)
 
     const get = await settingsRouter.request('/', {
       method: 'GET',
@@ -74,6 +76,7 @@ describe('Settings — sundayMassTime', () => {
     })
     const getBody = (await get.json()) as any
     expect(getBody.data.sundayMassTime).toBe('09:30')
+    expect(getBody.data.sundayReminderEnabled).toBe(true)
   })
 
   it('PUT với sundayMassTime sai định dạng → 400', async () => {

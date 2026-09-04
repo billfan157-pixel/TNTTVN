@@ -23,6 +23,12 @@ export interface LogicalBackupSnapshot {
   checksum: string
 }
 
+export interface LogicalRestoreResult {
+  restoredRows: number
+  tableCounts: Record<string, number>
+  foreignKeyViolations: number
+}
+
 interface EncryptedBackupEnvelope {
   format: typeof BACKUP_FORMAT
   encryption: 'aes-256-gcm'
@@ -152,7 +158,7 @@ export async function createAndStoreRemoteBackup(client: Client): Promise<{ obje
 }
 
 /** Restore is intentionally generic but must only be called against an isolated drill/target DB. */
-export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBackupSnapshot): Promise<number> {
+export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBackupSnapshot): Promise<LogicalRestoreResult> {
   verifyLogicalSnapshot(snapshot)
   const targetTables = await client.execute(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%'",
@@ -160,6 +166,17 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
   const available = new Set(targetTables.rows.map(row => String(row.name)))
   for (const table of snapshot.tables) {
     if (!available.has(table.name)) throw new Error(`Restore target is missing table ${table.name}; run migrations first`)
+    const info = await client.execute(`PRAGMA table_info(${quoteIdentifier(table.name)})`)
+    const targetColumns = info.rows.map((row) => String(row.name))
+    if (targetColumns.length !== table.columns.length || targetColumns.some((column, index) => column !== table.columns[index])) {
+      throw new Error(`Restore target columns do not exactly match snapshot table ${table.name}`)
+    }
+    if (table.name !== 'schema_migrations') {
+      const count = await client.execute(`SELECT count(*) AS count FROM ${quoteIdentifier(table.name)}`)
+      if (Number(count.rows[0]?.count ?? 0) !== 0) {
+        throw new Error(`Restore target is not empty: ${table.name} already contains rows`)
+      }
+    }
   }
 
   await client.execute('PRAGMA foreign_keys=OFF')
@@ -176,7 +193,21 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
       }
     }
     await tx.commit()
-    return restored
+
+    const tableCounts: Record<string, number> = {}
+    for (const table of snapshot.tables) {
+      const count = await client.execute(`SELECT count(*) AS count FROM ${quoteIdentifier(table.name)}`)
+      const actual = Number(count.rows[0]?.count ?? 0)
+      if (actual !== table.rows.length) {
+        throw new Error(`Post-restore row count mismatch for ${table.name}: expected ${table.rows.length}, got ${actual}; discard this target`)
+      }
+      tableCounts[table.name] = actual
+    }
+    const foreignKeyCheck = await client.execute('PRAGMA foreign_key_check')
+    if (foreignKeyCheck.rows.length > 0) {
+      throw new Error(`Post-restore foreign_key_check reported ${foreignKeyCheck.rows.length} violation(s); discard this target`)
+    }
+    return { restoredRows: restored, tableCounts, foreignKeyViolations: 0 }
   } catch (error) {
     try { await tx.rollback() } catch { /* transaction may already be closed */ }
     throw error

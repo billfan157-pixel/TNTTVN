@@ -92,7 +92,8 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 
 ### 5.2 Graceful Shutdown Handler (`server/src/index.ts`)
 - Listens for `SIGTERM` and `SIGINT` signals from Docker / Railway.
-- Executes `PRAGMA wal_checkpoint(TRUNCATE)` before closing database connections to guarantee zero WAL file corruption upon container restart.
+- Composition root is the only signal owner. It stops import/backup/Sunday producers and HTTP intake, awaits active scheduler ticks, drains active notification delivery, closes Puppeteer and Telegram, then checkpoints and closes the database before exit (ADR-104).
+- A 10-second deadline force-exits with failure if an external resource hangs. Durable notification rows and leases remain the restart recovery boundary; graceful shutdown does not claim exactly-once provider delivery.
 
 ---
 
@@ -233,10 +234,11 @@ Token thiết bị là credential giao vận: server phải lưu để gửi nh�
 ## 9. AUTOMATED & SNAPSHOT-SAFE DATABASE BACKUP (INF-01, INF-02, INF-03)
 
 ### 9.1 Cơ Chế Sao Lưu Nhất Quán (Snapshot-Consistent)
-SQLite local sử dụng cơ chế hai lớp ở chế độ WAL (`PRAGMA journal_mode=WAL`):
-1. **Lớp 1 (VACUUM INTO)**: Sử dụng lệnh chuẩn SQLite `VACUUM INTO '<destination_file>'` sau khi đã `PRAGMA wal_checkpoint(TRUNCATE)`, tạo bản sao lưu nguyên tử, nén và nhất quán 100% ngay cả khi đang có truy vấn ghi đồng thời.
-2. **Lớp 2 (Fallback Copy)**: Nếu VACUUM INTO không khả dụng, thực hiện checkpoint WAL trước khi sao lưu file nhị phân.
-3. **Chính Sách Lưu Trữ (Retention)**: Tự động giữ lại 5 bản sao lưu gần nhất (có thể cấu hình qua biến `BACKUP_RETENTION_COUNT`).
+SQLite local sử dụng cơ chế fail-closed ở chế độ WAL (`PRAGMA journal_mode=WAL`):
+1. **Checkpoint chuẩn bị**: thử `PRAGMA wal_checkpoint(TRUNCATE)`. Nếu checkpoint lỗi, scheduler ghi warning nhưng vẫn có thể tiếp tục vì `VACUUM INTO` tự tạo snapshot nhất quán từ kết nối SQLite.
+2. **Snapshot và publish**: chạy `VACUUM INTO` vào unique partial artifact, sau đó atomic rename thành file `.sqlite`. Chỉ artifact đã hoàn tất mới được upload và đưa vào retention.
+3. **Không raw-copy fallback**: nếu `VACUUM INTO` hoặc rename lỗi, run trả failure, xóa partial artifact và không ghi `auto_backup_last_date`. Cấm copy riêng main DB vì committed pages có thể còn trong WAL.
+4. **Chính Sách Lưu Trữ (Retention)**: Tự động giữ lại 5 bản sao lưu gần nhất (có thể cấu hình qua biến `BACKUP_RETENTION_COUNT`).
 
 Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction, snapshot toàn bộ bảng ứng dụng, ghi row count + SHA-256, gzip rồi mã hóa AES-256-GCM bằng `BACKUP_ENCRYPTION_KEY` trước khi upload `backups/turso-*.json.gz.enc` lên R2. Thiếu key/R2 hoặc upload lỗi → run thất bại và marker ngày không được ghi.
 
@@ -256,7 +258,8 @@ Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction
 
 1. Tạo DB Turso cô lập, chạy migration hiện hành trên target.
 2. Set `RESTORE_DATABASE_URL`, `RESTORE_DATABASE_AUTH_TOKEN`, `BACKUP_ENCRYPTION_KEY`, đủ `R2_*`, và `ALLOW_BACKUP_RESTORE=true`. `RESTORE_DATABASE_URL` phải khác `TURSO_URL`.
-3. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>`.
-4. Xác nhận checksum/GCM pass, số row restore, đăng nhập smoke trên target và đối chiếu các bảng trọng yếu. Ghi ngày drill + RTO/RPO; khuyến nghị hàng quý.
+3. Chuẩn hóa URL bằng cách bỏ query/hash/trailing slash, lowercase protocol/host; tính SHA-256 và set đúng giá trị vào `RESTORE_TARGET_FINGERPRINT`. Đây là xác nhận target lần hai, không dùng fingerprint của source/production.
+4. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>` trên target disposable/rỗng. CLI từ chối nếu bất kỳ table snapshot nào đã có dữ liệu (trừ `schema_migrations`) hoặc schema/cột không khớp chính xác.
+5. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts khớp, `foreignKeyViolations=[]` và `assertDatabaseReady` pass. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu. Ghi riêng thời gian download/decrypt/restore/verify; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi.
 
-CLI có hard guard từ chối target URL trùng production. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.
+CLI có hard guard từ chối target URL trùng production. Post-commit validation failure không tự rollback toàn target, vì vậy luôn discard target lỗi và tạo target mới; tuyệt đối không sửa chữa/cutover target đó. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.

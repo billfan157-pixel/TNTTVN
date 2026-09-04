@@ -13,7 +13,7 @@ import {
   flushGradeBatchWithIsolation,
   flushAttendanceBatchWithIsolation,
   extractZodBadIndexes,
-} from '../hooks/useSyncEngine'
+} from '../lib/syncCoordinator'
 import { api, ApiError } from '../lib/api'
 import { decryptQueueValue } from '../lib/offlineCipher'
 

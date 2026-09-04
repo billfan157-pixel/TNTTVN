@@ -307,4 +307,27 @@ describe('notificationQueue', () => {
       return rows[0]?.status === 'failed' && rows[0]?.error?.includes('APP_PUSH_PARTIAL_FAILURE')
     }, { timeout: 3000 })
   })
+
+  it('D7: stop waits for the active delivery before resolving', async () => {
+    const { sendTelegramInfo } = await import('../../services/telegram.js')
+    const { enqueueNotification, getQueueLength, stopNotificationQueue } = await import('../../services/notificationQueue.js')
+    await vi.waitFor(() => expect(getQueueLength()).toBe(0), { timeout: 3000 })
+
+    let releaseDelivery!: () => void
+    vi.mocked(sendTelegramInfo).mockImplementationOnce(() => new Promise<void>((resolve) => {
+      releaseDelivery = resolve
+    }))
+    await enqueueNotification('telegram', 'info', 'Shutdown drain', {}, 'gia-ton')
+    await vi.waitFor(() => expect(sendTelegramInfo).toHaveBeenCalledWith('Shutdown drain', true), { timeout: 3000 })
+
+    let stopped = false
+    const stopPromise = stopNotificationQueue().then(() => { stopped = true })
+    await Promise.resolve()
+    expect(stopped).toBe(false)
+
+    releaseDelivery()
+    await stopPromise
+    expect(stopped).toBe(true)
+    expect(getQueueLength()).toBe(0)
+  })
 })

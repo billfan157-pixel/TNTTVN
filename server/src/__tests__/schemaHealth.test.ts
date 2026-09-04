@@ -101,6 +101,7 @@ const SPECIAL_COMPOSITE_PRIMARY_KEYS: Record<string, string[]> = {
 }
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
+  academic_years: ['promotion_target_year_id'],
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],

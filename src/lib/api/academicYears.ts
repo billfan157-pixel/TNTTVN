@@ -13,6 +13,8 @@ export interface AcademicYearLifecycleDTO {
   classCount: number
   studentCount: number
   snapshotCount: number
+  promotionTargetYearId: string | null
+  unresolvedPromotionCount: number
   createdAt: string
   updatedAt: string
 }
@@ -44,10 +46,22 @@ export interface PromoteSummary {
   nextYearId: string
   status: AcademicYearStatus
   total: number
+  attempted: number
   movedToNextYear: number
   retained: number
   graduated: number
   errors: { studentId: string; reason: string }[]
+  warnings: { studentId: string; reason: string }[]
+  unresolvedCount: number
+}
+
+export interface PromotionReconciliation {
+  yearId: string
+  targetYearId: string | null
+  total: number
+  resolved: number
+  unresolvedCount: number
+  unresolved: { studentId: string; promotionStatus: string | null; reason: string }[]
 }
 
 export interface CopyYearResult {
@@ -83,6 +97,14 @@ export const academicYearsApiClient = {
 
   async promoteYear(yearId: string, nextYearId: string): Promise<PromoteSummary> {
     return httpFetch.post<PromoteSummary>(`/academic-years/${encodeURIComponent(yearId)}/promote`, { nextYearId })
+  },
+
+  async getPromotionReconciliation(yearId: string): Promise<PromotionReconciliation> {
+    return httpFetch.get<PromotionReconciliation>(`/academic-years/${encodeURIComponent(yearId)}/promotion-reconciliation`)
+  },
+
+  async retryPromotion(yearId: string): Promise<PromoteSummary> {
+    return httpFetch.post<PromoteSummary>(`/academic-years/${encodeURIComponent(yearId)}/promotion-retry`)
   },
 
   async archiveYear(yearId: string): Promise<{ yearId: string; status: AcademicYearStatus; archivedAt: string }> {

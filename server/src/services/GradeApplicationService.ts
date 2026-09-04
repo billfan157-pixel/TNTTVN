@@ -1,9 +1,6 @@
 import { db } from '../db/index.js'
 import { drizzleGradeRepository, DrizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
-import { canOverrideGradeSpecification } from './policyAdapters.js'
-import { semesterLockSpecification } from './policyAdapters.js'
-import type { CanOverrideGradeSpecification } from '../domain/CanOverrideGradeSpecification.js'
-import type { SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import { createCanOverrideGradeSpecification, createSemesterLockSpecification } from './policyAdapters.js'
 import { GradeAggregate, type ScoreField } from '../domain/GradeAggregate.js'
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
 import { notifyGradeOverride } from './smartNotifications.js'
@@ -33,17 +30,10 @@ export interface RestoreScoreCommand {
 
 export class GradeApplicationService {
   private gradeRepo: DrizzleGradeRepository
-  private spec: CanOverrideGradeSpecification
-  private semesterLockSpec: SemesterLockSpecification
-
   constructor(
     gradeRepo: DrizzleGradeRepository = drizzleGradeRepository,
-    spec: CanOverrideGradeSpecification = canOverrideGradeSpecification,
-    semesterLockSpec: SemesterLockSpecification = semesterLockSpecification
   ) {
     this.gradeRepo = gradeRepo
-    this.spec = spec
-    this.semesterLockSpec = semesterLockSpec
   }
 
   public async overrideScore(cmd: OverrideScoreCommand) {
@@ -62,11 +52,10 @@ export class GradeApplicationService {
       notifiedStudentId = gradeRecord.studentId
 
       // 2. Check Semester Lock Specification FIRST
-      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(
+      const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(
         gradeRecord.academicYear,
         gradeRecord.semester,
         cmd.parishId,
-        tx,
       )
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${gradeRecord.semester} năm học ${gradeRecord.academicYear} đã bị khóa sổ điểm. Không thể chỉnh sửa điểm.`) as any
@@ -81,7 +70,7 @@ export class GradeApplicationService {
         throw err
       }
       
-      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId, tx)
+      const isAuthorized = await createCanOverrideGradeSpecification(tx).isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId)
       if (!isAuthorized) {
         const err = new Error('Bạn không có quyền ghi đè điểm cho thiếu nhi này') as any
         err.status = 403
@@ -139,11 +128,10 @@ export class GradeApplicationService {
       notifiedStudentId = gradeRecord.studentId
 
       // 2. Check Semester Lock Specification FIRST
-      const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(
+      const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(
         gradeRecord.academicYear,
         gradeRecord.semester,
         cmd.parishId,
-        tx,
       )
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${gradeRecord.semester} năm học ${gradeRecord.academicYear} đã bị khóa sổ điểm. Không thể khôi phục điểm.`) as any
@@ -152,7 +140,7 @@ export class GradeApplicationService {
       }
 
       // 3. Check Class Access Permission Specification
-      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId, tx)
+      const isAuthorized = await createCanOverrideGradeSpecification(tx).isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId)
       if (!isAuthorized) {
         const err = new Error('Bạn không có quyền khôi phục điểm cho thiếu nhi này') as any
         err.status = 403

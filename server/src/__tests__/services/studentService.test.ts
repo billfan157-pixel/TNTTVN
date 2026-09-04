@@ -379,12 +379,18 @@ describe('Server studentService Layer Unit Tests', () => {
     await deleteStudent(delStudent.id, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
 
     // Projection queries must exclude the soft-deleted student
+    const projectionContext = {
+      executor: db,
+      academicYearRange: { startDate: '2025-08-01', endDate: '2026-07-31' },
+      gradeWeights: {},
+      attendancePolicy: { excusedWeight: 1 },
+    }
     const classSummaryRepo = new ClassSummaryProjectionRepository()
-    const summary = await classSummaryRepo.getClassSummary('AU1', '2025-2026', 'gia-ton')
+    const summary = await classSummaryRepo.getClassSummary('AU1', '2025-2026', 'gia-ton', projectionContext)
     expect(summary?.students.some(s => s.studentId === delStudent.id)).toBe(false)
 
     const reportCardRepo = new ReportCardProjectionRepository()
-    const reportCard = await reportCardRepo.getStudentReportCard(delStudent.id, '2025-2026', 'gia-ton')
+    const reportCard = await reportCardRepo.getStudentReportCard(delStudent.id, '2025-2026', 'gia-ton', projectionContext)
     expect(reportCard).toBeNull()
 
     // Verify grades lifecycle for deleted student (Item 4)

@@ -12,16 +12,14 @@ import { useAcademicYearStore } from './academicYearStore'
 import { useSettingsStore } from './settingsStore'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { isOwnOp } from './syncStore'
+import { requestSync } from '../lib/syncTrigger'
 
 const SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'] as const
 
-// Lazy import như attendanceStore.ts:46-54 — import runSyncFlow ở module top-level
-// sẽ kéo router.tsx vào mọi unit test. GRADE-SYNC-1 (2026-08-14): mọi thao tác sửa
-// điểm phải trigger sync tức thì để audit log máy chủ được ghi ngay.
+// Store only signals a framework-neutral trigger registered by the root hook.
 async function triggerSyncFlow() {
   try {
-    const { runSyncFlow } = await import('../hooks/useSyncEngine')
-    await runSyncFlow()
+    await requestSync()
   } catch (err) {
     console.warn('[gradeStore] runSyncFlow failed:', err)
   }
@@ -81,9 +79,6 @@ export { getCurrentAcademicYear } from '../utils/academicYear'
 /** @deprecated Dùng getCurrentAcademicYear() thay vì const để tránh frozen year */
 export const CURRENT_ACADEMIC_YEAR = getCurrentAcademicYear()
 
-import { gradeAggregateAdapter } from '../domain/GradeAggregateAdapter'
-import type { GradeOverride, OverrideReasonCode } from '../types'
-
 interface GradeState {
   grades: GradeRecord[]
   error: string | null
@@ -91,23 +86,6 @@ interface GradeState {
   fetchGrades: (updatedAfter?: string, throwOnError?: boolean) => Promise<void>
   upsertGrade: (gradeData: Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync?: boolean) => void
   batchSaveGrades: (gradesList: (Partial<GradeRecord> & { studentId: string; semester: 1 | 2 })[], skipSync?: boolean) => void
-  overrideScore: (
-    studentId: string,
-    semester: 1 | 2,
-    scoreField: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scoreDaoDuc'>,
-    manualValue: number,
-    reasonCode?: OverrideReasonCode,
-    reasonNote?: string,
-    overrides?: GradeOverride[],
-    userId?: string
-  ) => GradeOverride
-  restoreScore: (
-    studentId: string,
-    semester: 1 | 2,
-    scoreField: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scoreDaoDuc'>,
-    overrides?: GradeOverride[],
-    userId?: string
-  ) => { restoredOverride: GradeOverride | null; updatedGrade: GradeRecord } | null
   getStudentGrade: (studentId: string, semester: 1 | 2, academicYear?: string) => GradeRecord | undefined
   calculateStudentAvg: (studentId: string, semester: 1 | 2, academicYear?: string) => { score: number | null; label: string }
 }
@@ -269,63 +247,6 @@ export const useGradeStore = create<GradeState>()(
         }
         return { grades: updated }
       }),
-
-      overrideScore: (studentId, semester, scoreField, manualValue, reasonCode, reasonNote, overrides = [], userId = 'system') => {
-        const existingGrade = get().getStudentGrade(studentId, semester) || {
-          id: `GR-${Date.now()}-${Math.random().toString(36).substr(2, 10)}`,
-          studentId,
-          academicYear: getCurrentAcademicYear(),
-          semester,
-          scoreOral: null,
-          scoreOral_source: null,
-          scoreOral_updated_at: null,
-          score15m: null,
-          score15m_source: null,
-          score15m_updated_at: null,
-          score1Period: null,
-          score1Period_source: null,
-          score1Period_updated_at: null,
-          scoreMidterm: null,
-          scoreMidterm_source: null,
-          scoreMidterm_updated_at: null,
-          scoreFinal: null,
-          scoreFinal_source: null,
-          scoreFinal_updated_at: null,
-          scoreDaoDuc: null,
-          version: 1,
-          updatedAt: new Date().toISOString(),
-        }
-
-        const { override, updatedGrade } = gradeAggregateAdapter.overrideScore(
-          existingGrade,
-          overrides,
-          scoreField,
-          manualValue,
-          reasonCode,
-          reasonNote,
-          userId
-        )
-
-        get().upsertGrade(updatedGrade)
-        return override
-      },
-
-      restoreScore: (studentId, semester, scoreField, overrides = [], userId = 'system') => {
-        const existingGrade = get().getStudentGrade(studentId, semester)
-        if (!existingGrade) return null
-
-        const { restoredOverride, updatedGrade } = gradeAggregateAdapter.restoreScore(
-          existingGrade,
-          overrides,
-          scoreField,
-          userId
-        )
-
-        if (restoredOverride) {
-          get().upsertGrade(updatedGrade)
-        }
-        return { restoredOverride, updatedGrade }
-      },
 
       getStudentGrade: (studentId, semester, academicYear?) => {
         const activeAY = useAcademicYearStore.getState().currentYear

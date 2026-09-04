@@ -2,9 +2,14 @@ import 'hono'
 import { createMiddleware } from 'hono/factory'
 import jwt from 'jsonwebtoken'
 import { randomUUID } from 'crypto'
-import { db, type DbExecutor } from '../db/index.js'
-import { users, catechistAssignments } from '../db/schema.js'
+import { db } from '../db/index.js'
+import { users } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import type { ActorContext } from '../types/actor.js'
+
+// Compatibility exports for routes. Application services import the query
+// module directly so their dependency does not point at HTTP middleware.
+export { getUserClassIds, checkUserClassAccess } from '../services/classAccessQueryService.js'
 declare module 'hono' {
   interface ContextVariableMap {
     user: JwtPayload
@@ -32,11 +37,8 @@ const JWT_REFRESH_SECRET: string = rawRefreshSecret
 const JWT_EXPIRES_IN = '15m'
 const REFRESH_EXPIRES_IN = '7d'
 
-export interface JwtPayload {
-  userId: string
+export interface JwtPayload extends ActorContext {
   username: string
-  role: 'admin' | 'chunhiem' | 'phuta' | 'phuhuynh'
-  parishId: string
   tokenVersion?: number
 }
 
@@ -137,24 +139,4 @@ export function getSuperAdminId(): string {
 
 export function isSuperAdmin(userId: string): boolean {
   return userId === getSuperAdminId()
-}
-
-export async function getUserClassIds(userId: string, parishId: string, executor: DbExecutor = db): Promise<string[]> {
-  const assignments = await executor
-    .select({ classId: catechistAssignments.classId })
-    .from(catechistAssignments)
-    .where(and(eq(catechistAssignments.userId, userId), eq(catechistAssignments.parishId, parishId)))
-  return assignments.map(a => a.classId)
-}
-
-export async function checkUserClassAccess(
-  userId: string,
-  parishId: string,
-  targetClassId: string,
-  executor: DbExecutor = db,
-): Promise<boolean> {
-  const userRole = (await executor.select({ role: users.role }).from(users).where(and(eq(users.id, userId), eq(users.parishId, parishId))).limit(1))?.[0]?.role
-  if (userRole === 'admin') return true
-  const classIds = await getUserClassIds(userId, parishId, executor)
-  return classIds.includes(targetClassId)
 }

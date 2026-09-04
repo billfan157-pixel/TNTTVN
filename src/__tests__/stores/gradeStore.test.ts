@@ -162,22 +162,4 @@ describe('gradeStore', () => {
     expect(avg.label).toBe('Chưa có điểm')
   })
 
-  it('overrideScore uses GradeAggregateAdapter to perform score override', () => {
-    useGradeStore.getState().setGrades([{ id: 'GR-100', studentId: 'ST-100', semester: 1, academicYear: getCurrentAcademicYear(), scoreOral: 8, version: 1 } as any])
-    const override = useGradeStore.getState().overrideScore('ST-100', 1, 'scoreFinal', 9.5, 'Appeal', 'Phúc khảo')
-    expect(override.manualValue).toBe(9.5)
-    expect(override.reasonCode).toBe('Appeal')
-    const updated = useGradeStore.getState().getStudentGrade('ST-100', 1)
-    expect(updated?.version).toBe(2)
-  })
-
-  it('restoreScore uses GradeAggregateAdapter to restore score and increment version', () => {
-    useGradeStore.getState().setGrades([{ id: 'GR-200', studentId: 'ST-200', semester: 1, academicYear: getCurrentAcademicYear(), scoreOral: 8, version: 1 } as any])
-    const activeOv = { id: 'GROV-200', gradeId: 'GR-200', scoreField: 'scoreFinal', manualValue: 9.5, reasonCode: 'Appeal', version: 1, deletedAt: null } as any
-    const res = useGradeStore.getState().restoreScore('ST-200', 1, 'scoreFinal', [activeOv])
-    expect(res).not.toBeNull()
-    expect(res?.restoredOverride?.deletedAt).not.toBeNull()
-    const updated = useGradeStore.getState().getStudentGrade('ST-200', 1)
-    expect(updated?.version).toBe(2)
-  })
 })

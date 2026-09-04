@@ -15,8 +15,8 @@ Evidence-first review of the mobile presentation layer, focusing on a native-lik
 | Header density | `src/components/common/HeaderBar.tsx:63-244` | The desktop header remains a dense multi-control header in mobile mode, with logo/title, class selector, search, semester, diagnostics, user/logout, mode switch, theme, and reset controls. | HIGH |
 | PWA viewport | `index.html:6` | Viewport metadata lacks `viewport-fit=cover`, so edge-to-edge safe-area behavior is incomplete. | HIGH |
 | Native interaction primitives | `src/index.css:178-245`, `MobileBottomNav.tsx:46-77` | Existing buttons/nav use mixed inline styles, no shared mobile hit-area/ripple/press-state conventions, and inconsistent control heights. | HIGH |
-| Visual rendering | `notices-mobile.png` | Current mobile screen displays a desktop-like top control cluster and a fixed bottom nav, with content ending close to nav; it looks like a responsive dashboard rather than a native app frame. | HIGH |
-| Desktop reference | `dashboard-desktop.png` | Desktop intentionally uses a full header plus sidebar; mobile should preserve brand hierarchy but simplify controls into a compact app bar and bottom navigation. | HIGH |
+| Visual rendering | *(screenshot evidence removed 2026-09-04 as stale)* | At audit time the mobile screen displayed a desktop-like top control cluster and a fixed bottom nav, with content ending close to nav; it looked like a responsive dashboard rather than a native app frame. | HIGH |
+| Desktop reference | *(screenshot evidence removed 2026-09-04 as stale)* | Desktop intentionally uses a full header plus sidebar; mobile should preserve brand hierarchy but simplify controls into a compact app bar and bottom navigation. | HIGH |
 
 ## Native-mobile redesign targets
 

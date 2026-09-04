@@ -16,20 +16,27 @@ export const DEFAULT_ATTENDANCE_POLICY: ParishAttendancePolicy = {
   minRateForExam: 80,
 }
 
-/** Đọc row settings dạng raw (gradeWeights/attendancePolicy/promotionPolicy) với fallback defaults. */
+/**
+ * Đọc row settings dạng raw (gradeWeights/attendancePolicy/promotionPolicy).
+ * Row thiếu hoặc JSON cấu hình hỏng được xem là chưa có cấu hình và dùng
+ * defaults. Lỗi query/infrastructure phải propagate để decision/write path
+ * không âm thầm chạy với policy khác.
+ */
 async function getSystemSettings(parishId: string, executor: DbExecutor = db): Promise<Record<string, any>> {
+  const [row] = await executor
+    .select({ value: systemSettings.value })
+    .from(systemSettings)
+    .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, parishId)))
+    .limit(1)
+
+  if (!row?.value) return {}
+
   try {
-    const [row] = await executor
-      .select({ value: systemSettings.value })
-      .from(systemSettings)
-      .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, parishId)))
-      .limit(1)
-    if (row?.value) {
-      const parsed = JSON.parse(row.value)
-      if (parsed && typeof parsed === 'object') return parsed
-    }
+    const parsed = JSON.parse(row.value)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
   } catch {
-    // corrupt/invalid settings JSON → defaults
+    // Corrupt/invalid settings JSON is an allowed business fallback. This catch
+    // deliberately excludes the database query above.
   }
   return {}
 }
@@ -40,19 +47,15 @@ async function getSystemSettings(parishId: string, executor: DbExecutor = db): P
  * This allows tracing grade overrides and other operations back to the exact policy snapshot active at that time.
  */
 export async function getCurrentPolicyVersionId(parishId: string, executor: DbExecutor = db): Promise<string | null> {
-  try {
-    const [row] = await executor
-      .select({ updatedAt: systemSettings.updatedAt })
-      .from(systemSettings)
-      .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, parishId)))
-      .limit(1)
-    
-    if (row?.updatedAt) {
-      const timestamp = typeof row.updatedAt === 'string' ? row.updatedAt : new Date(row.updatedAt).toISOString()
-      return `policy-settings-${parishId}-${timestamp}`
-    }
-  } catch {
-    // fallback
+  const [row] = await executor
+    .select({ updatedAt: systemSettings.updatedAt })
+    .from(systemSettings)
+    .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, parishId)))
+    .limit(1)
+
+  if (row?.updatedAt) {
+    const timestamp = typeof row.updatedAt === 'string' ? row.updatedAt : new Date(row.updatedAt).toISOString()
+    return `policy-settings-${parishId}-${timestamp}`
   }
   return null
 }
@@ -146,8 +149,8 @@ export const DEFAULT_CLASSIFICATION_THRESHOLDS: ClassificationThresholds = {
  * ('parish_system_settings' → gradeWeights.*Threshold) — khớp client
  * src/utils/grades.ts DEFAULT_GRADE_WEIGHTS. Dùng cho Finalize Year snapshot.
  */
-export async function getParishClassificationThresholds(parishId: string): Promise<ClassificationThresholds> {
-  const parsed = await getSystemSettings(parishId)
+export async function getParishClassificationThresholds(parishId: string, executor: DbExecutor = db): Promise<ClassificationThresholds> {
+  const parsed = await getSystemSettings(parishId, executor)
   const w = parsed?.gradeWeights
   const out: ClassificationThresholds = { ...DEFAULT_CLASSIFICATION_THRESHOLDS }
   if (w && typeof w === 'object') {

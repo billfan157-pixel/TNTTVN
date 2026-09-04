@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-const { changePassword, adminChangePassword, authUser } = vi.hoisted(() => ({
+const { changePassword, adminChangePassword, updateSettings, authUser } = vi.hoisted(() => ({
   changePassword: vi.fn(),
   adminChangePassword: vi.fn(),
+  updateSettings: vi.fn(),
   authUser: {
     id: 'USR-001',
     username: 'bill',
@@ -28,7 +29,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api')>()
   return {
     ...actual,
-    api: { ...actual.api, changePassword, adminChangePassword, updateProfile: vi.fn() },
+    api: { ...actual.api, changePassword, adminChangePassword, updateProfile: vi.fn(), updateSettings },
   }
 })
 
@@ -47,5 +48,18 @@ describe('SettingsPage — self-service password change', () => {
     await waitFor(() => expect(changePassword).toHaveBeenCalledWith('OldPassword1!', 'NewPassword1!'))
     expect(adminChangePassword).not.toHaveBeenCalled()
     expect(await screen.findByText(/Phiên hiện tại đã được làm mới/)).toBeTruthy()
+  })
+
+  it('admin explicitly opts the parish into the Sunday scheduler', async () => {
+    updateSettings.mockResolvedValue({ sundayReminderEnabled: true, sundayMassTime: '08:00' })
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Bật nhắc lễ tự động' }))
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      sundayReminderEnabled: true,
+      sundayMassTime: '08:00',
+    })))
+    expect(await screen.findByText('Đã lưu cấu hình nhắc lễ.')).toBeTruthy()
   })
 })

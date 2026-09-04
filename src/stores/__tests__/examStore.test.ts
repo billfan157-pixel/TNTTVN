@@ -10,8 +10,8 @@ import { useAcademicYearStore } from '../../stores/academicYearStore'
 import * as syncService from '../../lib/syncService'
 import type { ExamSession, ExamResult } from '../../types'
 
-vi.mock('../../hooks/useSyncEngine', () => ({
-  runSyncFlow: vi.fn(),
+vi.mock('../../lib/syncTrigger', () => ({
+  requestSync: vi.fn(),
 }))
 
 function setOffline(offline: boolean) {

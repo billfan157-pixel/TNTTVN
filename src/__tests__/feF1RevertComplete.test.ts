@@ -16,7 +16,7 @@ vi.mock('../lib/api', () => ({
 }))
 vi.mock('../lib/syncLease', () => ({ acquireSyncLease: vi.fn(() => true), releaseSyncLease: vi.fn() }))
 
-import { revertFailedExamCompleteOp } from '../hooks/useSyncEngine'
+import { revertFailedExamCompleteOp } from '../lib/syncCoordinator'
 import { useExamStore } from '../stores/examStore'
 import type { SyncQueueItem } from '../lib/db'
 import type { ExamSession } from '../types'

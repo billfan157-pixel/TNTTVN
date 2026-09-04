@@ -1,9 +1,7 @@
-import { db } from '../db/index.js'
 import { students, classes, grades, attendance, promotionRecords } from '../db/schema.js'
 import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
-import { getAcademicYearDateRange } from '../services/academicYearService.js'
-import { getParishGradeWeights, getParishAttendancePolicy } from '../services/parishSettingsService.js'
+import type { ReportingProjectionContext } from './ReportCardProjectionRepository.js'
 
 export interface ClassStudentSummaryDTO {
   studentId: string
@@ -35,10 +33,12 @@ export class ClassSummaryProjectionRepository {
   public async getClassSummary(
     classId: string,
     academicYear: string,
-    parishId: string
+    parishId: string,
+    context: ReportingProjectionContext,
   ): Promise<ClassSummaryDTO | null> {
+    const { executor, gradeWeights, attendancePolicy, academicYearRange } = context
     // 1. Fetch Class Info
-    const [classRow] = await db
+    const [classRow] = await executor
       .select()
       .from(classes)
       .where(and(eq(classes.id, classId), eq(classes.parishId, parishId)))
@@ -47,7 +47,7 @@ export class ClassSummaryProjectionRepository {
     if (!classRow) return null
 
     // 2. Fetch Roster Students (excluding soft-deleted)
-    const studentRows = await db
+    const studentRows = await executor
       .select()
       .from(students)
       .where(and(eq(students.classId, classId), eq(students.parishId, parishId), isNull(students.deletedAt)))
@@ -71,12 +71,10 @@ export class ClassSummaryProjectionRepository {
 
     // 3. Batch Fetch All Grades, Attendance, and Promotion Records in O(1) Queries
     // ADR-017 (F3): Trọng số từ parish settings.
-    const weights = await getParishGradeWeights(parishId)
     // F3: Attendance policy hoisted (tránh N+1 trong vòng lặp roster).
-    const attendancePolicy = await getParishAttendancePolicy(parishId)
     const excusedWeight = Math.min(Math.max(attendancePolicy.excusedWeight, 0), 1)
 
-    const allGrades = await db
+    const allGrades = await executor
       .select()
       .from(grades)
       .where(
@@ -89,18 +87,17 @@ export class ClassSummaryProjectionRepository {
 
     // ADR-017 (F2): Attendance giới hạn theo năm học đang xét — trước đây đếm
     // all-time làm lệch tỷ lệ chuyên cần trong báo cáo lớp.
-    const range = await getAcademicYearDateRange(parishId, academicYear)
-    const allAttendance = await db
+    const allAttendance = await executor
       .select()
       .from(attendance)
       .where(and(
         inArray(attendance.studentId, studentIds),
         eq(attendance.parishId, parishId),
-        gte(attendance.date, range.startDate),
-        lte(attendance.date, range.endDate)
+        gte(attendance.date, academicYearRange.startDate),
+        lte(attendance.date, academicYearRange.endDate)
       ))
 
-    const allPromotions = await db
+    const allPromotions = await executor
       .select()
       .from(promotionRecords)
       .where(
@@ -143,12 +140,12 @@ export class ClassSummaryProjectionRepository {
       const gradeRows = gradesByStudent.get(s.id) || []
       let studentGpas: number[] = []
       for (const g of gradeRows) {
-        const semesterGpa = computeWeightedGpa(g, weights)
+        const semesterGpa = computeWeightedGpa(g, gradeWeights)
         if (typeof semesterGpa === 'number') studentGpas.push(semesterGpa)
       }
       // F4: Làm tròn theo roundingDecimal của parish — trước đây toFixed(2) cứng
       // (8.89) lệch với mọi nơi khác (0.1) và với client (roundingDecimal settings).
-      const rounding = Number(weights.roundingDecimal ?? 1)
+      const rounding = Number(gradeWeights.roundingDecimal ?? 1)
       const gpaFactor = Math.pow(10, rounding)
       const gpa = studentGpas.length > 0 ? Math.round((studentGpas.reduce((a, b) => a + b, 0) / studentGpas.length) * gpaFactor) / gpaFactor : 0.0
 

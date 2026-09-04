@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { getGrades, upsertGrade, undoGradeImport } from '../../services/gradeService.js'
 import { createStudent } from '../../services/studentService.js'
 import { db } from '../../db/index.js'
@@ -11,6 +11,7 @@ describe('Server undoGradeImport Layer Tests (ADR-028)', () => {
   let studentC: string
   let studentD: string
   let studentE: string
+  let studentF: string
 
   const semester = 1
   const academicYear = '2025 - 2026'
@@ -43,11 +44,13 @@ describe('Server undoGradeImport Layer Tests (ADR-028)', () => {
     const c = await createWithRetry({ holyName: 'UndoC', fullName: 'UndoC', ...base })
     const d = await createWithRetry({ holyName: 'UndoD', fullName: 'UndoD', ...base })
     const e = await createWithRetry({ holyName: 'UndoE', fullName: 'UndoE', ...base })
+    const f = await createWithRetry({ holyName: 'UndoF', fullName: 'UndoF', ...base })
     studentA = a!.id
     studentB = b!.id
     studentC = c!.id
     studentD = d!.id
     studentE = e!.id
+    studentF = f!.id
   })
 
   it('restores a grade row to its pre-import state (UPDATE entry)', async () => {
@@ -62,6 +65,20 @@ describe('Server undoGradeImport Layer Tests (ADR-028)', () => {
     expect(row).toBeDefined()
     expect(row.scoreOral).toBe(5)
     expect(row.scoreFinal).toBe(5)
+  })
+
+  it('D4: resolves undo policy version inside the same mutation transaction', async () => {
+    await upsertGrade({ studentId: studentF, academicYear, semester, scoreOral: 4 }, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
+    await upsertGrade({ studentId: studentF, academicYear, semester, scoreOral: 8 }, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
+
+    const globalSelect = vi.spyOn(db, 'select')
+    try {
+      const [result] = await undoGradeImport([{ studentId: studentF }], semester, academicYear, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
+      expect(result.status).toBe('restored')
+      expect(globalSelect).not.toHaveBeenCalled()
+    } finally {
+      globalSelect.mockRestore()
+    }
   })
 
   it('GRADE-UNDO-F1: chặn undo khi lần ghi gần nhất là CHỈNH TAY (_source manual) sau import', async () => {

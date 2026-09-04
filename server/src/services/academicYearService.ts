@@ -14,14 +14,10 @@ export async function getAcademicYearDateRange(
   executor: DbExecutor = db
 ): Promise<{ startDate: string; endDate: string }> {
   const normYear = normalizeAcademicYear(academicYear)
-  try {
-    const rows = await executor.select().from(academicYears).where(eq(academicYears.parishId, parishId))
-    const match = rows.find((r) => normalizeAcademicYear(r.id) === normYear)
-    if (match && match.startDate && match.endDate) {
-      return { startDate: match.startDate, endDate: match.endDate }
-    }
-  } catch {
-    // fall through to computed default
+  const rows = await executor.select().from(academicYears).where(eq(academicYears.parishId, parishId))
+  const match = rows.find((r) => normalizeAcademicYear(r.id) === normYear)
+  if (match && match.startDate && match.endDate) {
+    return { startDate: match.startDate, endDate: match.endDate }
   }
   return computeAcademicYearDateRange(normYear)
 }
