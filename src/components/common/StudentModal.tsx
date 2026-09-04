@@ -97,7 +97,16 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     setParentAccount({ status: 'idle' });
   }, [isOpen]);
 
+  // E2E-root-cause (2026-09-04): effect này từng deps `rawClasses` — bất kỳ
+  // store update nào (sync nền pull classes, tạo lớp ở tab khác) cũng reset
+  // toàn bộ form đang nhập (mất tên đã gõ + lớp đã chọn → submit fail thầm lặng).
+  // Chỉ init khi mở dialog hoặc đổi đối tượng sửa; rawClasses đọc qua ref để
+  // lấy default tại thời điểm mở (user tự chọn lớp trong select nếu load sau).
+  // Ref thay vì deps trực tiếp để exhaustive-deps không bắt re-run (giữ bug).
+  const rawClassesRef = React.useRef(rawClasses);
+  rawClassesRef.current = rawClasses;
   useEffect(() => {
+    const liveClasses = rawClassesRef.current;
     setErrors({});
     if (studentToEdit) {
       setFormData({
@@ -117,8 +126,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         notes: studentToEdit.notes || ''
       });
     } else {
-      const defaultBranch = (rawClasses[0]?.branchId as BranchType) || 'AuNhi';
-      const defaultClassId = rawClasses[0]?.id || 'AU1';
+      const defaultBranch = (liveClasses[0]?.branchId as BranchType) || 'AuNhi';
+      const defaultClassId = liveClasses[0]?.id || 'AU1';
       setFormData({
         holyName: '',
         fullName: '',
@@ -136,7 +145,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         notes: ''
       });
     }
-  }, [studentToEdit, isOpen, rawClasses]);
+  }, [studentToEdit, isOpen]);
 
   const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
 

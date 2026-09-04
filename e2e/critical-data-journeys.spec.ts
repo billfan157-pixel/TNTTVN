@@ -54,7 +54,12 @@ test.describe('Critical persisted business outcomes', () => {
     await page.goto('/students')
     await page.getByRole('button', { name: 'Thêm Mới' }).click()
     const dialog = page.getByRole('dialog', { name: 'Thêm Hồ Sơ Thiếu Nhi Mới' })
+    // Form bắt buộc Tên Thánh + Họ Tên + Giới tính + Ngày sinh (validation
+    // product) — điền đủ mới submit được, chỉ điền tên+lớp sẽ bị chặn thầm lặng.
+    await dialog.getByPlaceholder('VD: Maria, Giuse...').fill('Giuse')
     await dialog.getByPlaceholder('VD: Nguyễn Văn An').fill(fullName)
+    await dialog.getByText('Giới tính *').locator('..').getByRole('combobox').selectOption('Nam')
+    await dialog.getByText('Ngày sinh *').locator('..').locator('input[type="date"]').fill('2015-06-15')
     await dialog.getByText('Lớp Giáo Lý').locator('..').getByRole('combobox').selectOption('CLS-AN-1')
 
     const createdResponse = page.waitForResponse(response => (
@@ -146,7 +151,9 @@ test.describe('Critical persisted business outcomes', () => {
     expect(transactions).toContainEqual(expect.objectContaining({ title: `Khoản thu ${key}`, amount, type: 'INCOME' }))
 
     await page.reload()
-    const ledger = page.getByLabel('Sổ quỹ giao dịch')
+    // getByLabel mơ hồ: khớp cả ô search ("Tìm kiếm sổ quỹ giao dịch") lẫn
+    // region — dùng role chính xác (search box mới thêm làm strict violation).
+    const ledger = page.getByRole('region', { name: 'Sổ quỹ giao dịch' })
     await expect(ledger).toBeVisible({ timeout: 15_000 })
     await expect(ledger.getByText(`Khoản thu ${key}`, { exact: true })).toBeVisible()
   })
