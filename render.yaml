@@ -13,9 +13,10 @@ services:
     # Blueprint này chỉ dùng khi tái tạo service từ đầu qua Blueprints.
     plan: free
     healthCheckPath: /health
-    # RELEASE-GATE-1 (ADR-057): production chi deploy dung commit SHA da qua CI.
-    # Workflow deploy-production.yml goi Render API voi commitId bat bien.
-    autoDeploy: false
+    # OWNER OVERRIDE: platform auto-deploy re-enabled on operator request.
+    # Re-opens RELEASE-INTEGRITY-3 (P0): pushes deploy without waiting for CI green.
+    # To re-lock: set autoDeploy:false here and vercel.json git.deploymentEnabled.main:false.
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
