@@ -54,7 +54,7 @@ vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 beforeEach(() => {
   useNoticeStore.setState({ notices: [], loading: false })
   vi.clearAllMocks()
-  localStorage.setItem('parish_current_user', '{"id":"U-TEST"}')
+  localStorage.setItem('parish_current_user', '{"id":"U-TEST","parishId":"P-TEST"}')
 })
 
 describe('Task 2 — noticeStore Sync Pipeline Verification', () => {
@@ -74,7 +74,7 @@ describe('Task 2 — noticeStore Sync Pipeline Verification', () => {
     // Mock syncQueue contains NC-TEMP-88
     mockSyncQueue.where.mockReturnValue({
       anyOf: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValue([{ id: 'op-notice-1', entity: 'notice', entityId: 'NC-TEMP-88', operation: 'CREATE', payload: JSON.stringify(offlineNotice) }]),
+        toArray: vi.fn().mockResolvedValue([{ id: 'op-notice-1', entity: 'notice', entityId: 'NC-TEMP-88', operation: 'CREATE', payload: JSON.stringify(offlineNotice), userId: 'U-TEST', parishId: 'P-TEST' }]),
       }),
     })
 
@@ -115,6 +115,23 @@ describe('Task 2 — noticeStore Sync Pipeline Verification', () => {
     await useNoticeStore.getState().fetchNotices('2026-09-01T00:00:00.000Z', true)
 
     expect(useNoticeStore.getState().notices).toEqual([existing])
+  })
+
+  it('removes a cached notice when an incremental pull returns its tombstone', async () => {
+    const existing = {
+      id: 'NC-DELETED-1',
+      title: 'Thông báo đã xóa',
+      content: 'Nội dung',
+      date: '2026-09-01',
+      author: 'Admin',
+      priority: 'normal',
+    } as ParishNotice
+    useNoticeStore.setState({ notices: [existing] })
+    vi.mocked(api.getNotices).mockResolvedValue([{ ...existing, deletedAt: '2026-09-03T00:00:00.000Z' }])
+
+    await useNoticeStore.getState().fetchNotices('2026-09-02T00:00:00.000Z', true)
+
+    expect(useNoticeStore.getState().notices).toEqual([])
   })
 
   it('Task 2c: deleteNotice rethrows 403 ApiError without deleting local notice or enqueueing sync op', async () => {

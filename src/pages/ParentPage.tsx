@@ -63,7 +63,7 @@ export const ParentPage: React.FC = () => {
   const latestClassification = latestGpa != null ? getClassificationLabel(latestGpa) : null
 
   return (
-    <DesktopAppShell width="narrow">
+    <DesktopAppShell width="wide">
       <PageHeader
         icon={<HeartHandshake className="w-5 h-5" />}
         title="Con Của Tôi"
@@ -71,7 +71,7 @@ export const ParentPage: React.FC = () => {
       />
 
       {error && (
-        <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950 text-rose-600 text-sm rounded-lg border border-rose-200 dark:border-rose-900">
+        <div className="flex items-center gap-2 p-3 bg-parish-danger-bg text-parish-danger text-sm rounded-lg border border-parish-danger/30">
           <AlertCircle size={16} />{error}
         </div>
       )}
@@ -86,7 +86,7 @@ export const ParentPage: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className={`grid gap-3 ${children.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+          <div className={`grid gap-3 ${children.length > 1 ? 'sm:grid-cols-2 lg:grid-cols-3' : ''}`}>
             {children.map(child => {
               const active = selectedId === child.id
               return (
@@ -94,7 +94,7 @@ export const ParentPage: React.FC = () => {
                   key={child.id}
                   onClick={() => selectChild(child.id)}
                   aria-pressed={active}
-                  className={`group relative flex items-center gap-3.5 p-4 rounded-2xl border text-left transition-all ${
+                  className={`group relative flex items-center gap-3.5 p-4 rounded-2xl border text-left transition-colors ${
                     active
                       ? 'border-parish-primary bg-parish-primary-light dark:bg-parish-primary/10 shadow-card ring-1 ring-parish-primary/30'
                       : 'border-surface-border bg-surface-card shadow-xs hover:border-parish-primary/60'
@@ -117,7 +117,7 @@ export const ParentPage: React.FC = () => {
             {reportLoading ? (
               <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-text-muted" /></div>
             ) : reportError ? (
-              <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950 text-rose-600 text-sm rounded-lg border border-rose-200 dark:border-rose-900">
+              <div className="flex items-center gap-2 p-3 bg-parish-danger-bg text-parish-danger text-sm rounded-lg border border-parish-danger/30">
                 <AlertCircle size={16} />{reportError}
               </div>
             ) : report ? (
@@ -176,7 +176,7 @@ export const ParentPage: React.FC = () => {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm bg-surface-card text-text-main">
                       <thead>
-                        <tr className="text-left text-[11px] uppercase tracking-wide text-text-muted border-b border-surface-border bg-surface-hover/60">
+                        <tr className="text-left text-xs uppercase tracking-wide text-text-muted border-b border-surface-border bg-surface-hover/60">
                           <th className="py-2.5 pl-4 pr-3 font-bold" scope="col">Học Kỳ</th>
                           <th className="py-2.5 pr-3 font-bold text-center" scope="col">Miệng</th>
                           <th className="py-2.5 pr-3 font-bold text-center" scope="col">15 Phút</th>
@@ -243,13 +243,13 @@ export const ParentPage: React.FC = () => {
                             <div className="flex items-start gap-2.5">
                               <div className="mt-0.5">
                                 {req.status === 'APPROVED' ? (
-                                  <CheckCircle2 size={16} className="text-emerald-500" />
+                                  <CheckCircle2 size={16} className="text-parish-success" />
                                 ) : req.status === 'REJECTED' ? (
-                                  <XCircle size={16} className="text-rose-500" />
+                                  <XCircle size={16} className="text-parish-danger" />
                                 ) : req.status === 'CANCELLED' ? (
                                   <Ban size={16} className="text-text-muted" />
                                 ) : (
-                                  <Clock size={16} className="text-amber-500 animate-pulse" />
+                                  <Clock size={16} className="text-parish-warning animate-pulse" />
                                 )}
                               </div>
                               <div>
@@ -288,7 +288,7 @@ export const ParentPage: React.FC = () => {
                               {req.status === 'PENDING' && (
                                 <button
                                   onClick={() => cancelRequest(req.id)}
-                                  className="text-[11px] text-rose-500 hover:underline font-bold"
+                                  className="text-xs text-parish-danger hover:underline font-bold"
                                 >
                                   Hủy đơn
                                 </button>

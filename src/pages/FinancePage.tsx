@@ -1,4 +1,5 @@
-import React, { useState, useEffect,  useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
   Wallet,
   ArrowDownRight,
@@ -54,12 +55,31 @@ export const FinancePage: React.FC = () => {
   const { currentYear: _currentYear, academicYears: _academicYears } = useAcademicYearStore()
   const addToast = useToastStore((s) => s.addToast)
 
+  const navigate = useNavigate()
+  const search = useSearch({ from: '/finances' })
+
   // Modal States
   const [isTxModalOpen, setIsTxModalOpen] = useState(false)
   const [txModalType, setTxModalType] = useState<TransactionType>('INCOME')
-  const [isFeeModalOpen, setIsFeeModalOpen] = useState(false)
+  const isFeeModalOpen = search.tab === 'fees'
   const [isFundModalOpen, setIsFundModalOpen] = useState(false)
   const [selectedTxForPrint, setSelectedTxForPrint] = useState<FinancialTransaction | null>(null)
+
+  const handleOpenFeeModal = () => {
+    navigate({
+      to: '/finances',
+      search: (prev: any) => ({ ...prev, tab: 'fees' }),
+      replace: true,
+    })
+  }
+
+  const handleCloseFeeModal = () => {
+    navigate({
+      to: '/finances',
+      search: (prev: any) => ({ ...prev, tab: 'ledger' }),
+      replace: true,
+    })
+  }
 
   // Confirm Dialog State
   const [txToDelete, setTxToDelete] = useState<FinancialTransaction | null>(null)
@@ -213,7 +233,7 @@ export const FinancePage: React.FC = () => {
               Chuyển Quỹ
             </Button>
             <Button
-              onClick={() => setIsFeeModalOpen(true)}
+              onClick={handleOpenFeeModal}
               variant="primary"
               size="sm"
               leadingIcon={<Users aria-hidden="true" className="w-4 h-4" />}
@@ -324,7 +344,7 @@ export const FinancePage: React.FC = () => {
             label: (
               <>
                 <span>{fund.name}</span>
-                <span className={`px-1.5 py-0.5 rounded text-[10px] ${selectedFundId === fund.id ? 'bg-black/10 text-text-inverse' : 'bg-surface-card text-text-main'}`}>
+                <span className={`px-1.5 py-0.5 rounded text-xs ${selectedFundId === fund.id ? 'bg-black/10 text-text-inverse' : 'bg-surface-card text-text-main'}`}>
                   {formatVND(fund.currentBalance)}
                 </span>
               </>
@@ -443,11 +463,11 @@ export const FinancePage: React.FC = () => {
             {/* Search Input */}
             <div className="relative">
               <TextInput
-                aria-label="Tìm giao dịch"
+                aria-label="Tìm kiếm sổ quỹ giao dịch"
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Tìm kiếm phiếu, tên, hạng mục..."
+                placeholder="Tìm mã phiếu, người nộp/nhận, danh mục..."
                 density="sm"
               />
               <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-2.5 pointer-events-none" />
@@ -535,21 +555,21 @@ export const FinancePage: React.FC = () => {
                       <td className="py-3 px-4">
                         <div className="font-semibold text-text-main">{tx.title}</div>
                         <div className="typography-body-sm text-text-muted flex items-center gap-1.5 mt-0.5">
-                          <span className="badge badge-neutral text-[10px] py-0 px-1.5">{tx.category}</span>
+                          <span className="badge badge-neutral text-xs py-0 px-1.5">{tx.category}</span>
                           {tx.description && <span className="truncate max-w-xs">{tx.description}</span>}
                         </div>
                       </td>
                       <td className="py-3 px-4 typography-body-sm font-medium text-text-main">
                         <div>{tx.fundName}</div>
                         {isTrf && tx.targetFundName && (
-                          <div className="text-[11px] font-semibold flex items-center gap-1" style={{ color: 'var(--color-finance-transfer)' }}>
+                          <div className="text-xs font-semibold flex items-center gap-1" style={{ color: 'var(--color-finance-transfer)' }}>
                             ➔ {tx.targetFundName}
                           </div>
                         )}
                       </td>
                       <td className="py-3 px-4 typography-body-sm text-text-muted">
                         <div className="font-medium text-text-main">{tx.personName || tx.studentName || '—'}</div>
-                        {tx.className && <div className="text-[11px]">{tx.className}</div>}
+                        {tx.className && <div className="text-xs">{tx.className}</div>}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span className="typography-numeric-emphasis" style={{ color: isInc ? 'var(--color-finance-income)' : isExp ? 'var(--color-finance-expense)' : 'var(--color-finance-transfer)' }}>
@@ -595,7 +615,7 @@ export const FinancePage: React.FC = () => {
                     </div>
                     <div className="font-semibold text-text-main text-sm">{tx.title}</div>
                     <div className="flex items-center gap-2 typography-body-sm text-text-muted">
-                      <span className="badge badge-neutral text-[10px] py-0 px-1.5">{tx.category}</span>
+                      <span className="badge badge-neutral text-xs py-0 px-1.5">{tx.category}</span>
                       <span>{tx.fundName}</span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -657,7 +677,7 @@ export const FinancePage: React.FC = () => {
 
       {/* Modals */}
       <TransactionModal isOpen={isTxModalOpen} onClose={() => setIsTxModalOpen(false)} initialType={txModalType} />
-      <ClassFeeCollectionModal isOpen={isFeeModalOpen} onClose={() => setIsFeeModalOpen(false)} />
+      <ClassFeeCollectionModal isOpen={isFeeModalOpen} onClose={handleCloseFeeModal} />
       <FundManageModal isOpen={isFundModalOpen} onClose={() => setIsFundModalOpen(false)} />
       <PrintReceiptModal isOpen={Boolean(selectedTxForPrint)} onClose={() => setSelectedTxForPrint(null)} transaction={selectedTxForPrint} />
     </DesktopAppShell>

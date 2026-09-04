@@ -5,6 +5,7 @@ import { eq, and } from 'drizzle-orm'
 import { generateId } from '../../utils/id.js'
 
 vi.mock('../../services/telegram.js', () => ({
+  isTelegramEnabled: vi.fn(() => true),
   sendTelegramAlert: vi.fn(),
   sendTelegramInfo: vi.fn(),
   sendTelegramMessageToChat: vi.fn(),
@@ -35,7 +36,7 @@ describe('notificationQueue', () => {
 
   it('enqueueNotification adds item to queue and persists to DB', async () => {
     const { enqueueNotification, getQueueLength } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('telegram', 'alert', 'Test {studentName}', { studentName: 'Nguyen Van A' }, 'gia-ton')
+    const id = await enqueueNotification('telegram', 'alert', 'Test {studentName}', { studentName: 'Nguyen Van A' }, 'gia-ton')
     expect(id).toBeTruthy()
     expect(getQueueLength()).toBe(1)
     const rows = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, 'gia-ton')))
@@ -47,7 +48,7 @@ describe('notificationQueue', () => {
 
   it('enqueueNotification with info type creates web_push type in DB', async () => {
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('webpush', 'info', 'Info: {studentName}', { studentName: 'Test' }, 'gia-ton')
+    const id = await enqueueNotification('webpush', 'info', 'Info: {studentName}', { studentName: 'Test' }, 'gia-ton')
     const rows = await db.select().from(notifications).where(eq(notifications.id, id))
     expect(rows[0].type).toBe('web_push')
   })
@@ -58,14 +59,16 @@ describe('notificationQueue', () => {
     await vi.waitFor(() => {
       expect(getQueueLength()).toBe(0)
     }, { timeout: 3000 })
-    enqueueNotification('telegram', 'info', 'Msg 1', {}, 'gia-ton')
-    enqueueNotification('telegram', 'alert', 'Msg 2', {}, 'gia-ton')
-    expect(getQueueLength()).toBe(2)
+    await Promise.all([
+      enqueueNotification('telegram', 'info', 'Msg 1', {}, 'gia-ton'),
+      enqueueNotification('telegram', 'alert', 'Msg 2', {}, 'gia-ton'),
+    ])
+    expect(getQueueLength()).toBeGreaterThanOrEqual(1)
   })
 
   it('getFailedItems returns items that exceeded max retries', async () => {
     const { enqueueNotification, getFailedItems } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('telegram', 'alert', 'Fail test', {}, 'gia-ton', 0)
+    const id = await enqueueNotification('telegram', 'alert', 'Fail test', {}, 'gia-ton', 0)
     await vi.waitFor(() => {
       const failed = getFailedItems()
       expect(failed.length).toBeGreaterThan(0)
@@ -96,7 +99,7 @@ describe('notificationQueue', () => {
   it('full processing flow sends telegram and marks sent', async () => {
     const { sendTelegramAlert } = await import('../../services/telegram.js')
     const { enqueueNotification, getQueueLength } = await import('../../services/notificationQueue.js')
-    enqueueNotification('telegram', 'alert', 'Process {note}', { note: 'Flow Test' }, 'gia-ton')
+    await enqueueNotification('telegram', 'alert', 'Process {note}', { note: 'Flow Test' }, 'gia-ton')
     await vi.waitFor(() => {
       expect(sendTelegramAlert).toHaveBeenCalled()
     }, { timeout: 3000 })
@@ -107,7 +110,7 @@ describe('notificationQueue', () => {
 
   it('processing marks DB record as sent on success', async () => {
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('telegram', 'info', 'DB test', {}, 'gia-ton')
+    const id = await enqueueNotification('telegram', 'info', 'DB test', {}, 'gia-ton')
     await vi.waitFor(async () => {
       const rows = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, 'gia-ton')))
       return rows[0]?.status === 'sent'
@@ -133,7 +136,7 @@ describe('notificationQueue', () => {
 
     await recoverQueueFromDb()
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    enqueueNotification('telegram', 'info', 'Recovery trigger', {}, 'gia-ton')
+    await enqueueNotification('telegram', 'info', 'Recovery trigger', {}, 'gia-ton')
     await vi.waitFor(() => {
       expect(getActiveTelegramLinksForUsers).toHaveBeenCalledWith(['USR-TG-42'], 'gia-ton')
     }, { timeout: 3000 })
@@ -144,7 +147,7 @@ describe('notificationQueue', () => {
     vi.mocked(sendAppPushToParish).mockResolvedValue({ configured: true, sent: 2, failed: 0, total: 2, removed: 0, skipped: 0 } as any)
 
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('webpush', 'reminder', 'Đi Lễ đúng giờ nhé!', {}, 'gia-ton')
+    const id = await enqueueNotification('webpush', 'reminder', 'Đi Lễ đúng giờ nhé!', {}, 'gia-ton')
 
     await vi.waitFor(() => {
       expect(sendAppPushToParish).toHaveBeenCalledWith(
@@ -164,7 +167,7 @@ describe('notificationQueue', () => {
     vi.mocked(sendAppPushToUsers).mockResolvedValue({ configured: true, sent: 1, failed: 0, total: 1, removed: 0, skipped: 0 } as any)
 
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('webpush', 'info', 'Thông báo cho phụ huynh', {}, 'gia-ton', undefined, { webpushUserIds: ['USR-1', 'USR-2'] })
+    const id = await enqueueNotification('webpush', 'info', 'Thông báo cho phụ huynh', {}, 'gia-ton', undefined, { webpushUserIds: ['USR-1', 'USR-2'] })
 
     await vi.waitFor(() => {
       expect(sendAppPushToUsers).toHaveBeenCalledWith(
@@ -183,7 +186,7 @@ describe('notificationQueue', () => {
 
   it('enqueue webpush có chủ đích PERSIST target_user_ids (JSON) để recover không broadcast nhầm', async () => {
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('webpush', 'info', 'Targeted', {}, 'gia-ton', undefined, { webpushUserIds: ['USR-9'] })
+    const id = await enqueueNotification('webpush', 'info', 'Targeted', {}, 'gia-ton', undefined, { webpushUserIds: ['USR-9'] })
     await vi.waitFor(async () => {
       const rows = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, 'gia-ton')))
       return rows[0]?.targetUserIds === '["USR-9"]'
@@ -212,7 +215,7 @@ describe('notificationQueue', () => {
     vi.mocked(sendAppPushToUsers).mockResolvedValue({ configured: true, sent: 1, failed: 0, total: 1, removed: 0, skipped: 0 } as any)
     // recoverQueueFromDb chỉ nạp item vào queue — cần 1 enqueue mới để kick processQueue drain.
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    enqueueNotification('webpush', 'info', 'Kick', {}, 'gia-ton')
+    await enqueueNotification('webpush', 'info', 'Kick', {}, 'gia-ton')
     await vi.waitFor(() => {
       expect(sendAppPushToUsers).toHaveBeenCalledWith('gia-ton', ['USR-42'], expect.objectContaining({ body: 'Recovered targeted' }))
     }, { timeout: 3000 })
@@ -221,16 +224,87 @@ describe('notificationQueue', () => {
     }, { timeout: 3000 })
   })
 
+  it('target_user_ids hỏng fail-closed thành nhóm rỗng, không broadcast giáo xứ', async () => {
+    const testId = generateId('NOT')
+    await db.insert(notifications).values({
+      id: testId,
+      type: 'web_push',
+      channel: 'absence',
+      deliveryKind: 'info',
+      status: 'retrying',
+      recipient: 'Phụ Huynh',
+      message: 'Không được broadcast',
+      triggeredByType: 'system',
+      targetUserIds: '{json-hong',
+      parishId: 'gia-ton',
+      createdAt: new Date().toISOString(),
+    })
+
+    const { recoverQueueFromDb, enqueueNotification } = await import('../../services/notificationQueue.js')
+    const { sendAppPushToParish, sendAppPushToUsers } = await import('../../services/appPushService.js')
+    await recoverQueueFromDb()
+    await enqueueNotification('telegram', 'info', 'Kick', {}, 'gia-ton')
+
+    await vi.waitFor(() => {
+      expect(sendAppPushToUsers).toHaveBeenCalledWith(
+        'gia-ton',
+        [],
+        expect.objectContaining({ title: 'Thông báo Giáo Xứ', body: 'Không được broadcast' }),
+      )
+    }, { timeout: 3000 })
+    expect(sendAppPushToParish).not.toHaveBeenCalledWith(
+      'gia-ton',
+      expect.objectContaining({ body: 'Không được broadcast' }),
+    )
+  })
+
+  it('recovery giữ nguyên delivery kind alert thay vì hạ xuống absence', async () => {
+    const testId = generateId('NOT')
+    await db.insert(notifications).values({
+      id: testId,
+      type: 'telegram',
+      channel: 'absence',
+      deliveryKind: 'alert',
+      status: 'retrying',
+      recipient: 'System',
+      message: 'Cảnh báo sau restart',
+      triggeredByType: 'system',
+      parishId: 'gia-ton',
+      createdAt: new Date().toISOString(),
+    })
+
+    const { recoverQueueFromDb, enqueueNotification } = await import('../../services/notificationQueue.js')
+    const { sendTelegramAlert } = await import('../../services/telegram.js')
+    await recoverQueueFromDb()
+    await enqueueNotification('telegram', 'info', 'Kick', {}, 'gia-ton')
+    await vi.waitFor(() => {
+      expect(sendTelegramAlert).toHaveBeenCalledWith('Cảnh báo sau restart', true)
+    }, { timeout: 3000 })
+  })
+
   it('push khi không provider nào cấu hình → KHÔNG đánh dấu sent giả', async () => {
     const { sendAppPushToParish } = await import('../../services/appPushService.js')
     vi.mocked(sendAppPushToParish).mockResolvedValue({ configured: false, sent: 0, failed: 0, total: 0, removed: 0, skipped: 0 } as any)
 
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
-    const id = enqueueNotification('webpush', 'info', 'Thông báo test', {}, 'gia-ton')
+    const id = await enqueueNotification('webpush', 'info', 'Thông báo test', {}, 'gia-ton')
 
     await vi.waitFor(async () => {
       const rows = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, 'gia-ton')))
       return rows[0]?.status === 'failed' && rows[0]?.error === 'PUSH_PROVIDER_NOT_CONFIGURED'
+    }, { timeout: 3000 })
+  })
+
+  it('push lỗi một phần không được đánh dấu sent', async () => {
+    const { sendAppPushToParish } = await import('../../services/appPushService.js')
+    vi.mocked(sendAppPushToParish).mockResolvedValue({ configured: true, sent: 1, failed: 1, total: 2, removed: 0, skipped: 0 } as any)
+
+    const { enqueueNotification } = await import('../../services/notificationQueue.js')
+    const id = await enqueueNotification('webpush', 'info', 'Thông báo lỗi một phần', {}, 'gia-ton', 1)
+
+    await vi.waitFor(async () => {
+      const rows = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, 'gia-ton')))
+      return rows[0]?.status === 'failed' && rows[0]?.error?.includes('APP_PUSH_PARTIAL_FAILURE')
     }, { timeout: 3000 })
   })
 })

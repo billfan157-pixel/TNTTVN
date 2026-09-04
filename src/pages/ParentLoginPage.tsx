@@ -39,7 +39,7 @@ export function ParentLoginPage() {
   }
 
   return (
-    <LoginShell title="Cổng Phụ Huynh" subtitle="Sổ Điểm Giáo Lý — Xem điểm & chuyên cần của con">
+    <LoginShell title="Cổng Phụ Huynh" subtitle="Xem điểm & chuyên cần của con">
       <form onSubmit={handleLogin} className="p-8 space-y-5">
         {portalError && (
           <div role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">

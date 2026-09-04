@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useDailyGradeStore } from '../../stores/dailyGradeStore'
 import { useGradeStore } from '../../stores/gradeStore'
+import * as syncService from '../../lib/syncService'
 
 vi.mock('../../lib/db', () => ({
   dexieStorage: {
@@ -13,10 +14,12 @@ vi.mock('../../lib/db', () => ({
 vi.mock('../../lib/syncService', () => ({
   syncUpsertGrade: vi.fn(),
   syncBatchUpsertGrades: vi.fn(),
+  syncUpsertDailyEntry: vi.fn().mockResolvedValue('OP-DG-1'),
+  syncDeleteDailyEntry: vi.fn().mockResolvedValue('OP-DG-2'),
 }))
 
 vi.mock('../../lib/api', () => ({
-  api: { getGrades: vi.fn() },
+  api: { getGrades: vi.fn(), getDailyEntries: vi.fn() },
 }))
 
 vi.mock('../../stores/academicYearStore', () => ({
@@ -28,7 +31,7 @@ vi.mock('../../stores/academicYearStore', () => ({
 vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 
 beforeEach(() => {
-  useDailyGradeStore.setState({ entries: [] })
+  useDailyGradeStore.setState({ entries: [], serverEntries: [] })
   useGradeStore.setState({ grades: [] })
   vi.clearAllMocks()
 })
@@ -152,5 +155,125 @@ describe('DailyGradeStore', () => {
       { id: 'DG-1', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 8, date: '2025-01-01', createdAt: '2025-01-01T00:00:00Z' },
     ])
     expect(useDailyGradeStore.getState().entries).toHaveLength(1)
+  })
+
+  describe('Tier 1 containment (daily là điểm chính thức)', () => {
+    function seedGrade(fields: Record<string, unknown>) {
+      useGradeStore.getState().upsertGrade({
+        studentId: 'ST-001',
+        semester: 1,
+        academicYear: '2025 - 2026',
+        ...fields,
+      } as never, true)
+    }
+
+    it('display path (skipSync) không enqueue và không null-out daily_avg server khi thiếu entries', () => {
+      seedGrade({ scoreOral: 8, scoreOral_source: 'daily_avg', score15m: 7, score15m_source: 'daily_avg' })
+      useDailyGradeStore.setState({
+        entries: [
+          { id: 'DG-1', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 9, date: '2025-01-01', createdAt: '2025-01-01T00:00:00Z' },
+        ],
+      })
+
+      // Mô phỏng fetchGrades() hậu-finalize: pull + tính lại hiển thị.
+      useDailyGradeStore.getState().syncAllToGradeStore(undefined, undefined, { skipSync: true })
+
+      expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
+      const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
+      // Cột có entries → hiển thị local; cột thiếu entries → giữ nguyên server.
+      expect(grade?.scoreOral).toBe(9)
+      expect(grade?.score15m).toBe(7)
+      expect((grade as unknown as Record<string, unknown>)?.['score15m_source']).toBe('daily_avg')
+    })
+
+    it('addEntry chỉ project đúng cột, giữ nguyên cột daily_avg server khác', () => {
+      seedGrade({ score15m: 7, score15m_source: 'daily_avg' })
+
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+
+      expect(vi.mocked(syncService.syncUpsertGrade)).toHaveBeenCalled()
+      const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
+      expect(grade?.scoreOral).toBe(8)
+      // Cột 15m của server (vd từ finalize) không bị đè/null bởi device thiếu entries.
+      expect(grade?.score15m).toBe(7)
+      expect((grade as unknown as Record<string, unknown>)?.['score15m_source']).toBe('daily_avg')
+    })
+
+    it('removeEntry entry cuối vẫn null-out + push (giữ delete semantics)', () => {
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      vi.clearAllMocks()
+      const id = useDailyGradeStore.getState().entries[0].id
+
+      useDailyGradeStore.getState().removeEntry(id)
+
+      expect(vi.mocked(syncService.syncUpsertGrade)).toHaveBeenCalled()
+      const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
+      expect(grade?.scoreOral).toBeNull()
+    })
+
+    it('không tạo grade row rỗng khi field bị guard manual', () => {
+      seedGrade({ scoreOral: 9, scoreOral_source: 'manual' })
+
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 6, 1)
+
+      expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
+      expect(useGradeStore.getState().grades).toHaveLength(1)
+      expect(useGradeStore.getState().getStudentGrade('ST-001', 1)?.scoreOral).toBe(9)
+    })
+  })
+
+  describe('Tier 2 — ledger sync wiring', () => {
+    it('addEntry enqueue daily_entry CREATE trước grade projection', async () => {
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      await Promise.resolve()
+
+      expect(vi.mocked(syncService.syncUpsertDailyEntry)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(syncService.syncUpsertDailyEntry)).toHaveBeenCalledWith(expect.objectContaining({
+        studentId: 'ST-001',
+        semester: 1,
+        scoreType: 'oral',
+        value: 8,
+      }))
+      const entryId = useDailyGradeStore.getState().entries[0].id
+      expect(vi.mocked(syncService.syncUpsertDailyEntry).mock.calls[0][0].id).toBe(entryId)
+    })
+
+    it('removeEntry enqueue daily_entry DELETE', async () => {
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      const id = useDailyGradeStore.getState().entries[0].id
+      vi.clearAllMocks()
+
+      useDailyGradeStore.getState().removeEntry(id)
+      await Promise.resolve()
+
+      expect(vi.mocked(syncService.syncDeleteDailyEntry)).toHaveBeenCalledWith(id)
+    })
+
+    it('fetchDailyEntries map rows server → serverEntries (machine filter được)', async () => {
+      const { api } = await import('../../lib/api')
+      vi.mocked(api.getDailyEntries).mockResolvedValue([
+        { id: 'DG-1', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 8, date: '2026-01-15', origin: 'manual', examSessionId: null, createdAt: '2026-01-15T00:00:00Z' },
+        { id: 'ASM-1', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 6, date: null, origin: 'machine', examSessionId: 'EXS-1', createdAt: '2026-01-16T00:00:00Z' },
+      ])
+
+      await useDailyGradeStore.getState().fetchDailyEntries({ classId: 'CL-1', semester: 1 })
+
+      expect(api.getDailyEntries).toHaveBeenCalledWith({ classId: 'CL-1', semester: 1 })
+      const machine = useDailyGradeStore.getState().getMachineEntries('ST-001', 1, 'oral')
+      expect(machine).toHaveLength(1)
+      expect(machine[0].id).toBe('ASM-1')
+      expect(machine[0].origin).toBe('machine')
+    })
+
+    it('fetchDailyEntries lỗi (offline) → giữ entries local', async () => {
+      const { api } = await import('../../lib/api')
+      vi.mocked(api.getDailyEntries).mockRejectedValue(new Error('Network offline'))
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+
+      await useDailyGradeStore.getState().fetchDailyEntries({ classId: 'CL-1', semester: 1 })
+
+      expect(useDailyGradeStore.getState().entries).toHaveLength(1)
+      expect(useDailyGradeStore.getState().serverEntries).toHaveLength(0)
+    })
   })
 })

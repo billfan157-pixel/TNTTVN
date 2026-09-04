@@ -35,7 +35,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   const [formData, setFormData] = useState({
     holyName: '',
     fullName: '',
-    gender: 'Nam' as 'Nam' | 'Nữ',
+    gender: '' as 'Nam' | 'Nữ' | '',
     dateOfBirth: '',
     baptismDate: '',
     firstCommunionDate: '',
@@ -117,19 +117,21 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         notes: studentToEdit.notes || ''
       });
     } else {
+      const defaultBranch = (rawClasses[0]?.branchId as BranchType) || 'AuNhi';
+      const defaultClassId = rawClasses[0]?.id || 'AU1';
       setFormData({
-        holyName: 'Maria',
+        holyName: '',
         fullName: '',
-        gender: 'Nữ',
-        dateOfBirth: '2016-01-01',
+        gender: '',
+        dateOfBirth: '',
         baptismDate: '',
         firstCommunionDate: '',
         confirmationDate: '',
         parentName: '',
         parentPhone: '',
-        address: 'Giáo xứ Gia Tôn',
-        branch: 'AuNhi',
-        classId: rawClasses[0]?.id || 'AU1',
+        address: '',
+        branch: defaultBranch,
+        classId: defaultClassId,
         status: 'Đang học',
         notes: ''
       });
@@ -190,7 +192,12 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     if (!formData.fullName.trim()) {
       newErrors.fullName = 'Vui lòng nhập Họ và Tên.';
     }
-    if (formData.dateOfBirth) {
+    if (!formData.gender) {
+      newErrors.gender = 'Vui lòng chọn Giới tính.';
+    }
+    if (!formData.dateOfBirth) {
+      newErrors.dateOfBirth = 'Vui lòng chọn Ngày sinh.';
+    } else {
       const dob = new Date(formData.dateOfBirth);
       if (dob > new Date()) {
         newErrors.dateOfBirth = 'Ngày sinh không thể ở tương lai.';
@@ -206,11 +213,15 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     }
 
     const addToast = useToastStore.getState().addToast
+    const studentPayload = {
+      ...formData,
+      gender: formData.gender as 'Nam' | 'Nữ',
+    }
     if (studentToEdit) {
-      updateStudent(studentToEdit.id, formData);
+      updateStudent(studentToEdit.id, studentPayload);
       addToast('Đã cập nhật thông tin thiếu nhi thành công!', 'success')
     } else {
-      addStudent(formData);
+      addStudent(studentPayload);
       addToast('Đã thêm thiếu nhi mới thành công!', 'success')
     }
     onClose();
@@ -268,15 +279,20 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               {errors.fullName && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.fullName}</span>}
             </div>
             <div className="form-group">
-              <label className="form-label">Giới tính</label>
+              <label className="form-label">Giới tính *</label>
               <select
-                className="form-select"
+                className={`form-select ${errors.gender ? 'border-red-500' : ''}`}
                 value={formData.gender}
-                onChange={e => setFormData({ ...formData, gender: e.target.value as 'Nam' | 'Nữ' })}
+                onChange={e => {
+                  setFormData({ ...formData, gender: e.target.value as 'Nam' | 'Nữ' });
+                  if (errors.gender) setErrors(prev => ({ ...prev, gender: '' }));
+                }}
               >
+                <option value="">-- Chọn giới tính --</option>
                 <option value="Nam">Nam</option>
                 <option value="Nữ">Nữ</option>
               </select>
+              {errors.gender && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.gender}</span>}
             </div>
           </div>
 
@@ -335,7 +351,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
           {/* Ngày sinh & Các Bí Tích */}
           <div className="grid grid-cols-3 gap-3.5">
             <div className="form-group">
-              <label className="form-label">Ngày sinh</label>
+              <label className="form-label">Ngày sinh *</label>
               <input
                 className={`form-input ${errors.dateOfBirth ? 'border-red-500' : ''}`}
                 type="date"

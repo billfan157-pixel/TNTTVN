@@ -402,11 +402,14 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 
 `DesktopAppShell` là owner duy nhất của ba tier trên. Child render bên trong `/management` hoặc shell cha truyền `embedded`; `.embedded-page-section` chỉ tạo column/gap, không tạo thêm gutter hay max-width.
 
-### Lưới lớp trong `Danh Sách & Lớp` (ADR-090 amendment 2026-09-02)
+### Lưới lớp trong `Danh Sách & Lớp` (ADR-090 amendment 2026-09-02, tối ưu hóa 2026-09-03)
 
-- Giữ visual card navy–gold cũ làm index chung của trang Thiếu Nhi: 2 cột trên touch, 3 cột desktop và 4 cột tại `xl`; không thay bằng bảng ở surface kết hợp.
-- Thẻ giữ badge ngành, tên lớp, phòng, GLV và số thiếu nhi. Toàn vùng nội dung là button có tên accessible `Xem danh sách lớp {name}`; edit/delete là các icon-button độc lập và chỉ hiện cho admin.
-- Chọn lớp chuyển cùng surface sang roster; nút quay lại `Tất cả lớp` trả về lưới. Empty state và dark mode phải dùng semantic surface/text tokens, không dùng cặp amber hard-code thiếu tương phản.
+- Giữ phong cách tối giản, tĩnh lặng (Calm, Confident, Crafted): không chèn card KPI trùng lặp với Trang Tổng Quan, không dùng toolbar phụ gây rườm rà.
+- Bố cục lưới responsive: 2 cột trên touch, 3 cột desktop thường và 4 cột tại `xl`; cấu trúc `h-full flex flex-col justify-between` đảm bảo tất cả thẻ trong cùng một hàng có chiều cao đều tăm tắp, nút "Xem danh sách" căn đáy đồng bộ.
+- Thẻ giữ badge ngành, mã lớp, phòng học, vạch accent màu khăn ngành TNTT 1px tinh tế ở mép trên; sắc độ trong suốt dùng CSS `color-mix(...)` để cả mã hex lẫn semantic fallback đều hợp lệ.
+- Phân công Huynh Trưởng: hiển thị Huynh Trưởng chủ nhiệm, số lượng phụ tá `(+N)` tinh tế, và hiển thị rõ trạng thái `Chưa phân công` khi lớp chưa có người phụ trách.
+- Toàn vùng nội dung là button accessible `Xem danh sách lớp {name}`; icon-button edit/delete là các action độc lập có `e.stopPropagation()` và chỉ hiển thị cho admin.
+- Chọn lớp chuyển cùng surface sang roster; nút quay lại `Tất cả lớp` trả về lưới. Empty state và dark mode dùng semantic surface/text tokens.
 
 ### Shell & Sidebar desktop (UI-POLISH 2026-08-25)
 

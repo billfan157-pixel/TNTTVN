@@ -1,4 +1,5 @@
-import { semesterLockSpecification, SemesterLockSpecification } from './SemesterLockSpecification.js'
+import type { SemesterLockSpecification } from './SemesterLockSpecification.js'
+import type { DbExecutor } from '../db/index.js'
 
 export interface PromotionPolicyConfig {
   minGpa: number
@@ -47,19 +48,19 @@ export class PromotionEligibilitySpecification {
   constructor(
     gpaSpec: GpaEligibilitySpecification = new GpaEligibilitySpecification(),
     attendanceSpec: AttendanceEligibilitySpecification = new AttendanceEligibilitySpecification(),
-    semesterLockSpec: SemesterLockSpecification = semesterLockSpecification
+    semesterLockSpec: SemesterLockSpecification
   ) {
     this.gpaSpec = gpaSpec
     this.attendanceSpec = attendanceSpec
     this.semesterLockSpec = semesterLockSpec
   }
 
-  public async evaluate(input: EvaluationInput): Promise<EvaluationResult> {
+  public async evaluate(input: EvaluationInput, executor: DbExecutor): Promise<EvaluationResult> {
     const policy = input.policy || DEFAULT_PROMOTION_POLICY
     const rejectionReasons: string[] = []
 
     // 1. Semester 2 MUST be LOCKED before promotion evaluation
-    const isHk2Unlocked = await this.semesterLockSpec.isSatisfiedBy(input.academicYear, 2, input.parishId)
+    const isHk2Unlocked = await this.semesterLockSpec.isSatisfiedBy(input.academicYear, 2, input.parishId, executor)
     if (isHk2Unlocked) {
       rejectionReasons.push(`Học kỳ 2 năm học ${input.academicYear} chưa được khóa sổ điểm. Không thể xét duyệt lên lớp.`)
     }
@@ -85,5 +86,3 @@ export class PromotionEligibilitySpecification {
     }
   }
 }
-
-export const promotionEligibilitySpecification = new PromotionEligibilitySpecification()

@@ -142,7 +142,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --retry 6 --retry-all-errors \
-            --retry-delay 10 https://tnttvn.onrender.com/health >/dev/null
-          curl --fail --silent --show-error --retry 6 --retry-all-errors \
-            --retry-delay 10 https://tnttvn.vercel.app/ >/dev/null
+          backend_health="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
+            --retry-delay 10 https://tnttvn.onrender.com/health)"
+          backend_release="$(jq -r '.releaseId // empty' <<<"$backend_health")"
+          if [ "$backend_release" != "$VERIFIED_SHA" ]; then
+            echo "Backend release mismatch: expected $VERIFIED_SHA, got ${backend_release:-missing}." >&2
+            exit 1
+          fi
+
+          frontend_html="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
+            --retry-delay 10 https://tnttvn.vercel.app/)"
+          frontend_release="$(grep -oE '<meta name="catevia-release" content="[^"]+"' <<<"$frontend_html" \
+            | sed -E 's/.*content="([^"]+)"/\1/' | head -n 1)"
+          if [ "$frontend_release" != "$VERIFIED_SHA" ]; then
+            echo "Frontend release mismatch: expected $VERIFIED_SHA, got ${frontend_release:-missing}." >&2
+            exit 1
+          fi
+
+          auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            https://tnttvn.onrender.com/api/auth/me)"
+          if [ "$auth_status" != "401" ]; then
+            echo "Unauthenticated auth smoke expected 401, got $auth_status." >&2
+            exit 1
+          fi
+
+          frontend_headers="$(curl --fail --silent --show-error --head https://tnttvn.vercel.app/)"
+          grep -qi '^content-security-policy:' <<<"$frontend_headers"
+          grep -qi '^strict-transport-security:' <<<"$frontend_headers"

@@ -8,10 +8,9 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
 import { OfflineStatusBanner } from './OfflineStatusBanner'
 import logo from '../../assets/logo-gia-ton.png'
-import { Monitor, Smartphone, Moon, Sun, RefreshCw, Search, LogOut, UserCheck, Activity } from 'lucide-react'
+import { Monitor, Smartphone, Moon, Sun, RefreshCw, LogOut, UserCheck, Activity } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useNavigate } from '@tanstack/react-router'
-import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { MobileTopBar } from '../mobile/MobileTopBar'
@@ -30,10 +29,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
   const selectedSemester = useFilterStore((s) => s.selectedSemester)
   const setSelectedSemester = useFilterStore((s) => s.setSelectedSemester)
   const { restricted: semesterRestricted, openSemester } = useSemesterAccess()
-  const selectedClassId = useFilterStore((s) => s.selectedClassId)
-  const setSelectedClassId = useFilterStore((s) => s.setSelectedClassId)
-  const searchQuery = useFilterStore((s) => s.searchQuery)
-  const setSearchQuery = useFilterStore((s) => s.setSearchQuery)
   const effectiveMode = useEffectiveMode()
   // Tablet dùng mobile shell; desktop sidebar chỉ bật từ 1024px để giữ vùng
   // chạm và bề rộng nội dung đủ dùng.
@@ -41,10 +36,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const academicYearDisplay = useAcademicYearStore((s) => s.currentYear)
-  // REACT-185 (2026-08-14): KHÔNG gọi getClassList() bên trong selector — trả mảng mới
-  // mỗi lần getSnapshot → vòng lặp re-render vô hạn (zustand v5 so Object.is). Pattern
-  // chuẩn: selector trả về hàm (ổn định), gọi () bên ngoài (xem RootLayout.tsx:119).
-  const classList = useClassStore((s) => s.getClassList)()
 
   const currentUser = useAuthStore((s) => s.user)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
@@ -92,44 +83,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
 
             {/* Controls Section */}
             <div className="app-header__controls">
-              {/* Class & Search Group */}
-              {activeWorkspace === 'academic' && <div className="app-header__control-group app-header__search-group">
-                {/* Class Switcher (admin only — GLV only sees their assigned classes) */}
-                {currentUser?.role === 'admin' && (
-                  <div className="flex items-center gap-1.5 text-white">
-                    <span className="text-white/65 font-medium hidden sm:inline text-xs">Lớp:</span>
-                    <select
-                      value={selectedClassId}
-                      onChange={(e) => setSelectedClassId(e.target.value)}
-                      className="app-header__select cursor-pointer pr-1"
-                      aria-label="Lớp đang xem"
-                    >
-                      <option value="all">
-                        Tất cả lớp học
-                      </option>
-                      {classList.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Search Input */}
-                <div className="flex items-center gap-1.5 text-white">
-                  <Search size={14} className="text-white/60 shrink-0" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Tìm tên, mã..."
-                    className="app-header__search"
-                    aria-label="Tìm thiếu nhi theo tên hoặc mã"
-                  />
-                </div>
-              </div>}
-
               {/* Semester Selector */}
               {activeWorkspace === 'academic' && <div className="app-header__control-group">
                 {semesterRestricted ? (
@@ -228,7 +181,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
                   </div>
                   <div className="hidden lg:block text-left">
                     <div className="font-bold leading-tight text-white">{currentUser.fullName}</div>
-                    <div className="text-[10px] text-amber-200/90 uppercase font-mono tracking-wider">{currentUser.role}</div>
+                    <div className="text-xs text-amber-200/90 uppercase font-mono tracking-wider">{currentUser.role}</div>
                   </div>
                   <button
                     type="button"

@@ -7,6 +7,7 @@ import type {
   FinanceSummary,
   CreateTransactionInput,
   CreateFundInput,
+  UpdateStudentFeeInput,
 } from '../types/finance'
 
 interface PaginationState {
@@ -46,7 +47,8 @@ interface FinanceState {
   createTransaction: (data: CreateTransactionInput) => Promise<FinancialTransaction | null>
   deleteTransaction: (id: string) => Promise<boolean>
   fetchClassFeeRecords: (classId: string, academicYear?: string, feeType?: string) => Promise<void>
-  updateStudentFee: (classId: string, data: any) => Promise<StudentFeeRecord | null>
+  updateStudentFee: (classId: string, data: UpdateStudentFeeInput) => Promise<StudentFeeRecord | null>
+  updateStudentFeesBatch: (classId: string, records: UpdateStudentFeeInput[]) => Promise<StudentFeeRecord[] | null>
   setSelectedFundId: (id: string) => void
   setSelectedAcademicYear: (ay: string) => void
   setLedgerFilters: (partial: Partial<LedgerFilters>) => void
@@ -177,6 +179,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   },
 
   updateStudentFee: async (classId, data) => {
+    set({ isLoading: true, error: null })
     try {
       const res = await api.finances.updateStudentFee(classId, data)
       set((state) => ({
@@ -184,10 +187,30 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
           r.studentId === data.studentId ? { ...r, ...res } : r
         ),
       }))
-      get().fetchSummary()
+      await get().fetchSummary()
+      set({ isLoading: false })
       return res
     } catch (err: any) {
       console.error('Failed to update student fee:', err)
+      set({ error: err?.message || 'Không thể cập nhật khoản phí', isLoading: false })
+      return null
+    }
+  },
+
+  updateStudentFeesBatch: async (classId, records) => {
+    set({ isLoading: true, error: null })
+    try {
+      const saved = await api.finances.updateStudentFeesBatch(classId, records)
+      const byStudent = new Map(saved.map(record => [record.studentId, record]))
+      set((state) => ({
+        classFeeRecords: state.classFeeRecords.map(record => byStudent.get(record.studentId) || record),
+      }))
+      await get().fetchSummary()
+      set({ isLoading: false })
+      return saved
+    } catch (err: any) {
+      console.error('Failed to update student fees batch:', err)
+      set({ error: err?.message || 'Không thể thu phí hàng loạt', isLoading: false })
       return null
     }
   },

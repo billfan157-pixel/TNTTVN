@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createClient } from '@libsql/client'
 import {
   applyMigrations,
   isTolerableMigrationError,
@@ -28,6 +29,8 @@ function makeClient(options: { failSql?: string; failMessage?: string } = {}) {
       if (options.failSql && statement.includes(options.failSql)) {
         throw new Error(options.failMessage || 'synthetic migration failure')
       }
+      const matches = statement.matchAll(/INSERT OR IGNORE INTO schema_migrations \(version\) VALUES \('([^']+)'\)/g)
+      for (const match of matches) marked.push(match[1])
       return { rows: [] }
     },
   }
@@ -82,5 +85,42 @@ describe('migration runner fail-closed policy', () => {
     ])).rejects.toThrow('Migration failed: test-multi')
 
     expect(marked).not.toContain('test-multi')
+  })
+
+  it('wraps multi-statement SQL and its marker in one explicit transaction', async () => {
+    const { client, executed, marked } = makeClient()
+    await applyMigrations(client, [{
+      version: 'test-atomic',
+      sql: 'CREATE TABLE atomic_a (id TEXT); CREATE TABLE atomic_b (id TEXT);',
+    }])
+
+    const batch = executed.find(statement => statement.includes('CREATE TABLE atomic_a'))!
+    expect(batch).toContain('PRAGMA foreign_keys = OFF;\nBEGIN IMMEDIATE;')
+    expect(batch).toContain("INSERT OR IGNORE INTO schema_migrations (version) VALUES ('test-atomic');")
+    expect(batch).toContain('COMMIT;\nPRAGMA foreign_keys = ON;')
+    expect(marked).toContain('test-atomic')
+  })
+
+  it('rolls back partial DDL/data and leaves foreign keys enabled after a real SQLite failure', async () => {
+    const client = createClient({ url: 'file::memory:' })
+    await client.execute('PRAGMA foreign_keys = ON')
+
+    await expect(applyMigrations(client, [{
+      version: 'test-real-rollback',
+      sql: `
+        CREATE TABLE migration_partial (id TEXT PRIMARY KEY);
+        INSERT INTO migration_partial (id) VALUES ('written-before-failure');
+        INSERT INTO table_that_does_not_exist (id) VALUES ('boom');
+      `,
+    }])).rejects.toThrow('Migration failed: test-real-rollback')
+
+    const table = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='migration_partial'")
+    expect(table.rows).toHaveLength(0)
+    const marker = await client.execute("SELECT version FROM schema_migrations WHERE version='test-real-rollback'")
+    expect(marker.rows).toHaveLength(0)
+    const foreignKeys = await client.execute('PRAGMA foreign_keys')
+    const enabled = Array.isArray(foreignKeys.rows[0]) ? foreignKeys.rows[0][0] : (foreignKeys.rows[0] as any)?.foreign_keys
+    expect(Number(enabled)).toBe(1)
+    client.close()
   })
 })

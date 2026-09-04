@@ -45,6 +45,8 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260831', 136, 146),
   ...migrationRange('20260901', 147, 148),
   ...migrationRange('20260902', 149, 158),
+  ...migrationRange('20260903', 159, 165),
+  ...migrationRange('20260904', 166, 168),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -78,6 +80,7 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_native_push_tokens_installation: ['installation_id'],
   idx_native_push_tokens_platform_token: ['platform', 'token'],
   idx_native_push_tokens_user: ['parish_id', 'user_id'],
+  idx_notifications_worker: ['status', 'next_attempt_at', 'lease_expires_at'],
   idx_question_bank_list: ['parish_id', 'status', 'updated_at'],
   idx_question_bank_taxonomy: ['parish_id', 'branch_id', 'curriculum_level', 'lesson_order', 'difficulty'],
   idx_question_bank_author: ['parish_id', 'created_by', 'status'],
@@ -106,7 +109,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
-  notifications: ['target_user_ids'],
+  notifications: ['target_user_ids', 'attempt_count', 'max_attempts', 'lease_owner', 'lease_expires_at', 'next_attempt_at', 'delivery_kind'],
   users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot'],
@@ -125,6 +128,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   feedback_messages: ['parish_id', 'id', 'target_type', 'target_user_id', 'visibility', 'sender_user_id', 'subject', 'content', 'status'],
   password_reset_requests: ['parish_id', 'id', 'user_id', 'status', 'request_count', 'last_requested_at', 'resolved_at', 'resolved_by'],
   native_push_tokens: ['parish_id', 'id', 'installation_id', 'platform', 'token', 'user_id', 'created_at', 'updated_at'],
+  notices: ['parish_id', 'id', 'updated_at', 'deleted_at', 'parent_revoked_at'],
   question_bank_items: ['parish_id', 'id', 'status', 'current_version', 'branch_id', 'curriculum_level', 'difficulty', 'provenance', 'created_by'],
   question_bank_versions: ['parish_id', 'id', 'question_id', 'version', 'question_type', 'stem', 'answer_data', 'metadata_snapshot', 'content_hash'],
   exam_blueprints: ['parish_id', 'id', 'name', 'status', 'total_questions', 'max_score', 'version', 'created_by'],
@@ -143,6 +147,10 @@ const REQUIRED_TABLE_SQL_FRAGMENTS: Record<string, readonly string[]> = {
     'request_count>=1',
     'status=pendingandresolved_atisnullandresolved_byisnull',
     'statusin(resolved,dismissed)andresolved_atisnotnullandresolved_byisnotnull',
+  ],
+  // Tier 2 (20260904-168): ledger phải chấp nhận attempts nhập tay.
+  assessment_entries: [
+    'sourcein(exam_finalization,legacy_baseline,manual_entry)',
   ],
 }
 
@@ -172,6 +180,16 @@ const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
   exam_blueprints: ['parish_id', 'id'],
   exam_blueprint_rules: ['parish_id', 'id'],
   exam_question_snapshots: ['parish_id', 'id'],
+  // Phase 3: mở rộng gate composite-PK cho các bảng critical còn lại ( Drizzle
+  // schema đã khai báo (parish_id,id) đồng nhất — gate chặn drift/lược PK ở DB
+  // thật ngay lúc startup thay vì 500 lúc runtime).
+  notifications: ['parish_id', 'id'],
+  outbox_messages: ['parish_id', 'id'],
+  refresh_tokens: ['parish_id', 'id'],
+  semester_locks: ['parish_id', 'id'],
+  promotion_records: ['parish_id', 'id'],
+  grade_overrides: ['parish_id', 'id'],
+  catechist_assignments: ['parish_id', 'id'],
 }
 
 function rowValue(row: unknown, key: string, index: number): unknown {

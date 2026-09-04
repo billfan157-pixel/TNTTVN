@@ -106,10 +106,11 @@ describe('Task 1 — classStore Sync & Race Condition Verification', () => {
     const offlineClass = { id: 'CLS-TEMP-99', code: 'CT', name: 'Lớp Offline', branchId: 'b1', branchName: null, academicYearId: 'ay1', academicYear: null, room: null, homeroomTeacher: null, assistants: [], studentCount: 0, parishId: 'p1', createdAt: '', updatedAt: '', updatedBy: null }
     useClassStore.setState({ classes: [offlineClass] })
 
-    // Mock pending syncQueue contains CLS-TEMP-99
+    // Mock pending syncQueue contains CLS-TEMP-99 (op thật luôn mang ownership
+    // vì addOp stamp exact parish+user — OFF-TENANT-1).
     mockSyncQueue.where.mockReturnValue({
       anyOf: vi.fn().mockReturnValue({
-        toArray: vi.fn().mockResolvedValue([{ id: 'op-1', entity: 'class', entityId: 'CLS-TEMP-99', operation: 'CREATE', payload: JSON.stringify(offlineClass) }]),
+        toArray: vi.fn().mockResolvedValue([{ id: 'op-1', entity: 'class', entityId: 'CLS-TEMP-99', operation: 'CREATE', payload: JSON.stringify(offlineClass), userId: 'U-TEST', parishId: 'p1' }]),
       }),
     })
 

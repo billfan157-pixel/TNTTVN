@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { db, type DbExecutor } from '../db/index.js'
 import { academicYears } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademicYear } from '../utils/academicYear.js'
@@ -10,11 +10,12 @@ import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademic
  */
 export async function getAcademicYearDateRange(
   parishId: string,
-  academicYear: string
+  academicYear: string,
+  executor: DbExecutor = db
 ): Promise<{ startDate: string; endDate: string }> {
   const normYear = normalizeAcademicYear(academicYear)
   try {
-    const rows = await db.select().from(academicYears).where(eq(academicYears.parishId, parishId))
+    const rows = await executor.select().from(academicYears).where(eq(academicYears.parishId, parishId))
     const match = rows.find((r) => normalizeAcademicYear(r.id) === normYear)
     if (match && match.startDate && match.endDate) {
       return { startDate: match.startDate, endDate: match.endDate }

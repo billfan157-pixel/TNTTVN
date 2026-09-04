@@ -56,7 +56,18 @@ export async function applyMigrations(
     try {
       if (isMultiStatement) {
         const cleanSql = migration.sql.trim().replace(/;+$/, '')
-        const batchSql = `PRAGMA foreign_keys = OFF;\n${cleanSql};\nPRAGMA foreign_keys = ON;`
+        // @libsql/client explicitly documents that Client.executeMultiple does
+        // not create a transaction. Keep the migration marker inside the same
+        // explicit transaction so a crash/failure cannot leave partial DDL/data
+        // without a marker (or a marker without the full migration).
+        const batchSql = [
+          'PRAGMA foreign_keys = OFF;',
+          'BEGIN IMMEDIATE;',
+          cleanSql + ';',
+          `INSERT OR IGNORE INTO schema_migrations (version) VALUES (${quoteSqlLiteral(migration.version)});`,
+          'COMMIT;',
+          'PRAGMA foreign_keys = ON;',
+        ].join('\n')
         try {
           await client.executeMultiple(batchSql)
         } catch (err) {
@@ -67,6 +78,7 @@ export async function applyMigrations(
           }
           throw err
         }
+        continue
       } else {
         await client.execute(migration.sql)
       }

@@ -180,6 +180,13 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
         serverData,
       )
     }
+
+    // Tier 2: daily_entry dùng id client-stable (DG-...) nên không remap.
+    // Local entry đã là truth cho lần nhập tay; server chỉ echo receipt
+    // (created/duplicate) — không merge gì thêm. DELETE cũng đã xóa local trước.
+    if (entity === 'daily_entry') {
+      /* no-op: id ổn định, không remap, không merge */
+    }
   } catch (err) {
     Sentry.captureException(err)
   }

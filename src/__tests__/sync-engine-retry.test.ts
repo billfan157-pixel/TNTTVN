@@ -6,6 +6,8 @@ vi.mock('../router', () => ({ router: {} }))
 import { initDB, getDB } from '../lib/db'
 import { promoteTransientFailedOps, pruneStaleQueueItems } from '../hooks/useSyncEngine'
 
+const OWNER = { userId: 'U-TEST', parishId: 'PARISH-TEST' }
+
 async function resetDB() {
   const db = getDB()
   await db.syncQueue.clear()
@@ -17,6 +19,7 @@ describe('Sync Engine — Auto-recover transient failed ops (audit finding #10)'
   beforeEach(async () => {
     await initDB()
     await resetDB()
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
   })
 
   it('promotes failed ops do lỗi tạm thời (network/5xx) về pending, reset retryCount', async () => {
@@ -26,12 +29,12 @@ describe('Sync Engine — Auto-recover transient failed ops (audit finding #10)'
       {
         id: 'OP-X1', entity: 'grade', entityId: 'ST-1', operation: 'UPDATE',
         status: 'failed', retryCount: 5, lastError: 'Network request failed',
-        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T',
+        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T', ...OWNER,
       },
       {
         id: 'OP-Y1', entity: 'attendance', entityId: 'ST-2', operation: 'UPDATE',
         status: 'failed', retryCount: 5, lastError: 'Server error 500 processing request',
-        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T',
+        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T', ...OWNER,
       },
     ])
 
@@ -51,10 +54,10 @@ describe('Sync Engine — Auto-recover transient failed ops (audit finding #10)'
     const old = new Date(now - 31 * 24 * 60 * 60 * 1000).toISOString()
     const recent = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString()
     await db.syncQueue.bulkAdd([
-      { id: 'OP-C1', entity: 'grade', entityId: 'ST-1', operation: 'UPDATE', status: 'completed', retryCount: 0, lastError: null, payload: '{}', createdAt: recent, updatedAt: recent, deviceId: 'DEV-T' },
-      { id: 'OP-F1', entity: 'grade', entityId: 'ST-2', operation: 'UPDATE', status: 'failed', retryCount: 5, lastError: 'Permanent error', payload: '{}', createdAt: old, updatedAt: old, deviceId: 'DEV-T' },
-      { id: 'OP-F2', entity: 'grade', entityId: 'ST-3', operation: 'UPDATE', status: 'failed', retryCount: 5, lastError: 'Recent error', payload: '{}', createdAt: recent, updatedAt: recent, deviceId: 'DEV-T' },
-      { id: 'OP-F3', entity: 'grade', entityId: 'ST-4', operation: 'UPDATE', status: 'failed', retryCount: 5, lastError: 'Other user', payload: '{}', createdAt: old, updatedAt: old, deviceId: 'DEV-T', userId: 'OTHER-USER' },
+      { id: 'OP-C1', entity: 'grade', entityId: 'ST-1', operation: 'UPDATE', status: 'completed', retryCount: 0, lastError: null, payload: '{}', createdAt: recent, updatedAt: recent, deviceId: 'DEV-T', ...OWNER },
+      { id: 'OP-F1', entity: 'grade', entityId: 'ST-2', operation: 'UPDATE', status: 'failed', retryCount: 5, lastError: 'Permanent error', payload: '{}', createdAt: old, updatedAt: old, deviceId: 'DEV-T', ...OWNER },
+      { id: 'OP-F2', entity: 'grade', entityId: 'ST-3', operation: 'UPDATE', status: 'failed', retryCount: 5, lastError: 'Recent error', payload: '{}', createdAt: recent, updatedAt: recent, deviceId: 'DEV-T', ...OWNER },
+      { id: 'OP-F3', entity: 'grade', entityId: 'ST-4', operation: 'UPDATE', status: 'failed', retryCount: 5, lastError: 'Other user', payload: '{}', createdAt: old, updatedAt: old, deviceId: 'DEV-T', userId: 'OTHER-USER', parishId: OWNER.parishId },
     ])
 
     const removed = await pruneStaleQueueItems(now)
@@ -73,12 +76,12 @@ describe('Sync Engine — Auto-recover transient failed ops (audit finding #10)'
       {
         id: 'OP-P1', entity: 'student', entityId: 'ST-1', operation: 'CREATE',
         status: 'failed', retryCount: 5, lastError: 'Client error 400: Bad Request',
-        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T',
+        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T', ...OWNER,
       },
       {
         id: 'OP-P2', entity: 'class', entityId: 'C-1', operation: 'CREATE',
         status: 'failed', retryCount: 5, lastError: 'Unknown entityType: nonsense',
-        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T',
+        payload: '{}', createdAt: now, updatedAt: now, deviceId: 'DEV-T', ...OWNER,
       },
     ])
 

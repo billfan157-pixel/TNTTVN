@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
@@ -25,6 +26,8 @@ import { SegmentedControl, TabPanel, Tabs } from '../common/ui/SelectionControls
 type AttendanceSubTab = 'summary' | 'attendance' | 'leave-requests';
 
 export const DesktopAttendanceGrid: React.FC = () => {
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/attendance' });
   const { can, role } = useAuth();
   const canEditAttendance = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
@@ -40,9 +43,30 @@ export const DesktopAttendanceGrid: React.FC = () => {
   const writableClassList = useMemo(() => scopeClassesForAssignedWrites(classList, role), [classList, role]);
   const writableClassIds = useMemo(() => new Set(writableClassList.map(c => c.id)), [writableClassList]);
 
-  const [activeSubTab, setActiveSubTab] = useState<AttendanceSubTab>('summary');
-  const [date, setDate] = useState<string>(getDefaultDate);
-  const [type, setType] = useState<AttendanceType>('SundayMass');
+  const activeSubTab: AttendanceSubTab = (search.tab as AttendanceSubTab) || 'summary';
+  const setActiveSubTab = (newTab: AttendanceSubTab) => {
+    navigate({
+      to: '/attendance',
+      search: (prev: any) => ({ ...prev, tab: newTab }),
+      replace: true,
+    });
+  };
+  const date = search.date || getDefaultDate();
+  const setDate = (newDate: string) => {
+    navigate({
+      to: '/attendance',
+      search: (prev: any) => ({ ...prev, date: newDate }),
+      replace: true,
+    });
+  };
+  const type: AttendanceType = (search.type as AttendanceType) || 'SundayMass';
+  const setType = (newType: AttendanceType) => {
+    navigate({
+      to: '/attendance',
+      search: (prev: any) => ({ ...prev, type: newType }),
+      replace: true,
+    });
+  };
   const [attendanceState, setAttendanceState] = useState<Record<string, { status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note: string }>>({});
   const [isSaved, setIsSaved] = useState(false);
 

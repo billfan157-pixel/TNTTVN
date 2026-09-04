@@ -2,13 +2,13 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "main": true
+      "main": false
     }
   },
   "framework": "vite",
   "buildCommand": "npm run build:frontend",
   "outputDirectory": "dist",
-  "installCommand": "npm install --allow-remote=all",
+  "installCommand": "npm ci --allow-remote=all",
   "headers": [
     {
       "source": "/(.*)",

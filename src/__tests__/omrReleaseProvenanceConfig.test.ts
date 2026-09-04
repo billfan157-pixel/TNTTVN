@@ -12,6 +12,8 @@ describe('OMR field evidence release provenance configuration', () => {
     expect(vite).toContain('process.env.RENDER_GIT_COMMIT')
     expect(vite).toContain("|| 'dev'")
     expect(vite).toContain('__APP_RELEASE_ID__')
+    expect(vite).toContain('name: \'catevia-release-provenance\'')
+    expect(vite).toContain('<meta name="catevia-release"')
     expect(source('.env.example')).toContain('VITE_APP_RELEASE_ID=')
   })
 

@@ -23,6 +23,8 @@ const mockDb = {
   },
 }
 
+const OWNER = { userId: 'USER-A', parishId: 'PARISH-A' }
+
 vi.mock('../lib/db', () => ({
   getDB: () => mockDb,
   dexieStorage: {
@@ -53,16 +55,18 @@ describe('Offline Sync Remediation Verification (OS-01 to OS-04)', () => {
   beforeEach(() => {
     useSyncStore.setState({ status: 'idle', pendingCount: 0, lastSyncAt: null, lastError: null })
     vi.clearAllMocks()
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
 
     mockTable.where.mockReturnThis()
     mockTable.anyOf = vi.fn().mockReturnThis()
     mockTable.equals = vi.fn().mockReturnThis()
+    mockTable.filter.mockReturnThis()
   })
 
   it('OS-01 Keep-BOTH: compactQueue giữ nguyên cả CREATE(retrying) và DELETE(pending)', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-CREATE', entity: 'class', entityId: 'TEMP-CLS-01', operation: 'CREATE', payload: '{}', status: 'retrying', retryCount: 1, createdAt: '2026-08-12T10:00:00Z' },
-      { id: 'OP-DELETE', entity: 'class', entityId: 'TEMP-CLS-01', operation: 'DELETE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2026-08-12T10:05:00Z' },
+      { id: 'OP-CREATE', entity: 'class', entityId: 'TEMP-CLS-01', operation: 'CREATE', payload: '{}', status: 'retrying', retryCount: 1, createdAt: '2026-08-12T10:00:00Z', ...OWNER },
+      { id: 'OP-DELETE', entity: 'class', entityId: 'TEMP-CLS-01', operation: 'DELETE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2026-08-12T10:05:00Z', ...OWNER },
     ])
     await useSyncStore.getState().compactQueue()
     expect(mockTable.delete).not.toHaveBeenCalled()
@@ -97,11 +101,12 @@ describe('Offline Sync Remediation Verification (OS-01 to OS-04)', () => {
     }))
   })
 
-  it('OS-02 Fail-Closed User Isolation: isOwnOp từ chối op của user khác khi đã login', async () => {
-    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USER-A' }))
+  it('OFF-TENANT-1: isOwnOp từ chối cả user khác và cùng user ở parish khác', async () => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USER-A', parishId: 'PARISH-A' }))
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', userId: 'USER-A' },
-      { id: 'OP-2', userId: 'USER-B' },
+      { id: 'OP-1', userId: 'USER-A', parishId: 'PARISH-A' },
+      { id: 'OP-2', userId: 'USER-B', parishId: 'PARISH-A' },
+      { id: 'OP-4', userId: 'USER-A', parishId: 'PARISH-B' },
       { id: 'OP-3' }, // un-migrated legacy op
     ])
 
@@ -110,8 +115,8 @@ describe('Offline Sync Remediation Verification (OS-01 to OS-04)', () => {
     localStorage.removeItem('parish_current_user')
   })
 
-  it('OS-02 Idempotent Legacy Queue Migration: migrateLegacyQueueUserIds gán userId khi logged in', async () => {
-    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USER-MIGRATED' }))
+  it('OFF-TENANT-1: legacy queue migration quarantines rows without guessing parish ownership', async () => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USER-MIGRATED', parishId: 'PARISH-A' }))
     mockTable.filter.mockReturnValue({
       toArray: vi.fn().mockResolvedValue([
         { id: 'OP-LEGACY-1', payload: '{}' },
@@ -120,7 +125,11 @@ describe('Offline Sync Remediation Verification (OS-01 to OS-04)', () => {
 
     await migrateLegacyQueueUserIds()
 
-    expect(mockTable.update).toHaveBeenCalledWith('OP-LEGACY-1', { userId: 'USER-MIGRATED' })
+    expect(mockTable.update).toHaveBeenCalledWith('OP-LEGACY-1', expect.objectContaining({
+      status: 'failed',
+      lastError: expect.stringMatching(/^enc:v1:/),
+      updatedAt: expect.any(String),
+    }))
     localStorage.removeItem('parish_current_user')
   })
 

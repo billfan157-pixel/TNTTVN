@@ -36,7 +36,7 @@ export function StaffLoginPage() {
   }
 
   return (
-    <LoginShell title="Giáo Lý Viên / Nhân Sự" subtitle="Đăng nhập Hệ Thống Quản Lý Giáo Lý & Chuyên Cần">
+    <LoginShell title="Giáo Lý Viên / Nhân Sự" subtitle="Quản lý Giáo lý & Chuyên cần">
       <form onSubmit={handleLogin} className="p-8 space-y-5">
         {portalError && (
           <div role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600 flex items-center gap-2">

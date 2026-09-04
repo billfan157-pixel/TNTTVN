@@ -60,6 +60,7 @@ function setGradeSource(studentId: string, semester: 1 | 2, field: string, sourc
 }
 
 beforeEach(() => {
+  localStorage.setItem('parish_current_user', JSON.stringify({ id: 'usr-1', parishId: 'gia-ton' }))
   useExamStore.setState({
     sessions: [],
     selectedSessionId: null,
@@ -79,12 +80,37 @@ beforeEach(() => {
 })
 
 describe('examStore — finalize flow (conflict matrix §6)', () => {
-  it('daily type: học sinh có điểm manual bị BLOCK vào conflicts, không ghi đè', async () => {
-    vi.spyOn(api, 'completeExam').mockResolvedValue(mkSession({ status: 'completed' }))
-    vi.spyOn(api, 'getExamResults').mockResolvedValue({ session: mkSession(), results: [
-      mkResult('ST-1', 8),
-      mkResult('ST-2', 9),
-    ] })
+  // P0-01 (Phase 0 containment): server là SOLE WRITER sau complete.
+  // Client project server receipt, KHÔNG ghi grade/daily lần hai, KHÔNG enqueue
+  // grade mutation nào. Các test dưới khóa hành vi đó.
+  function mockCompleteReceipt(items: Array<{ studentId: string; status: 'committed' | 'conflict'; existingSource?: string | null; rawScore: number }>, scoreType = '15m') {
+    const session = mkSession({ scoreType: scoreType as '15m', status: 'completed' })
+    return {
+      session,
+      finalizationId: 'EXF-test-1',
+      items: items.map((item) => ({
+        studentId: item.studentId,
+        examResultId: `EXR-${item.studentId}`,
+        gradeId: null,
+        scoreField: 'score15m',
+        status: item.status,
+        existingSource: item.existingSource ?? null,
+        rawScore: item.rawScore,
+        finalScore: item.status === 'committed' ? item.rawScore : null,
+      })),
+      committed: items.filter(i => i.status === 'committed').length,
+      conflicts: items.filter(i => i.status === 'conflict').length,
+      legacy: false,
+    }
+  }
+
+  it('P0-01: online complete KHÔNG ghi grade/daily thứ hai — lastFinalize từ server receipt', async () => {
+    vi.spyOn(api, 'completeExam').mockResolvedValue(mockCompleteReceipt([
+      { studentId: 'ST-1', status: 'conflict', existingSource: 'manual', rawScore: 8 },
+      { studentId: 'ST-2', status: 'committed', rawScore: 9 },
+    ]))
+    const gradeSyncSpy = vi.spyOn(syncService, 'syncUpsertGrade')
+    const batchSyncSpy = vi.spyOn(syncService, 'syncBatchUpsertGrades')
 
     setGradeSource('ST-1', 1, 'score15m', 'manual', 6)
     setGradeSource('ST-2', 1, 'score15m', 'daily_avg', 7)
@@ -103,41 +129,28 @@ describe('examStore — finalize flow (conflict matrix §6)', () => {
     expect(result!.conflicts[0].existingSource).toBe('manual')
     expect(result!.conflicts[0].existingScore).toBe(6)
     expect(result!.conflicts[0].scannedScore).toBe(8)
-    expect(result!.dailyCount).toBe(1) // ST-2 (daily_avg) được ghi
+    expect(result!.dailyCount).toBe(1)
     expect(result!.directCount).toBe(0)
+    expect(result!.skipped).toBe(1)
 
-    // Điểm manual không bị đè: grade vẫn 6/manual (entry không được thêm cho ST-1)
+    // Single-owner: không daily entry mới, không grade mới/sửa, không enqueue sync.
+    expect(useDailyGradeStore.getState().entries).toHaveLength(0)
     const g1 = useGradeStore.getState().getStudentGrade('ST-1', 1)
     expect(g1?.score15m).toBe(6)
     expect(g1?.score15m_source).toBe('manual')
-    const st1Entries = useDailyGradeStore.getState().getEntriesForStudent('ST-1', 1, '15m')
-    expect(st1Entries).toHaveLength(0)
+    const g2 = useGradeStore.getState().getStudentGrade('ST-2', 1)
+    expect(g2?.score15m).toBe(7)
+    expect(g2?.score15m_source).toBe('daily_avg')
+    expect(gradeSyncSpy).not.toHaveBeenCalled()
+    expect(batchSyncSpy).not.toHaveBeenCalled()
+    expect(useExamStore.getState().sessions[0].status).toBe('completed')
   })
 
-  it('daily type: nguồn null / daily_avg / exam_scan được ghi qua pipeline daily', async () => {
-    vi.spyOn(api, 'completeExam').mockResolvedValue(mkSession({ status: 'completed' }))
-
-    useExamStore.setState({
-      sessions: [mkSession()],
-      selectedSessionId: 'EXS-test-1',
-      results: [mkResult('ST-1', 8)],
-    })
-
-    const result = await useExamStore.getState().completeAndFinalize()
-
-    expect(result!.conflicts).toHaveLength(0)
-    expect(result!.dailyCount).toBe(1)
-    const entries = useDailyGradeStore.getState().getEntriesForStudent('ST-1', 1, '15m')
-    expect(entries).toHaveLength(1)
-    expect(entries[0].value).toBe(8)
-    // syncAllToGradeStore chạy sau addEntry → grade có daily_avg
-    const grade = useGradeStore.getState().getStudentGrade('ST-1', 1)
-    expect(grade?.score15m).toBe(8)
-    expect(grade?.score15m_source).toBe('daily_avg')
-  })
-
-  it('midterm: ghi trực tiếp _source=exam_scan, không qua daily', async () => {
-    vi.spyOn(api, 'completeExam').mockResolvedValue(mkSession({ scoreType: 'midterm', status: 'completed' }))
+  it('P0-01: midterm committed — không ghi trực tiếp exam_scan lần hai', async () => {
+    vi.spyOn(api, 'completeExam').mockResolvedValue(mockCompleteReceipt(
+      [{ studentId: 'ST-1', status: 'committed', rawScore: 7.5 }], 'midterm',
+    ))
+    const gradeSyncSpy = vi.spyOn(syncService, 'syncUpsertGrade')
 
     useExamStore.setState({
       sessions: [mkSession({ scoreType: 'midterm' })],
@@ -147,18 +160,19 @@ describe('examStore — finalize flow (conflict matrix §6)', () => {
 
     const result = await useExamStore.getState().completeAndFinalize()
 
+    expect(result!.conflicts).toHaveLength(0)
     expect(result!.directCount).toBe(1)
     expect(result!.dailyCount).toBe(0)
-    const grade = useGradeStore.getState().getStudentGrade('ST-1', 1)
-    expect(grade?.scoreMidterm).toBe(7.5)
-    expect(grade?.scoreMidterm_source).toBe('exam_scan')
-    expect(grade?.scoreMidterm_updated_at).toBeTruthy()
-    // Không tạo daily entry nào
+    // Không grade local nào được tạo — grades authoritative về qua pull.
+    expect(useGradeStore.getState().grades).toHaveLength(0)
     expect(useDailyGradeStore.getState().entries).toHaveLength(0)
+    expect(gradeSyncSpy).not.toHaveBeenCalled()
   })
 
-  it('excel_import cũng bị BLOCK (ma trận §6)', async () => {
-    vi.spyOn(api, 'completeExam').mockResolvedValue(mkSession({ status: 'completed' }))
+  it('P0-01: excel_import conflict từ server receipt được project đúng', async () => {
+    vi.spyOn(api, 'completeExam').mockResolvedValue(mockCompleteReceipt([
+      { studentId: 'ST-1', status: 'conflict', existingSource: 'excel_import', rawScore: 8 },
+    ]))
     setGradeSource('ST-1', 1, 'score15m', 'excel_import', 5)
 
     useExamStore.setState({
@@ -171,6 +185,7 @@ describe('examStore — finalize flow (conflict matrix §6)', () => {
     expect(result!.conflicts).toHaveLength(1)
     expect(result!.conflicts[0].existingSource).toBe('excel_import')
     expect(result!.skipped).toBe(1)
+    expect(useDailyGradeStore.getState().entries).toHaveLength(0)
   })
 
   it('complete server lỗi → không ghi gì, error set', async () => {
@@ -243,6 +258,7 @@ describe('examStore — saveScores & session management', () => {
   it('EXAM-CONTINUOUS-P1: complete online vẫn xếp sau durable result đang pending', async () => {
     const apiSpy = vi.spyOn(api, 'completeExam')
     const queueCompleteSpy = vi.spyOn(syncService, 'syncCompleteExam').mockResolvedValue('OP-COMPLETE')
+    const gradeSyncSpy = vi.spyOn(syncService, 'syncUpsertGrade')
     useExamStore.setState({
       sessions: [mkSession()],
       selectedSessionId: 'EXS-test-1',
@@ -262,6 +278,10 @@ describe('examStore — saveScores & session management', () => {
     expect(apiSpy).not.toHaveBeenCalled()
     expect(queueCompleteSpy).toHaveBeenCalledWith('EXS-test-1')
     expect(useExamStore.getState().sessions[0].status).toBe('completed')
+    // P0-01: queued-barrier path cũng không ghi grade local thứ hai.
+    expect(useDailyGradeStore.getState().entries).toHaveLength(0)
+    expect(useGradeStore.getState().grades).toHaveLength(0)
+    expect(gradeSyncSpy).not.toHaveBeenCalled()
   })
 
   it('createSession thêm session vào đầu danh sách', async () => {
@@ -380,10 +400,11 @@ describe('examStore — Phase 3 offline path (ADR-023)', () => {
     expect(useExamStore.getState().results.map(r => r.studentId)).toEqual(['ST-2'])
   })
 
-  it('completeAndFinalize offline: enqueue complete + finalize local vẫn chạy', async () => {
+  it('P0-01: completeAndFinalize offline — enqueue complete + preview hiển thị, KHÔNG ghi local', async () => {
     setOffline(true)
     const apiSpy = vi.spyOn(api, 'completeExam')
     const syncSpy = vi.spyOn(syncService, 'syncCompleteExam')
+    const gradeSyncSpy = vi.spyOn(syncService, 'syncUpsertGrade')
 
     useExamStore.setState({
       sessions: [mkSession()],
@@ -395,11 +416,13 @@ describe('examStore — Phase 3 offline path (ADR-023)', () => {
 
     expect(apiSpy).not.toHaveBeenCalled()
     expect(syncSpy).toHaveBeenCalledWith('EXS-test-1')
+    // Preview hiển thị cho UX, nhưng không có side-effect ghi điểm nào —
+    // grades authoritative sẽ về qua pull delta sau khi queued complete sync xong.
     expect(result!.dailyCount).toBe(1)
     expect(useExamStore.getState().sessions[0].status).toBe('completed')
-    // Pipeline daily vẫn ghi local (gradeStore enqueue riêng khi offline)
-    const grade = useGradeStore.getState().getStudentGrade('ST-1', 1)
-    expect(grade?.score15m).toBe(8)
+    expect(useDailyGradeStore.getState().entries).toHaveLength(0)
+    expect(useGradeStore.getState().getStudentGrade('ST-1', 1)).toBeUndefined()
+    expect(gradeSyncSpy).not.toHaveBeenCalled()
   })
 
   it('FE-F1: revertLocalComplete đưa phiên optimistic completed về draft, không đụng phiên khác', () => {

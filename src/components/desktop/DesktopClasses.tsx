@@ -245,64 +245,102 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
             {sortedClasses.map(c => {
               const branch = BRANCHES[c.branchId as keyof typeof BRANCHES]
+              const scarfColor = branch?.scarfColor || 'var(--color-parish-primary)'
+              const hasAssistants = c.assistants && c.assistants.length > 0
+
               return (
                 <article
                   key={c.id}
-                  className="group relative overflow-hidden rounded-2xl border border-surface-border bg-surface-card transition-[border-color,box-shadow,transform] hover:border-parish-primary/30 hover:shadow-md"
+                  className="group relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-surface-border bg-surface-card transition-[border-color,box-shadow] duration-200 hover:border-parish-primary/40 hover:shadow-md"
                 >
-                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-parish-primary/0 via-parish-primary/40 to-parish-gold/40 opacity-0 transition-opacity group-hover:opacity-100" />
+                  {/* Vạch màu khăn ngành TNTT tinh tế */}
+                  <div
+                    className="absolute inset-x-0 top-0 h-1 transition-opacity opacity-75 group-hover:opacity-100"
+                    style={{
+                      background: `linear-gradient(90deg, ${scarfColor} 0%, color-mix(in srgb, ${scarfColor} 50%, transparent) 70%, transparent 100%)`,
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => viewClassStudents(c.id)}
                     aria-label={`Xem danh sách lớp ${c.name}`}
-                    className="flex w-full flex-col gap-3 bg-transparent p-3 text-left active:scale-[0.99] sm:p-4"
+                    className="flex flex-1 flex-col justify-between gap-3 bg-transparent p-3 sm:p-4 text-left border-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary/50 active:scale-[0.99] rounded-t-2xl"
                   >
-                    <span className="flex items-center justify-between gap-2">
-                      <span
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-xs font-black sm:h-10 sm:w-10"
-                        style={{
-                          background: branch?.badgeBg || 'var(--color-parish-primary-light)',
-                          color: branch?.textColor || 'var(--color-parish-primary)',
-                          borderColor: branch?.scarfColor ? `${branch.scarfColor}40` : 'var(--color-surface-border)',
-                        }}
-                      >
-                        {c.name.slice(0, 2).toUpperCase()}
-                      </span>
-                      <span className="rounded-full border border-surface-border bg-surface-hover px-2 py-1 text-xs font-black text-text-main transition-colors group-hover:border-parish-primary group-hover:bg-parish-primary group-hover:text-text-inverse sm:px-2.5">
-                        {c.studentCount ?? 0} em
-                      </span>
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-extrabold leading-tight text-text-main" title={c.name}>{c.name}</span>
-                      <span className="mt-1 flex items-center gap-1.5 text-xs text-text-muted">
-                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: branch?.scarfColor || 'var(--color-parish-success)' }} />
-                        <span className="truncate">{c.branchName || branch?.name || c.branchId}{c.room ? ` • ${c.room}` : ''}</span>
-                      </span>
-                      {c.homeroomTeacher && (
-                        <span className="mt-1 flex items-center gap-1 truncate text-xs text-text-muted">
-                          <Users aria-hidden="true" size={10} /> {c.homeroomTeacher.fullName}
+                    <div className="flex flex-col gap-2.5 w-full">
+                      {/* Avatar ngành & Sĩ số */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-xs font-black sm:h-10 sm:w-10 shadow-xs"
+                          style={{
+                            background: branch?.badgeBg || 'var(--color-parish-primary-light)',
+                            color: branch?.textColor || 'var(--color-parish-primary)',
+                            borderColor: `color-mix(in srgb, ${scarfColor} 25%, transparent)`,
+                          }}
+                        >
+                          {c.name.slice(0, 2).toUpperCase()}
                         </span>
-                      )}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-xs font-bold text-parish-primary">
+                        <span className="rounded-full border border-surface-border bg-surface-hover px-2 py-1 text-xs font-black text-text-main tabular-nums transition-colors group-hover:border-parish-primary group-hover:bg-parish-primary group-hover:text-text-inverse sm:px-2.5 shrink-0">
+                          {c.studentCount ?? 0} em
+                        </span>
+                      </div>
+
+                      {/* Tên lớp & Thông tin */}
+                      <div className="min-w-0">
+                        <span className="block truncate text-sm sm:text-base font-extrabold leading-tight text-text-main group-hover:text-parish-primary transition-colors" title={c.name}>
+                          {c.name}
+                        </span>
+                        <div className="mt-1 flex items-center gap-1.5 text-xs text-text-muted">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: scarfColor }} />
+                          <span className="truncate">{c.branchName || branch?.name || c.branchId}{c.room ? ` • ${c.room}` : ''}</span>
+                        </div>
+                        {c.homeroomTeacher ? (
+                          <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-text-muted">
+                            <Users aria-hidden="true" size={11} className="text-parish-primary shrink-0" />
+                            <span className="truncate">{c.homeroomTeacher.fullName}</span>
+                            {hasAssistants && (
+                              <span className="shrink-0 text-xs font-medium text-text-placeholder" title={`Phụ tá: ${c.assistants.map(a => a.fullName).join(', ')}`}>
+                                (+{c.assistants.length})
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-text-placeholder italic">
+                            <Users aria-hidden="true" size={11} className="opacity-40 shrink-0" />
+                            <span>Chưa phân công</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Nút Xem Danh Sách căn đều đáy */}
+                    <div className="inline-flex items-center gap-1 text-xs font-bold text-parish-primary pt-1">
                       Xem danh sách <Eye aria-hidden="true" size={13} />
-                    </span>
+                    </div>
                   </button>
+
                   {canEdit && (
-                    <div className="flex items-center justify-end gap-1 border-t border-surface-border px-2 py-1.5">
+                    <div className="flex items-center justify-end gap-1 border-t border-surface-border px-2 py-1.5 bg-surface-app/30">
                       <button
                         type="button"
-                        onClick={() => openEdit(c)}
-                        className="btn btn-ghost btn-sm inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openEdit(c)
+                        }}
+                        className="btn btn-ghost btn-sm inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg p-2 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-main"
                         aria-label={`Sửa lớp ${c.name}`}
+                        title="Sửa lớp"
                       >
                         <Pencil aria-hidden="true" size={14} />
                       </button>
                       <button
                         type="button"
-                        onClick={() => setConfirmDelete(c.id)}
-                        className="btn btn-ghost btn-sm inline-flex min-h-[40px] min-w-[40px] items-center justify-center p-2 text-parish-danger hover:bg-parish-danger-bg"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setConfirmDelete(c.id)
+                        }}
+                        className="btn btn-ghost btn-sm inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg p-2 text-parish-danger transition-colors hover:bg-parish-danger-bg"
                         aria-label={`Xóa lớp ${c.name}`}
+                        title="Xóa lớp"
                       >
                         <Trash2 aria-hidden="true" size={14} />
                       </button>
@@ -341,7 +379,7 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-parish-primary-light text-parish-primary text-xs font-bold">
                         <Hash size={11} /> {c.code}
                       </span>
-                      <span className="badge badge-neutral text-[11px]">
+                      <span className="badge badge-neutral text-xs">
                         {branchName}
                       </span>
                     </div>

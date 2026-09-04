@@ -3,7 +3,7 @@ import { examSessions, examResults, examResultMutations, examFinalizations, exam
 import { eq, and, inArray, isNull, notInArray } from 'drizzle-orm'
 import { createHash, randomUUID } from 'node:crypto'
 import { generateId } from '../utils/id.js'
-import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import { semesterLockSpecification } from './policyAdapters.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { upsertGrade } from './gradeService.js'
 import { getActiveAcademicYearId } from './academicYearService.js'
@@ -1056,6 +1056,9 @@ export async function finalizeExamSession(
             eq(assessmentEntries.semester, session.semester),
             eq(assessmentEntries.scoreType, session.scoreType),
           ))
+        // Tier 2: existingEntries gồm MỌI source (exam_finalization, manual_entry,
+        // legacy_baseline) nên baseline cầu nối chỉ dựng khi sổ thật sự trống —
+        // dòng tay đã sync tự triệt baseline, không đếm trùng.
         if (existingEntries.length === 0 && existingGrade && existingSource === 'daily_avg' && typeof (existingGrade as any)[scoreMap.field] === 'number') {
           const baseline = Number((existingGrade as any)[scoreMap.field])
           await tx.insert(assessmentEntries).values({
@@ -1145,8 +1148,12 @@ export async function finalizeExamSession(
 }
 
 export async function completeExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null) {
+  // P0-01 (Phase 0 containment): trả về TOÀN BỘ finalization receipt
+  // (session + items/committed/conflicts) thay vì chỉ session — client project
+  // receipt này để hiển thị, KHÔNG tự tính và ghi grade lần hai. Khớp contract
+  // đã ghi trong docs/FRONTEND_API_CONTRACT.md §10 (ExamFinalizationResult).
   const result = await finalizeExamSession(sessionId, userId, parishId, ip, userAgent, allowedClassIds)
-  return result.session
+  return result
 }
 
 export async function reopenExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string) {

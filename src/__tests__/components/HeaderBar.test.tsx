@@ -94,9 +94,9 @@ describe('HeaderBar Component', () => {
     expect(screen.getByText('Thiếu nhi & Học vụ')).toBeDefined()
   })
 
-  it('renders search input', () => {
+  it('does not render duplicate page-level search input', () => {
     render(<HeaderBar />)
-    expect(screen.getByRole('textbox', { name: 'Tìm thiếu nhi theo tên hoặc mã' })).toBeDefined()
+    expect(screen.queryByRole('textbox', { name: 'Tìm thiếu nhi theo tên hoặc mã' })).toBeNull()
   })
 
   it('renders semester toggle buttons', () => {
@@ -116,15 +116,9 @@ describe('HeaderBar Component', () => {
     expect(screen.getByText('Đăng Nhập')).toBeDefined()
   })
 
-  it('renders class switcher dropdown for admin', () => {
+  it('does not render duplicate class switcher in header bar', () => {
     render(<HeaderBar />)
-    expect(screen.getByRole('combobox', { name: 'Lớp đang xem' })).toBeDefined()
-  })
-
-  it('hides class switcher dropdown for non-admin users', () => {
-    setMockAuthUser({ role: 'chunhiem', fullName: 'GLV' })
-    render(<HeaderBar />)
-    expect(screen.queryByText('Tất cả lớp học')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Lớp đang xem' })).toBeNull()
   })
 
   it('shows client-cache recovery only to admins with accurate wording', () => {

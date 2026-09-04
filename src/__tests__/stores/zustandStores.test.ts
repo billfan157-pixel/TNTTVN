@@ -8,6 +8,7 @@ import { attendanceApiClient } from '../../lib/api/attendance'
 
 describe('Zustand State Stores Unit Tests', () => {
   beforeEach(() => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-STORE-TEST', parishId: 'gia-ton' }))
     useStudentStore.setState({ students: [] })
     useGradeStore.setState({ grades: [] })
     useAttendanceStore.setState({ attendance: [] })

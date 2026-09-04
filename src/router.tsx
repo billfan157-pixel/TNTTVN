@@ -160,6 +160,11 @@ const studentsRoute = createRoute({
 const gradesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/grades',
+  validateSearch: z.object({
+    view: z.enum(['matrix', 'cards', 'comparison', 'daily', 'exam', 'bank']).optional().catch('matrix'),
+    classId: z.string().optional(),
+    semester: z.string().optional(),
+  }),
   beforeLoad: requireRouteAccess('/grades'),
   component: () => (
     <PageSuspense>
@@ -171,6 +176,12 @@ const gradesRoute = createRoute({
 const attendanceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/attendance',
+  validateSearch: z.object({
+    tab: z.enum(['summary', 'attendance', 'leave-requests']).optional().catch('summary'),
+    date: z.string().optional(),
+    type: z.enum(['SundayMass', 'CatechismClass', 'EucharisticAdoration']).optional(),
+    classId: z.string().optional(),
+  }),
   beforeLoad: requireRouteAccess('/attendance'),
   component: () => (
     <PageSuspense>
@@ -376,6 +387,11 @@ const verifyRoute = createRoute({
 const financeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/finances',
+  validateSearch: z.object({
+    tab: z.enum(['ledger', 'fees']).optional().catch('ledger'),
+    fundId: z.string().optional(),
+    search: z.string().optional(),
+  }),
   beforeLoad: requireRouteAccess('/finances'),
   component: () => (
     <PageSuspense>

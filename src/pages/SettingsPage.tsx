@@ -260,7 +260,7 @@ const SettingsPage: React.FC = () => {
                       onClick={() => setViewMode(vm.value)}
                       title={vm.label}
                       aria-pressed={isActive}
-                      className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-[11px] font-semibold transition-all ${
+                      className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
                         isActive
                           ? 'bg-parish-primary-light dark:bg-parish-primary/15 border-parish-primary text-parish-primary shadow-xs'
                           : 'border-surface-border text-text-muted hover:bg-surface-hover'
@@ -295,7 +295,7 @@ const SettingsPage: React.FC = () => {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-bold text-text-main group-hover:text-parish-primary transition-colors">{link.title}</span>
-                      <span className="block text-[11px] text-text-muted truncate">{link.desc}</span>
+                      <span className="block text-xs text-text-muted truncate">{link.desc}</span>
                     </span>
                     <ChevronRight size={15} className="text-text-muted shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </button>

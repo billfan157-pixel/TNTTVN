@@ -435,6 +435,42 @@ describe('Parish Financial & Fund Management Tests (ADR-039)', () => {
     expect(teacherPostRes.status).toBe(403)
   })
 
+  it('maps tenant-scoped finance validation failures to a safe 400 response', async () => {
+    const invalidFee = {
+      studentId: `unknown-student-${PREFIX}`,
+      classId,
+      academicYear: '2025-2026',
+      feeType: 'NIEN_LIEM',
+      title: 'Niên liễm 2025-2026',
+      expectedAmount: 150000,
+      paidAmount: 150000,
+      status: 'PAID',
+      createTransaction: true,
+    }
+
+    const singleRes = await financesRouter.request(`/classes/${classId}/fees`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify(invalidFee),
+    })
+    expect(singleRes.status).toBe(400)
+    await expect(singleRes.json()).resolves.toMatchObject({
+      success: false,
+      error: { code: 'BAD_REQUEST' },
+    })
+
+    const batchRes = await financesRouter.request(`/classes/${classId}/fees/batch`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ records: [invalidFee] }),
+    })
+    expect(batchRes.status).toBe(400)
+    await expect(batchRes.json()).resolves.toMatchObject({
+      success: false,
+      error: { code: 'BAD_REQUEST' },
+    })
+  })
+
   it('maintains strict multi-tenant parish isolation', async () => {
     const summaryOther = await getFinanceSummary(otherParishId, '2025-2026')
     expect(summaryOther.totalIncome).toBe(0)

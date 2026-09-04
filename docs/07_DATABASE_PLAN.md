@@ -1,11 +1,11 @@
 # Database Schema Specification & Plan
 
-> Canonical Single Source of Truth (SSOT) for all 51 SQLite production tables managed via Drizzle ORM.
-> Version: 3.0 | Last reviewed: 2026-09-01 | Status: ✅ Current | Prerequisites: 02
+> Canonical Single Source of Truth (SSOT) for all 59 SQLite production tables managed by the database bootstrap, migration runner and Drizzle mappings.
+> Version: 3.2 | Last reviewed: 2026-09-03 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
-## All Production Tables (51)
+## All Production Tables (59)
 
 | # | Table Name | Purpose | Unique Indexes / Constraints |
 |---|------------|---------|------------------------------|
@@ -13,14 +13,14 @@
 | 2 | `students` | Student roster (soft-deletable) | `(parish_id, code)` UNIQUE (`idx_students_code_parish`), `idempotency_key` (UNIQUE) |
 | 3 | `grades` | Academic scores per semester | `idx_grades_lookup` `(parish_id, student_id, academic_year, semester)` UNIQUE |
 | 4 | `attendance` | Mass & Catechism attendance events | `idx_attendance_unique` `(parish_id, student_id, date, type)` UNIQUE |
-| 5 | `notices` | Parish announcements | `idx_notices_date` |
+| 5 | `notices` | Parish announcements; `deleted_at` tombstone và `parent_revoked_at` visibility-revocation cursor (ADR-101) | `idx_notices_date`, `(parish_id,id)` PK |
 | 6 | `audit_logs` | Audit trail with IP & user agent | `idx_audit_logs_entity` |
 | 7 | `branches` | TNTT branch definitions | `(parish_id, id)` PK ('CC', 'AU', 'TN', 'NS', 'HS') |
 | 8 | `academic_years` | School year config + lifecycle state machine (`status`, `current_semester`, `is_locked`) | `(parish_id, id)` PK ('2025 - 2026') |
 | 9 | `classes` | Catechism classes linked to branch + year | `idx_classes_code_year` UNIQUE |
 | 10 | `system_settings` | App configuration key-value store | `(key, parish_id)` PK — gồm key `purge_version` (marker đa thiết bị, Purge v2.4) |
 | 11 | `catechist_assignments` | User ↔ class mapping with role | `idx_catechist_assignments_unique` `(user_id, class_id)` UNIQUE |
-| 12 | `notifications` | Persistent notification history — thêm `target_user_ids` (JSON array userId, migration `20260808-082`): web push CÓ CHỦ ĐÍCH (phụ huynh theo chi đoàn), queue recover sau restart gửi lại đúng nhóm, không broadcast nhầm (ADR-022) | `idx_notifications_lookup` |
+| 12 | `notifications` | Durable notification queue/history: audience JSON `target_user_ids`; persisted delivery kind, attempt budget, lease và next-attempt time (ADR-102) | `idx_notifications_lookup`, `idx_notifications_worker(status,next_attempt_at,lease_expires_at)` |
 | 13 | `permissions` | RBAC permission definitions | `id` PK |
 | 14 | `role_permissions` | Role ↔ permission mapping | `idx_role_permissions_pk` `(role, permission_id)` UNIQUE |
 | 15 | `import_batches` | Student roster import batch; `created_class_ids` JSON exact IDs phục vụ undo an toàn (migration `20260828-132`); status `processing/completed/partial/failed/undone/partial_undone` | `id` PK |
@@ -61,6 +61,13 @@
 | 50 | `feedback_messages` | Thư góp ý gửi Xứ đoàn/GLV chủ nhiệm; anonymous không giữ sender identity | PK `(parish_id,id)`; sender/target CHECK; `idx_feedback_inbox`, `idx_feedback_public_sender` |
 | 51 | `password_reset_requests` | Ticket quên mật khẩu hiện tại của mỗi tài khoản phụ huynh; không lưu SĐT tự khai hay credential | PK `(parish_id,id)`; UNIQUE `(parish_id,user_id)`; inbox index `(parish_id,status,last_requested_at)`; composite FKs tới `users`; resolution/count CHECK |
 | 52 | `native_push_tokens` | Binding push token native theo installation/user/parish; token chỉ dùng để giao vận, không ghi audit/client storage (ADR-095) | PK `(parish_id,id)`; UNIQUE `installation_id`, UNIQUE `(platform,token)`; index `(parish_id,user_id)`; composite FK cascade tới `users`; migration `20260902-149` |
+| 53 | `question_bank_items` | Định danh và lifecycle câu hỏi tái sử dụng theo tenant/taxonomy | PK `(parish_id,id)`; list/taxonomy/author indexes; composite FK tới branch và creator |
+| 54 | `question_bank_versions` | Phiên bản nội dung câu hỏi append-only, hash-bound | PK `(parish_id,id)`; UNIQUE `(parish_id,question_id,version)`; composite FK question/creator |
+| 55 | `exam_blueprints` | Blueprint tạo đề theo taxonomy, trạng thái và tổng điểm | PK `(parish_id,id)`; list/taxonomy indexes; composite FK branch/creator |
+| 56 | `exam_blueprint_rules` | Các rule có thứ tự của blueprint | PK `(parish_id,id)`; UNIQUE `(parish_id,blueprint_id,ordinal)`; cascade theo blueprint |
+| 57 | `exam_question_snapshots` | Snapshot bất biến của đúng version câu hỏi đã materialize vào phiên thi | PK `(parish_id,id)`; UNIQUE session/position; composite FK session/question/version |
+| 58 | `rate_limits` | Bộ đếm rate-limit bền vững dùng chung giữa tiến trình/API; dữ liệu vận hành, không phải tenant business record | `key` PK; `count` và epoch `reset_at` bắt buộc |
+| 59 | `schema_migrations` | Ledger phiên bản migration đã áp dụng để bootstrap idempotent và fail-closed | `version` PK; `applied_at` mặc định `CURRENT_TIMESTAMP` |
 
 ---
 
@@ -194,3 +201,13 @@ DB CHECK bắt buộc `request_count >= 1`; `PENDING` phải chưa có resolver,
 - `exam_sessions.source_type|blueprint_id|blueprint_snapshot`: additive provenance only; existing Smart Exam columns remain authoritative for execution.
 - Migrations `20260902-150..158` are additive and schema readiness requires tables, columns, indexes, composite PKs and the same-parish blueprint insert/update triggers.
 - Delete order is snapshots → sessions → blueprint rules → blueprints → question versions → question items. Purge v2.5 and backup v2.1 follow this order.
+
+## Stabilization migrations 20260903-159..20260904-167 (ADR-101/102)
+
+- `159` adds nullable `notices.deleted_at`. Existing rows remain active; no destructive backfill. Full notice reads require `deleted_at IS NULL`, while `updatedAfter` reads deliberately include tombstones.
+- `160..164` add `notifications.attempt_count`, `max_attempts`, `lease_owner`, `lease_expires_at`, and `next_attempt_at`. Existing `retrying` rows receive defaults and are recoverable by the worker.
+- `165` adds `idx_notifications_worker(status,next_attempt_at,lease_expires_at)` for bounded polling/claim lookup.
+- `166` persists `notifications.delivery_kind` so a recovered alert/info retains its dispatch behavior and Web Push title instead of falling back to the legacy `absence` channel.
+- `167` adds `notices.parent_revoked_at`: parent deltas receive a redacted eviction tombstone only for rows whose parent visibility was actually revoked; brand-new staff notices remain undisclosed.
+- Startup readiness requires all nine markers, the new columns and worker index. Compatibility ALTERs remain duplicate-safe for historical deployments.
+- Rollback is R2: code can stop consuming the new fields, but additive columns/tombstones should be retained. Do not hard-delete notice tombstones or down-migrate queue state during an incident; restore a pre-migration snapshot only through the documented database recovery procedure.

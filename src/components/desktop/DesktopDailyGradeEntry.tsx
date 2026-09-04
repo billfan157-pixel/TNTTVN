@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
-import { useGradeStore } from '../../stores/gradeStore'
+import { useGradeStore, getCurrentAcademicYear } from '../../stores/gradeStore'
+import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useDailyGradeStore } from '../../stores/dailyGradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
@@ -37,6 +38,18 @@ export const DesktopDailyGradeEntry: React.FC = () => {
   const removeEntry = useDailyGradeStore(s => s.removeEntry)
   const getAverageForStudent = useDailyGradeStore(s => s.getAverageForStudent)
   const getEntriesForStudent = useDailyGradeStore(s => s.getEntriesForStudent)
+  const getMachineEntries = useDailyGradeStore(s => s.getMachineEntries)
+  const fetchDailyEntries = useDailyGradeStore(s => s.fetchDailyEntries)
+  const currentYear = useAcademicYearStore(s => s.currentYear)
+  const academicYear = currentYear && currentYear.trim() !== '' ? currentYear : getCurrentAcademicYear()
+
+  // Tier 2: kéo attempts server (gồm bài thi máy) khi xem 1 lớp — read-only,
+  // có nhãn rõ. Chế độ 'all' không fetch (tránh N+1 theo lớp).
+  useEffect(() => {
+    if (selectedClassId && selectedClassId !== 'all') {
+      void fetchDailyEntries({ classId: selectedClassId, semester: selectedSemester, academicYear })
+    }
+  }, [selectedClassId, selectedSemester, academicYear, fetchDailyEntries])
 
   const [activeScoreType, setActiveScoreType] = useState<DailyScoreType>('oral')
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
@@ -323,6 +336,8 @@ export const DesktopDailyGradeEntry: React.FC = () => {
               ) : (
                 filteredStudents.map((student, idx) => {
                   const studentEntries = getEntriesForStudent(student.id, selectedSemester, activeScoreType)
+                  // Tier 2: bài thi máy cùng cột — read-only, nhãn rõ, không nút xóa/sửa.
+                  const machineEntries = getMachineEntries(student.id, selectedSemester, activeScoreType)
                   const avg = getAverageForStudent(student.id, selectedSemester, activeScoreType)
                   const existingGrade = getStudentGrade(student.id, selectedSemester)
                   const cls = findClassById(student.classId)
@@ -397,7 +412,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                             {!isExpanded && studentEntries.length > 3 && (
                               <button
                                 onClick={() => setExpandedStudent(student.id)}
-                                className="text-[10px] text-parish-primary font-bold hover:underline"
+                                className="text-xs text-parish-primary font-semibold hover:underline"
                               >
                                 +{studentEntries.length - 3} cũ hơn
                               </button>
@@ -405,12 +420,30 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                             {isExpanded && (
                               <button
                                 onClick={() => setExpandedStudent(null)}
-                                className="text-[10px] text-text-muted font-bold hover:underline"
+                                className="text-xs text-text-muted font-semibold hover:underline"
                               >
                                 Thu gọn
                               </button>
                             )}
                           </div>
+                          {machineEntries.length > 0 && (
+                            <div aria-label={`Bài thi máy của ${student.fullName}`} className="mt-1.5 border-t border-dashed border-surface-border pt-1.5">
+                              <span className="text-xs font-bold uppercase tracking-wide text-text-muted">
+                                Bài thi máy · chỉ xem (tính vào trung bình)
+                              </span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {machineEntries.map(m => (
+                                  <span
+                                    key={m.id}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold badge-info"
+                                    title={`${m.date ?? 'Không rõ ngày'} · máy chấm, không xóa/sửa tại đây`}
+                                  >
+                                    {m.value}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-3 px-4 text-center">

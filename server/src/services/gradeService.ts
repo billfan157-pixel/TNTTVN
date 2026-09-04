@@ -3,22 +3,19 @@ import { grades, auditLogs, gradeOverrides, students, academicYears } from '../d
 import { runDbTransaction } from '../db/index.js'
 import { eq, and, gte, inArray, isNull, desc } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
-import { semesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import { semesterLockSpecification } from './policyAdapters.js'
 import { type ScoreField } from '../domain/GradeAggregate.js'
 import { SCORE_FIELDS, buildSourceMapping } from '../domain/ScoreFields.js'
 import { drizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../utils/academicYear.js'
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
+import { notifyGradeOverride } from './smartNotifications.js'
+import { VersionConflictError } from '../domain/errors.js'
 
-export class VersionConflictError extends Error {
-  public statusCode = 409
-  public currentGrade: any
-  constructor(message: string, currentGrade: any) {
-    super(message)
-    this.name = 'VersionConflictError'
-    this.currentGrade = currentGrade
-  }
-}
+// Phase 2 (error-ownership): canonical definition sống ở domain/errors.ts.
+// Re-export giữ tương thích cho callers/tests cũ (cùng 1 class identity,
+// mọi `instanceof` giữ nguyên).
+export { VersionConflictError } from '../domain/errors.js'
 
 function formatGradeRow(row: any) {
   if (!row) return row
@@ -97,8 +94,8 @@ export interface GradeData {
  * GRADE-ARCH-01 (2026-08-09): VIỆC GHI ĐÃ HỢP NHẤT — qua
  * GradeAggregate + DrizzleGradeRepository.persistManualOverrideEvents (writer chung
  * với application-service path: supersede version semantics, range 0-10, audit
- * OVERRIDE_GRADE + outbox GradeOverrideCreated / parish-scoped), thay cho việc
- * insert trực tiếp ánh xạ xưa.
+ * OVERRIDE_GRADE + notify notificationQueue post-commit, parish-scoped), thay cho
+ * việc insert trực tiếp ánh xạ xưa.
  */
 function collectManualOverrideEntries(data: GradeData): { scoreField: ScoreField; manualValue: number; reasonNote?: string | null }[] {
   const entries: { scoreField: ScoreField; manualValue: number; reasonNote?: string | null }[] = []
@@ -112,6 +109,10 @@ function collectManualOverrideEntries(data: GradeData): { scoreField: ScoreField
 }
 
 export async function upsertGrade(data: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null) {
+  // Phase 2 (outbox convergence): manual entries thuần theo data (không DB) để
+  // notify post-commit — chỉ khi service sở hữu tx (externalTx thì caller
+  // commit, không notify ở đây để tránh phantom alert khi rollback).
+  const manualEntriesForNotice = externalTx ? [] : collectManualOverrideEntries(data)
   const executeFn = async (tx: DbTransaction) => {
     // Get current policy version for audit trail
     const policyVersionId = await getCurrentPolicyVersionId(parishId)
@@ -366,7 +367,18 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
   if (externalTx) {
     return executeFn(externalTx)
   }
-  return runDbTransaction(executeFn)
+  const result = await runDbTransaction(executeFn)
+  // Phase 2 (outbox convergence): post-commit qua notificationQueue (precedent
+  // noticeService). Không throw — lỗi đã catch trong notify.
+  for (const entry of manualEntriesForNotice) {
+    await notifyGradeOverride(parishId, {
+      studentId: data.studentId,
+      scoreField: entry.scoreField,
+      manualValue: entry.manualValue,
+      reasonCode: 'TeacherAdjustment',
+    })
+  }
+  return result
 }
 
 // ADR-028 (2026-08-12): Undo import điểm dựa trên audit_logs làm nguồn restore.

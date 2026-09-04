@@ -1,6 +1,7 @@
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER'
 
 export type FeeStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'EXEMPTED'
+export type WritableFeeStatus = Exclude<FeeStatus, 'PARTIAL'>
 
 export type FeeType = 'NIEN_LIEM' | 'TRAI_HE' | 'DONG_PHUC' | 'GIAO_LY' | 'OTHER'
 

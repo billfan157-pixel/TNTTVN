@@ -1,5 +1,5 @@
 
-import { httpFetch } from '../api'
+import { httpFetch } from './core'
 import type { AttendanceType } from '../../types'
 
 export interface MarkAttendancePayload {

@@ -1,10 +1,10 @@
 import { db, type DbExecutor } from '../db/index.js'
-import { grades, gradeOverrides, auditLogs, outboxMessages } from '../db/schema.js'
+import { grades, gradeOverrides, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { GradeAggregate } from '../domain/GradeAggregate.js'
 import type { GradeRecordDTO, GradeOverrideDTO, ScoreField } from '../domain/GradeAggregate.js'
 import { SCORE_FIELD_METAS } from '../domain/ScoreFields.js'
-import { VersionConflictError } from '../services/gradeService.js'
+import { VersionConflictError } from '../domain/errors.js'
 import { generateId } from '../utils/id.js'
 
 // GRADE-TD-01 (audit 2026-08-09): lookup nhanh scoreField → cột source/updatedAt
@@ -172,16 +172,10 @@ export class DrizzleGradeRepository {
         createdAt: now,
       })
 
-      await tx.insert(outboxMessages).values({
-        id: idempotencyKey || generateId('OUT'),
-        aggregateId: grade.id,
-        eventType: evt.eventType,
-        payload: JSON.stringify(overridePayload),
-        status: 'pending',
-        sequenceNumber: evt.sequenceNumber,
-        parishId,
-        createdAt: now,
-      })
+      // Phase 2 (outbox convergence): KHÔNG insert outbox_messages nữa.
+      // Thông báo telegram đi qua notificationQueue (durable lease) bằng
+      // notifyGradeOverride post-commit ở tầng service (GradeApplicationService
+      // / gradeService.upsertGrade) — audit_logs trong tx này là trail chính.
     }
   }
 

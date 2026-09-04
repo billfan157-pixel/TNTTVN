@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Activity, Database, HardDrive, ShieldCheck, RefreshCw, X, Zap, Cpu, AlertTriangle, AlertCircle, Trash2, History, Server, CheckCircle2, XCircle, Download, Play } from 'lucide-react'
 import { getDB, type SyncQueueItem, type SyncConflict } from '../../lib/db'
-import { useSyncStore } from '../../stores/syncStore'
+import { isOwnOp, useSyncStore } from '../../stores/syncStore'
 import { runSyncFlow } from '../../hooks/useSyncEngine'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
@@ -76,15 +76,15 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
 
     try {
       const db = getDB()
-      const count = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).count()
-    setPendingSyncOps(count)
+      const pending = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray()
+    setPendingSyncOps(pending.filter(isOwnOp).length)
     
-    const failed = await db.syncQueue.where('status').equals('failed').toArray()
+    const failed = (await db.syncQueue.where('status').equals('failed').toArray()).filter(isOwnOp)
     setFailedOps(failed)
 
     // Breakdown by entity for deeper insight
     try {
-      const allPending = await db.syncQueue.where('status').anyOf(['pending', 'retrying', 'failed']).toArray()
+      const allPending = (await db.syncQueue.where('status').anyOf(['pending', 'retrying', 'failed']).toArray()).filter(isOwnOp)
       const byEntity: Record<string, number> = {}
       for (const item of allPending) byEntity[item.entity] = (byEntity[item.entity] || 0) + 1
       if (!cancelledRef.current) setQueueByEntity(byEntity)

@@ -208,6 +208,8 @@ export const notices = sqliteTable('notices', {
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
    updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
    updatedBy: text('updated_by'),
+   deletedAt: text('deleted_at'),
+   parentRevokedAt: text('parent_revoked_at'),
  }, (table) => [
     primaryKey({ columns: [table.parishId, table.id] }),
     index('idx_notices_parish_id').on(table.parishId),
@@ -419,6 +421,7 @@ export const notifications = sqliteTable('notifications', {
    studentId: text('student_id'),
    type: text('type', { enum: ['telegram', 'web_push'] }).notNull(),
    channel: text('channel', { enum: ['absence', 'report_card', 'reminder'] }).notNull(),
+   deliveryKind: text('delivery_kind', { enum: ['alert', 'info', 'absence', 'report', 'reminder'] }),
    status: text('status', { enum: ['sent', 'failed', 'retrying'] }).notNull(),
    recipient: text('recipient').notNull(),
    message: text('message'),
@@ -427,6 +430,11 @@ export const notifications = sqliteTable('notifications', {
    triggeredByUserId: text('triggered_by_user_id'),
    sentAt: text('sent_at'),
    targetUserIds: text('target_user_ids'),
+   attemptCount: integer('attempt_count').notNull().default(0),
+   maxAttempts: integer('max_attempts').notNull().default(3),
+   leaseOwner: text('lease_owner'),
+   leaseExpiresAt: text('lease_expires_at'),
+   nextAttemptAt: text('next_attempt_at'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   }, (table) => [
@@ -439,8 +447,9 @@ export const notifications = sqliteTable('notifications', {
       columns: [table.parishId, table.triggeredByUserId],
       foreignColumns: [users.parishId, users.id],
     }).onDelete('cascade'),
-    index('idx_notifications_parish_id').on(table.parishId),
+   index('idx_notifications_parish_id').on(table.parishId),
    index('idx_notifications_lookup').on(table.parishId, table.status, table.createdAt),
+   index('idx_notifications_worker').on(table.status, table.nextAttemptAt, table.leaseExpiresAt),
   ])
 
 export const permissions = sqliteTable('permissions', {
@@ -1008,7 +1017,8 @@ export const assessmentEntries = sqliteTable('assessment_entries', {
   rawScore: real('raw_score').notNull(),
   maxScore: real('max_score').notNull().default(10),
   score: real('score').notNull(),
-  source: text('source', { enum: ['exam_finalization', 'legacy_baseline'] }).notNull(),
+  source: text('source', { enum: ['exam_finalization', 'legacy_baseline', 'manual_entry'] }).notNull(),
+  entryDate: text('entry_date'),
   createdBy: text('created_by').notNull(),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [

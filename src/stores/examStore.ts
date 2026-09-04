@@ -13,11 +13,10 @@ import {
 import type { ExamSession, ExamResult, ExamFinalizeResult, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../types'
 import { normalizeAnswerKey, normalizeAnswerVariants } from '../lib/examVariants'
 import { useGradeStore } from './gradeStore'
-import { useDailyGradeStore } from './dailyGradeStore'
 import { useStudentStore } from './studentStore'
 import { useAcademicYearStore } from './academicYearStore'
 import { runSyncFlow } from '../hooks/useSyncEngine'
-import { evaluateExamFinalizeConflictsAndRoute } from '../services/examFinalizeService'
+import { evaluateExamFinalizeConflictsAndRoute, mapServerFinalizationToResult } from '../services/examFinalizeService'
 import { getTenantScope } from '../lib/tenantScope'
 import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'
 import { recordContinuousDuration } from '../lib/continuousScanDiagnostics'
@@ -443,6 +442,17 @@ export const useExamStore = create<ExamState>()(
 
     set({ finalizing: true, error: null })
     try {
+      // P0-01 (Phase 0 containment): server là SOLE WRITER của grades/ledger
+      // sau complete. Client chỉ project receipt (online) hoặc dry-run preview
+      // (offline/queued) — KHÔNG gọi addDailyEntry/upsertGrade, KHÔNG enqueue
+      // grade mutation nào sau server acknowledgement. Ghi đè local trước đây
+      // dùng ledger thiếu (partial daily entries) đè kết quả server vừa tính đúng.
+      const readGrade = (studentId: string, semester: 1 | 2) =>
+        useGradeStore.getState().getStudentGrade(studentId, semester) as Record<string, unknown> | null | undefined
+      const studentNameResolver = (studentId: string) => {
+        const st = useStudentStore.getState().students.find(s => s.id === studentId)
+        return st ? { fullName: st.fullName, code: st.code } : null
+      }
       let completed: ExamSession
       if (isOffline() || hasPendingResultMutations) {
         // Complete is a session barrier queued strictly after every durable
@@ -452,25 +462,58 @@ export const useExamStore = create<ExamState>()(
         completed = { ...session, status: 'completed' }
         set({ sessions: get().sessions.map(s => s.id === id ? completed : s) })
         runSyncFlow()
-      } else {
-        // 1. Đóng phiên trên server (validate lock + class access + audit EXAM_FINALIZE).
-        completed = await api.completeExam(id)
-        set({ sessions: get().sessions.map(s => s.id === id ? completed : s) })
+        // Queued path: server chưa finalize nên chỉ tính preview hiển thị
+        // (no-op writers). Grades authoritative sẽ về qua pull delta sau sync.
+        const preview = evaluateExamFinalizeConflictsAndRoute({
+          results: get().results,
+          session: completed,
+          readGrade,
+          addDailyEntry: () => {},
+          upsertGrade: () => {},
+          studentNameResolver,
+        })
+        set({ lastFinalize: preview })
+        return preview
       }
+      // 1. Đóng phiên trên server (validate lock + class access + ghi ledger,
+      //    grades, receipt, audit EXAM_FINALIZE trong một transaction).
+      const response = await api.completeExam(id) as unknown
+      const receipt = (response && typeof response === 'object' && response !== null && 'session' in response)
+        ? response as { session: ExamSession; items?: unknown[] }
+        : null
+      completed = receipt ? receipt.session : response as ExamSession
+      set({ sessions: get().sessions.map(s => s.id === id ? completed : s) })
 
-      const finalize = evaluateExamFinalizeConflictsAndRoute({
-        results: get().results,
-        session: completed,
-        readGrade: (studentId, semester) => useGradeStore.getState().getStudentGrade(studentId, semester) as Record<string, unknown> | null | undefined,
-        addDailyEntry: (studentId, scoreType, score, semester, date) =>
-          useDailyGradeStore.getState().addEntry(studentId, scoreType, score, semester, date),
-        upsertGrade: (payload) => useGradeStore.getState().upsertGrade(payload as any),
-        studentNameResolver: (studentId) => {
-          const st = useStudentStore.getState().students.find(s => s.id === studentId)
-          return st ? { fullName: st.fullName, code: st.code } : null
-        },
-      })
+      // 2. Project server receipt — không ghi grade thứ hai.
+      let finalize: ExamFinalizeResult
+      if (receipt && Array.isArray(receipt.items)) {
+        finalize = mapServerFinalizationToResult({
+          receipt: receipt as unknown as Parameters<typeof mapServerFinalizationToResult>[0]['receipt'],
+          scoreType: completed.scoreType,
+          semester: completed.semester as 1 | 2,
+          results: get().results,
+          readGrade,
+          studentNameResolver,
+        })
+      } else {
+        // Legacy server shape (chỉ session): dry-run preview hiển thị, no writes.
+        finalize = evaluateExamFinalizeConflictsAndRoute({
+          results: get().results,
+          session: completed,
+          readGrade,
+          addDailyEntry: () => {},
+          upsertGrade: () => {},
+          studentNameResolver,
+        })
+      }
       set({ lastFinalize: finalize })
+      // 3. Kéo grades authoritative từ server (best-effort; thất bại thì
+      //    sync cycle kế tiếp hội tụ qua pull delta).
+      try {
+        await useGradeStore.getState().fetchGrades()
+      } catch {
+        /* converge on next sync — never fail finalize on refresh */
+      }
       return finalize
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi hoàn tất phiên chấm' })

@@ -189,30 +189,33 @@ export function initTelegramBot(): boolean {
   }
 }
 
-export async function sendTelegramAlert(message: string): Promise<void> {
+export async function sendTelegramAlert(message: string, throwOnError = false): Promise<void> {
   if (!enabled || !bot || !ADMIN_CHAT_ID) return
   try {
     await bot.api.sendMessage(ADMIN_CHAT_ID, `⚠️ *Cảnh báo*\n${message}`, { parse_mode: 'Markdown' })
   } catch (err) {
     console.error('Telegram send failed:', err)
+    if (throwOnError) throw err
   }
 }
 
-export async function sendTelegramInfo(message: string): Promise<void> {
+export async function sendTelegramInfo(message: string, throwOnError = false): Promise<void> {
   if (!enabled || !bot || !ADMIN_CHAT_ID) return
   try {
     await bot.api.sendMessage(ADMIN_CHAT_ID, `ℹ️ *Thông báo*\n${message}`, { parse_mode: 'Markdown' })
   } catch (err) {
     console.error('Telegram send failed:', err)
+    if (throwOnError) throw err
   }
 }
 
-export async function sendTelegramMessageToChat(chatId: string, message: string): Promise<void> {
+export async function sendTelegramMessageToChat(chatId: string, message: string, throwOnError = false): Promise<void> {
   if (!enabled || !bot) return
   try {
     await bot.api.sendMessage(chatId, message, { parse_mode: 'Markdown' })
   } catch (err) {
     console.error(`Telegram send to chat ${chatId} failed:`, err)
+    if (throwOnError) throw err
   }
 }
 

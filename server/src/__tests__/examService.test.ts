@@ -422,12 +422,16 @@ describe('Smart Exam Grading — exam routes & service', () => {
     const sessionId = sharedSessionId
     const res = await jsonReq(`/${sessionId}/complete`, { method: 'POST', token: cnToken })
     expect(res.status).toBe(200)
-    expect(res.data.status).toBe('completed')
-    expect(res.data.completedBy).toBe('usr-exam-cn')
+    // P0-01: complete trả full ExamFinalizationResult để client project receipt
+    // (server là sole writer) thay vì chỉ session.
+    expect(res.data.session.status).toBe('completed')
+    expect(res.data.session.completedBy).toBe('usr-exam-cn')
+    expect(Array.isArray(res.data.items)).toBe(true)
+    expect(typeof res.data.committed).toBe('number')
 
     const again = await jsonReq(`/${sessionId}/complete`, { method: 'POST', token: cnToken })
     expect(again.status).toBe(200)
-    expect(again.data.status).toBe('completed')
+    expect(again.data.session.status).toBe('completed')
   })
 
   it('phuta cannot complete (403)', async () => {

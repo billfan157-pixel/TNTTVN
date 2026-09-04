@@ -35,20 +35,22 @@ export async function getSundayMassTime(parishId: string): Promise<string> {
  * tường minh. Không có target IDs thì fail-closed để không broadcast dữ liệu
  * học sinh ra toàn giáo xứ.
  */
-function enqueueBoth(
+async function enqueueBoth(
   type: 'absence' | 'report' | 'reminder' | 'info',
   template: string,
   ctx: TemplateContext,
   parishId: string,
   targetUserIds: string[] = [],
-): void {
+): Promise<void> {
   if (targetUserIds.length > 0) {
-    enqueueNotification('telegram', type, template, ctx, parishId, undefined, { telegramUserIds: targetUserIds })
-    enqueueNotification('webpush', type, template, ctx, parishId, undefined, { webpushUserIds: targetUserIds })
+    await Promise.all([
+      enqueueNotification('telegram', type, template, ctx, parishId, undefined, { telegramUserIds: targetUserIds }),
+      enqueueNotification('webpush', type, template, ctx, parishId, undefined, { webpushUserIds: targetUserIds }),
+    ])
   } else {
     // Fallback: nếu không xác định được phụ huynh (vd thông báo chung toàn giáo xứ),
     // giữ nguyên hành vi broadcast Telegram admin.
-    enqueueNotification('telegram', type, template, ctx, parishId)
+    await enqueueNotification('telegram', type, template, ctx, parishId)
   }
 }
 
@@ -132,9 +134,9 @@ export async function notifyAbsence(
   const webpushUserIds = await resolveRecipients(() => getParentUserIdsForPhones(parishId, [parentPhone]))
 
   if (status === 'AbsentUnexcused') {
-    enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceUnexcused, ctx, parishId, webpushUserIds)
+    await enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceUnexcused, ctx, parishId, webpushUserIds)
   } else if (status === 'AbsentExcused') {
-    enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceExcused, ctx, parishId, webpushUserIds)
+    await enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceExcused, ctx, parishId, webpushUserIds)
   }
 }
 
@@ -158,7 +160,7 @@ export async function notifyReportCard(
   })
   const webpushUserIds = await resolveRecipients(() => getParentUserIdsForStudent(parishId, studentId, parentPhone))
 
-  enqueueBoth('report', NOTIFICATION_TEMPLATES.reportCard, ctx, parishId, webpushUserIds)
+  await enqueueBoth('report', NOTIFICATION_TEMPLATES.reportCard, ctx, parishId, webpushUserIds)
 }
 
 export async function notifyBatchReportCards(
@@ -198,7 +200,7 @@ export async function notifySundayMassReminder(parishId: string): Promise<void> 
   const sundayMassTime = await getSundayMassTime(parishId)
   const ctx = buildContext({ sundayMassTime })
   const webpushUserIds = await resolveRecipients(() => getAllParentUserIds(parishId))
-  enqueueBoth('reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, webpushUserIds)
+  await enqueueBoth('reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, webpushUserIds)
 }
 
 export async function notifyClassReminder(parishId: string, className: string, date: string, classId?: string): Promise<void> {
@@ -206,7 +208,7 @@ export async function notifyClassReminder(parishId: string, className: string, d
   const webpushUserIds = await resolveRecipients(() => classId
     ? getParentUserIdsForClassId(parishId, classId)
     : getParentUserIdsForClass(parishId, className))
-  enqueueBoth('reminder', NOTIFICATION_TEMPLATES.classReminder, ctx, parishId, webpushUserIds)
+  await enqueueBoth('reminder', NOTIFICATION_TEMPLATES.classReminder, ctx, parishId, webpushUserIds)
 }
 
 export async function notifyBatchAbsenceSummary(
@@ -223,7 +225,7 @@ export async function notifyBatchAbsenceSummary(
     note: namesList,
   })
   const webpushUserIds = await resolveRecipients(() => getAllParentUserIds(parishId))
-  enqueueBoth('info', NOTIFICATION_TEMPLATES.batchAbsenceSummary, ctx, parishId, webpushUserIds)
+  await enqueueBoth('info', NOTIFICATION_TEMPLATES.batchAbsenceSummary, ctx, parishId, webpushUserIds)
 }
 
 /**
@@ -261,6 +263,31 @@ async function getParentUserIds(parishId: string, targetBranch?: string | null):
   return [...userIds]
 }
 
+/**
+ * Phase 2 (outbox convergence): thông báo ghi đè điểm đi qua notificationQueue
+ * (durable lease/attempt/backoff) thay cho outbox worker. Post-commit
+ * best-effort như noticeService (mất alert khi crash-window được chấp nhận;
+ * audit_logs trong tx mới là trail chính). Không có telegramUserIds → gửi tới
+ * chat admin của giáo xứ (đúng hành vi outbox cũ, single-parish).
+ */
+export async function notifyGradeOverride(
+  parishId: string,
+  opts: { studentId: string; scoreField: string; manualValue?: number | null; reasonCode?: string | null; removed?: boolean },
+): Promise<void> {
+  const template = opts.removed ? NOTIFICATION_TEMPLATES.gradeOverrideRemoved : NOTIFICATION_TEMPLATES.gradeOverride
+  const ctx = buildContext({
+    studentName: opts.studentId,
+    scoreField: opts.scoreField,
+    manualValue: opts.manualValue ?? '',
+    reasonCode: opts.reasonCode || 'TeacherAdjustment',
+  })
+  try {
+    await enqueueNotification('telegram', 'info', template, ctx, parishId)
+  } catch (err) {
+    console.error('[smartNotifications] failed to enqueue grade override notice:', err)
+  }
+}
+
 export async function notifyParishNotice(
   parishId: string,
   title: string,
@@ -279,7 +306,7 @@ export async function notifyParishNotice(
   if (sendStaff) {
     let whereConditions = [eq(users.parishId, parishId), ne(users.status, 'INACTIVE'), inArray(users.role, ['admin', 'chunhiem', 'phuta'])]
 
-    const userList = await db.select({ phone: users.phone, fullName: users.fullName, username: users.username, role: users.role })
+    const userList = await db.select({ id: users.id, phone: users.phone, fullName: users.fullName, username: users.username, role: users.role })
       .from(users)
       .where(and(...whereConditions))
 
@@ -289,7 +316,11 @@ export async function notifyParishNotice(
 
       try {
         const noticeCtx = buildContext({ parentPhone: user.phone, studentName: user.fullName })
-        enqueueNotification('telegram', 'info', NOTIFICATION_TEMPLATES.parishNotice, { ...noticeCtx, title, content, author }, parishId)
+        // P0-02 (Phase 0 containment): staff telegram KHÔNG được fallback về
+        // global ADMIN_CHAT_ID broadcast. Mỗi enqueue mang đúng tenant userId để
+        // delivery resolve per-user chat links; user chưa link thì enqueue đó
+        // gửi tới 0 chat thay vì rò sang chat chung đa giáo xứ.
+        await enqueueNotification('telegram', 'info', NOTIFICATION_TEMPLATES.parishNotice, { ...noticeCtx, title, content, author }, parishId, undefined, { telegramUserIds: [user.id] })
         sent++
       } catch (err) {
         console.error(`[smartNotifications] failed to enqueue parish notice for ${user.fullName}:`, err)
@@ -302,7 +333,7 @@ export async function notifyParishNotice(
     try {
       const parentUserIds = await getParentUserIds(parishId, targetBranch)
       if (parentUserIds.length > 0) {
-        enqueueNotification('webpush', 'info', NOTIFICATION_TEMPLATES.parishNotice, buildContext({ title, content, author }), parishId, undefined, { webpushUserIds: parentUserIds })
+        await enqueueNotification('webpush', 'info', NOTIFICATION_TEMPLATES.parishNotice, buildContext({ title, content, author }), parishId, undefined, { webpushUserIds: parentUserIds })
       }
     } catch (err) {
       console.error('[smartNotifications] failed to enqueue parish notice webpush:', err)

@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { db, type DbExecutor } from '../db/index.js'
 import { systemSettings } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { DEFAULT_GRADE_WEIGHTS, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
@@ -17,9 +17,9 @@ export const DEFAULT_ATTENDANCE_POLICY: ParishAttendancePolicy = {
 }
 
 /** Đọc row settings dạng raw (gradeWeights/attendancePolicy/promotionPolicy) với fallback defaults. */
-async function getSystemSettings(parishId: string): Promise<Record<string, any>> {
+async function getSystemSettings(parishId: string, executor: DbExecutor = db): Promise<Record<string, any>> {
   try {
-    const [row] = await db
+    const [row] = await executor
       .select({ value: systemSettings.value })
       .from(systemSettings)
       .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, parishId)))
@@ -39,9 +39,9 @@ async function getSystemSettings(parishId: string): Promise<Record<string, any>>
  * Format: policy-settings-{parishId}-{updatedAt.toISOString()}
  * This allows tracing grade overrides and other operations back to the exact policy snapshot active at that time.
  */
-export async function getCurrentPolicyVersionId(parishId: string): Promise<string | null> {
+export async function getCurrentPolicyVersionId(parishId: string, executor: DbExecutor = db): Promise<string | null> {
   try {
-    const [row] = await db
+    const [row] = await executor
       .select({ updatedAt: systemSettings.updatedAt })
       .from(systemSettings)
       .where(and(eq(systemSettings.key, 'parish_system_settings'), eq(systemSettings.parishId, parishId)))
@@ -64,8 +64,8 @@ export async function getCurrentPolicyVersionId(parishId: string): Promise<strin
  * computeWeightedGpa luôn chạy với DEFAULT_GRADE_WEIGHTS, lệch với
  * DesktopGradeMatrix (client đã đọc settings).
  */
-export async function getParishGradeWeights(parishId: string): Promise<GradeWeightsConfig> {
-  const parsed = await getSystemSettings(parishId)
+export async function getParishGradeWeights(parishId: string, executor: DbExecutor = db): Promise<GradeWeightsConfig> {
+  const parsed = await getSystemSettings(parishId, executor)
   const w = parsed?.gradeWeights
   if (w && typeof w === 'object') {
     const out: GradeWeightsConfig = { ...DEFAULT_GRADE_WEIGHTS }
@@ -89,8 +89,8 @@ export async function getParishGradeWeights(parishId: string): Promise<GradeWeig
  * settingsStore.attendancePolicy. Dùng để tính tỷ lệ chuyên cần có trọng số
  * giống AttendanceRateSpecification bên promotion/evaluate.
  */
-export async function getParishAttendancePolicy(parishId: string): Promise<ParishAttendancePolicy> {
-  const parsed = await getSystemSettings(parishId)
+export async function getParishAttendancePolicy(parishId: string, executor: DbExecutor = db): Promise<ParishAttendancePolicy> {
+  const parsed = await getSystemSettings(parishId, executor)
   const a = parsed?.attendancePolicy
   if (a && typeof a === 'object') {
     const out: ParishAttendancePolicy = { ...DEFAULT_ATTENDANCE_POLICY }
@@ -111,8 +111,8 @@ export async function getParishAttendancePolicy(parishId: string): Promise<Paris
  * evaluate/approve luôn chạy DEFAULT (5.0/80) bất kể giáo xứ cấu hình → quyết
  * định lệch với PromotionPanel (client đã đọc settings).
  */
-export async function getParishPromotionPolicy(parishId: string): Promise<{ minGpa: number; minAttendance: number }> {
-  const parsed = await getSystemSettings(parishId)
+export async function getParishPromotionPolicy(parishId: string, executor: DbExecutor = db): Promise<{ minGpa: number; minAttendance: number }> {
+  const parsed = await getSystemSettings(parishId, executor)
   const p = parsed?.promotionPolicy
   if (p && typeof p === 'object') {
     const out: { minGpa: number; minAttendance: number } = { ...DEFAULT_PROMOTION_POLICY }

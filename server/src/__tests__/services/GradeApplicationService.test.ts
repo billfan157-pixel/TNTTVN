@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
 import { db } from '../../db/index.js'
-import { grades, gradeOverrides, outboxMessages, auditLogs, students, branches, academicYears, classes, users, catechistAssignments } from '../../db/schema.js'
+import { grades, gradeOverrides, notifications, auditLogs, students, branches, academicYears, classes, users, catechistAssignments } from '../../db/schema.js'
 import { gradeApplicationService } from '../../services/GradeApplicationService.js'
+import { canOverrideGradeSpecification } from '../../services/policyAdapters.js'
+import { semesterLockSpecification } from '../../services/policyAdapters.js'
 import { eq } from 'drizzle-orm'
 
 describe('GradeApplicationService Integration Tests (Pilot B)', () => {
@@ -42,7 +44,7 @@ describe('GradeApplicationService Integration Tests (Pilot B)', () => {
   })
 
   beforeEach(async () => {
-    await db.delete(outboxMessages)
+    await db.delete(notifications).where(eq(notifications.parishId, testParish))
     await db.delete(auditLogs)
     await db.delete(gradeOverrides)
     await db.delete(grades).where(eq(grades.id, gradeAId))
@@ -73,7 +75,7 @@ describe('GradeApplicationService Integration Tests (Pilot B)', () => {
     ).rejects.toThrow(/Bạn không có quyền ghi đè điểm cho thiếu nhi này/)
   })
 
-  it('Success -> Updates override, increments grade version to 2, writes audit log & outbox message', async () => {
+  it('Success -> Updates override, increments grade version to 2, writes audit log & queue notice (Phase 2)', async () => {
     const res = await gradeApplicationService.overrideScore({
       gradeId: gradeAId,
       studentId: studentAId,
@@ -98,11 +100,38 @@ describe('GradeApplicationService Integration Tests (Pilot B)', () => {
     expect(audits.length).toBe(1)
     expect(audits[0].action).toBe('OVERRIDE_GRADE')
 
-    // Verify Outbox message written
-    const outbox = await db.select().from(outboxMessages).where(eq(outboxMessages.aggregateId, gradeAId))
-    expect(outbox.length).toBe(1)
-    expect(outbox[0].eventType).toBe('GradeOverrideCreated')
-    expect(outbox[0].sequenceNumber).toBe(2)
+    // Verify notification queued via notificationQueue (durable engine duy nhất)
+    const notices = await db.select().from(notifications).where(eq(notifications.parishId, testParish))
+    expect(notices.length).toBe(1)
+    expect(notices[0].type).toBe('telegram')
+    expect(notices[0].message).toContain('Điểm thủ công đã lưu')
+    expect(notices[0].message).toContain('scoreFinal')
+    // escapeMarkdown của templateEngine escape dấu chấm (telegram MarkdownV2).
+    expect(notices[0].message).toContain('9\\.5')
+  })
+
+  it('evaluates semester lock and class authorization through the active write transaction', async () => {
+    const lockSpy = vi.spyOn(semesterLockSpecification, 'isSatisfiedBy')
+    const authorizationSpy = vi.spyOn(canOverrideGradeSpecification, 'isSatisfiedBy')
+
+    try {
+      await gradeApplicationService.overrideScore({
+        gradeId: gradeAId,
+        studentId: studentAId,
+        scoreField: 'scoreFinal',
+        manualValue: 8.5,
+        userId: catechistAUserId,
+        parishId: testParish,
+        ip: '127.0.0.1',
+        userAgent: 'vitest',
+      })
+
+      expect(lockSpy).toHaveBeenCalledWith('2025-2026', 1, testParish, expect.anything())
+      expect(authorizationSpy).toHaveBeenCalledWith(catechistAUserId, studentAId, testParish, expect.anything())
+    } finally {
+      lockSpy.mockRestore()
+      authorizationSpy.mockRestore()
+    }
   })
 
   it('Optimistic Lock Failure -> Throws VersionConflictError (409) when concurrent version mismatches', async () => {

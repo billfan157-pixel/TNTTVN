@@ -58,4 +58,12 @@ describe('StudentModal Component', () => {
     render(<StudentModal isOpen={true} onClose={vi.fn()} studentToEdit={{ id: 'ST-1', fullName: 'Test', holyName: 'Phero', gender: 'Nam', dateOfBirth: '2015-01-01', branch: 'AuNhi', classId: 'AU1', status: 'Đang học' } as any} />)
     expect(screen.getByText('Chỉnh Sửa Thông Tin Thiếu Nhi')).toBeDefined()
   })
+
+  it('initializes with empty holyName and fullName instead of fake defaults', () => {
+    render(<StudentModal isOpen={true} onClose={vi.fn()} />)
+    const holyNameInput = screen.getByPlaceholderText('VD: Maria, Giuse...') as HTMLInputElement
+    const fullNameInput = screen.getByPlaceholderText('VD: Nguyễn Văn An') as HTMLInputElement
+    expect(holyNameInput.value).toBe('')
+    expect(fullNameInput.value).toBe('')
+  })
 })

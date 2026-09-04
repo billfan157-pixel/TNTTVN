@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { BarChart3, CheckCircle2, Clock3, Plus, Trash2 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
-import { useGradeStore } from '../../stores/gradeStore'
+import { useGradeStore, getCurrentAcademicYear } from '../../stores/gradeStore'
+import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useDailyGradeStore } from '../../stores/dailyGradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
@@ -35,6 +36,17 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   const removeEntry = useDailyGradeStore(s => s.removeEntry)
   const getAverageForStudent = useDailyGradeStore(s => s.getAverageForStudent)
   const getEntriesForStudent = useDailyGradeStore(s => s.getEntriesForStudent)
+  const getMachineEntries = useDailyGradeStore(s => s.getMachineEntries)
+  const fetchDailyEntries = useDailyGradeStore(s => s.fetchDailyEntries)
+  const currentYear = useAcademicYearStore(s => s.currentYear)
+  const academicYear = currentYear && currentYear.trim() !== '' ? currentYear : getCurrentAcademicYear()
+
+  // Tier 2: kéo attempts server (gồm bài thi máy) khi xem 1 lớp — read-only.
+  useEffect(() => {
+    if (selectedClassId && selectedClassId !== 'all') {
+      void fetchDailyEntries({ classId: selectedClassId, semester: selectedSemester, academicYear })
+    }
+  }, [selectedClassId, selectedSemester, academicYear, fetchDailyEntries])
   const classes = useClassStore(s => s.classes)
   const { restricted: semesterRestricted, openSemester } = useSemesterAccess()
   const [activeType, setActiveType] = useState<DailyScoreType>('oral')
@@ -167,6 +179,8 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
         <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Không có thiếu nhi trong lớp hiện tại.</div>
       ) : filteredStudents.map(student => {
         const studentEntries = getEntriesForStudent(student.id, selectedSemester, activeType)
+        // Tier 2: bài thi máy cùng cột — read-only, nhãn rõ, không nút xóa.
+        const machineEntries = getMachineEntries(student.id, selectedSemester, activeType)
         const average = getAverageForStudent(student.id, selectedSemester, activeType)
         const grade = getStudentGrade(student.id, selectedSemester)
         const isExpanded = expanded.has(student.id)
@@ -210,6 +224,24 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                         )}
                       </span>
                     ))}
+                  </div>
+                )}
+                {machineEntries.length > 0 && (
+                  <div aria-label={`Bài thi máy của ${student.fullName}`} className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-wide text-text-muted">
+                      Bài thi máy · chỉ xem (tính vào trung bình)
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {machineEntries.map(entry => (
+                        <span
+                          key={entry.id}
+                          title={`${entry.date ?? 'Không rõ ngày'} · máy chấm, không xóa/sửa tại đây`}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-surface-app border border-dashed border-surface-border px-2.5 py-1.5 text-xs font-bold"
+                        >
+                          <Clock3 size={12} className="text-text-muted" /> {entry.value}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {canEdit ? (

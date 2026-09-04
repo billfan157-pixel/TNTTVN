@@ -1,11 +1,13 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../../db/index.js'
-import { auditLogs } from '../../db/schema.js'
+import { auditLogs, notices as noticesTable } from '../../db/schema.js'
 import { getNotices, createNotice, updateNotice, deleteNotice } from '../../services/noticeService.js'
 
 describe('Server noticeService Layer Unit Tests', () => {
   let createdNoticeId: string
+  let audienceChangedNoticeId: string
+  let staffOnlyNoticeId: string
 
   it('createNotice creates a new parish notice', async () => {
     const noticeData = {
@@ -52,13 +54,73 @@ describe('Server noticeService Layer Unit Tests', () => {
     expect(exists).toBe(true)
   })
 
-  it('deleteNotice removes specified notice by id', async () => {
+  it('deleteNotice emits an incremental tombstone, hides it from snapshots, and is idempotent', async () => {
+    const beforeDelete = new Date(Date.now() - 1000).toISOString()
     const deleted = await deleteNotice(createdNoticeId, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
     expect(deleted).toBe(true)
+
+    const fullSnapshot = await getNotices('thanh-gia')
+    expect(fullSnapshot.some((notice) => notice.id === createdNoticeId)).toBe(false)
+
+    const delta = await getNotices('thanh-gia', beforeDelete)
+    const tombstone = delta.find((notice) => notice.id === createdNoticeId)
+    expect(tombstone?.deletedAt).toBeTruthy()
+
+    await expect(deleteNotice(createdNoticeId, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')).resolves.toBe(true)
+  })
+
+  it('emits a redacted tombstone when a notice is no longer visible to parents', async () => {
+    const beforeCreate = new Date(Date.now() - 1000).toISOString()
+    const created = await createNotice({
+      title: 'Thông báo cho phụ huynh',
+      content: 'Nội dung riêng cho phụ huynh',
+      date: '2026-08-02',
+      author: 'Ban Giáo Lý',
+      priority: 'normal',
+      targetBranch: 'All',
+      targetAudience: 'parents',
+    }, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
+    audienceChangedNoticeId = created.id
+
+    const visibleDelta = await getNotices('thanh-gia', beforeCreate, 50, 1, undefined, 'phuhuynh')
+    expect(visibleDelta.find((notice) => notice.id === audienceChangedNoticeId)?.deletedAt).toBeNull()
+
+    await updateNotice(audienceChangedNoticeId, { targetAudience: 'staff' }, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
+    const hiddenDelta = await getNotices('thanh-gia', beforeCreate, 50, 1, undefined, 'phuhuynh')
+    const tombstone = hiddenDelta.find((notice) => notice.id === audienceChangedNoticeId)
+    expect(tombstone?.deletedAt).toBeTruthy()
+    expect(tombstone?.title).toBe('')
+    expect(tombstone?.content).toBe('')
+    expect(tombstone?.author).toBe('')
+
+    const parentSnapshot = await getNotices('thanh-gia', undefined, 50, 1, undefined, 'phuhuynh')
+    expect(parentSnapshot.some((notice) => notice.id === audienceChangedNoticeId)).toBe(false)
+  })
+
+  it('does not disclose a newly-created staff notice in a parent delta', async () => {
+    const beforeCreate = new Date(Date.now() - 1000).toISOString()
+    const created = await createNotice({
+      title: 'Thông báo nội bộ',
+      content: 'Nội dung chỉ dành cho nhân sự',
+      date: '2026-08-03',
+      author: 'Ban Điều Hành',
+      priority: 'urgent',
+      targetBranch: 'All',
+      targetAudience: 'staff',
+    }, 'USR-001', 'thanh-gia', '127.0.0.1', 'Vitest')
+    staffOnlyNoticeId = created.id
+
+    const parentDelta = await getNotices('thanh-gia', beforeCreate, 50, 1, undefined, 'phuhuynh')
+    expect(parentDelta.some((notice) => notice.id === staffOnlyNoticeId)).toBe(false)
   })
 
   afterAll(async () => {
+    if (createdNoticeId) await db.delete(noticesTable).where(and(eq(noticesTable.parishId, 'thanh-gia'), eq(noticesTable.id, createdNoticeId)))
     if (createdNoticeId) await db.delete(auditLogs).where(and(eq(auditLogs.parishId, 'thanh-gia'), eq(auditLogs.entityId, createdNoticeId)))
+    if (audienceChangedNoticeId) await db.delete(noticesTable).where(and(eq(noticesTable.parishId, 'thanh-gia'), eq(noticesTable.id, audienceChangedNoticeId)))
+    if (audienceChangedNoticeId) await db.delete(auditLogs).where(and(eq(auditLogs.parishId, 'thanh-gia'), eq(auditLogs.entityId, audienceChangedNoticeId)))
+    if (staffOnlyNoticeId) await db.delete(noticesTable).where(and(eq(noticesTable.parishId, 'thanh-gia'), eq(noticesTable.id, staffOnlyNoticeId)))
+    if (staffOnlyNoticeId) await db.delete(auditLogs).where(and(eq(auditLogs.parishId, 'thanh-gia'), eq(auditLogs.entityId, staffOnlyNoticeId)))
   })
 })
 

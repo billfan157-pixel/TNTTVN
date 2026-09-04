@@ -278,6 +278,7 @@ Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ 
 - Gửi song song tới mọi `push_subscriptions` của parish; endpoint trả `404`/`410` (trình duyệt đã hủy) → **xóa vĩnh viễn**; lỗi tạm thời (500…) → đếm failed nhưng GIỮ subscription.
 - `sendWebPushToUsers(parishId, userIds, payload)` — gửi **có chủ đích** chỉ tới subscriptions có `user_id` trong danh sách (ví dụ: phụ huynh theo chi đoàn); subscription không thuộc nhóm (kể cả `user_id = NULL`) không bị đụng tới.
 - `notificationQueue` channel persisted legacy `webpush`: gửi thật qua `appPushService` rồi mới đánh dấu `sent`; không provider nào cấu hình → `PUSH_PROVIDER_NOT_CONFIGURED`. Item có `webpushUserIds` (tên field legacy) persist JSON vào `notifications.target_user_ids`, và cả Web/native dùng đúng tập này.
+- Từ ADR-102, enqueue là async durable acknowledgement: row phải được INSERT trước khi worker xử lý. `delivery_kind` giữ nguyên alert/info/absence/report/reminder qua restart. Worker claim bằng lease DB, tăng `attempt_count` atomically, persist exponential backoff trong `next_attempt_at`, thu hồi lease hết hạn khi startup/poll và chỉ cập nhật trạng thái nếu còn sở hữu lease. Target-user JSON hỏng được xử lý như tập rỗng, không chuyển thành parish broadcast. Telegram provider không cấu hình, send throw hoặc push lỗi một phần cũng không được đánh dấu `sent`. Semantics là **at-least-once**, không phải exactly-once qua provider.
 - Smart notifications (`smartNotifications`) gửi **telegram cho staff + webpush CÓ CHỦ ĐÍCH cho phụ huynh** (`notifyParishNotice` khớp `users.phone` ↔ `students.parentPhone` qua `phoneMatchVariants`, lọc theo `targetBranch` khi thông báo nhắm vào một chi đoàn; `All`/null = toàn giáo xứ). Không còn webpush broadcast toàn parish.
 
 ---
@@ -363,11 +364,26 @@ Client: `src/lib/api.ts` (`createExam`, `getExamSessionsForClass`, `getMyExamSes
 | `POST /api/exams/:id/variant-manifests` | Tạo và khóa 1–8 mã đề A–H từ ngân hàng câu hỏi; body `{ variantCount, seed? }`. Server materialize thứ tự câu/lựa chọn và answer key, lưu hash/seed bất biến | admin / chunhiem / phuta (lớp mình) | `ExamVariantManifestSet` + session đã cập nhật | 400 câu hỏi/đáp án không an toàn để đảo, 403 ngoài lớp, 409 không draft/đã có result/manifest đã tồn tại |
 | `POST /api/exams/barcode/decode` | Decode v3 `T3:{sessionHex8}:{studentHex8}:{I|F}:{questionCount}:{A-H}:{checksum4}`, v2 `T2:*`, compact v1 `TE:*` hoặc legacy. V3 validate checksum có mã đề. | auth | `{ sessionId, studentId, ..., protocolVersion?, templateMode?, examVersion?, formChecksum? }` | 400 format/checksum không hợp lệ, 403 ngoài lớp, 404 phiên không tồn tại |
 
+## 10A. DAILY ENTRIES API (`/api/daily-entries`) — Tier 2
+
+Client: `src/lib/api.ts` (`saveDailyEntries`, `deleteDailyEntry`, `getDailyEntries`) · Store: `src/stores/dailyGradeStore.ts` (`addEntry`/`removeEntry` enqueue op `daily_entry`, `fetchDailyEntries`, `serverEntries`) · UI: `DesktopDailyGradeEntry.tsx` / `MobileDailyGradeEntry.tsx` (block read-only "Bài thi máy · chỉ xem") · Server: `server/src/routes/dailyEntries.ts` + `server/src/services/dailyEntryService.ts` · Quy tắc: `docs/BUSINESS_RULES.md` §12.1 (hai nguồn vào, một trung bình; override thắng)
+
+| Method & Path | Purpose | Auth | Success `data` | Errors |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST /api/daily-entries/batch` | Batch upsert attempts nhập tay (`entries[]` — `id` (= mã entry ổn định `DG-…`), `studentId`, `academicYear` `YYYY-YYYY`, `semester` 1–2, `scoreType` ∈ `oral\|15m\|1period`, `value` 0–10, `date?` YYYY-MM-DD; tối đa 500). Mỗi entry 1 transaction: check lớp + khóa sổ trong tx, idempotent qua PK `(parish_id,id)` — retry trùng payload → `duplicate`, cùng id khác payload → item `error` `IDEMPOTENCY_CONFLICT`. Partial-success itemized (ADR-008). | admin / chunhiem / phuta (lớp mình, `getUserClassIds` + check trong tx) | `{ saved, duplicates, errorCount, total, items: [{ id, studentId, scoreType, status: 'created'\|'duplicate'\|'error', serverScore, reason? }] }` | 401, 403 role; item `error` khi ngoài lớp / kỳ khóa / trùng id khác payload |
+| `DELETE /api/daily-entries/:id` | Xóa 1 attempt tay (chỉ `source='manual_entry'`, check lớp + khóa sổ trong tx) + audit `DAILY_ENTRY_DELETE` | admin / chunhiem / phuta (lớp mình) | `{ deleted: true, id }` | 403 ngoài lớp/kỳ khóa, 404 không tồn tại, 409 dòng máy/baseline |
+| `GET /api/daily-entries?classId=&studentId=&semester=&academicYear=&scoreType=` | List attempts (tay + máy, loại `legacy_baseline`) cho UI daily read-only. Bắt buộc `classId` hoặc `studentId` (fail-closed scope) | auth theo class | `DailyLedgerEntry[]` (`{ id, studentId, academicYear, semester, scoreType, value, date, origin: 'manual'\|'machine', examSessionId }`) | 400 thiếu scope, 403 ngoài lớp, 404 lớp không tồn tại |
+
+- **Daily idempotency**: `id` entry ổn định từ lúc tạo local qua mọi retry; offline queue entity `daily_entry` op `CREATE` (add-then-remove khi offline được compact hủy cả cặp), `DELETE` khi xóa. Sync item `error` trong response 200 → permanent-fail hiển thị Diagnostics (không nuốt).
+- **Averaging SSOT**: server finalize tính trung bình toàn sổ `(student, academicYear, semester, scoreType)` — attempts tay tự đúng không cần client ghi grade lần hai; `legacy_baseline` chỉ dựng khi sổ trống (không đếm trùng).
+- **Machine attempts read-only**: UI render block riêng có nhãn "Bài thi máy · chỉ xem (tính vào trung bình)", không nút xóa/sửa; manual entries giữ handler `addEntry/removeEntry` hiện tại.
+
 - **Finalize do server làm authority (ADR-048)**: `POST /complete` ghi finalization ledger + assessment entries + grade projection + session completed trong một transaction; client không tự commit grades. Trước bước finalize, ADR-049 còn yêu cầu server tự tính lại score MC scan ngay tại `POST /results`.
 - **Continuous result mutation (ADR-067)**: `api.saveExamResults` gửi cùng `Idempotency-Key` và các `clientMutationId` ổn định trong mọi retry của một request. Offline queue lưu từng item dưới entity `exam_result`/key `sessionId::result::studentId`; `complete` là barrier sau các item còn pending. Client reconcile `items[]` và `serverScore` vào durable ledger; network timeout không buộc camera chờ sau khi local write thành công.
 - **Continuous pilot control (ADR-068; client-only, không đổi API)**: `VITE_CONTINUOUS_SCAN_PILOT_REQUIRED` mặc định fail-closed; chỉ `VITE_CONTINUOUS_SCAN_PILOT_PARISH_IDS`/`...USER_IDS` mở fast queue. Durable-write/idempotency/terminal-sync failure mở circuit local theo scope hash; `VITE_CONTINUOUS_SCAN_CIRCUIT_REVISION` reset circuit chỉ qua release mới. Khi bị khóa, UI vẫn dùng stable batch và server contract trên giữ nguyên.
 - **Field evidence recorder (ADR-069; client-only, không đổi API)**: System Diagnostics cho operator chuẩn bị run 30/100 phiếu và xuất JSON sau khi hoàn tất. Recorder chỉ đọc lifecycle đã có của proposal, durable queue và item acknowledgement; không thêm request/header/server telemetry. Manifest không chứa ảnh/QR/đáp án hay tenant/user/student/session ID; mutation ID chỉ được đối chiếu bằng token băm nội bộ theo run và không xuất.
 - **Qualification v2 (ADR-070; build/client-only, không đổi API)**: build inject public non-secret `releaseId` từ `VITE_APP_RELEASE_ID` hoặc platform Git SHA; field recorder từ chối placeholder. Manifest/targets schema v2 thêm `profile.releaseId`, `runElapsedMs`, `papersPerMinuteMin` và `proposalLatencyDriftRatioMax`. CLI có thể gộp nhiều completed export nhưng không dedupe; server request/response, auth, tenant và scoring contract không đổi.
+- **Release health contract (ADR-100)**: public `GET /health` trả `{ status, service, releaseId, database, timestamp, uptimeSeconds }`; `releaseId` là immutable Git SHA đã sanitize hoặc `unknown|invalid`, không chứa secret. Production deployment chỉ PASS khi backend `releaseId` và frontend meta `catevia-release` cùng bằng CI `VERIFIED_SHA`.
 - **`academicYear` mặc định (EXAM-GAPS, 2026-08-15)**: client `examStore.createSession` tự điền `academicYear` = **năm học đang hoạt động của giáo xứ** (`academicYearStore.resolveActiveYear()`) khi không truyền — cùng nguồn với lưới điểm; KHÔNG lấy theo ngày hiện tại (tránh phiên rơi vào năm mới khi giáo xứ đang làm năm cũ trong giai đoạn chuyển tháng 8).
 - **Trắc nghiệm bắt buộc đủ đáp án (client side)**: UI yêu cầu điền đủ `answerKey` cho toàn bộ `questionCount` câu trước khi tạo phiên MC — thiếu câu → OMR detector không chấm được (isCorrect undefined → điểm sai).
 - **Manifest lock (ADR-094)**: sau khi `variantManifests` tồn tại, hai endpoint PATCH answer key/variants trả 409 `VARIANT_MANIFEST_LOCKED`. Client chỉ cho in đề B–H bằng question set materialize của manifest; session legacy/no-manifest fail closed về đề A. Phiếu trả lời rời vẫn có thể dùng A–H cho bộ đề ngoài hệ thống.
@@ -621,7 +637,7 @@ Fast path ADR-066 xử lý các row create hợp lệ theo chunk 40 trong transa
 
 Client chỉ ghi cursor Dexie scope `parishId:userId` sau khi students/classes/grades/attendance/notices đều hoàn tất. Store pull trong sync engine chạy fail-fast; lỗi một trang không được biến thành mảng rỗng thành công. Reload sử dụng cursor bền nếu có; thiếu cursor hoặc local roster rỗng thì full bootstrap/repair. Các entity hard-delete chưa có tombstone riêng được phục hồi qua full pull định kỳ/repair, không được suy là changefeed hoàn chỉnh.
 
----
+`GET /api/notices?updatedAfter=<ISO>&limit=10000` áp cùng deletion contract: full pull chỉ trả notice active; incremental pull có thể trả `{ id, ..., deletedAt }` để client xóa projection. Notice DELETE là idempotent đối với tombstone đã tồn tại. Khi audience đổi từ `all|parents` sang `staff`, server lưu `parent_revoked_at` và trả phụ huynh một tombstone đã xóa `title/content/author`; notice được tạo staff-only không có marker và không xuất hiện trong parent delta. Client phải lọc pending queue theo exact `parishId:userId`; row không có đủ ownership không được dùng để giữ cache.
 
 ## 18A. PARISH EVENTS API (`/api/parish-events`, ADR-098)
 
@@ -637,6 +653,17 @@ Tenant luôn lấy từ JWT; client không gửi `parishId`. `GET` dành cho aut
 Cache sự kiện là read-only encrypted Dexie projection scope `parishId:userId`. Khi API đọc lỗi, UI có thể hiển thị cache kèm trạng thái stale; khi mutation lỗi phải báo thất bại, không tạo ID tạm, không ghi local-only và không xóa optimistic. Key plaintext global `parish_calendar_events_v1` bị loại bỏ an toàn; legacy row thiếu exact `parishId` không được migrate. Lịch phụng vụ tính toán không phụ thuộc API và vẫn hoạt động offline.
 
 Mọi `date`/`from`/`to` phải là ngày `YYYY-MM-DD` tồn tại thật; chuỗi đúng regex nhưng bất khả thi như `2026-02-30` trả 400.
+
+---
+
+## 18B. FINANCE FEE RECONCILIATION (`/api/finances`, ADR-101)
+
+| Method/path | Contract |
+| :--- | :--- |
+| `POST /api/finances/classes/:classId/fees` | Body là một `UpdateStudentFeeInput`; `body.classId` phải bằng URL. Write-status chỉ nhận `PAID\|UNPAID\|EXEMPTED`; `PARTIAL` chỉ còn trong read model để tương thích dữ liệu cũ. `PAID` bắt buộc `paidAmount > 0`; `UNPAID\|EXEMPTED` bắt buộc `paidAmount = 0`. Lệnh `PAID` tái sử dụng/reconcile linked receipt, không append giao dịch khi retry. `UNPAID\|EXEMPTED` đảo đúng linked receipt trong cùng transaction. Lỗi tham chiếu tenant/lớp/học sinh/quỹ được trả `400 BAD_REQUEST`, không rơi thành `500`. |
+| `POST /api/finances/classes/:classId/fees/batch` | Body `{ records: UpdateStudentFeeInput[1..500] }`; mọi record phải mang đúng URL class. Toàn batch commit hoặc rollback; response `StudentFeeRecord[]`. |
+
+Mọi endpoint Finance vẫn admin-only và lấy parish/user từ JWT. Client không được gửi `parishId`, không được loop các request đơn để mô phỏng “Thu Tất Cả”, và chỉ refresh summary sau acknowledgement của batch.
 
 ---
 

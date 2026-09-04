@@ -16,6 +16,7 @@ import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student, StudentWorkspace } from '../types'
 import { Button } from '../components/common/ui/Button'
 import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
+import { SkeletonTable } from '../components/common/StateFeedback'
 import { useAuth } from '../hooks/useAuth'
 
 const STUDENT_WORKSPACE_TABS = [
@@ -194,12 +195,12 @@ export function StudentsPage() {
         )}
 
         <TabPanel tabsId="students-workspace-tabs" value="promotions" activeValue={activeWorkspace}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải dữ liệu thiếu nhi...</div>}>
+          <Suspense fallback={<SkeletonTable rows={8} cols={6} />}>
             <PromotionPanel onViewPhotoCard={openPhotoCard} onViewCertificate={(s) => openCertificate(s, 'promotion')} />
           </Suspense>
         </TabPanel>
         <TabPanel tabsId="students-workspace-tabs" value="students" activeValue={activeWorkspace}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải dữ liệu thiếu nhi...</div>}>
+          <Suspense fallback={<SkeletonTable rows={8} cols={6} />}>
             <DesktopStudentList
               onOpenAddStudent={isAdmin ? openAddStudent : undefined}
               onImportStudents={isAdmin ? () => setShowImportModal(true) : undefined}

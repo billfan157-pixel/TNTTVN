@@ -424,6 +424,7 @@ Quy chiếu: quyền `exam.create`/`exam.delete` cho `phuta`/`chunhiem` (ADR-025
 
 ### 12.1 Phạm vi Nhập Điểm Hằng Ngày (SSOT: `src/stores/dailyGradeStore.ts` + `src/types/index.ts` `DailyScoreType`)
 - Nhập Điểm Hằng Ngày chỉ áp dụng cho **3 loại điểm nhập nhiều lần**: Điểm Miệng (`oral`), Điểm 15 Phút (`15m`), Điểm 1 Tiết (`1period`). Mỗi lần nhập = 1 `DailyGradeEntry`; điểm cột = **trung bình** các lần nhập (`_source: 'daily_avg'`, làm tròn 1 số thập phân — `getAverageForStudent`).
+- **Hai nguồn vào, một trung bình**: mỗi cột daily nhận attempts từ (1) nhập tay (`manual_entry` trong sổ `assessment_entries`) và (2) bài thi máy cùng `scoreType` (`exam_finalization` trong cùng sổ). Điểm cột = trung bình **toàn bộ** attempts trong sổ theo `(student, academicYear, semester, scoreType)` — server tính authoritative lúc finalize; không nguồn nào được cộng 2 lần (`legacy_baseline` chỉ dựng khi sổ chưa có dòng tay nào).
 - **Giữa Kỳ (`midterm`) & Cuối Kỳ (`final`) KHÔNG qua daily entry**: mỗi học kỳ chỉ có 1 điểm duy nhất cho mỗi loại, nhập trực tiếp qua Ma Trận/Thẻ Điểm (manual) hoặc Import Excel (`excel_import`). UI daily entry không hiển thị tab Giữa Kỳ/Cuối Kỳ; store chặn ở type-level (`DailyScoreType`).
 - **Dữ liệu cũ**: daily entry loại `midterm`/`final` có trước quy tắc này (nếu còn trong Dexie) ngừng ảnh hưởng tới `syncAllToGradeStore`; giá trị đã sync vào `GradeRecord` giữ nguyên theo source cũ.
 
@@ -723,6 +724,12 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
    - Ban Quản Trị theo dõi danh sách đóng tiền theo từng lớp với 3 trạng thái: `PAID` (Đã nộp), `UNPAID` (Chưa nộp), `EXEMPTED` (Miễn giảm hoàn cảnh khó khăn).
    - Hỗ trợ 1-chạm xác nhận đã nộp và tự động sinh Phiếu Thu vào Quỹ Xứ Đoàn.
    - Hỗ trợ thao tác thu hàng loạt ("Thu Tất Cả") cho các em còn lại trong lớp.
+2. **Nhất quán giữa nghĩa vụ phí và sổ quỹ (ADR-101)**:
+   - Mỗi `(parish, student, academicYear, feeType)` chỉ có một `student_fee_record`. Khi xác nhận `PAID` kèm tự động tạo phiếu thu, `transaction_id` là liên kết authoritative tới đúng giao dịch `INCOME` của học sinh/lớp/năm đó.
+   - Gửi lại cùng lệnh `PAID` không được tạo phiếu thu thứ hai. Thay đổi số tiền/quỹ của khoản đã nộp phải reconcile đúng giao dịch đang liên kết trong cùng transaction.
+   - Chuyển khoản đã nộp sang `UNPAID` hoặc `EXEMPTED` phải xóa đúng phiếu thu tự động đang liên kết, xóa liên kết và ghi audit `TXN_FEE_REVERSED` trong cùng transaction. Đây là quy tắc **CONDITIONAL** được chọn để số dư không giữ khoản thu đã hủy; không sinh giao dịch chi giả lập.
+   - “Thu Tất Cả” là lệnh all-or-nothing tối đa 500 bản ghi. Một học sinh/quỹ/lớp không hợp lệ làm rollback toàn batch; UI không được báo hoàn tất từng phần.
+   - Write contract chỉ cho ba trạng thái nghiệp vụ trên. `PAID` phải có `paidAmount > 0`; `UNPAID|EXEMPTED` phải có `paidAmount = 0`. Enum `PARTIAL` chỉ được giữ trong read model/schema để đọc dữ liệu legacy và không được tạo mới; cần audit dữ liệu production trước khi loại bỏ hoàn toàn khỏi schema.
 
 ### 22.4 Chứng Từ & Bản In Phiếu Thu / Phiếu Chi Chuẩn A5/A4
 1. **Chuyển Đổi Số Tiền Thành Chữ**:

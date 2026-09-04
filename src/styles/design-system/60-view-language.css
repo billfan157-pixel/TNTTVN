@@ -1192,7 +1192,7 @@
 
 .auth-hero {
   position: relative;
-  padding: 30px 28px 26px;
+  padding: 30px clamp(20px, 6vw, 28px) 26px;
   overflow: hidden;
   background: linear-gradient(145deg, #101A35 0%, #172E6E 60%, #1E40AF 100%);
   color: #FFFFFF;
@@ -1247,19 +1247,25 @@
   position: relative;
   z-index: 1;
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 7px;
-  padding: 5px 16px;
+  padding: 5px 13px;
   border-radius: 9999px;
   background: rgba(255, 255, 255, 0.11);
   border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   color: rgba(255, 255, 255, 0.95);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 550;
   letter-spacing: -0.01em;
-  line-height: 1.45;
+  line-height: 1.5;
+  /* Tagline stays on one line whenever the viewport allows it. On very narrow
+     devices a wrap must split into two balanced lines — never leave a 1–2 word
+     orphan row ("… & Chuyên Cần" / "… Thánh Thể"). */
+  text-wrap: balance;
+  text-align: center;
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
 }
 

@@ -31,6 +31,7 @@ export const QuickScoreEntry: React.FC<QuickScoreEntryProps> = ({
   totalScores,
 }) => {
   const [values, setValues] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
   const [onlyMissing, setOnlyMissing] = useState(false)
 
@@ -38,7 +39,19 @@ export const QuickScoreEntry: React.FC<QuickScoreEntryProps> = ({
     const raw = values[studentId]
     if (raw === undefined || raw.trim() === '') return
     const val = parseFloat(raw.replace(',', '.'))
-    if (isNaN(val) || val < 0 || val > maxScore) return
+    if (isNaN(val)) {
+      setErrors(prev => ({ ...prev, [studentId]: 'Điểm không hợp lệ' }))
+      return
+    }
+    if (val < 0 || val > maxScore) {
+      setErrors(prev => ({ ...prev, [studentId]: `Điểm từ 0 đến ${maxScore}` }))
+      return
+    }
+    setErrors(prev => {
+      const next = { ...prev }
+      delete next[studentId]
+      return next
+    })
     onSave(studentId, val)
     setValues(prev => ({ ...prev, [studentId]: '' }))
   }
@@ -143,24 +156,50 @@ export const QuickScoreEntry: React.FC<QuickScoreEntryProps> = ({
                     )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      pattern="[0-9]*"
-                      min={0}
-                      max={maxScore}
-                      step={0.5}
-                      value={values[st.id] ?? ''}
-                      disabled={disabled || maxScore <= 0}
-                      placeholder={savedScores[st.id] !== undefined ? String(savedScores[st.id]) : '…'}
-                      onChange={e => setValues(prev => ({ ...prev, [st.id]: e.target.value }))}
-                      onBlur={() => commit(st.id)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') commit(st.id)
-                        if (e.key === 'Tab') commit(st.id)
-                      }}
-                      className="w-24 min-h-9 px-2.5 py-1 rounded-lg bg-surface-card text-text-main border border-surface-border focus:border-parish-primary focus:outline-none text-sm font-semibold"
-                    />
+                    <div className="flex flex-col">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        pattern="[0-9]*"
+                        min={0}
+                        max={maxScore}
+                        step={0.5}
+                        value={values[st.id] ?? ''}
+                        disabled={disabled || maxScore <= 0}
+                        placeholder={savedScores[st.id] !== undefined ? String(savedScores[st.id]) : '…'}
+                        onChange={e => {
+                          setValues(prev => ({ ...prev, [st.id]: e.target.value }))
+                          if (errors[st.id]) {
+                            setErrors(prev => {
+                              const next = { ...prev }
+                              delete next[st.id]
+                              return next
+                            })
+                          }
+                        }}
+                        onBlur={() => commit(st.id)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') commit(st.id)
+                          if (e.key === 'Tab') commit(st.id)
+                        }}
+                        aria-invalid={Boolean(errors[st.id])}
+                        aria-describedby={errors[st.id] ? `score-err-${st.id}` : undefined}
+                        className={`w-24 min-h-9 px-2.5 py-1 rounded-lg bg-surface-card text-text-main border focus:outline-none text-sm font-semibold transition-colors ${
+                          errors[st.id]
+                            ? 'border-parish-danger text-parish-danger focus:border-parish-danger'
+                            : 'border-surface-border focus:border-parish-primary'
+                        }`}
+                      />
+                      {errors[st.id] && (
+                        <span
+                          id={`score-err-${st.id}`}
+                          role="alert"
+                          className="text-xs font-semibold text-parish-danger mt-1 leading-tight"
+                        >
+                          {errors[st.id]}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {essayMode && (
                     <td className="px-3 py-2.5">

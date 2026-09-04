@@ -29,6 +29,9 @@ vi.mock('../lib/api', () => {
       completeExam: vi.fn(),
       reopenExam: vi.fn(),
       deleteExam: vi.fn(),
+      saveDailyEntries: vi.fn(),
+      deleteDailyEntry: vi.fn(),
+      getDailyEntries: vi.fn(),
     },
     ApiError: ApiErrorMock,
   }
@@ -437,6 +440,47 @@ describe('syncProcessor', () => {
       })
       expect(result.ok).toBe(true)
       expect(api.deleteExam).toHaveBeenCalledWith('EXS-SERVER-1')
+    })
+  })
+
+  describe('Tier 2 — daily_entry', () => {
+    it('CREATE đẩy 1 entry qua batch + reconcile receipt', async () => {
+      vi.mocked(api.saveDailyEntries).mockResolvedValue({
+        saved: 1, duplicates: 0, errorCount: 0, total: 1,
+        items: [{ id: 'DG-1', studentId: 'ST-001', scoreType: 'oral', status: 'created', serverScore: 8 }],
+      })
+      const result = await processOperation({
+        entity: 'daily_entry', operation: 'CREATE', entityId: 'DG-1',
+        payload: JSON.stringify({ id: 'DG-1', studentId: 'ST-001', academicYear: '2025-2026', semester: 1, scoreType: 'oral', value: 8, date: '2026-01-15' }),
+      })
+      expect(result.ok).toBe(true)
+      expect(api.saveDailyEntries).toHaveBeenCalledWith([{
+        id: 'DG-1', studentId: 'ST-001', academicYear: '2025-2026', semester: 1, scoreType: 'oral', value: 8, date: '2026-01-15',
+      }])
+    })
+
+    it('item error trong response 200 → permanent-fail (không nuốt)', async () => {
+      vi.mocked(api.saveDailyEntries).mockResolvedValue({
+        saved: 0, duplicates: 0, errorCount: 1, total: 1,
+        items: [{ id: 'DG-2', studentId: 'ST-001', scoreType: 'oral', status: 'error', serverScore: null, reason: 'Học kỳ 1 đã bị khóa sổ điểm.' }],
+      })
+      const result = await processOperation({
+        entity: 'daily_entry', operation: 'CREATE', entityId: 'DG-2',
+        payload: JSON.stringify({ id: 'DG-2', studentId: 'ST-001', academicYear: '2025-2026', semester: 1, scoreType: 'oral', value: 8 }),
+      })
+      expect(result.ok).toBe(false)
+      expect(result.recoverable).toBe(false)
+      expect(result.error).toMatch(/khóa sổ/)
+    })
+
+    it('DELETE gọi api.deleteDailyEntry', async () => {
+      vi.mocked(api.deleteDailyEntry).mockResolvedValue({ deleted: true, id: 'DG-3' })
+      const result = await processOperation({
+        entity: 'daily_entry', operation: 'DELETE', entityId: 'DG-3',
+        payload: JSON.stringify({ id: 'DG-3' }),
+      })
+      expect(result.ok).toBe(true)
+      expect(api.deleteDailyEntry).toHaveBeenCalledWith('DG-3')
     })
   })
 })

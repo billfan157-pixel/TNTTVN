@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import { FinancePage } from '../../pages/FinancePage'
 import { useAuthStore } from '../../stores/authStore'
+
+const mockNavigate = vi.fn()
+let mockSearchParams: Record<string, any> = {}
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => mockNavigate,
+  useSearch: () => mockSearchParams,
+}))
 
 vi.mock(import('../../lib/api'), async (importOriginal) => {
   const actual = await importOriginal()
@@ -40,6 +48,7 @@ vi.mock(import('../../lib/api'), async (importOriginal) => {
         deleteTransaction: vi.fn(),
         getClassFeeRecords: vi.fn().mockResolvedValue([]),
         updateStudentFee: vi.fn(),
+        updateStudentFeesBatch: vi.fn(),
       },
       classes: {
         getAll: vi.fn().mockResolvedValue([]),
@@ -89,5 +98,40 @@ describe('FinancePage Component', () => {
     expect(screen.getByText('Tạo Phiếu Chi')).toBeDefined()
     expect(screen.getByText('Chuyển Quỹ')).toBeDefined()
     expect(screen.getByText('Thu Niên Liễm')).toBeDefined()
+
+    // Microcopy verification: Sổ quỹ giao dịch search microcopy
+    const searchInput = screen.getByLabelText('Tìm kiếm sổ quỹ giao dịch')
+    expect(searchInput).toBeDefined()
+    expect(searchInput.getAttribute('placeholder')).toBe('Tìm mã phiếu, người nộp/nhận, danh mục...')
+  })
+
+  it('navigates with tab=fees when Thu Niên Liễm button is clicked', async () => {
+    useAuthStore.setState({ user: { id: 'admin1', username: 'bill', role: 'admin', fullName: 'Xứ Đoàn Trưởng', parishId: 'gia-ton' } as any })
+    mockSearchParams = { tab: 'ledger' }
+
+    await act(async () => {
+      render(<FinancePage />)
+    })
+
+    const feeButton = screen.getByText('Thu Niên Liễm')
+    fireEvent.click(feeButton)
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: '/finances',
+        replace: true,
+      })
+    )
+  })
+
+  it('renders fee collection modal when tab=fees is in search params', async () => {
+    useAuthStore.setState({ user: { id: 'admin1', username: 'bill', role: 'admin', fullName: 'Xứ Đoàn Trưởng', parishId: 'gia-ton' } as any })
+    mockSearchParams = { tab: 'fees' }
+
+    await act(async () => {
+      render(<FinancePage />)
+    })
+
+    expect(screen.getByText('Sổ Thu Niên Liễm & Đóng Tiền Theo Lớp')).toBeDefined()
   })
 })

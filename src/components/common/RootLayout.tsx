@@ -197,6 +197,7 @@ export function RootLayout() {
           activeTab={activeMobileTab}
           setActiveTab={(tab) => navigate({ to: MOBILE_TAB_PATHS[tab] })}
           preloadTab={preloadMobileTab}
+          activeWorkspace={activeWorkspace}
         >
           <HeaderBar activeWorkspace={activeWorkspace} onWorkspaceChange={switchWorkspace} />
           <PageTransition routeKey={pathname}>

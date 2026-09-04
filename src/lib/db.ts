@@ -9,7 +9,7 @@ interface StoreItem {
 
 export interface SyncQueueItem {
   id: string
-  entity: 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' | 'exam_result'
+  entity: 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' | 'exam_result' | 'daily_entry'
   entityId: string
   operation: 'CREATE' | 'UPDATE' | 'DELETE'
   payload: string
@@ -21,6 +21,8 @@ export interface SyncQueueItem {
   deviceId: string
   /** ADR-016 (S19): Chủ sở hữu của op — ngăn queue của user A bị flush dưới token user B. */
   userId?: string
+  /** OFF-TENANT-1: tenant ownership is independent from userId and must match exactly. */
+  parishId?: string
 }
 
 interface SyncMetaItem {
@@ -69,6 +71,7 @@ export interface SyncConflict {
   resolvedAt?: string
   createdAt: string
   userId?: string
+  parishId?: string
 }
 
 DB.version(1).stores({
@@ -111,6 +114,17 @@ DB.version(6).stores({
   syncMeta: 'key',
   cryptoKeys: 'id, createdAt',
   syncConflicts: 'id, entity, entityId, resolved, createdAt, userId',
+})
+
+// OFF-TENANT-1: a user id is not a tenant boundary. Queue/conflict reads use the
+// composite parish + user owner so an account switch can never flush another
+// parish's durable mutations under the current access token.
+DB.version(7).stores({
+  stores: 'key',
+  syncQueue: 'id, entity, entityId, status, createdAt, userId, parishId, [parishId+userId], [parishId+userId+status]',
+  syncMeta: 'key',
+  cryptoKeys: 'id, createdAt',
+  syncConflicts: 'id, entity, entityId, resolved, createdAt, userId, parishId, [parishId+userId]',
 })
 
 async function migrateFromLocalStorage() {

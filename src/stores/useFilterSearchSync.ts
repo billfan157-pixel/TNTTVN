@@ -51,6 +51,13 @@ export function useFilterSearchSync() {
   useEffect(() => {
     const unsub = useFilterStore.subscribe((state, prev) => {
       if (pendingRef.current) clearTimeout(pendingRef.current)
+
+      // Only sync filterStore to URL on routes that support class/branch/search filters
+      const supportedRoutes = ['/students', '/grades', '/attendance']
+      if (!supportedRoutes.some(r => pathname === r || pathname.startsWith(`${r}/`))) {
+        return
+      }
+
       const params = new URLSearchParams(window.location.search)
 
       let changed = false
@@ -58,15 +65,15 @@ export function useFilterSearchSync() {
         if (state.selectedClassId === 'all') params.delete('classId')
         else { params.set('classId', state.selectedClassId); changed = true }
       }
-      if (state.selectedBranchId !== prev.selectedBranchId) {
+      if (pathname === '/students' && state.selectedBranchId !== prev.selectedBranchId) {
         if (state.selectedBranchId === 'all') params.delete('branchId')
         else { params.set('branchId', state.selectedBranchId); changed = true }
       }
-      if (state.selectedSemester !== prev.selectedSemester) {
+      if ((pathname === '/students' || pathname === '/grades') && state.selectedSemester !== prev.selectedSemester) {
         if (state.selectedSemester === 1) params.delete('semester')
         else { params.set('semester', String(state.selectedSemester)); changed = true }
       }
-      if (state.searchQuery !== prev.searchQuery) {
+      if (pathname === '/students' && state.searchQuery !== prev.searchQuery) {
         if (state.searchQuery) { params.set('search', state.searchQuery); changed = true }
         else params.delete('search')
       }

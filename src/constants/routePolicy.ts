@@ -30,6 +30,11 @@ export type MobileRouteTab =
   | 'settings'
   | 'parent'
   | 'notices'
+  | 'parish-home'
+  | 'catechists'
+  | 'calendar'
+  | 'parish-profile'
+  | 'finances'
 
 export type WorkspaceId = 'academic' | 'organization' | 'parent'
 export type RouteWorkspace = WorkspaceId | 'shared'
@@ -66,10 +71,10 @@ export const ROUTE_POLICIES = {
   '/grades': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Bảng điểm', workspace: 'academic', desktopTab: 'grades', mobileTab: 'grades' },
   '/attendance': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Điểm danh', workspace: 'academic', desktopTab: 'attendance', mobileTab: 'attendance' },
   '/reports': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Báo cáo học tập', workspace: 'academic', desktopTab: 'reports', mobileTab: 'reports' },
-  '/parish': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Tổng quan Xứ đoàn', workspace: 'organization', desktopTab: 'parish-home' },
+  '/parish': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Tổng quan Xứ đoàn', workspace: 'organization', desktopTab: 'parish-home', mobileTab: 'parish-home' },
   '/notices': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thông báo', workspace: 'organization', desktopTab: 'notices', mobileTab: 'notices' },
-  '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch phụng vụ', workspace: 'organization', desktopTab: 'calendar' },
-  '/parish-profile': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Hồ sơ Xứ đoàn', workspace: 'organization', desktopTab: 'parish-profile' },
+  '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch phụng vụ', workspace: 'organization', desktopTab: 'calendar', mobileTab: 'calendar' },
+  '/parish-profile': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Hồ sơ Xứ đoàn', workspace: 'organization', desktopTab: 'parish-profile', mobileTab: 'parish-profile' },
   '/settings': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Cài đặt', workspace: 'shared', desktopTab: 'settings', mobileTab: 'settings' },
   '/feedback': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thư góp ý', workspace: 'shared', desktopTab: 'feedback' },
   '/parent': { requiresAuth: true, roles: PARENT_ONLY, mobileTitle: 'Con của tôi', workspace: 'parent', desktopTab: 'parent', mobileTab: 'parent' },
@@ -78,10 +83,10 @@ export const ROUTE_POLICIES = {
   '/users': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Tài khoản', workspace: 'shared', desktopTab: 'management' },
   '/classes': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Lớp học', workspace: 'academic', desktopTab: 'students' },
   '/academic-years': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Năm học', workspace: 'academic', desktopTab: 'management' },
-  '/catechists': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Giáo lý viên', workspace: 'organization', desktopTab: 'catechists' },
+  '/catechists': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Giáo lý viên', workspace: 'organization', desktopTab: 'catechists', mobileTab: 'catechists' },
   '/audit-logs': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Nhật ký hệ thống', workspace: 'shared', desktopTab: 'audit-logs' },
   '/management': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quản lý hệ thống', workspace: 'shared', desktopTab: 'management' },
-  '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ và thu chi', workspace: 'organization', desktopTab: 'finances' },
+  '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ và thu chi', workspace: 'organization', desktopTab: 'finances', mobileTab: 'finances' },
 } as const satisfies Record<string, RoutePolicy>
 
 export type AppRoutePath = keyof typeof ROUTE_POLICIES
@@ -138,6 +143,11 @@ export const MOBILE_TAB_PATHS = {
   settings: '/settings',
   parent: '/parent',
   notices: '/notices',
+  'parish-home': '/parish',
+  catechists: '/catechists',
+  calendar: '/calendar',
+  'parish-profile': '/parish-profile',
+  finances: '/finances',
 } as const satisfies Record<MobileRouteTab, ProtectedRoutePath>
 
 export const MOBILE_PRIMARY_TABS = [

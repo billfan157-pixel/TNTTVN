@@ -6,6 +6,11 @@ import { metricsRegistry } from '../middleware/metrics.js'
 
 const healthRouter = new Hono()
 
+function getPublicReleaseId(): string {
+  const candidate = process.env.APP_RELEASE_ID || process.env.RENDER_GIT_COMMIT || 'unknown'
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(candidate) ? candidate : 'invalid'
+}
+
 // A-NEW-18 (2026-08-11): /ready + /metrics là ops endpoints — gate bằng Bearer token
 // (env OPS_TOKEN, so sánh timing-safe). /health giữ PUBLIC — healthcheckPath của
 // Railway + docker-compose đều dùng /health (không bị ảnh hưởng).
@@ -33,6 +38,7 @@ healthRouter.get('/health', async (c) => {
     return c.json({
       status: 'ok',
       service: 'parish-lms-backend',
+      releaseId: getPublicReleaseId(),
       database: 'connected',
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
@@ -41,6 +47,7 @@ healthRouter.get('/health', async (c) => {
     return c.json({
       status: 'degraded',
       service: 'parish-lms-backend',
+      releaseId: getPublicReleaseId(),
       database: 'disconnected',
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),

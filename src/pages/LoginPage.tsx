@@ -17,7 +17,7 @@ export function LoginPage() {
           <div className="auth-hero__subtitle-wrap">
             <span className="auth-hero__subtitle">
               <span className="auth-hero__subtitle-dot" aria-hidden="true" />
-              Nền tảng quản lý Giáo lý &amp; Thiếu Nhi Thánh Thể
+              Quản lý Giáo lý &amp; Thiếu Nhi Thánh Thể
             </span>
           </div>
         </div>

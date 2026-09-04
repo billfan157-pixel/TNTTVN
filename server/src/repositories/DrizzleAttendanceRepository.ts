@@ -3,7 +3,7 @@ import { attendance } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { AttendanceRecord } from '../domain/AttendanceRecord.js'
 import type { AttendanceStatus, AttendanceSessionType } from '../domain/AttendanceRecord.js'
-import { VersionConflictError } from '../services/gradeService.js'
+import { VersionConflictError } from '../domain/errors.js'
 
 export class DrizzleAttendanceRepository {
   public async findByStudentAndSession(

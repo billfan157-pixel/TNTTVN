@@ -8,7 +8,7 @@ import { EmptyState } from '../common/StateFeedback'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalShell } from '../common/ModalShell'
 import { StudentName } from '../common/StudentName'
-import type { StudentFeeRecord, FeeType, FeeStatus } from '../../types'
+import type { StudentFeeRecord, FeeType, WritableFeeStatus } from '../../types'
 
 interface ClassFeeCollectionModalProps {
   isOpen: boolean
@@ -19,7 +19,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   isOpen,
   onClose,
 }) => {
-  const { classFeeRecords, fetchClassFeeRecords, updateStudentFee, funds, isLoading: _isLoading } = useFinanceStore()
+  const { classFeeRecords, fetchClassFeeRecords, updateStudentFee, updateStudentFeesBatch, funds, isLoading } = useFinanceStore()
   const { currentYear } = useAcademicYearStore()
   const getClassList = useClassStore((s) => s.getClassList)
   const classesList = getClassList()
@@ -31,7 +31,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   const [targetFundId, setTargetFundId] = useState<string>('')
   const [filterStatus, setFilterStatus] = useState<string>('ALL')
   const [isCollectAllConfirmOpen, setIsCollectAllConfirmOpen] = useState(false)
-  const [_pendingCollectAll, setPendingCollectAll] = useState(false)
+  const [pendingCollectAll, setPendingCollectAll] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -53,7 +53,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
 
   const handleTogglePaid = async (record: StudentFeeRecord) => {
     const isPaid = record.status === 'PAID'
-    const newStatus: FeeStatus = isPaid ? 'UNPAID' : 'PAID'
+    const newStatus: WritableFeeStatus = isPaid ? 'UNPAID' : 'PAID'
     const paidAmount = isPaid ? 0 : record.expectedAmount || defaultAmount
 
     await updateStudentFee(selectedClassId, {
@@ -85,7 +85,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     })
   }
 
-  const handleCollectAll = async () => {
+  const handleCollectAll = () => {
     const unpaid = classFeeRecords.filter((r) => r.status === 'UNPAID')
     if (unpaid.length === 0) return
     setPendingCollectAll(true)
@@ -95,8 +95,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   const handleConfirmCollectAll = async () => {
     setIsCollectAllConfirmOpen(false)
     const unpaid = classFeeRecords.filter((r) => r.status === 'UNPAID')
-    for (const r of unpaid) {
-      await updateStudentFee(selectedClassId, {
+    const records = unpaid.map((r) => ({
         studentId: r.studentId,
         classId: selectedClassId,
         academicYear: currentYear || '2025-2026',
@@ -107,9 +106,12 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
         status: 'PAID',
         createTransaction: autoCreateTx,
         fundId: targetFundId,
-      })
+      } as const))
+    try {
+      await updateStudentFeesBatch(selectedClassId, records)
+    } finally {
+      setPendingCollectAll(false)
     }
-    setPendingCollectAll(false)
   }
 
   const filteredRecords = classFeeRecords.filter((r) => {
@@ -234,6 +236,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
               {unpaidCount > 0 && (
                 <button
                   onClick={handleCollectAll}
+                  disabled={isLoading || pendingCollectAll}
                   className="btn btn-sm"
                   style={{ background: 'var(--color-finance-income)', color: 'white' }}
                 >
@@ -328,6 +331,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
                               <button
                                 type="button"
                                 onClick={() => handleTogglePaid(st)}
+                                disabled={isLoading || pendingCollectAll}
                                 className={`btn btn-sm ${
                                   isPaid ? 'btn-secondary' : ''
                                 }`}
@@ -339,6 +343,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
                                 <button
                                   type="button"
                                   onClick={() => handleSetExempted(st)}
+                                  disabled={isLoading || pendingCollectAll}
                                   className="btn btn-sm btn-ghost"
                                   style={{ color: 'var(--color-finance-transfer)' }}
                                 >

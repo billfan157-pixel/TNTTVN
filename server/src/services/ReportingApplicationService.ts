@@ -2,7 +2,8 @@ import { reportCardProjectionRepository, ReportCardProjectionRepository } from '
 import type { ReportCardDTO } from '../repositories/ReportCardProjectionRepository.js'
 import { classSummaryProjectionRepository, ClassSummaryProjectionRepository } from '../repositories/ClassSummaryProjectionRepository.js'
 import type { ClassSummaryDTO } from '../repositories/ClassSummaryProjectionRepository.js'
-import { canAccessStudentSpecification, CanAccessStudentSpecification } from '../domain/CanAccessStudentSpecification.js'
+import { canAccessStudentSpecification } from './policyAdapters.js'
+import type { CanAccessStudentSpecification } from '../domain/CanAccessStudentSpecification.js'
 import { checkUserClassAccess, type JwtPayload } from '../middleware/auth.js'
 
 export class ReportingApplicationService {

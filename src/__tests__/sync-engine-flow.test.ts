@@ -35,7 +35,7 @@ async function resetDB() {
   useSyncStore.getState().setLastError(null)
   useSyncStore.getState().setLastSync('')
   localStorage.setItem('parish_access_token', 'test-token')
-  localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST' }))
+  localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', parishId: 'PARISH-TEST' }))
 }
 
 function mockAllApiMethods() {

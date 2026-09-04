@@ -1,4 +1,5 @@
-import { useState, Suspense } from 'react'
+import { useCallback, Suspense } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { MobileGradeView } from '../components/mobile/MobileGradeView'
 import { useUIStore } from '../stores/uiStore'
 import { useEffectiveMode } from '../hooks/useEffectiveMode'
@@ -6,6 +7,7 @@ import { Grid3X3, FileSpreadsheet, Columns3, Calculator, ClipboardList, LibraryB
 import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student } from '../types'
 import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
+import { SkeletonTable, SkeletonCardGrid } from '../components/common/StateFeedback'
 
 const DesktopGradeMatrix = lazyWithRetry(() => import('../components/desktop/DesktopGradeMatrix'), 'DesktopGradeMatrix')
 const DesktopGradeCards = lazyWithRetry<React.FC<{
@@ -29,16 +31,27 @@ const VIEW_TABS: { id: GradeViewMode; label: string; icon: React.ReactNode; desc
 ]
 
 export function GradesPage() {
+  const navigate = useNavigate()
+  const search = useSearch({ from: '/grades' })
   const effectiveMode = useEffectiveMode()
   const { openReport, openReportForPrint } = useUIStore()
-  const [viewMode, setViewMode] = useState<GradeViewMode>('matrix')
+  const viewMode = (search.view as GradeViewMode) || 'matrix'
+
+  const handleViewChange = useCallback((newView: GradeViewMode) => {
+    navigate({
+      to: '/grades',
+      search: (prev: any) => ({ ...prev, view: newView }),
+      replace: true,
+    })
+  }, [navigate])
+
   const viewItems = VIEW_TABS.map(tab => ({
     value: tab.id,
     icon: tab.icon,
     label: (
       <>
         <span>{tab.label}</span>
-        <span className={`text-[10px] hidden sm:inline ${viewMode === tab.id ? 'text-white/80' : 'text-text-muted'}`}>
+        <span className={`text-xs hidden sm:inline ${viewMode === tab.id ? 'text-white/80' : 'text-text-muted'}`}>
           {tab.desc}
         </span>
       </>
@@ -55,28 +68,28 @@ export function GradesPage() {
           ariaLabel="Chế độ quản lý điểm"
           items={viewItems}
           value={viewMode}
-          onValueChange={setViewMode}
+          onValueChange={handleViewChange}
           className="self-start flex-wrap"
         />
 
         {/* Active View with Suspense */}
         <TabPanel tabsId="desktop-grade-view-tabs" value="matrix" activeValue={viewMode}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopGradeMatrix /></Suspense>
+          <Suspense fallback={<SkeletonTable rows={8} cols={7} />}><DesktopGradeMatrix /></Suspense>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="cards" activeValue={viewMode}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopGradeCards onViewReport={openReport} onPrintReport={openReportForPrint} /></Suspense>
+          <Suspense fallback={<SkeletonCardGrid count={6} />}><DesktopGradeCards onViewReport={openReport} onPrintReport={openReportForPrint} /></Suspense>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="comparison" activeValue={viewMode}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopGradeComparison /></Suspense>
+          <Suspense fallback={<SkeletonTable rows={8} cols={6} />}><DesktopGradeComparison /></Suspense>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="daily" activeValue={viewMode}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><DesktopDailyGradeEntry /></Suspense>
+          <Suspense fallback={<SkeletonTable rows={8} cols={5} />}><DesktopDailyGradeEntry /></Suspense>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="exam" activeValue={viewMode}>
-          <Suspense fallback={<div className="flex items-center justify-center h-64 text-text-secondary text-sm font-medium">Đang tải phân vùng điểm...</div>}><ExamSessionView /></Suspense>
+          <Suspense fallback={<SkeletonCardGrid count={4} />}><ExamSessionView /></Suspense>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="bank" activeValue={viewMode}>
-          <Suspense fallback={<div className="flex h-64 items-center justify-center text-sm font-medium text-text-secondary">Đang tải ngân hàng câu hỏi...</div>}><QuestionBankView /></Suspense>
+          <Suspense fallback={<SkeletonTable rows={6} cols={5} />}><QuestionBankView /></Suspense>
         </TabPanel>
       </div>
     )

@@ -19,6 +19,9 @@ export interface TemplateContext {
   content?: string
   author?: string
   sundayMassTime?: string
+  scoreField?: string
+  manualValue?: number | string
+  reasonCode?: string
 }
 
 const TEMPLATE_VARIABLES: Record<string, keyof TemplateContext> = {
@@ -42,6 +45,9 @@ const TEMPLATE_VARIABLES: Record<string, keyof TemplateContext> = {
   content: 'content',
   author: 'author',
   sundayMassTime: 'sundayMassTime',
+  scoreField: 'scoreField',
+  manualValue: 'manualValue',
+  reasonCode: 'reasonCode',
 }
 
 export const NOTIFICATION_TEMPLATES = {
@@ -64,6 +70,10 @@ export const NOTIFICATION_TEMPLATES = {
 
   // Parish Notice
   parishNotice: '🔔 *{title}*\n{content}\n\n— {author}',
+
+  // Grade override (Phase 2: thay outbox subscriber — cùng nội dung, qua queue bền vững)
+  gradeOverride: '✏️ Điểm thủ công đã lưu\n• Thiếu nhi: {studentName}\n• Cột điểm: {scoreField} = {manualValue}\n• Lý do: {reasonCode}',
+  gradeOverrideRemoved: '↩️ Điểm thủ công đã được khôi phục (thiếu nhi {studentName}, cột {scoreField})',
 }
 
 export function renderTemplate(template: string, context: TemplateContext): string {

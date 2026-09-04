@@ -11,6 +11,7 @@ import { api, isAuthenticated, ApiError } from '../lib/api'
 import { attendanceApiClient, BatchAttendanceResponseDTO } from '../lib/api/attendance'
 import * as Sentry from '@sentry/react'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { isOwnOp } from './syncStore'
 
 /** Natural key của attendance: studentId:date:type. */
 function attendanceNaturalKey(a: { studentId?: string; date?: string; type?: string }): string {
@@ -27,6 +28,8 @@ async function getPendingAttendanceNaturalKeys(): Promise<Set<string>> {
     const pending = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray()
     const keys = new Set<string>()
     for (const item of pending) {
+      // OFF-TENANT-1: chỉ tính ops đúng scope phiên hiện tại.
+      if (!isOwnOp(item)) continue
       if (item.entity !== 'attendance') continue
       try {
         const raw = await decryptQueueValue(item.payload)

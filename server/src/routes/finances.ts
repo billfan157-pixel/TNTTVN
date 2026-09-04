@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware } from '../middleware/auth.js'
@@ -15,6 +15,7 @@ import {
   createTransaction,
   deleteTransaction,
   updateStudentFee,
+  updateStudentFeesBatch,
 } from '../services/FinanceApplicationService.js'
 import { isValidIsoDate } from '../utils/date.js'
 
@@ -57,11 +58,24 @@ const updateStudentFeeSchema = z.object({
   title: z.string().min(1),
   expectedAmount: z.number().min(0),
   paidAmount: z.number().min(0),
-  status: z.enum(['UNPAID', 'PARTIAL', 'PAID', 'EXEMPTED']),
+  status: z.enum(['UNPAID', 'PAID', 'EXEMPTED']),
   note: z.string().max(500).optional(),
   createTransaction: z.boolean().default(false),
   fundId: z.string().optional(),
 })
+
+const updateStudentFeesBatchSchema = z.object({
+  records: z.array(updateStudentFeeSchema).min(1).max(500),
+})
+
+function financeClientError(c: Context, err: unknown): Response {
+  const candidate = err as { status?: unknown; message?: unknown }
+  if (candidate.status === 400) {
+    const message = typeof candidate.message === 'string' ? candidate.message : 'Dữ liệu tài chính không hợp lệ'
+    return errorResponse(c, 'BAD_REQUEST', message, 400)
+  }
+  throw err
+}
 
 /**
  * GET /api/finances/summary
@@ -97,11 +111,11 @@ financesRouter.post('/funds', zValidator('json', createFundSchema), async (c) =>
   try {
     const fund = await createFund(data, user.userId, user.parishId, ip, userAgent)
     return successResponse(c, fund, 201)
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (String(err).includes('UNIQUE') || String(err).includes('unique')) {
       return errorResponse(c, 'Mã quỹ hoặc tên quỹ đã tồn tại', 400)
     }
-    throw err
+    return financeClientError(c, err)
   }
 })
 
@@ -147,16 +161,20 @@ financesRouter.post('/transactions', zValidator('json', createTransactionSchema)
     }
   }
 
-  const tx = await createTransaction(
-    data,
-    user.userId,
-    user.username || 'Ban Quản Trị',
-    user.parishId,
-    ip,
-    userAgent
-  )
+  try {
+    const tx = await createTransaction(
+      data,
+      user.userId,
+      user.username || 'Ban Quản Trị',
+      user.parishId,
+      ip,
+      userAgent
+    )
 
-  return successResponse(c, tx, 201)
+    return successResponse(c, tx, 201)
+  } catch (err: unknown) {
+    return financeClientError(c, err)
+  }
 })
 
 /**
@@ -198,17 +216,48 @@ financesRouter.get('/classes/:classId/fees', async (c) => {
 financesRouter.post('/classes/:classId/fees', zValidator('json', updateStudentFeeSchema), async (c) => {
   const user = c.get('user')
   const data = c.req.valid('json')
+  const classId = c.req.param('classId')
+  if (data.classId !== classId) {
+    return errorResponse(c, 'Lớp trong payload không khớp lớp trên đường dẫn', 400)
+  }
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  const record = await updateStudentFee(
-    user.parishId,
-    data,
-    user.userId,
-    user.username || 'Ban Quản Trị',
-    ip,
-    userAgent
-  )
+  try {
+    const record = await updateStudentFee(
+      user.parishId,
+      data,
+      user.userId,
+      user.username || 'Ban Quản Trị',
+      ip,
+      userAgent
+    )
 
-  return successResponse(c, record)
+    return successResponse(c, record)
+  } catch (err: unknown) {
+    return financeClientError(c, err)
+  }
+})
+
+/** Atomic, retry-safe collection for multiple students in one class. */
+financesRouter.post('/classes/:classId/fees/batch', zValidator('json', updateStudentFeesBatchSchema), async (c) => {
+  const user = c.get('user')
+  const classId = c.req.param('classId')
+  const { records } = c.req.valid('json')
+  if (records.some(record => record.classId !== classId)) {
+    return errorResponse(c, 'Tất cả khoản phí phải thuộc lớp trên đường dẫn', 400)
+  }
+  try {
+    const saved = await updateStudentFeesBatch(
+      user.parishId,
+      records,
+      user.userId,
+      user.username || 'Ban Quản Trị',
+      getClientIp(c),
+      c.req.header('user-agent') || '',
+    )
+    return successResponse(c, saved)
+  } catch (err: unknown) {
+    return financeClientError(c, err)
+  }
 })

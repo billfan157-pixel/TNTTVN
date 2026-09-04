@@ -1,9 +1,12 @@
 import { db } from '../db/index.js'
 import { drizzleGradeRepository, DrizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
-import { canOverrideGradeSpecification, CanOverrideGradeSpecification } from '../domain/CanOverrideGradeSpecification.js'
-import { semesterLockSpecification, SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
+import { canOverrideGradeSpecification } from './policyAdapters.js'
+import { semesterLockSpecification } from './policyAdapters.js'
+import type { CanOverrideGradeSpecification } from '../domain/CanOverrideGradeSpecification.js'
+import type { SemesterLockSpecification } from '../domain/SemesterLockSpecification.js'
 import { GradeAggregate, type ScoreField } from '../domain/GradeAggregate.js'
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
+import { notifyGradeOverride } from './smartNotifications.js'
 
 export interface OverrideScoreCommand {
   gradeId: string
@@ -44,9 +47,10 @@ export class GradeApplicationService {
   }
 
   public async overrideScore(cmd: OverrideScoreCommand) {
-    return db.transaction(async (tx) => {
+    let notifiedStudentId = cmd.studentId ?? ''
+    const overrideDTO = await db.transaction(async (tx) => {
       // 0. Get current policy version ID for audit trail
-      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId)
+      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
 
       // 1. Load Grade Record & Active Overrides
       const gradeRecord = await this.gradeRepo.findById(cmd.gradeId, cmd.parishId, tx)
@@ -55,12 +59,14 @@ export class GradeApplicationService {
         err.status = 404
         throw err
       }
+      notifiedStudentId = gradeRecord.studentId
 
       // 2. Check Semester Lock Specification FIRST
       const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(
         gradeRecord.academicYear,
         gradeRecord.semester,
-        cmd.parishId
+        cmd.parishId,
+        tx,
       )
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${gradeRecord.semester} năm học ${gradeRecord.academicYear} đã bị khóa sổ điểm. Không thể chỉnh sửa điểm.`) as any
@@ -75,7 +81,7 @@ export class GradeApplicationService {
         throw err
       }
       
-      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId)
+      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId, tx)
       if (!isAuthorized) {
         const err = new Error('Bạn không có quyền ghi đè điểm cho thiếu nhi này') as any
         err.status = 403
@@ -108,22 +114,36 @@ export class GradeApplicationService {
 
       return overrideDTO
     })
+
+    // Phase 2 (outbox convergence): post-commit qua notificationQueue
+    // (precedent noticeService — delivery best-effort, audit trong tx là trail).
+    // Await để deterministic (không bao giờ throw — lỗi đã catch trong notify).
+    await notifyGradeOverride(cmd.parishId, {
+      studentId: notifiedStudentId,
+      scoreField: overrideDTO.scoreField,
+      manualValue: overrideDTO.manualValue,
+      reasonCode: overrideDTO.reasonCode,
+    })
+    return overrideDTO
   }
 
   public async restoreScore(cmd: RestoreScoreCommand) {
-    return db.transaction(async (tx) => {
+    let notifiedStudentId = ''
+    const restoredRecord = await db.transaction(async (tx) => {
       // 0. Get current policy version ID for audit trail
-      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId)
+      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
 
       // 1. Load Grade Record
       const gradeRecord = await this.gradeRepo.findById(cmd.gradeId, cmd.parishId, tx)
       if (!gradeRecord) return null
+      notifiedStudentId = gradeRecord.studentId
 
       // 2. Check Semester Lock Specification FIRST
       const isSemesterUnlocked = await this.semesterLockSpec.isSatisfiedBy(
         gradeRecord.academicYear,
         gradeRecord.semester,
-        cmd.parishId
+        cmd.parishId,
+        tx,
       )
       if (!isSemesterUnlocked) {
         const err = new Error(`Học kỳ ${gradeRecord.semester} năm học ${gradeRecord.academicYear} đã bị khóa sổ điểm. Không thể khôi phục điểm.`) as any
@@ -132,7 +152,7 @@ export class GradeApplicationService {
       }
 
       // 3. Check Class Access Permission Specification
-      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId)
+      const isAuthorized = await this.spec.isSatisfiedBy(cmd.userId, gradeRecord.studentId, cmd.parishId, tx)
       if (!isAuthorized) {
         const err = new Error('Bạn không có quyền khôi phục điểm cho thiếu nhi này') as any
         err.status = 403
@@ -157,6 +177,16 @@ export class GradeApplicationService {
 
       return restoredRecord
     })
+
+    // Phase 2 (outbox convergence): post-commit qua notificationQueue.
+    if (restoredRecord) {
+      await notifyGradeOverride(cmd.parishId, {
+        studentId: notifiedStudentId,
+        scoreField: cmd.scoreField,
+        removed: true,
+      })
+    }
+    return restoredRecord
   }
 
   public async getOverrideHistory(gradeId: string, parishId: string) {

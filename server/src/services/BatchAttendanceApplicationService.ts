@@ -1,7 +1,7 @@
 import { attendanceApplicationService, AttendanceApplicationService } from './AttendanceApplicationService.js'
 import type { MarkAttendanceCommand } from './AttendanceApplicationService.js'
 import type { AttendanceRecord } from '../domain/AttendanceRecord.js'
-import { VersionConflictError } from './gradeService.js'
+import { VersionConflictError } from '../domain/errors.js'
 
 export interface BatchAttendanceItemResult {
   studentId: string

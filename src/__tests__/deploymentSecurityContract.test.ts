@@ -16,6 +16,8 @@ describe('deployment and native privacy contracts', () => {
 
   it('locks down Vercel HTML without disabling the OMR camera', () => {
     const config = JSON.parse(read('vercel.json')) as {
+      git: { deploymentEnabled: Record<string, boolean> }
+      installCommand: string
       headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>
       rewrites: Array<{ source: string; destination: string }>
     }
@@ -34,6 +36,8 @@ describe('deployment and native privacy contracts', () => {
     expect(headers['X-Content-Type-Options']).toBe('nosniff')
     expect(headers['Permissions-Policy']).toContain('camera=(self)')
     expect(headers['Permissions-Policy']).toContain('microphone=()')
+    expect(config.git.deploymentEnabled.main).toBe(false)
+    expect(config.installCommand).toBe('npm ci --allow-remote=all')
     expect(config.rewrites[0]).toEqual({ source: '/health', destination: 'https://tnttvn.onrender.com/health' })
   })
 
@@ -54,5 +58,17 @@ describe('deployment and native privacy contracts', () => {
     expect(JSON.parse(read('capacitor.config.json')).appName).toBe('Catevia')
     expect(read('android/app/src/main/res/values/strings.xml')).toContain('<string name="app_name">Catevia</string>')
     expect(read('ios/App/App/Info.plist')).toContain('<string>Catevia</string>')
+  })
+
+  it('deploys only a CI-verified SHA and proves both production releases match it', () => {
+    const workflow = read('.github/workflows/deploy-production.yml')
+
+    expect(workflow).toContain("VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}")
+    expect(workflow).toContain('github.event.workflow_run.conclusion == \'success\'')
+    expect(workflow).toContain('backend_release" != "$VERIFIED_SHA"')
+    expect(workflow).toContain('frontend_release" != "$VERIFIED_SHA"')
+    expect(workflow).toContain('Unauthenticated auth smoke expected 401')
+    expect(workflow).toContain("grep -qi '^content-security-policy:'")
+    expect(workflow).toContain("grep -qi '^strict-transport-security:'")
   })
 })

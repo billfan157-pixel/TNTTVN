@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useSyncStore, migrateLegacyQueueUserIds } from '../stores/syncStore'
+import { useSyncStore, migrateLegacyQueueOwnership, isOwnOp } from '../stores/syncStore'
 import { api, isAuthenticated } from '../lib/api'
 import { getDB } from '../lib/db'
 import { resetClientData, getLocalPurgeVersion, PURGE_VERSION_KEY } from '../lib/resetClientData'
@@ -214,7 +214,7 @@ export async function runSyncFlow(leaseHeld = false) {
 
   try {
     // OS-02: Migration 1 lần cho legacy queue items của user hiện tại
-    await migrateLegacyQueueUserIds()
+    await migrateLegacyQueueOwnership()
     await pruneStaleQueueItems()
 
     // Phase 1: Compact queue (merge duplicate operations) then flush
@@ -422,7 +422,8 @@ export async function runSyncFlow(leaseHeld = false) {
     const s = useSyncStore.getState()
     const finalCount = await s.refreshCount()
     const db = getDB()
-    const failedCount = await db.syncQueue.where('status').equals('failed').count()
+    // OFF-TENANT-1: thông báo lỗi chỉ đếm failed ops đúng scope phiên hiện tại.
+    const failedCount = await db.syncQueue.where('status').equals('failed').filter((item) => isOwnOp(item)).count()
     const totalConflicts = syncState.mergedConflictCount
     if (finalCount === 0) {
       const pullScopeKey = captureSyncCursorScope()

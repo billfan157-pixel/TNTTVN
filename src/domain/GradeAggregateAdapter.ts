@@ -2,21 +2,10 @@ import { GradeAggregate } from './GradeAggregate'
 import type { GradeRecord, GradeOverride, OverrideReasonCode, EffectiveGradeView } from '../types'
 
 export class GradeAggregateAdapter {
-  private aggregateMap: Map<string, GradeAggregate> = new Map()
-
-  /**
-   * Instantiates or retrieves a GradeAggregate instance from a raw GradeRecord and its active overrides.
-   */
-  public getOrCreateAggregate(grade: GradeRecord, overrides: GradeOverride[] = []): GradeAggregate {
-    const key = grade.id
-    if (!this.aggregateMap.has(key)) {
-      this.aggregateMap.set(key, new GradeAggregate(grade, overrides))
-    }
-    return this.aggregateMap.get(key)!
-  }
-
   /**
    * Micro-Step A.2: Execute overrideScore via GradeAggregate domain invariant.
+   * Mỗi call tạo aggregate mới (không cache) — cache aggregateMap cũ giữ
+   * aggregate stale theo grade.id nên đã xóa (Phase 3).
    */
   public overrideScore(
     grade: GradeRecord,

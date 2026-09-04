@@ -126,6 +126,7 @@ export interface ParishNotice {
   targetAudience?: NoticeAudience;
   createdAt?: string;
   updatedAt?: string;
+  deletedAt?: string | null;
 }
 
 export type FeedbackTargetType = 'PARISH' | 'HOMEROOM_TEACHER';
@@ -178,6 +179,24 @@ export interface DailyGradeEntry {
   value: number
   date: string
   createdAt: string
+}
+
+/**
+ * Tier 2: attempt trong sổ ledger server. `manual` = nhập tay (được sửa/xóa),
+ * `machine` = bài thi máy/baseline (read-only, có nhãn rõ trong UI daily).
+ */
+export type DailyAttemptOrigin = 'manual' | 'machine'
+
+export interface DailyLedgerEntry {
+  id: string
+  studentId: string
+  academicYear: string
+  semester: 1 | 2
+  scoreType: DailyScoreType
+  value: number
+  date: string | null
+  origin: DailyAttemptOrigin
+  examSessionId: string | null
 }
 
 // ─── Smart Exam Grading (Phase 1, exam grading plan (đã triển khai — xem ADR-023/024) §3-5) ───

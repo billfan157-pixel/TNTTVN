@@ -173,7 +173,7 @@ describe('Semester Lock Micro-Step S4 Integration Tests', () => {
   })
 
   it('verifies semesterLockSpecification.isSatisfiedBy accepts tx handle inside transaction (Fix F11)', async () => {
-    const { semesterLockSpecification } = await import('../../domain/SemesterLockSpecification.js')
+      const { semesterLockSpecification } = await import('../../services/policyAdapters.js')
     await drizzleSemesterLockRepository.setLockState('2025-2026', 2, true, adminUserId, testParish)
 
     await db.transaction(async (tx) => {

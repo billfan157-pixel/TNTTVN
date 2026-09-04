@@ -1,1143 +1,1208 @@
----
-name: decision-matrix
-description: Evidence-driven decision and audit framework for TNTTVN. Use for significant technical, architectural, security, data, offline-sync, migration, refactoring, and implementation decisions. Enforces evidence quality, measurable targets, hard gates, ADR and architecture consistency, business-rule validation, verification, rollback safety, and post-implementation reassessment.
----
+# Quantitative Targets & SLOs
 
-# Decision Matrix v4.1.2
+## Decision Matrix v5.1 Final Reference
 
-> v4.1.2 (2026-08-10): so với v4.1.1 — khôi phục gate `Privacy` RIÊNG ở D3 (§13) + ma trận mẫu dạng bảng (§12). Đánh số section v4.1.2 đồng bộ AGENTS.md.
-
-## 1. Purpose
-
-Decision Matrix is TNTTVN's engineering decision-control framework.
-
-Its purpose is to prevent significant decisions from being based primarily on:
-
-* intuition
-* arbitrary weighted scores
-* undocumented assumptions
-* incomplete repository inspection
-* stale documentation
-* theoretical architecture preferences
-
-A significant decision should be:
-
-**Evidence-based → Constraint-aware → Risk-checked → Measurable where applicable → Verifiable → Reversible when practical.**
-
-The Decision Matrix does not replace:
-
-* authoritative architecture documentation
-* ADRs
-* business rules
-* security policies
-* API contracts
-* product requirements
-
-It consumes and cross-checks those sources.
+> Load only when a decision materially depends on measurable performance,
+> reliability, capacity, accuracy, resource usage, cost, or a historical
+> numerical target.
 
 ---
 
-# 2. When to Activate
+# 1. Purpose
 
-Use this skill for decisions involving:
+This reference prevents decisions from being based on:
 
-* architecture
-* authentication / authorization
-* security / privacy
-* tenant isolation
-* database / schema
-* offline / sync
-* conflict resolution
-* API contracts
-* major dependencies
-* infrastructure
-* migrations
-* backup / restore
-* performance architecture
-* major refactors
-* cross-module features
-* technology selection
-* changes to protected business behavior
+* vague performance language;
+* arbitrary numerical requirements;
+* unverified historical benchmark numbers;
+* benchmark results without comparable conditions;
+* lab results presented as field evidence;
+* averages hiding important tail behavior;
+* current performance accidentally becoming a permanent target;
+* optimizations being preserved or removed without knowing why they exist.
 
-A full matrix is normally unnecessary for:
-
-* formatting
-* typo fixes
-* copy-only changes
-* isolated behavior-preserving refactors
-
-When uncertain, classify the decision first rather than silently skipping the framework.
-
----
-
-# 3. Decision Levels
-
-## D0 — Trivial
-
-No matrix required.
-
-The change has negligible behavioral, architectural, security, data, or operational impact.
-
-## D1 — Local
-
-One module or localized behavior with low blast radius.
-
-Use lightweight evaluation.
-
-## D2 — Cross-Module
-
-The decision affects multiple modules, shared state, APIs, database behavior, synchronization, or shared infrastructure.
-
-Use full matrix evaluation.
-
-## D3 — Critical
-
-Use full matrix + hard gates + applicable ADR review + architecture review + verification + recovery planning.
-
-D3 includes decisions affecting:
-
-* authentication
-* authorization
-* tenant isolation
-* sensitive personal data
-* data integrity
-* offline synchronization
-* database migrations
-* backup / restore
-* security boundaries
-* production infrastructure
-* transaction boundaries
-* synchronization semantics
-* irreversible or difficult-to-reverse changes
-
-The level describes **decision risk**, not implementation size.
-
----
-
-# 4. Inspect Before Scoring
-
-Before scoring an option, inspect the repository and identify applicable authoritative sources.
-
-At minimum, inspect when relevant:
-
-1. Source code
-2. Tests
-3. Database/schema
-4. API contracts
-5. Business rules
-6. ADRs
-7. Architecture specification
-8. AI Context Map
-9. Security audit findings
-10. Existing Decision Records
-11. Deployment/configuration
-12. Existing performance or operational measurements
-
-Do not score from assumptions when repository evidence is available.
-
-Do not treat documentation as proof that implementation matches it.
-
-When documentation and implementation disagree, record the discrepancy and identify which source is authoritative.
-
----
-
-# 5. Source Authority
-
-Use the following order to resolve conflicting information, unless the project explicitly defines a more specific authority:
-
-1. Explicit product/business requirement
-2. Security or compliance requirement
-3. Current approved ADR
-4. Current authoritative architecture specification
-5. Current API / schema / business-rule specification
-6. Verified implementation
-7. Tests / benchmarks / production observations
-8. Historical documentation
-9. Agent inference
-
-Important:
-
-> A lower-level observation does not silently override a higher-level requirement.
-
-If authoritative sources conflict with one another:
-
-> **BLOCK or REASSESS until the conflict is resolved.**
-
-Do not silently choose the source that produces the preferred outcome.
-
----
-
-# 6. Evidence Model
-
-Evidence and inference are separate concepts.
-
-## Evidence Types
-
-### E1 — Runtime / Production Evidence
-
-Examples:
-
-* production metrics
-* production logs
-* verified runtime behavior
-* incident evidence
-
-### E2 — Test / Benchmark Evidence
-
-Examples:
-
-* automated tests
-* security tests
-* integration tests
-* performance benchmarks
-
-### E3 — Direct Implementation Evidence
-
-Examples:
-
-* source code
-* schema
-* configuration
-* dependency graph
-
-### E4 — Authoritative Specification
-
-Examples:
-
-* ADR
-* architecture specification
-* business-rule specification
-* API contract
-* security requirement
-
-### E5 — Historical / Secondary Documentation
-
-Useful for context but weaker than current authoritative sources.
-
-### Inference
-
-Inference is reasoning derived from evidence.
-
-It is **not evidence by itself**.
-
-Never represent an inference as a directly verified fact.
-
----
-
-# 7. Confidence
-
-Every significant finding should have a confidence state:
+Use:
 
 ```text
-HIGH
-MEDIUM
-LOW
+DEFINE
+→ AUTHORIZE
+→ MEASURE
+→ COMPARE
+→ DECIDE
+→ REVERIFY
+```
+
+---
+
+# 2. Concepts Must Stay Separate
+
+## 2.1 Invariant
+
+A correctness/security condition expected to hold throughout its defined scope.
+
+Examples:
+
+```text
+No cross-parish data access.
+
+No silent mutation loss.
+
+No unauthorized bypass of finalized academic state.
+```
+
+Evaluate primarily:
+
+```text
+PASS / BLOCK / UNKNOWN
+```
+
+Critical invariants are not ordinary reliability SLOs.
+
+Do not invent tolerated failure/error budgets for:
+
+* tenant isolation;
+* authorization boundaries;
+* silent corruption;
+* equivalent critical correctness conditions.
+
+---
+
+## 2.2 Metric / SLI
+
+A precisely defined quantitative indicator.
+
+Examples:
+
+```text
+p95 interaction latency
+API success rate
+OMR false-negative rate
+sync convergence time
+bundle size
+cold-start duration
+```
+
+A metric answers:
+
+> What exactly is being measured?
+
+---
+
+## 2.3 Metric Target
+
+A desired threshold or range for a metric.
+
+Example:
+
+```text
+p95 interaction latency < 100 ms
+```
+
+A metric target does not automatically have full SLO semantics.
+
+---
+
+## 2.4 SLO
+
+An SLO is an operational objective over an SLI with enough definition to establish:
+
+* what events/population are measured;
+* what counts as success/failure;
+* target threshold;
+* aggregation;
+* scope;
+* measurement window;
+* measurement source;
+* operational interpretation.
+
+Example form:
+
+```text
+99% of eligible operations
+complete successfully within X seconds
+during rolling window Y.
+```
+
+Not every performance target needs to become an SLO.
+
+---
+
+## 2.5 Project Constraint
+
+An external/project condition that limits valid solutions.
+
+Examples:
+
+```text
+supported device floor
+hosting budget
+offline operating requirement
+platform limitation
+storage ceiling
+```
+
+A constraint is not automatically an SLO.
+
+---
+
+# 3. Three-Axis Target Model
+
+Every decision-critical target should be interpreted using three independent axes.
+
+---
+
+## Axis A — Record Type
+
+```text
+INVARIANT
+METRIC_TARGET
+SLO
+PROJECT_CONSTRAINT
+```
+
+---
+
+## Axis B — Obligation
+
+```text
+HARD_REQUIREMENT
+PRODUCT_TARGET
+OPTIMIZATION_TARGET
+```
+
+### HARD_REQUIREMENT
+
+Failure blocks acceptance unless an authorized owner changes or explicitly accepts the requirement.
+
+Use sparingly.
+
+### PRODUCT_TARGET
+
+Important product outcome.
+
+Missing it requires:
+
+* gap;
+* impact;
+* explanation/mitigation;
+
+but does not automatically BLOCK.
+
+### OPTIMIZATION_TARGET
+
+Desired engineering improvement.
+
+Influences trade-offs without independently blocking approval.
+
+---
+
+## Axis C — Authority Status
+
+```text
+VERIFIED_CURRENT
+CANDIDATE
+LEGACY
+SUPERSEDED
+```
+
+### VERIFIED_CURRENT
+
+Authority/source/scope are established as current.
+
+### CANDIDATE
+
+Proposed but not yet established as current authoritative truth.
+
+### LEGACY
+
+Historically meaningful but current authority is unverified.
+
+### SUPERSEDED
+
+Explicitly replaced.
+
+---
+
+# 4. Why the Axes Are Independent
+
+Example:
+
+```text
+Record Type:
+METRIC_TARGET
+
+Obligation:
+PRODUCT_TARGET
+
+Authority:
+VERIFIED_CURRENT
+```
+
+is very different from:
+
+```text
+Record Type:
+METRIC_TARGET
+
+Obligation:
+PRODUCT_TARGET
+
+Authority:
+LEGACY
+```
+
+Similarly:
+
+```text
+Record Type:
+PROJECT_CONSTRAINT
+
+Obligation:
+HARD_REQUIREMENT
+
+Authority:
+VERIFIED_CURRENT
+```
+
+may legitimately constrain architecture.
+
+Do not put:
+
+```text
+LEGACY
+CANDIDATE
+PROJECT_CONSTRAINT
+```
+
+into one mutually exclusive classification list.
+
+They describe different properties.
+
+---
+
+# 5. Minimum Target Record
+
+For a normal metric target:
+
+```text
+Record Type:
+
+Metric / SLI:
+
+Target:
+
+Scope:
+
+Obligation:
+
+Authority Status:
+
+Source / Owner:
+
+Measurement Method:
+
+Baseline:
+
+Actual:
+
+Gap:
+
+Evidence:
+
+Confidence:
+
+Last Verified:
+```
+
+Unknown fields should be written as:
+
+```text
 UNKNOWN
 ```
 
-### HIGH
-
-Directly verified by strong evidence.
-
-### MEDIUM
-
-Evidence exists but relevant uncertainty remains.
-
-### LOW
-
-Mostly indirect evidence or incomplete inspection.
-
-### UNKNOWN
-
-Insufficient evidence to determine the answer.
-
-Golden rule:
-
-> **UNKNOWN ≠ PASS.**
-
-For critical security, privacy, tenant-isolation, data-integrity, or business-rule questions, UNKNOWN normally blocks final approval until investigated or explicitly accepted by the appropriate authority.
+rather than invented.
 
 ---
 
-# 8. Decision Profiles
+# 6. Full SLO Record
 
-Select the smallest profile that represents the dominant risk.
+When something is genuinely an SLO, also define:
 
-## GENERAL
+```text
+SLI:
 
-| Criterion                    | Weight |
-| ---------------------------- | -----: |
-| Business / Operational Fit   |    15% |
-| Reliability & Data Integrity |    20% |
-| Security & Privacy           |    20% |
-| Maintainability              |    15% |
-| Performance                  |    10% |
-| Testability                  |    10% |
-| Reversibility                |     5% |
-| Observability                |     5% |
+Eligible Population / Events:
 
-## SECURITY
+Good Event:
 
-| Criterion          | Weight |
-| ------------------ | -----: |
-| Security & Privacy |    35% |
-| Data Integrity     |    20% |
-| Reliability        |    15% |
-| Testability        |    10% |
-| Maintainability    |    10% |
-| Operational Fit    |     5% |
-| Reversibility      |     5% |
+Bad Event:
 
-## OFFLINE / SYNC
+Target:
 
-| Criterion           | Weight |
-| ------------------- | -----: |
-| Offline Reliability |    30% |
-| Data Integrity      |    25% |
-| Conflict Safety     |    15% |
-| Security & Privacy  |    10% |
-| Maintainability     |    10% |
-| Performance         |     5% |
-| Observability       |     5% |
+Aggregation:
 
-## ARCHITECTURE / INFRASTRUCTURE
+Measurement Window:
 
-| Criterion       | Weight |
-| --------------- | -----: |
-| Maintainability |    20% |
-| Reliability     |    15% |
-| Security        |    15% |
-| Data Integrity  |    15% |
-| Reversibility   |    15% |
-| Performance     |    10% |
-| Observability   |     5% |
-| Operational Fit |     5% |
+Scope:
 
-If no profile fits, explain why and define a temporary profile explicitly rather than silently inventing weights.
+Exclusions:
+
+Measurement Source:
+
+Operational Policy:
+
+Error Budget:
+  only if meaningful
+```
+
+Do not call something an SLO merely because it contains a number.
 
 ---
 
-# 9. Product Targets & SLOs
+# 7. Historical Number Guard
 
-Important criteria should be measurable when practical.
+A numerical statement discovered in old documentation is not automatically a current requirement.
 
-Avoid vague statements such as:
+Examples:
 
-* fast
-* secure enough
-* works offline
-* cheap
-* responsive
+```text
+TTI < 1.5 s
+60 FPS
+99% OMR accuracy
+$0 cloud baseline
+sync within 3 seconds
+```
 
-Represent measurable requirements as:
+Establish:
+
+```text
+Source:
+Date:
+Version:
+Owner / Authority:
+Original Scope:
+Original Measurement Method:
+Original Obligation:
+Current Authority:
+```
+
+If current authority cannot be established:
+
+```text
+LEGACY
+```
+
+or, when it was merely a proposal:
+
+```text
+CANDIDATE
+```
+
+Do not promote a repeated historical number merely because multiple stale documents repeat it.
+
+---
+
+# 8. Target Authority vs Measurement Evidence
+
+Keep these separate.
+
+## Target authority
+
+Typically comes from appropriate normative evidence:
+
+```text
+product requirement
+approved ADR
+approved performance specification
+approved operational requirement
+explicit authorized decision
+```
+
+## Baseline / Actual
+
+Comes from measurement evidence such as:
+
+```text
+runtime telemetry
+benchmark
+test corpus
+real-device measurement
+controlled experiment
+```
+
+A benchmark can prove actual performance.
+
+It does not automatically define what the target should be.
+
+---
+
+# 9. Current Performance ≠ Target
+
+Do not define:
+
+```text
+Target = current performance
+```
+
+merely because the current system happens to achieve it.
+
+Current performance is:
+
+```text
+BASELINE / ACTUAL
+```
+
+Targets should represent a validated user/product/operational objective.
+
+Performance feasibility may inform target discussions, but feasibility is not authority.
+
+---
+
+# 10. Measurement Comparability
+
+Before comparing target, baseline and actual, establish comparability.
+
+Check:
+
+```text
+Same metric definition?
+
+Same aggregation?
+
+Same environment?
+
+Same dataset/workload?
+
+Same device class?
+
+Same network assumptions?
+
+Same cache/warm/cold state?
+
+Same software configuration?
+
+Same sampling method?
+```
+
+If material conditions differ:
+
+> qualify the comparison instead of presenting false precision.
+
+---
+
+# 11. Measurement Mode
+
+Classify measurement as appropriate:
+
+```text
+FIELD
+LAB
+SYNTHETIC
+REAL_DEVICE
+OTHER
+```
+
+## FIELD
+
+Actual user/runtime conditions.
+
+## LAB
+
+Controlled reproducible development environment.
+
+## SYNTHETIC
+
+Artificial workload/input generated for testing.
+
+## REAL_DEVICE
+
+Executed on identified physical hardware.
+
+Categories may overlap where appropriate; record the real conditions instead of forcing a misleading label.
+
+---
+
+# 12. Lab vs Field
+
+Lab evidence is valuable for:
+
+* debugging;
+* profiling;
+* regression detection;
+* controlled A/B comparison.
+
+Lab evidence does not automatically prove real-world user experience.
+
+For real-user experience claims, field evidence is stronger where available.
+
+Never silently translate:
+
+```text
+LAB PASS
+```
+
+into:
+
+```text
+FIELD SLO VERIFIED
+```
+
+---
+
+# 13. Baseline
+
+Do not invent a baseline.
+
+If one exists:
+
+```text
+Baseline:
+Measurement Date:
+Environment:
+Dataset / Workload:
+Method:
+Evidence:
+Confidence:
+```
+
+If none exists:
+
+```text
+Baseline: UNKNOWN
+```
+
+An optimization may still have a rational technical basis.
+
+But numerical improvement cannot be claimed without comparable baseline and actual measurements.
+
+---
+
+# 14. Target → Actual → Gap
+
+For a valid target:
+
+```text
+Target
+  ↓
+Actual
+  ↓
+Gap
+  ↓
+User / Operational Impact
+  ↓
+Decision Consequence
+```
+
+Example:
+
+```text
+Target:
+p95 < 100 ms
+
+Actual:
+p95 = 124 ms
+
+Gap:
+24 ms over target
+```
+
+Do not automatically convert a gap into an arbitrary `7/10`.
+
+---
+
+# 15. Hard Requirement Semantics
+
+For:
+
+```text
+Obligation:
+HARD_REQUIREMENT
+
+Authority:
+VERIFIED_CURRENT
+```
+
+a verified miss means:
+
+```text
+BLOCK
+```
+
+unless the authorized requirement owner changes or explicitly accepts the requirement.
+
+This acceptance BLOCK does not automatically imply:
+
+```text
+Decision Level = D3
+Finding Severity = P0
+```
+
+Those are independent classifications.
+
+A numeric hard requirement must be sufficiently defined to establish pass/fail reliably.
+
+---
+
+# 16. Product Target Semantics
+
+For:
+
+```text
+PRODUCT_TARGET
++
+VERIFIED_CURRENT
+```
+
+a miss requires:
 
 ```text
 Target:
 Actual:
-Measurement Method:
 Gap:
-Evidence:
-Confidence:
-Classification:
-```
-
-## Target Classification
-
-### HARD REQUIREMENT
-
-Failure blocks approval unless an authorized requirement owner explicitly changes the requirement.
-
-Examples:
-
-* tenant isolation
-* mandatory security control
-* no critical data corruption
-* no mutation loss
-
-### PRODUCT TARGET
-
-Failure affects evaluation and requires explanation or mitigation, but does not automatically reject the option.
-
-### OPTIMIZATION TARGET
-
-Useful optimization objective that should influence trade-offs but does not block approval.
-
----
-
-# 10. Legacy / Candidate Product Targets
-
-Historical or previously proposed targets MUST NOT automatically become official requirements.
-
-Examples such as:
-
-* TTI < 1.5s
-* approximately 60 FPS
-* $0 cloud baseline
-* core workflows functioning on weak Wi-Fi
-
-may be recorded as:
-
-```text
-LEGACY TARGET
-CANDIDATE TARGET
-PROJECT CONSTRAINT
-```
-
-until confirmed by an authoritative product, architecture, ADR, performance, or operational source.
-
-Never convert an unverified historical metric into a hard gate.
-
-When a target is confirmed, record:
-
-```text
-Source:
-Version:
-Date:
-Scope:
-Measurement Method:
-```
-
----
-
-# 11. Quantitative Evaluation
-
-When a criterion has a verified measurable target, evaluate:
-
-```text
-Target
-↓
-Actual
-↓
-Gap
-↓
-Impact
-↓
-Score
-```
-
-Do not invent a precise score from an uncalibrated metric.
-
-Example:
-
-| Criterion | Target | Actual |   Gap | Score | Confidence |
-| --------- | -----: | -----: | ----: | ----: | ---------- |
-| TTI       |  <1.5s |   1.3s | +0.2s |     9 | HIGH       |
-| TTI       |  <1.5s |   1.7s | -0.2s |     7 | HIGH       |
-
-The exact scoring relationship must be justified by evidence or an established project benchmark.
-
-If no scoring calibration exists:
-
-> Report the target gap explicitly and explain its effect instead of pretending the number is objectively precise.
-
----
-
-# 12. Scoring
-
-Score applicable criteria from 1–10.
-
-Every non-trivial score MUST contain:
-
-```text
-Score:
-Evidence:
-Confidence:
-Unknowns:
-Rationale:
-```
-
-Formula:
-
-```text
-Weighted Score = Σ(score × weight)
-```
-
-Matrix template:
-
-| Criterion          | Weight | Option A | Option B | Option C |
-| ------------------ | -----: | -------: | -------: | -------: |
-| Criterion 1        |     x% |          |          |          |
-| Criterion 2        |     x% |          |          |          |
-| Criterion 3        |     x% |          |          |          |
-| ...                |        |          |          |          |
-| **Weighted Score** | **100%** | **X.X**  | **Y.Y**  | **Z.Z**  |
-
-The weighted score is a comparison tool.
-
-It is NOT an authorization mechanism.
-
-The highest score wins only among options that:
-
-1. pass all applicable hard gates;
-2. satisfy mandatory requirements;
-3. have sufficient evidence;
-4. have acceptable residual risk;
-5. have no unresolved ADR/architecture conflict.
-
----
-
-# 13. Hard Gates
-
-Weighted scores never override hard gates.
-
-## D2
-
-For criteria that are actually applicable to the decision:
-
-```text
-Security & Privacy < 7 → REJECT
-Data Integrity < 7 → REJECT
-Testability < 6 → REJECT
-```
-
-## D3
-
-```text
-Security < 8 → REJECT
-Privacy < 8 → REJECT
-Data Integrity < 8 → REJECT
-```
-
-Lưu ý: dù profile (SECURITY/GENERAL) gộp `Security & Privacy` làm một criterion, ở D3 phải
-đánh giá và ghi evidence RIÊNG cho từng khía cạnh Security và Privacy (dữ liệu PII học sinh/
-phụ huynh thuộc Privacy — không được ẩn dưới điểm Security cao).
-
-Additional hard-gate failures include:
-
-* verified tenant-isolation violation
-* critical security behavior without sufficient verification
-* confirmed sensitive-data exposure without accepted mitigation
-* confirmed silent data corruption risk
-* required verification failure relevant to the decision
-* typecheck failure in code affected by the decision
-* unsafe irreversible migration without an acceptable recovery strategy
-* violation of a mandatory architecture or security constraint without an approved replacement
-
-Do not reject a decision because of an unrelated test or typecheck failure.
-
-The failure must be relevant to the decision under review.
-
----
-
-# 14. ADR Gate
-
-Before approval:
-
-1. Identify applicable ADRs.
-2. Compare every option against them.
-3. Mark each relevant ADR:
-
-```text
-PASS
-CONDITIONAL
-CONFLICT
-```
-
-`CONFLICT` cannot be silently ignored.
-
-If the decision intentionally replaces an ADR:
-
-1. document the reason;
-2. create or update the replacement ADR;
-3. explicitly mark the previous decision as superseded;
-4. update dependent source-of-truth artifacts.
-
----
-
-# 15. Architecture Guard
-
-Architecture rules MUST come from the project's current authoritative architecture specification and/or approved ADRs.
-
-For TNTTVN, consult:
-
-```text
-docs/02_ARCHITECTURE.md
-docs/ADR_ARCHITECTURE_DECISION_RECORDS.md
-```
-
-before enforcing architectural boundaries.
-
-Do not hard-code an architecture rule merely because it appears reasonable.
-
-Current architecture documentation defines explicit dependency boundaries. Verify the current document before applying them.
-
-For example, where the authoritative architecture specifies:
-
-```text
-Presentation
-    ↓
-Application / domain responsibilities
-    ↓
-Infrastructure / persistence
-```
-
-a decision must not introduce forbidden reverse or cross-layer dependencies.
-
-Check:
-
-* dependency direction
-* module ownership
-* bounded-context boundaries
-* database access boundaries
-* API boundaries
-* infrastructure leakage
-* cross-module coupling
-* transaction boundaries
-* domain purity requirements
-
-Architecture drift must be recorded as a finding even when the implementation still functions.
-
----
-
-# 16. Source-of-Truth Guard
-
-A decision that changes architectural, business, security, API, or operational truth must identify affected authoritative artifacts.
-
-Potential sources include:
-
-* ADRs
-* architecture specification
-* AI Context Map
-* business rules
-* API contracts
-* database specification
-* security audit
-* Decision Records
-* deployment documentation
-
-For each affected source:
-
-```text
-Current:
-Expected:
-Action:
-Status:
-```
-
-Do not leave contradictions such as:
-
-```text
-Code says A
-ADR says B
-Architecture document says C
-```
-
-unresolved.
-
-If the implementation intentionally changes the truth:
-
-> update the authoritative source.
-
----
-
-# 17. Business Rule Gate
-
-Do not infer intended business behavior solely from implementation.
-
-Classify behavior as:
-
-```text
-CONFIRMED
-CONDITIONAL
-NOT CONFIRMED
-```
-
-If the result depends on an unknown business rule:
-
-1. inspect the authoritative business-rule source;
-2. inspect relevant ADRs;
-3. ask for clarification if still unresolved.
-
-Do not declare a confirmed bug when the intended business behavior is unknown.
-
----
-
-# 18. Refactoring Guard
-
-A change is behavior-preserving only when it does not intentionally alter:
-
-* domain invariants
-* business rules
-* API contracts
-* transaction boundaries
-* security boundaries
-* authorization behavior
-* tenant isolation
-* synchronization semantics
-* persistence semantics
-* observable product behavior
-
-Examples of normally safe refactoring:
-
-* extraction
-* renaming
-* duplication reduction
-* internal cleanup
-* behavior-preserving dependency restructuring
-
-If any protected behavior changes:
-
-> Treat the work as D1/D2/D3 according to its blast radius.
-
-Do not use the word "refactor" to bypass decision governance.
-
----
-
-# 19. Risk Assessment
-
-For D2/D3 identify applicable risks:
-
-* Security
-* Privacy
-* Data Integrity
-* Reliability
-* Migration
-* Operational
-* Performance
-* Maintenance
-* Compatibility
-* User impact
-
-For each material risk:
-
-```text
-Probability:
 Impact:
-Severity:
+Explanation:
 Mitigation:
 Residual Risk:
-Owner:
+Follow-up:
 ```
 
-Residual risk must be evaluated after mitigation, not before.
+It does not automatically BLOCK unless an approved policy explicitly defines that consequence.
 
 ---
 
-# 20. Reversibility
+# 17. Optimization Target Semantics
 
-Classify:
+For:
 
 ```text
-R0 = Immediately reversible
-R1 = Reversible by redeployment
-R2 = Reversible with migration / compatibility work
-R3 = Difficult to reverse
-R4 = Effectively irreversible
+OPTIMIZATION_TARGET
 ```
 
-D3 + R3/R4 requires explicit recovery planning before approval.
+a miss means the desired optimization was not achieved.
+
+Use the outcome to guide trade-offs.
+
+Do not claim optimization success without measurement.
 
 ---
 
-# 21. Migration & Rollback
+# 18. Candidate Target
 
-For risky changes define:
+A candidate target may guide experimentation.
 
-```text
-Migration:
-Compatibility Strategy:
-Rollback Trigger:
-Rollback Procedure:
-Maximum Rollback Time:
-Data Recovery:
-Known Limitations:
-```
+It cannot silently become an acceptance gate.
 
-Prefer phased migrations:
+Before promotion to VERIFIED_CURRENT establish enough of:
 
 ```text
-Compatibility
-    ↓
-Migration
-    ↓
-Verification
-    ↓
-Cutover
-    ↓
-Legacy Removal
+Why does the user/product care?
+
+Metric definition?
+
+Target?
+
+Scope?
+
+Measurement method?
+
+Owner / authority?
+
+Consequence of missing it?
 ```
-
-Avoid combining:
-
-* schema migration
-* behavior change
-* legacy removal
-
-into one uncontrolled deployment when a phased approach is practical.
 
 ---
 
-# 22. Verification
+# 19. Legacy Target
 
-Verification must match the claim being made.
+LEGACY means:
+
+> Historically meaningful, currently unverified.
+
+Legacy targets may explain:
+
+* historical design choices;
+* existing optimization complexity;
+* regression context;
+* candidate future targets.
+
+They cannot independently BLOCK current work.
+
+---
+
+# 20. Superseded Target
+
+When replaced:
+
+```text
+Old target:
+Authority = SUPERSEDED
+
+Replacement:
+Authority = VERIFIED_CURRENT
+```
+
+Preserve sufficient lineage to explain historical decisions.
+
+Do not leave two contradictory current targets active.
+
+---
+
+# 21. Aggregation
+
+Do not automatically use averages.
+
+Select aggregation appropriate to the user/system effect.
 
 Examples:
 
-| Claim                              | Appropriate Verification                   |
-| ---------------------------------- | ------------------------------------------ |
-| Tenant isolation works             | Tenant-isolation integration tests         |
-| API meets latency target           | Benchmark / production latency measurement |
-| Offline mutation survives reload   | Offline integration test                   |
-| Migration is safe                  | Migration + recovery/rollback test         |
-| Authentication is secure           | Security tests + implementation inspection |
-| UI remains responsive              | Performance measurement                    |
-| Data is not duplicated             | Integrity / idempotency tests              |
-| Architecture boundary is preserved | Dependency/import inspection               |
+```text
+p50
+p75
+p95
+p99
+max
+mean
+success percentage
+error percentage
+false-positive rate
+false-negative rate
+count
+```
 
-Possible verification methods include:
+Do not compare:
 
-* lint
-* typecheck
-* unit tests
-* integration tests
-* E2E tests
-* security tests
-* tenant-isolation tests
-* offline/sync tests
-* migration tests
-* performance benchmarks
-* production metrics
-* dependency/import analysis
-* manual verification when automated verification is unavailable
+```text
+average baseline
+```
 
-A verification failure only blocks the decision when it is relevant to the claim or requirement under review.
+to:
+
+```text
+p95 target
+```
+
+as equivalent values.
 
 ---
 
-# 23. PRE-Implementation Workflow
+# 22. Scope
 
-Execute:
+Every target has scope.
+
+Examples:
 
 ```text
-1. Define the problem
-2. Classify D0–D3
-3. Inspect repository context
-4. Identify authoritative sources
-5. Identify constraints
-6. Select decision profile
-7. Identify applicable product targets
-8. Generate alternatives
-9. Collect evidence
-10. Score options
-11. Apply hard gates
-12. Check ADR compatibility
-13. Check architecture compatibility
-14. Validate business rules
-15. Assess risks
-16. Assess reversibility
-17. Define migration / rollback
-18. Define verification
-19. Define source-of-truth updates
-20. Select decision
-21. Record decision
+desktop web
+mobile web
+iOS Capacitor
+Android Capacitor
+low-end device
+500-record roster
+2000-record roster
+cold cache
+warm cache
+weak Wi-Fi
+offline reconnect
+specific OMR corpus
 ```
 
-For D3 decisions, prefer at least two viable alternatives plus the current approach when meaningful.
-
-Do not manufacture alternatives when only one viable implementation exists; explicitly record that constraint.
+Do not generalize results beyond demonstrated scope.
 
 ---
 
-# 24. POST-Implementation Workflow
+# 23. Performance Optimization Guard
 
-After implementation:
+Before preserving/removing optimization complexity such as:
+
+* requestAnimationFrame throttling;
+* virtualization;
+* memoization;
+* signature-based caching;
+* batching;
+* lazy loading;
+* prefetching;
+* worker/off-main-thread processing;
+
+establish:
 
 ```text
-1. Inspect actual implementation
-2. Compare against approved decision
-3. Compare actual metrics against applicable targets
-4. Run required verification
-5. Check ADR compliance
-6. Check architecture compliance
-7. Check security/data implications
-8. Check source-of-truth updates
-9. Identify implementation drift
-10. Record deviations
-11. Determine outcome
+What problem did this solve?
+
+What metric did it affect?
+
+What evidence originally justified it?
+
+Was there a target?
+
+Is that target still current?
+
+What happens if the optimization is removed?
 ```
 
-If implementation materially differs from the approved decision:
+If historical evidence is incomplete:
 
-> **REOPEN THE DECISION.**
+```text
+UNKNOWN
+```
 
-Do not claim the original approval automatically covers materially different behavior.
+is acceptable.
+
+Do not assume optimization complexity is either essential or obsolete.
+
+When simplification removes performance-related complexity, use a relevant regression measurement when practical.
 
 ---
 
-# 25. Reassessment Loop
+# 24. OMR / Algorithm Evaluation
 
-Decision lifecycle:
+Avoid reducing algorithm quality to one aggregate number when relevant failure modes differ.
+
+Where applicable record:
 
 ```text
-DISCOVER
-   ↓
-DEFINE
-   ↓
-COMPARE
-   ↓
-DECIDE
-   ↓
-IMPLEMENT
-   ↓
-VERIFY
-   ↓
-MONITOR
-   ↓
-REASSESS
+Corpus version:
+Corpus size:
+Input/source distribution:
+Device distribution:
+Resolution:
+Lighting conditions:
+Capture mode:
+
+Overall accuracy:
+False positives:
+False negatives:
+Rejected / invalid scans:
+Processing latency:
+
+Segment results:
 ```
 
-Reassessment is required when:
+A synthetic corpus validates only its demonstrated scope.
 
-* assumptions change
-* requirements change
-* measured targets are materially missed
-* new security evidence appears
-* implementation diverges
-* production behavior contradicts assumptions
-* a dependency changes materially
-* an ADR becomes obsolete
-* residual risk becomes unacceptable
+Do not claim field readiness from limited synthetic data.
 
-Possible outcomes:
+---
+
+# 25. Offline / Sync Measurement
+
+Separate correctness from performance.
+
+## Correctness invariants
+
+Examples:
 
 ```text
-KEEP
-ADJUST
-REOPEN
-SUPERSEDE
-ROLL BACK
+No silent mutation loss
+No duplicate committed domain operation
+Correct temp-ID remapping
+Correct tenant/user ownership
+Correct dependency ordering
+```
+
+These are normally hard correctness properties.
+
+## Performance metrics
+
+Examples:
+
+```text
+reconnect-to-convergence latency
+queue throughput
+batch processing time
+```
+
+These may use metric targets or SLOs.
+
+A faster sync engine that loses mutations fails regardless of its latency.
+
+---
+
+# 26. Reliability SLO
+
+For a real reliability SLO define:
+
+```text
+SLI:
+
+Eligible event:
+
+Good event:
+
+Bad event:
+
+Objective:
+
+Window:
+
+Aggregation:
+
+Scope:
+
+Exclusions:
+
+Measurement source:
+```
+
+SLO design should reflect user-visible reliability where practical.
+
+---
+
+# 27. Error Budget
+
+Error budgets are appropriate only when a failure mode is legitimately tolerable.
+
+For an SLO:
+
+```text
+Error Budget = allowed miss implied by SLO
+```
+
+The budget should have an operational interpretation if it is expected to influence release/reliability decisions.
+
+If no policy exists:
+
+```text
+Error Budget Policy:
+NOT DEFINED
+```
+
+Do not invent one.
+
+Never create tolerated budgets for critical security or silent-corruption events merely for symmetry.
+
+---
+
+# 28. Cost / Resource Targets
+
+A cost number may be:
+
+```text
+PROJECT_CONSTRAINT
+PRODUCT_TARGET
+OPTIMIZATION_TARGET
+```
+
+depending on the actual authority.
+
+For historical claims such as:
+
+```text
+$0 infrastructure
+```
+
+establish:
+
+```text
+Current authority?
+Scope?
+Included costs?
+Excluded costs?
+Time period?
+Reason?
+```
+
+before rejecting architecture options based on it.
+
+---
+
+# 29. Comparative Benchmarking
+
+When comparing alternatives, use equivalent conditions.
+
+Prefer:
+
+```text
+same environment
+same dataset
+same workload
+same measurement method
+same runtime configuration
+multiple runs where variance matters
+```
+
+Record variability when material.
+
+Do not select an option from one anomalous run.
+
+---
+
+# 30. Quantitative Claim Vocabulary
+
+Use explicit states.
+
+## VERIFIED
+
+```text
+Measured result changed from X to Y
+under defined conditions Z.
+```
+
+## EXPECTED_UNVERIFIED
+
+```text
+Code/architecture suggests the expected direction,
+but no valid comparative measurement was executed.
+```
+
+## UNKNOWN
+
+```text
+No sufficient comparable evidence exists.
+```
+
+Do not present:
+
+```text
+"should be much faster"
+```
+
+as a verified conclusion.
+
+---
+
+# 31. Target Lifecycle
+
+```text
+USER / PRODUCT NEED
+        ↓
+CANDIDATE METRIC
+        ↓
+CANDIDATE TARGET
+        ↓
+MEASUREMENT DEFINITION
+        ↓
+AUTHORITY / APPROVAL
+        ↓
+VERIFIED_CURRENT
+        ↓
+BASELINE
+        ↓
+IMPLEMENTATION
+        ↓
+ACTUAL
+        ↓
+GAP + IMPACT
+        ↓
+KEEP / REVISE / SUPERSEDE
+        ↓
+REVERIFY WHEN MATERIAL CONTEXT CHANGES
 ```
 
 ---
 
-# 26. Decision Record
+# 32. Reverification Triggers
 
-Every D2/D3 decision must record:
+Reverify when material changes affect:
+
+* architecture;
+* rendering/data strategy;
+* data scale;
+* major dependency;
+* supported device/platform;
+* runtime/deployment;
+* network assumptions;
+* algorithm;
+* measurement methodology.
+
+Do not rebenchmark after every unrelated code change.
+
+---
+
+# 33. Documentation
+
+A durable current target should live in the authoritative source that owns the corresponding product/system truth.
+
+Do not automatically create a global target SSOT.
+
+Do not append every benchmark result to architecture documentation.
+
+Future agents should be able to discover:
 
 ```text
-Decision:
-Status:
-Date:
-Severity:
-Profile:
+what the target is
+why it exists
+who/what established it
+scope
+measurement method
+current authority
+last verification
+```
 
-Problem:
-Current State:
-Desired State:
-Constraints:
+Historical benchmark artifacts may live separately from normative targets.
 
-Authoritative Sources:
+---
 
-Applicable Product Targets:
+# 34. Decision Output
 
-Options:
+When a target materially affects a decision:
 
-Matrix:
+```text
+Metric / SLI:
 
-Hard Gates:
+Record Type:
+  INVARIANT / METRIC_TARGET / SLO / PROJECT_CONSTRAINT
+
+Obligation:
+  HARD_REQUIREMENT / PRODUCT_TARGET / OPTIMIZATION_TARGET
+
+Authority:
+  VERIFIED_CURRENT / CANDIDATE / LEGACY / SUPERSEDED
+
+Target:
+Baseline:
+Actual:
+Gap:
+
+Scope:
+Environment:
+Dataset / Workload:
+Measurement Mode:
+Measurement Method:
 
 Evidence:
-Evidence Type:
 Confidence:
-Unknowns:
-Rationale:
 
-ADR Compatibility:
-Architecture Compatibility:
-Business Rule Status:
-
-Risks:
-Mitigations:
-Residual Risk:
-
-Reversibility:
-Migration:
-Rollback:
-
-Verification:
-Acceptance Criteria:
-
-Source-of-Truth Updates:
-
-Decision:
-
-Review Date:
+Impact:
+Decision Consequence:
+Residual Uncertainty:
 ```
+
+For a genuine SLO, include its full SLO fields.
 
 ---
 
-# 27. Outcome Review
+# 35. Anti-Patterns
 
-D3 decisions should receive a post-implementation review.
+Do not:
 
-Typical review points:
-
-```text
-7 days
-30 days
-90 days
-```
-
-Use the interval appropriate to the risk.
-
-Compare:
-
-```text
-Target
-vs
-Actual
-```
-
-Evaluate:
-
-* incidents
-* performance
-* reliability
-* security findings
-* operational burden
-* support burden
-* actual cost
-* maintenance impact
-* user impact
-* residual risk
-
-Result:
-
-```text
-SUCCESS
-PARTIAL SUCCESS
-FAILED
-REASSESS
-```
+* use "feels faster" as evidence;
+* invent targets because they sound reasonable;
+* copy current performance into a target;
+* promote historical numbers without authority verification;
+* compare incompatible benchmark conditions;
+* hide tail latency behind an inappropriate average;
+* call lab results field results;
+* hide false-positive/negative behavior inside one accuracy number;
+* use performance results to override security/data-integrity gates;
+* create error budgets for unacceptable corruption/security events;
+* preserve complexity forever solely because it was once called an optimization;
+* remove optimization complexity without checking why it existed;
+* claim numerical improvement without comparable evidence.
 
 ---
 
-# 28. AI Audit Rules
+# 36. Final Principle
 
-When auditing TNTTVN, the agent MUST:
+Quantification should reduce ambiguity, not manufacture certainty.
 
-* distinguish fact from inference;
-* identify the evidence type;
-* provide file/function evidence where applicable;
-* identify uncertainty;
-* inspect applicable ADRs;
-* inspect the authoritative architecture specification;
-* inspect relevant business rules;
-* check whether a reported issue is already fixed;
-* check existing audit findings before creating duplicates;
-* distinguish confirmed from conditional findings;
-* compare implementation against documented architecture;
-* use verified measurable targets when applicable;
-* identify stale source-of-truth artifacts;
-* state what evidence would resolve an unknown;
-* scope test/verification failures to the decision under review.
-
-The agent MUST NOT:
-
-* invent configuration;
-* invent production behavior;
-* invent business rules;
-* claim a vulnerability without sufficient evidence;
-* treat documentation as proof of implementation;
-* treat inference as evidence;
-* convert an unverified historical target into a hard requirement;
-* use a high weighted score to override a hard gate;
-* silently contradict an ADR;
-* silently override an authoritative requirement;
-* classify protected behavioral changes as trivial refactors;
-* classify an architectural change as a simple refactor;
-* convert UNKNOWN into PASS;
-* reject a decision because of unrelated verification failures.
-
----
-
-# 29. TNTTVN Priority Order
-
-When trade-offs conflict, use:
-
-```text
-1. Security & Privacy
-2. Data Integrity
-3. Tenant Isolation
-4. Business Rule Correctness
-5. Offline Reliability
-6. Reliability
-7. Maintainability
-8. Observability
-9. Performance
-10. Convenience
-```
-
-This is a default prioritization aid.
-
-It does not override:
-
-* mandatory requirements
-* hard gates
-* ADRs
-* authoritative architecture rules
-* explicit product requirements
-
----
-
-# 30. Approval States
-
-## APPROVED
-
-All required gates pass and evidence is sufficient.
-
-## CONDITIONAL
-
-Decision is acceptable with explicitly documented conditions.
-
-## BLOCKED
-
-Required evidence, clarification, verification, or recovery planning is missing.
-
-## REJECTED
-
-A hard gate fails or residual risk is unacceptable.
-
-## REASSESS
-
-The original decision may no longer be valid because assumptions, requirements, implementation, evidence, or architecture changed.
-
----
-
-# 31. Golden Rules
-
-> **Evidence beats intuition.**
-
-> **Inference is not evidence.**
-
-> **UNKNOWN ≠ PASS.**
-
-> **Hard gates beat weighted scores.**
-
-> **Authoritative requirements beat lower-level observations.**
-
-> **Targets make important criteria measurable.**
-
-> **Unverified historical targets are not requirements.**
-
-> **Business rules must be verified, not inferred.**
-
-> **Architecture rules must come from authoritative architecture sources.**
-
-> **ADR conflicts must be explicit.**
-
-> **A refactor that changes protected behavior is not a simple refactor.**
-
-> **Critical decisions must be verifiable.**
-
-> **Risky migrations must be reversible or recoverable.**
-
-> **Architectural decisions must update their source of truth.**
-
-> **Verification failures must be relevant to the claim being evaluated.**
-
-> **A decision is not complete until its outcome can be measured.**
-
-> **When reality materially diverges from the decision, REASSESS.**
-
-# END — Decision Matrix v4.1.2
+> **Define the metric.**
+>
+> **Establish authority.**
+>
+> **Measure under known conditions.**
+>
+> **Compare target to actual.**
+>
+> **Expose uncertainty.**
+>
+> **Never let an old number silently become gospel.**

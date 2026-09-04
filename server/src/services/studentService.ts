@@ -1,4 +1,4 @@
-import { db, runDbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbExecutor } from '../db/index.js'
 import { students, auditLogs, classes, academicYears } from '../db/schema.js'
 import { eq, and, gte, lte, isNull, inArray, sql, asc } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
@@ -77,8 +77,8 @@ export async function getStudentsByClassIds(parishId: string, classIds: string[]
   return { data, total: Number(total) }
 }
 
-export async function getStudentClassId(id: string, parishId: string): Promise<string | null> {
-  const [student] = await db
+export async function getStudentClassId(id: string, parishId: string, executor: DbExecutor = db): Promise<string | null> {
+  const [student] = await executor
     .select({ classId: students.classId })
     .from(students)
     .where(and(eq(students.id, id), eq(students.parishId, parishId), isNull(students.deletedAt)))

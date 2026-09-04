@@ -1,4 +1,4 @@
-import { httpFetch } from '../api'
+import { httpFetch } from './core'
 
 export interface ApprovePromotionPayload {
   studentId: string

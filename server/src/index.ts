@@ -19,7 +19,6 @@ import { assertDatabaseReady } from './db/schemaHealth.js'
 import { seedIfEmpty } from './seed.js'
 import { isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
 import { initTelegramBot, sendTelegramInfo, sendTelegramAlert } from './services/telegram.js'
-import { registerOutboxSubscribers, startOutboxWorker, stopOutboxWorker } from './services/outboxService.js'
 import { initNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
@@ -95,6 +94,7 @@ import feedbackRouter from './routes/feedback.js'
 import passwordResetRequestsRouter from './routes/passwordResetRequests.js'
 import syncRouter from './routes/sync.js'
 import questionBankRouter from './routes/questionBank.js'
+import dailyEntriesRouter from './routes/dailyEntries.js'
 import { loggerMiddleware } from './middleware/logger.js'
 import { metricsMiddleware } from './middleware/metrics.js'
 
@@ -137,6 +137,7 @@ app.route('/api/feedback', feedbackRouter)
 app.route('/api/password-reset-requests', passwordResetRequestsRouter)
 app.route('/api/sync', syncRouter)
 app.route('/api/question-bank', questionBankRouter)
+app.route('/api/daily-entries', dailyEntriesRouter)
 
 // A-NEW-49 (2026-08-17): Railway injects PORT env at runtime và DÙNG giá trị này
 // cho healthcheck + public routing. Code cũ (3f01bd0) đọc process.env.PORT → bind
@@ -185,7 +186,6 @@ const gracefulShutdown = async (signal: string) => {
   try { await client.execute('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}
   stopBackupScheduler()
   stopImportRollbackCleanup()
-  stopOutboxWorker()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(1), 10000)
 }
@@ -230,8 +230,9 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 initTelegramBot()
-registerOutboxSubscribers()
-startOutboxWorker(10000)
+// Phase 2 (outbox convergence): notificationQueue là delivery engine duy nhất —
+// outbox worker/subscribers đã gỡ (bảng outbox_messages giữ dormant, không xóa
+// destructive). Thông báo override đi qua notifyGradeOverride post-commit.
 await initNotificationQueue()
 initSundayReminderScheduler()
 initBackupScheduler()

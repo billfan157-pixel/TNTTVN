@@ -9,6 +9,7 @@ import { generateId } from '../lib/id'
 
 import * as Sentry from '@sentry/react'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { isOwnOp } from './syncStore'
 
 async function getPendingNoticeIds(): Promise<Set<string>> {
   try {
@@ -16,6 +17,7 @@ async function getPendingNoticeIds(): Promise<Set<string>> {
     const pending = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray()
     const ids = new Set<string>()
     for (const item of pending) {
+      if (!isOwnOp(item)) continue
       if (item.entity !== 'notice') continue
       if (item.entityId) ids.add(item.entityId)
       try {
@@ -65,13 +67,14 @@ export const useNoticeStore = create<NoticeState>()(
                 const merged = new Map(state.notices.map(n => [n.id, n]))
                 for (const n of fetched) {
                   if (merged.has(n.id) && pendingIds.has(n.id)) continue
-                  merged.set(n.id, n)
+                  if (n.deletedAt) merged.delete(n.id)
+                  else merged.set(n.id, n)
                 }
                 return { notices: Array.from(merged.values()) }
               })
             } else {
               set((state) => {
-                const next = new Map(fetched.map(n => [n.id, n]))
+                const next = new Map(fetched.filter(n => !n.deletedAt).map(n => [n.id, n]))
                 for (const localNotice of state.notices) {
                   if (pendingIds.has(localNotice.id) && !next.has(localNotice.id)) {
                     next.set(localNotice.id, localNotice)

@@ -36,6 +36,7 @@ const INDEXES: Record<string, string[]> = {
   idx_native_push_tokens_installation: ['installation_id'],
   idx_native_push_tokens_platform_token: ['platform', 'token'],
   idx_native_push_tokens_user: ['parish_id', 'user_id'],
+  idx_notifications_worker: ['status', 'next_attempt_at', 'lease_expires_at'],
   idx_question_bank_list: ['parish_id', 'status', 'updated_at'],
   idx_question_bank_taxonomy: ['parish_id', 'branch_id', 'curriculum_level', 'lesson_order', 'difficulty'],
   idx_question_bank_author: ['parish_id', 'created_by', 'status'],
@@ -83,6 +84,14 @@ const COMPOSITE_PK_TABLES = new Set([
   'exam_blueprints',
   'exam_blueprint_rules',
   'exam_question_snapshots',
+  // Phase 3: composite-PK gates mở rộng (schemaHealth REQUIRED_COMPOSITE_PRIMARY_KEYS).
+  'notifications',
+  'outbox_messages',
+  'refresh_tokens',
+  'semester_locks',
+  'promotion_records',
+  'grade_overrides',
+  'catechist_assignments',
 ])
 
 const SPECIAL_COMPOSITE_PRIMARY_KEYS: Record<string, string[]> = {
@@ -95,7 +104,8 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
-  notifications: ['target_user_ids'],
+  notifications: ['target_user_ids', 'attempt_count', 'max_attempts', 'lease_owner', 'lease_expires_at', 'next_attempt_at', 'delivery_kind'],
+  notices: ['parish_id', 'id', 'updated_at', 'deleted_at', 'parent_revoked_at'],
   users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot'],
@@ -119,7 +129,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
 }
 
 function createHealthyClient(
-  options: { omitMigration?: string; omitIndex?: string; omitTrigger?: string; omitColumn?: string; omitFeedbackConstraint?: string } = {},
+  options: { omitMigration?: string; omitIndex?: string; omitTrigger?: string; omitColumn?: string; omitFeedbackConstraint?: string; omitAssessmentTable?: boolean; omitPkTable?: string } = {},
 ): SchemaHealthClient {
   return {
     async execute(statement: string) {
@@ -157,21 +167,34 @@ function createHealthyClient(
           'target_type=parishandtarget_user_idisnull',
           'target_type=homeroom_teacherandtarget_user_idisnotnull',
         ].filter(fragment => fragment !== options.omitFeedbackConstraint)
-        return { rows: [
+        const rows: Array<{ name: string; sql: string }> = [
           { name: 'feedback_messages', sql: fragments.join(' ') },
           {
             name: 'password_reset_requests',
             sql: 'request_count>=1 status=pendingandresolved_atisnullandresolved_byisnull statusin(resolved,dismissed)andresolved_atisnotnullandresolved_byisnotnull',
           },
-        ] }
+        ]
+        // Tier 2 (20260904-168): ledger CHECK phải chấp nhận manual_entry.
+        if (!options.omitAssessmentTable) {
+          rows.push({
+            name: 'assessment_entries',
+            sql: 'sourcein(exam_finalization,legacy_baseline,manual_entry)',
+          })
+        }
+        return { rows }
       }
 
       const tableMatch = statement.match(/^PRAGMA table_info\('([^']+)'\)$/)
       if (tableMatch) {
         const tableName = tableMatch[1]
         const rows: Array<{ name: string; pk: number }> = []
-        if (COMPOSITE_PK_TABLES.has(tableName)) {
-          rows.push({ name: 'parish_id', pk: 1 }, { name: 'id', pk: 2 })
+        // Auto-push PK tôn trọng cả omitPkTable lẫn omitColumn: drift cột PK
+        // phải làm fail cả column gate lẫn PK gate (không tự hồi sinh).
+        if (COMPOSITE_PK_TABLES.has(tableName) && options.omitPkTable !== tableName) {
+          for (const [pkName, pk] of [['parish_id', 1], ['id', 2]] as const) {
+            if (options.omitColumn === `${tableName}.${pkName}`) continue
+            rows.push({ name: pkName, pk })
+          }
         }
         for (const [index, column] of (SPECIAL_COMPOSITE_PRIMARY_KEYS[tableName] || []).entries()) {
           rows.push({ name: column, pk: index + 1 })
@@ -234,5 +257,17 @@ describe('database startup readiness gate', () => {
     await expect(
       assertDatabaseReady(createHealthyClient({ omitFeedbackConstraint: 'visibility=anonymousandsender_user_idisnull' })),
     ).rejects.toThrow(/feedback_messages is missing privacy constraint visibility=anonymousandsender_user_idisnull/)
+  })
+
+  it('fails closed when the assessment ledger rejects manual_entry (Tier 2)', async () => {
+    await expect(
+      assertDatabaseReady(createHealthyClient({ omitAssessmentTable: true })),
+    ).rejects.toThrow(/missing required table assessment_entries/)
+  })
+
+  it('fails closed when an extended composite-PK gate drifts (Phase 3)', async () => {
+    await expect(
+      assertDatabaseReady(createHealthyClient({ omitPkTable: 'promotion_records' })),
+    ).rejects.toThrow(/must use composite primary key/)
   })
 })

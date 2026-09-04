@@ -201,6 +201,32 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
         }
         return { ok: false, recoverable: false, error: 'Exam result mutation không hợp lệ' }
 
+      case 'daily_entry':
+        // Tier 2: id client-stable → server idempotent (duplicate, không 409 oan).
+        if (action === 'create') {
+          const res = await api.saveDailyEntries([{
+            id: String(data.id || targetId),
+            studentId: data.studentId,
+            academicYear: data.academicYear,
+            semester: data.semester,
+            scoreType: data.scoreType,
+            value: data.value,
+            date: data.date,
+          }])
+          // Server partial-success trả HTTP 200 kể cả khi item lỗi → không được
+          // coi op là xong, nếu không mutation mất thầm lặng (fail-closed Diagnostics).
+          const first = res?.items?.[0] as { status?: string; reason?: string } | undefined
+          if (first && first.status === 'error') {
+            return { ok: false, recoverable: false, error: `Daily entry bị từ chối: ${first.reason || 'không rõ lý do'}` }
+          }
+          return { ok: true, data: res }
+        } else if (action === 'delete') {
+          const deletedId = String(data.id || targetId)
+          const res = await api.deleteDailyEntry(deletedId)
+          return { ok: true, data: res }
+        }
+        return { ok: false, recoverable: false, error: 'Daily entry mutation không hợp lệ' }
+
       default:
         return { ok: false, recoverable: false, error: `Unknown entityType: ${entityType}` }
     }

@@ -455,9 +455,12 @@ function triggerDownload(blob: Blob, filename: string): void {
   a.href = url
   a.download = filename
   document.body.appendChild(a)
-  a.click()
-  setTimeout(() => {
-    document.body.removeChild(a)
+  try {
+    a.click()
+  } finally {
+    // Cleanup must be synchronous. A delayed DOM callback can outlive the page
+    // or the jsdom test environment and then touch a missing document.
+    a.remove()
     URL.revokeObjectURL(url)
-  }, 100)
+  }
 }

@@ -8,19 +8,25 @@ vi.mock('../../hooks/useOnlineStatus', () => ({
   useOnlineStatus: vi.fn(() => true),
 }))
 
-vi.mock('../../stores/syncStore', () => ({
-  useSyncStore: vi.fn(),
-}))
+vi.mock('../../stores/syncStore', () => {
+  const store: any = vi.fn()
+  store.getState = vi.fn(() => ({
+    refreshConflictsCount: vi.fn(),
+    setStatus: vi.fn(),
+  }))
+  return { useSyncStore: store }
+})
 
 vi.mock('lucide-react', () => ({
   Wifi: 'svg',
   WifiOff: 'svg',
   RefreshCw: 'svg',
   CheckCircle2: 'svg',
+  AlertTriangle: 'svg',
 }))
 
 const mockStore = (overrides: Record<string, any> = {}) => {
-  const state = { status: 'idle', pendingCount: 0, ...overrides }
+  const state = { status: 'idle', pendingCount: 0, unresolvedConflictsCount: 0, ...overrides }
   return vi.mocked(useSyncStore).mockImplementation((selector?: any) =>
     selector ? selector(state) : state,
   )
@@ -48,6 +54,18 @@ describe('OfflineStatusBanner Component', () => {
 
   it('renders offline banner when offline with pending count badge', () => {
     mockStore({ status: 'idle', pendingCount: 3 })
+  })
+
+  it('renders syncing banner when status is syncing', () => {
+    mockStore({ status: 'syncing', pendingCount: 5 })
+    mockOnline(true)
+    render(<OfflineStatusBanner />)
+    expect(screen.getByText(/Đang đồng bộ:/)).toBeDefined()
+    expect(screen.getByText(/5 thay đổi/)).toBeDefined()
+  })
+
+  it('renders offline banner when offline with pending count badge', () => {
+    mockStore({ status: 'idle', pendingCount: 3 })
     mockOnline(false)
     render(<OfflineStatusBanner />)
     expect(screen.getByText(/Mất kết nối Internet:/)).toBeDefined()
@@ -59,5 +77,14 @@ describe('OfflineStatusBanner Component', () => {
     mockOnline(true)
     render(<OfflineStatusBanner />)
     expect(screen.getByText(/Đã lưu trên máy:/)).toBeDefined()
+  })
+
+  it('renders conflict banner when there are unresolved conflicts', () => {
+    mockStore({ status: 'idle', pendingCount: 0, unresolvedConflictsCount: 3 })
+    mockOnline(true)
+    render(<OfflineStatusBanner />)
+    expect(screen.getByText(/Xung đột dữ liệu:/)).toBeDefined()
+    expect(screen.getByText(/3/)).toBeDefined()
+    expect(screen.getByText('Xem xung đột')).toBeDefined()
   })
 })

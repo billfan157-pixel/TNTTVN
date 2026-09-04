@@ -42,7 +42,7 @@ attendanceRouter.get('/', async (c) => {
 
 import { attendanceApplicationService } from '../services/AttendanceApplicationService.js'
 import { batchAttendanceApplicationService } from '../services/BatchAttendanceApplicationService.js'
-import { VersionConflictError } from '../services/gradeService.js'
+import { VersionConflictError } from '../domain/errors.js'
 import { db } from '../db/index.js'
 import { auditLogs } from '../db/schema.js'
 import { generateId } from '../utils/id.js'

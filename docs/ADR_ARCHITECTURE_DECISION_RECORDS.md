@@ -2,7 +2,7 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-08-06  
+Last Updated: 2026-09-03
 
 ---
 
@@ -2207,6 +2207,53 @@ Formula configuration (`GradeFormulaConfigModal`) and granular score overriding 
 
 ---
 
+## ADR-100: CI-Gated Release Provenance, Deterministic Build and Bounded Metrics (2026-09-03)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED / PRODUCTION REDEPLOY PENDING. Severity: D3. Profiles: SECURITY + ARCHITECTURE. Reversibility: R1.**
+
+### Problem and evidence
+
+E1/E3 audit found commit `ccb6bf233eb571a53d7d4bcfe20b25edb4a933e1` failed GitHub CI because Vitest reported one unhandled `document is not defined` after all 301 files / 2,054 tests passed. Production Deployment Gate was correctly skipped, but the public Vercel bundle still embedded that exact failed SHA. Repository cause was `vercel.json` enabling Git deployment for `main`, contradicting ADR-057 and the deployment guide. The backend was healthy but `/health` exposed no release SHA, so frontend/backend compatibility could not be proven. Current registry audit also found vulnerable transitive `fast-uri@3.1.5` through Vite PWA → Workbox → AJV.
+
+Metrics used unbounded raw request paths as in-memory `Map` keys and declared aggregate request duration as a Prometheus counter. Dynamic IDs could create high-cardinality series and restart erased all state. Durable external collection remains an operational decision, but bounding and semantically correcting local exposition is immediately reversible.
+
+Release authority, no delayed work after test teardown, dependency security and bounded non-PII metrics are **CONFIRMED** requirements. External collector vendor, retention duration, paging policy and production SLO are **NOT CONFIRMED** and are not invented here.
+
+### Options and Decision Matrix
+
+| Criterion | Weight | A — keep platform auto-deploy | B — one CI publisher + exact provenance | C — replace hosting pipeline |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 5 | 9 | 8 |
+| Privacy | 15% | 7 | 9 | 8 |
+| Data integrity | 20% | 5 | 9 | 7 |
+| Reliability | 15% | 4 | 9 | 6 |
+| Testability | 15% | 5 | 9 | 6 |
+| Maintainability | 10% | 6 | 9 | 5 |
+| Reversibility | 5% | 9 | 9 | 4 |
+| **Weighted** | **100%** | **5.45 — REJECT** | **9.00 — SELECT** | **6.75 — REJECT** |
+
+### Decision contract
+
+1. `vercel.json` locks `git.deploymentEnabled.main=false`; Render remains `autoDeploy:false`. Vercel install uses `npm ci`, not mutable `npm install`. GitHub `Production Deployment Gate` is the sole production publisher and only accepts successful CI for current main HEAD.
+2. Vite sanitizes release metadata and injects `<meta name="catevia-release" content="...">` plus the existing `__APP_RELEASE_ID__`. Backend `/health` returns non-secret sanitized `releaseId` from explicit `APP_RELEASE_ID`, then `RENDER_GIT_COMMIT`, else `unknown`.
+3. Post-deploy smoke rejects frontend or backend unless both release IDs equal `VERIFIED_SHA`; it also requires unauthenticated `/api/auth/me`=401 and frontend CSP/HSTS. `unknown`, `invalid`, stale or mixed releases fail closed.
+4. Attendance export test awaits both CSV and lazy XLSX paths. Download cleanup removes the anchor and revokes the Blob URL synchronously, so no DOM timer survives page/test teardown.
+5. Lockfile upgrades only `fast-uri` to patched 3.1.7 inside the existing dependency graph. Major dependency upgrades remain separate compatibility work.
+6. Metrics prefer Hono route templates, normalize UUID/domain IDs, bound request/business series, escape labels and expose request duration as histogram bucket/sum/count. `/metrics` remains OPS-token protected. Persistent metrics/alerts are not claimed.
+
+### Gates, compatibility and rollback
+
+- **D3 hard gates:** Security **9 PASS**, Privacy **9 PASS**, Data Integrity **9 PASS**, Testability **9 PASS** for the implemented boundary. Production deployment success remains a separate E1 gate.
+- **ADR compatibility:** ADR-031/045 PASS; ADR-057 PASS and now enforced; ADR-059 PASS; ADR-070/071 PASS because the same sanitized release ID feeds OMR provenance; ADR-092 PASS WITH AMENDMENT for stronger smoke checks; ADR-099 PASS.
+- **Rollback R1:** revert source/config/test/doc changes and redeploy the last green immutable SHA. Re-enabling platform auto-deploy is not an acceptable rollback while CI is authoritative. Metrics can revert independently if a collector contract requires compatibility.
+- **Residual:** Vercel dashboard Git integration must also be checked disabled; backend and frontend production must be redeployed before the new provenance gate can pass. Render free cold start, restore drill, signed mobile builds, physical device behavior, OMR field corpus, audit retention and durable monitoring remain external/NOT CONFIRMED.
+
+### Verification
+
+Focused release/health/export contracts **4 files / 21 tests PASS**. The serialized coverage run completed **300/301 files and 2,056/2,057 tests PASS**; its only failure was a 15-second timeout in `MobileDailyGradeQuickScores`, which then passed both isolated normal (**3/3**, 267 ms total) and isolated V8 coverage (**3/3**, 1.11 s total). This is classified **CONDITIONAL test-runner/environment flake**, not a confirmed product regression; the next CI run remains the authoritative full-green gate. Critical real-backend Playwright E2E passed **10/10**. Production dependency audit reports **0 vulnerability** after `fast-uri 3.1.7`. Design-system guard **0/127**; oxlint, client/server TypeScript and production frontend/server builds PASS. Build artifact contains the requested sanitized `catevia-release`. Post-implementation D3 reassessment is **KEEP**: Security **9**, Privacy **9**, Data Integrity **9**, Testability **8**; actual CI-gated production redeploy remains NOT CONFIRMED.
+
+---
+
 ## ADR-077: App-wide Mobile Layout Contract, Safe-area Ownership & Root Dialog Layering (2026-08-29)
 
 **Status: APPROVED / IMPLEMENTED — current local verification recorded below. Severity: D2. Profile: GENERAL. Reversibility: R1.**
@@ -2952,6 +2999,7 @@ Yêu cầu sản phẩm mới là `CONFIRMED`: bỏ hai cửa sổ/tab lặp nh�
 4. Audit luồng đồng bộ phát hiện `fetchClasses(updatedAfter)` từng full-replace khi response delta rỗng, làm mất catalog client. Contract được sửa thành mọi incremental response đều merge; empty delta là no-op, full pull mới replace.
 5. ADR compatibility: ADR-030/063/079 **PASS**; ADR-016 incremental sync **PASS WITH AMENDMENT**; ADR-031/045 tenant/minimization **PASS**; ADR-092 RBAC **PASS**. D2 hậu kiểm: Security & Privacy **9**, Data Integrity **9**, Testability **9** — hard gates **PASS / KEEP**. Rollback R1, không schema/data migration.
 6. Evidence trước final CI: UI/store component tests **4 files / 30 tests PASS**; Playwright affected paths **3/3 PASS**, gồm protected viewport/theme WCAG subset, create-class persistence và grid → roster → create-student persistence. Final serialized/coverage/build evidence được ghi ở ADR-099 sau khi hoàn tất cùng snapshot.
+7. Optimization 2026-09-03: Giữ vững triết lý tối giản Calm, Confident, Crafted (ADR-063), loại bỏ triệt để việc trùng lặp card KPI tổng quan (vốn thuộc về Dashboard/Overview), tối ưu hóa cấu trúc flexbox để các thẻ trong cùng một hàng có chiều cao đều tuyệt đối (`h-full flex flex-col justify-between`), căn đáy nút "Xem danh sách", hiển thị số lượng phụ tá `(+N)` gọn gàng, bổ sung vạch nhận diện màu khăn ngành TNTT 1px tinh tế và khóa lan truyền sự kiện `e.stopPropagation()` trên các thao tác admin. Target test suites `MobileClassesAndUsersCardView`, `appWideUiMigration`, `MobileViewsEnhancement` **25/25 PASS**, TypeScript typecheck **PASS / 0 errors**.
 
 ---
 
@@ -3352,4 +3400,93 @@ A fails D3 Security, Privacy and Data Integrity gates. C would replace proven Ex
 ### Verification and reassessment
 
 Frozen-snapshot `npm run verify:ci` PASS: oxlint sạch; design-system lint **0/127**; client/server TypeScript và production frontend/PWA/server build PASS (**2,789 modules**, **233 precache entries**); serialized coverage **301/301 files, 2,054/2,054 tests PASS** với Statements **70.16%**, Branches **59.42%**, Functions **63.46%**, Lines **72.74%**. Critical browser suite đạt **10/10** theo run ban đầu và targeted rerun của hai failure đã sửa; sau amendment lưới lớp, affected E2E **3/3 PASS** gồm viewport/theme accessibility, class persistence và class-grid → roster → student persistence. Capacitor Android sync tìm đúng 3 plugin; `assembleDebug` **BUILD SUCCESSFUL / 185 tasks**, APK 12,943,542 bytes. Production dependency audit **0 vulnerability** và `git diff --check` PASS. Production credentials, physical-device push/biometric/camera behavior, OMR field accuracy và restore drills vẫn là external gates và không được suy ra từ automated build.
+
+---
+
+## ADR-101: Architecture Risk Baseline Stabilization (2026-09-03)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED. Severity: D3. Profiles: OFFLINE/SYNC + SECURITY + ARCHITECTURE. Reversibility: R2.**
+
+### Problem, evidence and classification
+
+Code-path tracing confirmed five independent integrity failures. `syncStore.isOwnOp` and queue queries owned mutations by `userId` only, while legacy rows without parish provenance were assigned to the current session. `FinanceApplicationService.updateStudentFee` could create a second receipt on replay, retain the old receipt after reverting a fee to `UNPAID|EXEMPTED`, and the “collect all” UI committed one request at a time. Grade semester/policy/class authorization preconditions were read through global `db` before the write transaction. `migrationRunner.applyMigrations` used libSQL `executeMultiple` without an explicit transaction and wrote the migration marker separately. Finally, hard-deleted notices could never appear in `updatedAfter` reconciliation, and a parent could retain a cached notice after its audience changed to `staff`.
+
+Tenant isolation, server-authoritative class scope, atomic academic locks, convergent fee/receipt state and visible offline deletion are **CONFIRMED hard requirements**. The exact accounting treatment for reopening a collected fee is not separately specified; removing the system-created linked income row in the same transaction, with a redacted reversal audit, is the implemented **CONDITIONAL rule**. No general offline queue is added for notices or finance.
+
+### Options and decision
+
+| Criterion | Weight | A: keep current behavior | B: targeted invariant repair | C: replace persistence/sync architecture |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 20% | 4 | 9 | 8 |
+| Privacy | 10% | 5 | 9 | 8 |
+| Data Integrity | 25% | 3 | 9 | 9 |
+| Reliability | 15% | 4 | 9 | 8 |
+| Testability | 10% | 5 | 9 | 6 |
+| Maintainability | 10% | 5 | 8 | 5 |
+| Operational Fit | 5% | 7 | 9 | 4 |
+| Reversibility | 5% | 8 | 8 | 3 |
+| **Weighted** | **100%** | **4.45 — REJECT** | **8.80 — SELECT** | **7.30 — DEFER** |
+
+Option A fails the D3 Security and Data Integrity gates. Option C has no evidence strong enough to justify a rewrite. Option B repairs the observed contracts in their existing modular-monolith boundaries.
+
+### Decision contract
+
+1. Every offline mutation/conflict belongs to the exact authenticated `(parishId,userId)` pair. Missing/partial legacy ownership is quarantined as failed and never guessed from the current tenant. Dexie v7 adds compound owner/status indexes; diagnostics, notice pending checks and sync processing use the same fail-closed predicate.
+2. A fee and its system-created financial transaction reconcile inside one `runDbTransaction`: PAID replay reuses the linked receipt, changed amounts/funds reconcile it, and `UNPAID|EXEMPTED` removes it with `TXN_FEE_REVERSED`. Write commands enforce the documented three-state model (`PAID > 0`; `UNPAID|EXEMPTED = 0`); legacy `PARTIAL` remains read-compatible but cannot be newly written. Tenant/reference failures map to `400 BAD_REQUEST`, not an unhandled `500`. Class bulk collection accepts 1–500 rows and commits all-or-nothing.
+3. Grade class access, semester lock and current policy-version reads use the same transaction executor as the grade write. Client state cannot bypass these server preconditions.
+4. Multi-statement migrations and their marker execute under one explicit `BEGIN IMMEDIATE`/`COMMIT`; any non-tolerable failure aborts startup. Migration 159 adds notice tombstones; schema readiness validates the executable result.
+5. Notice full snapshots return active rows only. Deltas return soft-delete tombstones. Migration 167 persists `parent_revoked_at`; when a previously visible notice becomes staff-only, the parent delta returns a redacted synthetic tombstone so cached title/content/author are evicted. A newly-created staff notice has no revocation marker and remains completely absent from parent deltas.
+
+### Compatibility, recovery and residual risk
+
+- ADR-016 PASS WITH HARDENING (durable ownership and reconciliation preserved); ADR-013/031/045 PASS; grade/finalization authority remains server-side; no exam lifecycle rule changes.
+- Migrations `20260903-159` and `20260904-167` are additive. Rollback is R2 because deployed readers must retain tombstone/revocation compatibility; safe functional rollback disables delta caching rather than restoring hard delete.
+- The fee reversal rule is limited to the transaction linked by the fee record and validates parish/student/class/year/type before deletion. Manually created finance rows are not inferred or removed.
+- Multi-statement migration atomicity is proven against the local libSQL adapter; a production backup/restore drill and remote Turso migration execution remain external gates.
+
+### Verification and reassessment
+
+Focused evidence on the implementation snapshot: exact/immutable sync ownership **5/5 PASS** plus the prior owner/retry suites; finance lifecycle, HTTP error mapping and existing finance service tests **19 PASS**; migration + grade transaction tests **10 PASS**; notice server/client reconciliation **11 PASS**. Serialized coverage reached **302/303 files and 2,064 tests PASS** before exposing seven stale Exam fixture assertions plus two unhandled promises that omitted authenticated tenant scope; the two affected files were corrected and rerun **29/29 PASS**. This is composite evidence, not a claim that one final coverage invocation was green. Security-critical **73/73**, lint, design guard **0/127**, diff check and full frontend/server production build passed. D3 post-verdict: **KEEP**; Security, Privacy, Data Integrity and Testability gates each score 9 from E2/E3 evidence.
+
+---
+
+## ADR-102: Durable Leased Notification Delivery (2026-09-03)
+
+**Status: APPROVED / IMPLEMENTED / ENGINEERING VERIFIED / PROVIDER CONDITIONAL. Severity: D3. Profiles: SECURITY + ARCHITECTURE. Reversibility: R2.**
+
+### Problem, evidence and classification
+
+`notificationQueue.enqueueNotification` previously acknowledged an in-memory item before asynchronously inserting its database row. Retry counters/backoff lived only in process memory; restart recovery depended on a later enqueue, and multiple replicas had no atomic claim. Telegram helpers swallowed provider errors, allowing a failed send to be persisted as `sent`. These are confirmed reliability/data-integrity defects. Exactly-once delivery is **NOT CONFIRMED** and cannot be guaranteed by Telegram/Web Push/FCM/APNs APIs without provider receipts and per-recipient delivery state.
+
+### Options and decision
+
+| Criterion | Weight | A: in-memory queue | B: DB-backed lease, at-least-once | C: external broker + exactly-once ledger |
+| :--- | ---: | ---: | ---: | ---: |
+| Security | 15% | 6 | 9 | 9 |
+| Privacy | 10% | 7 | 9 | 7 |
+| Data Integrity | 20% | 4 | 9 | 9 |
+| Reliability | 20% | 3 | 9 | 9 |
+| Testability | 10% | 5 | 9 | 6 |
+| Maintainability | 10% | 6 | 8 | 4 |
+| Operational Fit | 10% | 8 | 9 | 3 |
+| Reversibility | 5% | 8 | 7 | 3 |
+| **Weighted** | **100%** | **5.25 — REJECT** | **8.75 — SELECT** | **6.75 — DEFER** |
+
+### Decision contract
+
+1. A successful enqueue means the `notifications` row is durable. The in-memory array is only a local work projection.
+2. Migrations `160..166` persist attempt count, maximum attempts, lease owner/expiry, next attempt time and the exact delivery kind, with an index for due work. Startup recovery and a 30-second poll reclaim due rows and expired leases across all parishes.
+3. Claim is one conditional `UPDATE ... RETURNING`; only the lease owner may mark sent, retrying or failed. Retry backoff and terminal exhaustion survive restart. In-memory failed diagnostics are bounded to 100 items.
+4. Unconfigured providers fail explicitly. Telegram strict mode propagates send errors. A configured push result with any failed recipient retries the aggregate item; this deliberately permits duplicate delivery to recipients already reached. Malformed persisted target JSON becomes an explicitly targeted empty set and can never degrade into a parish broadcast.
+5. Delivery semantics are **at-least-once per aggregate queue item**, not exactly-once per recipient. A crash after provider acceptance but before the `sent` update, or a partial provider result, can duplicate a notification. Native tokens skipped because their platform provider is absent remain provider-conditional and are surfaced by provider metrics/logs.
+
+### Compatibility, recovery and residual risk
+
+- ADR-013 PASS: notice/domain commit remains independent of external delivery; post-commit enqueue failure is logged and does not turn the committed notice into a false mutation failure. ADR-016/095 PASS WITH HARDENING.
+- The migrations are additive R2. Safe rollback can stop the worker while retaining rows/columns; it must not return to pre-persistence acknowledgement.
+- No external broker or microservice is introduced. Cross-provider per-recipient deduplication, dead-letter administration UI and production credential delivery are deferred until operational evidence justifies them.
+
+### Verification and reassessment
+
+Notification queue, strict Telegram and schema-readiness tests passed **32/32**, including partial-push failure, malformed-target fail-closed behavior and delivery-kind recovery. Composite broad regression evidence is **302/303 files and 2,064 tests PASS**, followed by **29/29 PASS** for the corrected tenant-aware fixtures; security-critical **73/73**, lint, design guard **0/127**, diff check and full frontend/server production build passed. D3 post-verdict: **KEEP** with Security/Data Integrity/Testability at 9; real-provider and multi-replica soak remain **NOT CONFIRMED**.
 

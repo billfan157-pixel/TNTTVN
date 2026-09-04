@@ -14,11 +14,11 @@ import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import type {
   CreateFundInput,
   CreateTransactionInput,
-  FeeStatus,
   FeeType,
   FinancialTransaction,
   Fund,
   StudentFeeRecord,
+  WritableFeeStatus,
 } from '../types/finance.js'
 
 interface AuditParams {
@@ -33,7 +33,7 @@ interface AuditParams {
   newValue?: string | null
 }
 
-interface UpdateStudentFeeInput {
+export interface UpdateStudentFeeInput {
   studentId: string
   classId: string
   academicYear: string
@@ -41,11 +41,14 @@ interface UpdateStudentFeeInput {
   title: string
   expectedAmount: number
   paidAmount: number
-  status: FeeStatus
+  status: WritableFeeStatus
   note?: string
   createTransaction?: boolean
   fundId?: string
 }
+
+type ExistingFeeRecord = typeof studentFeeRecords.$inferSelect
+type ExistingFinancialTransaction = typeof financialTransactions.$inferSelect
 
 function financeBadRequest(message: string): never {
   const err = new Error(message) as Error & { status: number }
@@ -338,12 +341,177 @@ export async function deleteTransaction(
   })
 }
 
-/**
- * D3 data-integrity boundary: optional payment ledger entry, fee record and both
- * audit records share one transaction. A failure at any later step rolls back all
- * preceding writes, eliminating orphaned receipts.
- */
-export async function updateStudentFee(
+async function resolveFeeFundId(
+  tx: DbTransaction,
+  parishId: string,
+  requestedFundId?: string,
+): Promise<string> {
+  if (requestedFundId) {
+    await assertActiveFundInParish(tx, requestedFundId, parishId)
+    return requestedFundId
+  }
+  const [defaultFund] = await tx
+    .select({ id: funds.id })
+    .from(funds)
+    .where(and(eq(funds.parishId, parishId), eq(funds.isDefault, true), eq(funds.isActive, true)))
+    .limit(1)
+  if (!defaultFund) financeBadRequest('Không có quỹ mặc định đang hoạt động để ghi nhận khoản thu')
+  return defaultFund.id
+}
+
+function assertFeeCommandConsistency(data: UpdateStudentFeeInput): void {
+  const status = data.status as string
+  if (!['UNPAID', 'PAID', 'EXEMPTED'].includes(status)) {
+    financeBadRequest('Chỉ hỗ trợ ghi trạng thái UNPAID, PAID hoặc EXEMPTED; PARTIAL chỉ được giữ để đọc dữ liệu cũ')
+  }
+  if (!Number.isFinite(data.expectedAmount) || data.expectedAmount < 0) {
+    financeBadRequest('Số tiền dự kiến phải là số không âm')
+  }
+  if (!Number.isFinite(data.paidAmount) || data.paidAmount < 0) {
+    financeBadRequest('Số tiền đã nộp phải là số không âm')
+  }
+  if (status === 'PAID' && data.paidAmount <= 0) {
+    financeBadRequest('Khoản PAID phải có số tiền đã nộp lớn hơn 0')
+  }
+  if ((status === 'UNPAID' || status === 'EXEMPTED') && data.paidAmount !== 0) {
+    financeBadRequest(`Khoản ${status} phải có số tiền đã nộp bằng 0`)
+  }
+}
+
+async function getFeeStudentName(tx: DbTransaction, studentId: string, parishId: string): Promise<string> {
+  const [student] = await tx
+    .select({ fullName: students.fullName, holyName: students.holyName })
+    .from(students)
+    .where(and(eq(students.id, studentId), eq(students.parishId, parishId), isNull(students.deletedAt)))
+    .limit(1)
+  return student ? `${student.holyName ? `${student.holyName} ` : ''}${student.fullName}` : 'Học sinh'
+}
+
+function assertLinkedFeeTransaction(
+  linked: ExistingFinancialTransaction,
+  existing: ExistingFeeRecord,
+  parishId: string,
+): void {
+  if (
+    linked.parishId !== parishId ||
+    linked.type !== 'INCOME' ||
+    linked.studentId !== existing.studentId ||
+    linked.classId !== existing.classId ||
+    linked.academicYear !== existing.academicYear
+  ) {
+    financeBadRequest('Giao dịch liên kết không khớp khoản phí; cần kiểm tra sổ quỹ trước khi thay đổi')
+  }
+}
+
+async function reconcileFeeTransactionInTx(
+  tx: DbTransaction,
+  existing: ExistingFeeRecord | undefined,
+  data: UpdateStudentFeeInput,
+  userId: string,
+  userName: string,
+  parishId: string,
+  ip: string,
+  userAgent: string,
+  now: string,
+): Promise<string | null> {
+  let linked: ExistingFinancialTransaction | undefined
+  if (existing?.transactionId) {
+    ;[linked] = await tx
+      .select()
+      .from(financialTransactions)
+      .where(and(
+        eq(financialTransactions.id, existing.transactionId),
+        eq(financialTransactions.parishId, parishId),
+      ))
+      .limit(1)
+    if (linked) assertLinkedFeeTransaction(linked, existing, parishId)
+  }
+
+  const shouldRemainCollected = data.status === 'PAID' && data.paidAmount > 0
+  if (!shouldRemainCollected) {
+    if (linked) {
+      await tx.delete(financialTransactions).where(and(
+        eq(financialTransactions.id, linked.id),
+        eq(financialTransactions.parishId, parishId),
+      ))
+      await audit(tx, {
+        userId,
+        parishId,
+        ip,
+        userAgent,
+        action: 'TXN_FEE_REVERSED',
+        entityType: 'financial_transaction',
+        entityId: linked.id,
+        oldValue: JSON.stringify({ ...linked, personPhone: maskPhoneForAudit(linked.personPhone) }),
+        newValue: JSON.stringify({ feeStatus: data.status, feeRecordId: existing?.id ?? null }),
+      })
+    }
+    return null
+  }
+
+  if (linked) {
+    const fundId = data.fundId || linked.fundId
+    await assertActiveFundInParish(tx, fundId, parishId)
+    const studentName = await getFeeStudentName(tx, data.studentId, parishId)
+    const next = {
+      fundId,
+      amount: Math.abs(data.paidAmount),
+      category: data.feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
+      title: `Thu ${data.title}: ${studentName}`,
+    }
+    if (
+      linked.fundId !== next.fundId ||
+      linked.amount !== next.amount ||
+      linked.category !== next.category ||
+      linked.title !== next.title
+    ) {
+      await tx.update(financialTransactions).set(next).where(and(
+        eq(financialTransactions.id, linked.id),
+        eq(financialTransactions.parishId, parishId),
+      ))
+      await audit(tx, {
+        userId,
+        parishId,
+        ip,
+        userAgent,
+        action: 'TXN_FEE_RECONCILED',
+        entityType: 'financial_transaction',
+        entityId: linked.id,
+        oldValue: JSON.stringify({ ...linked, personPhone: maskPhoneForAudit(linked.personPhone) }),
+        newValue: JSON.stringify(next),
+      })
+    }
+    return linked.id
+  }
+
+  if (!data.createTransaction) return null
+
+  const targetFundId = await resolveFeeFundId(tx, parishId, data.fundId)
+  const studentName = await getFeeStudentName(tx, data.studentId, parishId)
+  const payment = await createTransactionInTx(
+    tx,
+    {
+      fundId: targetFundId,
+      type: 'INCOME',
+      amount: data.paidAmount,
+      category: data.feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
+      title: `Thu ${data.title}: ${studentName}`,
+      studentId: data.studentId,
+      classId: data.classId,
+      academicYear: data.academicYear,
+      transactionDate: now.slice(0, 10),
+    },
+    userId,
+    userName,
+    parishId,
+    ip,
+    userAgent,
+  )
+  return payment.id
+}
+
+async function updateStudentFeeInTx(
+  tx: DbTransaction,
   parishId: string,
   data: UpdateStudentFeeInput,
   userId: string,
@@ -351,72 +519,27 @@ export async function updateStudentFee(
   ip: string,
   userAgent: string,
 ): Promise<StudentFeeRecord> {
-  return runDbTransaction(async (tx) => {
+    assertFeeCommandConsistency(data)
     await assertStudentClassInParish(tx, data.studentId, data.classId, parishId)
 
-    const now = new Date().toISOString()
-    const today = now.slice(0, 10)
-    let transactionId: string | null = null
-
-    if (data.createTransaction && data.paidAmount > 0 && data.status === 'PAID') {
-      let targetFundId = data.fundId
-      if (!targetFundId) {
-        const [defaultFund] = await tx
-          .select({ id: funds.id })
-          .from(funds)
-          .where(and(eq(funds.parishId, parishId), eq(funds.isDefault, true)))
-          .limit(1)
-        targetFundId = defaultFund?.id
-      }
-
-      if (targetFundId) {
-        const [student] = await tx
-          .select({ fullName: students.fullName, holyName: students.holyName })
-          .from(students)
-          .where(and(eq(students.id, data.studentId), eq(students.parishId, parishId), isNull(students.deletedAt)))
-          .limit(1)
-
-        const studentName = student
-          ? `${student.holyName ? `${student.holyName} ` : ''}${student.fullName}`
-          : 'Học sinh'
-
-        const payment = await createTransactionInTx(
-          tx,
-          {
-            fundId: targetFundId,
-            type: 'INCOME',
-            amount: data.paidAmount,
-            category: 'Niên liễm',
-            title: `Thu ${data.title}: ${studentName}`,
-            studentId: data.studentId,
-            classId: data.classId,
-            academicYear: data.academicYear,
-            transactionDate: today,
-          },
-          userId,
-          userName,
-          parishId,
-          ip,
-          userAgent,
-        )
-        transactionId = payment.id
-      }
-    }
-
-    const existing = await tx
+    const existingRows = await tx
       .select()
       .from(studentFeeRecords)
-      .where(
-        and(
-          eq(studentFeeRecords.studentId, data.studentId),
-          eq(studentFeeRecords.parishId, parishId),
-          eq(studentFeeRecords.academicYear, data.academicYear),
-          eq(studentFeeRecords.feeType, data.feeType),
-        ),
-      )
+      .where(and(
+        eq(studentFeeRecords.studentId, data.studentId),
+        eq(studentFeeRecords.parishId, parishId),
+        eq(studentFeeRecords.academicYear, data.academicYear),
+        eq(studentFeeRecords.feeType, data.feeType),
+      ))
       .limit(1)
+    const existing = existingRows[0]
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    const transactionId = await reconcileFeeTransactionInTx(
+      tx, existing, data, userId, userName, parishId, ip, userAgent, now,
+    )
 
-    const id = existing[0]?.id || generateId('FEE')
+    const id = existing?.id || generateId('FEE')
     const row = {
       id,
       parishId,
@@ -429,13 +552,13 @@ export async function updateStudentFee(
       paidAmount: data.paidAmount,
       status: data.status,
       paidDate: data.paidAmount > 0 ? today : null,
-      transactionId: transactionId || existing[0]?.transactionId || null,
+      transactionId,
       note: data.note || null,
       updatedBy: userId,
       updatedAt: now,
     }
 
-    if (existing.length > 0) {
+    if (existing) {
       await tx
         .update(studentFeeRecords)
         .set(row)
@@ -452,9 +575,46 @@ export async function updateStudentFee(
       action: 'STUDENT_FEE_UPDATE',
       entityType: 'student_fee_record',
       entityId: id,
+      oldValue: existing ? JSON.stringify(existing) : null,
       newValue: JSON.stringify(row),
     })
 
     return row as StudentFeeRecord
+}
+
+/**
+ * D3 data-integrity boundary: fee state and its linked payment are reconciled in
+ * one write transaction. Replaying the same PAID command reuses the linked
+ * transaction; UNPAID/EXEMPTED removes it atomically and keeps an audit record.
+ */
+export async function updateStudentFee(
+  parishId: string,
+  data: UpdateStudentFeeInput,
+  userId: string,
+  userName: string,
+  ip: string,
+  userAgent: string,
+): Promise<StudentFeeRecord> {
+  return runDbTransaction((tx) => updateStudentFeeInTx(tx, parishId, data, userId, userName, ip, userAgent))
+}
+
+/** Atomic all-or-nothing collection for a class; retries converge by fee linkage. */
+export async function updateStudentFeesBatch(
+  parishId: string,
+  records: UpdateStudentFeeInput[],
+  userId: string,
+  userName: string,
+  ip: string,
+  userAgent: string,
+): Promise<StudentFeeRecord[]> {
+  if (records.length < 1 || records.length > 500) {
+    financeBadRequest('Danh sách thu phí phải có từ 1 đến 500 khoản')
+  }
+  return runDbTransaction(async (tx) => {
+    const saved: StudentFeeRecord[] = []
+    for (const data of records) {
+      saved.push(await updateStudentFeeInTx(tx, parishId, data, userId, userName, ip, userAgent))
+    }
+    return saved
   })
 }

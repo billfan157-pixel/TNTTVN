@@ -373,8 +373,10 @@ examsRouter.post('/:id/complete', roleMiddleware('admin', 'chunhiem'), async (c)
 
   try {
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-    const session = await completeExamSession(sessionId, user.userId, user.parishId, ip, userAgent, allowedClassIds)
-    return successResponse(c, session)
+    // P0-01: trả full ExamFinalizationResult (session + items/committed/conflicts).
+    // Client là read-only projector của receipt này, không ghi grade lần hai.
+    const result = await completeExamSession(sessionId, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+    return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
   }

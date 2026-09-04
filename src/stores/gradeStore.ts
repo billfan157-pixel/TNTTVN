@@ -11,6 +11,7 @@ import * as Sentry from '@sentry/react'
 import { useAcademicYearStore } from './academicYearStore'
 import { useSettingsStore } from './settingsStore'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { isOwnOp } from './syncStore'
 
 const SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'] as const
 
@@ -34,7 +35,8 @@ function gradeNaturalKey(g: { studentId?: string; semester?: number | string; ac
 /**
  * ADR-016 (offline-sync audit #6): tập natural key của các grade đang có op
  * pending/retrying — dùng để KHÔNG đè row local (đang chứa thay đổi chưa sync)
- * bằng dữ liệu server cũ hơn khi pull incremental.
+ * bằng dữ liệu server cũ hơn khi pull incremental. OFF-TENANT-1: chỉ tính ops
+ * đúng scope phiên hiện tại, op xứ khác không được che merge xứ này.
  */
 async function getPendingGradeNaturalKeys(): Promise<Set<string>> {
   try {
@@ -42,6 +44,7 @@ async function getPendingGradeNaturalKeys(): Promise<Set<string>> {
     const pending = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray()
     const keys = new Set<string>()
     for (const item of pending) {
+      if (!isOwnOp(item)) continue
       if (item.entity !== 'grade') continue
       try {
         const raw = await decryptQueueValue(item.payload)
@@ -142,7 +145,10 @@ export const useGradeStore = create<GradeState>()(
             } else {
               set({ grades: fetched })
             }
-            useDailyGradeStore.getState().syncAllToGradeStore()
+            // Tier 1 containment: pull về chỉ tính lại hiển thị từ entries local,
+            // KHÔNG null-out giá trị authoritative của server, KHÔNG enqueue
+            // (xem SyncProjectionOpts trong dailyGradeStore).
+            useDailyGradeStore.getState().syncAllToGradeStore(undefined, undefined, { skipSync: true })
           }
         } catch (err) {
           Sentry.captureException(err)

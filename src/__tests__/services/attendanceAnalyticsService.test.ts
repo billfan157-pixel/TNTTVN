@@ -110,21 +110,22 @@ describe('attendanceAnalyticsService Unit & Integration Tests', () => {
     expect(kpis.trendTimeline.length).toBeGreaterThan(0)
   })
 
-  it('exportAttendanceSummaryReport xuất CSV không ném lỗi', () => {
+  it('exportAttendanceSummaryReport xuất CSV/XLSX và dọn tài nguyên trước khi test kết thúc', async () => {
     const summary = computeStudentAttendanceSummary(mockStudent, mockRecords, 1.0, 80)
     // Mock triggerDownload
     const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
     const revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const removeSpy = vi.spyOn(HTMLAnchorElement.prototype, 'remove')
 
-    expect(() => {
-      exportAttendanceSummaryReport([summary], 'AuNhi_1', 'HK1', 'csv')
-    }).not.toThrow()
+    await expect(exportAttendanceSummaryReport([summary], 'AuNhi_1', 'HK1', 'csv')).resolves.toBeUndefined()
+    await expect(exportAttendanceSummaryReport([summary], 'AuNhi_1', 'HK1', 'xlsx')).resolves.toBeUndefined()
 
-    expect(() => {
-      exportAttendanceSummaryReport([summary], 'AuNhi_1', 'HK1', 'xlsx')
-    }).not.toThrow()
+    expect(removeSpy).toHaveBeenCalledTimes(2)
+    expect(revokeObjectUrlSpy).toHaveBeenNthCalledWith(1, 'blob:mock')
+    expect(revokeObjectUrlSpy).toHaveBeenNthCalledWith(2, 'blob:mock')
 
     createObjectUrlSpy.mockRestore()
     revokeObjectUrlSpy.mockRestore()
+    removeSpy.mockRestore()
   })
 })

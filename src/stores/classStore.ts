@@ -8,6 +8,7 @@ import { generateId } from '../lib/id'
 import { useAuthStore } from './authStore'
 import * as Sentry from '@sentry/react'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { isOwnOp } from './syncStore'
 
 async function getPendingClassIds(): Promise<Set<string>> {
   try {
@@ -15,6 +16,8 @@ async function getPendingClassIds(): Promise<Set<string>> {
     const pending = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray()
     const ids = new Set<string>()
     for (const item of pending) {
+      // OFF-TENANT-1: chỉ tính ops đúng scope phiên hiện tại.
+      if (!isOwnOp(item)) continue
       if (item.entity !== 'class') continue
       if (item.entityId) ids.add(item.entityId)
       try {

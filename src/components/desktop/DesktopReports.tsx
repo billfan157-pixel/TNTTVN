@@ -12,7 +12,7 @@ import { ExcelImportModal } from '../common/ExcelImportModal';
 import { BackupRestoreModal } from '../common/BackupRestoreModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { useAuth } from '../../hooks/useAuth';
-import { useConfirmDialog } from '../../hooks/useConfirmDialog';
+import { useToastStore } from '../../stores/toastStore';
 import { StudentName } from '../common/StudentName';
 import {
   buildBranchSummaryRows,
@@ -40,7 +40,6 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [studentQuery, setStudentQuery] = useState('');
-  const { askConfirm, dialog: confirmDialog } = useConfirmDialog();
 
   // Quick-print: tìm kiếm thay vì cap cứng 9 học sinh đầu tiên
   const QUICK_PRINT_LIMIT = 12;
@@ -73,13 +72,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
         else void exportXlsx(filename, 'Chi tiết học sinh', rows).catch(console.error);
       }
     } catch (err) {
-      void askConfirm({
-        title: 'Lỗi xuất báo cáo',
-        message: 'Lỗi khi xuất báo cáo! Vui lòng thử lại.',
-        confirmText: 'OK',
-        variant: 'danger',
-        showCancel: false,
-      })
+      useToastStore.getState().addToast('Lỗi khi xuất báo cáo! Vui lòng thử lại.', 'error');
       console.error('[DesktopReports] export failed:', err);
     }
   };
@@ -90,7 +83,6 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
       <PrintReportModal isOpen={isPrintModalOpen} onClose={() => setIsPrintModalOpen(false)} initialReportType={printReportType} />
       <ExcelImportModal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} />
       <BackupRestoreModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} />
-      {confirmDialog}
 
       {/* Header Bar */}
       <PageHeader

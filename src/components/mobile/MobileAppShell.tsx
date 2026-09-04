@@ -1,9 +1,11 @@
 import { MobileBottomNav, type MobileTab } from './MobileBottomNav'
+import type { WorkspaceId } from '../../constants/routePolicy'
 
 interface MobileAppShellProps {
   activeTab: MobileTab | null
   setActiveTab: (tab: MobileTab) => void | Promise<void>
   preloadTab?: (tab: MobileTab) => void
+  activeWorkspace?: WorkspaceId
   children: React.ReactNode
 }
 
@@ -19,12 +21,20 @@ export const MobileAppShell: React.FC<MobileAppShellProps> = ({
   activeTab,
   setActiveTab,
   preloadTab,
+  activeWorkspace,
   children,
 }) => (
   <div className="mobile-app-shell">
     <main id="main-content" className="mobile-app-main">
       {children}
     </main>
-    {activeTab && <MobileBottomNav activeTab={activeTab} setActiveTab={setActiveTab} preloadTab={preloadTab} />}
+    {activeTab && (
+      <MobileBottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        preloadTab={preloadTab}
+        activeWorkspace={activeWorkspace}
+      />
+    )}
   </div>
 )

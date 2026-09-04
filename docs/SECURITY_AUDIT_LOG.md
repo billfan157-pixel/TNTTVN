@@ -32,6 +32,9 @@
 | WEB-HARDEN-1 | 🟠 P2 | Vercel HTML thiếu CSP/frame/nosniff/referrer/permissions headers; `/health` của diagnostics rơi vào SPA rewrite; refresh cold-start không có timeout | ✅ ENGINEERING VERIFIED / DEPLOY CONDITIONAL (2026-09-01, ADR-092) | global Vercel headers, external theme boot, explicit health rewrite, 65s AbortSignal, deployment contract + production build |
 | NATIVE-PRIVACY-1 | 🟠 P2 | Android cho system backup PII/offline key, FileProvider expose toàn external storage; native name drift và iOS khai báo microphone không dùng | ✅ ENGINEERING VERIFIED / DEVICE CONDITIONAL (2026-09-01, ADR-092) | fail-closed backup rules, app-specific provider paths, camera-only permission, Catevia labels; Android 153-task debug build PASS |
 | E2E-SEC-01 | 🔴 P1/P2 | Browser tests cũ chủ yếu render/smoke, chưa chứng minh parent ownership, backend deny, persistence/reload, lock và offline sync outcome | ✅ ENGINEERING VERIFIED (2026-09-01, ADR-093) | isolated real DB; valid-shaped negative mutations; parent own-child API/UI; grade/finance/exam/lock/offline authoritative read-back; fail-on-flaky CI |
+| RELEASE-INTEGRITY-3 | 🔴 P0 | Vercel Git auto-deploy phát hành SHA có CI đỏ; thiếu frontend/backend exact-SHA smoke; dependency transitive High và metrics raw-path cardinality | ✅ ENGINEERING VERIFIED / PRODUCTION REDEPLOY PENDING (2026-09-03, ADR-100) | `vercel.json`, deploy workflow, release meta, `/health`, metrics histogram, export lifecycle, `fast-uri@3.1.7`, critical E2E 10/10 |
+| ARCH-RISK-BASELINE-1 | 🔴 P0/P1 | Queue offline chỉ gắn user, vòng đời receipt phí không hội tụ, migration nhiều statement không atomic, grade precondition đọc ngoài transaction và notice delta mất deletion/visibility revocation | ✅ ENGINEERING VERIFIED (2026-09-03, ADR-101) | exact `parishId:userId`, fee reconciliation/batch transaction, atomic migration marker, transaction-scoped grade checks, notice tombstone |
+| NOTIFICATION-DURABILITY-1 | 🟠 P1 | Queue thông báo xác nhận trước persistence, retry/lease nằm trong RAM và provider failure có thể bị đánh dấu sent | ✅ ENGINEERING VERIFIED / PROVIDER CONDITIONAL (2026-09-03, ADR-102) | durable enqueue, DB lease/retry, startup recovery, strict Telegram, partial-push failure |
 | EXAM-02 | 🟠 P2 | Conflict matrix chia đôi client/server: client thiếu `override` trong PROTECTED sources (server: manual/override/excel_import) → lệch kết quả hiển thị local; docs re-score ghi `totalAnswered` trong khi code dùng `totalQuestions` | ✅ CLOSED (2026-08-17) | `src/services/examFinalizeService.ts` (thêm `override` vào conflict sources + khớp comment server `examService.ts:22`), `docs/BUSINESS_RULES.md` §11.5, `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` ADR-043, test mở rộng `examFinalizeService.test.ts` (3 nguồn) |
 | A01 | 🔴 P1 | Refresh token trong localStorage + XSS sinks trong popup in | ✅ CLOSED | 2026-08-10 |
 | A05 | 🟠 P2 | Reveal password tạm thiếu re-authentication | ✅ CLOSED | 2026-08-10 |
@@ -151,6 +154,16 @@
 4. Nếu API thay đổi → cập nhật `docs/FRONTEND_API_CONTRACT.md`; nếu kiến trúc thay đổi →
    `docs/02_ARCHITECTURE.md`; nếu ảnh hưởng map → `docs/AI_CONTEXT_MAP.md` (dòng Security Audit — đã trỏ về file này).
 5. Commit kèm mã nguồn + tests — audit CHỈ được đóng khi tests pass + `tsc` sạch.
+
+---
+
+## Audit RELEASE-INTEGRITY-3 — CI bypass, dependency patch and metrics cardinality — ✅ ENGINEERING VERIFIED / PRODUCTION REDEPLOY PENDING (2026-09-03, ADR-100)
+
+- **P0 release finding:** GitHub CI for `ccb6bf233eb571a53d7d4bcfe20b25edb4a933e1` failed on an unhandled jsdom callback and the production deployment workflow was skipped, yet the public Vercel bundle contained the same SHA. Root cause `git.deploymentEnabled.main=true` allowed a second publisher outside the CI gate. Fixed repo config to false, kept Render auto-deploy false, and changed Vercel install to deterministic `npm ci`.
+- **Provenance:** frontend HTML now carries sanitized `catevia-release`; backend `/health` carries sanitized `APP_RELEASE_ID|RENDER_GIT_COMMIT`. Workflow fails unless both equal `VERIFIED_SHA`, unauthenticated auth returns 401 and frontend emits CSP/HSTS.
+- **CI lifecycle/supply chain:** attendance CSV/XLSX test now awaits both async exports and Blob/anchor cleanup is synchronous. Transitive `fast-uri` moved 3.1.5 → 3.1.7; `npm audit --omit=dev` returns 0 vulnerability.
+- **Privacy/ops:** metrics no longer expose dynamic identifiers as raw path labels; route labels/series are normalized and bounded, strings escaped and latency is a Prometheus histogram. Registry remains process-local and requires external collector/alerts for durable operations.
+- **Evidence:** focused **4 files / 21 tests PASS**, critical real-backend E2E **10/10 PASS**, production audit **0 vulnerability**, DS **0/127**, oxlint, client/server TypeScript and production builds PASS. Serialized coverage completed **300/301 files / 2,056/2,057 tests PASS**; the sole 15-second mobile timeout passed immediately in isolated normal and coverage runs (**3/3** each), classified **CONDITIONAL environment/test-runner flake** pending the authoritative next CI full-green run. Actual gated redeploy, Vercel dashboard setting, restore drill, audit-log retention and physical-device gates remain **NOT CONFIRMED**.
 
 ---
 
@@ -3608,5 +3621,25 @@ Audit toàn diện 2026-08-24 (sau A-NEW-62) tìm ra cụm gap Medium: (a) mản
 - **Privacy:** new audit metadata excludes attendance note, leave reason/review note and notice title/content/author. External asset thumbnails no longer passive-fetch third-party URLs; explicit lightbox requests use `referrerPolicy=no-referrer`.
 - **D3 post-verdict:** Security 9, Privacy 9, Data Integrity 9, Testability 9 — hard gates PASS / KEEP. Frozen-snapshot `verify:ci`: lint sạch, DS **0/127**, production client/PWA/server build PASS (**2,789 modules**, **233 precache entries**), serialized coverage **301 files / 2,054 tests PASS**; coverage 70.16% statements, 59.42% branches, 63.46% functions, 72.74% lines. Critical E2E **10/10** qua run ban đầu + targeted fixes; affected final class-grid paths **3/3 PASS**. Capacitor Android sync nhận 3 plugin; Android debug **185 tasks PASS**, APK 12,943,542 bytes. Production audit 0 vulnerability; diff-check PASS.
 - **External gates:** production provider credentials/delivery, multi-account physical-device smoke, biometric/camera behavior, OMR privacy-safe field corpus and restore drill remain NOT CONFIRMED.
+
+---
+
+## Audit ARCH-RISK-BASELINE-1 — Protected invariant stabilization — ✅ ENGINEERING VERIFIED (2026-09-03, ADR-101)
+
+- **Confirmed findings:** offline queue ownership lacked parish scope and guessed legacy ownership; fee replay/reversal/bulk collection could diverge receipt and fee state; grade preconditions read outside the write transaction; multi-statement migration plus marker were not atomic; hard-deleted or newly staff-only notices could remain in client cache.
+- **Controls:** exact `(parishId,userId)` Dexie ownership and immutable owner fields plus legacy quarantine; fee/receipt reconciliation plus 1–500 all-or-nothing batch; three-state fee write validation and safe `400` mapping for tenant/reference failures; transaction-executor propagation through class/RBAC/semester/policy checks; explicit transactional migration marker; notice soft-delete and `parent_revoked_at`-qualified redacted visibility tombstones.
+- **Authorization/privacy:** backend class and tenant queries remain authoritative. Parent deltas never receive staff notice content. Fee reversal validates the linked row's parish/student/class/year/type and does not infer manual transactions. Queue payload/error encryption remains unchanged.
+- **Recovery:** migrations `159/167` are additive; startup schema readiness includes their markers/columns. Safe rollback keeps schema compatibility and disables affected projections rather than restoring guessed ownership, hard deletion or split fee writes.
+- **Evidence:** finance lifecycle + HTTP mapping + existing finance tests **19 PASS**; migration/grade **10 PASS**; notice server/client **11 PASS**; exact/immutable sync ownership **5/5 PASS** plus broader owner/retry evidence. Frontend and server production builds passed. Remote migration drill, production legacy-`PARTIAL` data audit, multi-account physical-device offline test and production restore remain **NOT CONFIRMED**.
+
+---
+
+## Audit NOTIFICATION-DURABILITY-1 — Durable leased notification worker — ✅ ENGINEERING VERIFIED / PROVIDER CONDITIONAL (2026-09-03, ADR-102)
+
+- **Confirmed findings:** enqueue acknowledged before persistence; retry/backoff and work ownership were process-local; restart recovery needed new traffic; Telegram helper errors could be swallowed; partial push failure could be marked sent.
+- **Controls:** persistence-first async enqueue; migrations `160..166`; persisted delivery kind; conditional DB claim with owner/expiry; durable attempts/backoff; expired-lease/startup/poll recovery; terminal exhaustion; bounded diagnostics; strict Telegram; configured partial push failure enters retry/failed state; malformed target JSON becomes a targeted empty set rather than broadcast.
+- **Semantics:** at-least-once per aggregate item. A crash after provider acceptance or a partial fan-out can duplicate delivery; exactly-once per recipient is not claimed. Provider-platform skips remain visible but are not retried as a separate recipient ledger.
+- **Privacy/tenancy:** recovered rows retain `parish_id` and targeted `target_user_ids`; malformed target JSON never degrades to parish broadcast. No token or message payload was added to audit logs.
+- **Evidence:** queue + Telegram + schema readiness **32/32 PASS**. Serialized coverage reached **302/303 files and 2,064 tests PASS** before exposing seven stale Exam fixture assertions plus two unhandled promises that lacked tenant auth state; the two affected files were fixed and rerun **29/29 PASS**. This is composite evidence, not one fully green final coverage invocation. Security-critical **73/73**, lint, DS **0/127**, diff check and full frontend/server production build passed. Live Telegram/Web Push/FCM/APNs credentials and multi-replica soak remain **NOT CONFIRMED**.
 
 ---

@@ -8,7 +8,10 @@ const mockTable: Record<string, any> = {
   where: vi.fn(),
   toArray: vi.fn(),
   count: vi.fn(),
+  get: vi.fn(),
 }
+
+const OWNER = { userId: 'USR-A', parishId: 'PARISH-A' }
 
 let storedCryptoKey: CryptoKey | null = null
 
@@ -39,13 +42,15 @@ const { useSyncStore } = await import('../../stores/syncStore')
 beforeEach(() => {
   useSyncStore.setState({ status: 'idle', pendingCount: 0, lastSyncAt: null, lastError: null })
   vi.clearAllMocks()
-  localStorage.removeItem('parish_current_user')
+  localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
 
   mockTable.where.mockReturnThis()
   mockTable.anyOf = vi.fn().mockReturnThis()
   mockTable.equals = vi.fn().mockReturnThis()
+  mockTable.filter = vi.fn().mockReturnThis()
   // Default: empty queue reads (refreshCount/addOp dedupe query toArray).
   mockTable.toArray.mockResolvedValue([])
+  mockTable.get.mockResolvedValue({ id: 'OWNED', ...OWNER })
 })
 
 describe('syncStore', () => {
@@ -74,7 +79,7 @@ describe('syncStore', () => {
 
   it('refreshCount queries pending items', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1' }, { id: 'OP-2' }, { id: 'OP-3' }, { id: 'OP-4' }, { id: 'OP-5' },
+      { id: 'OP-1', ...OWNER }, { id: 'OP-2', ...OWNER }, { id: 'OP-3', ...OWNER }, { id: 'OP-4', ...OWNER }, { id: 'OP-5', ...OWNER },
     ])
     const count = await useSyncStore.getState().refreshCount()
     expect(count).toBe(5)
@@ -83,8 +88,8 @@ describe('syncStore', () => {
 
   it('getPendingOps returns sorted pending operations', async () => {
     const ops = [
-      { id: 'OP-2', createdAt: '2025-01-02T00:00:00Z' },
-      { id: 'OP-1', createdAt: '2025-01-01T00:00:00Z' },
+      { id: 'OP-2', createdAt: '2025-01-02T00:00:00Z', ...OWNER },
+      { id: 'OP-1', createdAt: '2025-01-01T00:00:00Z', ...OWNER },
     ]
     mockTable.toArray.mockResolvedValue(ops)
     const result = await useSyncStore.getState().getPendingOps()
@@ -110,12 +115,13 @@ describe('syncStore', () => {
     expect(inserted.status).toBe('pending')
     expect(inserted.retryCount).toBe(0)
     expect(inserted.deviceId).toBeTruthy()
+    expect(inserted).toEqual(expect.objectContaining(OWNER))
   })
 
   it('addOp deduplicates identical pending op (merges payload, keeps original id)', async () => {
     mockTable.put.mockResolvedValue(undefined)
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-OLD', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: '{"fullName":"A"}', createdAt: '2025-01-01T00:00:00Z', userId: '' },
+      { id: 'OP-OLD', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: '{"fullName":"A"}', createdAt: '2025-01-01T00:00:00Z', ...OWNER },
     ])
     const id = await useSyncStore.getState().addOp({
       entity: 'student',
@@ -146,8 +152,8 @@ describe('syncStore', () => {
 
   it('compactQueue cancels CREATE+DELETE pair when CREATE is pending and unsent', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2025-01-01T00:00:00Z' },
-      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'DELETE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2025-01-02T00:00:00Z' },
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'DELETE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2025-01-02T00:00:00Z', ...OWNER },
     ])
     mockTable.count.mockResolvedValue(0)
     await useSyncStore.getState().compactQueue()
@@ -156,8 +162,8 @@ describe('syncStore', () => {
 
   it('compactQueue keeps BOTH CREATE+DELETE when CREATE was retrying (OS-01 Keep-BOTH)', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: '{}', status: 'retrying', retryCount: 1, createdAt: '2025-01-01T00:00:00Z' },
-      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'DELETE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2025-01-02T00:00:00Z' },
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: '{}', status: 'retrying', retryCount: 1, createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'DELETE', payload: '{}', status: 'pending', retryCount: 0, createdAt: '2025-01-02T00:00:00Z', ...OWNER },
     ])
     mockTable.count.mockResolvedValue(2)
     await useSyncStore.getState().compactQueue()
@@ -166,8 +172,8 @@ describe('syncStore', () => {
 
   it('compactQueue merges multiple UPDATEs keeping the last', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z' },
-      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'B' }), createdAt: '2025-01-02T00:00:00Z' },
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'B' }), createdAt: '2025-01-02T00:00:00Z', ...OWNER },
     ])
     mockTable.count.mockResolvedValue(1)
     await useSyncStore.getState().compactQueue()
@@ -177,8 +183,8 @@ describe('syncStore', () => {
 
   it('compactQueue merges payloads after CREATE', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z' },
-      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A B' }), createdAt: '2025-01-02T00:00:00Z' },
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A B' }), createdAt: '2025-01-02T00:00:00Z', ...OWNER },
     ])
     mockTable.count.mockResolvedValue(1)
     await useSyncStore.getState().compactQueue()
@@ -189,8 +195,8 @@ describe('syncStore', () => {
 
   it('SYNC-CONFLICT-2: compactQueue merge UPDATE theo FIELD — edit 2 field ở 2 phiên đều giữ nguyên', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z' },
-      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ parentPhone: '0901234567' }), createdAt: '2025-01-02T00:00:00Z' },
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ parentPhone: '0901234567' }), createdAt: '2025-01-02T00:00:00Z', ...OWNER },
     ])
     mockTable.count.mockResolvedValue(1)
     await useSyncStore.getState().compactQueue()
@@ -214,11 +220,12 @@ describe('syncStore', () => {
     expect(mockTable.where).toHaveBeenCalledWith('status')
   })
 
-  it('refreshCount chỉ đếm op có đúng userId đại diện cho user hiện tại (fail-closed OS-02)', async () => {
-    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A' }))
+  it('refreshCount chỉ đếm op có đúng parishId + userId của context hiện tại', async () => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A', parishId: 'PARISH-A' }))
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', userId: 'USR-A' },
-      { id: 'OP-2', userId: 'USR-B' },
+      { id: 'OP-1', userId: 'USR-A', parishId: 'PARISH-A' },
+      { id: 'OP-2', userId: 'USR-B', parishId: 'PARISH-A' },
+      { id: 'OP-OTHER-PARISH', userId: 'USR-A', parishId: 'PARISH-B' },
       { id: 'OP-3' }, // op legacy (chưa có userId) -> fail-closed không tính nếu chưa migrate
     ])
     const count = await useSyncStore.getState().refreshCount()
@@ -231,7 +238,7 @@ describe('syncStore', () => {
     mockTable.toArray.mockResolvedValue([
       {
         id: 'OP-OLD', entity: 'grade', entityId: 'ST-001', operation: 'UPDATE',
-        payload: '{"scoreFinal":7}', createdAt: '2025-01-01T00:00:00Z', userId: '',
+        payload: '{"scoreFinal":7}', createdAt: '2025-01-01T00:00:00Z', ...OWNER,
         status: 'retrying', retryCount: 4, lastError: 'Server error 500',
       },
     ])
@@ -255,21 +262,21 @@ describe('syncStore', () => {
 
   it('compactQueue KHÔNG merge op của user khác (finding #3)', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: '{"fullName":"A"}', createdAt: '2025-01-01T00:00:00Z', userId: 'USR-A' },
-      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: '{"fullName":"B"}', createdAt: '2025-01-02T00:00:00Z', userId: 'USR-B' },
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: '{"fullName":"A"}', createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: '{"fullName":"B"}', createdAt: '2025-01-02T00:00:00Z', userId: 'USR-B', parishId: 'PARISH-A' },
     ])
     mockTable.count.mockResolvedValue(2)
     await useSyncStore.getState().compactQueue()
     expect(mockTable.delete).not.toHaveBeenCalled()
   })
 
-  it('clearCompleted chỉ xóa op của user hiện tại (finding #3)', async () => {
-    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A' }))
+  it('clearCompleted chỉ xóa op của đúng tenant + user hiện tại', async () => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A', parishId: 'PARISH-A' }))
     mockTable.where.mockReturnValue({
       equals: vi.fn().mockReturnValue({
         toArray: vi.fn().mockResolvedValue([
-          { id: 'OP-DONE-1', userId: 'USR-A' },
-          { id: 'OP-DONE-2', userId: 'USR-B' },
+          { id: 'OP-DONE-1', userId: 'USR-A', parishId: 'PARISH-A' },
+          { id: 'OP-DONE-2', userId: 'USR-B', parishId: 'PARISH-A' },
         ]),
       }),
     })
@@ -280,7 +287,7 @@ describe('syncStore', () => {
   })
 
   it('addConflict lưu localValue đã mã hóa; giải mã khôi phục dữ liệu gốc (A2 conflict inbox)', async () => {
-    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A' }))
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-A', parishId: 'PARISH-A' }))
     mockTable.put.mockResolvedValue(undefined)
     mockTable.toArray.mockResolvedValue([])
     mockTable.add = vi.fn().mockResolvedValue(undefined)
@@ -306,6 +313,7 @@ describe('syncStore', () => {
     expect(item.id).toMatch(/^CONF-/)
     expect(item.resolved).toBe(false)
     expect(item.userId).toBe('USR-A')
+    expect(item.parishId).toBe('PARISH-A')
     expect(item.localValue).toMatch(/^enc:v1:/)
 
     // ConflictInboxModal (A2): giải mã ở UI — ciphertext phải khôi phục được dữ liệu thật.

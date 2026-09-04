@@ -3,7 +3,7 @@ import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import bcrypt from 'bcryptjs'
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
 import { eq, and, sql } from 'drizzle-orm'
 import { authMiddleware, getSuperAdminId } from '../middleware/auth.js'
@@ -18,9 +18,9 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, errorResponse } from '../utils/response.js'
 import type { Context } from 'hono'
 import {
-  issueTokensWithSession,
+  issueTokensWithSessionIn,
   rotateRefreshSession,
-  revokeAllSessions,
+  revokeAllSessionsWith,
   revokeSessionByTokenHash,
   hashRefreshToken,
 } from '../services/refreshSessionService.js'
@@ -140,73 +140,87 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
   if (!valid) {
     const ip = getClientIp(c)
     const userAgent = c.req.header('user-agent') || ''
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.id,
-      action: 'LOGIN_FAILED',
-      entityType: 'auth',
-      entityId: user.id,
-      newValue: JSON.stringify({ username: user.username }),
-      ip,
-      userAgent,
-      parishId: user.parishId,
+    // Phase 1 (Auth split-tx): audit LOGIN_FAILED + counter khóa cùng 1
+    // transaction — audit fail không còn chặn lockout counter và ngược lại.
+    const userIsAdmin = user.role === 'admin'
+    let attempts = 1
+    await runDbTransaction(async (tx) => {
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        entityType: 'auth',
+        entityId: user.id,
+        newValue: JSON.stringify({ username: user.username }),
+        ip,
+        userAgent,
+        parishId: user.parishId,
+      })
+
+      if (!userIsAdmin) {
+        // A-NEW-19 (2026-08-11): ATOMIC increment qua SQL expression + returning —
+        // fix TOCTOU: trước đây `nextFailed = (user.failedAttempts||0)+1` từ snapshot cũ
+        // (SELECT trước bcrypt.compare ~126ms) → N request song song đều tính nextFailed=1
+        // → lost update (test: 10 concurrent → failedAttempts=1 thay vì 10, không lock).
+        // SQLite UPDATE đơn statement atomic → failed_attempts + 1 tính trên giá trị hiện hành.
+        const [updated] = await tx.update(users)
+          .set({
+            failedAttempts: sql`${users.failedAttempts} + 1`,
+            status: sql`CASE WHEN ${users.failedAttempts} + 1 >= ${LOGIN_LOCKOUT_THRESHOLD} THEN 'LOCKED' ELSE ${users.status} END`,
+          })
+          .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
+          .returning({ failedAttempts: users.failedAttempts, status: users.status })
+        attempts = updated?.failedAttempts ?? 1
+      }
     })
 
-    const userIsAdmin = user.role === 'admin'
     if (!userIsAdmin) {
-      // A-NEW-19 (2026-08-11): ATOMIC increment qua SQL expression + returning —
-      // fix TOCTOU: trước đây `nextFailed = (user.failedAttempts||0)+1` từ snapshot cũ
-      // (SELECT trước bcrypt.compare ~126ms) → N request song song đều tính nextFailed=1
-      // → lost update (test: 10 concurrent → failedAttempts=1 thay vì 10, không lock).
-      // SQLite UPDATE đơn statement atomic → failed_attempts + 1 tính trên giá trị hiện hành.
-      const [updated] = await db.update(users)
-        .set({
-          failedAttempts: sql`${users.failedAttempts} + 1`,
-          status: sql`CASE WHEN ${users.failedAttempts} + 1 >= ${LOGIN_LOCKOUT_THRESHOLD} THEN 'LOCKED' ELSE ${users.status} END`,
-        })
-        .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-        .returning({ failedAttempts: users.failedAttempts, status: users.status })
-      const attempts = updated?.failedAttempts ?? 1
       return errorResponse(c, 'INVALID_CREDENTIALS', `Mật khẩu không chính xác! (Lần thử: ${attempts}/${LOGIN_LOCKOUT_THRESHOLD})`, 401)
     }
     return errorResponse(c, 'INVALID_CREDENTIALS', 'Mật khẩu không chính xác!', 401)
   }
 
+  // Phase 1 (Auth split-tx): reset lockout + rehash + session mới + audit LOGIN
+  // cùng 1 transaction — không còn khe "reset đã commit nhưng session/audit mất".
   const now = new Date().toISOString()
-  await db.update(users).set({ failedAttempts: 0, lastLoginAt: now }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
+  const tokens = await runDbTransaction(async (tx) => {
+    await tx.update(users).set({ failedAttempts: 0, lastLoginAt: now }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
 
-  // A-NEW-19 (2026-08-11): rehash-on-login — hash legacy cost 10 (tạo trước khi upgrade
-  // BCRYPT_COST=12) tự migrate lên cost 12 khi user đăng nhập thành công
-  // (OWASP Password Storage §Rehashing; bcrypt.compare tự nhận dạng cost từ $2a$10$...$.
-  const isLegacyHash = isLegacyCostHash(user.passwordHash)
-  if (isLegacyHash) {
-    const upgradedHash = await bcrypt.hash(password, BCRYPT_COST)
-    await db.update(users).set({ passwordHash: upgradedHash })
-      .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-  }
+    // A-NEW-19 (2026-08-11): rehash-on-login — hash legacy cost 10 (tạo trước khi upgrade
+    // BCRYPT_COST=12) tự migrate lên cost 12 khi user đăng nhập thành công
+    // (OWASP Password Storage §Rehashing; bcrypt.compare tự nhận dạng cost từ $2a$10$...$.
+    const isLegacyHash = isLegacyCostHash(user.passwordHash)
+    if (isLegacyHash) {
+      const upgradedHash = await bcrypt.hash(password, BCRYPT_COST)
+      await tx.update(users).set({ passwordHash: upgradedHash })
+        .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
+    }
 
-  const tokens = await issueTokensWithSession(
-    {
-      id: user.id,
-      username: user.username,
-      role: user.role as JwtPayload['role'],
+    const issued = await issueTokensWithSessionIn(
+      tx,
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role as JwtPayload['role'],
+        parishId: user.parishId,
+      },
+      user.tokenVersion || 1,
+    )
+
+    const ip = getClientIp(c)
+    const userAgent = c.req.header('user-agent') || ''
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.id,
+      action: 'LOGIN',
+      entityType: 'auth',
+      entityId: user.id,
+      newValue: JSON.stringify({ username: user.username, role: user.role }),
+      ip,
+      userAgent,
       parishId: user.parishId,
-    },
-    user.tokenVersion || 1,
-  )
-
-  const ip = getClientIp(c)
-  const userAgent = c.req.header('user-agent') || ''
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: user.id,
-    action: 'LOGIN',
-    entityType: 'auth',
-    entityId: user.id,
-    newValue: JSON.stringify({ username: user.username, role: user.role }),
-    ip,
-    userAgent,
-    parishId: user.parishId,
+    })
+    return issued
   })
 
   setRefreshCookie(c, tokens.refreshToken)
@@ -235,35 +249,49 @@ auth.post('/change-password', authMiddleware, zValidator('json', changePasswordS
   }
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
-  const nextVersion = (user.tokenVersion || 1) + 1
+  // Phase 1 (Auth split-tx): password/tokenVersion + revoke sessions + session
+  // mới + audit commit cùng 1 transaction — không còn khe "pass đổi nhưng không
+  // có session mới". tokenVersion tăng atomic qua SQL + RETURNING nên double-
+  // submit song song không lost-update (request sau thấy version mới nhất).
   // ADR-021 rewrite (2026-08-08): mật khẩu do CHÍNH USER đặt không bao giờ được
   // lưu dưới dạng reversible — password_encrypted chỉ tồn tại cho password tạm
   // (admin tạo/reset/admin-set). User đổi pass → xóa bản mã hóa (NULL).
-  await db.update(users).set({ passwordHash, passwordEncrypted: null, status: 'ACTIVE', mustChangePassword: 0, failedAttempts: 0, lockedUntil: null, tokenVersion: nextVersion }).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId)))
-  await revokeAllSessions(jwtUser.userId, jwtUser.parishId)
+  const { tokens } = await runDbTransaction(async (tx) => {
+    const [updated] = await tx.update(users).set({
+      passwordHash, passwordEncrypted: null, status: 'ACTIVE', mustChangePassword: 0,
+      failedAttempts: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1`,
+    }).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).returning({ tokenVersion: users.tokenVersion })
+    if (!updated) {
+      const err = new Error('Tài khoản không tồn tại') as any
+      err.status = 404
+      throw err
+    }
+    await revokeAllSessionsWith(tx, jwtUser.userId, jwtUser.parishId)
 
-  const tokens = await issueTokensWithSession(
-    {
-      id: user.id,
-      username: user.username,
-      role: user.role as JwtPayload['role'],
-      parishId: user.parishId,
-    },
-    nextVersion,
-  )
+    const issued = await issueTokensWithSessionIn(tx,
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role as JwtPayload['role'],
+        parishId: user.parishId,
+      },
+      updated.tokenVersion,
+    )
 
-  const ip = getClientIp(c)
-  const userAgent = c.req.header('user-agent') || ''
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: jwtUser.userId,
-    action: 'CHANGE_PASSWORD',
-    entityType: 'user',
-    entityId: jwtUser.userId,
-    newValue: JSON.stringify({ username: user.username }),
-    ip,
-    userAgent,
-    parishId: jwtUser.parishId,
+    const ip = getClientIp(c)
+    const userAgent = c.req.header('user-agent') || ''
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: jwtUser.userId,
+      action: 'CHANGE_PASSWORD',
+      entityType: 'user',
+      entityId: jwtUser.userId,
+      newValue: JSON.stringify({ username: user.username }),
+      ip,
+      userAgent,
+      parishId: jwtUser.parishId,
+    })
+    return { tokens: issued }
   })
 
   setRefreshCookie(c, tokens.refreshToken)
@@ -312,20 +340,24 @@ auth.post('/admin-change-password', authMiddleware, adminReauthRateLimiter, zVal
   if (!target) return errorResponse(c, 'USER_NOT_FOUND', 'Tài khoản không tồn tại', 404)
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
-  const nextTargetVersion = (target.tokenVersion || 1) + 1
-  await db.update(users).set({ passwordHash, passwordEncrypted: null, status: 'FORCE_PASSWORD_CHANGE', mustChangePassword: 1, failedAttempts: 0, lockedUntil: null, tokenVersion: nextTargetVersion }).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId)))
-  await revokeAllSessions(userId, jwtUser.parishId)
+  // Phase 1 (Auth split-tx): reset pass + revoke sessions + audit cùng 1
+  // transaction — không còn khe "pass mới đã commit nhưng session cũ còn row".
+  // tokenVersion tăng atomic (double-reset song song không lost-update).
+  await runDbTransaction(async (tx) => {
+    await tx.update(users).set({ passwordHash, passwordEncrypted: null, status: 'FORCE_PASSWORD_CHANGE', mustChangePassword: 1, failedAttempts: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` }).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId)))
+    await revokeAllSessionsWith(tx, userId, jwtUser.parishId)
 
-  await db.insert(auditLogs).values({
-    id: generateId('AUD'),
-    userId: jwtUser.userId,
-    action: 'ADMIN_CHANGE_PASSWORD',
-    entityType: 'user',
-    entityId: userId,
-    newValue: JSON.stringify({ username: target.username }),
-    ip,
-    userAgent,
-    parishId: jwtUser.parishId,
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: jwtUser.userId,
+      action: 'ADMIN_CHANGE_PASSWORD',
+      entityType: 'user',
+      entityId: userId,
+      newValue: JSON.stringify({ username: target.username }),
+      ip,
+      userAgent,
+      parishId: jwtUser.parishId,
+    })
   })
 
   return successResponse(c, { success: true, message: `Đã đặt lại mật khẩu cho ${target.fullName}` })
@@ -367,9 +399,12 @@ auth.post('/logout', csrfOriginGuard, authMiddleware, async (c) => {
 
   const [user] = await db.select().from(users).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).limit(1)
   if (user) {
-    const nextVersion = (user.tokenVersion || 1) + 1
-    await db.update(users).set({ tokenVersion: nextVersion }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-    await revokeAllSessions(user.id, user.parishId)
+    // Phase 1: bump version + revoke cùng tx (khe giữa 2 writes cũ để lại
+    // version mới mà rows chưa revoke — dù version check đã cứu, tx vẫn đúng hơn).
+    await runDbTransaction(async (tx) => {
+      await tx.update(users).set({ tokenVersion: sql`${users.tokenVersion} + 1` }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
+      await revokeAllSessionsWith(tx, user.id, user.parishId)
+    })
   }
   return successResponse(c, { success: true, message: 'Đăng xuất thành công, tất cả phiên đăng nhập đã được thu hồi' })
 })

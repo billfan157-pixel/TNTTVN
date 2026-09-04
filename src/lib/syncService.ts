@@ -1,6 +1,6 @@
 import { useSyncStore } from '../stores/syncStore'
 
-type Entity = 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' | 'exam_result'
+type Entity = 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' | 'exam_result' | 'daily_entry'
 type Operation = 'CREATE' | 'UPDATE' | 'DELETE'
 
 export interface ExamResultSyncScore {
@@ -153,4 +153,18 @@ export function syncReopenExam(sessionId: string): Promise<string> {
 
 export function syncDeleteExam(sessionId: string): Promise<string> {
   return enqueue('exam', 'DELETE', sessionId, { action: 'delete_session', sessionId })
+}
+
+// ─── Daily entry (Tier 2) ───
+// id client-stable (DG-...) → server idempotent qua PK (parish_id,id).
+// CREATE (không UPDATE): add-then-remove khi offline được compact hủy cả cặp;
+// retry sau khi đã gửi trả `duplicate`, không nhân đôi.
+export function syncUpsertDailyEntry(data: {
+  id: string; studentId: string; academicYear: string; semester: number; scoreType: string; value: number; date?: string
+}): Promise<string> {
+  return enqueue('daily_entry', 'CREATE', data.id, data)
+}
+
+export function syncDeleteDailyEntry(id: string): Promise<string> {
+  return enqueue('daily_entry', 'DELETE', id, { id })
 }

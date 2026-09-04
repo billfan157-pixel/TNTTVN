@@ -45,6 +45,76 @@ function formatStudentName(studentId: string, results: ExamResult[], resolver?: 
  * Khớp PROTECTED_GRADE_SOURCES bên server (examService.ts) — server là nguồn chốt cuối.
  * Thuần — mọi side-effect qua deps, unit-test được không cần mount Zustand.
  */
+export interface ServerFinalizationItem {
+  studentId: string
+  examResultId: string
+  gradeId: string | null
+  scoreField: string
+  status: 'committed' | 'conflict'
+  existingSource: string | null
+  rawScore: number
+  finalScore: number | null
+}
+
+export interface ServerFinalizationReceipt {
+  session?: unknown
+  finalizationId?: string | null
+  items?: ServerFinalizationItem[]
+  committed?: number
+  conflicts?: number
+  legacy?: boolean
+}
+
+export interface ServerFinalizeMapDeps {
+  receipt: ServerFinalizationReceipt
+  scoreType: string
+  semester: 1 | 2
+  results: ExamResult[]
+  readGrade: ExamFinalizeDeps['readGrade']
+  studentNameResolver?: ExamFinalizeDeps['studentNameResolver']
+}
+
+/**
+ * P0-01 (Phase 0 containment): project server finalization receipt thành
+ * ExamFinalizeResult HIỂN THỊ — thuần, không side-effect, không ghi grade.
+ * Server là sole writer của grades/ledger; client không được gọi addDailyEntry
+ * hay upsertGrade sau complete. existingScore đọc local chỉ để hiển thị.
+ */
+export function mapServerFinalizationToResult(deps: ServerFinalizeMapDeps): ExamFinalizeResult {
+  const { receipt, scoreType, semester, results, readGrade, studentNameResolver } = deps
+  const items = Array.isArray(receipt.items) ? receipt.items : []
+  const fieldMap = SCORE_FIELD_MAP[scoreType]
+  const conflicts: ExamConflict[] = []
+  let committedCount = 0
+
+  for (const item of items) {
+    if (item.status === 'conflict') {
+      const grade = readGrade(item.studentId, semester)
+      const rawExisting = fieldMap && grade
+        ? (grade as Record<string, unknown>)[fieldMap.field]
+        : null
+      conflicts.push({
+        studentId: item.studentId,
+        studentName: formatStudentName(item.studentId, results, studentNameResolver),
+        existingSource: (item.existingSource === 'manual' || item.existingSource === 'override' || item.existingSource === 'excel_import')
+          ? item.existingSource
+          : 'manual',
+        existingScore: typeof rawExisting === 'number' ? rawExisting : null,
+        scannedScore: item.rawScore,
+      })
+      continue
+    }
+    committedCount++
+  }
+
+  const isDaily = (DAILY_TYPES as readonly string[]).includes(scoreType)
+  return {
+    dailyCount: isDaily ? committedCount : 0,
+    directCount: isDaily ? 0 : committedCount,
+    conflicts,
+    skipped: conflicts.length,
+  }
+}
 export function evaluateExamFinalizeConflictsAndRoute(deps: ExamFinalizeDeps): ExamFinalizeResult {
   const { results, session, readGrade, addDailyEntry, upsertGrade } = deps
   const semester = session.semester as 1 | 2

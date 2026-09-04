@@ -1,9 +1,10 @@
-import { db, type DbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbTransaction, type DbExecutor } from '../db/index.js'
 import { students, classes, grades, attendance, gradeOverrides, auditLogs } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
 import { drizzlePromotionRepository, DrizzlePromotionRepository } from '../repositories/DrizzlePromotionRepository.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
-import { promotionEligibilitySpecification, PromotionEligibilitySpecification } from '../domain/PromotionSpecifications.js'
+import { PromotionEligibilitySpecification } from '../domain/PromotionSpecifications.js'
+import { promotionEligibilitySpecification } from './policyAdapters.js'
 import type { EvaluationInput } from '../domain/PromotionSpecifications.js'
 import { PromotionDecision } from '../domain/PromotionDecision.js'
 import type { PromotionStatus } from '../domain/PromotionDecision.js'
@@ -13,7 +14,7 @@ import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import { getAcademicYearDateRange } from './academicYearService.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getCurrentPolicyVersionId } from './parishSettingsService.js'
 
-import { canAccessStudentSpecification } from '../domain/CanAccessStudentSpecification.js'
+import { canAccessStudentSpecification } from './policyAdapters.js'
 import { checkUserClassAccess, type JwtPayload } from '../middleware/auth.js'
 
 export interface ApprovePromotionCommand {
@@ -55,15 +56,16 @@ export class PromotionApplicationService {
     parishId: string
     studentId: string
     academicYear: string
+    executor?: DbExecutor
   }): Promise<{ gpa: number | null; attendanceRate: number }> {
-    const { parishId, studentId, academicYear } = params
+    const { parishId, studentId, academicYear, executor = db } = params
 
     // GPA = trung bình các GPA học kỳ (mỗi GPA học kỳ đã round theo
     // roundingDecimal từ settings) — khớp client calculateYearlyGpa.
     // PRM-01 (audit 2026-08-08): chỉ tính semester 1+2 cho khớp Finalize
     // (AcademicYearLifecycleService chỉ lấy g1/g2) — nếu có dòng semester 3/4
     // mà đem trung bình luôn thì GPA approve lệch snapshot → 409 chặn promote.
-    const gradeRows = await db
+    const gradeRows = await executor
       .select()
       .from(grades)
       .where(
@@ -77,7 +79,7 @@ export class PromotionApplicationService {
 
     // G-02: Load Active Grade Overrides for these gradeRows
     const gradeIds = gradeRows.map(g => g.id)
-    const activeOverrides = gradeIds.length > 0 ? await db
+    const activeOverrides = gradeIds.length > 0 ? await executor
       .select()
       .from(gradeOverrides)
       .where(
@@ -88,7 +90,7 @@ export class PromotionApplicationService {
         )
       ) : []
 
-    const weights = await getParishGradeWeights(parishId)
+    const weights = await getParishGradeWeights(parishId, executor)
     const studentGpas: number[] = []
     for (const g of gradeRows) {
       // G-02: Apply overrides to form effective grade
@@ -105,8 +107,8 @@ export class PromotionApplicationService {
       : null
 
     // Attendance: chỉ đếm trong năm học đang xét (không phải all-time).
-    const range = await getAcademicYearDateRange(parishId, academicYear)
-    const attendanceRows = await db
+    const range = await getAcademicYearDateRange(parishId, academicYear, executor)
+    const attendanceRows = await executor
       .select()
       .from(attendance)
       .where(
@@ -118,7 +120,7 @@ export class PromotionApplicationService {
         )
       )
 
-    const attendancePolicy = await getParishAttendancePolicy(parishId)
+    const attendancePolicy = await getParishAttendancePolicy(parishId, executor)
     const excusedWeight = Math.min(Math.max(attendancePolicy.excusedWeight, 0), 1)
     const presentMasses = attendanceRows.reduce((acc, a) => {
       if (a.status === 'Present') return acc + 1
@@ -178,11 +180,11 @@ export class PromotionApplicationService {
       gpa: computedGpa,
       attendanceRate: computedAttendanceRate,
       policy,
-    })
+    }, db)
   }
 
-  public async evaluateStudent(input: EvaluationInput): Promise<PromotionDecision> {
-    const res = await this.eligibilitySpec.evaluate(input)
+  public async evaluateStudent(input: EvaluationInput, executor: DbExecutor = db): Promise<PromotionDecision> {
+    const res = await this.eligibilitySpec.evaluate(input, executor)
     return new PromotionDecision({
       studentId: input.studentId,
       academicYear: input.academicYear,
@@ -196,123 +198,136 @@ export class PromotionApplicationService {
   }
 
   public async approvePromotion(cmd: ApprovePromotionCommand, externalTx?: DbTransaction): Promise<PromotionRecordDTO> {
-    if (cmd.user && cmd.user.role !== 'admin') {
-      const isAuthorized = await canAccessStudentSpecification.isSatisfiedBy(cmd.user, cmd.studentId)
-      if (!isAuthorized) {
-        const err = new Error('Bạn không có quyền phê duyệt xét lên lớp cho thiếu nhi này') as any
-        err.status = 403
-        throw err
-      }
-      if (cmd.nextClassId) {
-        const canAccessNext = await checkUserClassAccess(cmd.user.userId, cmd.parishId, cmd.nextClassId)
-        if (!canAccessNext) {
-          const err = new Error('Bạn không có quyền gán thiếu nhi vào lớp chuyển đến này') as any
+    // Phase 1 (Promotion TOCTOU): TOÀN BỘ reads/prechecks + snapshot write chạy
+    // trong CÙNG 1 transaction (externalTx của batch/promote, hoặc
+    // runDbTransaction riêng với SQLITE_BUSY retry). Không còn khe
+    // check-then-use giữa validation và commit.
+    const runInTx = externalTx
+      ? (fn: (tx: DbTransaction) => Promise<PromotionRecordDTO>) => fn(externalTx)
+      : (fn: (tx: DbTransaction) => Promise<PromotionRecordDTO>) => runDbTransaction(fn)
+
+    return runInTx(async (tx) => {
+      if (cmd.user && cmd.user.role !== 'admin') {
+        const isAuthorized = await canAccessStudentSpecification.isSatisfiedBy(cmd.user, cmd.studentId, tx)
+        if (!isAuthorized) {
+          const err = new Error('Bạn không có quyền phê duyệt xét lên lớp cho thiếu nhi này') as any
           err.status = 403
           throw err
         }
+        if (cmd.nextClassId) {
+          const canAccessNext = await checkUserClassAccess(cmd.user.userId, cmd.parishId, cmd.nextClassId, tx)
+          if (!canAccessNext) {
+            const err = new Error('Bạn không có quyền gán thiếu nhi vào lớp chuyển đến này') as any
+            err.status = 403
+            throw err
+          }
+        }
       }
-    }
-    // PRM-02 (audit 2026-08-08): không ghi snapshot cho học sinh đã xoá/không còn học
-    const [student] = await db
-      .select({ id: students.id })
-      .from(students)
-      .where(
-        and(
-          eq(students.id, cmd.studentId),
-          eq(students.parishId, cmd.parishId),
-          isNull(students.deletedAt),
-          eq(students.status, 'Đang học')
+      // PRM-02 (audit 2026-08-08): không ghi snapshot cho học sinh đã xoá/không còn học
+      const [student] = await tx
+        .select({ id: students.id })
+        .from(students)
+        .where(
+          and(
+            eq(students.id, cmd.studentId),
+            eq(students.parishId, cmd.parishId),
+            isNull(students.deletedAt),
+            eq(students.status, 'Đang học')
+          )
         )
-      )
-      .limit(1)
-    if (!student) {
-      const err = new Error('Không tìm thấy thông tin thiếu nhi') as any
-      err.status = 404
-      throw err
-    }
-    // PRM-03 (audit 2026-08-09): targetClassId/nextClassId không có FK vào classes
-    // và không verify thuộc parish → chặn snapshot trỏ lớp không tồn tại/khác giáo xứ.
-    const classIds = [cmd.targetClassId, cmd.nextClassId].filter((id): id is string => Boolean(id))
-    const uniqueClassIds = [...new Set(classIds)]
-    if (uniqueClassIds.length > 0) {
-      const classRows = await db
-        .select({ id: classes.id })
-        .from(classes)
-        .where(and(inArray(classes.id, uniqueClassIds), eq(classes.parishId, cmd.parishId)))
-      const foundClassIds = new Set(classRows.map((r) => r.id))
-      const missingClassIds = uniqueClassIds.filter((id) => !foundClassIds.has(id))
-      if (missingClassIds.length > 0) {
-        const err = new Error(`Lớp đích không tồn tại hoặc thuộc giáo xứ khác: ${missingClassIds.join(', ')}`) as any
+        .limit(1)
+      if (!student) {
+        const err = new Error('Không tìm thấy thông tin thiếu nhi') as any
+        err.status = 404
+        throw err
+      }
+      // PRM-03 (audit 2026-08-09): targetClassId/nextClassId không có FK vào classes
+      // và không verify thuộc parish → chặn snapshot trỏ lớp không tồn tại/khác giáo xứ.
+      const classIds = [cmd.targetClassId, cmd.nextClassId].filter((id): id is string => Boolean(id))
+      const uniqueClassIds = [...new Set(classIds)]
+      if (uniqueClassIds.length > 0) {
+        const classRows = await tx
+          .select({ id: classes.id })
+          .from(classes)
+          .where(and(inArray(classes.id, uniqueClassIds), eq(classes.parishId, cmd.parishId)))
+        const foundClassIds = new Set(classRows.map((r) => r.id))
+        const missingClassIds = uniqueClassIds.filter((id) => !foundClassIds.has(id))
+        if (missingClassIds.length > 0) {
+          const err = new Error(`Lớp đích không tồn tại hoặc thuộc giáo xứ khác: ${missingClassIds.join(', ')}`) as any
+          err.status = 400
+          throw err
+        }
+      }
+      // F2-audit: Không tin gpa/attendanceRate do client gửi — máy chủ tự tính lại
+      // từ DB và từ chối nếu lệch (chặn dữ liệu cũ/bị chỉnh sửa, race condition,
+      // hoặc payload giả mạo).
+      const authoritative = await this.computeAuthoritativeMetrics({
+        parishId: cmd.parishId,
+        studentId: cmd.studentId,
+        academicYear: cmd.academicYear,
+        executor: tx,
+      })
+      const authoritativeGpa = authoritative.gpa ?? 0
+      if (cmd.gpa !== authoritativeGpa) {
+        const err = new Error(
+          `Điểm trung bình không khớp dữ liệu máy chủ (máy chủ tính ${authoritativeGpa}, dữ liệu gửi lên ${cmd.gpa}). Hãy đồng bộ lại điểm và thử lại.`
+        ) as any
+        err.status = 409
+        throw err
+      }
+      if (cmd.attendanceRate !== authoritative.attendanceRate) {
+        const err = new Error(
+          `Tỷ lệ chuyên cần không khớp dữ liệu máy chủ (máy chủ tính ${authoritative.attendanceRate}%, dữ liệu gửi lên ${cmd.attendanceRate}%). Hãy đồng bộ lại và thử lại.`
+        ) as any
+        err.status = 409
+        throw err
+      }
+
+      const parishPolicy = await getParishPromotionPolicy(cmd.parishId, tx)
+      const policy = cmd.policy || parishPolicy
+      const evalRes = await this.eligibilitySpec.evaluate({
+        studentId: cmd.studentId,
+        academicYear: cmd.academicYear,
+        parishId: cmd.parishId,
+        gpa: authoritativeGpa,
+        attendanceRate: authoritative.attendanceRate,
+        policy,
+      }, tx)
+
+      // If HK2 is not locked, evaluation MUST fail
+      if (evalRes.rejectionReasons.some((r) => r.includes('chưa được khóa'))) {
+        const err = new Error(evalRes.rejectionReasons.find((r) => r.includes('chưa được khóa'))!) as any
+        err.status = 403
+        throw err
+      }
+
+      const autoDecision = evalRes.suggestedStatus
+      const finalDecision = cmd.manualDecision || autoDecision
+      const isOverridden = autoDecision !== finalDecision
+
+      if (isOverridden && (!cmd.overrideReason || cmd.overrideReason.trim().length === 0)) {
+        const err = new Error('Bắt buộc nhập lý do điều chỉnh khi thay đổi kết quả xét lên lớp tự động') as any
         err.status = 400
         throw err
       }
-    }
-    // F2-audit: Không tin gpa/attendanceRate do client gửi — máy chủ tự tính lại
-    // từ DB và từ chối nếu lệch (chặn dữ liệu cũ/bị chỉnh sửa, race condition,
-    // hoặc payload giả mạo).
-    const authoritative = await this.computeAuthoritativeMetrics({
-      parishId: cmd.parishId,
-      studentId: cmd.studentId,
-      academicYear: cmd.academicYear,
-    })
-    const authoritativeGpa = authoritative.gpa ?? 0
-    if (cmd.gpa !== authoritativeGpa) {
-      const err = new Error(
-        `Điểm trung bình không khớp dữ liệu máy chủ (máy chủ tính ${authoritativeGpa}, dữ liệu gửi lên ${cmd.gpa}). Hãy đồng bộ lại điểm và thử lại.`
-      ) as any
-      err.status = 409
-      throw err
-    }
-    if (cmd.attendanceRate !== authoritative.attendanceRate) {
-      const err = new Error(
-        `Tỷ lệ chuyên cần không khớp dữ liệu máy chủ (máy chủ tính ${authoritative.attendanceRate}%, dữ liệu gửi lên ${cmd.attendanceRate}%). Hãy đồng bộ lại và thử lại.`
-      ) as any
-      err.status = 409
-      throw err
-    }
 
-    const parishPolicy = await getParishPromotionPolicy(cmd.parishId)
-    const policy = cmd.policy || parishPolicy
-    const evalRes = await this.eligibilitySpec.evaluate({
-      studentId: cmd.studentId,
-      academicYear: cmd.academicYear,
-      parishId: cmd.parishId,
-      gpa: authoritativeGpa,
-      attendanceRate: authoritative.attendanceRate,
-      policy,
-    })
-
-    // If HK2 is not locked, evaluation MUST fail
-    if (evalRes.rejectionReasons.some((r) => r.includes('chưa được khóa'))) {
-      const err = new Error(evalRes.rejectionReasons.find((r) => r.includes('chưa được khóa'))!) as any
-      err.status = 403
-      throw err
-    }
-
-    const autoDecision = evalRes.suggestedStatus
-    const finalDecision = cmd.manualDecision || autoDecision
-    const isOverridden = autoDecision !== finalDecision
-
-    if (isOverridden && (!cmd.overrideReason || cmd.overrideReason.trim().length === 0)) {
-      const err = new Error('Bắt buộc nhập lý do điều chỉnh khi thay đổi kết quả xét lên lớp tự động') as any
-      err.status = 400
-      throw err
-    }
-
-    const executeFn = async (tx: DbTransaction) => {
       // ADR-047: Capture current policy version for audit trail
-      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId)
-      const gradeWeights = await getParishGradeWeights(cmd.parishId)
+      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
+      const gradeWeights = await getParishGradeWeights(cmd.parishId, tx)
 
       // Check for existing active snapshot for Idempotency
       const existing = await this.promotionRepo.findActiveSnapshot(cmd.studentId, cmd.academicYear, cmd.parishId, tx)
 
-      // Idempotent return if already approved with identical parameters
+      // Idempotent return nếu đã approve với tham số TƯƠNG ĐƯƠNG — so cả lớp
+      // đích (trước đây khác nextClassId nhưng cùng điểm vẫn bị coi là skipped,
+      // move lớp bị mất thầm lặng ở lần chạy 2 của batch).
       if (
         existing &&
         existing.finalDecision === finalDecision &&
         existing.gpaSnapshot === authoritativeGpa &&
-        existing.attendanceSnapshot === authoritative.attendanceRate
+        existing.attendanceSnapshot === authoritative.attendanceRate &&
+        existing.targetClassId === cmd.targetClassId &&
+        (existing.nextClassId || null) === (cmd.nextClassId || null)
       ) {
         return existing
       }
@@ -365,9 +380,7 @@ export class PromotionApplicationService {
         createdAt: now,
       })
       return newSnapshot
-    }
-
-    return externalTx ? executeFn(externalTx) : db.transaction(executeFn)
+    })
   }
 }
 

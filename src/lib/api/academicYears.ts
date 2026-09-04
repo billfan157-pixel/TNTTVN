@@ -1,4 +1,4 @@
-import { httpFetch } from '../api'
+import { httpFetch } from './core'
 
 export type AcademicYearStatus = 'OPEN' | 'SEMESTER_1_LOCKED' | 'SEMESTER_2_OPEN' | 'SEMESTER_2_LOCKED' | 'FINALIZED' | 'PROMOTED' | 'ARCHIVED'
 

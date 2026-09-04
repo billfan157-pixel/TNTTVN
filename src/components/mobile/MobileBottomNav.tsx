@@ -6,9 +6,13 @@ import {
   Users,
   PieChart,
   HeartHandshake,
+  Calendar,
+  Wallet,
+  Bell,
+  FileText,
 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
-import { canRoleAccessRoute, type MobileRouteTab } from '../../constants/routePolicy'
+import { canRoleAccessRoute, type MobileRouteTab, type WorkspaceId } from '../../constants/routePolicy'
 
 export type MobileTab = MobileRouteTab
 
@@ -16,6 +20,7 @@ interface MobileBottomNavProps {
   activeTab: MobileTab | null
   setActiveTab: (tab: MobileTab) => void | Promise<void>
   preloadTab?: (tab: MobileTab) => void
+  activeWorkspace?: WorkspaceId
 }
 
 interface MobileNavItem {
@@ -24,14 +29,27 @@ interface MobileNavItem {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>
 }
 
-export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, preloadTab }) => {
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, preloadTab, activeWorkspace }) => {
   const { role } = useAuth()
   const [pendingTab, setPendingTab] = useState<MobileTab | null>(null)
 
   useEffect(() => {
     setPendingTab(current => current === activeTab ? null : current)
   }, [activeTab])
-  const tabs: MobileNavItem[] = [
+
+  const orgTabs: MobileNavItem[] = [
+    { id: 'parish-home', label: 'Tổng quan', icon: Home },
+    ...(canRoleAccessRoute('/catechists', role) ? [{ id: 'catechists' as const, label: 'Huynh trưởng', icon: Users }] : []),
+    ...(canRoleAccessRoute('/calendar', role) ? [{ id: 'calendar' as const, label: 'Lịch xứ', icon: Calendar }] : []),
+    ...(canRoleAccessRoute('/finances', role)
+      ? [{ id: 'finances' as const, label: 'Sổ quỹ', icon: Wallet }]
+      : canRoleAccessRoute('/notices', role)
+        ? [{ id: 'notices' as const, label: 'Thông báo', icon: Bell }]
+        : []),
+    ...(canRoleAccessRoute('/parish-profile', role) ? [{ id: 'parish-profile' as const, label: 'Hồ sơ xứ', icon: FileText }] : []),
+  ]
+
+  const academicTabs: MobileNavItem[] = [
     { id: 'home', label: 'Trang chủ', icon: Home },
     ...(canRoleAccessRoute('/attendance', role) ? [{ id: 'attendance' as const, label: 'Điểm danh', icon: CheckSquare }] : []),
     ...(canRoleAccessRoute('/grades', role) ? [{ id: 'grades' as const, label: 'Bảng điểm', icon: FileSpreadsheet }] : []),
@@ -42,6 +60,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
         : []),
     ...(canRoleAccessRoute('/reports', role) ? [{ id: 'reports' as const, label: 'Báo cáo', icon: PieChart }] : []),
   ]
+
+  const tabs = activeWorkspace === 'organization' ? orgTabs : academicTabs
 
   return (
     <nav className="mobile-bottom-nav" aria-label="Điều hướng chính">

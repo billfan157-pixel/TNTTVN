@@ -9,13 +9,16 @@ const appReleaseId = process.env.VITE_APP_RELEASE_ID
   || process.env.VERCEL_GIT_COMMIT_SHA
   || process.env.RENDER_GIT_COMMIT
   || 'dev'
+const publicReleaseId = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(appReleaseId)
+  ? appReleaseId
+  : 'invalid'
 const devPort = Number(process.env.VITE_DEV_PORT) || 3000
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:3001'
 const strictDevPort = process.env.E2E_STRICT_PORT === 'true'
 
 export default defineConfig({
   define: {
-    __APP_RELEASE_ID__: JSON.stringify(appReleaseId),
+    __APP_RELEASE_ID__: JSON.stringify(publicReleaseId),
   },
   server: {
     host: '0.0.0.0',
@@ -88,6 +91,15 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: 'catevia-release-provenance',
+      transformIndexHtml(html) {
+        return html.replace(
+          '<meta charset="UTF-8" />',
+          `<meta charset="UTF-8" />\n    <meta name="catevia-release" content="${publicReleaseId}" />`,
+        )
+      },
+    },
     react(),
     tailwindHmrFix(),
     tailwindcss(),

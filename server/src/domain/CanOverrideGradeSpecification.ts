@@ -1,13 +1,29 @@
-import { checkUserClassAccess } from '../middleware/auth.js'
-import { getStudentClassId } from '../services/studentService.js'
+import type { DbExecutor } from '../db/index.js'
+import type { ClassAccessPort, StudentClassPort } from './ports.js'
 
+/**
+ * Phase 2 (policy ports): spec chỉ phụ thuộc ports (inject qua constructor).
+ * Không còn static import middleware auth / studentService trong domain —
+ * singletons concrete nằm ở services/policyAdapters.ts.
+ */
 export class CanOverrideGradeSpecification {
-  public async isSatisfiedBy(userId: string, targetStudentId: string, userParishId: string): Promise<boolean> {
-    const studentClassId = await getStudentClassId(targetStudentId, userParishId)
+  private access: ClassAccessPort
+  private classes: StudentClassPort
+
+  constructor(access: ClassAccessPort, classes: StudentClassPort) {
+    this.access = access
+    this.classes = classes
+  }
+
+  public async isSatisfiedBy(
+    userId: string,
+    targetStudentId: string,
+    userParishId: string,
+    executor?: DbExecutor,
+  ): Promise<boolean> {
+    const studentClassId = await this.classes.getClassId(targetStudentId, userParishId, executor)
     if (!studentClassId) return false
-    const hasAccess = await checkUserClassAccess(userId, userParishId, studentClassId)
+    const hasAccess = await this.access.hasAccess(userId, userParishId, studentClassId, executor)
     return hasAccess
   }
 }
-
-export const canOverrideGradeSpecification = new CanOverrideGradeSpecification()

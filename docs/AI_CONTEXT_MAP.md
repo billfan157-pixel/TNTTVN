@@ -59,10 +59,10 @@
 
 ### Module: Student & Class Workspace Consolidation (ADR-090, 2026-09-01)
 
-- **Decision:** D2/GENERAL, R1. Amendment 2026-09-02 gộp catalog lớp và roster thành một mục `Danh Sách & Lớp`, giữ nguyên thiết kế lưới lớp cũ thay vì duy trì tab `Lớp Học` riêng.
+- **Decision:** D2/GENERAL, R1. Amendment 2026-09-02 gộp catalog lớp và roster thành một mục `Danh Sách & Lớp`, giữ nguyên thiết kế lưới lớp cũ thay vì duy trì tab `Lớp Học` riêng. Tối ưu hóa 2026-09-03 bảo toàn triết lý tối giản Calm, Confident, Crafted (loại bỏ card KPI trùng lặp với trang Tổng Quan), cân bằng chiều cao thẻ đều tăm tắp và vạch khăn phụng vụ TNTT tinh tế.
 - **Code truth:** `StudentsPage.tsx` normalize legacy `view=classes` về `students`. `DesktopStudentList.tsx` và `MobileStudentsView.tsx` render `DesktopClasses embedded layout="grid"` khi đang ở `selectedClassId='all'`; `onViewClassStudents` drill-down tới roster. `classStore.fetchClasses(updatedAfter)` luôn merge delta, kể cả delta rỗng, để không xóa catalog cache.
 - **Authorization:** `DesktopClasses.canEdit` tiếp tục admin-only, khớp backend class mutations. GLV được đọc roster/catalog lớp parish-wide đã tối thiểu hóa và dùng cùng lưới read-only; catalog chỉ thêm `assignedToCurrentUser` cho assignment của chính user. `ExamSessionView` lọc controls lớp thi bằng marker này, server `getUserClassIds` vẫn là authority read/write, và `/classes` còn là protected admin deep-link tương thích.
-- **Navigation/visual:** mục kết hợp dùng lưới navy–gold 2 cột touch, 3 cột desktop thường và 4 cột desktop rộng; toàn thẻ có button `Xem danh sách` accessible, còn edit/delete là action riêng. `/management` chỉ còn Năm Học + Tài Khoản Phụ Huynh.
+- **Navigation/visual:** mục kết hợp dùng lưới navy–gold 2 cột touch, 3 cột desktop thường và 4 cột desktop rộng (`h-full flex flex-col justify-between`); toàn thẻ có button `Xem danh sách` accessible căn đáy, còn edit/delete là action riêng có `e.stopPropagation()`. `/management` chỉ còn Năm Học + Tài Khoản Phụ Huynh.
 
 ### Module: Grading DEV Dependency Stability (ADR-076 reassess, 2026-09-01)
 
@@ -103,6 +103,13 @@
 - **Output/input boundaries:** receipt/report/exam print uses escaped HTML + Blob URL + detached opener; all `srcDoc` previews are sandboxed. `server/src/utils/date.ts` rejects impossible calendar dates across operational routes. External Parish Memory images are fetched only after explicit user action with no referrer.
 - **Class assignment:** `PUT /api/classes/:id/assignments` validates active same-tenant staff and atomically replaces/audits the full selection; client retains a committed new class ID for safe retry if assignment fails.
 - **Final evidence:** `verify:ci` PASS — **301 files / 2,054 tests**, coverage 70.16/59.42/63.46/72.74, DS 0/127, TypeScript + production client/PWA/server build. Critical E2E 10/10 qua initial/targeted remediation; affected final class-grid E2E 3/3. Capacitor sync + Android debug 185 tasks PASS; production audit 0 vulnerability. Physical-device/provider/OMR corpus/restore drill vẫn `NOT CONFIRMED`.
+
+### Module: CI-Gated Release Provenance & Bounded Metrics (ADR-100, 2026-09-03)
+
+- **Release authority:** `vercel.json` disables main Git auto-deploy and uses deterministic `npm ci`; only `.github/workflows/deploy-production.yml` may publish after successful CI. Vite injects sanitized `catevia-release`; backend `/health` exposes sanitized `APP_RELEASE_ID|RENDER_GIT_COMMIT`; post-deploy rejects either side unless it equals `VERIFIED_SHA`, then checks unauthenticated auth=401 plus CSP/HSTS.
+- **CI lifecycle:** attendance report export is fully awaited in test and its anchor/blob cleanup is synchronous, preventing delayed DOM work after jsdom teardown. `fast-uri` is lockfile-patched from vulnerable 3.1.5 to 3.1.7 through its existing Workbox/AJV chain.
+- **Metrics:** request labels prefer Hono route templates and normalize dynamic IDs, series are bounded, labels escaped, and request latency is a Prometheus histogram instead of a total-duration counter. Metrics remain in-memory/single-instance; durable collector/dashboard/alert ownership is still an operational gate.
+- **Verification:** focused contracts **4 files / 21 tests PASS**; critical real-backend E2E **10/10 PASS**; production dependency audit **0 vulnerability**; DS **0/127**, oxlint, client/server TypeScript and frontend/server production builds PASS. Serialized coverage completed **300/301 files, 2,056/2,057 tests PASS**; the sole mobile timeout passed immediately in isolation under normal and coverage modes (**3/3** each), so it is recorded as a CONDITIONAL environment/test-runner flake and the next CI run remains the authoritative full-green gate. Actual gated production redeploy remains NOT CONFIRMED.
 
 ---
 
@@ -699,6 +706,14 @@ server/src/                         ─ Backend Hono Application
 - **Exam boundary:** materialization writes legacy-compatible questions/keys plus ADR-094 manifests; `exam_question_snapshots` freezes exact source/version. Existing OMR/scoring/finalization remains authority. Only MC A–D and essay materialize initially.
 - **Recovery/offline/performance:** backup `2.1-question-bank`, legacy restore preservation and Purge v2.5 cover new records. Authoring/review/import/build require server; existing post-materialization Exam offline pipeline is unchanged. Mammoth/SheetJS are lazy and excluded from PWA precache.
 - **Do not infer:** a selected class ID is not stored as a Question Bank FK; text metadata is not a normalized curriculum hierarchy. `.doc`/images/embedded Word objects are not imported. Stored support for seven types is not Exam/OMR support for seven types; focused builds/tests do not prove hostile-DOCX resilience, production data scale or physical OMR quality.
+
+### Module: Architecture Risk Baseline Stabilization (ADR-101/102, 2026-09-03)
+
+- **Offline ownership:** `SyncQueueItem`/`SyncConflict` carry `parishId`; Dexie v7 indexes exact `(parishId,userId)`. `syncStore.isOwnOp` fails closed for missing/partial ownership and legacy rows are quarantined, never reassigned to the current login. Diagnostics, compaction/remap and notice pending preservation use the same predicate.
+- **Finance/grades/migrations:** `FinanceApplicationService.updateStudentFeeInTx` reconciles the linked ledger entry; class batch uses one transaction. Fee writes enforce the documented three-state/amount invariant and finance routes preserve validation as `400`; legacy `PARTIAL` is read-only pending a production data audit. Grade policy/lock/student/class/RBAC reads share the write transaction executor. `migrationRunner` wraps multi-statement SQL plus marker in one explicit transaction.
+- **Notice delta:** migrations `159/167`, `noticeService` soft delete, active-only full snapshots and tombstone-bearing delta pulls; `parent_revoked_at` limits redacted parent eviction rows to notices that actually lost parent visibility; `noticeStore` evicts tombstones.
+- **Notification worker:** migrations `160..166`; durable enqueue acknowledgement, persisted delivery kind/attempts/backoff, database claim lease, startup/poll recovery and fail-closed provider/target status. Semantics remain at-least-once across the provider-accept/DB-ack crash window.
+- **Boundaries:** server JWT/tenant/RBAC remain authority. No Question Bank, Exam/OMR lifecycle or native Service Worker behavior was rewritten. Physical-device OMR/native delivery and actual production redeploy remain external gates.
 
 
 

@@ -1,6 +1,7 @@
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER'
 
 export type FeeStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'EXEMPTED'
+export type WritableFeeStatus = Exclude<FeeStatus, 'PARTIAL'>
 
 export type FeeType = 'NIEN_LIEM' | 'TRAI_HE' | 'DONG_PHUC' | 'GIAO_LY' | 'OTHER'
 
@@ -69,6 +70,20 @@ export interface StudentFeeRecord {
   note?: string | null
   createdAt?: string
   updatedAt?: string
+}
+
+export interface UpdateStudentFeeInput {
+  studentId: string
+  classId: string
+  academicYear: string
+  feeType: FeeType
+  title: string
+  expectedAmount: number
+  paidAmount: number
+  status: WritableFeeStatus
+  note?: string
+  createTransaction?: boolean
+  fundId?: string
 }
 
 export interface FinanceSummary {

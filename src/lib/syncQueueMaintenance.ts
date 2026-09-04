@@ -56,6 +56,7 @@ export async function promoteTransientFailedOps(): Promise<void> {
   const db = getDB()
   const failed = await db.syncQueue.where('status').equals('failed').toArray()
   for (const item of failed) {
+    if (!isOwnOp(item)) continue
     // A-NEW-32: lastError được mã hóa khi ghi — giải mã trước khi regex (mã
     // ciphertext base64 không bao giờ khớp pattern nên op lỗi vĩnh viễn sẽ bị
     // promote nhầm nếu bỏ qua bước này).
@@ -77,7 +78,7 @@ export async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
     .where('status')
     .anyOf(['pending', 'retrying'])
     .toArray()
-  for (const item of pending) {
+  for (const item of pending.filter(isOwnOp)) {
     try {
       const payload = await parseQueuePayload(item.payload)
       if (!payload) continue

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
-import { grades, gradeOverrides, auditLogs, outboxMessages, students, branches, academicYears, classes, catechistAssignments, users } from '../../db/schema.js'
+import { grades, gradeOverrides, auditLogs, notifications, students, branches, academicYears, classes, catechistAssignments, users } from '../../db/schema.js'
 import { gradeApplicationService } from '../../services/GradeApplicationService.js'
 import { upsertGrade } from '../../services/gradeService.js'
 import { eq } from 'drizzle-orm'
@@ -51,7 +51,7 @@ describe('Grade Override Service & Outbox Transactions', () => {
 
   beforeEach(async () => {
     await db.delete(auditLogs).where(eq(auditLogs.parishId, testParish))
-    await db.delete(outboxMessages)
+    await db.delete(notifications).where(eq(notifications.parishId, testParish))
     await db.delete(gradeOverrides)
     await db.delete(grades).where(eq(grades.id, testGradeId))
 
@@ -66,7 +66,7 @@ describe('Grade Override Service & Outbox Transactions', () => {
     })
   })
 
-  it('soft-deletes override record during restore and updates outbox', async () => {
+  it('soft-deletes override record during restore', async () => {
     await db.insert(gradeOverrides).values({
       id: 'GROV-TEST-001',
       gradeId: testGradeId,
@@ -145,7 +145,7 @@ describe('Grade Override Service & Outbox Transactions', () => {
     expect(batchRes[0].status).toBe('restored')
   })
 
-  it('upsertGrade manual path emits GradeOverrideCreated outbox event (GRADE-ARCH-01)', async () => {
+  it('upsertGrade manual path enqueues GradeOverrideCreated via notificationQueue (Phase 2 convergence)', async () => {
     await upsertGrade(
       {
         studentId: testStudentId,
@@ -164,14 +164,15 @@ describe('Grade Override Service & Outbox Transactions', () => {
       null
     )
 
-    const rows = await db.select().from(outboxMessages).where(eq(outboxMessages.aggregateId, testGradeId))
+    // Phase 2: không còn outbox_messages — thông báo đi qua notifications
+    // (durable queue duy nhất), audit OVERRIDE_GRADE trong tx là trail chính.
+    const rows = await db.select().from(notifications).where(eq(notifications.parishId, testParish))
     expect(rows.length).toBe(1)
-    expect(rows[0].eventType).toBe('GradeOverrideCreated')
-    expect(rows[0].status).toBe('pending')
-    expect(rows[0].parishId).toBe(testParish)
-    const payload = JSON.parse(rows[0].payload)
-    expect(payload.scoreField).toBe('scoreOral')
-    expect(payload.manualValue).toBe(8.5)
+    expect(rows[0].type).toBe('telegram')
+    expect(rows[0].message).toContain('Điểm thủ công đã lưu')
+    expect(rows[0].message).toContain('scoreOral')
+    // escapeMarkdown của templateEngine escape dấu chấm (telegram MarkdownV2).
+    expect(rows[0].message).toContain('8\\.5')
 
     const ov = await db.select().from(gradeOverrides).where(eq(gradeOverrides.gradeId, testGradeId))
     expect(ov.length).toBe(1)

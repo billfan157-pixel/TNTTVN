@@ -26,6 +26,8 @@ interface SyncState {
   clearCompleted: () => Promise<void>
 
   // Option 1: Conflict Management
+  unresolvedConflictsCount: number
+  refreshConflictsCount: () => Promise<number>
   getConflicts: () => Promise<SyncConflict[]>
   addConflict: (conflict: Omit<SyncConflict, 'id' | 'createdAt' | 'resolved' | 'userId'>) => Promise<void>
   resolveConflict: (id: string) => Promise<void>
@@ -59,13 +61,36 @@ function getCurrentUserId(): string {
   return ''
 }
 
-/** ADR-016 (S19/OS-02): Fail-closed check khi có logged-in user. */
+/**
+ * OFF-TENANT-1: parish hiện tại từ session đã lưu. Queue ownership là exact
+ * (parishId, userId) — userId một mình KHÔNG phải tenant boundary (test
+ * syncTenantOwnership: cùng user ở 2 parish phải cô lập hoàn toàn).
+ */
+function getCurrentParishId(): string {
+  try {
+    const raw = localStorage.getItem('parish_current_user')
+    if (raw) {
+      const user = JSON.parse(raw)
+      if (user && typeof user.parishId === 'string' && user.parishId) return user.parishId
+    }
+  } catch {
+    // ignore
+  }
+  return ''
+}
+
+/** ADR-016 (S19/OS-02) + OFF-TENANT-1: Fail-closed exact-scope check. */
 export function isOwnOp(item: SyncQueueItem): boolean {
   const currentUserId = getCurrentUserId()
   if (!currentUserId) {
     return !item.userId || item.userId === ''
   }
-  return item.userId === currentUserId
+  if (item.userId !== currentUserId) return false
+  const currentParishId = getCurrentParishId()
+  // Scope parish active nhưng op thiếu/khác parish → không phải của phiên này
+  // (legacy rows chờ migrate quarantine; cross-parish rows của cùng user).
+  if (!currentParishId) return !item.parishId || item.parishId === ''
+  return item.parishId === currentParishId
 }
 
 async function getPendingQueueItems(): Promise<SyncQueueItem[]> {
@@ -90,32 +115,38 @@ async function getPendingQueueItems(): Promise<SyncQueueItem[]> {
 
 /** OS-02: Migration 1 lần cho legacy queue items rỗng/thiếu userId khi user đăng nhập. */
 export async function migrateLegacyQueueUserIds(): Promise<void> {
-  const currentUserId = getCurrentUserId()
-  if (!currentUserId) return
-  try {
-    const db = getDB()
-    const legacyItems = await db.syncQueue
-      .filter((item) => !item.userId || item.userId === '')
-      .toArray()
-    if (legacyItems.length === 0) return
-    const runUpdate = async () => {
-      for (const item of legacyItems) {
-        await db.syncQueue.update(item.id, { userId: currentUserId })
-      }
-    }
-    if (typeof db.transaction === 'function') {
-      await db.transaction('rw', db.syncQueue, runUpdate)
-    } else {
-      await runUpdate()
-    }
-  } catch {
-    // ignore
+  await migrateLegacyQueueOwnership()
+}
+
+/**
+ * OFF-TENANT-1: quarantine rows pending/retrying thiếu parishId thay vì đoán
+ * ownership (gán cho parish hiện tại từng là leak cross-parish). Row bị đánh
+ * `failed` + lastError mã hóa (hiển thị ở Diagnostics), parishId giữ nguyên
+ * undefined, không bao giờ được flush. Chạy mỗi runSyncFlow trước compact.
+ */
+export async function migrateLegacyQueueOwnership(): Promise<void> {
+  const db = getDB()
+  const legacyItems = await db.syncQueue
+    .filter((item) => !item.parishId || item.parishId === '')
+    .toArray()
+  if (legacyItems.length === 0) return
+  const now = new Date().toISOString()
+  const message = 'Legacy queue item parish ownership is unknown — quarantined, will never sync under another parish (OFF-TENANT-1).'
+  for (const item of legacyItems) {
+    // Bỏ qua terminal states (failed đã quarantine, completed là lịch sử).
+    if (item.status === 'failed' || item.status === 'completed') continue
+    await db.syncQueue.update(item.id, {
+      status: 'failed',
+      lastError: await encryptQueueValue(message),
+      updatedAt: now,
+    })
   }
 }
 
 export const useSyncStore = create<SyncState>((set, get) => ({
   status: 'idle',
   pendingCount: 0,
+  unresolvedConflictsCount: 0,
   lastSyncAt: null,
   lastError: null,
   deviceId: getOrCreateDeviceId(),
@@ -132,6 +163,30 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       const items = await getPendingQueueItems()
       const count = items.filter(isOwnOp).length
       set({ pendingCount: count })
+      void get().refreshConflictsCount()
+      return count
+    } catch {
+      return 0
+    }
+  },
+
+  refreshConflictsCount: async () => {
+    try {
+      const db = getDB()
+      const userId = getCurrentUserId()
+      if (!userId) {
+        set({ unresolvedConflictsCount: 0 })
+        return 0
+      }
+      const parishId = getCurrentParishId()
+      const list = await db.syncConflicts
+        .where('userId')
+        .equals(userId)
+        .toArray()
+      // OFF-TENANT-1: chỉ đếm conflicts đúng parish hiện tại (đồng nhất với
+      // getConflicts — legacy rows thiếu parish không hiện/không đếm).
+      const count = list.filter((c) => !c.resolved && (!parishId || c.parishId === parishId)).length
+      set({ unresolvedConflictsCount: count })
       return count
     } catch {
       return 0
@@ -147,6 +202,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   addOp: async (op) => {
     const userId = getCurrentUserId()
+    const parishId = getCurrentParishId()
     const db = getDB()
     const now = new Date().toISOString()
     const id = `OP-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -161,7 +217,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       updatedAt: now,
       status: 'pending',
       deviceId: get().deviceId,
+      // OFF-TENANT-1: ownership exact (parishId, userId) ghi đè mọi field
+      // caller truyền vào — chống spoof và nhầm scope khi đổi parish.
       userId,
+      parishId,
     }
 
     let returnId = id
@@ -199,7 +258,13 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   updateOp: async (id, changes) => {
-    const next: Partial<SyncQueueItem> = { ...changes }
+    // OFF-TENANT-1: ownership immutable + cross-parish no-op. Đọc row trước,
+    // bỏ qua update nếu row không thuộc phiên hiện tại; strip mọi owner fields
+    // caller nhét vào changes.
+    const existing = await getDB().syncQueue.get(id)
+    if (existing && !isOwnOp(existing)) return
+    const { userId: _ignoredUserId, parishId: _ignoredParishId, ...safeChanges } = changes as Record<string, unknown>
+    const next: Partial<SyncQueueItem> = { ...(safeChanges as Partial<SyncQueueItem>) }
     if (typeof next.payload === 'string') {
       next.payload = await encryptQueueValue(next.payload)
     }
@@ -210,6 +275,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   removeOp: async (id) => {
+    // OFF-TENANT-1: cross-parish no-op — không xóa op của parish khác.
+    const existing = await getDB().syncQueue.get(id)
+    if (existing && !isOwnOp(existing)) return
     await getDB().syncQueue.delete(id)
     await get().refreshCount()
   },
@@ -217,12 +285,16 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   getConflicts: async () => {
     const db = getDB()
     const userId = getCurrentUserId()
+    const parishId = getCurrentParishId()
     if (!userId) return []
-    return await db.syncConflicts
+    const rows = await db.syncConflicts
       .where('userId')
       .equals(userId)
       .reverse()
       .sortBy('createdAt')
+    // OFF-TENANT-1: chỉ conflicts đúng parish hiện tại (legacy rows thiếu
+    // parish không hiển thị ở scope có parish).
+    return parishId ? rows.filter((c) => c.parishId === parishId) : rows
   },
 
   addConflict: async (conflict: Omit<SyncConflict, 'id' | 'createdAt' | 'resolved' | 'userId'>) => {
@@ -243,29 +315,43 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       createdAt: new Date().toISOString(),
       resolved: false,
       userId,
+      // OFF-TENANT-1: stamp parish hiện tại (ghi đè caller) để conflicts
+      // scope đúng tenant như queue ops.
+      parishId: getCurrentParishId(),
     }
     await db.syncConflicts.add(item)
+    await get().refreshConflictsCount()
   },
 
   resolveConflict: async (id) => {
     const db = getDB()
     const userId = getCurrentUserId()
+    const parishId = getCurrentParishId()
     if (!userId) return
     const conflict = await db.syncConflicts.get(id)
     if (!conflict || conflict.userId !== userId) return
+    // OFF-TENANT-1: conflict có parish khác scope hiện tại thì không resolve.
+    // Legacy rows thiếu parish vẫn resolve được (tránh strand dữ liệu cũ).
+    if (parishId && conflict.parishId && conflict.parishId !== parishId) return
     await db.syncConflicts.update(id, {
       resolved: true,
       resolvedAt: new Date().toISOString(),
     })
+    await get().refreshConflictsCount()
   },
 
   clearResolvedConflicts: async () => {
     const db = getDB()
     const userId = getCurrentUserId()
+    const parishId = getCurrentParishId()
     if (!userId) return
     const resolved = await db.syncConflicts.where('resolved').equals(1).toArray()
-    const ownIds = resolved.filter(item => item.userId === userId).map(item => item.id)
+    // OFF-TENANT-1: chỉ dọn conflicts đúng user + parish hiện tại.
+    const ownIds = resolved
+      .filter((item) => item.userId === userId && (!parishId || !item.parishId || item.parishId === parishId))
+      .map((item) => item.id)
     if (ownIds.length > 0) await db.syncConflicts.bulkDelete(ownIds)
+    await get().refreshConflictsCount()
   },
 
   compactQueue: async () => {

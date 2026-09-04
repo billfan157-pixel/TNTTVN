@@ -159,7 +159,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
                 <Church size={16} className="shrink-0" />
                 <div className="flex-1">
                   <div>Thánh Lễ</div>
-                  <div className="text-[10px] font-medium opacity-80">Lễ Chúa Nhật</div>
+                  <div className="text-xs font-medium opacity-80">Lễ Chúa Nhật</div>
                 </div>
                 {selectedSessions.includes('SundayMass') ? <CheckSquare size={16} /> : <Square size={16} />}
               </button>
@@ -177,7 +177,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
                 <BookOpen size={16} className="shrink-0" />
                 <div className="flex-1">
                   <div>Giáo Lý</div>
-                  <div className="text-[10px] font-medium opacity-80">Giờ học lớp</div>
+                  <div className="text-xs font-medium opacity-80">Giờ học lớp</div>
                 </div>
                 {selectedSessions.includes('CatechismClass') ? <CheckSquare size={16} /> : <Square size={16} />}
               </button>
@@ -195,7 +195,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
                 <Flame size={16} className="shrink-0" />
                 <div className="flex-1">
                   <div>Chầu Thánh Thể</div>
-                  <div className="text-[10px] font-medium opacity-80">Giờ kinh Xứ đoàn</div>
+                  <div className="text-xs font-medium opacity-80">Giờ kinh Xứ đoàn</div>
                 </div>
                 {selectedSessions.includes('EucharisticAdoration') ? <CheckSquare size={16} /> : <Square size={16} />}
               </button>

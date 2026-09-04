@@ -17,6 +17,8 @@ import {
 import { api, ApiError } from '../lib/api'
 import { decryptQueueValue } from '../lib/offlineCipher'
 
+const OWNER = { userId: 'U-TEST', parishId: 'PARISH-TEST' }
+
 // A-NEW-32: updateOp mã hóa lastError — assert phải giải mã (dual-format giữ nguyên
 // plaintext legacy nên các test seed trực tiếp vẫn pass).
 async function readLastError(item: { lastError: string | null }): Promise<string> {
@@ -24,6 +26,7 @@ async function readLastError(item: { lastError: string | null }): Promise<string
 }
 
 beforeEach(async () => {
+  localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
   await initDB()
   const db = getDB()
   await db.syncQueue.clear()
@@ -53,6 +56,7 @@ function mkOp(overrides: Record<string, unknown> = {}) {
     lastError: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    ...OWNER,
     ...overrides,
   } as any
 }

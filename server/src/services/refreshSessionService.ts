@@ -26,7 +26,7 @@ export interface AuthUserLike {
  * Phát hành cặp token + ghi refresh session (bắt buộc sau login/change-password).
  * KHÔNG lưu refresh token plaintext — chỉ lưu sha256 hash.
  */
-export async function issueTokensWithSession(user: AuthUserLike, tokenVersion: number) {
+export async function issueTokensWithSessionIn(executor: DbExecutor, user: AuthUserLike, tokenVersion: number) {
   const tokens = generateTokens({
     userId: user.id,
     username: user.username,
@@ -34,7 +34,7 @@ export async function issueTokensWithSession(user: AuthUserLike, tokenVersion: n
     parishId: user.parishId,
     tokenVersion,
   })
-  await db.insert(refreshTokens).values({
+  await executor.insert(refreshTokens).values({
     id: `rts-${randomUUID()}`,
     userId: user.id,
     parishId: user.parishId,
@@ -42,6 +42,10 @@ export async function issueTokensWithSession(user: AuthUserLike, tokenVersion: n
     expiresAt: refreshExpiry(),
   })
   return tokens
+}
+
+export async function issueTokensWithSession(user: AuthUserLike, tokenVersion: number) {
+  return issueTokensWithSessionIn(db, user, tokenVersion)
 }
 
 export type RefreshRotationResult =
