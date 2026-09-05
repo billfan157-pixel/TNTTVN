@@ -167,9 +167,9 @@ describe('Server User Profile & Management Tests', () => {
     expect(lockRes.status).toBe(200)
 
     const loginRes = await login(targetUsername, PASSWORD)
-    expect(loginRes.status).toBe(403)
+    expect(loginRes.status).toBe(401)
     const body = (await loginRes.json()) as any
-    expect(body.error.code).toBe('ACCOUNT_LOCKED')
+    expect(body.error.code).toBe('INVALID_CREDENTIALS')
   })
 
   describe('ADR-039 — phụ huynh KHÔNG tự đổi SĐT', () => {

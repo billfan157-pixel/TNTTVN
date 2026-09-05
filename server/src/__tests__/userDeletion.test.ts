@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
 import authRouter from '../routes/auth.js'
@@ -26,6 +26,7 @@ const stamp = Date.now()
 const parishA = `parish-user-delete-a-${stamp}`
 const parishB = `parish-user-delete-b-${stamp}`
 const adminId = `usr-delete-admin-${stamp}`
+const protectedId = `usr-delete-protected-${stamp}`
 const targetId = `usr-delete-target-${stamp}`
 const viewerId = `usr-delete-viewer-${stamp}`
 const foreignId = `usr-delete-foreign-${stamp}`
@@ -50,9 +51,12 @@ describe('D3 admin-only soft deletion of user accounts', () => {
   let targetRefreshToken = ''
 
   beforeAll(async () => {
+    vi.stubEnv('SUPER_ADMIN_ID', protectedId)
+    vi.stubEnv('SUPER_ADMIN_PARISH_ID', parishA)
     const now = new Date().toISOString()
     const passwordHash = await bcrypt.hash(password, 4)
     await db.insert(users).values([
+      { id: protectedId, username: `protected_delete_${stamp}`, fullName: 'Protected Admin', passwordHash, role: 'admin', status: 'ACTIVE', tokenVersion: 1, parishId: parishA, createdAt: now },
       { id: adminId, username: `admin_delete_${stamp}`, fullName: 'Delete Admin', passwordHash, role: 'admin', status: 'ACTIVE', tokenVersion: 1, parishId: parishA, createdAt: now },
       { id: targetId, username: targetUsername, fullName: 'GLV To Delete', holyName: 'Phêrô', phone: '0901234567', passwordHash, role: 'chunhiem', status: 'ACTIVE', tokenVersion: 1, parishId: parishA, createdAt: now },
       { id: viewerId, username: `viewer_delete_${stamp}`, fullName: 'Viewer GLV', passwordHash, role: 'phuta', status: 'ACTIVE', tokenVersion: 1, parishId: parishA, createdAt: now },
@@ -76,6 +80,7 @@ describe('D3 admin-only soft deletion of user accounts', () => {
   })
 
   afterAll(async () => {
+    vi.unstubAllEnvs()
     await db.delete(auditLogs).where(eq(auditLogs.parishId, parishA))
     await db.delete(parishPeople).where(eq(parishPeople.parishId, parishA))
     await db.delete(passwordResetRequests).where(eq(passwordResetRequests.parishId, parishA))
@@ -114,12 +119,16 @@ describe('D3 admin-only soft deletion of user accounts', () => {
   })
 
   it('blocks self-delete, Admin trưởng delete and cross-tenant targets', async () => {
+    const directory = await usersRouter.request('/', { headers: adminHeaders() })
+    const accounts = (await directory.json() as { data: Array<{ id: string; isProtectedAdmin: boolean }> }).data
+    expect(accounts.find(account => account.id === protectedId)?.isProtectedAdmin).toBe(true)
+    expect(accounts.find(account => account.id === adminId)?.isProtectedAdmin).toBe(false)
     const self = await usersRouter.request(`/${adminId}`, {
       method: 'DELETE', headers: adminHeaders(), body: JSON.stringify({ adminPassword: password }),
     })
     expect(self.status).toBe(403)
 
-    const superAdmin = await usersRouter.request('/USR-001', {
+    const superAdmin = await usersRouter.request(`/${protectedId}`, {
       method: 'DELETE', headers: adminHeaders(), body: JSON.stringify({ adminPassword: password }),
     })
     expect(superAdmin.status).toBe(403)

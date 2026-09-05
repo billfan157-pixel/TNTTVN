@@ -339,6 +339,8 @@ export const useAttendanceStore = create<AttendanceState>()(
     }),
     {
       name: 'parish_store_attendance',
+      version: 1,
+      migrate: () => ({ attendance: [] }),
       storage: createJSONStorage(() => dexieStorage),
     }
   )

@@ -1,7 +1,7 @@
 ﻿import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { authMiddleware, roleMiddleware, getSuperAdminId } from '../middleware/auth.js'
+import { authMiddleware, roleMiddleware, isSuperAdminAccount } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
@@ -18,11 +18,17 @@ import {
   forceLogoutUser,
   deleteUserAccount,
   verifyAdminReauth,
+  captureAdminReauth,
+  AdminAuthorizationChangedError,
   getParentProvisionPreview,
   provisionParentAccounts,
 } from '../services/userService.js'
 
 const usersRouter = new Hono()
+usersRouter.onError((err, c) => {
+  if (err instanceof AdminAuthorizationChangedError) return errorResponse(c, 'SESSION_INVALID', err.message, 401)
+  throw err
+})
 usersRouter.use('*', authMiddleware)
 
 const createUserSchema = z.object({
@@ -36,6 +42,7 @@ const createUserSchema = z.object({
   phone: z.string().trim().optional(),
   role: z.enum(['admin', 'chunhiem', 'phuta', 'phuhuynh']),
   assignedClasses: z.array(z.string()).optional(),
+  adminPassword: z.string().min(1).max(128).optional(),
 })
 
 const deleteUserSchema = z.object({
@@ -92,7 +99,8 @@ usersRouter.get('/:id', roleMiddleware('admin'), async (c) => {
   return successResponse(c, u)
 })
 
-usersRouter.post('/', roleMiddleware('admin'), zValidator('json', createUserSchema), async (c) => {
+usersRouter.post('/', roleMiddleware('admin'), zValidator('json', createUserSchema),
+  async (c, next) => c.req.valid('json').role === 'admin' ? adminReauthRateLimiter(c, next) : next(), async (c) => {
   const user = c.get('user') as JwtPayload
   const data = c.req.valid('json')
   const ip = getClientIp(c)
@@ -101,9 +109,14 @@ usersRouter.post('/', roleMiddleware('admin'), zValidator('json', createUserSche
   // ADR-016 (users): Username trùng → 409 + message rõ ràng thay vì 500
   // (trước đây UNIQUE constraint failure nổ ra thành Internal Server Error).
   let created: Awaited<ReturnType<typeof createUser>>
+  const reauth = data.role === 'admin' && data.adminPassword ? await captureAdminReauth(
+    user.userId, data.adminPassword, user.parishId, ip, userAgent, 'new-admin', 'CREATE_ADMIN_REAUTH_FAILED', user.tokenVersion,
+  ) : null
+  if (data.role === 'admin' && !reauth) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Cần mật khẩu hiện tại của Admin để tạo tài khoản quản trị', 401)
   try {
-    created = await createUser(data, user.userId, user.parishId, ip, userAgent)
+    created = await createUser(data, user.userId, user.parishId, ip, userAgent, reauth ?? undefined)
   } catch (err: any) {
+    if (err instanceof AdminAuthorizationChangedError) return errorResponse(c, 'SESSION_INVALID', err.message, 401)
     // ADR-027: thiếu Tên Thánh / SĐT phụ huynh → 400 (không phải 500).
     if (err?.code === 'HOLY_NAME_REQUIRED' || err?.code === 'PHONE_REQUIRED') {
       return errorResponse(c, err.code, err.message || 'Thiếu thông tin bắt buộc để tạo username', 400)
@@ -121,7 +134,7 @@ usersRouter.put('/:id/status', roleMiddleware('admin'), zValidator('json', z.obj
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  if (getSuperAdminId() === id) return errorResponse(c, 'FORBIDDEN', 'Không thể thay đổi trạng thái của Admin trưởng', 403)
+  if (await isSuperAdminAccount(id, user.parishId)) return errorResponse(c, 'FORBIDDEN', 'Không thể thay đổi trạng thái của Admin trưởng', 403)
   if (user.userId === id && status !== 'ACTIVE') return errorResponse(c, 'FORBIDDEN', 'Admin không thể tự khóa hoặc vô hiệu hóa tài khoản của mình', 403)
 
   const ok = await updateUserStatus(id, status, user.userId, user.parishId, ip, userAgent)
@@ -143,12 +156,12 @@ usersRouter.post('/:id/reset-password', roleMiddleware('admin'), adminReauthRate
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  if (getSuperAdminId() === id) return errorResponse(c, 'FORBIDDEN', 'Không thể đặt lại mật khẩu của Admin trưởng', 403)
+  if (await isSuperAdminAccount(id, user.parishId)) return errorResponse(c, 'FORBIDDEN', 'Không thể đặt lại mật khẩu của Admin trưởng', 403)
 
-  const reauthOk = await verifyAdminReauth(user.userId, adminPassword, user.parishId, ip, userAgent, id, 'RESET_PASSWORD_FAILED')
+  const reauthOk = await captureAdminReauth(user.userId, adminPassword, user.parishId, ip, userAgent, id, 'RESET_PASSWORD_FAILED', user.tokenVersion)
   if (!reauthOk) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
 
-  const res = await resetUserPassword(id, user.userId, user.parishId, ip, userAgent)
+  const res = await resetUserPassword(id, user.userId, user.parishId, ip, userAgent, reauthOk)
   if (!res) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
   return successResponse(c, res)
 })
@@ -175,12 +188,12 @@ usersRouter.put('/:id/phone', roleMiddleware('admin'), adminReauthRateLimiter, z
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  if (getSuperAdminId() === id) return errorResponse(c, 'FORBIDDEN', 'Không thể đổi SĐT của Admin trưởng', 403)
+  if (await isSuperAdminAccount(id, user.parishId)) return errorResponse(c, 'FORBIDDEN', 'Không thể đổi SĐT của Admin trưởng', 403)
 
-  const reauthOk = await verifyAdminReauth(user.userId, adminPassword, user.parishId, ip, userAgent, id, 'UPDATE_USER_PHONE_FAILED')
+  const reauthOk = await captureAdminReauth(user.userId, adminPassword, user.parishId, ip, userAgent, id, 'UPDATE_USER_PHONE_FAILED', user.tokenVersion)
   if (!reauthOk) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
 
-  const result = await updateUserPhone(id, phone, user.userId, user.parishId, ip, userAgent)
+  const result = await updateUserPhone(id, phone, user.userId, user.parishId, ip, userAgent, reauthOk)
   if (result === null) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
   if (result.status === 'username_conflict') {
     return errorResponse(c, 'USERNAME_EXISTS', `Số điện thoại ${result.username} đã được dùng bởi tài khoản khác — không thể đổi`, 409)
@@ -216,7 +229,7 @@ usersRouter.post('/:id/force-logout', roleMiddleware('admin'), async (c) => {
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  if (getSuperAdminId() === id) return errorResponse(c, 'FORBIDDEN', 'Không thể đăng xuất Admin trưởng', 403)
+  if (await isSuperAdminAccount(id, user.parishId)) return errorResponse(c, 'FORBIDDEN', 'Không thể đăng xuất Admin trưởng', 403)
 
   const ok = await forceLogoutUser(id, user.userId, user.parishId, ip, userAgent)
   if (!ok) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
@@ -230,11 +243,11 @@ usersRouter.delete('/:id', roleMiddleware('admin'), adminReauthRateLimiter, zVal
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  if (id === user.userId || id === getSuperAdminId()) {
+  if (id === user.userId || await isSuperAdminAccount(id, user.parishId)) {
     return errorResponse(c, 'PROTECTED_ACCOUNT', 'Không thể tự xóa tài khoản hoặc xóa Admin trưởng', 403)
   }
 
-  const reauthOk = await verifyAdminReauth(
+  const reauthOk = await captureAdminReauth(
     user.userId,
     adminPassword,
     user.parishId,
@@ -242,12 +255,13 @@ usersRouter.delete('/:id', roleMiddleware('admin'), adminReauthRateLimiter, zVal
     userAgent,
     id,
     'DELETE_USER_ACCOUNT_FAILED',
+    user.tokenVersion,
   )
   if (!reauthOk) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
 
   let result: Awaited<ReturnType<typeof deleteUserAccount>>
   try {
-    result = await deleteUserAccount(id, user.userId, user.parishId, ip, userAgent)
+    result = await deleteUserAccount(id, user.userId, user.parishId, ip, userAgent, reauthOk)
   } catch (err: any) {
     if (err?.code === 'PROTECTED_ACCOUNT') {
       return errorResponse(c, 'PROTECTED_ACCOUNT', err.message, 403)

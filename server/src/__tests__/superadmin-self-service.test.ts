@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import bcrypt from 'bcryptjs'
 import authApp from '../routes/auth.js'
 import { generateTokens, getSuperAdminId } from '../middleware/auth.js'
@@ -26,7 +26,8 @@ describe('Superadmin self-service password change (A-NEW-41)', () => {
   let regAdminToken: string
 
   beforeAll(async () => {
-    process.env.SUPER_ADMIN_ID = SA_ID
+    vi.stubEnv('SUPER_ADMIN_ID', SA_ID)
+    vi.stubEnv('SUPER_ADMIN_PARISH_ID', parishId)
     const now = new Date().toISOString()
     await db.insert(users).values({
       id: SA_ID,
@@ -59,7 +60,7 @@ describe('Superadmin self-service password change (A-NEW-41)', () => {
   afterAll(async () => {
     await db.delete(users).where(eq(users.id, SA_ID))
     await db.delete(users).where(eq(users.id, REG_ADMIN_ID))
-    delete process.env.SUPER_ADMIN_ID
+    vi.unstubAllEnvs()
   })
 
   it('Admin khác (không phải Admin trưởng) nhắm target = Admin trưởng → 403 FORBIDDEN', async () => {

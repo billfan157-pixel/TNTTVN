@@ -6,7 +6,7 @@ export const usersApi = {
   getCatechists: () => request<any[]>('GET', '/users/catechists'),
   // ADR-027 (2026-08-12): username optional — server tự sinh `chức vụ_Tên thánh + Họ và tên`
   // từ holyName+fullName; gửi username = override thủ công (auto trùng). Phụ huynh: SĐT.
-  createUser: (data: { username?: string; holyName?: string; fullName: string; phone?: string; role: string; assignedClasses?: string[] }) =>
+  createUser: (data: { username?: string; holyName?: string; fullName: string; phone?: string; role: string; assignedClasses?: string[]; adminPassword?: string }) =>
     request<{ id: string; username: string; tempPassword: string }>('POST', '/users', data),
   updateUserStatus: (id: string, status: string) =>
     request<{ success: boolean }>('PUT', `/users/${id}/status`, { status }),

@@ -321,7 +321,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
                 triggerHaptic(8);
                 setSelectedClassId(event.target.value);
               }}
-              className="form-select w-full h-[40px] min-h-[40px] py-1 pl-3 pr-8 rounded-xl text-xs font-bold"
+              className="form-select w-full min-h-[44px] py-1 pl-3 pr-8 rounded-xl text-xs font-bold"
               aria-label="Chọn lớp để in kết quả"
             >
               <option value="all">Tất cả các lớp ({students.length} em)</option>

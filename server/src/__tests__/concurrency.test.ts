@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../db/index.js'
-import { grades, users, students, classes, branches, academicYears } from '../db/schema.js'
+import { grades, users, students, classes, branches, academicYears, catechistAssignments } from '../db/schema.js'
 import { upsertGrade, VersionConflictError } from '../services/gradeService.js'
 import { eq } from 'drizzle-orm'
 
@@ -20,6 +20,10 @@ describe('Production Readiness: Real Concurrency & Optimistic Lock Tests (ADR-00
     await db.insert(users).values([
       { id: user1Id, username: 'userconc1', fullName: 'User Conc 1', passwordHash: 'hash', role: 'chunhiem', parishId: testParish },
       { id: user2Id, username: 'userconc2', fullName: 'User Conc 2', passwordHash: 'hash', role: 'chunhiem', parishId: testParish },
+    ]).onConflictDoNothing()
+    await db.insert(catechistAssignments).values([
+      { id: 'asg-conc-1', userId: user1Id, classId, roleInClass: 'chunhiem', parishId: testParish },
+      { id: 'asg-conc-2', userId: user2Id, classId, roleInClass: 'chunhiem', parishId: testParish },
     ]).onConflictDoNothing()
 
     await db.insert(students).values({

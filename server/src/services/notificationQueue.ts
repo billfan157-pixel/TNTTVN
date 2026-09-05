@@ -2,10 +2,12 @@ import { isTelegramEnabled, sendTelegramAlert, sendTelegramInfo } from './telegr
 import { renderTemplate, type TemplateContext } from './templateEngine.js'
 import { sendAppPushToParish, sendAppPushToUsers } from './appPushService.js'
 import { db } from '../db/index.js'
-import { notifications } from '../db/schema.js'
-import { eq, and, isNull, lte, or, sql } from 'drizzle-orm'
+import { notifications, students, users } from '../db/schema.js'
+import { phoneMatchVariants } from '../utils/phone.js'
+import { eq, and, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { randomUUID } from 'crypto'
+import { assertDeploymentParishScope, getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
 
 interface NotificationQueueItem {
   id: string
@@ -22,6 +24,29 @@ interface NotificationQueueItem {
   /** Web push CÓ CHỦ ĐÍCH: chỉ gửi tới subscriptions của các userId này. */
   webpushUserIds?: string[]
   telegramUserIds?: string[]
+  studentId?: string
+}
+
+export const ACADEMIC_NOTIFICATION_MESSAGE = 'Có cập nhật học vụ trong ứng dụng Catevia. Vui lòng đăng nhập để xem.'
+
+function isChildNotification(item: Pick<NotificationQueueItem, 'type'>): boolean {
+  return item.type === 'report' || item.type === 'absence'
+}
+
+/** Never retarget an old rendered item to a new owner. No network in this check. */
+async function currentChildRecipients(item: NotificationQueueItem): Promise<string[]> {
+  const originalIds = item.channel === 'telegram' ? item.telegramUserIds : item.webpushUserIds
+  if (!item.studentId || !originalIds?.length) return []
+  const [student] = await db.select({ phone: students.parentPhone }).from(students)
+    .where(and(eq(students.id, item.studentId), eq(students.parishId, item.parishId), isNull(students.deletedAt))).limit(1)
+  if (!student) return []
+  const phones = new Set(phoneMatchVariants(student.phone))
+  if (!phones.size) return []
+  const candidates = await db.select({ id: users.id, phone: users.phone }).from(users).where(and(
+    eq(users.parishId, item.parishId), inArray(users.id, originalIds), eq(users.role, 'phuhuynh'),
+    eq(users.status, 'ACTIVE'), isNull(users.deletedAt),
+  ))
+  return candidates.filter(user => user.phone && phoneMatchVariants(user.phone).some(phone => phones.has(phone))).map(user => user.id)
 }
 
 /** Tiêu đề mặc định cho web push theo loại (template không có field title). */
@@ -84,6 +109,7 @@ export async function recoverQueueFromDb(): Promise<void> {
     // hardcoded one. The old filter `eq(notifications.parishId, process.env.PARISH_ID || 'thanh-gia')`
     // silently dropped notifications from parishes whose ID didn't match the env.
     const now = new Date().toISOString()
+    const deploymentParishId = getEnforcedDeploymentParishId()
     await db.update(notifications).set({
       status: 'failed',
       error: 'NOTIFICATION_ATTEMPTS_EXHAUSTED',
@@ -94,11 +120,13 @@ export async function recoverQueueFromDb(): Promise<void> {
       eq(notifications.status, 'retrying'),
       sql`${notifications.attemptCount} >= ${notifications.maxAttempts}`,
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
+      deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
     const pending = await db.select().from(notifications).where(and(
       eq(notifications.status, 'retrying'),
       or(isNull(notifications.nextAttemptAt), lte(notifications.nextAttemptAt, now)),
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
+      deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
     for (const row of pending) {
       if (queue.some((queued) => queued.id === row.id && queued.parishId === row.parishId)) continue
@@ -116,6 +144,7 @@ export async function recoverQueueFromDb(): Promise<void> {
         lastError: row.error || null,
         createdAt: row.createdAt,
         parishId: row.parishId,
+        studentId: row.studentId ?? undefined,
         ...(row.type === 'telegram'
           ? { telegramUserIds: row.targetUserIds ? (safeParseUserIds(row.targetUserIds) ?? []) : undefined }
           : { webpushUserIds: row.targetUserIds ? (safeParseUserIds(row.targetUserIds) ?? []) : undefined }),
@@ -137,10 +166,11 @@ export async function enqueueNotification(
   context: TemplateContext,
   parishId: string,
   maxRetries: number = MAX_RETRIES,
-  options?: { webpushUserIds?: string[]; telegramUserIds?: string[] },
+  options?: { webpushUserIds?: string[]; telegramUserIds?: string[]; studentId?: string },
 ): Promise<string> {
+  assertDeploymentParishScope(parishId)
   const id = generateId('NOT')
-  const renderedMessage = renderTemplate(template, context)
+  const renderedMessage = isChildNotification({ type }) ? ACADEMIC_NOTIFICATION_MESSAGE : renderTemplate(template, context)
   const item: NotificationQueueItem = {
     id,
     channel,
@@ -155,6 +185,7 @@ export async function enqueueNotification(
     parishId,
     webpushUserIds: options?.webpushUserIds,
     telegramUserIds: options?.telegramUserIds,
+    studentId: options?.studentId,
   }
   // ADR-102: persistence is the enqueue acknowledgement. If the process exits
   // after this INSERT but before the in-memory projection is populated, the
@@ -166,7 +197,8 @@ export async function enqueueNotification(
       channel: type === 'report' ? 'report_card' : type === 'reminder' ? 'reminder' : 'absence',
       deliveryKind: type,
       status: maxRetries > 0 ? 'retrying' : 'failed',
-      recipient: context.parentPhone || context.studentName || 'System',
+      recipient: isChildNotification(item) ? 'Parent' : context.parentPhone || context.studentName || 'System',
+      studentId: item.studentId ?? null,
       message: renderedMessage,
       triggeredByType: 'system',
       createdAt: item.createdAt,
@@ -239,6 +271,14 @@ function rememberFailed(item: NotificationQueueItem): void {
   if (failedItems.length > 100) failedItems.shift()
 }
 
+async function suppressNotification(item: NotificationQueueItem, reason: string): Promise<void> {
+  item.lastError = reason
+  await db.update(notifications).set({
+    status: 'failed', error: reason, leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: null,
+  }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
+  rememberFailed(item)
+}
+
 function scheduleRetry(delayMs: number): void {
   if (stopping) return
   const timer = setTimeout(() => {
@@ -265,7 +305,19 @@ async function drainQueue(): Promise<void> {
       item.maxRetries = claim.maxAttempts
 
       try {
-        const message = item.renderedMessage
+        const childNotification = isChildNotification(item)
+        const message = childNotification ? ACADEMIC_NOTIFICATION_MESSAGE : item.renderedMessage
+        if (childNotification) {
+          const recipients = await currentChildRecipients(item)
+          if (!recipients.length) {
+            // Includes pre-migration rows without an explicit child/target scope.
+            await suppressNotification(item, 'ACADEMIC_RECIPIENT_NOT_AUTHORIZED')
+            queue.shift()
+            continue
+          }
+          if (item.channel === 'telegram') item.telegramUserIds = recipients
+          else item.webpushUserIds = recipients
+        }
 
         if (item.channel === 'telegram') {
           if (!isTelegramEnabled()) {
@@ -286,6 +338,11 @@ async function drainQueue(): Promise<void> {
             const { getActiveTelegramLinksForUsers } = await import('./telegramLinkService.js')
             const { sendTelegramMessageToChat } = await import('./telegram.js')
             const activeLinks = await getActiveTelegramLinksForUsers(item.telegramUserIds, item.parishId)
+            if (childNotification && activeLinks.length === 0) {
+              await suppressNotification(item, 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE')
+              queue.shift()
+              continue
+            }
             for (const link of activeLinks) {
               await sendTelegramMessageToChat(link.chatId, message, true)
             }
@@ -301,7 +358,7 @@ async function drainQueue(): Promise<void> {
           // bộ gửi SSOT fan-out cả browser Web Push và native FCM/APNs.
           // Có webpushUserIds → gửi CÓ CHỦ ĐÍCH tới nhóm người dùng (phụ huynh
           // theo chi đoàn); không có → gửi toàn giáo xứ như trước.
-          const payload = { title: webPushTitle(item), body: message, url: '/' }
+          const payload = { title: childNotification ? 'Catevia' : webPushTitle(item), body: message, url: '/' }
           const result = item.webpushUserIds !== undefined
             ? await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)
             : await sendAppPushToParish(item.parishId, payload)
@@ -326,6 +383,11 @@ async function drainQueue(): Promise<void> {
             // a transient failure. This is intentionally at-least-once: already
             // delivered recipients can receive a duplicate after a partial send.
             throw new Error(`APP_PUSH_PARTIAL_FAILURE:${result.failed}`)
+          }
+          if (childNotification && result.sent === 0) {
+            await suppressNotification(item, 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE')
+            queue.shift()
+            continue
           }
         }
 

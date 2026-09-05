@@ -7,6 +7,15 @@ import { createSemesterLockSpecification } from './policyAdapters.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { upsertGrade } from './gradeService.js'
 import { getActiveAcademicYearId } from './academicYearService.js'
+import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
+import type { ActorRole } from '../types/actor.js'
+
+async function assertExamWriter(tx: DbExecutor, userId: string, parishId: string, classId: string,
+  expected?: AcademicWriteExpectation, roles: readonly ActorRole[] = ['admin', 'chunhiem', 'phuta']) {
+  if (!(await checkAcademicWriteAccess(userId, parishId, classId, tx, expected, roles))) {
+    throw new ExamAccessError('Quyền thao tác phiên chấm đã thay đổi')
+  }
+}
 import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
 
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
@@ -336,14 +345,17 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts =
   }
 }
 
-export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string) {
+export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string, expected?: AcademicWriteExpectation) {
   if (data.idempotencyKey) {
     const existing = await db
       .select()
       .from(examSessions)
       .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
       .limit(1)
-    if (existing.length > 0) return existing[0]
+    if (existing.length > 0) {
+      await assertExamWriter(db, userId, parishId, existing[0].classId, expected)
+      return existing[0]
+    }
   }
 
   // EXAM-AUDIT F4 (2026-08-21): fallback mặc định = NĂM HỌC ĐANG HOẠT ĐỘNG của
@@ -392,6 +404,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
   // (cùng pattern IDEM-F3 của studentService) thay vì 500.
   try {
     await runDbTransaction(async (tx) => {
+      await assertExamWriter(tx, userId, parishId, data.classId, expected)
       await tx.insert(examSessions).values(row)
       await audit(tx as DbTransaction, {
         userId, parishId, ip, userAgent,
@@ -413,7 +426,10 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
         .from(examSessions)
         .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
         .limit(1)
-      if (winner) return winner
+      if (winner) {
+        await assertExamWriter(db, userId, parishId, winner.classId, expected)
+        return winner
+      }
     }
     throw err
   }
@@ -464,9 +480,11 @@ export async function createImmutableVariantManifests(params: {
   allowedClassIds: string[] | null
   variantCount: number
   seed?: string
+  expected?: AcademicWriteExpectation
 }) {
   return runDbTransaction(async (tx) => {
     const session = await assertSessionAccess(params.sessionId, params.parishId, params.allowedClassIds, tx)
+    await assertExamWriter(tx, params.userId, params.parishId, session.classId, params.expected)
     if (session.status !== 'draft') throw new ExamStateError('Chỉ phiên nháp mới được tạo bộ mã đề.')
     if (session.variantManifests) throw new ExamStateError('Bộ mã đề đã được khóa bất biến; hãy tạo phiên mới nếu cần một phép đảo khác.')
     if (!session.questions || !session.questionCount) {
@@ -532,7 +550,8 @@ export async function upsertExamResults(
   parishId: string,
   ip: string,
   userAgent: string,
-  allowedClassIds: string[] | null
+  allowedClassIds: string[] | null,
+  expected?: AcademicWriteExpectation,
 ) {
   if (!results || results.length === 0) {
     const err = new Error('Danh sách kết quả trống') as any
@@ -562,6 +581,7 @@ export async function upsertExamResults(
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
       .limit(1)
     if (!session) throw new ExamNotFoundError()
+    await assertExamWriter(tx, userId, parishId, session.classId, expected)
     if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
       throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
     }
@@ -783,10 +803,12 @@ export async function deleteExamResult(
   parishId: string,
   ip: string,
   userAgent: string,
-  allowedClassIds: string[] | null
+  allowedClassIds: string[] | null,
+  expected?: AcademicWriteExpectation,
 ) {
   return db.transaction(async (tx) => {
     const session = await assertSessionAccess(sessionId, parishId, allowedClassIds, tx)
+    await assertExamWriter(tx, userId, parishId, session.classId, expected)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
@@ -854,10 +876,12 @@ export async function deleteExamSession(
   parishId: string,
   ip: string,
   userAgent: string,
-  allowedClassIds: string[] | null
+  allowedClassIds: string[] | null,
+  expected?: AcademicWriteExpectation,
 ) {
   return db.transaction(async (tx) => {
     const session = await assertSessionAccess(sessionId, parishId, allowedClassIds, tx)
+    await assertExamWriter(tx, userId, parishId, session.classId, expected)
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất và đã ghi vào bảng điểm — không thể xóa. Nhờ admin mở lại phiên nếu cần chỉnh sửa.')
     }
@@ -917,6 +941,7 @@ export async function finalizeExamSession(
   ip: string,
   userAgent: string,
   allowedClassIds: string[] | null,
+  expected?: AcademicWriteExpectation,
 ): Promise<ExamFinalizationResult> {
   return db.transaction(async (tx) => {
     const [session] = await tx
@@ -925,6 +950,7 @@ export async function finalizeExamSession(
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
       .limit(1)
     if (!session) throw new ExamNotFoundError()
+    await assertExamWriter(tx, userId, parishId, session.classId, expected, ['admin', 'chunhiem'])
     if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
       throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
     }
@@ -1147,18 +1173,19 @@ export async function finalizeExamSession(
   })
 }
 
-export async function completeExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null) {
+export async function completeExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null, expected?: AcademicWriteExpectation) {
   // P0-01 (Phase 0 containment): trả về TOÀN BỘ finalization receipt
   // (session + items/committed/conflicts) thay vì chỉ session — client project
   // receipt này để hiển thị, KHÔNG tự tính và ghi grade lần hai. Khớp contract
   // đã ghi trong docs/FRONTEND_API_CONTRACT.md §10 (ExamFinalizationResult).
-  const result = await finalizeExamSession(sessionId, userId, parishId, ip, userAgent, allowedClassIds)
+  const result = await finalizeExamSession(sessionId, userId, parishId, ip, userAgent, allowedClassIds, expected)
   return result
 }
 
-export async function reopenExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string) {
+export async function reopenExamSession(sessionId: string, userId: string, parishId: string, ip: string, userAgent: string, expected?: AcademicWriteExpectation) {
   return db.transaction(async (tx) => {
     const session = await getExamSession(sessionId, parishId, tx)
+    await assertExamWriter(tx, userId, parishId, session.classId, expected, ['admin'])
     if (session.status === 'draft') {
       return session
     }
@@ -1197,6 +1224,7 @@ export async function updateAnswerKeyAndRescore(
   userId: string,
   ip: string,
   userAgent: string,
+  expected?: AcademicWriteExpectation,
 ) {
   return db.transaction(async (tx) => {
     const [sessionBefore] = await tx
@@ -1205,6 +1233,7 @@ export async function updateAnswerKeyAndRescore(
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
       .limit(1)
     if (!sessionBefore) throw new ExamNotFoundError()
+    await assertExamWriter(tx, userId, parishId, sessionBefore.classId, expected)
     // EXAM-AUDIT F5 (2026-08-21): guard trạng thái nằm TRONG transaction (cùng
     // tầng với updateAnswerVariantsAndRescore) — trước đây chỉ có check ở route
     // ngoài tx, complete xen giữa check và rescore sẽ đè điểm exam_results trên
@@ -1375,12 +1404,14 @@ export async function updateAnswerVariantsAndRescore(
   userId: string,
   ip: string,
   userAgent: string,
+  expected?: AcademicWriteExpectation,
 ) {
   return db.transaction(async (tx) => {
     const [session] = await tx.select().from(examSessions)
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
       .limit(1)
     if (!session) throw new ExamNotFoundError()
+    await assertExamWriter(tx, userId, parishId, session.classId, expected)
     if (session.status !== 'draft') throw new ExamStateError('Chỉ có thể sửa mã đề khi phiên đang ở trạng thái nháp.')
     // EXAM-MIXED: phần TN của đề mixed cũng hỗ trợ nhiều mã đề (chỉ áp dụng cho câu TN).
     if (session.examType !== 'multiple_choice' && session.examType !== 'mixed') badRequest('Chỉ phiên trắc nghiệm hoặc mixed mới có nhiều mã đề.')

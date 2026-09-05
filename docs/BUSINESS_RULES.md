@@ -135,8 +135,8 @@ $$\text{Attendance Rate (\%)} = \frac{\text{Present} + (\text{AbsentExcused} \ti
 - Pure SQL `SELECT` projections joining `students`, `grades`, `attendance`, `promotion_records`, `classes`, and `academic_years`.
 - Authorization, academic-year range and parish policy inputs are resolved by `ReportingApplicationService` through the same database transaction snapshot as all projection queries. Repositories receive this immutable context and must not call application services or global DB state themselves (ADR-104).
 
-### 3.2 MVP Report Projections
-The Reporting subsystem defines 2 core MVP projections for parish administrators and catechists, plus 1 deferred candidate (Projection 3 — not in current MVP scope, DR5):
+### 3.2 Current MVP Report Projections
+The Reporting subsystem defines exactly 2 current MVP projections for parish administrators and catechists:
 
 #### Projection 1: Student Report Card Projection (`ReportCardProjection`)
 - **Target**: Individual Student Academic & Conduct Certificate / Report Card.
@@ -152,7 +152,9 @@ The Reporting subsystem defines 2 core MVP projections for parish administrators
   - Total Students, Class Average GPA, Class Attendance Rate.
   - Ranked Student Roster with individual GPA, Attendance %, and Promotion Status.
 
-#### Projection 3 [DEFERRED CANDIDATE]: Parish Promotion & Attendance Statistics (`ParishSummaryProjection`)
+### 3.3 Deferred Candidate — not current MVP
+
+#### Parish Promotion & Attendance Statistics (`ParishSummaryProjection`)
 - **Status**: DEFERRED — no server projection, API contract, or acceptance criteria in the current MVP. The R1–R4 roadmap below covers Projections 1–2 only. Client-side KPI aggregates are not this projection. Implementation requires explicit product approval defining users, metrics, year range, pagination, freshness, and acceptance criteria.
 - **Target**: Parish Administrator / Pastor high-level academic year report.
 - **Fields**:
@@ -160,7 +162,7 @@ The Reporting subsystem defines 2 core MVP projections for parish administrators
   - Branch-level promotion distribution (% Promoted, % Retained, % Graduated).
   - Parish-wide attendance health metrics.
 
-### 3.3 Micro-Step Roadmap (R1 – R4)
+### 3.4 Current MVP Micro-Step Roadmap (R1 – R4)
 - **R1**: Business Discovery & Architectural Freeze (BDR-003 & ADR-010) [COMPLETED]
 - **R2**: Projection Repositories (`ReportCardProjectionRepository`, `ClassSummaryProjectionRepository`)
 - **R3**: `ReportingApplicationService` (Orchestrates queries, formatting, pagination)
@@ -288,13 +290,13 @@ Enforcement:
 
 ### 10.2 Lifecycle trạng thái tài khoản
 - `ACTIVE` → user dùng bình thường.
-- `FORCE_PASSWORD_CHANGE` → **bắt buộc đổi mật khẩu lần đầu**; middleware chỉ cho phép truy cập `/change-password`, `/profile`, `/me`, `/logout`, `/refresh`. Khi user đổi mật khẩu thành công → `ACTIVE` + `mustChangePassword=0` + `tokenVersion++`.
-- `LOCKED` → khóa (thủ công hoặc tự động sau 5 lần sai); chặn login (`ACCOUNT_LOCKED` 403) và chặn mọi request (trừ super admin).
+- `FORCE_PASSWORD_CHANGE` → **bắt buộc đổi mật khẩu lần đầu**; bearer middleware chỉ cho phép đúng `POST /api/auth/change-password`, `PUT /api/auth/profile`, `GET /api/auth/me`, `POST /api/auth/logout`. Refresh dùng cookie/rotation riêng, không mở quyền tài nguyên. Đổi mật khẩu chỉ chuyển sang `ACTIVE` + `mustChangePassword=0` + `tokenVersion++` nếu credential/version/role/status đã kiểm còn khớp lúc ghi; lock/reset/revoke xen giữa → 401, không khôi phục trạng thái cũ.
+- `LOCKED` → khóa (thủ công hoặc tự động sau 5 lần sai); chặn login bằng `401 INVALID_CREDENTIALS` chung như tài khoản không tồn tại/sai mật khẩu, không tiết lộ lockout counter; chặn bearer (trừ protected superadmin).
 - Ai tạo trạng thái `FORCE_PASSWORD_CHANGE`: **tạo tài khoản mới** (`createUser`), **reset mật khẩu** (`resetUserPassword`), **admin đặt mật khẩu lại** (`admin-change-password` — `status: 'FORCE_PASSWORD_CHANGE'`).
-- **Admin trưởng (superadmin, `SUPER_ADMIN_ID` mặc định `USR-001`)**: không bị khóa/LOCKED (miễn trừ duy nhất xuyên suốt — login, middleware, `verifyAdminReauth`), không bị admin khác reset/reveal/lock/logout (403). Tự đổi mật khẩu trong **Settings** dùng cùng `POST /change-password` như mọi user (bắt buộc mật khẩu hiện tại, phiên mới, không lưu reversible). `admin-change-password` vẫn cho phép Admin trưởng tự đặt mật khẩu qua màn quản trị với re-auth + rate limit + audit; admin KHÔNG phải Admin trưởng vẫn bị chặn khi nhắm vào tài khoản này (`403 FORBIDDEN`).
+- **Admin trưởng** là principal có đồng thời `id=SUPER_ADMIN_ID`, `parishId=SUPER_ADMIN_PARISH_ID` (mặc định seed parish `gia-ton`) và `role=admin`; production bắt buộc cấu hình ID, chỉ dev/test fallback `USR-001`. Collision ID ở parish khác hoặc role khác không hưởng miễn trừ. Protected principal không bị admin khác reset/reveal/lock/logout (403); tự đổi mật khẩu qua Settings hoặc admin-change-password vẫn cần mật khẩu hiện tại và đúng flow. Tạo **admin mới** qua `POST /api/users` phải re-auth bằng `adminPassword` và rate-limit; không thay đổi quyền tạo admin thành superadmin-only.
 
 ### 10.3 Khóa tự động (lockout)
-- Sai mật khẩu 5 lần liên tiếp (user không phải admin) → `failedAttempts=5` → `status=LOCKED`. Login sau đó trả `403 ACCOUNT_LOCKED` bất kể mật khẩu đúng.
+- Sai mật khẩu 5 lần liên tiếp (user không phải admin) → `failedAttempts=5` → `status=LOCKED`. Login sau đó trả `401 INVALID_CREDENTIALS` chung bất kể mật khẩu đúng.
 - Reset về `ACTIVE` bởi admin; `failedAttempts` xóa khi đổi mật khẩu thành công.
 
 ### 10.4 Hồ sơ cá nhân (`PUT /api/auth/profile`)
@@ -311,6 +313,7 @@ Enforcement:
 
 ### 10.6 Thông báo ứng dụng — Web Push + native FCM/APNs (ADR-022/088/095)
 - Mỗi smart notification gửi Telegram cho staff và app push theo **cùng tập userId đích**. `notificationQueue` vẫn đọc/ghi type `web_push` để tương thích lịch sử nhưng gọi `appPushService`, fan-out Web Push + native; audience `notifications.target_user_ids` phải được persist và recovery không bao giờ được hạ thành broadcast.
+- **Single-child delivery (H7, 2026-09-05):** queue `report|absence` là thông báo tới phụ huynh, không gửi Telegram global cho staff. Lưu subject bằng `studentId`; tại mỗi attempt lấy original targets giao với current parent owners ACTIVE, chưa xóa, cùng parish theo canonical phone của trẻ chưa xóa. LOCKED/INACTIVE/FORCE_PASSWORD_CHANGE/deleted hoặc mất ownership không nhận item này; không tự opt-in hoặc retarget sang account khác. Body mới chỉ báo có cập nhật học vụ và yêu cầu đăng nhập Catevia, không chứa tên trẻ/điểm/ngày vắng. Pending cũ thiếu subject/targets bị terminal `failed` với reason riêng, không xóa lịch sử hoặc tự replay sau unlock. Class reminders, operational notices và batch absence summary `info` chưa được đổi audience policy trong amendment này. Private-only Telegram binding vẫn là hạng mục H6 riêng.
 - Web dùng VAPID/Service Worker; native tuyệt đối không dùng Service Worker trong WebView (ADR-088), dùng Capacitor Push Notifications. Android token gửi qua FCM, iOS token gửi trực tiếp APNs. Token chết bị xóa; lỗi tạm thời giữ binding. Nếu không provider nào cấu hình, queue `failed` với `PUSH_PROVIDER_NOT_CONFIGURED`; provider chưa cấu hình cho riêng một platform được đếm `skipped`, không giả là đã gửi.
 - `native_push_tokens` bind token với UUID installation + authenticated `(parish_id,user_id)`. Đổi tài khoản trên cùng installation chuyển binding sang tài khoản hiện tại; unregister chỉ xóa binding thuộc chính user/parish; soft-delete account xóa cả Web Push và native token. Token không được persist ở client, không được ghi audit/log; audit chỉ giữ platform.
 - Native chỉ hỏi quyền khi người dùng chủ động bật tại Cài đặt. Khi đã cấp quyền và không opt-out, app xin token mới ở launch/resume rồi đồng bộ server; logout unregister provider + server. Notification action chỉ điều hướng đường dẫn nội bộ dạng `/...`; URL ngoài app bị loại.
@@ -318,7 +321,7 @@ Enforcement:
 ### 10.7 Nhắc Lễ Chủ Nhật tự động — `sundayReminderScheduler` (SSOT: `server/src/services/sundayReminderScheduler.ts`)
 - **Explicit parish opt-in**: background reminder chỉ chạy cho row `parish_system_settings` có `sundayReminderEnabled=true`; default `false`. Admin bật/tắt và đặt giờ tại Cài đặt. Client-local reminder không bị cờ background này cấp thêm quyền.
 - **Giờ lễ KHÔNG hardcode**: `sundayMassTime` nằm trong parish settings (`GET/PUT /api/settings`, định dạng `HH:MM`, mặc định `08:00`). Server render template qua `getSundayMassTime(parishId)`.
-- **Scheduler multi-parish** chạy trong tiến trình server: mỗi 60s enumerate toàn bộ parish đã opt-in, xử lý **Chúa Nhật** (`getDay() === 0`) trong cửa sổ `[sundayMassTime, sundayMassTime + 120 phút]`; failure một parish được ghi nhận nhưng không chặn parish khác.
+- **Scheduler theo deployment parish (ADR-106 supersede production topology của ADR-105):** mỗi 60s chỉ xét `DEPLOYMENT_PARISH_ID` nếu giáo xứ đó đã opt-in, xử lý **Chúa Nhật** (`getDay() === 0`) trong cửa sổ `[sundayMassTime, sundayMassTime + 120 phút]`. Direct runner parish khác bị từ chối. Dev/test không set deployment scope vẫn enumerate multi-parish để giữ regression isolation/failure containment.
 - **Idempotent theo tenant**: marker `sunday_reminder_last_sent` dùng composite `(key, parishId)`; marker cùng ngày của parish khác không ảnh hưởng. Quá cửa sổ 2h thì bỏ qua hôm đó.
 - **Audience fail closed**: chỉ enqueue Telegram/Web/native tới user IDs phụ huynh được resolve trong đúng parish. Không có phụ huynh đích thì không gửi và không fallback sang global Telegram admin.
 - Test: `sundayReminderScheduler.test.ts` cover hai parish/giờ/marker độc lập và failure isolation; `smartNotifications.test.ts` cover no-target + explicit target channels.
@@ -342,6 +345,7 @@ Enforcement:
 - **Endpoint duy nhất sửa SĐT**: `PUT /api/users/:id/phone` — admin-only + **re-auth mật khẩu admin** (chuẩn A05/A06 + rate limit + audit `UPDATE_USER_PHONE`/`UPDATE_USER_PHONE_FAILED`, không ghi SĐT thô — A16). SĐT phải hợp lệ VN (`^0\d{9}$`).
 - **Username phụ huynh đồng bộ theo SĐT**: nếu username đang là SĐT cũ (đúng quy ước) → admin đổi SĐT sẽ cập nhật username = SĐT mới (PH đăng nhập bằng số mới); trùng username tài khoản khác → 409, không đổi. Username custom (admin nhập override) KHÔNG bị đổi.
 - **GLV/CN tự đổi SĐT** qua `PUT /api/auth/profile` vẫn được phép (SĐT của họ không phải identity liên kết dữ liệu) — format validate `^0\d{9}$`.
+- **Profile transaction (H8, 2026-09-05):** chỉ update field được yêu cầu, kiểm current role/status/epoch và commit audit cùng thay đổi. Request chỉ đổi tên không được ghi lại SĐT từ snapshot cũ sau khi admin đã đổi liên kết con.
 - **Giao credential mới**: admin giao SĐT mới + mật khẩu tạm (đặt lại qua reset-password) cho phụ huynh qua kênh riêng; UI provision hỗ trợ "Sao Chép Tất Cả Credential" dạng văn bản.
 ### 10.12 Quên mật khẩu phụ huynh — Hỗ trợ có xác minh (ADR-058, supersedes ADR-042)
 - Không được dùng SĐT + tên/ngày sinh của trẻ làm yếu tố tự đặt lại mật khẩu. Đây là KBA từ dữ liệu nhận dạng dễ biết, không chứng minh người yêu cầu đang sở hữu kênh liên lạc.
@@ -444,7 +448,7 @@ Quy chiếu: quyền `exam.create`/`exam.delete` cho `phuta`/`chunhiem` (ADR-025
 ### 12.3 Khôi phục (undo) đợt nhập điểm — ADR-028 (2026-08-12)
 - **Phạm vi**: chỉ undo **đợt import điểm** (Excel/dán bảng), không undo nhập tay từng ô. Client lưu marker đợt nhập gần nhất đã mã hóa trong Dexie, scope đúng `parishId:userId`, và hiện nút "Hoàn Tác Đợt Nhập Trước" khi còn hạn. Key plaintext/unscoped legacy bị xóa, không migrate sang tài khoản hiện tại.
 - **Cửa sổ thời gian**: **7 ngày** kể từ lần ghi điểm gần nhất của từng bảng điểm (`UNDO_GRADE_WINDOW_DAYS`). Hết hạn → từ chối với status `expired`.
-- **Quyền**: `admin` (toàn giáo xứ) và `chunhiem` (chỉ lớp được bổ nhiệm — `checkUserClassAccess` trong cùng transaction, ADR-016 S24). Học kỳ đã khóa sổ → không undo được (status `locked`).
+- **Quyền**: `admin` (toàn giáo xứ) và `chunhiem` (chỉ lớp được bổ nhiệm — `checkAcademicWriteAccess` kiểm current actor/assignment trong cùng transaction, ADR-016 S24 và H3 amendment 2026-09-05). Request-originated undo đối chiếu epoch khi token có version; list scope chụp trước transaction không thay thế current authority. Học kỳ đã khóa sổ → không undo được (status `locked`).
 - **Cơ chế** (audit-as-SSOT): với mỗi bảng điểm trong đợt, lấy audit entry mới nhất (`entityType='grade'`):
   - `CREATE` → xóa bảng điểm mới tạo (kèm `grade_overrides`).
   - `UPDATE` → khôi phục các cột về `oldValue` (trạng thái trước import), version +1.
@@ -508,6 +512,7 @@ Hệ thống hỗ trợ xin phép nghỉ cho 3 loại buổi chính thức trong
   - Toàn quyền xem, duyệt, từ chối hoặc hủy đơn trong toàn bộ giáo xứ (`parish_id`).
 
 ### 17.3 Cơ chế Tự Động Đồng Bộ Điểm Danh khi Duyệt Đơn (Auto-Sync to Attendance)
+- Review phải resolve thiếu nhi chưa xóa và lớp **hiện hành** trong transaction; không dùng lớp lịch sử trên đơn làm quyền ghi sau transfer. APPROVED phải qua semester-lock theo ngày đơn (kể cả admin); khóa → 403 và đơn vẫn PENDING. Update attendance tăng version để offline writer cũ nhận conflict. Review state CAS + attendance + audit commit cùng nhau; REJECTED không ghi attendance nên không bị semester-lock chặn.
 - Khi GLV hoặc Admin chấp thuận đơn (`status = 'APPROVED'`):
   - Hệ thống tự động thực hiện thao tác upsert vào bảng `attendance` cho **tất cả các buổi** (`session_types`) được chọn trong ngày đó của thiếu nhi.
   - Trạng thái điểm danh được ghi: **`AbsentExcused`** (Vắng có phép).

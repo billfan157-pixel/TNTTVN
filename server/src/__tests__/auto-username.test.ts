@@ -1,4 +1,5 @@
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import bcrypt from 'bcryptjs'
 import usersApp from '../routes/users.js'
 import { generateTokens } from '../middleware/auth.js'
 import { db } from '../db/index.js'
@@ -10,10 +11,12 @@ import { eq, and } from 'drizzle-orm'
 
 const PARISH = 'gia-ton'
 const RECORD = `au${Date.now()}`
+const adminId = `admin-${RECORD}`
+const adminPassword = 'UsernameAudit@123'
 const createdUsernames: string[] = []
 
 function adminHeaders() {
-  const { accessToken } = generateTokens({ userId: 'USR-001', username: 'admin', role: 'admin', parishId: PARISH, tokenVersion: 1 })
+  const { accessToken } = generateTokens({ userId: adminId, username: adminId, role: 'admin', parishId: PARISH, tokenVersion: 1 })
   return { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
 }
 
@@ -25,7 +28,11 @@ async function postUsers(body: Record<string, unknown>) {
 }
 
 describe('POST /users auto-username (ADR-027)', () => {
+  beforeAll(async () => {
+    await db.insert(users).values({ id: adminId, username: adminId, fullName: 'Synthetic Admin', role: 'admin', parishId: PARISH, passwordHash: await bcrypt.hash(adminPassword, 4) })
+  })
   afterAll(async () => {
+    await db.delete(users).where(and(eq(users.parishId, PARISH), eq(users.id, adminId)))
     for (const username of createdUsernames) {
       await db.delete(users).where(and(eq(users.parishId, PARISH), eq(users.username, username)))
     }
@@ -46,7 +53,7 @@ describe('POST /users auto-username (ADR-027)', () => {
     const cn = await postUsers({ holyName: 'Giuse', fullName: `Trần Hoa ${RECORD}`, role: 'chunhiem' })
     expect(cn.status).toBe(201)
     expect(cn.body.data.username).toMatch(/^cn_giusetranhoa/)
-    const ad = await postUsers({ holyName: 'Anna', fullName: `Nguyễn Kim ${RECORD}`, role: 'admin' })
+    const ad = await postUsers({ holyName: 'Anna', fullName: `Nguyễn Kim ${RECORD}`, role: 'admin', adminPassword })
     expect(ad.status).toBe(201)
     expect(ad.body.data.username).toMatch(/^ad_annanguyenkim/)
   })

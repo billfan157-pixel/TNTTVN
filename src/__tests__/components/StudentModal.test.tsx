@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { StudentModal } from '../../components/common/StudentModal'
 
 vi.mock('../../stores/studentStore', () => ({
@@ -65,5 +65,35 @@ describe('StudentModal Component', () => {
     const fullNameInput = screen.getByPlaceholderText('VD: Nguyễn Văn An') as HTMLInputElement
     expect(holyNameInput.value).toBe('')
     expect(fullNameInput.value).toBe('')
+  })
+
+  it('displays inline errors and aria-invalid when submitting empty required fields', () => {
+    render(<StudentModal isOpen={true} onClose={vi.fn()} />)
+
+    const saveBtn = screen.getByRole('button', { name: /Thêm Thiếu Nhi/i })
+    fireEvent.click(saveBtn)
+
+    expect(screen.getByText('Vui lòng nhập Tên Thánh.')).toBeDefined()
+    expect(screen.getByText('Vui lòng nhập Họ và Tên.')).toBeDefined()
+    expect(screen.getByText('Vui lòng chọn Giới tính.')).toBeDefined()
+    expect(screen.getByText('Vui lòng chọn Ngày sinh.')).toBeDefined()
+
+    const holyNameInput = screen.getByPlaceholderText('VD: Maria, Giuse...')
+    expect(holyNameInput.getAttribute('aria-invalid')).toBe('true')
+  })
+
+  it('clears inline error when user types into the field', () => {
+    render(<StudentModal isOpen={true} onClose={vi.fn()} />)
+
+    const saveBtn = screen.getByRole('button', { name: /Thêm Thiếu Nhi/i })
+    fireEvent.click(saveBtn)
+
+    expect(screen.getByText('Vui lòng nhập Tên Thánh.')).toBeDefined()
+
+    const holyNameInput = screen.getByPlaceholderText('VD: Maria, Giuse...')
+    fireEvent.change(holyNameInput, { target: { value: 'Maria' } })
+
+    expect(screen.queryByText('Vui lòng nhập Tên Thánh.')).toBeNull()
+    expect(holyNameInput.getAttribute('aria-invalid')).toBeNull()
   })
 })

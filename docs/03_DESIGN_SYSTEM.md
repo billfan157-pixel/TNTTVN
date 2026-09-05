@@ -524,10 +524,8 @@ camera/OMR guide và medal visualization vẫn được phép khi có semantic p
 Mọi exception mới phải được ghi tại đây hoặc ADR liên quan, không tạo visual
 dialect riêng ở từng page.
 
-Khóa pinch/double-tap zoom tại `index.html` + `zoomGuard` là yêu cầu sản phẩm đã
-được owner phê duyệt trong `mobile-native-ui-audit-2026-08-12.md`. Đây là
-trade-off WCAG có chủ đích, **không** được diễn giải là tuân thủ zoom accessibility;
-không tự ý gỡ trong các đợt đồng bộ layout.
+Quy định về Pinch/Double-tap Zoom (Đã cập nhật sau Audit UX/UI v4.6):
+Trước đây, hệ thống áp dụng khóa pinch-zoom tại `index.html`. Nhằm tuân thủ chuẩn **WCAG 2.1 SC 1.4.4 (Resize text)** và hỗ trợ tối đa người khiếm thị/thị lực kém, thuộc tính `maximum-scale=1.0, user-scalable=no` đã được gỡ bỏ khỏi thẻ `<meta name="viewport">` tại `index.html`. Trải nghiệm zoom tự nhiên được phục hồi hoàn toàn mà không phá vỡ responsive layout hay gây horizontal scroll ngoài ý muốn.
 
 ---
 
@@ -551,9 +549,10 @@ không tự ý gỡ trong các đợt đồng bộ layout.
 - Dark shadows: `.mobile-floating-action`, `.mobile-bottom-nav`, `.mobile-bottom-action-bar` chuyển sang shadow tối (`rgba(0, 0, 0, 0.3-0.5)`).
 
 ### 15.4 Mobile Ergonomics & Accessibility
-- Universal Touch Targets: Tất cả search inputs, action buttons, filter pills trong mobile/tablet shell đều đạt tối thiểu `min-height: 44px`.
+- Universal Touch Targets: Tất cả search inputs, action buttons (In Phiếu, Sửa, Xóa), filter pills, select dropdowns (`pageSize`, `reportType`, `selectedClass`) trong mobile/tablet shell đều đạt kích thước vùng chạm chuẩn tối thiểu 44×44px (`min-h-[44px]` / `min-w-[44px]`).
 - Keyboard Ergonomics: Toàn bộ search inputs trên mobile khai báo tường minh `inputMode="search"`. Numeric inputs (điểm số) khai báo `inputMode="decimal"`.
-- Asynchronous Loading Perception: Thay thế toàn bộ raw text fallback ("Đang tải...") trong Suspense boundaries bằng `<SkeletonCardGrid>` và `<SkeletonTable>` từ `StateFeedback`.
+- Zero-CLS Loading Skeletons: Thay thế toàn bộ raw text / spinner fallback ("Đang tải...") trong Suspense và async queries bằng `<SkeletonCardGrid>` và `<SkeletonTable>` từ `StateFeedback`, bảo toàn layout container và triệt tiêu Layout Shift (CLS).
+- Accessible Inline Form Validation: Các modal biểu mẫu (`StudentModal`, `LeaveRequestModal`) áp dụng validation inline trên sự kiện `onBlur` và `onSubmit`, sử dụng Design System v4.5 semantic tokens (`border-parish-danger`, `text-parish-danger`, `focus:ring-parish-danger`), liên kết ngữ nghĩa bằng `aria-invalid="true"`, `aria-describedby` và thông báo lỗi có `role="alert"`.
 - Accessible Semantics: Quick action buttons và icon actions đều có `aria-label` chi tiết; modal forms có `role="dialog"` và `aria-modal="true"`; calendar tiles có `aria-label` và `aria-pressed`.
 
 ---
@@ -648,7 +647,7 @@ Nhằm đảm bảo tính tôn nghiêm Công Giáo (Catholic Spiritual Identity)
 2. Brand placeholder dùng riêng `--color-text-placeholder-on-brand`; navy control sheet phải đủ đục để contrast không phụ thuộc vào nội dung page phía sau. Worst-case tự động hiện tại ≥5.43:1 trên gradient và ≥12.23:1 trên control sheet.
 3. Brand focus dùng outline 3px `--color-focus-ring-brand` với offset 2px, scope tại `.app-header`, `.mobile-top-bar`, `.mobile-control-sheet`; contrast thấp nhất giữa các gradient stop là **6.70:1**.
 4. Từ v4.5, `npm run lint:ds` thực thi **8 static anti-drift rules** trên TSX không miễn trừ: 6 prohibition rules và 2 per-file debt ratchets. `0 violations` không đồng nghĩa toàn bộ component đã được quan sát runtime hoặc chứng nhận WCAG/visual conformance.
-5. Hard gate gồm token/graph/linter unit contracts và Playwright axe/layout matrix ở §20. Zoom lock tiếp tục là accepted product trade-off, được exclude đúng một rule `meta-viewport`, và không được gọi là compliant.
+5. Hard gate gồm token/graph/linter unit contracts và Playwright axe/layout matrix ở §20. Thẻ viewport tại `index.html` đã được chuẩn hóa để tuân thủ WCAG 2.1 SC 1.4.4 (bỏ `maximum-scale=1.0, user-scalable=no`).
 
 ---
 
@@ -700,7 +699,7 @@ Mỗi file chỉ được giữ nguyên hoặc giảm; file mới/missing baseli
 - Dark mobile bottom-nav active background dùng primary mix 12% để label 10px vượt axe contrast gate. Motion CSS chỉ transition properties thực sự thay đổi.
 - Inactive mobile bottom-nav dùng `--color-text-secondary` thay vì muted để nhãn 9px ở compact vẫn đạt contrast trên nền navigation/active-transition; runtime audit phải chờ finite UI animations kết thúc trước khi đo màu trạng thái ổn định.
 - Native View Transition giữ nguyên pathname-only contract. Wrapper trong `router.tsx` chỉ consume rejection lifecycle dự kiến `AbortError|InvalidStateError|TimeoutError` ở `ready`/`finished` khi điều hướng SPA nhanh thay thế transition đang chạy; `updateCallbackDone` không bị bắt để lỗi render/domain vẫn nổi lên.
-- Axe tự động chỉ phủ một tập con WCAG. Rule `meta-viewport` được disable duy nhất vì ADR-072/077/078 giữ zoom lock như product exception; do đó không được tuyên bố app “WCAG compliant”. Runtime protected hiện chỉ là 7 route đại diện, không phải toàn bộ protected routes hay mọi role. Full WCAG audit, physical-device, screen-reader và task acceptance vẫn là manual release evidence.
+- Axe tự động chỉ phủ một tập con WCAG. Thẻ viewport tại `index.html` đã được chuẩn hóa để tuân thủ WCAG 2.1 SC 1.4.4 (bỏ `maximum-scale=1.0, user-scalable=no`). Runtime protected hiện chỉ là 7 route đại diện, không phải toàn bộ protected routes hay mọi role. Full WCAG audit, physical-device, screen-reader và task acceptance vẫn là manual release evidence.
 
 ### 20.5 Verification record
 
@@ -711,6 +710,12 @@ Mỗi file chỉ được giữ nguyên hoặc giảm; file mới/missing baseli
 - Organization remediation gate 2026-08-31: **41/41 Playwright tests PASS** trong nhóm Axe + visual/layout + CRUD + role. Axe **78/78 observations** và visual/layout **78/78 observations** bao gồm `/parish`, `/parish-profile` và modal bản ghi ở desktop/390/320, light/dark; finite animations được chờ hoàn tất trước khi đo contrast trạng thái ổn định.
 - Final serialized `npm run verify:ci` 2026-08-31: **PASS** — lint zero-warning; `lint:ds` **0/115**; client/server TypeScript + Vite/PWA build; Vitest **264/264 files, 1,864/1,864 tests PASS**. Coverage: statements **69.44%**, branches **59.59%**, functions **61.96%**, lines **71.79%**.
 - ADR-098 activity-cache hardening 2026-09-02: focused **5 files / 26 tests PASS**; final serialized Vitest **295 files / 2,008 tests PASS**; frontend production/PWA build, server TypeScript, oxlint, `lint:ds` **0/127** và diff check PASS. Đây là static/unit/build evidence; chưa thay thế real-device/account-switch/screen-reader gate.
+- UX/UI Comprehensive Audit Waves 1–4 (2026-09-04): Hoàn tất 4 đợt nâng cấp chất lượng giao diện & công thái học toàn diện:
+  - **Đợt 1 (Error Prevention & Forms)**: Loại bỏ giá trị mặc định giả định trong `StudentModal` (bỏ "Maria", "Nữ", "2016-01-01"), thêm inline error validation + `aria-invalid` cho `QuickScoreEntry`, loại bỏ dropdown bộ lọc trùng lặp cạnh tranh tại HeaderBar.
+  - **Đợt 2 (Deep Linking & Navigation Context)**: Đồng bộ sub-view/tabs/filter 2 chiều với URL SearchParams (`/grades?view=`, `/attendance?tab=&date=&type=`), loại bỏ search placeholder mồ côi tại HeaderBar và Parent portal.
+  - **Đợt 3 (Accessibility & Feedback System)**: Khôi phục pinch-to-zoom (WCAG 2.1 SC 1.4.4) tại `index.html`, Zero-CLS SkeletonTable & SkeletonCardGrid cho Lazy Pages, cải thiện phản hồi tải báo cáo tài chính/học vụ (Toast + Loading progress spinner).
+  - **Đợt 4 (Mobile Ergonomics & Accessible Form Validation)**: Chuẩn hóa kích thước vùng chạm tối thiểu 44×44px trên toàn bộ mobile views (`MobileStudentsView`, `MobileAttendanceSummaryView`, `MobileReportsView`, `MobileLeaveRequests`), dọn dẹp typography arbitrary (`text-[10px]`, `text-[11px]`), hoàn thiện inline form error state với DS v4.5 semantic tokens trong `StudentModal` và `LeaveRequestModal`.
+  - Targeted unit & regression suites: **9 files / 37 tests PASS**; static lint, DS anti-drift và production build đạt 100% tiêu chuẩn chất lượng.
 
 ---
 

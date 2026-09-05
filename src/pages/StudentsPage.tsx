@@ -128,13 +128,13 @@ export function StudentsPage() {
         })
 
       const res: any = await api.sendReportCards({ students: list })
-      const sent = res?.sent ?? list.length
+      const sent = res?.sent ?? 0
       const total = res?.total ?? list.length
-      const msg = `Đã gửi ${sent}/${total} phiếu điểm đến phụ huynh${confirmSendInfo.label !== 'toàn xứ' ? ` (${confirmSendInfo.label})` : ''}`
+      const msg = `Đã xếp hàng gửi ${sent}/${total} phiếu điểm đến phụ huynh${confirmSendInfo.label !== 'toàn xứ' ? ` (${confirmSendInfo.label})` : ''}`
       setCardSuccess(msg)
       useToastStore.getState().addToast(msg, 'success', 6000)
       if (sent < total) {
-        setCardError(`Lưu ý: ${total - sent} em chưa có tài khoản phụ huynh liên kết SĐT — chỉ gửi được Telegram broadcast`)
+        setCardError(`Lưu ý: ${total - sent} em chưa xác định được tài khoản phụ huynh nhận tin — chưa gửi thông báo cho các em này`)
       }
     } catch (err) {
       let raw = err instanceof ApiError ? err.message : 'Không thể gửi kết quả học tập'

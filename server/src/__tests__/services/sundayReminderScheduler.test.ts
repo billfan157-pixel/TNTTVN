@@ -4,7 +4,7 @@ import { systemSettings } from '../../db/schema.js'
 import { and, eq, inArray } from 'drizzle-orm'
 
 vi.mock('../../services/smartNotifications.js', () => ({
-  notifySundayMassReminder: vi.fn().mockResolvedValue(undefined),
+  notifySundayMassReminder: vi.fn().mockResolvedValue(true),
   getSundayMassTime: vi.fn().mockResolvedValue('08:00'),
 }))
 
@@ -31,7 +31,7 @@ describe('sundayReminderScheduler — multi-parish opt-in', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     vi.mocked(getSundayMassTime).mockResolvedValue('08:00')
-    vi.mocked(notifySundayMassReminder).mockResolvedValue(undefined)
+    vi.mocked(notifySundayMassReminder).mockResolvedValue(true)
     await db.delete(systemSettings).where(and(
       inArray(systemSettings.key, [MARKER_KEY, SETTINGS_KEY]),
       inArray(systemSettings.parishId, [PARISH_A, PARISH_B]),
@@ -87,10 +87,24 @@ describe('sundayReminderScheduler — multi-parish opt-in', () => {
     expect(new Set(markers.map((marker) => marker.parishId))).toEqual(new Set([PARISH_A, PARISH_B]))
   })
 
+  it('enforced deployment scope never enumerates another parish setting', async () => {
+    await putSettings(PARISH_B, true)
+    vi.stubEnv('DEPLOYMENT_PARISH_ID', PARISH_A)
+    try {
+      await expect(runSundayReminderCheck(sunday('08:00'))).resolves.toMatchObject({ checked: 1, sent: 1, failed: 0 })
+      expect(notifySundayMassReminder).toHaveBeenCalledWith(PARISH_A)
+      expect(notifySundayMassReminder).not.toHaveBeenCalledWith(PARISH_B)
+      await expect(runSundayReminderForParish(PARISH_B, sunday('08:00'))).rejects.toThrow(/outside this deployment scope/)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('isolates one parish failure and continues the next parish', async () => {
     await putSettings(PARISH_B, true)
     vi.mocked(notifySundayMassReminder).mockImplementation(async (parishId) => {
       if (parishId === PARISH_A) throw new Error('provider unavailable for parish A')
+      return true
     })
 
     const result = await runSundayReminderCheck(sunday('08:00'))
@@ -106,6 +120,14 @@ describe('sundayReminderScheduler — multi-parish opt-in', () => {
     await putSettings(PARISH_A, false)
     await expect(runSundayReminderCheck(sunday('08:00'))).resolves.toEqual({ checked: 0, sent: 0, failed: 0, failures: [] })
     expect(notifySundayMassReminder).not.toHaveBeenCalled()
+  })
+
+  it('does not write a sent marker when the parish has no resolved recipients', async () => {
+    vi.mocked(notifySundayMassReminder).mockResolvedValue(false)
+
+    await expect(runSundayReminderCheck(sunday('08:00'))).resolves.toMatchObject({ checked: 1, sent: 0, failed: 0 })
+    const [marker] = await db.select().from(systemSettings).where(and(eq(systemSettings.key, MARKER_KEY), eq(systemSettings.parishId, PARISH_A)))
+    expect(marker).toBeUndefined()
   })
 
   it('per-parish runner remains available for deterministic composition tests', async () => {

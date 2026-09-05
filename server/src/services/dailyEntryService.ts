@@ -4,6 +4,7 @@ import { assessmentEntries, auditLogs, classes, students } from '../db/schema.js
 import { generateId } from '../utils/id.js'
 import { createSemesterLockSpecification } from './policyAdapters.js'
 import { getStudentClassId } from './studentService.js'
+import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 
 /**
  * Tier 2 (daily là điểm chính thức — BUSINESS_RULES §12.1): attempts nhập tay
@@ -83,7 +84,7 @@ async function audit(
 /** Class-access + lock checks dùng chung cho write và delete (chạy trong tx). */
 async function assertWritable(
   tx: DbTransaction,
-  params: { studentId: string; academicYear: string; semester: number; parishId: string; allowedClassIds: string[] | null },
+  params: { studentId: string; academicYear: string; semester: number; parishId: string; allowedClassIds: string[] | null; userId: string; expected?: AcademicWriteExpectation },
 ): Promise<void> {
   const [student] = await tx
     .select({ id: students.id })
@@ -95,7 +96,8 @@ async function assertWritable(
     throw err
   }
   const classId = await getStudentClassId(params.studentId, params.parishId, tx)
-  if (!classId || (params.allowedClassIds && !params.allowedClassIds.includes(classId))) {
+  if (!classId || (params.allowedClassIds && !params.allowedClassIds.includes(classId))
+    || !(await checkAcademicWriteAccess(params.userId, params.parishId, classId, tx, params.expected))) {
     throw new DailyEntryAccessError('Bạn không có quyền thao tác điểm của lớp này')
   }
   const unlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(params.academicYear, params.semester, params.parishId)
@@ -136,6 +138,7 @@ export async function upsertDailyEntries(
   ip: string,
   userAgent: string,
   allowedClassIds: string[] | null,
+  expected?: AcademicWriteExpectation,
 ): Promise<DailyEntryBatchResult> {
   const items: DailyEntryAck[] = []
   let saved = 0
@@ -155,6 +158,7 @@ export async function upsertDailyEntries(
           semester: entry.semester,
           parishId,
           allowedClassIds,
+          userId, expected,
         })
 
         const [existing] = await tx
@@ -215,6 +219,7 @@ export async function deleteDailyEntry(
   ip: string,
   userAgent: string,
   allowedClassIds: string[] | null,
+  expected?: AcademicWriteExpectation,
 ): Promise<{ deleted: boolean; id: string }> {
   return runDbTransaction(async (tx) => {
     const [existing] = await tx
@@ -233,6 +238,7 @@ export async function deleteDailyEntry(
       semester: existing.semester,
       parishId,
       allowedClassIds,
+      userId, expected,
     })
     await tx
       .delete(assessmentEntries)

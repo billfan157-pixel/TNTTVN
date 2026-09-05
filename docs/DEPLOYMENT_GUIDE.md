@@ -2,11 +2,21 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy); 2026-08-24 (SEC-HMAC-1: `REPORT_HMAC_SECRET` **BẮT BUỘC production** — fail-closed startup, ký QR phiếu điểm; OBS-1: endpoint `/api/csp-report` public thu CSP violation)
+Last Updated: 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
 
 ---
 
 ## 1. ARCHITECTURAL CLASSIFICATION
+### Auth remediation rollout (2026-09-05)
+
+- Đặt `DEPLOYMENT_PARISH_ID=gia-ton` cho deployment hiện tại (hoặc exact parish slug đã inventory). Production thiếu biến này sẽ không khởi động. Nếu còn `PARISH_ID`/`SUPER_ADMIN_PARISH_ID`, chúng phải khớp tuyệt đối; không dùng biến cũ để chọn tenant khác.
+- Đặt `SUPER_ADMIN_ID` đúng tài khoản quản trị cần bảo vệ trong giáo xứ deployment. Account còn phải có `role=admin`; `DEPLOYMENT_PARISH_ID` là nửa parish của composite protected principal. Không đổi secrets chỉ để áp bản sửa này.
+- Trước rollout, inventory read-only mọi bảng có `parish_id`. Nếu startup báo table mixed/null scope, dừng rollout và điều tra/migrate trên bản sao; không sửa trực tiếp, purge hoặc đổi `DEPLOYMENT_PARISH_ID` chỉ để vượt gate. Startup tự kiểm trước HTTP/workers và không log row/PII.
+- Chạy `npm run audit:deployment-parish` với `DEPLOYMENT_PARISH_ID` và read-only `AUDIT_DATABASE_URL`/`AUDIT_DATABASE_AUTH_TOKEN` trước deploy. Output mặc định hash database/parish reference; chỉ set `DEPLOYMENT_INVENTORY_INCLUDE_PARISH_ID=true` khi operator chủ động cần plain parish ID. Exit code khác 0 là rollout blocker.
+- Phát hành backend và frontend cùng contract: tạo admin yêu cầu `adminPassword`; parent không được gọi raw grades/attendance; QR public chỉ xác nhận `signed_identifiers`, không attestation bản in.
+- Client mới migrate cache grades/attendance version 0 về rỗng và dùng `sync_cursor_v2` để full-pull lại; durable `syncQueue` không bị xóa. Cần reload/update ứng dụng. Không thể thu hồi dữ liệu đã tải xuống thiết bị chưa chạy bản mới, file export hay ảnh chụp; operator phải đánh giá exposure riêng nếu cần. Không wipe pending offline mutations như một biện pháp dọn read cache.
+- Local regression không thay smoke production: kiểm parent read 403, staff đúng lớp, admin step-up, cookie refresh và QR trên exact release đã triển khai. Chưa có xác nhận production trong remediation này.
+
 This document is the **Canonical Single Source of Truth (SSOT)** for Docker packaging, Nginx reverse proxy configuration, automated SQLite backups, environment variables, and production operational procedures.
 
 ---
@@ -38,6 +48,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 
 | Variable | Required | Default / Format | Description |
 | :--- | :---: | :--- | :--- |
+| `DEPLOYMENT_PARISH_ID` | ✅ Yes (production) | Parish slug 1–64 ký tự, ví dụ `gia-ton` | Identity bất biến của installation. Login/recovery/token/seed/backup/workers bị khóa vào scope này. Startup fail nếu thiếu/sai format, legacy parish env mâu thuẫn, hoặc DB có bất kỳ `parish_id` null/khác giá trị này. Dev/test không set vẫn giữ multi-parish fixtures. |
 | `JWT_SECRET` | ✅ Yes | String (min 32 chars) | Secret key for JWT access token signing. **BẮT BUỘC** set trong `.env` (root) — docker-compose dùng `${JWT_SECRET:?}` fail-fast nếu thiếu |
 | `JWT_REFRESH_SECRET` | ✅ Yes (production) | String (min 32 chars), **không** fallback về `JWT_SECRET` | Secret key for refresh token signing. Production startup sẽ throw nếu thiếu |
 | `REPORT_HMAC_SECRET` | ✅ Yes (production) — **SEC-HMAC-1 (2026-08-24)** | String (min 32 chars, random riêng, KHÔNG tái dùng JWT_SECRET) | Secret key ký HMAC-SHA256 cho QR phiếu điểm/chứng nhận (`/api/verification/sign`). Production **fail-closed lúc startup** nếu thiếu (`hmacSigner.ts`). Verify giữ chuỗi fallback legacy (JWT_SECRET-derived) nên QR đã phát hành cũ vẫn xác thực được sau khi set secret mới. QR phát hành trước 2026-08-24 trên prod thiếu biến này đã bị ký bằng key suy dẫn từ JWT_SECRET/literal public → **bắt buộc rotate: set REPORT_HMAC_SECRET ngay khi nâng cấp**; QR cũ ký bằng literal public sẽ trở thành KHÔNG hợp lệ (đúng ý — chúng vốn có thể giả mạo bởi bất kỳ ai đọc repo) |
@@ -53,7 +64,8 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `SENTRY_TRACES_SAMPLE_RATE` | ❌ No | `0` | Performance tracing sample rate cho Sentry node — mặc định tắt (server xử lý PII trẻ em/phụ huynh; tracing không phải mục tiêu OBS-2) |
 | `SAFETY_BACKUP_DIR` | ❌ No | `{DB_PATH dir}/backups/safety` | Safety snapshot directory for destructive ops (purge) |
 | `SEED_ADMIN_PASSWORD` | ⚠️ Required khi DB trống | **Không có default**; 8–128 ký tự, ≥1 chữ hoa, ≥1 chữ số, ≥1 ký tự đặc biệt | **ADR-051 (2026-08-21):** chỉ được đọc khi chạy seed ban đầu (`seedIfEmpty` trên DB chưa có user hoặc `npm run db:seed`). Fresh startup **fail-closed** nếu thiếu/yếu; tuyệt đối không fallback về credential biết trước. Khi DB đã có user, startup không dùng biến này để reset mật khẩu; seed rerun vẫn `onConflictDoNothing` cho admin. Docker Compose truyền biến từ `.env`; Railway phải set trong dashboard trước lần init DB đầu tiên. |
-| `SUPER_ADMIN_ID` | ❌ No | `USR-001` | User ID bypassing role checks (super admin) |
+| `SUPER_ADMIN_ID` | ✅ Yes (production protected admin) | Exact user ID | Nửa user của protected principal; chỉ được bảo vệ khi row/token đồng thời thuộc `DEPLOYMENT_PARISH_ID` và có `role=admin`. Không phải global role bypass. |
+| `SUPER_ADMIN_PARISH_ID` | ❌ Compatibility only | — | Dev/test legacy scope. Khi set cùng `DEPLOYMENT_PARISH_ID` phải khớp; production authority luôn là deployment parish. |
 | `VAPID_PUBLIC_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID public key — client subscribe cần (trả qua `GET /api/notifications/vapid-public-key`); thiếu → **mới 2026-08-28**: `GET /vapid-public-key` trả 200 `{ publicKey: null, configured:false }` (không còn 501 spam, client skip debug), `/send` vẫn 501 và queue đánh `failed` (không `sent` giả) — **fail-closed đúng thiết kế** (xem §8 Web Push Setup) |
 | `VAPID_PRIVATE_KEY` | ⚠️ Có điều kiện | Empty | Web Push VAPID private key — **điều kiện**: BẮT BUỘC set cùng `VAPID_PUBLIC_KEY` nếu muốn tính năng thông báo web push hoạt động (thiếu → GET 200 configured:false, client skip graceful; POST /send 501) |
 | `VAPID_SUBJECT` | ❌ No | `mailto:admin@giaoly.com` | VAPID contact subject (khuyến nghị đổi thành email quản trị thật của giáo xứ) |
@@ -61,6 +73,11 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, `APNS_BUNDLE_ID`, `APNS_ENVIRONMENT` | ⚠️ Required cho iOS native push | bundle `com.tnttvn.app`, env `production` | APNs HTTP/2 token auth. `.p8` giữ trong secret manager; private key có thể dùng newline thật hoặc `\\n`. `development` chỉ dùng sandbox/dev provisioning |
 | `BACKUP_ENCRYPTION_KEY` | ⚠️ Required với Turso backup | 32 byte (64 hex hoặc base64), tách khỏi JWT/R2 keys | AES-256-GCM cho logical backup Turso trước khi upload R2 (ADR-059). Mất key = không giải mã được backup; lộ key + R2 artifact = mất tính bí mật |
 | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ⚠️ Required với Turso backup | Cloudflare R2 S3-compatible | Kho backup độc lập với Turso. Remote DB không fallback xuống disk Render ephemeral |
+| `ALLOW_BACKUP_RESTORE` | ⚠️ Restore drill only | `false`; phải set chính xác `true` | Explicit write gate cho cả prepare và restore. Không set biến này trên production service thường trực |
+| `RESTORE_DATABASE_URL`, `RESTORE_DATABASE_AUTH_TOKEN` | ⚠️ Restore drill only | Disposable Turso/libSQL target | Target cô lập để prepare/restore; URL trùng `TURSO_URL` bị từ chối |
+| `RESTORE_TARGET_FINGERPRINT` | ⚠️ Restore drill only | SHA-256 lowercase của normalized target URL | Xác nhận target lần hai; phải khớp chính xác trước mọi prepare/restore write |
+| `AUDIT_DATABASE_URL`, `AUDIT_DATABASE_AUTH_TOKEN` | ❌ No | Cả URL trống → dùng `TURSO_URL`/`TURSO_AUTH_TOKEN` hoặc local `DB_PATH` | Optional target cho các command inventory read-only. Khi set URL riêng, script chỉ dùng token audit riêng, không fallback chéo sang `TURSO_AUTH_TOKEN`; local file có thể không cần token |
+| `DEPLOYMENT_INVENTORY_INCLUDE_PARISH_ID` | ❌ No | `false` | Chỉ ảnh hưởng output `audit:deployment-parish`: mặc định parish reference bị hash; `true` in plain configured ID theo opt-in của operator. Không thay scope/gate. |
 | `TELEGRAM_BOT_TOKEN` | ❌ No | String | Optional Telegram bot token for alerts |
 | `TELEGRAM_ADMIN_CHAT_ID` | ❌ No | String | Admin chat ID for system alerts |
 | `VITE_SENTRY_DSN` | ❌ No | URL | Frontend Sentry project DSN |
@@ -73,7 +90,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 - **Base Image**: `node:22-alpine`
 - **Build Stage**: Installs dependencies, compiles TypeScript (`npm run build:server`), sets `outDir: dist`.
 - **Production Stage**: Runs `scripts/entrypoint.sh` which initializes environment variables for cron, executes startup backup, starts `crond`, and launches `node dist/index.js`.
-- **ADR-051 startup contract**: DB migrations must complete without a non-tolerable error, executable-schema readiness must pass, and initial seed (only when DB is empty) must commit atomically before the HTTP listener/background workers start. Any failure aborts startup rather than serving a partially initialized database.
+- **ADR-051/106 startup contract**: DB migrations and executable-schema readiness must pass; then a read-only dynamic scan rejects every table containing null/foreign `parish_id`. Initial seed (only when DB is empty) uses `DEPLOYMENT_PARISH_ID`, commits atomically and is followed by the same scope check. All gates complete before HTTP/background workers; no automatic data rewrite or purge occurs.
 
 ### 4.2 Web Frontend (`Dockerfile.web`)
 - **Base Image**: `node:22-alpine` $\rightarrow$ `nginx:1.27-alpine`
@@ -134,7 +151,7 @@ Browser/PWA (https://tnttvn.vercel.app)
 
 1. **Turso**: đăng ký platform.turso.io → tạo DB (vd `tnttvn`) → lấy `TURSO_URL` (`libsql://...`) + tạo token (`TURSO_AUTH_TOKEN`).
 2. **Render**: New → Blueprint → connect repo → sau sync đầu, nhập tay các env đánh dấu `sync:false` trong render.yaml:
-   - Bắt buộc: `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt), `BACKUP_ENCRYPTION_KEY` (64 hex/base64 32 byte) và đủ 4 biến `R2_*`.
+   - Bắt buộc: `DEPLOYMENT_PARISH_ID=gia-ton` (hoặc exact inventory scope), `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt), `BACKUP_ENCRYPTION_KEY` (64 hex/base64 32 byte) và đủ 4 biến `R2_*`.
    - Tuỳ chọn: `OPS_TOKEN`, `TELEGRAM_*`, `SENTRY_DSN`.
    - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `BACKUP_ENCRYPTION_KEY` dùng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 3. **GitHub Environment `production`**: set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `RENDER_API_KEY`, `RENDER_SERVICE_ID`; có thể bật required reviewers. Vercel Git auto-deploy và Render auto-deploy đều tắt; repo khóa thêm `git.deploymentEnabled.main=false`. Chỉ `deploy-production.yml` sau toàn bộ CI xanh mới deploy đúng SHA, đợi ready và smoke-check.
@@ -256,10 +273,16 @@ Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction
 
 ### 9.3 Restore drill Turso (không ghi production)
 
-1. Tạo DB Turso cô lập, chạy migration hiện hành trên target.
+1. Tạo DB Turso cô lập, hoàn toàn mới và không chứa application table.
 2. Set `RESTORE_DATABASE_URL`, `RESTORE_DATABASE_AUTH_TOKEN`, `BACKUP_ENCRYPTION_KEY`, đủ `R2_*`, và `ALLOW_BACKUP_RESTORE=true`. `RESTORE_DATABASE_URL` phải khác `TURSO_URL`.
 3. Chuẩn hóa URL bằng cách bỏ query/hash/trailing slash, lowercase protocol/host; tính SHA-256 và set đúng giá trị vào `RESTORE_TARGET_FINGERPRINT`. Đây là xác nhận target lần hai, không dùng fingerprint của source/production.
-4. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>` trên target disposable/rỗng. CLI từ chối nếu bất kỳ table snapshot nào đã có dữ liệu (trừ `schema_migrations`) hoặc schema/cột không khớp chính xác.
-5. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts khớp, `foreignKeyViolations=[]` và `assertDatabaseReady` pass. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu. Ghi riêng thời gian download/decrypt/restore/verify; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi.
+4. Chạy `npm --prefix server run db:prepare:restore-target`. Command dùng cùng fingerprint/production guard, từ chối target đã có application table, áp bootstrap + migrations + indices rồi bắt buộc `assertDatabaseReady` pass.
+5. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>` trên target vừa chuẩn bị. CLI từ chối nếu bất kỳ table snapshot nào đã có dữ liệu (trừ `schema_migrations`) hoặc schema/cột không khớp chính xác.
+6. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts khớp, `foreignKeyViolations=0` và `assertDatabaseReady` pass. Manifest ghi riêng `phaseDurationMs.download/decrypt/restore/readiness`; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu.
 
 CLI có hard guard từ chối target URL trùng production. Post-commit validation failure không tự rollback toàn target, vì vậy luôn discard target lỗi và tạo target mới; tuyệt đối không sửa chữa/cutover target đó. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.
+
+### 9.4 Read-only preflight trước production operations
+
+- `npm run audit:promotion-reconciliation`: chỉ mở read transaction, không chạy bootstrap/migration và không xuất student ID. Báo `legacy_unbound`, `retryable_backlog` hoặc `archived_incomplete`; parish ID mặc định được hash. Chỉ bật `PROMOTION_INVENTORY_INCLUDE_PARISH_ID=true` trong terminal vận hành được kiểm soát.
+- `npm run audit:sunday-readiness`: chỉ đọc các parish đã explicit opt-in, giờ lễ, số parent recipients và số endpoint Telegram/Web/native; không enqueue và không ghi sent marker. Parish ID mặc định được hash. Actual Sunday smoke vẫn là external action có thể gửi thật và phải chọn parish/time rõ ràng.

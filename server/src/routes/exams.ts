@@ -282,7 +282,7 @@ examsRouter.post('/', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('
       : undefined
     // Khi client gửi cả hai field, answerVariants.A là SSOT; answerKey chỉ là
     // alias legacy để không thể tồn tại hai đáp án A mâu thuẫn trong cùng session.
-    const session = await createExamSession({ ...data, answerKey: fallbackAnswerKey ?? data.answerKey, semester: data.semester as 1 | 2 }, user.userId, user.parishId, ip, userAgent)
+    const session = await createExamSession({ ...data, answerKey: fallbackAnswerKey ?? data.answerKey, semester: data.semester as 1 | 2 }, user.userId, user.parishId, ip, userAgent, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, session, 201)
   } catch (err) {
     return handleServiceError(c, err)
@@ -290,7 +290,7 @@ examsRouter.post('/', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('
 })
 
 // ─── Danh sách phiên theo lớp ───
-examsRouter.get('/class/:classId', zValidator('query', z.object({
+examsRouter.get('/class/:classId', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('query', z.object({
   subject: z.string().optional(),
   scoreType: scoreTypeSchema.optional(),
   status: examStatusSchema.optional(),
@@ -326,7 +326,7 @@ examsRouter.post('/:id/results', roleMiddleware('admin', 'chunhiem', 'phuta'), z
 
   try {
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-    const result = await upsertExamResults(sessionId, results, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+    const result = await upsertExamResults(sessionId, results, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
@@ -334,7 +334,7 @@ examsRouter.post('/:id/results', roleMiddleware('admin', 'chunhiem', 'phuta'), z
 })
 
 // ─── Kết quả phiên ───
-examsRouter.get('/:id/results', async (c) => {
+examsRouter.get('/:id/results', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
 
@@ -357,7 +357,7 @@ examsRouter.delete('/:id/results/:studentId', roleMiddleware('admin', 'chunhiem'
 
   try {
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-    const result = await deleteExamResult(sessionId, studentId, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+    const result = await deleteExamResult(sessionId, studentId, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
@@ -375,7 +375,7 @@ examsRouter.post('/:id/complete', roleMiddleware('admin', 'chunhiem'), async (c)
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
     // P0-01: trả full ExamFinalizationResult (session + items/committed/conflicts).
     // Client là read-only projector của receipt này, không ghi grade lần hai.
-    const result = await completeExamSession(sessionId, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+    const result = await completeExamSession(sessionId, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
@@ -392,7 +392,7 @@ examsRouter.delete('/:id', roleMiddleware('admin', 'chunhiem', 'phuta'), async (
 
   try {
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-    const result = await deleteExamSession(sessionId, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+    const result = await deleteExamSession(sessionId, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
@@ -407,7 +407,7 @@ examsRouter.post('/:id/reopen', roleMiddleware('admin'), async (c) => {
   const userAgent = c.req.header('user-agent') || ''
 
   try {
-    const session = await reopenExamSession(sessionId, user.userId, user.parishId, ip, userAgent)
+    const session = await reopenExamSession(sessionId, user.userId, user.parishId, ip, userAgent, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, session)
   } catch (err) {
     return handleServiceError(c, err)
@@ -415,7 +415,7 @@ examsRouter.post('/:id/reopen', roleMiddleware('admin'), async (c) => {
 })
 
 // ─── Chi tiết phiên (kèm class access check) ───
-examsRouter.get('/:id', async (c) => {
+examsRouter.get('/:id', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
 
@@ -437,7 +437,7 @@ const updateAnswerKeySchema = z.object({
   questionCount: z.coerce.number().int().min(1).max(50).optional(),
 })
 
-examsRouter.patch('/:id/answer-key', zValidator('json', updateAnswerKeySchema), async (c) => {
+examsRouter.patch('/:id/answer-key', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', updateAnswerKeySchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
   const { answerKey, questionCount } = c.req.valid('json')
@@ -472,7 +472,7 @@ examsRouter.patch('/:id/answer-key', zValidator('json', updateAnswerKeySchema), 
 
     // Import re-score function
     const { updateAnswerKeyAndRescore } = await import('../services/examService.js')
-    const result = await updateAnswerKeyAndRescore(sessionId, user.parishId, effectiveAnswerKey, newQCount ?? 20, user.userId, ip, userAgent)
+    const result = await updateAnswerKeyAndRescore(sessionId, user.parishId, effectiveAnswerKey, newQCount ?? 20, user.userId, ip, userAgent, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
@@ -484,7 +484,7 @@ const updateAnswerVariantsSchema = z.object({
   questionCount: z.coerce.number().int().min(1).max(50),
 })
 
-examsRouter.patch('/:id/answer-variants', zValidator('json', updateAnswerVariantsSchema), async (c) => {
+examsRouter.patch('/:id/answer-variants', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', updateAnswerVariantsSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
   const { answerVariants, questionCount } = c.req.valid('json')
@@ -502,7 +502,7 @@ examsRouter.patch('/:id/answer-variants', zValidator('json', updateAnswerVariant
     const check = parseAnswerVariants(answerVariants, questionCount)
     if (!check.ok) return errorResponse(c, 'INVALID_ANSWER_VARIANTS', check.message, 400)
     const { updateAnswerVariantsAndRescore } = await import('../services/examService.js')
-    const result = await updateAnswerVariantsAndRescore(sessionId, user.parishId, answerVariants, questionCount, user.userId, ip, userAgent)
+    const result = await updateAnswerVariantsAndRescore(sessionId, user.parishId, answerVariants, questionCount, user.userId, ip, userAgent, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)
@@ -530,6 +530,7 @@ examsRouter.post('/:id/variant-manifests', roleMiddleware('admin', 'chunhiem', '
       ip,
       userAgent,
       allowedClassIds,
+      expected: { role: user.role, epoch: user.tokenVersion },
       variantCount,
       seed,
     })
@@ -544,7 +545,7 @@ const barcodeBodySchema = z.object({
   barcodeText: z.string().min(1).max(200),
 })
 
-examsRouter.post('/barcode/decode', zValidator('json', barcodeBodySchema), async (c) => {
+examsRouter.post('/barcode/decode', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', barcodeBodySchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const { barcodeText } = c.req.valid('json')
 

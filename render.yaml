@@ -19,6 +19,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # One Render service owns exactly one parish namespace.
+      - key: DEPLOYMENT_PARISH_ID
+        value: gia-ton
       # CORS cho SPA trên Vercel + Native Capacitor (originPolicy.ts allowlist).
       - key: CLIENT_ORIGIN
         value: https://tnttvn.vercel.app,capacitor://localhost,https://localhost,http://localhost

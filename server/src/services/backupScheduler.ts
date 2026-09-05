@@ -6,12 +6,13 @@ import { systemSettings } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
 import { putObject, listObjects, deleteObject } from './blobStorage.js'
 import { createAndStoreRemoteBackup } from './remoteBackup.js'
+import { getDeploymentParishId } from '../utils/deploymentParish.js'
 
 const CHECK_INTERVAL_MS = 60 * 1000 // Check every minute
 const MARKER_KEY = 'auto_backup_last_date'
 
 function getParishId(): string {
-  return process.env.PARISH_ID || 'gia-ton'
+  return getDeploymentParishId()
 }
 
 function getBackupDir(): string {

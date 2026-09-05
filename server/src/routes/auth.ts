@@ -5,13 +5,14 @@ import { zValidator } from '@hono/zod-validator'
 import bcrypt from 'bcryptjs'
 import { db, runDbTransaction } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
-import { eq, and, sql } from 'drizzle-orm'
-import { authMiddleware, getSuperAdminId } from '../middleware/auth.js'
+import { eq, and, sql, isNull, inArray } from 'drizzle-orm'
+import { authMiddleware, isSuperAdminAccount, isSuperAdmin } from '../middleware/auth.js'
 import { loginRateLimiter, adminReauthRateLimiter, parentForgotRateLimiter } from '../middleware/security.js'
 import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import { BCRYPT_COST, consumeDummyPassword, isLegacyCostHash } from '../utils/passwordPolicy.js'
 import { generateId } from '../utils/id.js'
-import { verifyAdminReauth } from '../services/userService.js'
+import { captureAdminReauth, AdminAuthorizationChangedError } from '../services/userService.js'
+import { resolvePublicParishId } from '../utils/deploymentParish.js'
 import { getClientIp } from '../utils/ip.js'
 import { isOriginAllowed, resolveAllowedOrigins } from '../utils/originPolicy.js'
 import type { JwtPayload } from '../middleware/auth.js'
@@ -98,7 +99,9 @@ const loginSchema = z.object({
   password: z.string().min(1).max(128),
   // ADR-046 (2026-08-16): lookup theo parish — username chỉ unique trong phạm vi parish.
   // Optional (default 'gia-ton') để backward-compatible: client cũ không gửi vẫn hoạt động.
-  parishId: z.string().trim().min(1).max(64).default('gia-ton'),
+  // Compatibility-only outside enforced deployments. Production derives parish
+  // identity from DEPLOYMENT_PARISH_ID and ignores this legacy selector.
+  parishId: z.string().trim().min(1).max(64).optional(),
 })
 
 const strongPassword = z
@@ -115,7 +118,8 @@ const changePasswordSchema = z.object({
 })
 
 auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c) => {
-  const { username, password, parishId } = c.req.valid('json')
+  const { username, password, parishId: requestedParishId } = c.req.valid('json')
+  const parishId = resolvePublicParishId(requestedParishId)
   // ADR-046: lookup scoped theo parish (username unique per-parish từ migration 121).
   // Trước đây lookup toàn cục + limit(1) — sai tenant khi 2 parish dùng chung username.
   const [user] = await db.select().from(users).where(and(eq(users.username, username), eq(users.parishId, parishId))).limit(1)
@@ -132,8 +136,9 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
     return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
-  if (user.status === 'LOCKED' && user.id !== getSuperAdminId()) {
-    return errorResponse(c, 'ACCOUNT_LOCKED', 'Tài khoản đã bị khóa do bảo mật. Vui lòng liên hệ Admin!', 403)
+  if (user.status === 'LOCKED' && !isSuperAdmin(user.id, user.parishId, user.role)) {
+    await consumeDummyPassword(password)
+    return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash)
@@ -143,7 +148,6 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
     // Phase 1 (Auth split-tx): audit LOGIN_FAILED + counter khóa cùng 1
     // transaction — audit fail không còn chặn lockout counter và ngược lại.
     const userIsAdmin = user.role === 'admin'
-    let attempts = 1
     await runDbTransaction(async (tx) => {
       await tx.insert(auditLogs).values({
         id: generateId('AUD'),
@@ -163,38 +167,37 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
         // (SELECT trước bcrypt.compare ~126ms) → N request song song đều tính nextFailed=1
         // → lost update (test: 10 concurrent → failedAttempts=1 thay vì 10, không lock).
         // SQLite UPDATE đơn statement atomic → failed_attempts + 1 tính trên giá trị hiện hành.
-        const [updated] = await tx.update(users)
+        await tx.update(users)
           .set({
             failedAttempts: sql`${users.failedAttempts} + 1`,
             status: sql`CASE WHEN ${users.failedAttempts} + 1 >= ${LOGIN_LOCKOUT_THRESHOLD} THEN 'LOCKED' ELSE ${users.status} END`,
           })
           .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
           .returning({ failedAttempts: users.failedAttempts, status: users.status })
-        attempts = updated?.failedAttempts ?? 1
       }
     })
 
-    if (!userIsAdmin) {
-      return errorResponse(c, 'INVALID_CREDENTIALS', `Mật khẩu không chính xác! (Lần thử: ${attempts}/${LOGIN_LOCKOUT_THRESHOLD})`, 401)
-    }
-    return errorResponse(c, 'INVALID_CREDENTIALS', 'Mật khẩu không chính xác!', 401)
+    return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
   // Phase 1 (Auth split-tx): reset lockout + rehash + session mới + audit LOGIN
   // cùng 1 transaction — không còn khe "reset đã commit nhưng session/audit mất".
   const now = new Date().toISOString()
+  const upgradedHash = isLegacyCostHash(user.passwordHash)
+    ? await bcrypt.hash(password, BCRYPT_COST)
+    : undefined
   const tokens = await runDbTransaction(async (tx) => {
-    await tx.update(users).set({ failedAttempts: 0, lastLoginAt: now }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-
-    // A-NEW-19 (2026-08-11): rehash-on-login — hash legacy cost 10 (tạo trước khi upgrade
-    // BCRYPT_COST=12) tự migrate lên cost 12 khi user đăng nhập thành công
-    // (OWASP Password Storage §Rehashing; bcrypt.compare tự nhận dạng cost từ $2a$10$...$.
-    const isLegacyHash = isLegacyCostHash(user.passwordHash)
-    if (isLegacyHash) {
-      const upgradedHash = await bcrypt.hash(password, BCRYPT_COST)
-      await tx.update(users).set({ passwordHash: upgradedHash })
-        .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-    }
+    // Password verification is expensive and runs outside the write lock. Its
+    // exact preconditions must still hold before rehash/session/audit can commit.
+    const claimed = await tx.update(users).set({
+      failedAttempts: 0, lastLoginAt: now,
+      ...(upgradedHash ? { passwordHash: upgradedHash } : {}),
+    }).where(and(
+      eq(users.id, user.id), eq(users.parishId, user.parishId),
+      eq(users.passwordHash, user.passwordHash), eq(users.tokenVersion, user.tokenVersion),
+      eq(users.role, user.role), eq(users.status, user.status), isNull(users.deletedAt),
+    )).returning({ id: users.id })
+    if (claimed.length !== 1) return null
 
     const issued = await issueTokensWithSessionIn(
       tx,
@@ -223,6 +226,7 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
     return issued
   })
 
+  if (!tokens) return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   setRefreshCookie(c, tokens.refreshToken)
   // A-NEW-01 (2026-08-10): refresh token KHÔNG còn trong JSON response — chỉ cookie.
   return successResponse(c, {
@@ -256,15 +260,18 @@ auth.post('/change-password', authMiddleware, zValidator('json', changePasswordS
   // ADR-021 rewrite (2026-08-08): mật khẩu do CHÍNH USER đặt không bao giờ được
   // lưu dưới dạng reversible — password_encrypted chỉ tồn tại cho password tạm
   // (admin tạo/reset/admin-set). User đổi pass → xóa bản mã hóa (NULL).
-  const { tokens } = await runDbTransaction(async (tx) => {
+  const outcome = await runDbTransaction(async (tx) => {
     const [updated] = await tx.update(users).set({
       passwordHash, passwordEncrypted: null, status: 'ACTIVE', mustChangePassword: 0,
       failedAttempts: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1`,
-    }).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).returning({ tokenVersion: users.tokenVersion })
+    }).where(and(
+      eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId),
+      eq(users.passwordHash, user.passwordHash), eq(users.tokenVersion, user.tokenVersion),
+      eq(users.status, user.status), eq(users.role, user.role), isNull(users.deletedAt),
+      inArray(users.status, ['ACTIVE', 'FORCE_PASSWORD_CHANGE']),
+    )).returning({ tokenVersion: users.tokenVersion })
     if (!updated) {
-      const err = new Error('Tài khoản không tồn tại') as any
-      err.status = 404
-      throw err
+      return null
     }
     await revokeAllSessionsWith(tx, jwtUser.userId, jwtUser.parishId)
 
@@ -294,6 +301,8 @@ auth.post('/change-password', authMiddleware, zValidator('json', changePasswordS
     return { tokens: issued }
   })
 
+  if (!outcome) return errorResponse(c, 'SESSION_INVALID', 'Phiên hoặc thông tin tài khoản đã thay đổi. Vui lòng đăng nhập lại.', 401)
+  const { tokens } = outcome
   setRefreshCookie(c, tokens.refreshToken)
   // A-NEW-01: access token duy nhất trong body (refresh chỉ qua cookie mới set).
   return successResponse(c, { success: true, message: 'Đổi mật khẩu thành công!', accessToken: tokens.accessToken })
@@ -327,13 +336,13 @@ auth.post('/admin-change-password', authMiddleware, adminReauthRateLimiter, zVal
   // khiến Admin trưởng không thể đổi mật khẩu qua bất kỳ path nào (UserManagementPage
   // "Đặt Mật Khẩu" + SettingsPage) → 403 chết đường. Bảo mật giữ nguyên: vẫn bắt buộc
   // verifyAdminReauth (mật khẩu HIỆN TẠI của chính Admin trưởng) + rate limit + audit.
-  if (getSuperAdminId() === userId && jwtUser.userId !== userId) {
+  if (await isSuperAdminAccount(userId, jwtUser.parishId) && jwtUser.userId !== userId) {
     return errorResponse(c, 'FORBIDDEN', 'Không thể đổi mật khẩu của Admin trưởng', 403)
   }
 
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
-  const reauthOk = await verifyAdminReauth(jwtUser.userId, adminPassword, jwtUser.parishId, ip, userAgent, userId, 'ADMIN_CHANGE_PASSWORD_FAILED')
+  const reauthOk = await captureAdminReauth(jwtUser.userId, adminPassword, jwtUser.parishId, ip, userAgent, userId, 'ADMIN_CHANGE_PASSWORD_FAILED', jwtUser.tokenVersion)
   if (!reauthOk) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
 
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId))).limit(1)
@@ -343,24 +352,30 @@ auth.post('/admin-change-password', authMiddleware, adminReauthRateLimiter, zVal
   // Phase 1 (Auth split-tx): reset pass + revoke sessions + audit cùng 1
   // transaction — không còn khe "pass mới đã commit nhưng session cũ còn row".
   // tokenVersion tăng atomic (double-reset song song không lost-update).
-  await runDbTransaction(async (tx) => {
-    await tx.update(users).set({ passwordHash, passwordEncrypted: null, status: 'FORCE_PASSWORD_CHANGE', mustChangePassword: 1, failedAttempts: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` }).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId)))
-    await revokeAllSessionsWith(tx, userId, jwtUser.parishId)
+  try {
+    await runDbTransaction(async (tx) => {
+      await reauthOk(tx, jwtUser.userId, jwtUser.parishId, userId, 'ADMIN_CHANGE_PASSWORD_FAILED')
+      await tx.update(users).set({ passwordHash, passwordEncrypted: null, status: 'FORCE_PASSWORD_CHANGE', mustChangePassword: 1, failedAttempts: 0, lockedUntil: null, tokenVersion: sql`${users.tokenVersion} + 1` }).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId)))
+      await revokeAllSessionsWith(tx, userId, jwtUser.parishId)
 
-    await tx.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: jwtUser.userId,
-      action: 'ADMIN_CHANGE_PASSWORD',
-      entityType: 'user',
-      entityId: userId,
-      newValue: JSON.stringify({ username: target.username }),
-      ip,
-      userAgent,
-      parishId: jwtUser.parishId,
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: jwtUser.userId,
+        action: 'ADMIN_CHANGE_PASSWORD',
+        entityType: 'user',
+        entityId: userId,
+        newValue: JSON.stringify({ username: target.username }),
+        ip,
+        userAgent,
+        parishId: jwtUser.parishId,
+      })
     })
-  })
 
-  return successResponse(c, { success: true, message: `Đã đặt lại mật khẩu cho ${target.fullName}` })
+    return successResponse(c, { success: true, message: `Đã đặt lại mật khẩu cho ${target.fullName}` })
+  } catch (err) {
+    if (err instanceof AdminAuthorizationChangedError) return errorResponse(c, 'SESSION_INVALID', err.message, 401)
+    throw err
+  }
 })
 
 auth.post('/refresh', csrfOriginGuard, async (c) => {
@@ -427,58 +442,66 @@ auth.put('/profile', authMiddleware, zValidator('json', updateProfileSchema), as
   const jwtUser = c.get('user') as JwtPayload
   const { fullName, phone } = c.req.valid('json')
 
-  const [user] = await db.select().from(users).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).limit(1)
-  if (!user) return errorResponse(c, 'USER_NOT_FOUND', 'Tài khoản không tồn tại', 404)
+  const outcome = await runDbTransaction(async (tx) => {
+    const [user] = await tx.select().from(users).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).limit(1)
+    if (!user || user.deletedAt || user.role !== jwtUser.role
+      || (jwtUser.tokenVersion !== undefined && user.tokenVersion !== jwtUser.tokenVersion)
+      || (user.status !== 'ACTIVE' && user.status !== 'FORCE_PASSWORD_CHANGE'
+        && !(user.status === 'LOCKED' && isSuperAdmin(user.id, user.parishId, user.role)))) return { error: 'SESSION_INVALID' as const }
 
-  // ADR-039: phụ huynh không tự đổi SĐT — SĐT là khóa liên kết con (mất con /
-  // nhìn thấy con người khác nếu đổi sang số của PH khác).
-  if (user.role === 'phuhuynh' && phone !== undefined && phone !== (user.phone || '')) {
-    return errorResponse(c, 'PHONE_CHANGE_NOT_ALLOWED', 'Số điện thoại của phụ huynh do Ban Giáo Lý quản lý — vui lòng liên hệ quản trị viên để đổi', 403)
-  }
+    // ADR-039: phụ huynh không tự đổi SĐT — SĐT là khóa liên kết con (mất con /
+    // nhìn thấy con người khác nếu đổi sang số của PH khác).
+    if (user.role === 'phuhuynh' && phone !== undefined && phone !== (user.phone || '')) {
+      return { error: 'PHONE_CHANGE_NOT_ALLOWED' as const }
+    }
 
-  const nextFullName = fullName ?? user.fullName
-  const nextPhone = phone !== undefined ? phone : user.phone
-  const changedFields: string[] = []
-  if (nextFullName !== user.fullName) changedFields.push('fullName')
-  if (nextPhone !== (user.phone || '')) changedFields.push('phone')
+    const nextFullName = fullName ?? user.fullName
+    const nextPhone = phone !== undefined ? phone : user.phone
+    const changedFields: string[] = []
+    if (nextFullName !== user.fullName) changedFields.push('fullName')
+    if (phone !== undefined && nextPhone !== (user.phone || '')) changedFields.push('phone')
 
-  await db.update(users)
-    .set({
+    if (changedFields.length > 0) await tx.update(users)
+      .set({
+        ...(fullName !== undefined ? { fullName: nextFullName } : {}),
+        ...(phone !== undefined ? { phone: nextPhone } : {}),
+      })
+      .where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId)))
+
+    // AUDIT-F4 (2026-08-22): tự cập nhật profile là thao tác thay đổi identity —
+    // trước đây không để vết (staff tự đổi SĐT mình không ai biết). Không ghi PII
+    // thô theo A16: chỉ liệt kê field đã đổi + SĐT che giữ 4 số cuối.
+    if (changedFields.length > 0) {
+      const ip = getClientIp(c)
+      const userAgent = c.req.header('user-agent') || ''
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: user.id,
+        action: 'UPDATE_PROFILE',
+        entityType: 'user',
+        entityId: user.id,
+        newValue: JSON.stringify({
+          changedFields,
+          ...(changedFields.includes('phone') ? { phoneMasked: maskPhoneForAudit(nextPhone) } : {}),
+        }),
+        ip,
+        userAgent,
+        parishId: jwtUser.parishId,
+      })
+    }
+
+    return { data: {
+      id: user.id,
+      username: user.username,
       fullName: nextFullName,
       phone: nextPhone,
-    })
-    .where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId)))
-
-  // AUDIT-F4 (2026-08-22): tự cập nhật profile là thao tác thay đổi identity —
-  // trước đây không để vết (staff tự đổi SĐT mình không ai biết). Không ghi PII
-  // thô theo A16: chỉ liệt kê field đã đổi + SĐT che giữ 4 số cuối.
-  if (changedFields.length > 0) {
-    const ip = getClientIp(c)
-    const userAgent = c.req.header('user-agent') || ''
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.id,
-      action: 'UPDATE_PROFILE',
-      entityType: 'user',
-      entityId: user.id,
-      newValue: JSON.stringify({
-        changedFields,
-        ...(changedFields.includes('phone') ? { phoneMasked: maskPhoneForAudit(nextPhone) } : {}),
-      }),
-      ip,
-      userAgent,
-      parishId: jwtUser.parishId,
-    })
-  }
-
-  return successResponse(c, {
-    id: user.id,
-    username: user.username,
-    fullName: nextFullName,
-    phone: nextPhone,
-    role: user.role,
-    status: user.status,
+      role: user.role,
+      status: user.status,
+    } }
   })
+  if (outcome.error === 'PHONE_CHANGE_NOT_ALLOWED') return errorResponse(c, outcome.error, 'Số điện thoại của phụ huynh do Ban Giáo Lý quản lý — vui lòng liên hệ quản trị viên để đổi', 403)
+  if (outcome.error) return errorResponse(c, outcome.error, 'Phiên đăng nhập đã thay đổi, vui lòng đăng nhập lại', 401)
+  return successResponse(c, outcome.data)
 })
 
 export default auth

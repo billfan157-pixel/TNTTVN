@@ -45,6 +45,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint --if-present
 
+      - name: Verify Architecture Inventory
+        run: npm run lint:architecture-inventory
+
       - name: Typecheck TypeScript
         run: |
           npx tsc -b --noEmit

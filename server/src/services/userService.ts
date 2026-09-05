@@ -1,5 +1,5 @@
 ﻿import { randomInt } from 'node:crypto'
-import { db, runDbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbExecutor } from '../db/index.js'
 import {
   users,
   students,
@@ -16,7 +16,7 @@ import {
 import { eq, and, ne, inArray, isNull } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import { generateId } from '../utils/id.js'
-import { getSuperAdminId } from '../middleware/auth.js'
+import { isSuperAdmin, isSuperAdminAccount } from '../middleware/auth.js'
 import { revokeAllSessionsWith } from './refreshSessionService.js'
 import { BCRYPT_COST } from '../utils/passwordPolicy.js'
 import { normalizePhone } from '../utils/phone.js'
@@ -39,6 +39,7 @@ export async function getUsers(parishId: string, limit: number = 50, page: numbe
     return {
       ...safeUser,
       hasPasswordCopy: false,
+      isProtectedAdmin: isSuperAdmin(u.id, u.parishId, u.role),
       assignedClasses: userClasses,
     }
   })
@@ -83,7 +84,7 @@ export async function getUserById(id: string, parishId: string) {
     .limit(1)
   if (!u) return null
   const { passwordHash: _passwordHash, passwordEncrypted: _passwordEncrypted, ...safeUser } = u
-  return { ...safeUser, hasPasswordCopy: false }
+  return { ...safeUser, hasPasswordCopy: false, isProtectedAdmin: isSuperAdmin(u.id, u.parishId, u.role) }
 }
 
 export interface CreateUserData {
@@ -126,6 +127,7 @@ export async function createUser(
   parishId: string,
   ip: string,
   userAgent: string,
+  reauth?: AdminReauthProof,
 ): Promise<{ id: string; username: string; tempPassword: string } | null> {
   const username = resolveUsername(data)
   const [existing] = await db.select({ id: users.id }).from(users).where(and(eq(users.username, username), eq(users.parishId, parishId))).limit(1)
@@ -138,6 +140,10 @@ export async function createUser(
 
   try {
     await runDbTransaction(async (tx) => {
+      if (data.role === 'admin') {
+        if (!reauth) throw new AdminAuthorizationChangedError()
+        await reauth(tx, adminUserId, parishId, 'new-admin', 'CREATE_ADMIN_REAUTH_FAILED')
+      }
       await tx.insert(users).values({
         id,
         username,
@@ -201,7 +207,7 @@ export async function updateUserStatus(
   ip: string,
   userAgent: string,
 ) {
-  if (getSuperAdminId() === id) return null
+  if (await isSuperAdminAccount(id, parishId)) return null
   if (id === adminUserId && status !== 'ACTIVE') throw new Error('Admin cannot deactivate their own account')
 
   return runDbTransaction(async (tx) => {
@@ -244,13 +250,14 @@ export async function updateUserStatus(
   })
 }
 
-export async function resetUserPassword(id: string, adminUserId: string, parishId: string, ip: string, userAgent: string) {
-  if (getSuperAdminId() === id) return null
+export async function resetUserPassword(id: string, adminUserId: string, parishId: string, ip: string, userAgent: string, reauth?: AdminReauthProof) {
+  if (await isSuperAdminAccount(id, parishId)) return null
 
   const tempPass = `Reset@${randomInt(100000, 999999)}`
   const passwordHash = await bcrypt.hash(tempPass, BCRYPT_COST)
 
   return runDbTransaction(async (tx) => {
+    if (reauth) await reauth(tx, adminUserId, parishId, id, 'RESET_PASSWORD_FAILED')
     const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
@@ -295,7 +302,16 @@ async function auditReauthFailure(failureAction: string, adminUserId: string, en
   })
 }
 
-export async function verifyAdminReauth(
+export class AdminAuthorizationChangedError extends Error {
+  constructor() { super('Quyền quản trị đã thay đổi, vui lòng xác nhận lại') }
+}
+
+/** Request-local proof: credentials stay in the closure, never in JSON/logs.
+ * Rechecking is repeatable inside DB retries, but bound to this operation/target.
+ */
+export type AdminReauthProof = (executor: DbExecutor, actorId: string, parishId: string, entityId: string, operation: string) => Promise<void>
+
+export async function captureAdminReauth(
   adminUserId: string,
   adminPassword: string,
   parishId: string,
@@ -303,11 +319,14 @@ export async function verifyAdminReauth(
   userAgent: string,
   entityId: string,
   failureAction: string,
-): Promise<boolean> {
+  expectedTokenVersion?: number,
+): Promise<AdminReauthProof | null> {
   const [admin] = await db.select().from(users).where(and(eq(users.id, adminUserId), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
-  if (!admin || admin.status === 'INACTIVE' || (admin.status === 'LOCKED' && admin.id !== getSuperAdminId())) {
+  if (!admin || admin.role !== 'admin'
+    || (expectedTokenVersion !== undefined && admin.tokenVersion !== expectedTokenVersion)
+    || (admin.status !== 'ACTIVE' && !(admin.status === 'LOCKED' && isSuperAdmin(admin.id, admin.parishId, admin.role)))) {
     await auditReauthFailure(failureAction, adminUserId, entityId, parishId, ip, userAgent)
-    return false
+    return null
   }
   let passwordValid = false
   try {
@@ -317,9 +336,25 @@ export async function verifyAdminReauth(
   }
   if (!passwordValid) {
     await auditReauthFailure(failureAction, adminUserId, entityId, parishId, ip, userAgent)
-    return false
+    return null
   }
-  return true
+  return async (executor, actorId, targetParishId, targetId, operation) => {
+    if (actorId !== adminUserId || targetParishId !== parishId || targetId !== entityId || operation !== failureAction) throw new AdminAuthorizationChangedError()
+    const [current] = await executor.select({ id: users.id }).from(users).where(and(
+      eq(users.id, admin.id), eq(users.parishId, parishId), isNull(users.deletedAt),
+      eq(users.role, admin.role), eq(users.status, admin.status),
+      eq(users.tokenVersion, admin.tokenVersion), eq(users.passwordHash, admin.passwordHash),
+    )).limit(1)
+    if (!current) throw new AdminAuthorizationChangedError()
+  }
+}
+
+/** Compatibility for callers not yet consuming a transaction-bound proof. */
+export async function verifyAdminReauth(
+  adminUserId: string, adminPassword: string, parishId: string, ip: string,
+  userAgent: string, entityId: string, failureAction: string,
+): Promise<boolean> {
+  return !!(await captureAdminReauth(adminUserId, adminPassword, parishId, ip, userAgent, entityId, failureAction))
 }
 
 export type UpdateUserPhoneResult =
@@ -335,8 +370,9 @@ export async function updateUserPhone(
   parishId: string,
   ip: string,
   userAgent: string,
+  reauth?: AdminReauthProof,
 ): Promise<UpdateUserPhoneResult> {
-  if (getSuperAdminId() === id) return null
+  if (await isSuperAdminAccount(id, parishId)) return null
 
   const normalized = normalizePhone(phone)
   if (!/^0\d{9}$/.test(normalized)) {
@@ -344,6 +380,7 @@ export async function updateUserPhone(
   }
 
   return runDbTransaction(async (tx) => {
+    if (reauth) await reauth(tx, adminUserId, parishId, id, 'UPDATE_USER_PHONE_FAILED')
     const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
@@ -443,7 +480,7 @@ export async function updateUserAssignments(
 }
 
 export async function forceLogoutUser(id: string, adminUserId: string, parishId: string, ip: string, userAgent: string) {
-  if (getSuperAdminId() === id) return null
+  if (await isSuperAdminAccount(id, parishId)) return null
 
   return runDbTransaction(async (tx) => {
     const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
@@ -485,12 +522,14 @@ export async function deleteUserAccount(
   parishId: string,
   ip: string,
   userAgent: string,
+  reauth?: AdminReauthProof,
 ): Promise<DeleteUserAccountResult | null> {
-  if (id === adminUserId || id === getSuperAdminId()) {
+  if (id === adminUserId || await isSuperAdminAccount(id, parishId)) {
     throw Object.assign(new Error('Không thể tự xóa tài khoản hoặc xóa Admin trưởng'), { code: 'PROTECTED_ACCOUNT' })
   }
 
   return runDbTransaction(async (tx) => {
+    if (reauth) await reauth(tx, adminUserId, parishId, id, 'DELETE_USER_ACCOUNT_FAILED')
     const [existing] = await tx
       .select()
       .from(users)

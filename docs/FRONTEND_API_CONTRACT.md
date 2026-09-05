@@ -32,6 +32,25 @@ Backend REST Endpoints (/api/promotion/*, /api/attendance/*, /api/reports/*)
 
 ## 2. STANDARDIZED API RESPONSE FORMATS
 
+### Security contract amendment — 2026-09-05
+
+- **ADR-106 deployment scope:** production là one deployment/one parish. Client không chọn tenant: `POST /api/auth/login` và public password-reset có thể còn gửi `parishId` legacy nhưng server bỏ qua và dùng `DEPLOYMENT_PARISH_ID`; access/refresh token parish khác bị từ chối. Public QR vẫn mang signed `parishId`, nhưng verifier chỉ chấp nhận deployment parish. Response/auth marker vẫn giữ `parishId` để scope Dexie/cache/offline chính xác.
+- Admin user list/detail trả `isProtectedAdmin` từ configured composite principal; UI dùng marker này thay username hardcode. Marker chỉ là UX, không thay server target guards.
+- `POST /api/users`: khi `role=admin`, body bắt buộc có `adminPassword` là mật khẩu hiện tại của caller admin; thiếu/sai → `401 INVALID_ADMIN_PASSWORD`. Áp admin re-auth limiter. Tạo role khác giữ contract hiện hành; không đưa mật khẩu xác nhận vào cache/queue.
+- `GET /api/grades` và `GET /api/attendance`: chỉ `admin|chunhiem|phuta`; parent → 403, phải dùng portal/report-card ownership API. Staff scope rỗng → `[]`, không có nghĩa unrestricted. Scope học sinh không phân trang và không lọc bởi sync cursor.
+- `POST /api/auth/login`: username không tồn tại, sai password và LOCKED đều `401 INVALID_CREDENTIALS` với cùng thông điệp; không hiển thị số lần thử còn lại từ response.
+- `POST /api/verification/sign`: staff có quyền trên lớp hiện hành của active student; `academicYear` là ID năm học có trong parish. Body vẫn `{studentId,academicYear,certId}`. Output thêm `verificationScope: 'signed_identifiers'`.
+- `GET /api/verification/verify`: public, bắt buộc đủ `{parishId,studentId,academicYear,certId,sig}`. `verified:true` **chỉ** xác nhận chữ ký tuple, không xác nhận điểm số, bản in, hoặc certificate đã được cấp. UI không được suy rộng. HMAC payload/key không đổi, QR cũ đủ tuple tiếp tục kiểm chữ ký; không có revoke/expiry/issuance guarantee mới.
+- `POST /api/notifications/smart/report-cards`: mỗi item bắt buộc `studentId`; `parentPhone` còn được nhận để tương thích nhưng không quyết định người nhận. Server resolve từ active student đúng parish và parent phone trong DB. Trả `{sent,total}`: `sent` là số item đã enqueue có target, không phải provider-delivered; no target → không enqueue global Telegram fallback.
+- Client grades/attendance persist `version:1` loại snapshot cũ khi hydration; cursor v2 buộc full pull. Giữ durable offline mutations và account/tenant namespace. Parent background sync bỏ raw student/grade/attendance pulls.
+
+#### Transaction/delivery amendment — H3/H7/H8
+
+- Login thành công chỉ ghi login state, rehash và phát session nếu credential/principal snapshot còn khớp trong transaction; bị reset/lock/revoke xen kẽ → `401 INVALID_CREDENTIALS`, không phục hồi password cũ. Profile chỉ update field được gửi, mutation và audit cùng transaction; principal/epoch stale → `401 SESSION_INVALID`.
+- Admin creation, reset-password, admin-change-password, update-phone và delete-user bind re-auth với actor/tenant/target/action và kiểm lại tại command transaction. Proof chỉ tồn tại nội bộ request, không có token/header mới. Thay đổi actor sau re-auth có thể trả `401 SESSION_INVALID`.
+- Daily entries, grade upsert/batch/undo, attendance single/batch và exam mutations kiểm current actor/role/assignment trong transaction, đối chiếu originating epoch khi token có version. Scope list chỉ là giới hạn trên, kể cả admin không được bỏ current-actor check. Giữ response partial-success/OCC/idempotency hiện hành; caller phải đọc kết quả từng item. Đây chưa phải strict-claims migration H2.
+- Queue `report|absence` lưu `studentId`; mỗi delivery attempt chỉ gửi tới original targets còn là parent ACTIVE, chưa xóa, cùng parish và còn khớp canonical phone của trẻ chưa xóa. Telegram còn cần link ACTIVE/opt-in; push dùng subscriptions/devices thuộc tập user đã kiểm quyền. Body là thông báo chung, push title `Catevia`, link `/`; không đưa tên trẻ/điểm/ngày vắng vào delivery body mới. Không có eligible owner hoặc legacy item thiếu subject/targets → terminal `failed / ACADEMIC_RECIPIENT_NOT_AUTHORIZED`; không có delivery target → `failed / ACADEMIC_DELIVERY_TARGET_UNAVAILABLE`. Không fallback global, không retarget sang parent mới và không tự gửi lại khi account được mở khóa. `{sent,total}` của report-cards vẫn chỉ là enqueue acknowledgement. Scope này không bao gồm class reminders, thông báo vận hành hoặc batch absence summary `info`.
+
 ### Single Resource Success (`successResponse`)
 ```json
 {
@@ -194,7 +213,7 @@ Client: `src/lib/api.ts` (`purgeAllData`, `probePurgeVersion`) · UI: `src/compo
 
 Client: `src/lib/api.ts` (`api.login/changePassword/adminChangePassword/logout/me`) · Store: `src/stores/authStore.ts`
 
-> **Username unique theo parish (ADR-046, 2026-08-16)**: `POST /api/auth/login` nhận thêm **`parishId` optional** (body) — lookup theo `(username, parishId)`, **default `'gia-ton'`** nếu không gửi (backward-compatible với client hiện tại; KHÔNG fallback lookup toàn cục — fail-closed). Client cũ không đổi; khi multi-parish go-live client phải gửi `parishId` (parish picker / config deploy). DB: `idx_users_username_parish UNIQUE(parish_id, username)` (migration `20260816-121`).
+> **Username unique theo parish (ADR-046, superseded topology by ADR-106)**: DB tiếp tục enforce `idx_users_username_parish UNIQUE(parish_id, username)`. `POST /api/auth/login` còn nhận `parishId` optional để tương thích client/test cũ, nhưng khi deployment scope được enforce server luôn lookup `(username, DEPLOYMENT_PARISH_ID)` và không fallback/global lookup. Production không có parish picker hoặc shared multi-parish login. Dev/test không set deployment scope vẫn có thể gửi `parishId` để chạy isolation regression.
 
 > **2 cổng đăng nhập UI (ADR-044, 2026-08-16)**: client có 3 trang login — `/login` (chooser), `/login/phuhuynh` (SĐT + mật khẩu), `/login/nhan-su` (username + mật khẩu). **Backend KHÔNG đổi**: tất cả cổng gọi chung `POST /api/auth/login`; role gate sau login nằm ở client (sai cổng → logout + chỉ đường). Chi tiết: `docs/BUSINESS_RULES.md` §10.13.
 
@@ -233,7 +252,7 @@ Client: `src/lib/api.ts` (`api.login/changePassword/adminChangePassword/logout/m
 
 | Method/path | Quyền | Contract |
 | :--- | :--- | :--- |
-| `POST /` | Public + `parentForgotRateLimiter` 5/60s/IP | Body `{phone, parishId?}`; normalize SĐT, chỉ tạo/mở lại ticket nếu khớp `role=phuhuynh` cùng tenant. Luôn `202 {accepted:true,message}` giống nhau cho số có/không có tài khoản; không tự reset. |
+| `POST /` | Public + `parentForgotRateLimiter` 5/60s/IP | Body `{phone, parishId?}`; `parishId` chỉ còn legacy compatibility và bị bỏ qua khi deployment scope được enforce. Server normalize SĐT, chỉ tạo/mở lại ticket nếu khớp `role=phuhuynh` trong `DEPLOYMENT_PARISH_ID`. Luôn `202 {accepted:true,message}` giống nhau cho số có/không có tài khoản; không tự reset. |
 | `GET /admin` | admin | Danh sách ticket `PENDING` cùng tenant, mới nhất trước: `{id,userId,fullName,username,phone,status,requestCount,lastRequestedAt}[]`. |
 | `POST /admin/:id/reset` | admin + re-auth + `adminReauthRateLimiter` | Body `{adminPassword}`; transaction reset bcrypt + force-change + revoke sessions + resolve ticket + audit. Trả `{username,tempPassword,fullName}` đúng một lần. |
 | `PATCH /admin/:id/dismiss` | admin | Đóng ticket sai/không còn cần; audit người xử lý. |
@@ -262,7 +281,7 @@ Kích hoạt tự động gửi thông báo theo sự kiện (webpush có chủ 
 | Method & Path | Purpose | Auth | Success `data` |
 | :--- | :--- | :--- | :--- |
 | `POST /api/notifications/smart/absence` | Thông báo vắng mặt (theo ngày/lớp) | admin + chunhiem | `{ enqueued, failed }` |
-| `POST /api/notifications/smart/report-cards` | Gửi phiếu điểm hàng loạt (qua outbox queue) | admin + chunhiem | `{ enqueued, failed }` |
+| `POST /api/notifications/smart/report-cards` | Gửi phiếu điểm hàng loạt tới parent canonical theo studentId (qua outbox queue) | admin + chunhiem | `{ sent, total }` — sent = số item enqueue có recipient, không phải delivered |
 | `POST /api/notifications/smart/reminder/sunday` | Nhắc tham dự Lễ Chúa Nhật | admin + chunhiem | `{ enqueued, failed }` |
 | `POST /api/notifications/smart/reminder/class` | Nhắc lớp học | admin + chunhiem | `{ enqueued, failed }` |
 
@@ -297,7 +316,7 @@ Client: `src/lib/api.ts` (`getMyChildren`, `getStudentReportCard`) · Page: `src
 | `DELETE /api/parents/telegram/link` | Hủy liên kết Telegram (thu hồi mọi link ACTIVE của tài khoản) | role `phuhuynh` | `{ revokedLinks }` | 401/403 |
 
 - Phone khớp linh hoạt: bỏ khoảng trắng/`-`/`(`/`)`/`.`, đổi đầu `+84` → `0`; `users.phone` có thể lệch định dạng so với `students.parentPhone` mà vẫn khớp.
-- Phụ huynh **không** thấy tab Thiếu Nhi/Điểm Danh/Bảng Điểm/Báo Cáo. `GET /api/students` và `GET /api/students/:id` trả **403** cho role `phuhuynh`; dữ liệu con chỉ đi qua `GET /api/parents/my-children` và report-card parent guard. `GET /api/grades`/`attendance` hiện trả tập rỗng do phụ huynh không có assignment, nhưng không được dùng làm API portal. Với `admin|chunhiem|phuta`, `GET /api/students` và `GET /api/classes` trả roster/metadata lớp toàn giáo xứ để duyệt danh sách; response lớp cho GLV không có `homeroomTeacher` hoặc `assistants`, nhưng có `assignedToCurrentUser: boolean` chỉ phản ánh assignment của chính user. `ExamSessionView` bắt buộc dùng marker này để lọc class chips/form tạo phiên. Đây là read scope riêng: endpoint ghi và các module điểm danh/điểm/thi vẫn kiểm tra class assignment tại server.
+- Phụ huynh **không** thấy tab Thiếu Nhi/Điểm Danh/Bảng Điểm/Báo Cáo. `GET /api/students` và `GET /api/students/:id` trả **403** cho role `phuhuynh`; dữ liệu con chỉ đi qua `GET /api/parents/my-children` và report-card parent guard. `GET /api/grades` và `GET /api/attendance` cũng trả **403** cho phụ huynh; background sync parent không gọi các staff APIs này. Với `admin|chunhiem|phuta`, `GET /api/students` và `GET /api/classes` trả roster/metadata lớp toàn giáo xứ để duyệt danh sách; response lớp cho GLV không có `homeroomTeacher` hoặc `assistants`, nhưng có `assignedToCurrentUser: boolean` chỉ phản ánh assignment của chính user. `ExamSessionView` bắt buộc dùng marker này để lọc class chips/form tạo phiên. Đây là read scope riêng: endpoint ghi và các module điểm danh/điểm/thi vẫn kiểm tra class assignment tại server.
 - Frontend route-policy SSOT: `src/constants/routePolicy.ts`. Router guard, desktop/mobile navigation state và mobile title cùng dẫn xuất từ policy này. `/students`, `/grades`, `/attendance`, `/reports`, `/leave-requests` chỉ `admin|chunhiem|phuta`; `/parent` chỉ `phuhuynh`; governance routes chỉ `admin`; `/dashboard|notices|calendar|settings|feedback` dùng chung cho mọi role đã xác thực. `/feedback` chỉ chung quyền vào trang; quyền gửi/nhận vẫn tách theo endpoint và role. Đây là fail-closed UX boundary; server middleware vẫn là authorization authority.
 - Telegram UI (ADR-022 hoàn thiện, 2026-08-15): `src/components/common/TelegramLinkCard.tsx` + `src/hooks/useTelegramLink.ts` (mount trong `ParentPage` mục "Thông Báo Telegram") — tạo mã (10 phút), sao chép, bật/tắt thông báo, hủy liên kết; bot nhận `/link <mã>`, `/status`, `/optout`, `/optin`, `/unlink` (`server/src/services/telegram.ts`). Hướng dẫn bot trỏ tới "Con Của Tôi" → "Thông Báo Telegram".
 

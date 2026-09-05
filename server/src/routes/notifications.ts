@@ -60,7 +60,7 @@ const absenceSchema = z.object({
 
 const reportCardsSchema = z.object({
   students: z.array(z.object({
-    studentId: z.string().trim().min(1).max(100).optional(),
+    studentId: z.string().trim().min(1).max(100),
     parentPhone: z.string().trim().min(1).max(20).optional(),
     studentName: z.string({ required_error: "Thiếu tên thiếu nhi" }).trim().min(1, "Tên thiếu nhi không được để trống").max(200, "Tên quá dài"),
     holyName: z.string({ required_error: "Thiếu tên thánh" }).trim().min(1, "Tên thánh không được để trống").max(200, "Tên thánh quá dài"),
@@ -247,7 +247,8 @@ notificationsRouter.post('/smart/absence', zValidator('json', absenceSchema), as
     body.status as 'Present' | 'AbsentExcused' | 'AbsentUnexcused',
     body.parentName,
     body.parentPhone,
-    body.note
+    body.note,
+    student.id,
   )
   return successResponse(c, { ok: true })
 })

@@ -5,10 +5,23 @@
 > Đăng Ký**. **KHÔNG tạo file audit riêng lẻ.** Link chéo từ code/comment chỉ cần ghi
 > `SECURITY_AUDIT <A0X>` (không kèm tên file) — file này là nơi tra cứu duy nhất.
 
+## Audit AUTH-RBAC-20260905 — remediation working tree (chưa deployed)
+
+Audit evidence độc lập theo yêu cầu nằm trong [report 2026-09-05, §13](authentication-authorization-rbac-audit-2026-09-05.md#13-remediation--working-tree-sau-audit-2026-09-05); report/CSV/hashes trước sửa giữ nguyên làm baseline lịch sử. Mã D ở đây không phải mã architecture audit.
+
+- Đã sửa access paths D1–D9/D11: deny-empty academic scope + staff gates + scoped cache retirement; grade tenant UPDATE; password CAS chống reactivation; leave current-class/lock/version; canonical report recipients; exact forced-password routes; composite superadmin/Telegram/import identity; generic login failure.
+- D10: signer kiểm lớp/năm học, verifier/UI chỉ nhận `signed_identifiers`; không còn claim xác thực nội dung/cấp chứng nhận. Không có immutable issuance/revoke subsystem.
+- H1 admin creation step-up, H4 exam roles, H5 no-recipient global fallback đã harden; H3 và H8 mới một phần (fresh grade/attendance assignment; monotonic refresh revocation + tenant CAS).
+- Follow-up H3/H7/H8: login snapshot CAS, request-bound admin re-auth consumption, atomic field-specific profile; fresh actor/assignment/epoch cho daily/grade/attendance/exam writers; single-child report/absence dispatch kiểm current owner và dùng generic body, suppress legacy thiếu scope. Evidence, coverage và recovery ở [report §15](authentication-authorization-rbac-audit-2026-09-05.md#15-implementation-follow-up--h3h7h8). Chưa deployed.
+- Single-parish topology follow-up giữ `parish_id`/composite keys/Dexie scope nhưng khóa production bằng `DEPLOYMENT_PARISH_ID`: legacy public tenant selectors bị bỏ qua, foreign token/QR/direct worker/enqueue bị deny, startup quét mọi table scoped và abort trước traffic nếu mixed/null parish. Evidence/recovery/unknown ở [report §16](authentication-authorization-rbac-audit-2026-09-05.md#16-single-parish-deployment-follow-up--tenant-model-được-giữ-làm-safety-boundary) và ADR-106. Chưa inventory/deploy/smoke production.
+- H2 strict legacy-token strategy, H6 private/group binding, H7 reminder/operational audiences, H8 legacy reauth callers/refresh-read boundary và production unknowns vẫn mở. Epoch comparison chỉ có khi token mang version. Không chứng nhận hệ thống an toàn trên mọi route chỉ từ tests xanh.
+- Regression mới dùng Hono/SQLite, real Dexie migration giữ queue và UI QR; auth/parent/permission browser E2E 3/3 PASS với backend/DB sandbox thật. Chi tiết full-run failures, reruns và giới hạn ở §13 report; chưa production/device verification hoặc exhaustive E2E.
+
 ## Đăng Ký Audit (Register)
 
 | Audit | Severity | Vấn đề | Trạng thái | Đóng ngày |
 | :--- | :--- | :--- | :--- | :--- |
+| AUTH-RBAC-20260905 | P0–P2 | D1–D11 auth/tenant/object paths, H1/H3/H4/H5/H8 và single-parish deployment hardening | Sửa working tree; remaining gaps và production validation chưa đóng — xem §13–§16 report 2026-09-05 | — |
 | AUDIT-SYNC-01 | 🔴 P1/P2 | gradeStore thiếu sync trigger tức thì + thiếu audit logging trên Settings, Login, Telegram | ✅ CLOSED (2026-08-14) | `gradeStore.ts`, `DesktopGradeMatrix.tsx`, `settings.ts`, `auth.ts`, `parents.ts`, `AuditLogPage.tsx` |
 | INF-01 | 🔴 P1/P2 | backup-db.mjs guard kiểm tra sai extension (.js thay vì .mjs) | ✅ CLOSED (2026-08-14) | `scripts/backup-db.mjs`, `scripts/backup-db.js` |
 | INF-02 | 🔴 P1/P2 | Thiếu automated backup scheduler trong repo | ✅ CLOSED (2026-08-14) | `server/src/services/backupScheduler.ts`, `server/src/index.ts` |

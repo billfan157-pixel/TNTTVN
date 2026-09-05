@@ -119,7 +119,7 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {error && (
-            <div role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-600 flex items-center gap-2">
+            <div role="alert" className="p-3 rounded-xl bg-parish-danger-bg border border-parish-danger/30 text-xs font-semibold text-parish-danger flex items-center gap-2">
               <AlertCircle size={15} className="shrink-0" />
               <span>{error}</span>
             </div>
@@ -134,8 +134,12 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
               type="date"
               id={dateId}
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="form-input w-full text-sm font-medium"
+              onChange={(e) => {
+                setDate(e.target.value);
+                if (error) setError(null);
+              }}
+              className={`form-input w-full text-sm font-medium ${!date && error ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
+              aria-invalid={!date && error ? 'true' : undefined}
               required
             />
           </div>
@@ -211,9 +215,13 @@ export const LeaveRequestModal: React.FC<LeaveRequestModalProps> = ({
               id={reasonId}
               rows={3}
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => {
+                setReason(e.target.value);
+                if (error) setError(null);
+              }}
               placeholder="VD: Em bị sốt / Gia đình có việc đột xuất về quê..."
-              className="form-textarea w-full text-sm resize-none"
+              className={`form-textarea w-full text-sm resize-none ${(!reason.trim() || reason.trim().length < 3) && error ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
+              aria-invalid={(!reason.trim() || reason.trim().length < 3) && error ? 'true' : undefined}
               required
             />
             <p className="form-help-text mt-1">

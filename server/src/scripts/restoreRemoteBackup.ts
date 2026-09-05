@@ -32,15 +32,25 @@ if (process.env.TURSO_URL && normalizeDatabaseUrl(targetUrl) === normalizeDataba
   throw new Error('Refusing to restore into the configured production TURSO_URL')
 }
 
-const encrypted = await getObject(objectKey)
-if (!encrypted) throw new Error(`Backup object not found: ${objectKey}`)
-
 const target = createClient({ url: targetUrl, authToken: targetToken })
 try {
   const startedAt = Date.now()
+  const downloadStartedAt = Date.now()
+  const encrypted = await getObject(objectKey)
+  const downloadMs = Date.now() - downloadStartedAt
+  if (!encrypted) throw new Error(`Backup object not found: ${objectKey}`)
+
+  const decryptStartedAt = Date.now()
   const snapshot = decryptLogicalSnapshot(encrypted)
+  const decryptMs = Date.now() - decryptStartedAt
+
+  const restoreStartedAt = Date.now()
   const result = await restoreLogicalSnapshot(target, snapshot)
+  const restoreMs = Date.now() - restoreStartedAt
+
+  const readinessStartedAt = Date.now()
   await assertDatabaseReady(target)
+  const readinessMs = Date.now() - readinessStartedAt
   console.log(JSON.stringify({
     status: 'verified',
     targetFingerprint: fingerprint,
@@ -48,6 +58,7 @@ try {
     restoredRows: result.restoredRows,
     tableCounts: result.tableCounts,
     foreignKeyViolations: result.foreignKeyViolations,
+    phaseDurationMs: { download: downloadMs, decrypt: decryptMs, restore: restoreMs, readiness: readinessMs },
     durationMs: Date.now() - startedAt,
   }))
 } finally {

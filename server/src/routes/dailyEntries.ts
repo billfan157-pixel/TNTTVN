@@ -57,7 +57,7 @@ dailyEntriesRouter.post(
     const userAgent = c.req.header('user-agent') || ''
     try {
       const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-      const result = await upsertDailyEntries(entries, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+      const result = await upsertDailyEntries(entries, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
       return successResponse(c, result)
     } catch (err) {
       return handleServiceError(c, err)
@@ -76,7 +76,7 @@ dailyEntriesRouter.delete(
     const userAgent = c.req.header('user-agent') || ''
     try {
       const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-      const result = await deleteDailyEntry(id, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+      const result = await deleteDailyEntry(id, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
       return successResponse(c, result)
     } catch (err) {
       return handleServiceError(c, err)

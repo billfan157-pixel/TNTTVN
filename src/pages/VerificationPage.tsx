@@ -4,22 +4,23 @@ import { Button } from '../components/common/ui/Button'
 import { StudentName } from '../components/common/StudentName'
 
 export default function VerificationPage() {
-  const [params, setParams] = useState<{ studentId?: string; academicYear?: string; certId?: string; sig?: string }>({})
+  const [params, setParams] = useState<{ parishId?: string; studentId?: string; academicYear?: string; certId?: string; sig?: string }>({})
   const [loading, setLoading] = useState<boolean>(true)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
+    const parishId = searchParams.get('parishId') || undefined
     const studentId = searchParams.get('studentId') || searchParams.get('s') || undefined
     const academicYear = searchParams.get('academicYear') || searchParams.get('y') || undefined
     const certId = searchParams.get('certId') || searchParams.get('c') || undefined
     const sig = searchParams.get('sig') || undefined
 
-    setParams({ studentId, academicYear, certId, sig })
+    setParams({ parishId, studentId, academicYear, certId, sig })
 
-    if (studentId && academicYear && certId && sig) {
-      fetch(`/api/verification/verify?studentId=${encodeURIComponent(studentId)}&academicYear=${encodeURIComponent(academicYear)}&certId=${encodeURIComponent(certId)}&sig=${encodeURIComponent(sig)}`)
+    if (parishId && studentId && academicYear && certId && sig) {
+      fetch(`/api/verification/verify?parishId=${encodeURIComponent(parishId)}&studentId=${encodeURIComponent(studentId)}&academicYear=${encodeURIComponent(academicYear)}&certId=${encodeURIComponent(certId)}&sig=${encodeURIComponent(sig)}`)
         .then(res => res.json())
         .then(data => {
           if (data.success) {
@@ -45,13 +46,13 @@ export default function VerificationPage() {
           <div className="w-16 h-16 rounded-3xl bg-[var(--color-parish-primary)] text-text-inverse flex items-center justify-center mx-auto shadow-lg mb-3 font-black text-2xl">
             BD
           </div>
-          <h1 className="typography-page-title">Cổng Xác Thực Kết Quả Học Tập</h1>
+          <h1 className="typography-page-title">Kiểm Tra Chữ Ký Mã QR</h1>
           <p className="typography-caption">Brave Davinci Parish Management PWA</p>
         </div>
 
         <div className="auth-card max-w-none">
           <div className="p-6 border-b border-[var(--color-surface-border)] bg-[var(--color-surface-hover)] text-center">
-            <h2 className="typography-card-title">Kết quả Kiểm tra Nguyên vẹn</h2>
+            <h2 className="typography-card-title">Kiểm tra thông tin mã QR</h2>
           </div>
           <div className="p-6 space-y-6">
             {loading ? (
@@ -59,14 +60,14 @@ export default function VerificationPage() {
                 <div className="w-8 h-8 border-4 border-[var(--color-parish-primary)] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="typography-caption">Đang kiểm tra chữ ký HMAC trên máy chủ...</p>
               </div>
-            ) : !params.studentId || !params.sig ? (
+            ) : !params.parishId || !params.studentId || !params.academicYear || !params.certId || !params.sig ? (
               <div className="text-center py-6 space-y-4">
                 <div className="icon-container-lg mx-auto rounded-2xl bg-[var(--color-parish-warning-bg)] text-[var(--color-parish-warning)]">
                   <AlertTriangle className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="typography-card-title">Thiếu tham số quét QR</h3>
-                  <p className="typography-body-sm mt-1">Đường dẫn xác thực không đầy đủ. Vui lòng quét lại mã QR trên kết quả học tập chính thức.</p>
+                  <p className="typography-body-sm mt-1">Đường dẫn kiểm tra không đầy đủ. Vui lòng quét lại mã QR.</p>
                 </div>
                 <Button
                   variant="primary"
@@ -92,7 +93,7 @@ export default function VerificationPage() {
                 <div className="flex items-center gap-3 p-4 rounded-2xl bg-[var(--color-parish-success-bg)] border border-[var(--color-parish-success)]/20">
                   <CheckCircle2 className="w-8 h-8 text-[var(--color-parish-success)] shrink-0" />
                   <div>
-                    <h3 className="typography-card-title text-[var(--color-parish-success)]">Kết Quả Học Tập Hợp Lệ</h3>
+                    <h3 className="typography-card-title text-[var(--color-parish-success)]">Chữ ký mã QR hợp lệ</h3>
                     <p className="typography-body-sm text-[var(--color-parish-success)] mt-0.5">{result.message}</p>
                   </div>
                 </div>
@@ -132,7 +133,7 @@ export default function VerificationPage() {
                 <div className="flex items-center gap-3 p-4 rounded-2xl bg-[var(--color-parish-danger-bg)] border border-[var(--color-parish-danger)]/20">
                   <ShieldAlert className="w-8 h-8 text-[var(--color-parish-danger)] shrink-0" />
                   <div>
-                    <h3 className="typography-card-title text-[var(--color-parish-danger)]">Cảnh Báo Giả Mạo</h3>
+                    <h3 className="typography-card-title text-[var(--color-parish-danger)]">Không Xác Nhận Được Chữ Ký</h3>
                     <p className="typography-body-sm text-[var(--color-parish-danger)] mt-0.5">{result?.message || 'Mã QR không hợp lệ hoặc đã bị thay đổi.'}</p>
                   </div>
                 </div>

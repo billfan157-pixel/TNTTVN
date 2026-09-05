@@ -56,6 +56,6 @@ describe('tenant-scoped durable sync cursor', () => {
   it('commits only to the exact scope that started the pull', async () => {
     const expectedScope = captureSyncCursorScope()
     await expect(writeSyncCursorIfScopeMatches('2026-09-01T10:00:00.000Z', expectedScope)).resolves.toBe(true)
-    expect(rows.get('sync_cursor_v1:P1:U1')?.value).toBe('2026-09-01T10:00:00.000Z')
+    expect(rows.get('sync_cursor_v2:P1:U1')?.value).toBe('2026-09-01T10:00:00.000Z')
   })
 })

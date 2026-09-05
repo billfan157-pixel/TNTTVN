@@ -1,7 +1,7 @@
 import { getDB } from './db'
 import { scopedStorageKey } from './tenantScope'
 
-const CURSOR_KEY = 'sync_cursor_v1'
+const CURSOR_KEY = 'sync_cursor_v2'
 
 function getScopedCursorKey(): string {
   const key = scopedStorageKey(CURSOR_KEY)

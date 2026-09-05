@@ -170,6 +170,10 @@ Model the Reporting subsystem purely as a CQRS Read Model / Projection Layer:
 ### Consequences
 - **Positive**: High query performance; zero side-effects on Write models; total decoupling between Write and Read workflows.
 
+### Amendment 2026-09-05 — current reporting scope
+
+Current MVP is explicitly limited to `ReportCardProjection` and `ClassSummaryProjection`, matching the implemented repositories/routes and R1–R4 roadmap. `ParishSummaryProjection` is a deferred candidate, not a missing current feature. Reopening it requires product-owned users, metrics, academic-year range, pagination/freshness and acceptance criteria; client-side dashboard aggregates must not be relabeled as this server-authoritative projection.
+
 ---
 
 ## ADR-011: Application Services Solely Own Transaction Boundaries
@@ -3480,6 +3484,8 @@ Focused evidence on the implementation snapshot: exact/immutable sync ownership 
 4. Unconfigured providers fail explicitly. Telegram strict mode propagates send errors. A configured push result with any failed recipient retries the aggregate item; this deliberately permits duplicate delivery to recipients already reached. Malformed persisted target JSON becomes an explicitly targeted empty set and can never degrade into a parish broadcast.
 5. Delivery semantics are **at-least-once per aggregate queue item**, not exactly-once per recipient. A crash after provider acceptance but before the `sent` update, or a partial provider result, can duplicate a notification. Native tokens skipped because their platform provider is absent remain provider-conditional and are surfaced by provider metrics/logs.
 
+**H7 amendment — 2026-09-05 (working tree, not deployed):** single-child `report|absence` delivery stores the existing `notifications.student_id`, rechecks nondeleted same-parish child/current ACTIVE parent ownership at every attempt, and intersects those owners with the original targets. No eligible owner or legacy missing subject/targets is terminal `failed` with `ACADEMIC_RECIPIENT_NOT_AUTHORIZED`; no usable target is `ACADEMIC_DELIVERY_TARGET_UNAVAILABLE`. No global fallback, automatic retargeting or replay after unlock. New persisted/outgoing bodies are generic application-update notices; recovered old bodies are not sent, but historical DB messages are not erased. Telegram still checks active opted-in links; private-chat binding assurance remains H6. Class reminders, operational notices and batch absence summaries (`info`) are outside this amendment. This uses the existing queue/schema, not a new broker; a DB check is not atomic with network delivery, and at-least-once/provider limitations remain. Inverse mocked-provider evidence and rollout limits: [auth audit §15](authentication-authorization-rbac-audit-2026-09-05.md#15-implementation-follow-up--h3h7h8).
+
 ### Compatibility, recovery and residual risk
 
 - ADR-013 PASS: notice/domain commit remains independent of external delivery; post-commit enqueue failure is logged and does not turn the committed notice into a false mutation failure. ADR-016/095 PASS WITH HARDENING.
@@ -3568,17 +3574,58 @@ Deep follow-up của architecture audit xác nhận: promotion year có partial-
 4. **Authorization/domain dependency:** `ActorContext` chỉ chứa `userId/role/parishId`; JWT transport type extends context nhưng domain/application không import middleware. Class-access query chuyển sang service không biết Hono/JWT. Policy adapters bind Drizzle executor vào port closures; domain port/spec methods không nhận hoặc import `DbExecutor`. Critical services tạo specs từ active transaction. Architecture gates cấm domain import DB/middleware và application-service runtime import middleware ngoài auth-infrastructure allowlist.
 5. **Client dependency cleanup:** `syncCoordinator` sở hữu imperative sync orchestration, `syncTrigger` không import stores/hooks, React `useSyncEngine` chỉ sở hữu lifecycle. Stores không import hooks. Client GradeAggregate/adapter, unused store actions/types và tests của dead API bị xóa; server GradeAggregate/commands tiếp tục sole write authority.
 
-Không thêm workflow engine, external queue, materialized reporting projection, microservice hay generic repository. `ParishSummaryProjection` vẫn cần product quyết định riêng; không được tự động code từ documentation drift.
+Không thêm workflow engine, external queue, materialized reporting projection, microservice hay generic repository. Theo quyết định follow-up ngày 2026-09-05, `ParishSummaryProjection` là deferred candidate và không thuộc current MVP.
 
 ### Compatibility, recovery and residual risk
 
 - Migration chỉ thêm nullable `promotion_target_year_id`; year cũ ở `PROMOTED` không có target không thể retry tự động và cần operator/data review nếu reconciliation còn thiếu. Year mới luôn persist target trước processing.
 - Sunday reminder chuyển từ implicit single-parish behavior sang explicit opt-in; parish chưa bật sẽ không nhận background reminder. Đây là fail-closed rollout, không silent broadcast.
 - Local/unit restore validation không chứng minh credentialed Turso/R2 drill, production RPO/RTO hoặc cutover. External drill vẫn là release/operations gate.
-- Notification provider delivery vẫn at-least-once theo ADR-102. Multi-parish producer không thay đổi duplicate window.
-- T6/DR5 (projection thứ ba) và field performance/maintainability SLO chưa có product authority; không phải code defect được giải quyết bởi ADR này.
+- Notification provider delivery vẫn at-least-once theo ADR-102. Multi-parish producer không thay đổi duplicate window. **Topology amendment 2026-09-05:** ADR-106 supersede production enumeration; multi-parish path chỉ còn cho dev/test isolation khi không cấu hình deployment scope.
+- T6/DR5 đã được khép bằng explicit deferral ngày 2026-09-05. Field performance/maintainability SLO vẫn chưa có product authority và không được tự đặt từ lab benchmark.
 
 ### Verification and reassessment
 
 Targeted evidence: D8/schema **3 files, 27 tests PASS**; D9/settings/notification **4 files, 42 tests PASS**; restore **1 file, 5 tests PASS**; sync seam **8 files, 60 tests PASS**; authorization/domain/T5 regression **7 files, 51 tests PASS**; Settings/T5 follow-up **5 files, 42 tests PASS**. Final gate trên complete change set: lint zero-warning PASS, server và frontend production builds PASS, full serialized Vitest **313/313 files, 2.138/2.138 tests PASS** trong 823,00 giây. T5 bundle literals đã biến mất và gradeStore chunk giảm từ khoảng 11,75 kB xuống 8,04 kB. Credentialed Turso/R2 restore drill vẫn NOT CONFIRMED.
+
+Follow-up 2026-09-05: schema readiness bắt buộc cả migration marker `20260904-169`; Sunday sender trả acknowledgement boolean để scheduler không ghi sent marker khi không có recipient. Hai read-only operational commands được thêm cho promotion reconciliation và Sunday readiness; output mặc định hash parish ID và không xuất student ID. Restore drill manifest ghi timing riêng download/decrypt/restore/readiness, còn target preparation dùng cùng explicit fingerprint/production guard. Architecture inventory được executable hóa trong CI. Local read-only runs trả zero promotion finding và zero enabled Sunday parish nhưng không phải production evidence vì workspace không có Turso/R2 credentials. `ParishSummaryProjection` được quyết định deferred theo amendment ADR-010; notification at-least-once và extract-on-touch policy giữ nguyên.
+
+---
+
+## ADR-106: Single-Parish Deployment with Tenant-Scoped Persistence (2026-09-05)
+
+**Status: APPROVED / IMPLEMENTED — final verification recorded below. Severity: D3. Profiles: AUTHORIZATION + DATA INTEGRITY + RECOVERY + DEPLOYMENT. Reversibility: R1 for runtime/config, schema remains unchanged.**
+
+### Context and evidence
+
+Catevia hiện chỉ được vận hành cho một giáo xứ. Code và schema vẫn có tenant boundary sâu: identity, JWT, queries, composite keys/FKs, backup và client offline ownership đều mang `parishId`. Xóa tenant columns/constraints sẽ tạo migration lớn, làm yếu defense-in-depth và khuếch đại thay đổi mà không giải quyết một lỗi vận hành đã chứng minh. Ngược lại, giữ shared multi-parish production selection làm tăng số entry path phải cấu hình/kiểm soát dù topology không còn cần nó. Evidence hiện hành cho thấy client login vốn không có parish picker, trong khi legacy public bodies/default, seed, backup và workers có nhiều cách tự chọn/enumerate parish.
+
+### Decision
+
+1. **Một production deployment sở hữu một parish namespace bất biến.** `DEPLOYMENT_PARISH_ID` là bắt buộc, validate slug, và được dùng cho seed, scheduled backup, public login/recovery resolution, protected principal và worker composition. `PARISH_ID`/`SUPER_ADMIN_PARISH_ID` chỉ là compatibility; nếu còn set thì phải khớp để tránh split-brain config.
+2. **Server, không phải client, chọn deployment parish.** Legacy `parishId` trong login/password-reset body bị bỏ qua khi scope được enforce. Access/refresh token ngoài deployment parish không được issue/chấp nhận. Public QR có signed parish khác trả verdict generic `verified:false`.
+3. **Startup fail closed trước traffic/workers.** Sau schema readiness và trước seed, composition root khám phá mọi SQLite table có cột `parish_id`, kiểm existence của bất kỳ row null/khác configured parish và abort nếu có. Empty database được seed bằng deployment parish rồi kiểm lại. Error chỉ nêu tên table, không row/PII. Gate không tự sửa, đổi tenant, purge hay migrate dữ liệu.
+4. **Alternate infrastructure paths cũng bị khóa.** Sunday coordinator chỉ enumerate setting của deployment parish; direct parish runner và notification enqueue từ chối scope khác; notification recovery chỉ claim/update row của deployment parish. Không dựa duy nhất vào HTTP middleware.
+5. **Giữ tenant-scoped persistence có chủ đích.** Không drop `parish_id`, composite PK/FK/index, repository predicates, JWT parish claim hoặc encrypted Dexie/cache namespace `parishId:userId`. Dev/test khi không set deployment scope vẫn chạy multi-parish fixtures và negative isolation tests. Đây là safety namespace và future data portability, không phải cam kết shared multi-tenant hosting.
+
+### Alternatives rejected
+
+- **Drop toàn bộ tenant model:** rejected vì cần destructive schema/offline migration, làm yếu object ownership và không mang lại lợi ích tương xứng ở quy mô một giáo xứ.
+- **Chỉ hardcode `gia-ton`:** rejected vì tạo identity ngầm rải rác, khó restore/clone/test và có thể chạy nhầm database mà không fail closed.
+- **Tiếp tục multi-parish production runtime:** rejected vì không còn requirement, vẫn để public/worker/config selection surface tồn tại.
+- **Tách microservice/database mới:** rejected; một modular monolith và một database vẫn đúng blast radius/cost hiện tại.
+
+### Rollout, recovery and residual risk
+
+- Trước deploy, operator phải inventory read-only live DB và set exact scope (deployment hiện dự kiến `gia-ton`, nhưng local source không chứng minh live data). Nếu preflight báo mismatch, dừng rollout, sao lưu/điều tra và dùng migration riêng trên bản sao; không đổi env hoặc sửa trực tiếp chỉ để vượt gate.
+- `npm run audit:deployment-parish` chạy cùng dynamic preflight trên audit credential/target trước rollout, hash database/parish reference mặc định và exit non-zero khi mismatch. Command không import bootstrap DB, không chạy migration và không ghi dữ liệu.
+- Deployment chứa dữ liệu nhiều parish không còn được support bởi một process production. Tách deployment/data nếu nhu cầu đó quay lại; ADR mới phải định nghĩa routing/identity/migration trước khi nới gate.
+- Existing correct-parish sessions vẫn hợp lệ; token parish khác fail closed. Client tiếp tục nhận `parishId` trong authenticated identity để không trộn cache/offline mutations.
+- Dynamic table discovery thêm read-only startup queries theo số table, không nằm trong request path. Chưa có production Turso timing, release SHA, live DB inventory hoặc rollback drill; các mục đó vẫn là operator evidence, không được suy từ local tests.
+
+### Verification
+
+Targeted boundary/worker **3 files / 35 tests PASS**; schema/seed **3 files / 14 tests PASS**; security-critical **7 files / 73 tests PASS**. Server typecheck, lint zero-warning, architecture inventory và `git diff --check` PASS; inventory hiện 31 routes / 6 repositories / 48 services / 12 domain files / 57 tables. Full serialized run đầu: **318/320 files, 2.217/2.219 tests PASS** trong 859,27s; hai failure đều là fixture cũ gọi hardened grade writer mà không tạo current authority (hai chủ nhiệm thiếu assignment; admin ID không tồn tại). Bổ sung đúng assignment/admin fixture, không nới production guard; rerun đúng hai file **2/2 files, 8/8 tests PASS**. 318 file đã pass không chạy lại chỉ để tạo con số một lượt xanh. Local evidence không thay production inventory/smoke.
+
+CLI mới đã được chạy read-only trên database local mặc định và trả non-zero đúng contract, chỉ nêu `academic_years`, `branches`, `mapping_memory` có unexpected scope; không có row/parish ID trong output và không write. Database local này không được coi là production inventory hay tự động “dọn” để pass. Dev startup không set deployment scope vẫn cho phép multi-parish fixture; production/explicit scope mới bật hard gate.
 

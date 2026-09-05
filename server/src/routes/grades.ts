@@ -8,7 +8,8 @@ import { listResponse, successResponse, errorResponse } from '../utils/response.
 import { getClientIp } from '../utils/ip.js'
 import { getGrades, upsertGrade, upsertGradeBatch, undoGradeImport } from '../services/gradeService.js'
 import { VersionConflictError } from '../domain/errors.js'
-import { getStudentsByClassIds, getStudentClassId } from '../services/studentService.js'
+import { getStudentClassId } from '../services/studentService.js'
+import { getStudentIdsForClasses } from '../services/classAccessQueryService.js'
 import { db } from '../db/index.js'
 import { gradeImportHashes, grades } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
@@ -61,7 +62,7 @@ export const gradeSchema = z.object({
   overrideReasonNote: z.string().trim().max(500).nullable().optional(),
 })
 
-gradesRouter.get('/', async (c) => {
+gradesRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const updatedAfter = c.req.query('updatedAfter')
   if (isAdmin(user)) {
@@ -69,8 +70,7 @@ gradesRouter.get('/', async (c) => {
     return listResponse(c, list)
   }
   const classIds = await getUserClassIds(user.userId, user.parishId)
-  const { data: studentsInClass } = await getStudentsByClassIds(user.parishId, classIds, updatedAfter)
-  const studentIds = studentsInClass.map(s => s.id)
+  const studentIds = await getStudentIdsForClasses(user.parishId, classIds)
   // RBAC semester gating: tài khoản không phải admin chỉ đọc học kỳ đang mở
   // (current_semester của năm học hoạt động) — không được đọc học kỳ khác.
   const openSemester = await academicYearLifecycleService.getOpenSemester(user.parishId)
@@ -89,7 +89,7 @@ gradesRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json', g
   const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
 
   try {
-    const result = await upsertGrade(data, user.userId, user.parishId, ip, userAgent, undefined, allowedClassIds)
+    const result = await upsertGrade(data, user.userId, user.parishId, ip, userAgent, undefined, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, result)
   } catch (err: any) {
     if (err instanceof VersionConflictError) {
@@ -131,7 +131,7 @@ gradesRouter.post('/batch', roleMiddleware('admin', 'chunhiem'), zValidator('jso
   // ADR-016 (S24): Access check chuyển vào service (cùng tx với write) — đóng TOCTOU.
   const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
 
-  const results = await upsertGradeBatch(gradeList, user.userId, user.parishId, ip, userAgent, allowedClassIds)
+  const results = await upsertGradeBatch(gradeList, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
   const conflicts = results.filter(r => r.status === 'conflict')
   if (conflicts.length > 0) {
     return c.json({
@@ -241,6 +241,7 @@ gradesRouter.post('/undo-import', roleMiddleware('admin', 'chunhiem'), zValidato
     ip,
     userAgent,
     allowedClassIds,
+    { role: user.role, epoch: user.tokenVersion },
   )
   return successResponse(c, { results })
 })

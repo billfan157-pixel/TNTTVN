@@ -6,7 +6,42 @@
 > - **Product Name**: `Catevia`
 >
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.5 | Last reviewed: 2026-09-02 | Status: ✅ Current | Prerequisites: none
+> Version: 3.6 | Last reviewed: 2026-09-04 | Status: ✅ Current | Prerequisites: none
+
+### Module: Comprehensive UX/UI Audit & Design System Hardening Waves 1–4 (2026-09-04)
+
+- **Decision:** D2/GENERAL, R1. Thực hiện 4 đợt nâng cấp toàn diện UX/UI, công thái học di động, khả năng truy cập (A11y), và chuẩn hóa quy trình điều hướng:
+  1. **Đợt 1 (Error Prevention & Core Forms):**
+     - Sửa triệt để default data giả định trong `StudentModal.tsx` (bỏ giá trị cứng "Maria", "Nữ", "2016-01-01", buộc người dùng chọn hoặc để trống hợp lệ).
+     - Bổ sung inline error validation với `aria-invalid="true"`, `role="alert"`, và chặn im lặng từ chối khi nhập điểm ngoài biên `0.0..10.0` trong `QuickScoreEntry.tsx`.
+     - Phân định ranh giới sở hữu bộ lọc: Loại bỏ dropdown Class Filter dư thừa tại `HeaderBar.tsx`, chuyển giao quyền quản lý bộ lọc lớp toàn diện cho Sidebar và từng Workspace chuyên biệt.
+  2. **Đợt 2 (Deep Linking & Navigation Context):**
+     - Đồng bộ trạng thái 2 chiều giữa UI tabs/sub-views và URL query parameters (`/grades?view=...`, `/attendance?tab=...&date=...&type=...`) cho phép reload/share link mà không mất ngữ cảnh.
+     - Dọn dẹp thanh tìm kiếm mồ côi tại `HeaderBar.tsx` (loại bỏ input placeholder không hoạt động, định tuyến sang `GlobalSearchModal` hoặc search ngữ cảnh cấp trang).
+     - Sửa lỗi UX tại Parent Portal (`ParentPage.tsx`): ẩn search input khi phụ huynh chỉ có 1 con.
+  3. **Đợt 3 (Accessibility & Visual Feedback):**
+     - Khôi phục tính năng pinch-to-zoom trên toàn bộ ứng dụng theo chuẩn **WCAG 2.1 SC 1.4.4** bằng việc gỡ bỏ `maximum-scale=1.0, user-scalable=no` tại `index.html`.
+     - Chấm dứt hiện tượng Layout Shift (Zero CLS) bằng các skeleton primitives có cấu trúc (`SkeletonTable`, `SkeletonCardGrid`) thay thế cho loading text/spinner thô sơ trong `AppShell.tsx` và `router.tsx`.
+     - Chuẩn hóa hệ thống phản hồi báo cáo tài chính/học vụ: Thay thế `window.confirm` mộc mạc bằng thông báo lỗi ngữ cảnh thân thiện qua `toast.error`, bổ sung spinner chỉ báo tiến độ xuất file Word/Excel.
+  4. **Đợt 4 (Mobile Ergonomics & Accessible Form Validation):**
+     - Chuẩn hóa kích thước vùng chạm tối thiểu 44×44px (`min-h-[44px]` / `min-w-[44px]`) cho tất cả nút thao tác (In Phiếu, Sửa, Xóa), select dropdowns (`pageSize`, `reportType`, `selectedClass`) trên toàn bộ các view di động: `MobileStudentsView.tsx`, `MobileAttendanceSummaryView.tsx`, `MobileReportsView.tsx`, `MobileLeaveRequests.tsx`.
+     - Dọn dẹp các class arbitrary typography (`text-[10px]`, `text-[11px]`) về token chuẩn Design System (`text-xs font-bold`, `text-xs font-semibold`).
+     - Chuẩn hóa validation form inline trên sự kiện `onBlur` và `onSubmit` trong `StudentModal.tsx` và `LeaveRequestModal.tsx` với Design System v4.5 semantic tokens (`border-parish-danger`, `text-parish-danger`, `focus:ring-parish-danger`), `aria-invalid`, `aria-describedby` và `role="alert"`.
+- **Code truth:**
+  - `src/components/common/StudentModal.tsx`, `src/components/common/LeaveRequestModal.tsx`
+  - `src/components/exam/QuickScoreEntry.tsx`, `src/components/layout/HeaderBar.tsx`
+  - `src/components/mobile/MobileStudentsView.tsx`, `src/components/mobile/MobileAttendanceSummaryView.tsx`, `src/components/mobile/MobileReportsView.tsx`, `src/components/mobile/MobileLeaveRequests.tsx`
+  - `src/pages/AttendancePage.tsx`, `src/pages/GradesPage.tsx`, `src/pages/ParentPage.tsx`
+  - `src/components/layout/AppShell.tsx`, `src/router.tsx`, `src/components/common/StateFeedback.tsx`
+  - `src/components/desktop/DesktopReports.tsx`, `src/components/finance/FinanceReportModal.tsx`, `index.html`
+- **Quality gates:**
+  - 9 test files / 37 tests PASS (`StudentModal.test.tsx`, `LeaveRequestModal.test.tsx`, `FinancePage.test.tsx`, `HeaderBar.test.tsx`, `ParentPage.test.tsx`, `AttendanceRouteUrlSync.test.tsx`, `SkeletonFallbacks.test.tsx`, `ExportReportsFeedback.test.tsx`, `GradesRouteUrlSync.test.tsx`).
+  - `npm run lint:ds`: 0 violations.
+  - `oxlint`: 0 warnings, 0 errors.
+  - `tsc -b`: 0 errors.
+  - `vite build`: production bundle & PWA service worker generated cleanly.
+
+---
 
 ### Module: Exam Creation Workspace Optimization & Smart Key Input (2026-09-02)
 
@@ -511,7 +546,7 @@ server/src/                         ─ Backend Hono Application
   2. **Login**: `POST /api/auth/login` nhận `parishId` optional default `'gia-ton'` — backward-compatible, fail-closed (không fallback lookup toàn cục → không bao giờ trả user parish khác).
   3. **Pre-check**: createUser/updateUserPhone/bulk provision chỉ conflict-check trong cùng parish.
   4. **Verify**: tsc 0 error, oxlint 0 error, `username-tenant-scope.test.ts` 5/5 + 15 suite auth/user **97/97 PASS**.
-  5. **Backlog**: multi-parish go-live → client login phải gửi `parishId` (picker/config); self-reset đã bị loại theo ADR-058 nên không còn endpoint recovery cần scope parish.
+  5. **Superseded 2026-09-05 bởi ADR-106**: production không còn multi-parish picker/go-live; server bind login/recovery vào `DEPLOYMENT_PARISH_ID`. Composite username/tenant constraint vẫn giữ làm safety namespace và dev/test isolation. Self-reset đã bị loại theo ADR-058.
 
 ### Module: UX/UI Audit 2026-08-16 — Pha 0 (Linter + Contrast) & Pha 2 (Bug chức năng)
 - **Files Modified**: `scripts/design-system-lint.mjs` (6 rules), `src/components/auth/ParentForgotPasswordModal.tsx`, `src/components/common/InstallPrompt.tsx`, `src/components/desktop/{AttendanceHistoryModal,ConflictInboxModal,SystemDiagnosticsModal,ExamSessionView→src/components/exam,DesktopReports,DesktopAttendanceSummary,DesktopLeaveRequests,DesktopStudentList,DesktopGradeCards}.tsx`, `src/components/mobile/{MobileLeaveRequests,MobileStudentsView,MobileReportsView}.tsx`, `src/components/common/{ExcelImportModal,ExcelGradeImportModal,PurgeDataModal,StudentReportModal,RootLayout}.tsx`, `src/pages/{StudentsPage,GradesPage,ReportsPage,AcademicYearPage}.tsx`, `src/stores/uiStore.ts`, `src/components/desktop/PromotionPanel.tsx`, `src/__tests__/components/MobileViewsEnhancement.test.tsx`, `docs/03_DESIGN_SYSTEM.md` (§10/§11/§12), `docs/UX_UI_AUDIT_AND_IMPROVEMENT_PLAN_2026-08-16.md`.

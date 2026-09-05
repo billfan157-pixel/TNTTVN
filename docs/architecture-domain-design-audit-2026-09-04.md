@@ -1,7 +1,7 @@
 # Audit Architecture & Domain Design — Catevia/TNTTVN
 
 > Snapshot gốc kiểm tra: `main@62e1199fff35c61e03f874e6e7ba132990891c69`<br>
-> Remediation hiện tại: D1–D9 và các source-fix T1–T5/U1 đã được triển khai trong working tree ngày 2026-09-04; evidence mới được ghi ngay tại từng finding và §11.<br>
+> Remediation hiện tại: D1–D9 và các source-fix T1–T5/U1 đã được triển khai trong source hiện tại (batch chính `94c659c`, follow-up vận hành ngày 2026-09-05); evidence mới được ghi ngay tại từng finding và §11.<br>
 > Ngày audit: 2026-09-04<br>
 > Phạm vi: current source, dependency flow, runtime composition, persistence/schema, client offline state, tests/CI và các tài liệu kiến trúc/nghiệp vụ có liên quan.<br>
 > Ngoài phạm vi xác nhận: production telemetry, Turso/R2 credentials, restore drill thật, tải đồng thời thật và thiết bị mobile thật.
@@ -20,7 +20,7 @@ Audit gốc xác nhận bảy defect từ P1 đến P3. Cả bảy đã được
 6. Batch-promotion retry callback chỉ tạo transaction result; counters/response chỉ đổi sau wrapper resolve.
 7. Composition root là nơi duy nhất sở hữu process signal; HTTP, schedulers, notification delivery, browser, Telegram và DB được đóng theo thứ tự có deadline.
 
-Các defect D1–D7 của snapshot gốc không còn mở ở source hiện tại. Deep re-verification T1–T6/U1–U6 sau remediation phát hiện thêm hai defect P2 có consequence cụ thể: lifecycle promotion từng cho phép archive sau partial error mà không có durable reconciliation gate, và Sunday scheduler trong production topology một-process từng chỉ chọn `PARISH_ID || 'gia-ton'`. Cả hai đã được remediated trong working tree. Client `GradeAggregate` dead-but-bundled, sync import cycle và authorization/type dependency seams cũng đã được xử lý; Reporting projection thứ ba vẫn là documentation/product-scope drift cần quyết định sản phẩm, không phải lý do tự động xây thêm endpoint.
+Các defect D1–D7 của snapshot gốc không còn mở ở source hiện tại. Deep re-verification T1–T6/U1–U6 sau remediation phát hiện thêm hai defect P2 có consequence cụ thể: lifecycle promotion từng cho phép archive sau partial error mà không có durable reconciliation gate, và Sunday scheduler trong production topology một-process từng chỉ chọn `PARISH_ID || 'gia-ton'`. Cả hai đã được remediated trong working tree. Client `GradeAggregate` dead-but-bundled, sync import cycle và authorization/type dependency seams cũng đã được xử lý. Ngày 2026-09-05, product scope được chốt giữ đúng hai reporting projections hiện hữu; `ParishSummaryProjection` là deferred candidate, không phải missing current feature.
 
 Đánh giá tổng thể:
 
@@ -29,7 +29,7 @@ Các defect D1–D7 của snapshot gốc không còn mở ở source hiện tạ
 - **An toàn tenant/RBAC:** Có cấu trúc tốt và nhiều negative tests; không thấy bằng chứng client state được dùng làm write authority.
 - **Transaction design:** Tốt ở attendance, finance, promotion item, exam finalization, academic-year finalization, grade policy attribution và reporting snapshot; retry callback batch đã được làm side-effect-free ngoài DB.
 - **DDD/CQRS:** Selective và thực dụng. Đây là điểm mạnh nếu tiếp tục dùng theo risk, không phải lý do để ép mọi service qua aggregate/repository.
-- **Ưu tiên tiếp theo:** thực hiện credentialed restore drill; product owner quyết định T6/DR5. Full regression đã hoàn tất và không còn code defect mở từ D1–D9/T1–T5 trong phạm vi audit này.
+- **Ưu tiên tiếp theo:** cấp controlled credentials để chạy read-only production promotion/Sunday readiness inventory và credentialed restore drill trên target disposable. T6/DR5 đã khép bằng explicit deferral; full regression đã hoàn tất và không còn code defect mở từ D1–D9/T1–T6 trong phạm vi audit này.
 
 ## 2. Phương pháp và mức chứng cứ
 
@@ -318,7 +318,7 @@ Remediation dùng `parish_system_settings` làm explicit control plane:
 1. `sundayReminderEnabled` mặc định `false`, được validate/persist theo parish và có control admin tại Settings.
 2. Tick enumerate chỉ parish opt-in, gọi exported `runSundayReminderForParish`, trả aggregate checked/sent/failed/failures và isolate exception từng parish.
 3. Marker tiếp tục composite `(key, parishId)`; hai parish có giờ/marker độc lập.
-4. `notifySundayMassReminder` không enqueue khi không resolve được parent targets; không còn global Telegram admin fallback. Explicit recipients được enqueue cho Telegram và Web/native trong đúng parish.
+4. `notifySundayMassReminder` không enqueue khi không resolve được parent targets; scheduler cũng không ghi sent marker trong trường hợp này. Không còn global Telegram admin fallback. Explicit recipients được enqueue cho Telegram và Web/native trong đúng parish.
 5. Regression cover opt-in default, hai parish, khác giờ, marker độc lập, per-parish failure isolation và audience no-target fail closed.
 
 ## 6. Intentional complexity
@@ -422,17 +422,17 @@ Deep re-verification nâng confidence từ “có dấu hiệu” thành **verif
 
 Remediation đã xóa hai client domain files, `gradeStore.overrideScore/restoreScore`, các type chỉ phục vụ effective-view path và bốn tests chỉ bảo vệ API chết. Server `GradeAggregate`/`GradeApplicationService` vẫn là sole authority. Caller search không còn hit; frontend production build pass, các literal riêng đã biến mất và gradeStore chunk giảm từ khoảng 11,75 kB xuống 8,04 kB. Không repurpose nhánh client thành write authority.
 
-### T6 — Reporting MVP contract chưa khép kín
+### T6 — RESOLVED: Reporting current MVP scope được khép kín
 
 Business Rules §3.2 gọi ba projections là “core MVP”, nhưng chính roadmap §3.3 chỉ nêu hai repositories và hai REST routes. Current server cũng chỉ có `ReportCardProjectionRepository`, `ClassSummaryProjectionRepository` và hai endpoints. Desktop/mobile Reports đang tính KPI học lực từ client Zustand; chúng không phải historical/server-authoritative `ParishSummaryProjection` về promotion distribution + attendance health.
 
-Disposition: **RECLASSIFY AS DOCUMENTATION/PRODUCT-SCOPE DRIFT (DR5), không tự động code feature**. Nếu product xác nhận parish historical dashboard là current MVP, implement một server CQRS projection qua `ReportingApplicationService`, admin-only, cùng transaction/policy context và pagination/bounded year. Nếu chưa xác nhận, sửa Business Rules để Projection 3 là deferred candidate và giữ R2/R4 đúng hai projection hiện hữu. Không gọi client aggregate hiện tại là implementation của Projection 3.
+Decision 2026-09-05: **DEFER `ParishSummaryProjection`**. `BUSINESS_RULES.md` và ADR-010 nay xác nhận current MVP có đúng hai projections; projection thứ ba là deferred candidate, không có API/acceptance hiện tại. Chỉ reopen bằng product requirement mới định nghĩa users, metrics, year range, pagination/freshness và acceptance criteria. Không gọi client aggregate hiện tại là implementation của Projection 3.
 
 ## 8. Documentation drift
 
 ### DR1 — REMEDIATED: Inventory trong Architecture đã cũ
 
-Base doc ghi 28 routes, 39 services, 51 tables trong khi snapshot audit có 31 Hono route modules, 47 service modules và 57 Drizzle table declarations. Working tree sau remediation T2 có 48 service modules do thêm `classAccessQueryService.ts`; `docs/02_ARCHITECTURE.md` hiện đã cập nhật đúng inventory/review date. Generated inventory vẫn là roadmap để ngăn drift tái diễn.
+Base doc ghi 28 routes, 39 services, 51 tables trong khi snapshot audit có 31 Hono route modules, 47 service modules và 57 Drizzle table declarations. Source sau remediation T2 có 48 service modules do thêm `classAccessQueryService.ts`; `docs/02_ARCHITECTURE.md` hiện đã cập nhật đúng inventory/review date. Follow-up 2026-09-05 thêm `lint:architecture-inventory`, đối chiếu tự động 31 routes / 6 repositories / 48 services / 12 domain modules / 57 tables với Architecture và chạy trong CI; drift nay làm gate đỏ.
 
 ### DR2 — REMEDIATED: “Pure SQL read repositories” không đúng dependency graph
 
@@ -446,9 +446,9 @@ Base upsert và undo hiện truyền transaction executor cho policy-version rea
 
 Unsafe raw-copy success fallback đã bị xóa. Architecture/Deployment Guide/ADR-103 nay mô tả đúng partial `VACUUM INTO` → atomic rename và fail-closed marker/upload semantics.
 
-### DR5 — OPEN: Reporting “3 core MVP projections” mâu thuẫn roadmap và implementation
+### DR5 — REMEDIATED: Reporting projection count đã khớp roadmap và implementation
 
-`BUSINESS_RULES.md` §3.2 liệt kê `ParishSummaryProjection`, nhưng §3.3, ADR-010, repositories, routes và client contract chỉ đóng hai projection. Cần product owner chọn một trong hai truth: (a) projection thứ ba là requirement hiện tại và phải có acceptance/API contract; hoặc (b) là deferred candidate và phải bỏ nhãn core MVP. Cho tới khi chọn, không dùng câu §3.2 làm bằng chứng rằng runtime thiếu một defect.
+`BUSINESS_RULES.md` §3.2 nay ghi đúng hai current MVP projections; §3.3 tách `ParishSummaryProjection` thành deferred candidate. ADR-010 amendment 2026-09-05 giữ cùng truth. Không có endpoint hoặc materialized read model mới vì không có current product requirement cho projection thứ ba.
 
 ## 9. Unknown / insufficient evidence
 
@@ -463,7 +463,7 @@ Deep source review đã tìm thấy các code-level pre-drill gaps trong `remote
 - hàm từng trả counter attempted insert, không read-back per-table counts/critical schema readiness;
 - post-commit validation không thể tự rollback target, nên runbook luôn phải restore vào isolated disposable target rồi promote/switch, không restore thẳng production.
 
-Code-level hardening đã hoàn tất: CLI bắt buộc SHA-256 fingerprint của normalized target URL; restore kiểm đủ table, exact ordered columns và target rỗng trước write; sau commit read-back per-table counts, chạy `foreign_key_check`, rồi CLI chạy `assertDatabaseReady` và in machine-readable manifest. Unit integration cover success, non-empty target preservation và invalid FK detection. Phần còn lại vẫn là **EXTERNAL RELEASE GATE**: credentialed Turso/R2 drill trên target disposable, đo riêng download/decrypt/migrate/restore/verify và ghi recovery decision. Post-commit validation fail phải discard target; không tự đặt RTO/RPO.
+Code-level hardening đã hoàn tất: CLI bắt buộc SHA-256 fingerprint của normalized target URL; restore kiểm đủ table, exact ordered columns và target rỗng trước write; sau commit read-back per-table counts, chạy `foreign_key_check`, rồi CLI chạy `assertDatabaseReady` và in machine-readable manifest. Command prepare riêng từ chối target có application table và áp bootstrap/migrations/indices/readiness; restore manifest đo riêng download/decrypt/restore/readiness. Unit integration cover success, non-empty target preservation và invalid FK detection. Phần còn lại vẫn là **EXTERNAL RELEASE GATE**: credentialed Turso/R2 drill trên target disposable, ghi cả target preparation/migration time và recovery decision. Post-commit validation fail phải discard target; không tự đặt RTO/RPO.
 
 ### U2 — Runtime incidence của race
 
@@ -518,9 +518,9 @@ Disposition: **DO NOT INVENT SLO / DO NOT SPLIT BY LOC**. Trước materialized 
 1. **COMPLETED — T3 Sync trigger/coordinator:** two-seam architecture đã triển khai; store→hook edge bị architecture gate cấm, offline contracts giữ nguyên.
 2. **COMPLETED — T5 Client GradeAggregate:** dead aggregate/adapter/store API/types/tests đã xóa; bundle/caller gate pass, server vẫn sole authority.
 3. **COMPLETED — T2/T1 Authorization/type boundary:** class-access query tách khỏi middleware, ActorContext transport-neutral, policy ports bind active transaction executor và domain không còn DB/JWT import.
-4. **T6/DR5 — Product decision trước code:** hoặc xác nhận `ParishSummaryProjection` là current MVP với API/acceptance rõ, hoặc sửa Business Rules thành deferred candidate. Chỉ implement projection khi nhánh đầu được owner xác nhận.
+4. **COMPLETED — T6/DR5:** `ParishSummaryProjection` được chốt là deferred candidate; Business Rules và ADR-010 đã đồng bộ, không thêm feature không có authority.
 5. **T4 — Extract on touch:** tách academic reconciliation cùng D8, sync seam cùng T3, import validate/plan/commit/rollback khi có change liên quan. Không mở project “split large files”; exam finalization và các service còn lại tiếp tục monitor bằng change evidence.
-6. **Generated inventory:** sinh đếm mounted routes/services/repos/tables để Architecture không tiếp tục drift theo số hardcode.
+6. **COMPLETED — Generated inventory:** `lint:architecture-inventory` đếm Hono routes/services/repos/domain/tables và chạy trong CI; drift giữa source với sơ đồ Architecture làm gate đỏ.
 
 ### Không đề xuất hiện tại
 
@@ -596,6 +596,19 @@ npm run test -- --fileParallelism=false --reporter=verbose
 
 Kết quả: lint zero-warning PASS; server và frontend production builds PASS; full serialized Vitest **313/313 files, 2.138/2.138 tests PASS**, 823,00 giây. Hai test file client GradeAggregate bị xóa cùng dead production API nên tổng file/test thấp hơn checkpoint D1–D7; đây không phải test skip. Suite có stderr/warning dự kiến từ negative-path/fault-injection và React/jsdom hiện hữu, nhưng exit code 0, không có failed test hoặc unhandled-test summary. Credentialed Turso/R2 restore drill, production scheduler soak và recovery RPO/RTO vẫn chưa được kiểm chứng bởi local suite.
 
+Follow-up operational gates 2026-09-05:
+
+```text
+npm run lint:architecture-inventory
+npm run audit:promotion-reconciliation
+npm run audit:sunday-readiness
+npm run test -- server/src/__tests__/services/sundayReminderScheduler.test.ts server/src/__tests__/services/smartNotifications.test.ts server/src/__tests__/schemaHealth.test.ts server/src/__tests__/migrationRunner.test.ts server/src/__tests__/services/remoteBackup.test.ts --fileParallelism=false
+npm run lint
+npm run build:server
+```
+
+Kết quả: inventory gate PASS với **31 routes / 6 repositories / 48 services / 12 domain modules / 57 tables**; targeted regression **5/5 files, 41/41 tests PASS**; lint và server build PASS. Hai audit command chạy thành công trên **local workspace DB**: zero promotion finding và zero parish bật Sunday reminder. `db:prepare:restore-target` cũng được chạy trên một local SQLite target tạm: bootstrap + 166 migration entries + readiness PASS trong **3.642 ms**; lần chạy lại trên cùng target fail closed vì phát hiện 59 application tables, sau đó file tạm được xóa. Các kết quả này chỉ chứng minh local command/guard path, **không phải production inventory hay Turso/R2 restore**. Workspace không có Turso/R2/provider/restore-target credentials nên credentialed production inventory, disposable Turso/R2 restore drill và actual Sunday delivery smoke chưa được chạy hoặc trình bày là pass.
+
 ## 12. File/change hygiene
 
-Remediation sửa các service/repository/composition-root/client sync/UI/tests cho D1–D9, T1–T3, T5 và phần code của U1; đồng bộ Architecture, Business Rules, Deployment Guide, ADR-103/104/105 cùng file audit này. T4 được giữ ở trạng thái intentional concentration/extract-on-touch; T6/DR5 cần product decision; U2/U5/U6 vẫn là evidence gate hoặc câu hỏi kiến trúc, không được trình bày như source defect đã sửa. Không sửa file đang dirty của người dùng: `docs/mobile-native-ui-audit-2026-08-12.md`; không chạm `docs/authentication-authorization-rbac-audit-2026-09-04.md`.
+Remediation sửa các service/repository/composition-root/client sync/UI/tests cho D1–D9, T1–T3, T5 và phần code của U1; đồng bộ Architecture, Business Rules, Deployment Guide, ADR-010/103/104/105 cùng file audit này. Follow-up 2026-09-05 khép T6/DR5 bằng explicit deferral, thêm architecture inventory CI gate, read-only operational inventories, restore-target preparation/timing và chặn Sunday sent-marker khi không có recipient. T4 được giữ ở trạng thái intentional concentration/extract-on-touch; U2/U5/U6 là evidence gate hoặc intentional decision, không được trình bày như source defect đã sửa. Không sửa các file mobile/UI đang dirty ngoài scope; không chạm `docs/authentication-authorization-rbac-audit-2026-09-04.md`.

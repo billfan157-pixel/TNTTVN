@@ -24,6 +24,7 @@ export interface UserAccount {
   status: 'ACTIVE' | 'INACTIVE' | 'LOCKED' | 'FORCE_PASSWORD_CHANGE'
   assignedClasses: string[]
   lastLoginAt: string
+  isProtectedAdmin?: boolean
 }
 
 // Tách trang quản lý tài khoản (2026-08-22): 'staff' = GLV & nhân sự
@@ -58,6 +59,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
   const [newFullName, setNewFullName] = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [newRole, setNewRole] = useState<'admin' | 'chunhiem' | 'phuta' | 'phuhuynh'>('phuta')
+  const [createAdminPassword, setCreateAdminPassword] = useState('')
   const [selectedClasses, setSelectedClasses] = useState<string[]>([])
 
   // ADR-027 (2026-08-12): username TỰ SINH `chức vụ_Tên thánh + Họ và tên`
@@ -258,6 +260,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
         fullName: newFullName,
         phone: newPhone || undefined,
         role: newRole,
+        adminPassword: newRole === 'admin' ? createAdminPassword : undefined,
         assignedClasses: selectedClasses.length > 0 ? selectedClasses : undefined,
       })
       await useClassStore.getState().fetchClasses()
@@ -269,6 +272,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
       setNewFullName('')
       setNewPhone('')
       setNewRole('phuta')
+      setCreateAdminPassword('')
       setSelectedClasses([])
       setIsUsernameCustom(false)
       await fetchUsers()
@@ -317,7 +321,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
     }
   }
 
-  const isSuperAdmin = (u: UserAccount) => u.username === 'bill'
+  const isSuperAdmin = (u: UserAccount) => u.isProtectedAdmin === true
 
   const openChangePassword = (user: UserAccount) => {
     setCpUser(user)
@@ -885,7 +889,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
       {isCreateModalOpen && (
         <ModalShell
           isOpen={isCreateModalOpen}
-          onClose={() => setIsCreateModalOpen(false)}
+          onClose={() => { setIsCreateModalOpen(false); setCreateAdminPassword('') }}
           title={<><UserPlus className="w-5 h-5 text-parish-primary inline mr-2" />{scope === 'phuhuynh' ? 'Tạo Tài Khoản Phụ Huynh' : 'Tạo Tài Khoản GLV Mới'}</>}
           maxWidth="512px"
         >
@@ -897,6 +901,14 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
                 usernameCustom: isUsernameCustom, onUsernameCustomChange: setIsUsernameCustom,
                 allowedRoles: createAllowedRoles,
               })}
+              {newRole === 'admin' && (
+                <div>
+                  <label className="form-label" htmlFor="create-admin-password">Mật khẩu hiện tại của Admin</label>
+                  <input id="create-admin-password" type="password" className="form-input" required
+                    autoComplete="current-password" value={createAdminPassword}
+                    onChange={e => setCreateAdminPassword(e.target.value)} />
+                </div>
+              )}
               {createError && (
                 <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-600">
                   <AlertCircle size={14} className="shrink-0" />
@@ -904,7 +916,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
                 </div>
               )}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-surface-border">
-                <button type="button" onClick={() => setIsCreateModalOpen(false)}
+                <button type="button" onClick={() => { setIsCreateModalOpen(false); setCreateAdminPassword('') }}
                   className="btn btn-ghost">Hủy Bỏ</button>
                 <button type="submit"
                   className="btn btn-primary">Tạo Tài Khoản</button>

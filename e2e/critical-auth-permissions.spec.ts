@@ -64,8 +64,12 @@ test.describe('Critical authentication, session and authorization journeys', () 
 
     const roster = await page.request.get('/api/students', { headers })
     const foreignStudent = await page.request.get('/api/students/student-e2e-002', { headers })
+    const grades = await page.request.get('/api/grades', { headers })
+    const attendance = await page.request.get('/api/attendance', { headers })
     expect(roster.status()).toBe(403)
     expect(foreignStudent.status()).toBe(403)
+    expect(grades.status()).toBe(403)
+    expect(attendance.status()).toBe(403)
   })
 
   test('@critical backend permission boundaries reject valid-shaped unauthorized mutations', async ({ request, page }) => {

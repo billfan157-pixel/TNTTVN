@@ -567,7 +567,7 @@ export async function detectDuplicates(
             holyName: students.holyName,
           })
           .from(students)
-          .leftJoin(classes, eq(students.classId, classes.id))
+          .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
           .where(and(...baseCond, inArray(students.parentPhone, chunk)))
         existing.push(...rows)
       } catch (err) {
@@ -585,7 +585,7 @@ export async function detectDuplicates(
                 holyName: students.holyName,
               })
               .from(students)
-              .leftJoin(classes, eq(students.classId, classes.id))
+              .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
               .where(and(...baseCond, eq(students.parentPhone, phone)))
             existing.push(...rows)
           } catch (inner) {
@@ -616,7 +616,7 @@ export async function detectDuplicates(
             holyName: students.holyName,
           })
           .from(students)
-          .leftJoin(classes, eq(students.classId, classes.id))
+          .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
           .where(and(...baseCond, or(...conditions)))
         existing.push(...rows)
       } catch (err) {
@@ -635,7 +635,7 @@ export async function detectDuplicates(
                 holyName: students.holyName,
               })
               .from(students)
-              .leftJoin(classes, eq(students.classId, classes.id))
+              .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
               .where(and(...baseCond, eq(students.fullName, fn), eq(students.dateOfBirth, dob)))
             existing.push(...rows)
           } catch (inner) {
@@ -662,7 +662,7 @@ export async function detectDuplicates(
             holyName: students.holyName,
           })
           .from(students)
-          .leftJoin(classes, eq(students.classId, classes.id))
+          .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
           .where(and(...baseCond, inArray(students.fullName, chunk)))
         existing.push(...rows)
       } catch (err) {
@@ -680,7 +680,7 @@ export async function detectDuplicates(
                 holyName: students.holyName,
               })
               .from(students)
-              .leftJoin(classes, eq(students.classId, classes.id))
+              .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
               .where(and(...baseCond, eq(students.fullName, name)))
             existing.push(...rows)
           } catch (inner) {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
-import { attendance, semesterLocks, users, students, classes, branches, academicYears } from '../../db/schema.js'
+import { attendance, semesterLocks, users, students, classes, branches, academicYears, catechistAssignments } from '../../db/schema.js'
 import { batchAttendanceApplicationService } from '../../services/BatchAttendanceApplicationService.js'
 import { drizzleSemesterLockRepository } from '../../repositories/DrizzleSemesterLockRepository.js'
 
@@ -22,6 +22,8 @@ describe('Batch Attendance Application Service Micro-Step A1.3 Integration Tests
       { id: teacherUserId, username: 'teacherbatchatt', fullName: 'Teacher Batch Att', passwordHash: 'hash', role: 'chunhiem', parishId: testParish },
       { id: adminUserId, username: 'adminbatchatt', fullName: 'Admin Batch Att', passwordHash: 'hash', role: 'admin', parishId: testParish },
     ]).onConflictDoNothing()
+
+    await db.insert(catechistAssignments).values({ id: `asg-${teacherUserId}`, userId: teacherUserId, classId, roleInClass: 'chunhiem', parishId: testParish }).onConflictDoNothing()
 
     await db.insert(students).values([
       { id: student1Id, code: 'ST-BATT-01', holyName: 'Anre', fullName: 'Student Batch 1', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '000', address: 'X', branch: 'AuNhi', classId, parishId: testParish },

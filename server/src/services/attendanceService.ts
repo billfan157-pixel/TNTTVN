@@ -5,9 +5,10 @@ import { eq, and, gte, inArray, isNull } from 'drizzle-orm'
 /**
  * Phase 3 (legacy-writer removal): file này chỉ còn `getAttendance` (read).
  * `upsertAttendance` / `upsertAttendanceBatch` đã xóa — bypass surface cho
- * OCC/class-scope khác với Application Service. Đường ghi duy nhất:
+ * OCC/class-scope khác với Application Service. Đường ghi điểm danh trực tiếp:
  * `AttendanceApplicationService.markAttendance` (+ batch service) — xem
- * routes/attendance.ts. Xóa kèm tests của writers cũ (không phải để xanh).
+ * routes/attendance.ts. Leave review là alternate writer có current-class/lock
+ * checks và version increment trong transaction của routes/leaveRequests.ts.
  */
 export async function getAttendance(
   parishId: string,
@@ -17,6 +18,7 @@ export async function getAttendance(
   updatedAfter?: string,
   studentIds?: string[],
 ) {
+  if (studentIds?.length === 0) return []
   // ADR-016: Exclude attendance rows belonging to soft-deleted students, matching
   // gradeService.getGrades which filters with `activeStudentSubquery`.
   const activeStudentSubquery = db

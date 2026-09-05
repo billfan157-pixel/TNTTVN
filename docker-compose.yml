@@ -11,6 +11,7 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - HOST=0.0.0.0
+      - DEPLOYMENT_PARISH_ID=${DEPLOYMENT_PARISH_ID:?DEPLOYMENT_PARISH_ID is required}
       # BẮT BUỘC set JWT_SECRET + JWT_REFRESH_SECRET trong .env — không có fallback
       # (fallback mặc định cũ bị lộ trong repo = ai cũng ký giả token được).
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — set it in .env}

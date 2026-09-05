@@ -6,7 +6,7 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { getAttendance } from '../services/attendanceService.js'
-import { getStudentsByClassIds } from '../services/studentService.js'
+import { getStudentIdsForClasses } from '../services/classAccessQueryService.js'
 import { isValidIsoDate } from '../utils/date.js'
 
 const attendanceRouter = new Hono()
@@ -23,7 +23,7 @@ const attendanceSchema = z.object({
   version: z.coerce.number().int().min(0).optional(),
 })
 
-attendanceRouter.get('/', async (c) => {
+attendanceRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const studentId = c.req.query('studentId')
   const date = c.req.query('date')
@@ -34,8 +34,7 @@ attendanceRouter.get('/', async (c) => {
     return listResponse(c, list)
   }
   const classIds = await getUserClassIds(user.userId, user.parishId)
-  const { data: studentsInClass } = await getStudentsByClassIds(user.parishId, classIds, updatedAfter)
-  const studentIds = studentsInClass.map(s => s.id)
+  const studentIds = await getStudentIdsForClasses(user.parishId, classIds)
   const list = await getAttendance(user.parishId, studentId, date, type, updatedAfter, studentIds)
   return listResponse(c, list)
 })
@@ -68,6 +67,7 @@ attendanceRouter.post('/', roleMiddleware('admin', 'chunhiem', 'phuta'), zValida
       userId: user.userId,
       parishId: user.parishId,
       allowedClassIds,
+      expected: { role: user.role, epoch: user.tokenVersion },
       ip,
       userAgent,
     })
@@ -125,6 +125,7 @@ attendanceRouter.post(
       userId: user.userId,
       parishId: user.parishId,
       allowedClassIds,
+      expected: { role: user.role, epoch: user.tokenVersion },
       ip,
       userAgent,
       auditAction: 'BATCH_MARK_ATTENDANCE_ITEM' as const,

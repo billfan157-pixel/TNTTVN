@@ -46,7 +46,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260901', 147, 148),
   ...migrationRange('20260902', 149, 158),
   ...migrationRange('20260903', 159, 165),
-  ...migrationRange('20260904', 166, 168),
+  ...migrationRange('20260904', 166, 169),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {

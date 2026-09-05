@@ -3,6 +3,7 @@ import { users, branches, systemSettings, permissions, rolePermissions, academic
 import bcrypt from 'bcryptjs'
 import { BCRYPT_COST } from './utils/passwordPolicy.js'
 import { requireSeedAdminPassword } from './utils/seedAdminPassword.js'
+import { getDeploymentParishId } from './utils/deploymentParish.js'
 
 export async function seed() {
   console.log('Seeding database system configurations...')
@@ -10,6 +11,7 @@ export async function seed() {
   // A bootstrap password must be explicitly provisioned. A known fallback such as
   // `admin123` turns every fresh deployment into the same privileged credential.
   const adminPassword = requireSeedAdminPassword()
+  const parishId = getDeploymentParishId()
   const now = new Date().toISOString()
 
   // D3 bootstrap boundary: all seed rows commit together. In particular, inserting
@@ -25,7 +27,7 @@ export async function seed() {
       { id: 'HiepSi', name: 'Hiệp Sĩ', scarfColor: '#8B4513', ageMin: 16, ageMax: 18 },
     ]
     for (const b of branchList) {
-      await tx.insert(branches).values({ ...b, parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
+      await tx.insert(branches).values({ ...b, parishId, createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
     }
 
     // ─── Academic Years ───
@@ -34,7 +36,7 @@ export async function seed() {
       { id: '2026-2027', startDate: '2026-08-01', endDate: '2027-05-31', isLocked: 0, status: 'OPEN' as const, currentSemester: 1 },
     ]
     for (const ay of ayList) {
-      await tx.insert(academicYears).values({ ...ay, parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
+      await tx.insert(academicYears).values({ ...ay, parishId, createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
     }
 
     // ─── Classes ───
@@ -46,12 +48,12 @@ export async function seed() {
       { id: 'CLS-HS-1', code: 'HS1', name: 'Hiệp Sĩ 1', branchId: 'HiepSi', academicYearId: '2026-2027' },
     ]
     for (const c of classList) {
-      await tx.insert(classes).values({ ...c, parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
+      await tx.insert(classes).values({ ...c, parishId, createdAt: now, updatedAt: now, updatedBy: 'seed' }).onConflictDoNothing()
     }
 
     // ─── Users (Admin Initial Account) ───
     const usersList = [
-      { id: 'USR-001', username: 'bill', passwordHash: bcrypt.hashSync(adminPassword, BCRYPT_COST), fullName: 'Phêrô Phan Bảo', role: 'admin' as const, parishId: 'gia-ton', status: 'ACTIVE' as const, tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
+      { id: 'USR-001', username: 'bill', passwordHash: bcrypt.hashSync(adminPassword, BCRYPT_COST), fullName: 'Phêrô Phan Bảo', role: 'admin' as const, parishId, status: 'ACTIVE' as const, tokenVersion: 1, failedAttempts: 0, mustChangePassword: 0 },
     ]
     for (const u of usersList) {
       // A-NEW-38 (2026-08-11): never overwrite an existing admin password.
@@ -67,7 +69,7 @@ export async function seed() {
       { key: 'super_admin_id', value: 'USR-001', description: 'ID của Admin trưởng hệ thống (không thể bị khóa/reset)' },
     ]
     for (const s of settingsList) {
-      await tx.insert(systemSettings).values({ ...s, parishId: 'gia-ton', updatedBy: 'seed', updatedAt: now }).onConflictDoNothing()
+      await tx.insert(systemSettings).values({ ...s, parishId, updatedBy: 'seed', updatedAt: now }).onConflictDoNothing()
     }
 
     // ─── Permissions ───
@@ -99,7 +101,7 @@ export async function seed() {
       { id: 'exam.delete', name: 'Xóa Phiên Chấm', description: 'Xóa phiên chấm draft (tạo nhầm / không dùng nữa)' },
     ]
     for (const p of permissionList) {
-      await tx.insert(permissions).values({ ...p, parishId: 'gia-ton' }).onConflictDoNothing()
+      await tx.insert(permissions).values({ ...p, parishId }).onConflictDoNothing()
     }
 
     // ─── Role Permissions ───
@@ -142,7 +144,7 @@ export async function seed() {
       { role: 'phuhuynh', permissionId: 'report.export' },
     ]
     for (const rp of rolePermissionList) {
-      await tx.insert(rolePermissions).values({ ...rp, parishId: 'gia-ton' }).onConflictDoNothing()
+      await tx.insert(rolePermissions).values({ ...rp, parishId }).onConflictDoNothing()
     }
   })
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import bcrypt from 'bcryptjs'
-import authApp from '../routes/auth.js'
+import authRouter from '../routes/auth.js'
+import { Hono } from 'hono'
+const authApp = new Hono().route('/api/auth', authRouter)
 import usersApp from '../routes/users.js'
 import { generateTokens } from '../middleware/auth.js'
 import { db } from '../db/index.js'
@@ -20,7 +22,7 @@ const WEAK = 'weak1'
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 function login(user: string, password: string) {
-  return authApp.request('/login', {
+  return authApp.request('/api/auth/login', {
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify({ username: user, password, parishId }),
@@ -73,7 +75,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
       const res = await login(username, 'WrongPass1!')
       expect(res.status).toBe(401)
       const body = (await res.json()) as any
-      if (i === 5) expect(body.error.message).toContain('5/5')
+      expect(body.error.message).toBe('Tên đăng nhập hoặc mật khẩu không chính xác')
     }
     const [row] = await db.select({ status: users.status, failedAttempts: users.failedAttempts }).from(users).where(eq(users.id, userId))
     expect(row?.status).toBe('LOCKED')
@@ -82,13 +84,13 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
 
   it('rejects login of a locked account even with the correct password', async () => {
     const res = await login(username, STRONG)
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(401)
     const body = (await res.json()) as any
-    expect(body.error.code).toBe('ACCOUNT_LOCKED')
+    expect(body.error.code).toBe('INVALID_CREDENTIALS')
   })
 
   it('rejects admin change-password with a weak password', async () => {
-    const res = await authApp.request('/admin-change-password', {
+    const res = await authApp.request('/api/auth/admin-change-password', {
       method: 'POST',
       headers: { ...jsonHeaders, Authorization: `Bearer ${adminToken}` },
       // A06: adminPassword bắt buộc — gửi kèm để test đúng lý do (weak newPassword)
@@ -98,7 +100,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
   })
 
   it('A06: admin change-password với adminPassword SAI → 401 + audit ADMIN_CHANGE_PASSWORD_FAILED, pass target không đổi', async () => {
-    const res = await authApp.request('/admin-change-password', {
+    const res = await authApp.request('/api/auth/admin-change-password', {
       method: 'POST',
       headers: { ...jsonHeaders, Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ userId, newPassword: STRONG_2, adminPassword: 'SaiMatKhau@123' }),
@@ -122,7 +124,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
   it('admin change-password forces FORCE_PASSWORD_CHANGE status and invalidates old tokens', async () => {
     const oldToken = generateTokens({ userId, username, role: 'phuta', parishId, tokenVersion: 1 }).accessToken
 
-    const res = await authApp.request('/admin-change-password', {
+    const res = await authApp.request('/api/auth/admin-change-password', {
       method: 'POST',
       headers: { ...jsonHeaders, Authorization: `Bearer ${adminToken}` },
       // A06 (2026-08-10): re-authentication — admin phải gửi kèm mật khẩu của chính mình
@@ -136,7 +138,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
     expect(row?.passwordEncrypted).toBeNull()
 
     // Token issued with the old tokenVersion must be rejected
-    const oldRes = await authApp.request('/me', {
+    const oldRes = await authApp.request('/api/auth/me', {
       method: 'GET',
       headers: { Authorization: `Bearer ${oldToken}` },
     })
@@ -159,7 +161,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
   })
 
   it('still allows profile update while FORCE_PASSWORD_CHANGE is active', async () => {
-    const res = await authApp.request('/profile', {
+    const res = await authApp.request('/api/auth/profile', {
       method: 'PUT',
       headers: { ...jsonHeaders, Authorization: `Bearer ${userToken}` },
       body: JSON.stringify({ fullName: 'Lockout User' }),
@@ -168,7 +170,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
   })
 
   it('rejects user change-password with a weak new password', async () => {
-    const res = await authApp.request('/change-password', {
+    const res = await authApp.request('/api/auth/change-password', {
       method: 'POST',
       headers: { ...jsonHeaders, Authorization: `Bearer ${userToken}` },
       body: JSON.stringify({ currentPassword: STRONG_2, newPassword: WEAK }),
@@ -177,7 +179,7 @@ describe('Server Auth Lockout & Password Policy Tests', () => {
   })
 
   it('allows user to complete the forced change with a strong password and clears the flag', async () => {
-    const res = await authApp.request('/change-password', {
+    const res = await authApp.request('/api/auth/change-password', {
       method: 'POST',
       headers: { ...jsonHeaders, Authorization: `Bearer ${userToken}` },
       body: JSON.stringify({ currentPassword: STRONG_2, newPassword: STRONG }),

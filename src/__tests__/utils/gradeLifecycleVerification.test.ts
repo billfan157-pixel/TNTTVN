@@ -69,14 +69,16 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
       await db.delete(grades)
 
       // Insert dummy branch, academicYear, class, and student
-      const { students, classes, academicYears, branches } = await import('../../../server/src/db/schema')
+      const { students, classes, academicYears, branches, users } = await import('../../../server/src/db/schema')
       const testBranchId = `br-verify-${Date.now()}`
       const testYearId = `ay-verify-${Date.now()}`
       const testClassId = `cl-verify-${Date.now()}`
+      const testAdminId = `usr-grade-verify-${Date.now()}`
 
       await db.insert(branches).values({ id: testBranchId, name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId: testParishId }).onConflictDoNothing()
       await db.insert(academicYears).values({ id: testYearId, startDate: '2025-09-01', endDate: '2026-05-31', parishId: testParishId }).onConflictDoNothing()
       await db.insert(classes).values({ id: testClassId, code: `AN-VERIFY-${Date.now()}`, name: 'Ấu 1 Verify', branchId: testBranchId, academicYearId: testYearId, parishId: testParishId }).onConflictDoNothing()
+      await db.insert(users).values({ id: testAdminId, username: testAdminId, fullName: 'Grade Verify Admin', passwordHash: 'unused', role: 'admin', status: 'ACTIVE', parishId: testParishId })
       await db.insert(students).values({
         id: testStudentId,
         code: `TN-VERIFY-${Date.now()}`,
@@ -108,7 +110,7 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
       }
 
       // Upsert via server service
-      await upsertGrade(payload as any, 'user-admin', testParishId, '127.0.0.1', 'Vitest')
+      await upsertGrade(payload as any, testAdminId, testParishId, '127.0.0.1', 'Vitest')
 
       // Query back via server getGrades service
       const fetchedGrades = await getGrades(testParishId, testStudentId)

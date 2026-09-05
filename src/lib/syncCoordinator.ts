@@ -400,9 +400,8 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
   try {
     if (!isAuthenticated()) return { queryTime: '', ok: false }
 
-    const syncStore = useSyncStore.getState()
     const persistedCursor = incremental ? await readSyncCursor() : null
-    const lastSync = incremental ? (syncStore.lastSyncAt || persistedCursor || undefined) : undefined
+    const lastSync = persistedCursor || undefined
 
     // PURGE v2.3 (ghost data): nếu server đã purge (purge_version > bản local) thì toàn bộ
     // dữ liệu offline của thiết bị này là GHOST DATA → reset sạch + đăng xuất ngay,
@@ -442,10 +441,14 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
     }
 
     const { serverTime: queryTime } = await api.getSyncWatermark()
+    const { useAuthStore } = await import('../stores/authStore')
+    const isParent = useAuthStore.getState().user?.role === 'phuhuynh'
     const results = await Promise.allSettled([
-      useStudentStore.getState().fetchStudents(lastSync ? { updatedAfter: lastSync, updatedBefore: queryTime, throwOnError: true } : { throwOnError: true }),
-      useGradeStore.getState().fetchGrades(lastSync, true),
-      useAttendanceStore.getState().fetchAttendance(lastSync, true),
+      ...(!isParent ? [
+        useStudentStore.getState().fetchStudents(lastSync ? { updatedAfter: lastSync, updatedBefore: queryTime, throwOnError: true } : { throwOnError: true }),
+        useGradeStore.getState().fetchGrades(lastSync, true),
+        useAttendanceStore.getState().fetchAttendance(lastSync, true),
+      ] : []),
       useClassStore.getState().fetchClasses(lastSync, queryTime, true),
       useNoticeStore.getState().fetchNotices(lastSync, true),
     ])

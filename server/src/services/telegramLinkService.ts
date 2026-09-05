@@ -101,19 +101,19 @@ export async function consumeTelegramLinkToken(token: string, identity: Telegram
     }
 
     const [existingChat] = await tx
-      .select({ id: telegramLinks.id, userId: telegramLinks.userId, status: telegramLinks.status })
+      .select({ id: telegramLinks.id, parishId: telegramLinks.parishId, userId: telegramLinks.userId, status: telegramLinks.status })
       .from(telegramLinks)
       .where(eq(telegramLinks.chatId, identity.chatId))
       .limit(1)
 
-    if (existingChat?.status === 'ACTIVE' && existingChat.userId !== candidate.userId) {
+    if (existingChat?.status === 'ACTIVE' && (existingChat.userId !== candidate.userId || existingChat.parishId !== candidate.parishId)) {
       return { ok: false, code: 'CHAT_ALREADY_LINKED' }
     }
 
     const consumed = await tx
       .update(telegramLinkTokens)
       .set({ consumedAt: now })
-      .where(and(eq(telegramLinkTokens.id, candidate.id), isNull(telegramLinkTokens.consumedAt)))
+      .where(and(eq(telegramLinkTokens.id, candidate.id), eq(telegramLinkTokens.parishId, candidate.parishId), isNull(telegramLinkTokens.consumedAt)))
       .returning({ id: telegramLinkTokens.id })
 
     if (consumed.length === 0) {
@@ -135,7 +135,7 @@ export async function consumeTelegramLinkToken(token: string, identity: Telegram
           lastSeenAt: now,
           updatedAt: now,
         })
-        .where(eq(telegramLinks.id, existingChat.id))
+        .where(and(eq(telegramLinks.id, existingChat.id), eq(telegramLinks.parishId, existingChat.parishId)))
     } else {
       await tx.insert(telegramLinks).values({
         id: generateId('SML'),
@@ -168,12 +168,12 @@ export async function getTelegramLinkForChat(chatId: string) {
       fullName: users.fullName,
     })
     .from(telegramLinks)
-    .innerJoin(users, eq(users.id, telegramLinks.userId))
+    .innerJoin(users, and(eq(users.id, telegramLinks.userId), eq(users.parishId, telegramLinks.parishId)))
     .where(and(eq(telegramLinks.chatId, chatId), eq(telegramLinks.status, 'ACTIVE'), eq(telegramLinks.notificationsEnabled, 1)))
     .limit(1)
 
   if (link) {
-    await db.update(telegramLinks).set({ lastSeenAt: nowIso(), updatedAt: nowIso() }).where(eq(telegramLinks.id, link.id))
+    await db.update(telegramLinks).set({ lastSeenAt: nowIso(), updatedAt: nowIso() }).where(and(eq(telegramLinks.id, link.id), eq(telegramLinks.parishId, link.parishId)))
   }
 
   return link ?? null

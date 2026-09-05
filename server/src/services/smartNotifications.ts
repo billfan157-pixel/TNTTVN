@@ -31,9 +31,7 @@ export async function getSundayMassTime(parishId: string): Promise<string> {
 }
 
 /**
- * Gửi Telegram luôn, nhưng chỉ enqueue web push khi đã có danh sách người nhận
- * tường minh. Không có target IDs thì fail-closed để không broadcast dữ liệu
- * học sinh ra toàn giáo xứ.
+ * Academic notifications require explicit recipients on both channels.
  */
 async function enqueueBoth(
   type: 'absence' | 'report' | 'reminder' | 'info',
@@ -41,16 +39,16 @@ async function enqueueBoth(
   ctx: TemplateContext,
   parishId: string,
   targetUserIds: string[] = [],
-): Promise<void> {
+  studentId?: string,
+): Promise<boolean> {
   if (targetUserIds.length > 0) {
     await Promise.all([
-      enqueueNotification('telegram', type, template, ctx, parishId, undefined, { telegramUserIds: targetUserIds }),
-      enqueueNotification('webpush', type, template, ctx, parishId, undefined, { webpushUserIds: targetUserIds }),
+      enqueueNotification('telegram', type, template, ctx, parishId, undefined, { telegramUserIds: targetUserIds, ...(studentId ? { studentId } : {}) }),
+      enqueueNotification('webpush', type, template, ctx, parishId, undefined, { webpushUserIds: targetUserIds, ...(studentId ? { studentId } : {}) }),
     ])
+    return true
   } else {
-    // Fallback: nếu không xác định được phụ huynh (vd thông báo chung toàn giáo xứ),
-    // giữ nguyên hành vi broadcast Telegram admin.
-    await enqueueNotification('telegram', type, template, ctx, parishId)
+    return false
   }
 }
 
@@ -69,7 +67,8 @@ async function getParentUserIdsForPhones(parishId: string, phones: string[]): Pr
 }
 
 async function getParentUserIdsForStudent(parishId: string, studentId?: string, parentPhone?: string): Promise<string[]> {
-  if (parentPhone) return getParentUserIdsForPhones(parishId, [parentPhone])
+  // A caller phone is display/legacy input, never the recipient authority.
+  void parentPhone
   if (!studentId) return []
 
   const [student] = await db
@@ -128,15 +127,16 @@ export async function notifyAbsence(
   status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused',
   parentName: string,
   parentPhone: string,
-  note?: string
+  note?: string,
+  studentId?: string,
 ): Promise<void> {
   const ctx = buildContext({ studentName, holyName, className, date, parentName, parentPhone, note })
-  const webpushUserIds = await resolveRecipients(() => getParentUserIdsForPhones(parishId, [parentPhone]))
+  const webpushUserIds = await resolveRecipients(() => getParentUserIdsForStudent(parishId, studentId))
 
   if (status === 'AbsentUnexcused') {
-    await enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceUnexcused, ctx, parishId, webpushUserIds)
+    await enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceUnexcused, ctx, parishId, webpushUserIds, studentId)
   } else if (status === 'AbsentExcused') {
-    await enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceExcused, ctx, parishId, webpushUserIds)
+    await enqueueBoth('absence', NOTIFICATION_TEMPLATES.absenceExcused, ctx, parishId, webpushUserIds, studentId)
   }
 }
 
@@ -152,7 +152,7 @@ export async function notifyReportCard(
   attendanceTotal: number | string,
   studentId?: string,
   parentPhone?: string,
-): Promise<void> {
+): Promise<boolean> {
   const ctx = buildContext({
     studentName, holyName, className,
     score, rank,
@@ -160,7 +160,7 @@ export async function notifyReportCard(
   })
   const webpushUserIds = await resolveRecipients(() => getParentUserIdsForStudent(parishId, studentId, parentPhone))
 
-  await enqueueBoth('report', NOTIFICATION_TEMPLATES.reportCard, ctx, parishId, webpushUserIds)
+  return enqueueBoth('report', NOTIFICATION_TEMPLATES.reportCard, ctx, parishId, webpushUserIds, studentId)
 }
 
 export async function notifyBatchReportCards(
@@ -181,14 +181,14 @@ export async function notifyBatchReportCards(
   let sent = 0
   for (const s of students) {
     try {
-      await notifyReportCard(
+      const queued = await notifyReportCard(
         parishId,
         s.studentName, s.holyName, s.className,
         s.score, s.rank,
         s.attendanceRate, s.attendancePresent, s.attendanceTotal,
         s.studentId, s.parentPhone,
       )
-      sent++
+      if (queued) sent++
     } catch (err) {
       console.error(`[smartNotifications] failed to enqueue report card for ${s.studentName} (${s.className}):`, err)
     }
@@ -196,16 +196,17 @@ export async function notifyBatchReportCards(
   return sent
 }
 
-export async function notifySundayMassReminder(parishId: string): Promise<void> {
+export async function notifySundayMassReminder(parishId: string): Promise<boolean> {
   const sundayMassTime = await getSundayMassTime(parishId)
   const ctx = buildContext({ sundayMassTime })
   const webpushUserIds = await resolveRecipients(() => getAllParentUserIds(parishId))
   // Scheduled tenant reminders never fall back to a global Telegram admin chat.
-  if (webpushUserIds.length === 0) return
+  if (webpushUserIds.length === 0) return false
   await Promise.all([
     enqueueNotification('telegram', 'reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, undefined, { telegramUserIds: webpushUserIds }),
     enqueueNotification('webpush', 'reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, undefined, { webpushUserIds }),
   ])
+  return true
 }
 
 export async function notifyClassReminder(parishId: string, className: string, date: string, classId?: string): Promise<void> {

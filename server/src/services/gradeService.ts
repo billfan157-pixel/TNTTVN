@@ -11,6 +11,7 @@ import { normalizeAcademicYear, getCurrentAcademicYear } from '../utils/academic
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
 import { notifyGradeOverride } from './smartNotifications.js'
 import { VersionConflictError } from '../domain/errors.js'
+import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 
 // Phase 2 (error-ownership): canonical definition sống ở domain/errors.ts.
 // Re-export giữ tương thích cho callers/tests cũ (cùng 1 class identity,
@@ -37,6 +38,7 @@ function formatGradeRow(row: any) {
 }
 
 export async function getGrades(parishId: string, studentId?: string, semester?: number, updatedAfter?: string, studentIds?: string[]) {
+  if (studentIds?.length === 0) return []
   const activeStudentSubquery = db
     .select({ id: students.id })
     .from(students)
@@ -108,7 +110,7 @@ function collectManualOverrideEntries(data: GradeData): { scoreField: ScoreField
   return entries
 }
 
-export async function upsertGrade(data: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null) {
+export async function upsertGrade(data: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null, expected?: AcademicWriteExpectation) {
   // Phase 2 (outbox convergence): manual entries thuần theo data (không DB) để
   // notify post-commit — chỉ khi service sở hữu tx (externalTx thì caller
   // commit, không notify ở đây để tránh phantom alert khi rollback).
@@ -141,7 +143,8 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
     // kiểm tra class + ghi điểm) → đóng TOCTOU "check rồi mới ghi batch": trước
     // đây route check từng item trước khi chạy batch, học sinh chuyển lớp giữa
     // check và write vẫn bị ghi nhầm.
-    if (allowedClassIds && !allowedClassIds.includes(student.classId)) {
+    if ((allowedClassIds && !allowedClassIds.includes(student.classId))
+      || !(await checkAcademicWriteAccess(userId, parishId, student.classId, tx, expected, ['admin', 'chunhiem']))) {
       const err = new Error('Bạn không có quyền nhập điểm cho thiếu nhi này') as any
       err.status = 403
       throw err
@@ -281,7 +284,7 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
       const updateRes = await tx
         .update(grades)
         .set(updatePayload)
-        .where(and(eq(grades.id, existing.id), eq(grades.version, expectedVersion)))
+        .where(and(eq(grades.parishId, parishId), eq(grades.id, existing.id), eq(grades.version, expectedVersion)))
 
       const affectedRows = Number((updateRes as { changes?: number; rowsAffected?: number }).changes ?? (updateRes as { changes?: number; rowsAffected?: number }).rowsAffected ?? 1)
       if (affectedRows === 0) {
@@ -406,6 +409,7 @@ export async function undoGradeImport(
   ip: string,
   userAgent: string,
   allowedClassIds?: string[] | null,
+  expected?: AcademicWriteExpectation,
 ): Promise<UndoGradeImportResult[]> {
   const normYear = normalizeAcademicYear(academicYear)
   if (!normYear) throw new Error('Năm học không hợp lệ')
@@ -426,7 +430,8 @@ export async function undoGradeImport(
           }
 
           // ADR-016 (S24): access check trong cùng tx với write (đóng TOCTOU).
-          if (allowedClassIds && !allowedClassIds.includes(student.classId)) {
+          if ((allowedClassIds && !allowedClassIds.includes(student.classId))
+            || !(await checkAcademicWriteAccess(userId, parishId, student.classId, tx, expected, ['admin', 'chunhiem']))) {
             return { studentId: item.studentId, status: 'forbidden', message: 'Bạn không có quyền khôi phục điểm cho thiếu nhi này' }
           }
 
@@ -572,7 +577,7 @@ export async function undoGradeImport(
   return results
 }
 
-export async function upsertGradeBatch(dataList: GradeData[], userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds?: string[] | null) {
+export async function upsertGradeBatch(dataList: GradeData[], userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds?: string[] | null, expected?: AcademicWriteExpectation) {
   const results: { studentId: string; status: 'saved' | 'conflict' | 'error'; error?: string; currentGrade?: any; record?: any }[] = []
 
   for (const data of dataList) {
@@ -583,7 +588,7 @@ export async function upsertGradeBatch(dataList: GradeData[], userId: string, pa
         // thật của server) — trả kèm trong 'saved' để client rehydrate bản ghi tạm
         // (temp GR- id) thành bản ghi server trước khi xóa op, tránh lần sửa kế tiếp
         // gửi temp id + version cũ → 409 → điểm bị mất khỏi UI.
-        savedRecord = await upsertGrade(data, userId, parishId, ip, userAgent, tx, allowedClassIds)
+        savedRecord = await upsertGrade(data, userId, parishId, ip, userAgent, tx, allowedClassIds, expected)
       })
       results.push({ studentId: data.studentId, status: 'saved', record: savedRecord })
     } catch (err: any) {

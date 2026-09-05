@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
-import { notifications } from '../../db/schema.js'
+import { notifications, students, users } from '../../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { generateId } from '../../utils/id.js'
 
@@ -21,8 +21,10 @@ vi.mock('../../services/appPushService.js', () => ({
 }))
 
 describe('notificationQueue', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.PARISH_ID = 'gia-ton'
+    await db.insert(users).values(['USR-TG-42', 'USR-42'].map(id => ({ id, username: id, parishId: 'gia-ton', fullName: 'Synthetic Parent', passwordHash: 'unused', role: 'phuhuynh' as const, phone: '0900000201', status: 'ACTIVE' as const })))
+    await db.insert(students).values({ id: 'queue-child', code: 'queue-child', parishId: 'gia-ton', classId: 'AU1', fullName: 'Synthetic Child', holyName: 'Giuse', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'Synthetic', parentPhone: '0900000201', address: 'Synthetic', branch: 'AuNhi' })
   })
 
   afterAll(() => {
@@ -128,6 +130,7 @@ describe('notificationQueue', () => {
       status: 'retrying',
       recipient: 'Phụ Huynh',
       message: 'Recovered Telegram targeted',
+      studentId: 'queue-child',
       triggeredByType: 'system',
       targetUserIds: '["USR-TG-42"]',
       parishId: 'gia-ton',
@@ -203,6 +206,7 @@ describe('notificationQueue', () => {
       status: 'retrying',
       recipient: 'Phụ Huynh',
       message: 'Recovered targeted',
+      studentId: 'queue-child',
       triggeredByType: 'system',
       targetUserIds: '["USR-42"]',
       parishId: 'gia-ton',
@@ -217,11 +221,45 @@ describe('notificationQueue', () => {
     const { enqueueNotification } = await import('../../services/notificationQueue.js')
     await enqueueNotification('webpush', 'info', 'Kick', {}, 'gia-ton')
     await vi.waitFor(() => {
-      expect(sendAppPushToUsers).toHaveBeenCalledWith('gia-ton', ['USR-42'], expect.objectContaining({ body: 'Recovered targeted' }))
+      expect(sendAppPushToUsers).toHaveBeenCalledWith('gia-ton', ['USR-42'], expect.objectContaining({ body: 'Có cập nhật học vụ trong ứng dụng Catevia. Vui lòng đăng nhập để xem.' }))
     }, { timeout: 3000 })
     await vi.waitFor(() => {
       expect(getQueueLength()).toBe(0)
     }, { timeout: 3000 })
+  })
+
+  it('enforced deployment recovery leaves another parish queue untouched', async () => {
+    const foreignParish = 'queue-foreign-parish'
+    const testId = generateId('NOT')
+    await db.insert(notifications).values({
+      id: testId,
+      type: 'telegram',
+      channel: 'absence',
+      deliveryKind: 'alert',
+      status: 'retrying',
+      recipient: 'System',
+      message: 'Foreign deployment message',
+      triggeredByType: 'system',
+      parishId: foreignParish,
+      createdAt: new Date().toISOString(),
+    })
+    process.env.DEPLOYMENT_PARISH_ID = 'gia-ton'
+    try {
+      const { recoverQueueFromDb, enqueueNotification } = await import('../../services/notificationQueue.js')
+      const { sendTelegramAlert } = await import('../../services/telegram.js')
+      await expect(enqueueNotification('telegram', 'info', 'Foreign direct enqueue', {}, foreignParish))
+        .rejects.toThrow(/outside this deployment scope/)
+      await recoverQueueFromDb()
+      await enqueueNotification('telegram', 'info', 'Local kick', {}, 'gia-ton')
+      await vi.waitFor(async () => {
+        const [row] = await db.select().from(notifications).where(and(eq(notifications.id, testId), eq(notifications.parishId, foreignParish)))
+        expect(row?.status).toBe('retrying')
+      }, { timeout: 3000 })
+      expect(sendTelegramAlert).not.toHaveBeenCalledWith('Foreign deployment message', true)
+    } finally {
+      delete process.env.DEPLOYMENT_PARISH_ID
+      await db.delete(notifications).where(and(eq(notifications.id, testId), eq(notifications.parishId, foreignParish)))
+    }
   })
 
   it('target_user_ids hỏng fail-closed thành nhóm rỗng, không broadcast giáo xứ', async () => {

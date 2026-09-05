@@ -399,7 +399,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                     <div className="text-parish-primary text-[15px] font-extrabold tabular-nums">
                       {avg.score !== null ? avg.score : '-'}
                     </div>
-                    <span className="badge badge-primary text-[10px] mt-0.5 inline-flex">
+                    <span className="badge badge-primary text-xs font-bold mt-0.5 inline-flex">
                       {avg.label}
                     </span>
                   </div>
@@ -408,7 +408,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 {/* Info row */}
                 <div className="bg-surface-app text-text-secondary flex items-center justify-between text-xs px-2.5 py-2 rounded-xl border border-surface-border/60">
                   <div className="min-w-0 truncate flex items-center gap-1">
-                    <span className="text-[11px]">PH:</span> <strong className="truncate">{s.parentName || '—'}</strong>
+                    <span className="text-xs font-semibold">PH:</span> <strong className="truncate">{s.parentName || '—'}</strong>
                   </div>
                   {s.parentPhone && (
                       <a
@@ -422,14 +422,14 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
                 {/* Actions */}
                 <div className="flex justify-end gap-2 border-t border-surface-border/60 pt-3">
-                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary min-h-[40px] px-3.5 text-xs font-bold rounded-xl">
+                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary min-h-[44px] px-3.5 text-xs font-bold rounded-xl">
                     <Printer size={13} /> In Phiếu
                   </button>
-                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[40px] px-3.5 text-xs font-bold rounded-xl">
+                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[44px] px-3.5 text-xs font-bold rounded-xl">
                     <Edit3 size={13} /> Sửa
                   </button>
                   {!selectionMode && canDelete && (
-                    <button onClick={() => handleDelete(s)} className="btn btn-secondary min-h-[40px] w-10 p-0 rounded-xl" aria-label={`Xóa ${s.fullName}`}>
+                    <button onClick={() => handleDelete(s)} className="btn btn-secondary min-h-[44px] min-w-[44px] p-0 rounded-xl flex items-center justify-center" aria-label={`Xóa ${s.fullName}`}>
                       <Trash2 size={14} className="text-parish-danger" />
                     </button>
                   )}
@@ -448,7 +448,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
               const val = e.target.value
               handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
             }}
-            className="text-xs min-h-[40px] rounded-xl"
+            className="text-xs min-h-[44px] rounded-xl"
             aria-label="Số lượng mỗi trang"
           >
             <option value="50">50 / trang</option>

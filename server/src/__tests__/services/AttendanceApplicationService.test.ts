@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
-import { attendance, auditLogs, semesterLocks, users, students, classes, branches, academicYears } from '../../db/schema.js'
+import { attendance, auditLogs, semesterLocks, users, students, classes, branches, academicYears, catechistAssignments } from '../../db/schema.js'
 import { attendanceApplicationService } from '../../services/AttendanceApplicationService.js'
 import { drizzleAttendanceRepository } from '../../repositories/DrizzleAttendanceRepository.js'
 import { drizzleSemesterLockRepository } from '../../repositories/DrizzleSemesterLockRepository.js'
@@ -25,6 +25,8 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
       { id: teacherUserId, username: 'teacheratt', fullName: 'Teacher Att', passwordHash: 'hash', role: 'chunhiem', parishId: testParish },
       { id: adminUserId, username: 'adminatt', fullName: 'Admin Att', passwordHash: 'hash', role: 'admin', parishId: testParish },
     ]).onConflictDoNothing()
+
+    await db.insert(catechistAssignments).values({ id: `asg-${teacherUserId}`, userId: teacherUserId, classId, roleInClass: 'chunhiem', parishId: testParish }).onConflictDoNothing()
 
     await db.insert(students).values({
       id: studentId,

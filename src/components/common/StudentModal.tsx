@@ -191,29 +191,43 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     );
   }
 
+  const validateField = (field: string, value: string) => {
+    switch (field) {
+      case 'holyName':
+        return !value.trim() ? 'Vui lòng nhập Tên Thánh.' : '';
+      case 'fullName':
+        return !value.trim() ? 'Vui lòng nhập Họ và Tên.' : '';
+      case 'gender':
+        return !value ? 'Vui lòng chọn Giới tính.' : '';
+      case 'dateOfBirth':
+        if (!value) return 'Vui lòng chọn Ngày sinh.';
+        if (new Date(value) > new Date()) return 'Ngày sinh không thể ở tương lai.';
+        return '';
+      case 'parentPhone':
+        if (value.trim() && !/^[0-9]{10}$/.test(value.trim())) {
+          return 'Số điện thoại phải gồm 10 chữ số.';
+        }
+        return '';
+      default:
+        return '';
+    }
+  };
+
+  const handleBlur = (field: string) => {
+    const errorMsg = validateField(field, (formData as any)[field] || '');
+    if (errorMsg) {
+      setErrors(prev => ({ ...prev, [field]: errorMsg }));
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
-    if (!formData.holyName.trim()) {
-      newErrors.holyName = 'Vui lòng nhập Tên Thánh.';
-    }
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = 'Vui lòng nhập Họ và Tên.';
-    }
-    if (!formData.gender) {
-      newErrors.gender = 'Vui lòng chọn Giới tính.';
-    }
-    if (!formData.dateOfBirth) {
-      newErrors.dateOfBirth = 'Vui lòng chọn Ngày sinh.';
-    } else {
-      const dob = new Date(formData.dateOfBirth);
-      if (dob > new Date()) {
-        newErrors.dateOfBirth = 'Ngày sinh không thể ở tương lai.';
-      }
-    }
-    if (formData.parentPhone.trim() && !/^[0-9]{10}$/.test(formData.parentPhone.trim())) {
-      newErrors.parentPhone = 'Số điện thoại phải gồm 10 chữ số.';
+    const fieldsToValidate = ['holyName', 'fullName', 'gender', 'dateOfBirth', 'parentPhone'];
+    for (const field of fieldsToValidate) {
+      const err = validateField(field, (formData as any)[field] || '');
+      if (err) newErrors[field] = err;
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -260,48 +274,72 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
           {/* Tên Thánh & Họ Tên */}
           <div className="grid grid-cols-[1fr_2fr_1fr] gap-3.5">
             <div className="form-group">
-              <label className="form-label">Tên Thánh *</label>
+              <label htmlFor="student-holyName" className="form-label">Tên Thánh *</label>
               <input
-                className={`form-input ${errors.holyName ? 'border-red-500' : ''}`}
+                id="student-holyName"
+                className={`form-input ${errors.holyName ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
                 type="text"
                 placeholder="VD: Maria, Giuse..."
                 value={formData.holyName}
+                onBlur={() => handleBlur('holyName')}
                 onChange={e => {
                   setFormData({ ...formData, holyName: e.target.value });
                   if (errors.holyName) setErrors(prev => ({ ...prev, holyName: '' }));
                 }}
+                aria-invalid={errors.holyName ? 'true' : undefined}
+                aria-describedby={errors.holyName ? 'holyName-error' : undefined}
               />
-              {errors.holyName && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.holyName}</span>}
+              {errors.holyName && (
+                <span id="holyName-error" role="alert" className="text-xs text-parish-danger mt-1 block font-medium">
+                  {errors.holyName}
+                </span>
+              )}
             </div>
             <div className="form-group">
-              <label className="form-label">Họ và Tên Thiếu Nhi *</label>
+              <label htmlFor="student-fullName" className="form-label">Họ và Tên Thiếu Nhi *</label>
               <input
-                className={`form-input ${errors.fullName ? 'border-red-500' : ''}`}
+                id="student-fullName"
+                className={`form-input ${errors.fullName ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
                 type="text"
                 placeholder="VD: Nguyễn Văn An"
                 value={formData.fullName}
+                onBlur={() => handleBlur('fullName')}
                 onChange={e => {
                   setFormData({ ...formData, fullName: e.target.value });
                   if (errors.fullName) setErrors(prev => ({ ...prev, fullName: '' }));
                 }}
+                aria-invalid={errors.fullName ? 'true' : undefined}
+                aria-describedby={errors.fullName ? 'fullName-error' : undefined}
               />
-              {errors.fullName && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.fullName}</span>}
+              {errors.fullName && (
+                <span id="fullName-error" role="alert" className="text-xs text-parish-danger mt-1 block font-medium">
+                  {errors.fullName}
+                </span>
+              )}
             </div>
             <div className="form-group">
-              <label className="form-label">Giới tính *</label>
+              <label htmlFor="student-gender" className="form-label">Giới tính *</label>
               <select
-                className={`form-select ${errors.gender ? 'border-red-500' : ''}`}
+                id="student-gender"
+                className={`form-select ${errors.gender ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
                 value={formData.gender}
+                onBlur={() => handleBlur('gender')}
                 onChange={e => {
                   setFormData({ ...formData, gender: e.target.value as 'Nam' | 'Nữ' });
                   if (errors.gender) setErrors(prev => ({ ...prev, gender: '' }));
                 }}
+                aria-invalid={errors.gender ? 'true' : undefined}
+                aria-describedby={errors.gender ? 'gender-error' : undefined}
               >
                 <option value="">-- Chọn giới tính --</option>
                 <option value="Nam">Nam</option>
                 <option value="Nữ">Nữ</option>
               </select>
-              {errors.gender && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.gender}</span>}
+              {errors.gender && (
+                <span id="gender-error" role="alert" className="text-xs text-parish-danger mt-1 block font-medium">
+                  {errors.gender}
+                </span>
+              )}
             </div>
           </div>
 
@@ -360,17 +398,25 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
           {/* Ngày sinh & Các Bí Tích */}
           <div className="grid grid-cols-3 gap-3.5">
             <div className="form-group">
-              <label className="form-label">Ngày sinh *</label>
+              <label htmlFor="student-dateOfBirth" className="form-label">Ngày sinh *</label>
               <input
-                className={`form-input ${errors.dateOfBirth ? 'border-red-500' : ''}`}
+                id="student-dateOfBirth"
+                className={`form-input ${errors.dateOfBirth ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
                 type="date"
                 value={formData.dateOfBirth}
+                onBlur={() => handleBlur('dateOfBirth')}
                 onChange={e => {
                   setFormData({ ...formData, dateOfBirth: e.target.value });
                   if (errors.dateOfBirth) setErrors(prev => ({ ...prev, dateOfBirth: '' }));
                 }}
+                aria-invalid={errors.dateOfBirth ? 'true' : undefined}
+                aria-describedby={errors.dateOfBirth ? 'dateOfBirth-error' : undefined}
               />
-              {errors.dateOfBirth && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.dateOfBirth}</span>}
+              {errors.dateOfBirth && (
+                <span id="dateOfBirth-error" role="alert" className="text-xs text-parish-danger mt-1 block font-medium">
+                  {errors.dateOfBirth}
+                </span>
+              )}
             </div>
             <div className="form-group">
               <label className="form-label">Ngày Rửa Tội</label>
@@ -409,19 +455,27 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Số Điện Thoại Phụ Huynh</label>
+              <label htmlFor="student-parentPhone" className="form-label">Số Điện Thoại Phụ Huynh</label>
               <input
-                className={`form-input ${errors.parentPhone ? 'border-red-500' : ''}`}
+                id="student-parentPhone"
+                className={`form-input ${errors.parentPhone ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
                 type="text"
                 placeholder="VD: 0903123456"
                 value={formData.parentPhone}
+                onBlur={() => handleBlur('parentPhone')}
                 onChange={e => {
                   setFormData({ ...formData, parentPhone: e.target.value });
                   setParentAccount(prev => (prev.status === 'idle' ? prev : { status: 'idle' }));
                   if (errors.parentPhone) setErrors(prev => ({ ...prev, parentPhone: '' }));
                 }}
+                aria-invalid={errors.parentPhone ? 'true' : undefined}
+                aria-describedby={errors.parentPhone ? 'parentPhone-error' : undefined}
               />
-              {errors.parentPhone && <span className="text-xs text-red-500 mt-1 block font-medium">{errors.parentPhone}</span>}
+              {errors.parentPhone && (
+                <span id="parentPhone-error" role="alert" className="text-xs text-parish-danger mt-1 block font-medium">
+                  {errors.parentPhone}
+                </span>
+              )}
             </div>
           </div>
 

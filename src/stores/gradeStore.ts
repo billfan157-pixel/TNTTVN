@@ -272,6 +272,9 @@ export const useGradeStore = create<GradeState>()(
     }),
     {
       name: 'parish_store_grades',
+      // Retire pre-D9 read snapshots; durable mutation ownership lives in syncQueue.
+      version: 1,
+      migrate: () => ({ grades: [] }),
       storage: createJSONStorage(() => dexieStorage),
     }
   )

@@ -9,6 +9,7 @@ import { generateId } from '../utils/id.js'
 import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
 import { VersionConflictError } from '../domain/errors.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 
 export interface MarkAttendanceCommand {
   studentId: string
@@ -24,6 +25,7 @@ export interface MarkAttendanceCommand {
   parishId: string
   /** ADR-016 (S24): Class IDs mà user được phân công — check trong tx để đóng TOCTOU (audit #12). */
   allowedClassIds?: string[] | null
+  expected?: AcademicWriteExpectation
   ip?: string
   userAgent?: string
   auditAction?: 'MARK_ATTENDANCE' | 'BATCH_MARK_ATTENDANCE_ITEM'
@@ -72,7 +74,8 @@ export class AttendanceApplicationService {
 
       // ADR-016 (S24): Access check trong cùng transaction với write → đóng
       // TOCTOU "check từng item trước khi chạy batch" (audit finding #12).
-      if (cmd.allowedClassIds && !cmd.allowedClassIds.includes(student.classId)) {
+      if ((cmd.allowedClassIds && !cmd.allowedClassIds.includes(student.classId))
+        || !(await checkAcademicWriteAccess(cmd.userId, cmd.parishId, student.classId, tx, cmd.expected))) {
         const err = new Error('Bạn không có quyền điểm danh thiếu nhi này') as any
         err.status = 403
         throw err

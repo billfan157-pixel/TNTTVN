@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { eq, and, desc, inArray } from 'drizzle-orm'
+import { eq, and, desc, inArray, isNull, sql } from 'drizzle-orm'
 import { authMiddleware, getUserClassIds, isAdmin } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, errorResponse, listResponse } from '../utils/response.js'
@@ -12,6 +12,8 @@ import { generateId } from '../utils/id.js'
 import { getMyChildren } from '../services/parentService.js'
 import { sendTelegramMessageToChat } from '../services/telegram.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { createSemesterLockSpecification } from '../services/policyAdapters.js'
+import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
 
 const leaveRequestsRouter = new Hono()
 leaveRequestsRouter.use('*', authMiddleware)
@@ -290,17 +292,24 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
   // State/authorization, domain writes and audit share one transaction. The
   // PENDING predicate makes concurrent reviewers deterministic: only one wins.
   const reviewResult = await runDbTransaction(async (tx) => {
+    const [student] = await tx.select({ classId: students.classId }).from(students)
+      .where(and(eq(students.id, request.studentId), eq(students.parishId, user.parishId), isNull(students.deletedAt))).limit(1)
+    if (!student) return 'student_missing' as const
     if (!isAdmin(user)) {
       const [assignment] = await tx.select({ id: catechistAssignments.id })
         .from(catechistAssignments)
         .where(and(
           eq(catechistAssignments.userId, user.userId),
           eq(catechistAssignments.parishId, user.parishId),
-          eq(catechistAssignments.classId, request.classId),
+          eq(catechistAssignments.classId, student.classId),
         ))
         .limit(1)
       if (!assignment) return 'forbidden' as const
     }
+
+    if (status === 'APPROVED' && !(await createSemesterLockSpecification(tx).isSatisfiedBy(
+      resolveAcademicYear(request.date), resolveSemester(request.date), user.parishId,
+    ))) return 'locked' as const
 
     const updated = await tx
       .update(leaveRequests)
@@ -341,6 +350,7 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
             .update(attendance)
             .set({
               status: 'AbsentExcused',
+              version: sql`${attendance.version} + 1`,
               note: noteText,
               updatedBy: user.userId,
               updatedAt: now,
@@ -377,6 +387,8 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
     return 'ok' as const
   })
 
+  if (reviewResult === 'student_missing') return errorResponse(c, 'NOT_FOUND', 'Thiếu nhi không còn hoạt động', 404)
+  if (reviewResult === 'locked') return errorResponse(c, 'SEMESTER_LOCKED', 'Học kỳ đã khóa, không thể duyệt ghi chuyên cần', 403)
   if (reviewResult === 'forbidden') {
     return errorResponse(c, 'FORBIDDEN', 'Bạn không được phân công quản lý lớp học của thiếu nhi này', 403)
   }

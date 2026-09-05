@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'crypto'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, runDbTransaction, type DbExecutor } from '../db/index.js'
 import { refreshTokens, users } from '../db/schema.js'
-import { generateTokens, verifyRefreshToken, getSuperAdminId } from '../middleware/auth.js'
+import { generateTokens, verifyRefreshToken, isSuperAdmin } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -74,7 +74,7 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
   if (!user || user.deletedAt || user.status === 'INACTIVE') {
     return { status: 'rejected', code: 'USER_INACTIVE', message: 'Tài khoản không còn hoạt động' }
   }
-  if (user.status === 'LOCKED' && user.id !== getSuperAdminId()) {
+  if (user.status === 'LOCKED' && !isSuperAdmin(user.id, user.parishId, user.role)) {
     return { status: 'rejected', code: 'USER_LOCKED', message: 'Tài khoản đã bị khóa' }
   }
   if (payload.tokenVersion !== undefined && user.tokenVersion !== payload.tokenVersion) {
@@ -95,10 +95,9 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
     // revocation must commit together. Otherwise a transient failure can leave one
     // half of the containment action applied and the other half missing.
     await runDbTransaction(async (tx) => {
-      const nextVersion = (user.tokenVersion || 1) + 1
       await tx
         .update(users)
-        .set({ tokenVersion: nextVersion })
+        .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
         .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
       await revokeAllSessionsWith(tx, user.id, user.parishId)
     })
@@ -125,7 +124,7 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
   return await runDbTransaction(async (tx) => {
     const res = await tx.update(refreshTokens)
       .set({ revokedAt: now, replacedBy: newId })
-      .where(and(eq(refreshTokens.id, session.id), isNull(refreshTokens.revokedAt)))
+      .where(and(eq(refreshTokens.id, session.id), eq(refreshTokens.parishId, user.parishId), isNull(refreshTokens.revokedAt)))
       .run()
 
     if (res.rowsAffected !== 1) {

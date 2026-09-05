@@ -6,6 +6,9 @@ import { db } from '../db/index.js'
 import { users } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import type { ActorContext } from '../types/actor.js'
+import { getSuperAdminId, isSuperAdmin } from '../utils/protectedPrincipal.js'
+import { getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
+export { getSuperAdminId, isSuperAdmin } from '../utils/protectedPrincipal.js'
 
 // Compatibility exports for routes. Application services import the query
 // module directly so their dependency does not point at HTTP middleware.
@@ -54,6 +57,10 @@ export interface JwtPayload extends ActorContext {
 const JWT_ALGORITHM = 'HS256' as const
 
 export function generateTokens(payload: JwtPayload) {
+  const deploymentParishId = getEnforcedDeploymentParishId()
+  if (deploymentParishId && payload.parishId !== deploymentParishId) {
+    throw new Error('Cannot issue a token outside the configured deployment parish')
+  }
   // jwtid (jti) ngẫu nhiên mỗi lần phát hành: 2 login cùng giây KHÔNG được trùng
   // token (nếu không sha256 hash giống nhau → vi phạm UNIQUE refresh_tokens.token_hash).
   const accessToken = jwt.sign(payload, JWT_SECRET, { algorithm: JWT_ALGORITHM, expiresIn: JWT_EXPIRES_IN, jwtid: randomUUID() })
@@ -63,7 +70,9 @@ export function generateTokens(payload: JwtPayload) {
 
 export function verifyToken(token: string): JwtPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] }) as JwtPayload
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] }) as JwtPayload
+    const deploymentParishId = getEnforcedDeploymentParishId()
+    return deploymentParishId && payload.parishId !== deploymentParishId ? null : payload
   } catch {
     return null
   }
@@ -71,7 +80,9 @@ export function verifyToken(token: string): JwtPayload | null {
 
 export function verifyRefreshToken(token: string): JwtPayload | null {
   try {
-    return jwt.verify(token, JWT_REFRESH_SECRET, { algorithms: [JWT_ALGORITHM] }) as JwtPayload
+    const payload = jwt.verify(token, JWT_REFRESH_SECRET, { algorithms: [JWT_ALGORITHM] }) as JwtPayload
+    const deploymentParishId = getEnforcedDeploymentParishId()
+    return deploymentParishId && payload.parishId !== deploymentParishId ? null : payload
   } catch {
     return null
   }
@@ -93,7 +104,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
   // check role → admin bị LOCKED vẫn PASS middleware (chỉ non-admin bị chặn). Giờ chỉ
   // SUPERADMIN được miễn (không thể bị khóa self-lockout, nhất quán với login users.ts:89
   // và verifyAdminReauth userService.ts:221); mọi LOCKED khác → 401 ngay lập tức.
-  if (!userDb || userDb.deletedAt || userDb.status === 'INACTIVE' || (userDb.status === 'LOCKED' && !isSuperAdmin(payload.userId)) || (payload.tokenVersion !== undefined && userDb.tokenVersion !== payload.tokenVersion)) {
+  if (!userDb || userDb.deletedAt || userDb.status === 'INACTIVE' || (userDb.status === 'LOCKED' && !isSuperAdmin(userDb.id, userDb.parishId, userDb.role)) || (payload.tokenVersion !== undefined && userDb.tokenVersion !== payload.tokenVersion)) {
     return c.json({ error: 'Session invalidated or account locked' }, 401)
   }
 
@@ -102,8 +113,9 @@ export const authMiddleware = createMiddleware(async (c, next) => {
   }
 
   if (userDb.status === 'FORCE_PASSWORD_CHANGE') {
-    const p = c.req.path
-    const isAllowed = p.endsWith('/change-password') || p.endsWith('/admin-change-password') || p.endsWith('/profile') || p.endsWith('/me') || p.endsWith('/logout') || p.endsWith('/refresh')
+    const isAllowed = new Set([
+      'POST /api/auth/change-password', 'PUT /api/auth/profile', 'GET /api/auth/me', 'POST /api/auth/logout',
+    ]).has(`${c.req.method} ${c.req.path}`)
     if (!isAllowed) {
       return c.json({ error: 'FORCE_PASSWORD_CHANGE', message: 'Tài khoản yêu cầu đổi mật khẩu lần đầu trước khi truy cập hệ thống' }, 403)
     }
@@ -127,16 +139,10 @@ export function isAdmin(user: JwtPayload): boolean {
   return user.role === 'admin'
 }
 
-export function getSuperAdminId(): string {
-  const envId = process.env.SUPER_ADMIN_ID?.trim()
-  if (envId) return envId
-  if (process.env.NODE_ENV === 'production') {
-    // Fail-closed: production must set SUPER_ADMIN_ID explicitly — fallback USR-001 predictable
-    throw new Error('SUPER_ADMIN_ID must be set in production (no default)')
-  }
-  return 'USR-001'
-}
-
-export function isSuperAdmin(userId: string): boolean {
-  return userId === getSuperAdminId()
+export async function isSuperAdminAccount(userId: string, parishId: string): Promise<boolean> {
+  const protectedParishId = getEnforcedDeploymentParishId() ?? (process.env.SUPER_ADMIN_PARISH_ID?.trim() || 'gia-ton')
+  if (userId !== getSuperAdminId() || parishId !== protectedParishId) return false
+  const [account] = await db.select({ role: users.role }).from(users)
+    .where(and(eq(users.id, userId), eq(users.parishId, parishId))).limit(1)
+  return account?.role === 'admin'
 }

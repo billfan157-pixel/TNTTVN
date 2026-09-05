@@ -15,12 +15,13 @@ import {
 import { consumeDummyPassword } from '../utils/passwordPolicy.js'
 import { getClientIp } from '../utils/ip.js'
 import { errorResponse, successResponse } from '../utils/response.js'
+import { resolvePublicParishId } from '../utils/deploymentParish.js'
 
 const passwordResetRequestsRouter = new Hono()
 
 const publicRequestSchema = z.object({
   phone: z.string().trim().min(8).max(20),
-  parishId: z.string().trim().min(1).max(64).default('gia-ton'),
+  parishId: z.string().trim().min(1).max(64).optional(),
 })
 
 const adminPasswordSchema = z.object({
@@ -39,7 +40,8 @@ function handleRequestError(c: Parameters<typeof errorResponse>[0], error: unkno
 // Public nhưng fail-safe: 5 request/phút/IP, response giống nhau cho số có/không có
 // tài khoản và luôn tiêu thụ một bcrypt compare để giảm timing enumeration.
 passwordResetRequestsRouter.post('/', parentForgotRateLimiter, zValidator('json', publicRequestSchema), async (c) => {
-  const { phone, parishId } = c.req.valid('json')
+  const { phone, parishId: requestedParishId } = c.req.valid('json')
+  const parishId = resolvePublicParishId(requestedParishId)
   await submitParentPasswordResetRequest(phone, parishId, getClientIp(c), c.req.header('user-agent') || '')
   await consumeDummyPassword(phone)
   return successResponse(c, { accepted: true, message: GENERIC_ACCEPTED_MESSAGE }, 202)

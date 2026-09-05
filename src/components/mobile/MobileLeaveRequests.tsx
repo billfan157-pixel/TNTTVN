@@ -177,7 +177,7 @@ export const MobileLeaveRequests: React.FC = () => {
             <select
               value={classFilter}
               onChange={(e) => setClassFilter(e.target.value)}
-              className="form-select text-sm font-bold w-full h-[40px] min-h-[40px] rounded-xl"
+              className="form-select text-sm font-bold w-full min-h-[44px] rounded-xl"
               aria-label="Lọc theo lớp"
             >
               <option value="all">Tất cả các lớp</option>
@@ -193,7 +193,7 @@ export const MobileLeaveRequests: React.FC = () => {
             type="date"
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
-            className="form-input text-sm font-medium w-full h-[40px] min-h-[40px] rounded-xl"
+            className="form-input text-sm font-medium w-full min-h-[44px] rounded-xl"
             title="Lọc theo ngày"
             aria-label="Lọc theo ngày"
           />

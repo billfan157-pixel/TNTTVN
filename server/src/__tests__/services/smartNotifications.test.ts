@@ -40,38 +40,27 @@ describe('smartNotifications', () => {
 
   it('notifyAbsence fails closed when no parent account can be resolved', async () => {
     await notifyAbsence('parish-1', 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', '01/01/2025', 'AbsentUnexcused', 'Cha A', '0901234567')
-    expect(enqueueNotification).toHaveBeenCalledTimes(1)
-    const channels = vi.mocked(enqueueNotification).mock.calls.map((call) => call[0])
-    expect(channels).toEqual(['telegram'])
-    const call = telegramCalls()[0]
-    expect(call[1]).toBe('absence')
-    expect(call[2]).toContain('vắng mặt không phép')
+    expect(enqueueNotification).not.toHaveBeenCalled()
   })
 
   it('notifyAbsence fails closed for excused absence without a parent account', async () => {
     await notifyAbsence('parish-1', 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', '01/01/2025', 'AbsentExcused', 'Cha A', '0901234567', 'Ốm')
-    expect(enqueueNotification).toHaveBeenCalledTimes(1)
-    expect(telegramCalls()[0][2]).toContain('vắng mặt có phép')
+    expect(enqueueNotification).not.toHaveBeenCalled()
   })
 
   it('notifyReportCard fails closed without stable student identity', async () => {
     await notifyReportCard('parish-1', 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', 8.5, 'Giỏi', 90, 18, 20)
-    expect(enqueueNotification).toHaveBeenCalledTimes(1)
-    expect(telegramCalls()[0][1]).toBe('report')
-    expect(telegramCalls()[0][2]).toContain('Phiếu Điểm')
+    expect(enqueueNotification).not.toHaveBeenCalled()
   })
 
   it('notifySundayMassReminder fails closed when parish has no parent accounts', async () => {
-    await notifySundayMassReminder('parish-1')
+    await expect(notifySundayMassReminder('parish-1')).resolves.toBe(false)
     expect(enqueueNotification).not.toHaveBeenCalled()
   })
 
   it('notifyClassReminder fails closed when class has no parent accounts', async () => {
     await notifyClassReminder('parish-1', 'Lớp TN1', '15/01/2025')
-    expect(enqueueNotification).toHaveBeenCalledTimes(1)
-    const ctx = telegramCalls()[0][3]
-    expect(ctx.className).toBe('Lớp TN1')
-    expect(ctx.date).toBe('15/01/2025')
+    expect(enqueueNotification).not.toHaveBeenCalled()
   })
 })
 
@@ -105,12 +94,12 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
   })
 
   it('notifyAbsence targets only the matching parent account', async () => {
-    await notifyAbsence(parishId, 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', '01/01/2025', 'AbsentUnexcused', 'PH Thiếu Nhi', '0901234567')
+    await notifyAbsence(parishId, 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', '01/01/2025', 'AbsentUnexcused', 'PH Thiếu Nhi', '0901234567', undefined, `st-tn-${PREFIX}`)
     expect(webpushUserIds()).toEqual([parentThieuNhiId])
   })
 
-  it('notifyReportCard targets only the matching parent account by phone', async () => {
-    await notifyReportCard(parishId, 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', 8.5, 'Giỏi', 90, 18, 20, undefined, '0901234567')
+  it('notifyReportCard targets the canonical student parent despite a conflicting phone', async () => {
+    await notifyReportCard(parishId, 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', 8.5, 'Giỏi', 90, 18, 20, `st-tn-${PREFIX}`, '0987654321')
     expect(webpushUserIds()).toEqual([parentThieuNhiId])
   })
 
@@ -120,7 +109,7 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
   })
 
   it('notifySundayMassReminder uses explicit parent targets for both channels', async () => {
-    await notifySundayMassReminder(parishId)
+    await expect(notifySundayMassReminder(parishId)).resolves.toBe(true)
     expect(webpushCalls()).toHaveLength(1)
     expect(telegramCalls()).toHaveLength(1)
     expect(webpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))

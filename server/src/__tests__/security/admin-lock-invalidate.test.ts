@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { createHash } from 'crypto'
 import usersRouter from '../../routes/users.js'
 import { db } from '../../db/index.js'
@@ -55,7 +55,8 @@ async function dbUser(id: string) {
 describe('A10 — Account LOCKED invalidates Admin Session ngay lập tức', () => {
   beforeAll(async () => {
     // SuperAdmin duy nhất: getSuperAdminId() đọc env tại thời điểm gọi → set trước mọi request.
-    process.env.SUPER_ADMIN_ID = SA_ID
+    vi.stubEnv('SUPER_ADMIN_ID', SA_ID)
+    vi.stubEnv('SUPER_ADMIN_PARISH_ID', PARISH)
     await seedUser(ADMIN_ID, `admin_a10_${PREFIX}`, 'ACTIVE', 1)
     await seedUser(TARGET_ID, `target_a10_${PREFIX}`, 'ACTIVE', 3)
     await seedUser(SA_ID, `sa_a10_${PREFIX}`, 'ACTIVE', 1)
@@ -72,7 +73,7 @@ describe('A10 — Account LOCKED invalidates Admin Session ngay lập tức', ()
     await db.delete(refreshTokens).where(eq(refreshTokens.parishId, PARISH))
     await db.delete(auditLogs).where(eq(auditLogs.parishId, PARISH))
     await db.delete(users).where(eq(users.parishId, PARISH))
-    delete process.env.SUPER_ADMIN_ID
+    vi.unstubAllEnvs()
   })
 
   it('1. Middleware: admin LOCKED bị chặn 401 NGAY (token vẫn hợp lệ thời gian)', async () => {

@@ -27,6 +27,7 @@ desktop.ini
 
 # Coverage
 coverage/
+stats.html
 
 # Database & Runtime Data (A-NEW-07: *.db.backup-* không bị *.db bắt — thêm pattern)
 server/data/*.db

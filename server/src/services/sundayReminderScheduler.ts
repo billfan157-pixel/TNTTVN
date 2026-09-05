@@ -2,6 +2,7 @@ import { db } from '../db/index.js'
 import { systemSettings } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
 import { notifySundayMassReminder, getSundayMassTime } from './smartNotifications.js'
+import { assertDeploymentParishScope, getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
 
 const CHECK_INTERVAL_MS = 60 * 1000
 const SEND_WINDOW_MINUTES = 120
@@ -29,9 +30,12 @@ function dateKey(date: Date): string {
 }
 
 async function listEnabledParishIds(): Promise<string[]> {
+  const deploymentParishId = getEnforcedDeploymentParishId()
   const rows = await db.select({ parishId: systemSettings.parishId, value: systemSettings.value })
     .from(systemSettings)
-    .where(eq(systemSettings.key, PARISH_SETTINGS_KEY))
+    .where(deploymentParishId
+      ? and(eq(systemSettings.key, PARISH_SETTINGS_KEY), eq(systemSettings.parishId, deploymentParishId))
+      : eq(systemSettings.key, PARISH_SETTINGS_KEY))
 
   const parishIds: string[] = []
   for (const row of rows) {
@@ -47,6 +51,7 @@ async function listEnabledParishIds(): Promise<string[]> {
 
 /** Run exactly one tenant. Errors propagate so the coordinator can isolate/report them. */
 export async function runSundayReminderForParish(parishId: string, now: Date = new Date()): Promise<number> {
+  assertDeploymentParishScope(parishId)
   if (now.getDay() !== 0) return 0
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const targetMinutes = parseHHMM(await getSundayMassTime(parishId))
@@ -58,7 +63,8 @@ export async function runSundayReminderForParish(parishId: string, now: Date = n
     .limit(1)
   if (marker?.value === today) return 0
 
-  await notifySundayMassReminder(parishId)
+  const enqueued = await notifySundayMassReminder(parishId)
+  if (!enqueued) return 0
 
   const nowIso = new Date().toISOString()
   await db.insert(systemSettings).values({
