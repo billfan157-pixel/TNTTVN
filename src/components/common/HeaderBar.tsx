@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { useTheme } from '../../hooks/useTheme'
 import { ConfirmDialog } from './ConfirmDialog'
-import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
+import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { OfflineStatusBanner } from './OfflineStatusBanner'
 import logo from '../../assets/logo-gia-ton.png'
 import { Monitor, Smartphone, Moon, Sun, RefreshCw, LogOut, UserCheck, Activity } from 'lucide-react'
@@ -21,6 +21,11 @@ interface HeaderBarProps {
   activeWorkspace?: WorkspaceId
   onWorkspaceChange?: (workspace: WorkspaceId) => void
 }
+
+const SystemDiagnosticsModal = lazyWithRetry(
+  () => import('../desktop/SystemDiagnosticsModal'),
+  'SystemDiagnosticsModal',
+)
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academic', onWorkspaceChange }) => {
   const students = useStudentStore((s) => s.students)
@@ -154,6 +159,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
                 <button
                   type="button"
                   onClick={() => setShowDiagnostics(true)}
+                  onPointerEnter={() => void SystemDiagnosticsModal.preload()}
+                  onFocus={() => void SystemDiagnosticsModal.preload()}
                   title="Bảng Chẩn Đoán System Telemetry"
                   aria-label="Bảng Chẩn Đoán Hệ Thống"
                   className="app-header__icon-button text-amber-200"
@@ -207,7 +214,11 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
         </header>
       )}
 
-      <SystemDiagnosticsModal isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
+      {showDiagnostics && (
+        <Suspense fallback={<span role="status" className="sr-only">Đang tải chẩn đoán hệ thống</span>}>
+          <SystemDiagnosticsModal isOpen onClose={() => setShowDiagnostics(false)} />
+        </Suspense>
+      )}
 
       <ConfirmDialog
         isOpen={showResetConfirm}

@@ -60,9 +60,6 @@ const runAxeStable = async (
 const analyzeOnce = async (page: Page, testInfo: TestInfo, artifactName: string) => {
   const results = await new AxeBuilder({ page })
     .withTags(wcagTags)
-    // ADR-072/077/078: owner-accepted native-app zoom lock. This explicit
-    // exception remains a WCAG trade-off and must not be presented as compliance.
-    .disableRules(['meta-viewport'])
     .analyze()
   await testInfo.attach(`axe-${artifactName}.json`, {
     body: Buffer.from(JSON.stringify(results, null, 2)),

@@ -126,7 +126,12 @@ export const DesktopAttendanceGrid: React.FC = () => {
       }
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-      useToastStore.getState().addToast('Đã lưu điểm danh thành công!', 'success');
+      useToastStore.getState().addToast(
+        result.acknowledgement === 'durable_queue'
+          ? 'Đã lưu điểm danh trên thiết bị, chờ đồng bộ máy chủ.'
+          : 'Đã lưu điểm danh thành công!',
+        'success',
+      );
     } catch {
       useToastStore.getState().addToast('Có lỗi xảy ra khi lưu điểm danh. Vui lòng thử lại!', 'error');
     } finally {

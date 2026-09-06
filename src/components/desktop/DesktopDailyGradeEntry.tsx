@@ -157,15 +157,20 @@ export const DesktopDailyGradeEntry: React.FC = () => {
       variant: 'warning',
     })
     if (!ok) return
-    useGradeStore.getState().upsertGrade({
-      studentId,
-      semester: selectedSemester,
-      [SCORE_FIELD_MAP[scoreType]]: avg,
-      [`${SCORE_FIELD_MAP[scoreType]}_source`]: 'daily_avg',
-      [`${SCORE_FIELD_MAP[scoreType]}_updated_at`]: new Date().toISOString(),
-    } as any)
-    hapticFeedback.success()
-    setSrAnnouncement(`Đã khôi phục điểm tự động cho ${studentName}`)
+    try {
+      await useGradeStore.getState().upsertGrade({
+        studentId,
+        semester: selectedSemester,
+        [SCORE_FIELD_MAP[scoreType]]: avg,
+        [`${SCORE_FIELD_MAP[scoreType]}_source`]: 'daily_avg',
+        [`${SCORE_FIELD_MAP[scoreType]}_updated_at`]: new Date().toISOString(),
+      } as any)
+      hapticFeedback.success()
+      setSrAnnouncement(`Đã khôi phục điểm tự động cho ${studentName}`)
+    } catch {
+      hapticFeedback.error()
+      setSrAnnouncement(`Không thể lưu điểm tự động cho ${studentName}. Vui lòng thử lại.`)
+    }
   }
 
   const stats = useMemo(() => {

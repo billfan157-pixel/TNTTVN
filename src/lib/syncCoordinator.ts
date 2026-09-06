@@ -9,6 +9,8 @@ import { useAttendanceStore } from '../stores/attendanceStore'
 import { useNoticeStore } from '../stores/noticeStore'
 import { useClassStore } from '../stores/classStore'
 import { useExamStore } from '../stores/examStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useAcademicYearStore } from '../stores/academicYearStore'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
@@ -117,6 +119,14 @@ async function processClaimedOperation(op: SyncQueueItem) {
 
 /** Initial pull/push sequence formerly embedded in the React hook. */
 export async function runInitialSync(): Promise<void> {
+  // Authenticated bootstrap has one owner. These reference stores used to be
+  // fetched once from main.tsx before a fresh login had established a session,
+  // leaving server policy/year defaults stale until a reload.
+  await Promise.all([
+    useSettingsStore.getState().fetchSettings(),
+    useAcademicYearStore.getState().fetchAcademicYears(),
+  ])
+
   const state = useSyncStore.getState()
   const count = await state.refreshCount()
   if (count > 0) {

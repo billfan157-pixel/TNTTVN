@@ -1,21 +1,52 @@
 import { test, expect } from '@playwright/test'
+import { authorizedRequest, getAdminSession, PARISH_ID } from './helpers'
 
 test.describe('Brave Davinci E2E - PDF Export and QR Verification', () => {
   test('should render verification page and handle missing parameters', async ({ page }) => {
     await page.goto('/verify')
-    await expect(page.locator('h1')).toContainText('Cổng Xác Thực Kết Quả Học Tập')
+    await expect(page.locator('h1')).toContainText('Kiểm Tra Chữ Ký Mã QR')
     await expect(page.getByText('Thiếu tham số quét QR')).toBeVisible()
   })
 
   test('should display verification result UI on valid scan parameters', async ({ page }) => {
-    await page.goto('/verify?studentId=STUDENT-TEST-001&academicYear=2025-2026&certId=REP-STUDENT-TEST-001-2025-2026&sig=validsigmock')
+    const session = await getAdminSession(page.request)
+    const signed = await authorizedRequest(page.request, session, 'POST', '/api/verification/sign', {
+      studentId: 'student-e2e-001',
+      academicYear: '2026-2027',
+      certId: 'E2E-VERIFICATION-CERT',
+    })
+    expect(signed.status()).toBe(200)
+    const data = (await signed.json()).data as {
+      parishId: string
+      studentId: string
+      academicYear: string
+      certId: string
+      signature: string
+    }
+    const params = new URLSearchParams({
+      parishId: data.parishId,
+      studentId: data.studentId,
+      academicYear: data.academicYear,
+      certId: data.certId,
+      sig: data.signature,
+    })
+    await page.goto(`/verify?${params}`)
 
-    await expect(page.locator('h2')).toContainText('Kết quả Kiểm tra Nguyên vẹn')
+    await expect(page.getByText('Chữ ký mã QR hợp lệ')).toBeVisible()
+    await expect(page.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
   })
 
-  test('should display verification response error when signature is invalid', async ({ page }) => {
-    await page.goto('/verify?studentId=STUDENT-TEST-001&academicYear=2025-2026&certId=REP-STUDENT-TEST-001-2025-2026&sig=invalidsignature123')
+  test('should display a fail-closed result when signature is invalid', async ({ page }) => {
+    const params = new URLSearchParams({
+      parishId: PARISH_ID,
+      studentId: 'student-e2e-001',
+      academicYear: '2026-2027',
+      certId: 'E2E-INVALID-CERT',
+      sig: 'invalidsignature123',
+    })
+    await page.goto(`/verify?${params}`)
 
-    await expect(page.locator('body')).toContainText('Lỗi Hệ thống Xác Thực')
+    await expect(page.getByText('Không Xác Nhận Được Chữ Ký')).toBeVisible()
+    await expect(page.getByText('Chữ ký hoặc thông tin định danh trong mã QR không hợp lệ.')).toBeVisible()
   })
 })

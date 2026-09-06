@@ -1,11 +1,12 @@
 import React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { DesktopGradeMatrix } from '../../components/desktop/DesktopGradeMatrix'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useAuth } from '../../hooks/useAuth'
+import { useSyncStore } from '../../stores/syncStore'
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn(),
@@ -113,5 +114,50 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
     const liveRegion = document.querySelector('[aria-live="polite"]')
     expect(liveRegion).not.toBeNull()
     expect(liveRegion).toHaveClass('sr-only')
+  })
+
+  it('preserves the focused unblurred cell across an unrelated background-store rerender', () => {
+    render(<DesktopGradeMatrix />)
+    const cell = document.querySelector<HTMLInputElement>(
+      'input[data-matrix-row="0"][data-matrix-col="0"]'
+    )!
+
+    cell.focus()
+    fireEvent.input(cell, { target: { value: '9.7' } })
+    useSyncStore.setState({ pendingCount: 4 })
+
+    const currentCell = document.querySelector<HTMLInputElement>(
+      'input[data-matrix-row="0"][data-matrix-col="0"]'
+    )!
+    expect(currentCell).toBe(cell)
+    expect(currentCell.value).toBe('9.7')
+    expect(document.activeElement).toBe(currentCell)
+  })
+
+  it('keeps the draft and restores the active class when durable enqueue fails during a context switch', async () => {
+    const batchSaveGrades = vi.fn().mockRejectedValue(new Error('IndexedDB unavailable'))
+    useGradeStore.setState({ batchSaveGrades })
+    render(<DesktopGradeMatrix />)
+
+    const cell = document.querySelector<HTMLInputElement>(
+      'input[data-matrix-row="0"][data-matrix-col="0"]'
+    )!
+    fireEvent.input(cell, { target: { value: '9.4' } })
+    fireEvent.blur(cell)
+
+    act(() => {
+      useFilterStore.getState().setSelectedClassId('cl-02')
+    })
+
+    await waitFor(() => {
+      expect(batchSaveGrades).toHaveBeenCalled()
+      expect(useFilterStore.getState().selectedClassId).toBe('cl-01')
+    })
+
+    const restoredCell = document.querySelector<HTMLInputElement>(
+      'input[data-matrix-row="0"][data-matrix-col="0"]'
+    )!
+    expect(restoredCell.value).toBe('9.4')
+    expect(screen.getByText(/Bản nháp vẫn còn trên màn hình/i)).toBeInTheDocument()
   })
 })

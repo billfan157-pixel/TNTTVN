@@ -3,6 +3,7 @@ import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
 import type { GradeRecord, AttendanceRecord } from '../types'
 import { attendanceApiClient } from '../lib/api/attendance'
+import * as syncService from '../lib/syncService'
 
 function makeMockGrade(overrides: Partial<GradeRecord>): GradeRecord {
   return {
@@ -196,6 +197,23 @@ describe('Task 3 — Client Store Golden Tests & Benchmarks', () => {
     expect(updatedAtt[0].status).toBe('AbsentExcused')
     expect(updatedAtt[0].note).toBe('Xin nghỉ bệnh')
     expect(updatedAtt[0].version).toBe(2)
+  })
+
+  it('does not apply or acknowledge an offline attendance batch when durable enqueue fails', async () => {
+    const onlineSpy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    vi.mocked(syncService.syncBatchSaveAttendance).mockRejectedValueOnce(new Error('IndexedDB quota exceeded'))
+    useAttendanceStore.setState({ attendance: [] })
+
+    const result = await useAttendanceStore.getState().batchSaveAttendance(
+      [{ studentId: 'ST-DRAFT', status: 'AbsentExcused', note: 'Bản nháp' }],
+      '2026-08-02',
+      'SundayMass',
+    )
+
+    expect(result).toBeNull()
+    expect(useAttendanceStore.getState().attendance).toEqual([])
+    expect(useAttendanceStore.getState().error).toMatch(/bản nháp vẫn được giữ/i)
+    onlineSpy.mockRestore()
   })
 
   it('Benchmark: batchSaveGrades timing for 1,000 items into 5,000 existing records', () => {

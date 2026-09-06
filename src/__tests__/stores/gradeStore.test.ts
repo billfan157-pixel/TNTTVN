@@ -68,9 +68,20 @@ describe('gradeStore', () => {
     expect(grade?.scoreFinal).toBe(9)
   })
 
-  it('upsertGrade with skipSync=false calls syncUpsertGrade', () => {
-    useGradeStore.getState().upsertGrade({ studentId: 'ST-001', semester: 1, scoreOral: 8 }, false)
+  it('upsertGrade with skipSync=false calls syncUpsertGrade', async () => {
+    await useGradeStore.getState().upsertGrade({ studentId: 'ST-001', semester: 1, scoreOral: 8 }, false)
     expect(vi.mocked(syncService.syncUpsertGrade)).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects the acknowledgement when durable enqueue fails and retains the local draft', async () => {
+    vi.mocked(syncService.syncUpsertGrade).mockRejectedValueOnce(new Error('Dexie write failed'))
+
+    await expect(useGradeStore.getState().upsertGrade(
+      { studentId: 'ST-DRAFT', semester: 1, scoreFinal: 8.5 },
+    )).rejects.toThrow('Dexie write failed')
+
+    expect(useGradeStore.getState().getStudentGrade('ST-DRAFT', 1)?.scoreFinal).toBe(8.5)
+    expect(useGradeStore.getState().error).toMatch(/không thể lưu điểm/i)
   })
 
   it('upsertGrade with skipSync=true does not call sync', () => {
@@ -87,13 +98,25 @@ describe('gradeStore', () => {
     expect(useGradeStore.getState().getStudentGrade('ST-002', 1)?.scoreOral).toBe(7)
   })
 
-  it('batchSaveGrades saves multiple grades at once', () => {
-    useGradeStore.getState().batchSaveGrades([
+  it('batchSaveGrades saves multiple grades at once', async () => {
+    await useGradeStore.getState().batchSaveGrades([
       { studentId: 'ST-001', semester: 1, scoreOral: 8 },
       { studentId: 'ST-002', semester: 1, scoreOral: 9 },
     ], false)
     expect(useGradeStore.getState().grades).toHaveLength(2)
     expect(vi.mocked(syncService.syncBatchUpsertGrades)).toHaveBeenCalledTimes(1)
+  })
+
+  it('batchSaveGrades does not resolve success when one durable queue write fails', async () => {
+    vi.mocked(syncService.syncBatchUpsertGrades).mockRejectedValueOnce(new Error('IndexedDB transaction aborted'))
+
+    await expect(useGradeStore.getState().batchSaveGrades([
+      { studentId: 'ST-001', semester: 1, scoreOral: 8 },
+      { studentId: 'ST-002', semester: 1, scoreOral: 9 },
+    ])).rejects.toThrow('IndexedDB transaction aborted')
+
+    expect(useGradeStore.getState().grades).toHaveLength(2)
+    expect(useGradeStore.getState().error).toMatch(/không thể lưu bảng điểm/i)
   })
 
   it('batchSaveGrades with skipSync=true skips sync', () => {

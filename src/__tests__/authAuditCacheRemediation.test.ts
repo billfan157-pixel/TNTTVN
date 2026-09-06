@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dexieStorage, getDB, initDB } from '../lib/db'
 import { setTenantScope, scopedStorageKey } from '../lib/tenantScope'
 import { captureSyncCursorScope, readSyncCursor } from '../lib/syncCursor'
-import { fetchAllData } from '../lib/syncCoordinator'
+import { fetchAllData, runInitialSync } from '../lib/syncCoordinator'
 import { api } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import { useGradeStore } from '../stores/gradeStore'
@@ -11,6 +11,8 @@ import { useStudentStore } from '../stores/studentStore'
 import { useClassStore } from '../stores/classStore'
 import { useNoticeStore } from '../stores/noticeStore'
 import { useSyncStore } from '../stores/syncStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useAcademicYearStore } from '../stores/academicYearStore'
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }))
 vi.mock('../router', () => ({ router: {} }))
@@ -69,6 +71,21 @@ describe('D9 client cache retirement and parent sync', () => {
     expect(students).not.toHaveBeenCalled()
     expect(classes).toHaveBeenCalledOnce()
     expect(notices).toHaveBeenCalledOnce()
+  })
+
+  it('bootstraps server settings and academic years after a fresh authenticated login', async () => {
+    useAuthStore.setState({ user: {
+      id: 'cache-audit-user', parishId: 'cache-audit-parish', username: 'admin',
+      fullName: 'Synthetic Admin', role: 'admin', status: 'ACTIVE',
+    } })
+    mockPull()
+    const settings = vi.spyOn(useSettingsStore.getState(), 'fetchSettings').mockResolvedValue(undefined)
+    const years = vi.spyOn(useAcademicYearStore.getState(), 'fetchAcademicYears').mockResolvedValue(undefined)
+
+    await runInitialSync()
+
+    expect(settings).toHaveBeenCalledOnce()
+    expect(years).toHaveBeenCalledOnce()
   })
 })
 

@@ -146,7 +146,7 @@ const studentsRoute = createRoute({
     view: z.enum(['students', 'promotions', 'classes']).optional().catch('students'),
     classId: z.string().optional(),
     branchId: z.string().optional(),
-    semester: z.string().optional(),
+    semester: z.enum(['1', '2']).optional().catch(undefined),
     search: z.string().optional(),
   }),
   beforeLoad: requireRouteAccess('/students'),
@@ -163,7 +163,7 @@ const gradesRoute = createRoute({
   validateSearch: z.object({
     view: z.enum(['matrix', 'cards', 'comparison', 'daily', 'exam', 'bank']).optional().catch('matrix'),
     classId: z.string().optional(),
-    semester: z.string().optional(),
+    semester: z.enum(['1', '2']).optional().catch(undefined),
   }),
   beforeLoad: requireRouteAccess('/grades'),
   component: () => (

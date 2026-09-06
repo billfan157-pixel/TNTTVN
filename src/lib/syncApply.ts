@@ -156,7 +156,7 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
 
     if (entity === 'grade' && serverData?.id) {
       const gradeStore = useGradeStore.getState()
-      gradeStore.upsertGrade(serverData, true)
+      void gradeStore.upsertGrade(serverData, true)
     }
 
     if (entity === 'notice' || entity === 'notices') {
@@ -173,7 +173,7 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
 
     if (entity === 'attendance' && serverData?.id) {
       const attStore = useAttendanceStore.getState()
-      attStore.saveAttendance(
+      void attStore.saveAttendance(
         serverData.studentId,
         serverData.date,
         serverData.type,

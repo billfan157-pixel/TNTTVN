@@ -33,6 +33,8 @@ interface RowData {
   currentRec: Partial<GradeRecord>
 }
 
+const columnHelper = createColumnHelper<RowData>();
+
 const SCORE_MATRIX_FIELDS = [
   { id: 'scoreOral', header: 'Miệng', label: 'điểm miệng' },
   { id: 'score15m', header: '15P', label: 'điểm 15 phút' },
@@ -47,6 +49,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const canEditGrades = can('admin', 'chunhiem');
   const isAdmin = can('admin');
   const academicYear = useAcademicYearStore(s => s.currentYear);
+  const setAcademicYear = useAcademicYearStore(s => s.setCurrentYear);
   const matrixAcademicYear = normalizeAcademicYear(academicYear) || getCurrentAcademicYear();
   const students = useStudentStore(s => s.students);
   const grades = useGradeStore(s => s.grades);
@@ -61,6 +64,8 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [isOverrideModeEnabled, setIsOverrideModeEnabled] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editRevision, setEditRevision] = useState(0);
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
@@ -86,20 +91,43 @@ export const DesktopGradeMatrix: React.FC = () => {
   // để debounce 2s cũ (hủy bằng clearTimeout khi rời trang) không làm mất điểm.
   const dirtyIdsRef = useRef<Set<string>>(new Set());
 
-  const saveDirtyGrades = useCallback(async () => {
-    const ids = dirtyIdsRef.current;
-    if (ids.size === 0) return;
+  const saveDirtyGrades = useCallback(async (): Promise<boolean> => {
+    const ids = new Set(dirtyIdsRef.current);
+    if (ids.size === 0) return true;
     const records: GradeRecord[] = [];
+    const snapshots = new Map<string, Partial<GradeRecord>>();
     ids.forEach(id => {
       const rec = matrixDataRef.current[id];
-      if (rec) records.push(rec as GradeRecord);
+      if (rec) {
+        records.push(rec as GradeRecord);
+        snapshots.set(id, rec);
+      }
     });
-    ids.clear();
-    if (records.length === 0) return;
-    await batchSaveGrades(records);
-    setIsDirty(false);
-    setIsSaved(true);
-    setLastSavedTime(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    if (records.length === 0) return true;
+    try {
+      await batchSaveGrades(records);
+      // A newer edit to the same student may arrive while Dexie is writing.
+      // Clear only the exact snapshot that received a durable acknowledgement.
+      ids.forEach(id => {
+        if (matrixDataRef.current[id] === snapshots.get(id)) dirtyIdsRef.current.delete(id);
+      });
+      const hasRemainingDrafts = dirtyIdsRef.current.size > 0;
+      setIsDirty(hasRemainingDrafts);
+      setSaveError(null);
+      setIsSaved(!hasRemainingDrafts);
+      setLastSavedTime(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      if (hasRemainingDrafts) setTimeout(() => { void saveDirtyRef.current(); }, 800);
+      // A context transition may proceed only when no newer edit appeared
+      // while this snapshot was being persisted.
+      return !hasRemainingDrafts;
+    } catch {
+      // Keep dirtyIds + matrix draft intact. The user can explicitly retry and
+      // no success state is rendered without a durable queue acknowledgement.
+      setIsDirty(true);
+      setIsSaved(false);
+      setSaveError('Không thể lưu bền vững trên thiết bị. Bản nháp vẫn còn trên màn hình.');
+      return false;
+    }
   }, [batchSaveGrades]);
 
   const saveDirtyRef = useRef(saveDirtyGrades);
@@ -109,29 +137,75 @@ export const DesktopGradeMatrix: React.FC = () => {
     return () => { void saveDirtyRef.current(); };
   }, []);
 
-  const currentInitKey = `${selectedClassId}_${selectedSemester}`;
+  const currentInitKey = `${selectedClassId}_${selectedSemester}_${matrixAcademicYear}`;
+  const activeContextRef = useRef<{
+    key: string
+    classId: string
+    semester: 1 | 2
+    academicYear: string
+  } | null>(null);
+  const contextTransitionRef = useRef(0);
   
   // REACT-185 (2026-08-14): tách rebuild theo init-key (class/học kỳ) khỏi merge theo
   // grades/students. Trước đây deps [.., students, grades] khiến MỖI lần sync (grades
   // đổi tham chiếu) chạy lại effect: setMatrixData(initialData) reset dữ liệu đang gõ
   // dở + flush thừa — tạo re-render storm nuôi loop #185 (HeaderBar unstable selector).
   useEffect(() => {
-    void saveDirtyRef.current();
-    dirtyIdsRef.current.clear();
-    const normAY = matrixAcademicYear;
-    const initialData: Record<string, Partial<GradeRecord>> = {};
-    
-    students.forEach(s => {
-      const g = grades.find(gr => gr.studentId === s.id && gr.semester === selectedSemester && normalizeAcademicYear(gr.academicYear) === normAY);
-      if (g) {
-        initialData[s.id] = { ...g };
+    if (activeContextRef.current?.key === currentInitKey) return;
+
+    const previousContext = activeContextRef.current;
+    const nextContext = {
+      key: currentInitKey,
+      classId: selectedClassId,
+      semester: selectedSemester,
+      academicYear: academicYear || matrixAcademicYear,
+    };
+    const activateNextContext = () => {
+      dirtyIdsRef.current.clear();
+      const initialData: Record<string, Partial<GradeRecord>> = {};
+      students.forEach(s => {
+        const g = grades.find(gr => gr.studentId === s.id && gr.semester === selectedSemester && normalizeAcademicYear(gr.academicYear) === matrixAcademicYear);
+        if (g) initialData[s.id] = { ...g };
+      });
+
+      activeContextRef.current = nextContext;
+      setMatrixData(initialData);
+      setIsDirty(false);
+    };
+
+    // The initial render has no previous draft to flush. Establishing this
+    // synchronously closes the window where an immediate edit/context switch
+    // would otherwise have no known context to restore.
+    if (!previousContext) {
+      activateNextContext();
+      return;
+    }
+
+    const transitionId = ++contextTransitionRef.current;
+
+    const transitionContext = async () => {
+      const acknowledged = await saveDirtyRef.current();
+      if (transitionId !== contextTransitionRef.current) return;
+
+      if (!acknowledged) {
+        // A class/semester/year switch is not allowed to discard an
+        // unacknowledged academic draft. Restore the last active context so
+        // the user can retry while the edited values remain visible.
+        if (previousContext) {
+          contextTransitionRef.current += 1;
+          setSelectedClassId(previousContext.classId);
+          setSelectedSemester(previousContext.semester);
+          setAcademicYear(previousContext.academicYear);
+        }
+        return;
       }
-    });
-    
-    setMatrixData(initialData);
-    setIsDirty(false);
+
+      activateNextContext();
+    };
+
+    void transitionContext();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentInitKey, matrixAcademicYear]);
+  }, [currentInitKey]);
 
   // Merge nhẹ khi sync đẩy grades mới: chỉ cập nhật record KHÔNG đang dirty (đang
   // chỉnh sửa dở giữ nguyên) và chỉ trong class/học kỳ hiện tại — không rebuild toàn
@@ -171,6 +245,8 @@ export const DesktopGradeMatrix: React.FC = () => {
     });
     setIsDirty(true);
     setIsSaved(false);
+    setSaveError(null);
+    setEditRevision(revision => revision + 1);
   }, [selectedSemester, matrixAcademicYear]);
 
   const focusMatrixCell = useCallback((rowIdx: number, colIdx: number): boolean => {
@@ -296,7 +372,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       void saveDirtyRef.current();
     }, 800);
     return () => clearTimeout(timer);
-  }, [isDirty, saveDirtyGrades]);
+  }, [isDirty, editRevision, saveDirtyGrades]);
 
   const handleExportExcel = () => {
     const className = classList.find(c => c.id === selectedClassId)?.name || 'TatCaLop';
@@ -320,8 +396,6 @@ export const DesktopGradeMatrix: React.FC = () => {
       }
     }));
   }, [filteredStudents, matrixData, selectedSemester, matrixAcademicYear]);
-
-  const columnHelper = createColumnHelper<RowData>();
 
   const columns = useMemo(() => [
     columnHelper.accessor('index', {
@@ -360,7 +434,7 @@ export const DesktopGradeMatrix: React.FC = () => {
               data-matrix-row={info.row.index}
               data-matrix-col={colIdx}
               disabled={!canEditGrades || ((!isAdmin || !isOverrideModeEnabled) && scoreDef.id !== 'scoreDaoDuc' && scoreDef.id !== 'scoreOral')}
-              key={`${student.id}:${scoreDef.id}`}
+              key={`${student.id}:${matrixAcademicYear}:${selectedSemester}:${scoreDef.id}`}
               defaultValue={val === null || val === undefined ? '' : String(val)}
               onFocus={e => e.currentTarget.select()}
               onBlur={e => handleScoreBlur(e, student.id, studentLabel, scoreDef.id, scoreLabel)}
@@ -416,7 +490,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       ),
       size: 170,
     }),
-  ], [columnHelper, canEditGrades, isAdmin, isOverrideModeEnabled, handleScoreBlur, handleScoreKeyDown, formulaWeights, updateField]);
+  ], [canEditGrades, isAdmin, isOverrideModeEnabled, handleScoreBlur, handleScoreKeyDown, formulaWeights, updateField, matrixAcademicYear, selectedSemester]);
 
   const table = useReactTable({
     data: tableData,
@@ -522,7 +596,14 @@ export const DesktopGradeMatrix: React.FC = () => {
       {/* Sync Status Banner */}
       <div className="view-toolbar animate-in fade-in duration-500">
         <div className="flex items-center gap-3">
-          {isDirty ? (
+          {saveError ? (
+            <div className="flex items-center gap-2 text-[var(--color-parish-danger)] text-xs font-black uppercase tracking-wider">
+              <span>{saveError}</span>
+              <button type="button" className="btn btn-secondary" onClick={() => void saveDirtyGrades()}>
+                Thử lưu lại
+              </button>
+            </div>
+          ) : isDirty ? (
             <div className="flex items-center gap-2 text-[var(--color-parish-warning)] text-[11px] font-black uppercase tracking-wider">
               <span className="w-2 h-2 rounded-full bg-[var(--color-parish-warning)] animate-ping"></span>
               Đang lưu thay đổi...

@@ -67,4 +67,16 @@ describe('App-wide mobile layout contract', () => {
     expect(source('components/mobile/MobileCalendarView.tsx')).toContain('data-compact-touch')
     expect(source('components/mobile/MobileStudentsView.tsx')).toContain('min-h-[44px] px-2 rounded-lg bg-parish-primary-light/50')
   })
+
+  it('keeps JavaScript shell selection aligned with the 1024px CSS boundary on web and native', () => {
+    const hook = source('hooks/useEffectiveMode.ts')
+    expect(hook).toContain("window.innerWidth < 1024")
+    expect(hook).toContain("'(max-width: 1023.9px)'")
+    expect(hook).not.toContain('Capacitor.isNativePlatform')
+  })
+
+  it('does not install a global pinch-zoom blocker', () => {
+    expect(source('main.tsx')).not.toContain('installZoomGuard')
+    expect(source('../e2e/a11y.spec.ts')).not.toContain("disableRules(['meta-viewport'])")
+  })
 })

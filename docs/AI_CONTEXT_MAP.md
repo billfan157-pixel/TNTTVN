@@ -6,7 +6,16 @@
 > - **Product Name**: `Catevia`
 >
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.7 | Last reviewed: 2026-09-06 | Status: ✅ Current | Prerequisites: none
+> Version: 3.8 | Last reviewed: 2026-09-07 | Status: ✅ Current | Prerequisites: none
+
+### Module: Frontend Durable Acknowledgement & Runtime Boundary Remediation (ADR-109, 2026-09-07)
+
+- **Mutation truthfulness:** Attendance returns a receipt only after server acknowledgement or encrypted Dexie commit and labels queued-local state separately. Grade store methods return durable promises; matrix dirty snapshots clear only after enqueue acknowledgement, remain retryable on failure, and concurrent newer edits are not cleared by an older acknowledgement. Class/semester/year transitions restore the previous context when durable ownership fails. Excel grade import awaits this boundary before recording undo/success state.
+- **Runtime consistency:** authenticated `runInitialSync` is the single bootstrap owner for settings and academic years; the unauthenticated one-shot in `main.tsx` was removed. URL semester is restricted to `1|2`; raw invalid values are removed, missing filter params restore canonical defaults, and deletion of the last filter navigates to empty search. `useEffectiveMode` applies the same 1024px predicate on web and Capacitor.
+- **Accessibility/performance:** the global JS pinch guard and Axe `meta-viewport` exemption were removed. Header/mobile-header diagnostics use an on-demand chunk with pointer/focus preload; production startup HTML no longer preloads `SystemDiagnosticsModal`.
+- **Evidence:** targeted **9 files / 55 tests PASS**; full serialized coverage **322 files / 2.256 tests PASS** (70,52% statements / 59,56% branches / 63,19% functions / 73,14% lines); TypeScript, oxlint, architecture inventory and design-system guard PASS. Frontend production build PASS (2.813 modules; PWA 238 / 2.552,29 KiB); startup HTML graph is 70 assets / 926.389 raw bytes and excludes diagnostics. Targeted Playwright Axe with `meta-viewport` enabled PASS 25/25. Remaining Playwright ran 42/47; five stale fixture/contract failures were corrected and exact rerun passed 3/5, while the final Smart Exam state-isolation and invalid-QR assertion probes were not rerun because the execution environment rejected the job before startup. Full Playwright green, manual native/200% zoom and field performance acceptance remain outstanding.
+
+---
 
 ### Module: Roster Membership, Assignment & Import Recovery (ADR-108, 2026-09-06)
 
@@ -204,7 +213,7 @@
 - **Code truth**: `src/index.css` (responsive/safe-area/z-index/touch tokens), `DesktopAppShell.tsx`, `MobileAppShell.tsx`, `ModalPortal.tsx`, `useAccessibleDialog.ts`, `ModalShell.tsx`, `ConfirmDialog.tsx`, `MobileTopBar.tsx`; route/public surfaces trong `src/router.tsx`, pages và mobile/exam/desktop dialog.
 - **Contracts**: dưới 1024px shared page dùng `.responsive-page-shell` (760px, gutter 16px, gap 14px); desktop từ 1024px dùng tier `full|wide|narrow`; embedded child không tạo gutter/cap mới. `--mobile-nav-total-height` sở hữu safe-bottom; action bar/FAB không cộng inset lần hai; top bar/offline banner phối hợp ownership safe-top. Control touch có effective hit-area ≥44px, form ≥16px. Modal route **và MobileTopBar control sheet** mount bằng `ModalPortal` tại `document.body`; modal lồng 1101, confirm 1110, trên top bar 950/bottom nav 1000; lifecycle giữ focus, Escape top-most và body lock. Finance/Classes/Users chuyển bảng thành card dưới `md`; calendar header được phép stack, calendar date grid là compact-data exception.
 - **Evidence & tests**: current inventory = 25 paths (20 protected, 4 public/auth, root redirect), 24 page TSX, 97 component TSX; `mobileLayoutContract.test.ts`, `appWideUiMigration.test.ts`, `useAccessibleDialog.test.tsx`, `MobileTopBarDialog.test.tsx` là regression contracts. Current local: oxlint + TypeScript + Vite/PWA build PASS; public/auth viewport matrix has one `main`, no overflow and >=44px visible controls. Kết quả physical-device phải được đọc trong `docs/mobile-ui-audit-2026-08-29.md`; không suy diễn từ local Chromium.
-- **Scope & exception**: presentation/a11y lifecycle only — không đổi API/schema/RBAC/offline/data. Pinch/double-tap zoom lock là trade-off WCAG đã được owner phê duyệt trong `mobile-native-ui-audit-2026-08-12.md`, không được gọi là compliant.
+- **Historical scope & exception (superseded by ADR-109):** đợt ADR-077 từng giữ pinch/double-tap zoom lock như trade-off; current bootstrap không còn JS zoom guard và Axe không còn miễn `meta-viewport`.
 
 ---
 
@@ -582,7 +591,7 @@ server/src/                         ─ Backend Hono Application
 - **F6 audit route**: validate `startDate/endDate` (400 `VALIDATION_ERROR` nếu sai format) + fix bug endDate chỉ-ngày bị loại nhầm cả ngày kết thúc (`→T23:59:59.999Z`).
 - **MobileCalendarView**: dọn sạch warning lint; wire nút "Hôm nay" (trước đây dead-code); render block "Sự Kiện Xứ Đoàn" theo ngày chọn. Events API đã được wire; từ ADR-098 chỉ `admin|chunhiem` thấy control mutation và mọi mutation cần server acknowledgement.
 - **VerificationPage**: audit kết luận KHÔNG cần sửa — spinner có ngữ cảnh phù hợp trang public QR, states đã chuẩn DS token.
-- **zoomGuard**: xác nhận phiên song song đã xử lý iOS/Android pinch-zoom (`src/lib/zoomGuard.ts` wired trong main.tsx).
+- **zoomGuard (historical, superseded by ADR-109):** JS guard từng được wire trong `main.tsx`; current code đã gỡ global zoom prevention.
 - **Verify tổng**: tsc 0 error · oxlint sạch các file chạm · lint:ds 0/134 · 6 suite **32/32 PASS** (AuditLogPage/policyDashboard/finance/Liturgical/MobileViews/classSort) · build:frontend pass.
 
 ### Module: Nhật Ký Hệ Thống — Audit Toàn Diện & Hardening (2026-08-22, A-NEW-60)

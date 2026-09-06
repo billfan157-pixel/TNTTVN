@@ -251,7 +251,10 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
         }
       }
 
-      batchSaveGrades(records)
+      // Import is acknowledged only after every grade mutation is durably owned
+      // by the encrypted Dexie queue. A rejection keeps the modal in its error
+      // path and must not create an undo/success receipt for volatile data.
+      await batchSaveGrades(records)
 
       // ADR-028: Ghi snapshot cho nút "Hoàn tác" — cần studentIds của đợt nhập
       // (client không biết server gradeId; server tra studentId + HK + năm).

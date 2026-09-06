@@ -237,7 +237,9 @@ export const MobileAttendanceView: React.FC = () => {
     }
     setSaveMessage(unresolvedCount > 0
       ? `Đã lưu ${result.successCount}/${result.total}. Còn ${unresolvedCount} mục cần kiểm tra.`
-      : `Đã lưu điểm danh cho ${result.successCount} thiếu nhi.`)
+      : result.acknowledgement === 'durable_queue'
+        ? `Đã lưu trên thiết bị cho ${result.successCount} thiếu nhi, chờ đồng bộ máy chủ.`
+        : `Đã lưu điểm danh cho ${result.successCount} thiếu nhi.`)
 
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
     feedbackTimerRef.current = setTimeout(() => setSaveMessage(null), 5000)

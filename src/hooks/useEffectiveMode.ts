@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useFilterStore } from '../stores/filterStore'
-import { Capacitor } from '@capacitor/core'
 
 /**
  * Mode hiệu lực của app shell.
@@ -20,8 +19,6 @@ export function useEffectiveMode(): 'desktop' | 'mobile' {
   })
 
   useEffect(() => {
-    // Native (Capacitor) luôn trả 'mobile' bên dưới — không cần theo dõi resize
-    if (Capacitor.isNativePlatform()) return
     // jsdom, WebView cũ hoặc trình duyệt nhúng có thể không triển khai matchMedia.
     // Giữ một fallback resize nhỏ để app shell vẫn chọn đúng mode thay vì crash.
     if (typeof window.matchMedia !== 'function') {
@@ -38,7 +35,6 @@ export function useEffectiveMode(): 'desktop' | 'mobile' {
     return () => mql.removeEventListener('change', onChange)
   }, [])
 
-  if (Capacitor.isNativePlatform()) return 'mobile'
   if (isMobileViewport) return 'mobile'
   if (viewMode === 'mobile') return 'desktop'
   return viewMode === 'auto' ? 'desktop' : viewMode

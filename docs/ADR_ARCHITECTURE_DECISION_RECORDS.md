@@ -3708,3 +3708,34 @@ The current-code roster audit reproduced semantic breaks at the adapters around 
 
 Targeted evidence: remediated roster audit probe **13/13 PASS**; CR2 recovery, including composition-root recovery across parish scopes before HTTP bind, **14/14 PASS**; permanent student rejection reconciliation **12/12 PASS**; assignment/promotion topology **8 files / 45 tests PASS**; post-gate academic-year-ID/topology and OCC regressions **3 files / 34 tests PASS**. Final `npm run verify:ci` on the complete code set after composition-root recovery wiring passed: lint zero-warning, architecture inventory **31 routes / 6 repositories / 51 services / 12 domain files / 57 tables**, design-system guard **0/127**, client/server TypeScript and production frontend/PWA/server build PASS (**2,814 modules; 238 precache entries**), serialized coverage **321/321 files, 2,245/2,245 tests PASS** in 920.08 seconds. Coverage: Statements **70.24%**, Branches **59.36%**, Functions **62.92%**, Lines **72.87%**. The read-only roster inventory completed with zero findings on target fingerprint `0f514a8e24b4e5c4`; this identifies only that configured local/default target. Production inventory, migration 176, exact release SHA, deploy and smoke remain unverified external gates.
 
+---
+
+## ADR-109: Frontend Durable Acknowledgement, Auth Bootstrap and Responsive Runtime Alignment (2026-09-07)
+
+**Status: APPROVED / IMPLEMENTED — local serialized coverage, build and targeted Axe verification complete; remaining full-E2E/device gates are below. Severity: D3 for academic offline integrity, D2 for runtime/accessibility/performance. Profiles: DATA INTEGRITY + OFFLINE/RECOVERY + GENERAL. Reversibility: R1.**
+
+### Context and evidence
+
+The current-code frontend audit reproduced two no-error-budget violations before the established sync engine boundary. Attendance fabricated an all-saved batch response while encrypted Dexie enqueue was still fire-and-forget; Grade returned `void`, cleared matrix dirty IDs and rendered success before enqueue could reject. Independent P1 paths also accepted invalid semester URL state, skipped settings/year bootstrap after a fresh login, selected a native mobile shell that CSS hid at 1024px, globally prevented pinch zoom, recreated grade cell renderer identity during background pulls, and eagerly pulled diagnostics into the startup graph.
+
+### Decision
+
+1. **Draft then durable ownership.** Before durable insertion, the editor owns a volatile draft. Attendance applies its local read model and returns a receipt only after either server acknowledgement or the encrypted queue transaction commits; queued receipts are labeled `durable_queue`, not server-synced. Enqueue failure returns no receipt and keeps editor draft/error state.
+2. **Grade acknowledgement is awaitable.** `upsertGrade` and `batchSaveGrades` return promises and rethrow encryption/IndexedDB failure after setting a visible store error. Matrix saves snapshot dirty IDs and clears only entries whose exact snapshot was acknowledged; later edits to the same student remain dirty. Failure retains draft IDs and exposes explicit retry. Grade import awaits the same boundary before storing its undo/success marker.
+3. **Existing sync authority is preserved.** No new queue, backend endpoint, schema or writer is introduced. After queue commit, the ADR-016 sync engine continues to own retry, compaction, OCC, tenant/user scope and reconciliation. Server-applied `skipSync` projections remain local-only.
+4. **Authenticated bootstrap has one owner.** `runInitialSync`, triggered by authenticated root lifecycle, awaits settings and academic-year reference reads before the ordinary push/pull sequence. The pre-auth one-shot in `main.tsx` is removed.
+5. **Canonical navigation and shell predicate.** Semester query accepts only `1|2`; deleting the final defaulted filter still navigates to canonical empty search. `useEffectiveMode` uses the same `<1024` predicate on web and Capacitor, matching CSS visibility.
+6. **Zoom is user-agent-owned.** The global gesture-prevention module is removed and Axe no longer disables `meta-viewport`. This supersedes the zoom-lock exception recorded by ADR-072/077/078 and the historical mobile audit; it does not itself prove 200% reflow or assistive-technology acceptance.
+7. **Measured, narrow startup change.** Header diagnostics is an on-demand chunk with pointer/focus preload. The post-change production HTML startup graph excludes `SystemDiagnosticsModal`; no broader chunk/CSS rewrite or numeric field-performance target is selected without device evidence.
+
+### Alternatives, compatibility and recovery
+
+- Keeping optimistic success plus a background warning is rejected because storage/encryption failure can leave zero durable owner while the UI confirms success.
+- Replacing Zustand/Dexie, adding a second offline engine, microfrontends, or splitting large modules by LOC is rejected: none is required to repair the reproduced boundaries.
+- Waiting for server acknowledgement for every offline edit is rejected because durable local ownership is the intended offline contract; UI must distinguish it from server synchronization.
+- Rollback is a source revert with no migration. Existing queue rows and server contracts are unchanged. If the new promise contract exposes an overlooked caller, it must be fixed rather than swallowing rejection or weakening the acknowledgement gate.
+
+### Verification and open gates
+
+TypeScript build, oxlint, architecture inventory and design-system guard (**0/127**) passed. Targeted regression passed **9 files / 55 tests**, including rejected grade/attendance enqueue, retained dirty draft across failed context switch, invalid/missing/reset semester URL, fresh-auth bootstrap, native breakpoint source contract, global zoom-guard absence and focused unblurred cell preservation. Full serialized coverage passed **322 files / 2.256 tests** (statements **70,52%**, branches **59,56%**, functions **63,19%**, lines **73,14%**). Frontend production build passed with **2.813 modules** and **238 / 2.552,29 KiB** PWA entries; startup HTML references **70 assets / 926.389 raw bytes** and does not preload diagnostics. Targeted Playwright Axe with `meta-viewport` enabled passed **25/25**. The first remaining Playwright run passed **42/47**; all five failures were traced to stale test fixtures/contracts rather than the FUX runtime paths. Exact rerun after fixture correction passed **3/5**. The last Smart Exam state-isolation and invalid-QR fail-closed assertion corrections pass TypeScript/oxlint but remain **UNVERIFIED** because the execution environment rejected their rerun before startup. Full Playwright regression, manual 200% reflow, physical native 1023/1024 profiles and production telemetry therefore remain open and must not be represented as verified.
+

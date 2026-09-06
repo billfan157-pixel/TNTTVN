@@ -75,7 +75,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
 
   test('@critical semester lock from UI blocks grade writes and premature promotion', async ({ page }) => {
     const session = await getAdminSession(page.request)
-    const academicYear = '2035-2036'
+    const academicYear = '2026-2027'
     const setupYear = await authorizedRequest(page.request, session, 'POST', '/api/classes/academic-years', { id: academicYear })
     expect([200, 201]).toContain(setupYear.status())
 
@@ -99,13 +99,21 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     })
     expect(gradeWrite.status()).toBe(403)
 
+    const evaluationResponse = await authorizedRequest(
+      page.request,
+      session,
+      'GET',
+      `/api/promotion/evaluate/student-e2e-001?academicYear=${academicYear}`,
+    )
+    expect(evaluationResponse.status()).toBe(200)
+    const evaluation = (await evaluationResponse.json()).data as { gpa: number; attendanceRate: number }
+
     const prematurePromotion = await authorizedRequest(page.request, session, 'POST', '/api/promotion/approve', {
       studentId: 'student-e2e-001',
       academicYear,
       targetClassId: 'CLS-TN-1',
-      nextClassId: 'CLS-NS-1',
-      gpa: 0,
-      attendanceRate: 100,
+      gpa: evaluation.gpa,
+      attendanceRate: evaluation.attendanceRate,
     })
     expect(prematurePromotion.status()).toBe(403)
   })
@@ -113,6 +121,15 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
   test('@critical Smart Exam uses server-authoritative MC scoring and finalizes into grades', async ({ page }, testInfo) => {
     const session = await getAdminSession(page.request)
     const subject = `OMR ${testKey(testInfo, 'E2E')}`
+    // This journey owns its lifecycle precondition. A previous lock-focused
+    // test intentionally closes HK1 in the shared E2E sandbox.
+    const unlocked = await authorizedRequest(page.request, session, 'POST', '/api/semester-locks', {
+      academicYear: '2026-2027',
+      semester: 1,
+      isLocked: false,
+      unlockReason: 'E2E Smart Exam isolation',
+    })
+    expect(unlocked.status()).toBe(200)
     await injectSession(page, session)
     await page.goto('/grades')
     await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible()
@@ -144,6 +161,12 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
         source: 'omr',
         answers,
         examVersion: 'A',
+        scanMetadata: JSON.stringify({
+          detectionStatus: 'accepted',
+          engineVersion: 'e2e-fixture',
+          examVersion: 'A',
+          questionCount: 5,
+        }),
         clientMutationId: `${testKey(testInfo, 'mutation')}-0001`,
       }],
     })

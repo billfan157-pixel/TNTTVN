@@ -242,7 +242,9 @@ export const useDailyGradeStore = create<DailyGradeState>()(
           // chỉ upsert khi có ít nhất 1 field điểm thật sự (> 3), tránh tạo
           // grade row rỗng + enqueue sync rác (vd field bị guard manual/override).
           if (Object.keys(update).length > 3) {
-            useGradeStore.getState().upsertGrade(update as Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync)
+            void useGradeStore.getState()
+              .upsertGrade(update as Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync)
+              .catch(err => console.warn('[dailyGradeStore] enqueue grade projection failed:', err))
           }
         })
       },

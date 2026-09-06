@@ -84,8 +84,8 @@ interface GradeState {
   error: string | null
   setGrades: (grades: GradeRecord[]) => void
   fetchGrades: (updatedAfter?: string, throwOnError?: boolean) => Promise<void>
-  upsertGrade: (gradeData: Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync?: boolean) => void
-  batchSaveGrades: (gradesList: (Partial<GradeRecord> & { studentId: string; semester: 1 | 2 })[], skipSync?: boolean) => void
+  upsertGrade: (gradeData: Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync?: boolean) => Promise<void>
+  batchSaveGrades: (gradesList: (Partial<GradeRecord> & { studentId: string; semester: 1 | 2 })[], skipSync?: boolean) => Promise<void>
   getStudentGrade: (studentId: string, semester: 1 | 2, academicYear?: string) => GradeRecord | undefined
   calculateStudentAvg: (studentId: string, semester: 1 | 2, academicYear?: string) => { score: number | null; label: string }
 }
@@ -135,17 +135,17 @@ export const useGradeStore = create<GradeState>()(
         }
       },
 
-      upsertGrade: (gradeData, skipSync) => set((state) => {
-        const academicYear = gradeData.academicYear || getCurrentAcademicYear()
-        const existingIndex = state.grades.findIndex(
-          g => g.studentId === gradeData.studentId && g.semester === gradeData.semester && matchAcademicYear(g.academicYear, academicYear)
-        )
-        let grade: GradeRecord
-        if (existingIndex >= 0) {
-          const updated = [...state.grades]
-          grade = { ...updated[existingIndex], ...gradeData }
-          updated[existingIndex] = grade
-        } else {
+      upsertGrade: async (gradeData, skipSync) => {
+        let grade!: GradeRecord
+        set((state) => {
+          const academicYear = gradeData.academicYear || getCurrentAcademicYear()
+          const existingIndex = state.grades.findIndex(
+            g => g.studentId === gradeData.studentId && g.semester === gradeData.semester && matchAcademicYear(g.academicYear, academicYear)
+          )
+          if (existingIndex >= 0) {
+            grade = { ...state.grades[existingIndex], ...gradeData }
+            return { grades: state.grades.map((g, i) => i === existingIndex ? grade : g), error: null }
+          }
           grade = {
             id: `GR-${Date.now()}-${Math.random().toString(36).substr(2, 10)}`,
             studentId: gradeData.studentId,
@@ -169,26 +169,30 @@ export const useGradeStore = create<GradeState>()(
             scoreDaoDuc: gradeData.scoreDaoDuc ?? null,
             comments: gradeData.comments || '',
           }
-        }
-        if (!skipSync) {
-          void Promise.resolve(syncService.syncUpsertGrade(stripGradeMeta(grade as unknown as Record<string, unknown>)))
-            .then(() => triggerSyncFlow())
-            .catch(err => console.warn('[gradeStore] enqueue failed:', err))
-        }
-        return existingIndex >= 0
-          ? { grades: [...state.grades].map((g, i) => i === existingIndex ? grade : g) }
-          : { grades: [...state.grades, grade] }
-      }),
+          return { grades: [...state.grades, grade], error: null }
+        })
 
-      batchSaveGrades: (gradesList, skipSync) => set((state) => {
-        const gradeMap = new Map<string, { grade: GradeRecord; index: number }>()
-        const updated = [...state.grades]
-        for (let i = 0; i < updated.length; i++) {
-          gradeMap.set(gradeNaturalKey(updated[i]), { grade: updated[i], index: i })
+        if (skipSync) return
+        try {
+          await syncService.syncUpsertGrade(stripGradeMeta(grade as unknown as Record<string, unknown>))
+          void triggerSyncFlow()
+        } catch (err) {
+          Sentry.captureException(err)
+          set({ error: 'Không thể lưu điểm trên thiết bị. Thay đổi vẫn cần được thử lại.' })
+          throw err
         }
+      },
 
+      batchSaveGrades: async (gradesList, skipSync) => {
         const batch: Record<string, unknown>[] = []
-        for (const gradeData of gradesList) {
+        set((state) => {
+          const gradeMap = new Map<string, { grade: GradeRecord; index: number }>()
+          const updated = [...state.grades]
+          for (let i = 0; i < updated.length; i++) {
+            gradeMap.set(gradeNaturalKey(updated[i]), { grade: updated[i], index: i })
+          }
+
+          for (const gradeData of gradesList) {
           const academicYear = gradeData.academicYear || getCurrentAcademicYear()
           const key = gradeNaturalKey({ studentId: gradeData.studentId, semester: gradeData.semester, academicYear })
           const match = gradeMap.get(key)
@@ -239,14 +243,20 @@ export const useGradeStore = create<GradeState>()(
             gradeMap.set(key, { grade, index: newIdx })
           }
           batch.push(stripGradeMeta(grade as unknown as Record<string, unknown>))
+          }
+          return { grades: updated, error: null }
+        })
+
+        if (skipSync) return
+        try {
+          await syncService.syncBatchUpsertGrades(batch)
+          void triggerSyncFlow()
+        } catch (err) {
+          Sentry.captureException(err)
+          set({ error: 'Không thể lưu bảng điểm trên thiết bị. Các dòng thay đổi vẫn cần được thử lại.' })
+          throw err
         }
-        if (!skipSync) {
-          void Promise.resolve(syncService.syncBatchUpsertGrades(batch))
-            .then(() => triggerSyncFlow())
-            .catch(err => console.warn('[gradeStore] batch enqueue failed:', err))
-        }
-        return { grades: updated }
-      }),
+      },
 
       getStudentGrade: (studentId, semester, academicYear?) => {
         const activeAY = useAcademicYearStore.getState().currentYear

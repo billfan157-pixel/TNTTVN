@@ -525,7 +525,7 @@ Mọi exception mới phải được ghi tại đây hoặc ADR liên quan, kh�
 dialect riêng ở từng page.
 
 Quy định về Pinch/Double-tap Zoom (Đã cập nhật sau Audit UX/UI v4.6):
-Trước đây, hệ thống áp dụng khóa pinch-zoom tại `index.html`. Nhằm tuân thủ chuẩn **WCAG 2.1 SC 1.4.4 (Resize text)** và hỗ trợ tối đa người khiếm thị/thị lực kém, thuộc tính `maximum-scale=1.0, user-scalable=no` đã được gỡ bỏ khỏi thẻ `<meta name="viewport">` tại `index.html`. Trải nghiệm zoom tự nhiên được phục hồi hoàn toàn mà không phá vỡ responsive layout hay gây horizontal scroll ngoài ý muốn.
+Trước đây, hệ thống áp dụng khóa pinch-zoom tại `index.html` và một JS gesture guard toàn cục. Theo ADR-109, `maximum-scale=1.0, user-scalable=no` không còn trong viewport meta, `zoomGuard` đã được gỡ khỏi bootstrap, và Axe không còn miễn rule `meta-viewport`. Vì vậy trình duyệt/WebView được quyền cung cấp zoom tự nhiên; kiểm tra automated này vẫn không thay thế manual 200% reflow và thiết bị thật.
 
 ---
 

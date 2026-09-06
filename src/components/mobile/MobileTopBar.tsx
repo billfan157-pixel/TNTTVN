@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useId } from 'react'
+import React, { Suspense, useCallback, useEffect, useState, useId } from 'react'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   Activity,
@@ -29,7 +29,7 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalPortal } from '../common/ModalPortal'
-import { SystemDiagnosticsModal } from '../desktop/SystemDiagnosticsModal'
+import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import logo from '../../assets/logo-gia-ton.png'
 import { WORKSPACE_DEFINITIONS, getAccessibleWorkspaces, getRoutePolicy, type WorkspaceId } from '../../constants/routePolicy'
 
@@ -37,6 +37,11 @@ interface MobileTopBarProps {
   activeWorkspace?: WorkspaceId
   onWorkspaceChange?: (workspace: WorkspaceId) => void
 }
+
+const SystemDiagnosticsModal = lazyWithRetry(
+  () => import('../desktop/SystemDiagnosticsModal'),
+  'SystemDiagnosticsModal',
+)
 
 export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'academic', onWorkspaceChange }) => {
   const navigate = useNavigate()
@@ -229,6 +234,8 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
                     type="button"
                     className="mobile-control-tile"
                     onClick={() => { closeMenu(); setShowDiagnostics(true) }}
+                    onPointerEnter={() => void SystemDiagnosticsModal.preload()}
+                    onFocus={() => void SystemDiagnosticsModal.preload()}
                     aria-label="Mở chẩn đoán hệ thống"
                   >
                     <span className="mobile-control-tile__icon">
@@ -316,7 +323,11 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
         onCancel={() => setShowResetConfirm(false)}
       />
 
-      <SystemDiagnosticsModal isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
+      {showDiagnostics && (
+        <Suspense fallback={<span role="status" className="sr-only">Đang tải chẩn đoán hệ thống</span>}>
+          <SystemDiagnosticsModal isOpen onClose={() => setShowDiagnostics(false)} />
+        </Suspense>
+      )}
     </>
   )
 }

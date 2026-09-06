@@ -14,6 +14,11 @@ import { decryptQueueValue } from '../lib/offlineCipher'
 import { isOwnOp } from './syncStore'
 import { requestSync } from '../lib/syncTrigger'
 
+export type AttendanceMutationAcknowledgement = 'server' | 'durable_queue'
+export type BatchAttendanceSaveReceipt = BatchAttendanceResponseDTO & {
+  acknowledgement: AttendanceMutationAcknowledgement
+}
+
 /** Natural key của attendance: studentId:date:type. */
 function attendanceNaturalKey(a: { studentId?: string; date?: string; type?: string }): string {
   return `${a.studentId}:${a.date}:${a.type}`
@@ -58,7 +63,7 @@ interface AttendanceState {
   attendance: AttendanceRecord[]
   error: string | null
   lockError: string | null
-  batchResult: BatchAttendanceResponseDTO | null
+  batchResult: BatchAttendanceSaveReceipt | null
   isSubmitting: boolean
   setAttendance: (attendance: AttendanceRecord[]) => void
   fetchAttendance: (updatedAfter?: string, throwOnError?: boolean) => Promise<void>
@@ -67,11 +72,11 @@ interface AttendanceState {
     status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused', note?: string,
     skipSync?: boolean,
     serverRecord?: { id: string; status: string; note?: string | null; version?: number }
-  ) => Promise<void>
+  ) => Promise<AttendanceMutationAcknowledgement | null>
   batchSaveAttendance: (
     records: { studentId: string; status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note?: string }[],
     date: string, type: AttendanceType
-  ) => Promise<BatchAttendanceResponseDTO | null>
+  ) => Promise<BatchAttendanceSaveReceipt | null>
   getStudentAttendanceRate: (studentId: string, academicYear?: string) => { rate: number; presentCount: number; totalCount: number }
   clearErrors: () => void
   clearBatchResult: () => void
@@ -124,11 +129,9 @@ export const useAttendanceStore = create<AttendanceState>()(
       saveAttendance: async (studentId, date, type, status, note, skipSync, serverRecord) => {
         set({ isSubmitting: true, error: null, lockError: null })
 
-        // ADR-016 (S1): Optimistic update applied FIRST so the UI is always
-        // responsive, then the operation is enqueued to the sync queue when the
-        // device is offline — matching gradeStore/studentStore behavior. Previously
-        // the HTTP call was made directly with no sync-queue fallback, which
-        // permanently lost offline attendance data.
+        // Apply the local read model only after either the server responds or the
+        // encrypted queue transaction commits. The editor owns the volatile draft
+        // before that boundary, so enqueue failure cannot be shown as saved.
         const applyLocal = (serverRecord?: { id: string; status: string; note?: string | null; version?: number }) => {
           set((state) => {
             const existingIdx = state.attendance.findIndex(a => a.studentId === studentId && a.date === date && a.type === type)
@@ -159,7 +162,7 @@ export const useAttendanceStore = create<AttendanceState>()(
         // useSyncEngine.applyServerResult) — just update local state, no enqueue.
         if (skipSync) {
           applyLocal(serverRecord)
-          return
+          return 'server'
         }
 
         // ADR-016 (S21): Kèm version hiện tại (nếu có) — server từ chối nếu ai đó
@@ -169,29 +172,41 @@ export const useAttendanceStore = create<AttendanceState>()(
 
         const isOffline = typeof navigator !== 'undefined' && !navigator.onLine
         if (isOffline) {
-          // Offline: optimistic update + enqueue to IndexedDB sync queue so the
-          // record is retried automatically when connectivity returns.
-          applyLocal()
-          void Promise.resolve(syncService.syncSaveAttendance({ studentId, date, type, status, note, version }))
-            .then(() => triggerSyncFlow())
-            .catch(err => console.warn('[attendanceStore] offline enqueue failed:', err))
-          return
+          // Acknowledge only after encryption + IndexedDB transaction succeeds.
+          // If enqueue fails, leave the caller's draft intact and report failure;
+          // never manufacture a saved state that has no durable owner.
+          try {
+            await syncService.syncSaveAttendance({ studentId, date, type, status, note, version })
+            applyLocal()
+            void triggerSyncFlow()
+            return 'durable_queue'
+          } catch (err) {
+            Sentry.captureException(err)
+            set({ error: 'Không thể lưu điểm danh trên thiết bị. Dữ liệu nhập vẫn chưa được xác nhận.', isSubmitting: false })
+            return null
+          }
         }
 
         try {
           const res = await attendanceApiClient.markAttendance({ studentId, date, type, status, note, version })
           applyLocal(res)
+          return 'server'
         } catch (err: any) {
           // Network failure mid-request (not a server validation error): fall back to
           // enqueueing so the offline-entered attendance isn't lost.
           const isNetwork = err instanceof TypeError
             || (err?.message && (String(err.message).includes('Network error') || String(err.message).includes('failed to fetch')))
           if (isNetwork) {
-            applyLocal()
-            void Promise.resolve(syncService.syncSaveAttendance({ studentId, date, type, status, note, version }))
-              .then(() => triggerSyncFlow())
-              .catch(queueError => console.warn('[attendanceStore] network fallback enqueue failed:', queueError))
-            return
+            try {
+              await syncService.syncSaveAttendance({ studentId, date, type, status, note, version })
+              applyLocal()
+              void triggerSyncFlow()
+              return 'durable_queue'
+            } catch (queueError) {
+              Sentry.captureException(queueError)
+              set({ error: 'Mất kết nối và không thể lưu điểm danh trên thiết bị. Vui lòng thử lại.', isSubmitting: false })
+              return null
+            }
           }
           const msg = err instanceof ApiError ? err.message : 'Lỗi khi lưu điểm danh'
           if (err instanceof ApiError && err.status === 403) {
@@ -199,6 +214,7 @@ export const useAttendanceStore = create<AttendanceState>()(
           } else {
             set({ error: msg, isSubmitting: false })
           }
+          return null
         }
       },
 
@@ -207,8 +223,20 @@ export const useAttendanceStore = create<AttendanceState>()(
 
         // ADR-016 (offline-sync audit #9): trước đây không có nhánh offline/network —
         // toàn bộ sheet điểm danh bị mất khi offline (trả null, không enqueue).
-        // Optimistic local + enqueue từng record vào sync queue (engine sẽ batch lại).
-        const queueOffline = () => {
+        // Enqueue từng record vào sync queue (engine sẽ batch lại), rồi mới cập
+        // nhật local read model và phát receipt cho UI.
+        const queueOffline = async (): Promise<BatchAttendanceSaveReceipt | null> => {
+          try {
+            await syncService.syncBatchSaveAttendance(date, type, records)
+          } catch (err) {
+            Sentry.captureException(err)
+            set({
+              error: 'Không thể lưu điểm danh trên thiết bị. Bản nháp vẫn được giữ để bạn thử lại.',
+              isSubmitting: false,
+            })
+            return null
+          }
+
           set((state) => {
             const attMap = new Map<string, { record: AttendanceRecord; index: number }>()
             const updated = [...state.attendance]
@@ -237,17 +265,18 @@ export const useAttendanceStore = create<AttendanceState>()(
             }
             return { attendance: updated, isSubmitting: false }
           })
-          void Promise.resolve(syncService.syncBatchSaveAttendance(date, type, records))
-            .then(() => triggerSyncFlow())
-            .catch(err => console.warn('[attendanceStore] batch enqueue failed:', err))
-          return {
+          void triggerSyncFlow()
+          const receipt: BatchAttendanceSaveReceipt = {
             total: records.length,
             successCount: records.length,
             skippedCount: 0,
             conflictCount: 0,
             errorCount: 0,
             results: records.map(r => ({ studentId: r.studentId, status: 'saved' as const })),
-          } satisfies BatchAttendanceResponseDTO
+            acknowledgement: 'durable_queue',
+          }
+          set({ batchResult: receipt })
+          return receipt
         }
 
         const isOffline = typeof navigator !== 'undefined' && !navigator.onLine
@@ -266,7 +295,8 @@ export const useAttendanceStore = create<AttendanceState>()(
             const existing = currentAttMap.get(key)
             return existing?.version !== undefined ? { ...r, version: existing.version } : r
           })
-          const result = await attendanceApiClient.batchMarkAttendance(withVersion, date, type)
+          const serverResult = await attendanceApiClient.batchMarkAttendance(withVersion, date, type)
+          const result: BatchAttendanceSaveReceipt = { ...serverResult, acknowledgement: 'server' }
           set((state) => {
             const attMap = new Map<string, { record: AttendanceRecord; index: number }>()
             const updated = [...state.attendance]

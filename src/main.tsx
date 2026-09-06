@@ -9,17 +9,12 @@ import { initDB } from './lib/db'
 import { loadTokens } from './lib/api'
 import { registerServiceWorkerOnly } from './lib/pushManager'
 import { installNativeMediaDevicesGuard } from './lib/nativeMediaGuard'
-import { installZoomGuard } from './lib/zoomGuard'
 import { BiometricLockGate } from './components/auth/BiometricLockGate'
 import { installAppLockLifecycle } from './stores/appLockStore'
-import { useClassStore } from './stores/classStore'
-import { useSettingsStore } from './stores/settingsStore'
-import { useAcademicYearStore } from './stores/academicYearStore'
 import { useAuthStore } from './stores/authStore'
 import './index.css'
 
 installNativeMediaDevicesGuard()
-installZoomGuard()
 installAppLockLifecycle().catch(console.warn)
 initSentry()
 // Start native legacy-worker cleanup before auth bootstrap/render. This remains
@@ -39,13 +34,6 @@ createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </StrictMode>,
 )
-
-// Initialize stores and offline database in the background
-setTimeout(() => {
-  useClassStore.getState().fetchAll()
-  useSettingsStore.getState().fetchSettings()
-  useAcademicYearStore.getState().fetchAcademicYears()
-}, 0)
 
 initDB().catch((err) => {
   console.warn('Background database initialization warning (running in fallback mode):', err)
