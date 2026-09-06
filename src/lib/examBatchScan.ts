@@ -130,6 +130,9 @@ export function analyzeBatchExamImage(image: ImageData, config: BatchScanConfig)
     initialConfidence: Math.round(omr.confidence * 1000) / 1000,
     detectionStatus: 'accepted',
     correctionCount: 0,
+    detectedAnswers: answers ? JSON.parse(answers) : {},
+    finalAnswers: answers ? JSON.parse(answers) : {},
+    corrections: [],
     quality,
     durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
   })

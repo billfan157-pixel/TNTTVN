@@ -1513,4 +1513,14 @@ END;
   // ADR-105 / D8: persist the intended target of a partial academic-year
   // promotion so unresolved snapshots can be retried deterministically.
   { version: '20260904-169', sql: `ALTER TABLE academic_years ADD COLUMN promotion_target_year_id TEXT` },
+  // Assessment audit 2026-09-06: result OCC + durable provenance. Keep each
+  // ALTER isolated so the migration runner can recover deterministically from
+  // a partially upgraded SQLite database.
+  { version: '20260906-170', sql: `ALTER TABLE exam_results ADD COLUMN result_version INTEGER NOT NULL DEFAULT 1` },
+  { version: '20260906-171', sql: `ALTER TABLE exam_results ADD COLUMN attempt_fingerprint TEXT` },
+  { version: '20260906-172', sql: `ALTER TABLE exam_results ADD COLUMN captured_at TEXT` },
+  { version: '20260906-173', sql: `ALTER TABLE exam_results ADD COLUMN saved_by TEXT` },
+  // Nullable only for legacy rows. Every application write sets saved_at.
+  { version: '20260906-174', sql: `ALTER TABLE exam_results ADD COLUMN saved_at TEXT` },
+  { version: '20260906-175', sql: `ALTER TABLE exam_sessions ADD COLUMN build_request_hash TEXT` },
 ]

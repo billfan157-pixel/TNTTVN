@@ -24,7 +24,7 @@ export const examsApi = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
   generateExamVariantManifests: (id: string, variantCount: number) =>
     request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string }[]) => {
+  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number }[]) => {
     const capturedAt = new Date().toISOString()
     const withMutationIds = results.map(result => ({
       ...result,
@@ -47,6 +47,7 @@ export const examsApi = {
         status: 'created' | 'updated' | 'duplicate'
         clientScore: number
         serverScore: number
+        resultVersion: number
       }>
     }>('POST', `/exams/${id}/results`, { results: withMutationIds }, 0, { 'Idempotency-Key': requestId })
   },

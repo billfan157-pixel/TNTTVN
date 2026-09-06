@@ -14,6 +14,7 @@ export interface ExamResultSyncScore {
   clientMutationId?: string
   attemptFingerprint?: string
   capturedAt?: string
+  expectedResultVersion?: number
 }
 
 export interface QueuedExamResultMutation {

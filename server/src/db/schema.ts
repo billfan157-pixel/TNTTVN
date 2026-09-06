@@ -913,6 +913,10 @@ export const examSessions = sqliteTable('exam_sessions', {
   sourceType: text('source_type').notNull().default('legacy'),
   blueprintId: text('blueprint_id'),
   blueprintSnapshot: text('blueprint_snapshot'),
+  // Stable hash of the Question Bank build command. Together with
+  // idempotencyKey this makes a lost HTTP response safe to replay and rejects
+  // accidental key reuse with different builder inputs.
+  buildRequestHash: text('build_request_hash'),
   idempotencyKey: text('idempotency_key').notNull().default(sql`(lower(hex(randomblob(16))))`),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [
@@ -946,6 +950,13 @@ export const examResults = sqliteTable('exam_results', {
   examVersion: text('exam_version').notNull().default('A'),
   // Aggregate diagnostics only (engine/template/quality/corrections); never image/base64.
   scanMetadata: text('scan_metadata'),
+  // Optimistic concurrency token for every semantic result update.
+  resultVersion: integer('result_version', { mode: 'number' }).notNull().default(1),
+  // Last accepted attempt provenance. Images are deliberately never retained.
+  attemptFingerprint: text('attempt_fingerprint'),
+  capturedAt: text('captured_at'),
+  savedBy: text('saved_by'),
+  savedAt: text('saved_at'),
   parishId: text('parish_id').notNull().default('gia-ton'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [

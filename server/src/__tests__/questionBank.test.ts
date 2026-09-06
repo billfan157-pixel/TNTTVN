@@ -210,7 +210,7 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
   it('checks staff class assignment inside the exam materialization transaction', async () => {
     const built = await req('/exams/build', { method: 'POST', auth: teacherToken, body: {
       mode: 'manual', questionIds: [mcId], classId: classA, subject: 'Không được tạo', scoreType: '15m',
-      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 1,
+      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 1, buildCommandId: 'QB-BUILD-FORBIDDEN-01',
     } })
     expect(built.status).toBe(403)
     expect(built.error.code).toBe('FORBIDDEN')
@@ -219,7 +219,7 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
   it('builds a mixed exam atomically with source IDs, immutable snapshots and variant manifests', async () => {
     const built = await req('/exams/build', { method: 'POST', auth: adminToken, body: {
       mode: 'manual', questionIds: [mcId, essayId, essayId2], classId: classA, subject: 'Kiểm tra Question Bank', scoreType: '1period',
-      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 2,
+      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 2, buildCommandId: 'QB-BUILD-MIXED-01',
     } })
     expect(built.status).toBe(201)
     sessionId = built.data.id
@@ -229,6 +229,29 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     const snapshots = await db.select().from(examQuestionSnapshots).where(and(eq(examQuestionSnapshots.parishId, parishA), eq(examQuestionSnapshots.examSessionId, sessionId)))
     expect(snapshots).toHaveLength(3)
     expect(snapshots.reduce((sum, snapshot) => sum + snapshot.points, 0)).toBe(10)
+  })
+
+  it('replays one build command without creating a second exam and rejects changed payload', async () => {
+    const body = {
+      mode: 'manual' as const, questionIds: [mcId], classId: classA, subject: 'Đề idempotent', scoreType: '15m',
+      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 2, buildCommandId: 'QB-BUILD-IDEMPOTENT-01',
+    }
+    const first = await req('/exams/build', { method: 'POST', auth: adminToken, body })
+    const retry = await req('/exams/build', { method: 'POST', auth: adminToken, body })
+    expect(first.status).toBe(201)
+    expect(retry.status).toBe(201)
+    expect(retry.data.id).toBe(first.data.id)
+    const rows = await db.select().from(examSessions).where(and(
+      eq(examSessions.parishId, parishA),
+      eq(examSessions.idempotencyKey, `question-bank:${body.buildCommandId}`),
+    ))
+    expect(rows).toHaveLength(1)
+
+    const conflict = await req('/exams/build', {
+      method: 'POST', auth: adminToken, body: { ...body, subject: 'Payload đã đổi' },
+    })
+    expect(conflict.status).toBe(409)
+    expect(conflict.error.code).toBe('QUESTION_BANK_BUILD_IDEMPOTENCY_CONFLICT')
   })
 
   it('creates a new bank version without mutating the historical exam snapshot', async () => {
@@ -252,7 +275,7 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     const countBefore = (await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length
     const generated = await req('/exams/build', { method: 'POST', auth: adminToken, body: {
       mode: 'blueprint', blueprintId: blueprint.data.id, classId: classA, subject: 'Không đủ câu', scoreType: 'midterm', semester: 1,
-      academicYear: '2026-2027', maxScore: 10, variantCount: 1,
+      academicYear: '2026-2027', maxScore: 10, variantCount: 1, buildCommandId: 'QB-BUILD-SHORTAGE-01',
     } })
     expect(generated.status).toBe(422)
     expect(generated.error.code).toBe('BLUEPRINT_SHORTAGE')

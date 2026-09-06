@@ -376,7 +376,15 @@ export interface ExamResult {
     detectionStatus?: 'accepted' | 'review_required' | 'rejected';
     correctedQuestions?: number[];
     quality?: Record<string, unknown>;
+    detectedAnswers?: Record<string, MultipleChoiceOption | null>;
+    finalAnswers?: Record<string, MultipleChoiceOption | null>;
+    corrections?: Array<{ questionIndex: number; before: MultipleChoiceOption | null; after: MultipleChoiceOption | null }>;
   };
+  resultVersion?: number;
+  attemptFingerprint?: string | null;
+  capturedAt?: string | null;
+  savedBy?: string | null;
+  savedAt?: string;
 }
 
 export interface ExamConflict {

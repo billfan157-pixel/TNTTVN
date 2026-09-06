@@ -130,11 +130,22 @@ describe('exam result atomic upsert', () => {
     await cleanup()
   })
 
-  it('production save path converges concurrent writes into exactly one row', async () => {
+  it('allows exactly one concurrent writer for the same expected result version', async () => {
+    const initial = await upsertExamResults(
+      sessionId,
+      [{ studentId, score: 3, source: 'quick_entry' }],
+      userId,
+      parishId,
+      '127.0.0.1',
+      'vitest',
+      null,
+    )
+    expect(initial.items[0]).toMatchObject({ status: 'created', resultVersion: 1 })
+
     const scores = [4, 5, 6, 7, 8]
     const settled = await Promise.allSettled(scores.map(score => upsertExamResults(
       sessionId,
-      [{ studentId, score, source: 'quick_entry' }],
+      [{ studentId, score, source: 'quick_entry', expectedResultVersion: 1 }],
       userId,
       parishId,
       '127.0.0.1',
@@ -143,19 +154,20 @@ describe('exam result atomic upsert', () => {
     )))
 
     const failures = settled.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-    expect(failures, failures.map(result => String(result.reason)).join('\n')).toHaveLength(0)
+    expect(failures).toHaveLength(scores.length - 1)
+    expect(failures.every(result => String(result.reason).includes('server v2'))).toBe(true)
 
     const writes = settled
       .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof upsertExamResults>>> => result.status === 'fulfilled')
       .map(result => result.value)
 
-    expect(writes).toHaveLength(scores.length)
+    expect(writes).toHaveLength(1)
     expect(writes.every(result => result.total === 1)).toBe(true)
-    expect(writes.reduce((sum, result) => sum + result.saved, 0)).toBe(1)
-    expect(writes.reduce((sum, result) => sum + result.upserted, 0)).toBe(scores.length - 1)
+    expect(writes.reduce((sum, result) => sum + result.saved, 0)).toBe(0)
+    expect(writes.reduce((sum, result) => sum + result.upserted, 0)).toBe(1)
 
     const rows = await db
-      .select({ id: examResults.id, score: examResults.score })
+      .select({ id: examResults.id, score: examResults.score, resultVersion: examResults.resultVersion })
       .from(examResults)
       .where(and(
         eq(examResults.parishId, parishId),
@@ -165,5 +177,6 @@ describe('exam result atomic upsert', () => {
 
     expect(rows).toHaveLength(1)
     expect(scores).toContain(rows[0].score)
+    expect(rows[0].resultVersion).toBe(2)
   })
 })

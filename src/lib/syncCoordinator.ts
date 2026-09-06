@@ -102,6 +102,18 @@ export async function markFailedExamResultOp(op: SyncQueueItem, error?: string):
   }
 }
 
+async function processClaimedOperation(op: SyncQueueItem) {
+  try {
+    return await processOperation(op)
+  } catch (error) {
+    await useSyncStore.getState().updateOp(op.id, {
+      status: 'retrying',
+      lastError: (error as Error).message || 'Sync operation interrupted before acknowledgement',
+    })
+    throw error
+  }
+}
+
 /** Initial pull/push sequence formerly embedded in the React hook. */
 export async function runInitialSync(): Promise<void> {
   const state = useSyncStore.getState()
@@ -153,6 +165,10 @@ export async function runSyncFlow(leaseHeld = false) {
   try {
     // OS-02: Migration 1 lần cho legacy queue items của user hiện tại
     await migrateLegacyQueueOwnership()
+    // A browser/process can stop after a durable op was claimed but before its
+    // response was handled. Re-arm only expired processing leases; live claims
+    // stay invisible to queue compaction and to concurrent sync cycles.
+    await store.recoverStaleProcessingOps()
     await pruneStaleQueueItems()
 
     // Phase 1: Compact queue (merge duplicate operations) then flush
@@ -181,12 +197,14 @@ export async function runSyncFlow(leaseHeld = false) {
     // the batch UPDATEs — otherwise the server rejects the child records with 404
     // and syncProcessor drops them as unrecoverable client errors (data loss).
     const createOps = ops.filter(o => o.operation === 'CREATE' && (o.entity === 'student' || o.entity === 'class' || o.entity === 'exam'))
-    for (const op of createOps) {
+    for (const queuedOp of createOps) {
       if (!navigator.onLine) {
         store.setStatus('offline')
         return
       }
-      const result = await processOperation(op)
+      const op = await store.claimOp(queuedOp.id)
+      if (!op) continue
+      const result = await processClaimedOperation(op)
       await new Promise(r => setTimeout(r, 200))
 
       if (result.ok) {
@@ -202,6 +220,7 @@ export async function runSyncFlow(leaseHeld = false) {
         // business 409 (vd CLASS_CODE_EXISTS) giờ là permanent-fail (xử lý ở
         // nhánh else bên dưới), op giữ payload để user xử lý tường minh.
       } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
+        await store.updateOp(op.id, { status: 'retrying', lastError: result.error })
         localStorage.removeItem('parish_access_token')
         store.setStatus('idle')
         store.setLastError('Xác thực hết hạn — vui lòng đăng nhập lại')
@@ -258,26 +277,46 @@ export async function runSyncFlow(leaseHeld = false) {
     if (gradeUpdateOps.length > 0) {
       const validOps: SyncQueueItem[] = []
       const payloads: Record<string, unknown>[] = []
-      for (const op of gradeUpdateOps) {
+      for (const queuedOp of gradeUpdateOps) {
+        const op = await store.claimOp(queuedOp.id)
+        if (!op) continue
         try {
           const payload = await parseQueuePayload(op.payload)
           if (payload && Object.keys(payload).length > 0) {
             payloads.push(payload)
             validOps.push(op)
+          } else {
+            await store.updateOp(op.id, { status: 'failed', lastError: 'Invalid or empty queued grade payload' })
           }
-        } catch {}
+        } catch (error) {
+          await store.updateOp(op.id, { status: 'failed', lastError: (error as Error).message || 'Invalid queued grade payload' })
+        }
       }
       if (validOps.length > 0 && payloads.length > 0) {
-        await flushGradeBatchWithIsolation(payloads, validOps, store, syncState)
+        try {
+          await flushGradeBatchWithIsolation(payloads, validOps, store, syncState)
+        } catch (error) {
+          for (const op of validOps) {
+            await store.updateOp(op.id, { status: 'retrying', lastError: (error as Error).message || 'Grade batch sync interrupted' })
+          }
+          throw error
+        }
       }
     }
 
     // ─── Phase 2b: Batch attendance grouped by date|type ───
     if (attendanceUpdateOps.length > 0) {
       const groups = new Map<string, SyncQueueItem[]>()
-      for (const op of attendanceUpdateOps) {
+      for (const queuedOp of attendanceUpdateOps) {
+        const op = await store.claimOp(queuedOp.id)
+        if (!op) continue
         let p: any = {}
-        try { p = await parseQueuePayload(op.payload) } catch {}
+        try {
+          p = await parseQueuePayload(op.payload)
+        } catch (error) {
+          await store.updateOp(op.id, { status: 'failed', lastError: (error as Error).message || 'Invalid queued attendance payload' })
+          continue
+        }
         const key = `${p.date}|${p.type}`
         if (!groups.has(key)) groups.set(key, [])
         groups.get(key)!.push(op)
@@ -286,7 +325,14 @@ export async function runSyncFlow(leaseHeld = false) {
         let firstPayload: any = {}
         try { firstPayload = await parseQueuePayload(batch[0].payload) } catch {}
         // ADR-016 (sync-fix): 400 validation → cách ly record lỗi, không retry cả batch.
-        await flushAttendanceBatchWithIsolation(batch, firstPayload, store, syncState)
+        try {
+          await flushAttendanceBatchWithIsolation(batch, firstPayload, store, syncState)
+        } catch (error) {
+          for (const op of batch) {
+            await store.updateOp(op.id, { status: 'retrying', lastError: (error as Error).message || 'Attendance batch sync interrupted' })
+          }
+          throw error
+        }
       }
     }
 
@@ -301,8 +347,12 @@ export async function runSyncFlow(leaseHeld = false) {
         return
       }
 
-      const op = ops[0]
-      const result = await processOperation(op)
+      const op = await store.claimOp(ops[0].id)
+      if (!op) {
+        ops = (await store.getPendingOps()).filter(o => o.entity !== 'grade' && o.entity !== 'attendance')
+        continue
+      }
+      const result = await processClaimedOperation(op)
       await new Promise(r => setTimeout(r, 200))
 
       if (result.ok) {
@@ -321,6 +371,7 @@ export async function runSyncFlow(leaseHeld = false) {
           }
         }
       } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
+        await store.updateOp(op.id, { status: 'retrying', lastError: result.error })
         localStorage.removeItem('parish_access_token')
         store.setStatus('idle')
         store.setLastError('Xác thực hết hạn — vui lòng đăng nhập lại')

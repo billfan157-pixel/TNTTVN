@@ -176,6 +176,7 @@ const buildExamInput = z.object({
   maxScore: z.number().int().min(1).max(10),
   variantCount: z.number().int().min(1).max(8).default(1),
   seed: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/).optional(),
+  buildCommandId: z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9._:-]+$/),
 }).superRefine((value, ctx) => {
   if (value.mode === 'manual' && (!value.questionIds || value.questionIds.length === 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questionIds'], message: 'Chế độ manual cần danh sách câu hỏi.' })
   if (value.mode === 'blueprint' && !value.blueprintId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['blueprintId'], message: 'Chế độ blueprint cần blueprintId.' })

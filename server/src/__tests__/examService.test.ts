@@ -2,8 +2,9 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { generateTokens } from '../middleware/auth.js'
 import examsApp from '../routes/exams.js'
 import { db } from '../db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, semesterLocks, auditLogs, examSessions } from '../db/schema.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, semesterLocks, auditLogs, examSessions, examResults } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
+import { updateAnswerKeyAndRescore, updateAnswerVariantsAndRescore } from '../services/examService.js'
 
 const parishId = 'parish-exam-test'
 let sharedSessionId = ''
@@ -22,6 +23,15 @@ async function jsonReq(path: string, options: { method?: string; body?: unknown;
   let body: any = null
   try { body = (await res.json()) as any } catch {}
   return { status: res.status, body, data: body?.data }
+}
+
+async function currentResultVersion(sessionId: string, studentId: string): Promise<number | undefined> {
+  const [row] = await db.select({ resultVersion: examResults.resultVersion }).from(examResults).where(and(
+    eq(examResults.parishId, parishId),
+    eq(examResults.examSessionId, sessionId),
+    eq(examResults.studentId, studentId),
+  )).limit(1)
+  return row?.resultVersion
 }
 
 describe('Smart Exam Grading — exam routes & service', () => {
@@ -120,6 +130,25 @@ describe('Smart Exam Grading — exam routes & service', () => {
     })
     expect(detachedKeyMutation.status).toBe(409)
     expect(detachedKeyMutation.body.error.code).toBe('VARIANT_MANIFEST_LOCKED')
+
+    await expect(updateAnswerKeyAndRescore(
+      created.data.id,
+      parishId,
+      JSON.stringify({ 1: 'A', 2: 'A', 3: 'A', 4: 'A' }),
+      4,
+      'usr-exam-admin',
+      '127.0.0.1',
+      'direct-service-test',
+    )).rejects.toThrow(/manifest/i)
+    await expect(updateAnswerVariantsAndRescore(
+      created.data.id,
+      parishId,
+      JSON.stringify({ A: { 1: 'B', 2: 'B', 3: 'B', 4: 'B' } }),
+      4,
+      'usr-exam-admin',
+      '127.0.0.1',
+      'direct-service-test',
+    )).rejects.toThrow(/manifest/i)
   })
 
   it('barcode decode accepts compact production payload and restores full IDs', async () => {
@@ -194,7 +223,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
       token: phutaToken,
       body: { results: [
         { studentId: 'st-exam-01', score: 8.5, source: 'quick_entry' },
-        { studentId: 'st-exam-02', score: 9, source: 'qr_scan' },
+        { studentId: 'st-exam-02', score: 9, source: 'quick_entry' },
       ] },
     })
     expect(ok.status).toBe(200)
@@ -237,7 +266,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
     const res = await jsonReq(`/${sessionId}/results`, {
       method: 'POST',
       token: adminToken,
-      body: { results: [{ studentId: 'st-exam-01', score: 7, source: 'quick_entry' }] },
+      body: { results: [{ studentId: 'st-exam-01', score: 7, source: 'quick_entry', expectedResultVersion: await currentResultVersion(sessionId, 'st-exam-01') }] },
     })
     expect(res.status).toBe(200)
     expect(res.data.upserted).toBe(1)
@@ -388,7 +417,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
     await jsonReq(`/${sessionId}/results`, {
       method: 'POST',
       token: adminToken,
-      body: { results: [{ studentId: 'st-exam-01', score: 9 }] },
+      body: { results: [{ studentId: 'st-exam-01', score: 9, source: 'quick_entry' }] },
     })
     await jsonReq(`/${sessionId}/complete`, { method: 'POST', token: cnToken })
 
@@ -456,7 +485,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
     const ok = await jsonReq(`/${sessionId}/results`, {
       method: 'POST',
       token: adminToken,
-      body: { results: [{ studentId: 'st-exam-01', score: 8, source: 'qr_scan' }] },
+      body: { results: [{ studentId: 'st-exam-01', score: 8, source: 'quick_entry' }] },
     })
     expect(ok.status).toBe(200)
   })
@@ -476,7 +505,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
     await jsonReq(`/${session.data.id}/results`, {
       method: 'POST',
       token: adminToken,
-      body: { results: [{ studentId: 'st-exam-01', score: 6 }] },
+      body: { results: [{ studentId: 'st-exam-01', score: 6, source: 'quick_entry' }] },
     })
     await db.insert(semesterLocks).values({
       id: 'sml-exam-01', parishId, academicYear: '2025-2026', semester: 2, isLocked: 1,
@@ -546,7 +575,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
         score: 8,
         source: 'qr_scan',
         answers: '{"1":"A","2":null}',
-        scanMetadata: '{"engineVersion":"omr-v2","detectionStatus":"accepted","quality":{"edgeEnergy":12.4}}',
+        scanMetadata: '{"engineVersion":"omr-v2","detectionStatus":"accepted","examVersion":"A","questionCount":2,"quality":{"edgeEnergy":12.4}}',
       }] },
     })
     expect(save.status).toBe(200)
@@ -574,7 +603,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
 
     const save = await jsonReq(`/${session.data.id}/results`, {
       method: 'POST', token: adminToken,
-      body: { results: [{ studentId: 'st-exam-01', score: 0, source: 'omr', examVersion: 'B', answers: '{"1":"C","2":"D"}', scanMetadata: '{"detectionStatus":"accepted"}' }] },
+      body: { results: [{ studentId: 'st-exam-01', score: 0, source: 'omr', examVersion: 'B', answers: '{"1":"C","2":"D"}', scanMetadata: '{"detectionStatus":"accepted","examVersion":"B","questionCount":2}' }] },
     })
     expect(save.status).toBe(200)
     expect(save.data.adjustments).toEqual([{ studentId: 'st-exam-01', clientScore: 0, serverScore: 10 }])
@@ -601,6 +630,18 @@ describe('Smart Exam Grading — exam routes & service', () => {
       },
     })
     const base = { studentId: 'st-exam-01', score: 10, source: 'omr' }
+
+    const missingProvenance = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ ...base, answers: '{"1":"A","2":"B"}' }] },
+    })
+    expect(missingProvenance.status).toBe(400)
+
+    const wrongBinding = await jsonReq(`/${session.data.id}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{ ...base, answers: '{"1":"A","2":"B"}', scanMetadata: '{"detectionStatus":"accepted","examVersion":"B","questionCount":2}' }] },
+    })
+    expect(wrongBinding.status).toBe(400)
 
     const invalidAnswer = await jsonReq(`/${session.data.id}/results`, {
       method: 'POST', token: adminToken,

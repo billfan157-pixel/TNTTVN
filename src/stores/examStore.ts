@@ -43,6 +43,7 @@ function parseJsonObject<T>(value: T | string | null | undefined): T | undefined
 function normalizeExamResults(rows: ExamResult[]): ExamResult[] {
   return rows.map(row => ({
     ...row,
+    resultVersion: row.resultVersion ?? 1,
     answers: parseJsonObject(row.answers),
     scanMetadata: parseJsonObject(row.scanMetadata),
   }))
@@ -82,9 +83,10 @@ export interface ExamScoreItem {
   clientMutationId?: string
   attemptFingerprint?: string
   capturedAt?: string
+  expectedResultVersion?: number
 }
 
-export type ExamResultMutationStatus = 'pending' | 'synced' | 'error' | 'conflict'
+export type ExamResultMutationStatus = 'pending' | 'synced' | 'error' | 'conflict' | 'superseded'
 
 export interface QueuedExamResultMutationState {
   clientMutationId: string
@@ -115,6 +117,10 @@ function mergeLocalExamResults(current: ExamResult[], sessionId: string, scores:
       answers: score.answers ? parseJsonObject<Record<number, MultipleChoiceOption | null>>(score.answers) : existing?.answers,
       scanMetadata: score.scanMetadata ? parseJsonObject<ExamResult['scanMetadata']>(score.scanMetadata) : existing?.scanMetadata,
       examVersion: score.examVersion ?? existing?.examVersion ?? 'A',
+      resultVersion: existing?.resultVersion ?? 0,
+      attemptFingerprint: score.attemptFingerprint ?? existing?.attemptFingerprint,
+      capturedAt: score.capturedAt ?? existing?.capturedAt,
+      savedAt: existing?.savedAt ?? now,
     })
   }
   return Array.from(byStudent.values())
@@ -129,6 +135,21 @@ function pruneMutationLedger(
   return Object.fromEntries(entries
     .sort(([, a], [, b]) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, maxEntries))
+}
+
+function attachExpectedResultVersions(
+  scores: ExamScoreItem[],
+  results: ExamResult[],
+  sessionId: string,
+): ExamScoreItem[] {
+  const byStudent = new Map(results
+    .filter(result => result.examSessionId === sessionId)
+    .map(result => [result.studentId, result]))
+  return scores.map(score => {
+    if (score.expectedResultVersion !== undefined) return score
+    const current = byStudent.get(score.studentId)
+    return current ? { ...score, expectedResultVersion: current.resultVersion ?? 1 } : score
+  })
 }
 
 export interface CreateExamInput {
@@ -171,7 +192,7 @@ interface ExamState {
     upserted: number
     queuedMutations: QueuedExamResultMutationState[]
   } | null>
-  markResultMutation: (clientMutationId: string, status: ExamResultMutationStatus, details?: { serverScore?: number; error?: string }) => void
+  markResultMutation: (clientMutationId: string, status: ExamResultMutationStatus, details?: { serverScore?: number; resultVersion?: number; error?: string }) => void
   removeResult: (studentId: string) => Promise<boolean>
   completeAndFinalize: () => Promise<ExamFinalizeResult | null>
   reopenSession: () => Promise<void>
@@ -314,21 +335,29 @@ export const useExamStore = create<ExamState>()(
     if (!id || scores.length === 0) return null
     set({ saving: true, error: null })
     try {
+      const versionedScores = attachExpectedResultVersions(scores, get().results, id)
       if (isOffline()) {
         // Phase 3 offline: enqueue UPDATE (save_results) — sync engine gửi khi online.
         // Nếu session là temp (chưa tạo server), remapExamSessionIdInPendingOps sẽ
         // sửa sessionId trong payload sau khi CREATE hoàn tất.
-        await syncSaveExamResults(id, scores)
+        await syncSaveExamResults(id, versionedScores)
         // Cập nhật local ngay để UI phản ánh.
-        set((state) => ({ results: mergeLocalExamResults(state.results, id, scores) }))
+        set((state) => ({ results: mergeLocalExamResults(state.results, id, versionedScores) }))
         runSyncFlow()
         return { saved: scores.length, upserted: 0 }
       }
-      const result = await api.saveExamResults(id, scores)
+      const result = await api.saveExamResults(id, versionedScores)
       await get().refreshResults()
       return result
     } catch (err) {
-      set({ error: (err as Error)?.message || 'Lỗi lưu kết quả' })
+      const message = (err as Error)?.message || 'Lỗi lưu kết quả'
+      // A 409 means this local snapshot lost the semantic race. Pull the
+      // authoritative row immediately so the next deliberate retry carries the
+      // current resultVersion; never replay the stale write automatically.
+      if ((err as { status?: number })?.status === 409 && !isOffline()) {
+        await get().refreshResults()
+      }
+      set({ error: message })
       return null
     } finally {
       set({ saving: false })
@@ -340,23 +369,45 @@ export const useExamStore = create<ExamState>()(
     if (!id || scores.length === 0) return null
     set({ saving: true, error: null })
     try {
-      const queued = await syncSaveExamResults(id, scores)
+      const versionedScores = attachExpectedResultVersions(scores, get().results, id)
+      const queued = await syncSaveExamResults(id, versionedScores)
       const now = new Date().toISOString()
       const mutations = queued.map((item, index): QueuedExamResultMutationState => ({
         clientMutationId: item.clientMutationId,
         queueOpId: item.queueOpId,
         sessionId: id,
         studentId: item.studentId,
-        proposedScore: scores[index]?.score ?? 0,
+        proposedScore: versionedScores[index]?.score ?? 0,
         status: 'pending',
         createdAt: now,
         updatedAt: now,
       }))
       set((state) => {
         const ledger = { ...state.queuedResultMutations }
-        for (const mutation of mutations) ledger[mutation.clientMutationId] = mutation
+        for (const mutation of mutations) {
+          // syncStore compacts a newer mutation for the same student into the
+          // existing durable queue op. Reflect that replacement in this ledger
+          // so finalization cannot wait forever on an ID that no longer exists.
+          for (const [mutationId, current] of Object.entries(ledger)) {
+            if (
+              mutationId !== mutation.clientMutationId
+              && current.sessionId === mutation.sessionId
+              && current.studentId === mutation.studentId
+              && current.queueOpId === mutation.queueOpId
+              && current.status === 'pending'
+            ) {
+              ledger[mutationId] = {
+                ...current,
+                status: 'superseded',
+                error: undefined,
+                updatedAt: now,
+              }
+            }
+          }
+          ledger[mutation.clientMutationId] = mutation
+        }
         return {
-          results: mergeLocalExamResults(state.results, id, scores),
+          results: mergeLocalExamResults(state.results, id, versionedScores),
           queuedResultMutations: pruneMutationLedger(ledger),
         }
       })
@@ -393,10 +444,15 @@ export const useExamStore = create<ExamState>()(
       error: details?.error,
       updatedAt: new Date().toISOString(),
     }
-    const results = details?.serverScore === undefined
+    const hasAuthoritativeResult = details?.serverScore !== undefined || details?.resultVersion !== undefined
+    const results = !hasAuthoritativeResult
       ? state.results
       : state.results.map(result => result.studentId === current.studentId && result.examSessionId === current.sessionId
-        ? { ...result, score: details.serverScore as number }
+        ? {
+            ...result,
+            score: details?.serverScore ?? result.score,
+            resultVersion: details?.resultVersion ?? result.resultVersion,
+          }
         : result)
     return {
       queuedResultMutations: { ...state.queuedResultMutations, [clientMutationId]: next },

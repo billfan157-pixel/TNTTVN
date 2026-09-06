@@ -47,6 +47,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260902', 149, 158),
   ...migrationRange('20260903', 159, 165),
   ...migrationRange('20260904', 166, 169),
+  ...migrationRange('20260906', 170, 175),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -112,8 +113,8 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
   notifications: ['target_user_ids', 'attempt_count', 'max_attempts', 'lease_owner', 'lease_expires_at', 'next_attempt_at', 'delivery_kind'],
   users: ['password_encrypted', 'holy_name', 'deleted_at'],
-  exam_results: ['parish_id', 'scan_metadata', 'exam_version'],
-  exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot'],
+  exam_results: ['parish_id', 'scan_metadata', 'exam_version', 'result_version', 'attempt_fingerprint', 'captured_at', 'saved_by', 'saved_at'],
+  exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot', 'build_request_hash'],
   exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
   // A-NEW-62 (2026-08-23): production từng thiếu promotion_records.is_latest
   // (di sản migration D-04/ADR-031) → mọi SELECT phiếu điểm/khuyến thăng 500 âm thầm.

@@ -3629,3 +3629,45 @@ Targeted boundary/worker **3 files / 35 tests PASS**; schema/seed **3 files / 14
 
 CLI mới đã được chạy read-only trên database local mặc định và trả non-zero đúng contract, chỉ nêu `academic_years`, `branches`, `mapping_memory` có unexpected scope; không có row/parish ID trong output và không write. Database local này không được coi là production inventory hay tự động “dọn” để pass. Dev startup không set deployment scope vẫn cho phép multi-parish fixture; production/explicit scope mới bật hard gate.
 
+---
+
+## ADR-107: Assessment Result Concurrency, Scan Provenance and Idempotent Exam Materialization (2026-09-06)
+
+**Status: APPROVED / IMPLEMENTED — final verification recorded below. Severity: D3. Profiles: DATA INTEGRITY + OFFLINE/CONCURRENCY + PRIVACY + RECOVERY. Reversibility: R1 for command/UI behavior; additive columns and migrations are R2.**
+
+### Problem and evidence
+
+Independent current-code audit and executable probes found five concrete breaks in an otherwise sound Question Bank → Exam → OMR → Grade pipeline. An essay-only update of a mixed B–H result reused stored answers but defaulted scoring/provenance to A; existing result writes had no compare-and-swap precondition; same-student queue compaction could strand the client mutation ledger and could replace an op while its request was in-flight; Question Bank build retries used a newly generated session identity rather than a stable command identity; and the server accepted scan-labelled results without accepted detector metadata while current results omitted capture/actor provenance.
+
+These are command and consistency-boundary defects, not evidence for a new service topology. The existing modular monolith, immutable question snapshots/manifests, server scoring and transactional single-writer Grade handoff remain the selected architecture.
+
+### Decision
+
+1. **Mixed component preservation:** an essay-only mixed command reads the current result in the same writer-first transaction and preserves the stored MC answers, exact A–H version, scan source/metadata, attempt fingerprint and capture time. Server scoring recomputes the total from that preserved MC component plus the incoming essay component.
+2. **Optimistic result concurrency:** `exam_results.result_version` starts at 1. Updating a current row requires exact `expectedResultVersion`; create accepts absent/0 only. The SQL update compares the observed version and increments atomically. Missing/stale preconditions return typed 409 `EXAM_RESULT_VERSION_CONFLICT`; clients refresh authoritative state and do not silently retry the stale write. Answer-key/variant rescoring also increments result version and records the server actor/time.
+3. **Durable queue lifecycle:** sync operations are claimed atomically from `pending|retrying` to `processing` before network I/O. Queue compaction excludes processing rows, so a later result receives a new durable op instead of replacing an in-flight payload. Expired processing leases recover to retrying after an interrupted process. The result ledger marks an older mutation `superseded` only when both mutations resolve to the same compacted queue ID; separate in-flight and next ops remain independently visible. Server OCC resolves the eventual ordering rather than client last-write-wins.
+4. **Idempotent Question Bank materialization:** every build requires a client-stable `buildCommandId`. When no explicit seed is supplied, the service derives one from the command. A canonical request hash is persisted on `exam_sessions`; a retry with the same command/hash returns the prior session/snapshots/manifests, while command reuse with different input returns 409. The existing build transaction and deliberate duplicate-exam capability remain intact.
+5. **Structured current-result provenance:** source `omr|qr_scan` requires structured `scanMetadata` with `detectionStatus='accepted'`; MC/mixed additionally require metadata `examVersion` and `questionCount` to match the scoring inputs. Scan UI persists detected answers, final answers and explicit correction diff. Results store attempt fingerprint, client capture time, server saver and save time. Image/frame/base64 payloads remain prohibited and review images remain local opt-in with TTL.
+6. **Manifest mutation ownership:** answer-key and answer-variant service functions enforce the immutable manifest lock themselves, inside their transaction, so direct service callers cannot bypass the route-level guard.
+
+### Alternatives rejected
+
+- Last-writer-wins or automatic retry after 409: rejected because it silently discards a confirmed result from another tab/device.
+- A uniqueness constraint on exam business fields: rejected because deliberate re-exams with the same class/subject/type are valid; command idempotency is the correct retry boundary.
+- Uploading answer-sheet images by default: rejected because structured provenance closes the verified current-row gap without accepting unnecessary student-data retention.
+- Immediate append-only attempt/revision table: deferred until the product defines whether full historical attempts are required, retention duration, who may view them and purge/backup behavior. Current-result provenance is implemented; legal-grade history is not claimed.
+- Microservices, event bus or replacement of SQLite/Dexie: rejected because none addresses the proven semantic defects.
+
+### Compatibility, rollout and recovery
+
+- Migrations `20260906-170` through `175` add nullable provenance/build columns and `result_version NOT NULL DEFAULT 1`; schema readiness requires all markers/columns. Existing rows therefore become version 1 without data rewrite.
+- A stale installed client that updates an existing result without `expectedResultVersion` receives 409 rather than overwriting. Frontend and backend should deploy together; this is a safe fail-closed compatibility break.
+- A stale client that calls Question Bank build without `buildCommandId` receives validation failure rather than creating a retry duplicate. Deliberate new builds use a new command ID.
+- A process interrupted during network I/O leaves a processing lease. It becomes retryable after expiry; server mutation receipt/build command identity/OCC make replay safe. The five-minute local lease is not a claim about provider latency and can be reassessed with production evidence.
+- This decision records provenance of the current accepted result and correction values, not an immutable history of every proposal, rescan, reopen or finalization. That retention requirement remains **NOT CONFIRMED**.
+- Physical OMR accuracy, printer geometry, target-device latency, sustained throughput and production feature-flag population remain governed by ADR-060/068/069/070 and are not certified by source/tests.
+
+### Verification and reassessment
+
+Targeted assessment, OCC, Question Bank, queue and provenance regression: **10/10 files, 147/147 tests PASS**; remediated diagnostic probe **1/1 file, 4/4 tests PASS**. These cover mixed variant B two-phase scoring, malformed/mismatched scan metadata rejection, concurrent same-version writers, same-command build replay/conflict, direct-service manifest lock, compacted-ledger supersession, in-flight queue isolation and stale processing-lease recovery. Lint zero-warning, architecture inventory **31 routes / 6 repositories / 48 services / 12 domain files / 57 tables**, design-system guard **0/127**, client/server TypeScript and production frontend/PWA/server build PASS (**2,814 modules; 238 precache entries**). Full serialized coverage: **320/320 files, 2,225/2,225 tests PASS** in 1,118.56 seconds; Statements **69.92%**, Branches **59.22%**, Functions **62.41%**, Lines **72.56%**. `git diff --check` PASS. External field/production gates above remain open.
+

@@ -147,7 +147,10 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
         const serverScore = typeof acknowledgement?.serverScore === 'number'
           ? acknowledgement.serverScore
           : undefined
-        useExamStore.getState().markResultMutation(clientMutationId, 'synced', { serverScore })
+        const resultVersion = typeof acknowledgement?.resultVersion === 'number'
+          ? acknowledgement.resultVersion
+          : undefined
+        useExamStore.getState().markResultMutation(clientMutationId, 'synced', { serverScore, resultVersion })
       }
     }
 

@@ -184,7 +184,7 @@ describe('EXAM-AUDIT F1–F6 (2026-08-21) — Exam Lifecycle hardening', () => {
     const sessionId = created.data.id
     await jsonReq(`/${sessionId}/results`, {
       method: 'POST', token: adminToken,
-      body: { results: [{ studentId: 'st-aud-1', score: 10, source: 'omr', answers: '{"1":"A","2":"B"}' }] },
+      body: { results: [{ studentId: 'st-aud-1', score: 10, source: 'omr', answers: '{"1":"A","2":"B"}', scanMetadata: '{"detectionStatus":"accepted","examVersion":"A","questionCount":2}' }] },
     })
     await jsonReq(`/${sessionId}/complete`, { method: 'POST', token: adminToken })
 

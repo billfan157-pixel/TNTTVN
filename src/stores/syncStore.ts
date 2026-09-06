@@ -19,6 +19,8 @@ interface SyncState {
   refreshCount: () => Promise<number>
 
   getPendingOps: () => Promise<SyncQueueItem[]>
+  claimOp: (id: string) => Promise<SyncQueueItem | null>
+  recoverStaleProcessingOps: (maxAgeMs?: number) => Promise<number>
   addOp: (op: Omit<SyncQueueItem, 'id' | 'retryCount' | 'lastError' | 'createdAt' | 'updatedAt' | 'status' | 'deviceId'>) => Promise<string>
   updateOp: (id: string, changes: Partial<SyncQueueItem>) => Promise<void>
   removeOp: (id: string) => Promise<void>
@@ -198,6 +200,53 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     return all
       .filter(isOwnOp)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  },
+
+  claimOp: async (id) => {
+    const db = getDB()
+    const now = new Date().toISOString()
+    let claimed: SyncQueueItem | null = null
+    const runClaim = async () => {
+      const current = await db.syncQueue.get(id)
+      if (
+        !current
+        || !isOwnOp(current)
+        || (current.status !== 'pending' && current.status !== 'retrying')
+      ) return
+      await db.syncQueue.update(id, { status: 'processing', updatedAt: now })
+      claimed = { ...current, status: 'processing', updatedAt: now }
+    }
+    if (typeof db.transaction === 'function') {
+      await db.transaction('rw', db.syncQueue, runClaim)
+    } else {
+      await runClaim()
+    }
+    return claimed
+  },
+
+  recoverStaleProcessingOps: async (maxAgeMs = 5 * 60 * 1000) => {
+    const db = getDB()
+    const nowMs = Date.now()
+    const processing = await db.syncQueue
+      .where('status')
+      .equals('processing')
+      .toArray()
+    const stale = processing.filter((item) => {
+      if (!isOwnOp(item)) return false
+      const claimedAt = Date.parse(item.updatedAt)
+      return !Number.isFinite(claimedAt) || nowMs - claimedAt >= maxAgeMs
+    })
+    if (stale.length === 0) return 0
+    const recoveredAt = new Date(nowMs).toISOString()
+    for (const item of stale) {
+      await db.syncQueue.update(item.id, {
+        status: 'retrying',
+        lastError: await encryptQueueValue('Recovered an interrupted sync operation after its processing lease expired.'),
+        updatedAt: recoveredAt,
+      })
+    }
+    await get().refreshCount()
+    return stale.length
   },
 
   addOp: async (op) => {

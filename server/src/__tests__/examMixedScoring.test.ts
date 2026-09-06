@@ -149,7 +149,7 @@ describe('EXAM-MIXED — đề trắc nghiệm + tự luận', () => {
           score: 10,
           source: 'omr',
           answers: JSON.stringify({ 1: 'B', 2: 'A' }),
-          scanMetadata: JSON.stringify({ detectionStatus: 'accepted', engineVersion: 'test' }),
+          scanMetadata: JSON.stringify({ detectionStatus: 'accepted', engineVersion: 'test', examVersion: 'A', questionCount: 2 }),
         }],
       },
     })
@@ -167,7 +167,7 @@ describe('EXAM-MIXED — đề trắc nghiệm + tự luận', () => {
       method: 'POST',
       token: adminToken,
       body: {
-        results: [{ studentId: 'st-mixed-01', score: 7, essayScore: 7, source: 'quick_entry' }],
+        results: [{ studentId: 'st-mixed-01', score: 7, essayScore: 7, source: 'quick_entry', expectedResultVersion: 1 }],
       },
     })
     expect(res.status).toBe(200)
@@ -200,7 +200,8 @@ describe('EXAM-MIXED — đề trắc nghiệm + tự luận', () => {
           score: 1,
           source: 'omr',
           answers: JSON.stringify({ 1: 'B', 2: null }),
-          scanMetadata: JSON.stringify({ detectionStatus: 'accepted', engineVersion: 'test' }),
+          scanMetadata: JSON.stringify({ detectionStatus: 'accepted', engineVersion: 'test', examVersion: 'A', questionCount: 2 }),
+          expectedResultVersion: 1,
         }],
       },
     })
@@ -210,11 +211,58 @@ describe('EXAM-MIXED — đề trắc nghiệm + tự luận', () => {
     expect(row.essayScore).toBe(5)
   })
 
+  it('giữ mã đề B và provenance OMR khi nhập tự luận ở pha sau', async () => {
+    const created = await jsonReq('/', {
+      method: 'POST', token: adminToken,
+      body: {
+        classId: 'cl-mixed-01', subject: 'Mixed mã B', scoreType: '15m', semester: 1,
+        academicYear: '2025-2026', examType: 'mixed', questionCount: 2,
+        answerVariants: JSON.stringify({ A: { 1: 'A', 2: 'A' }, B: { 1: 'B', 2: 'B' } }),
+        questions: JSON.stringify(MIXED_QUESTIONS),
+      },
+    })
+    expect(created.status).toBe(201)
+    const versionedSessionId = created.data.id
+    const metadata = JSON.stringify({
+      detectionStatus: 'accepted', engineVersion: 'test-b', examVersion: 'B', questionCount: 2,
+      detectedAnswers: { 1: 'B', 2: 'B' }, finalAnswers: { 1: 'B', 2: 'B' }, corrections: [],
+    })
+    const scan = await jsonReq(`/${versionedSessionId}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{
+        studentId: 'st-mixed-01', score: 2, source: 'omr', examVersion: 'B',
+        answers: JSON.stringify({ 1: 'B', 2: 'B' }), scanMetadata: metadata,
+        attemptFingerprint: 'attempt-mixed-b-01', capturedAt: '2026-09-06T00:00:00.000Z',
+      }] },
+    })
+    expect(scan.status).toBe(200)
+
+    const essay = await jsonReq(`/${versionedSessionId}/results`, {
+      method: 'POST', token: adminToken,
+      body: { results: [{
+        studentId: 'st-mixed-01', score: 5, essayScore: 5, source: 'quick_entry', expectedResultVersion: 1,
+      }] },
+    })
+    expect(essay.status).toBe(200)
+    const row = (await jsonReq(`/${versionedSessionId}/results`, { token: adminToken })).data.results[0]
+    expect(row).toMatchObject({
+      score: 7,
+      essayScore: 5,
+      examVersion: 'B',
+      source: 'omr',
+      scanMetadata: metadata,
+      attemptFingerprint: 'attempt-mixed-b-01',
+      capturedAt: '2026-09-06T00:00:00.000Z',
+      savedBy: 'usr-mixed-admin',
+      resultVersion: 2,
+    })
+  })
+
   it('điểm TL vượt trần phần tự luận (8đ) → 400', async () => {
     const res = await jsonReq(`/${sessionId}/results`, {
       method: 'POST',
       token: adminToken,
-      body: { results: [{ studentId: 'st-mixed-01', score: 9, essayScore: 8.5, source: 'quick_entry' }] },
+      body: { results: [{ studentId: 'st-mixed-01', score: 9, essayScore: 8.5, source: 'quick_entry', expectedResultVersion: 2 }] },
     })
     expect(res.status).toBe(400)
   })

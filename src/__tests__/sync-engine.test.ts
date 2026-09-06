@@ -132,6 +132,44 @@ describe('Sync Engine — Queue Operations', () => {
     expect(payload.score).toMatchObject({ studentId: 'ST-A', score: 8.5, clientMutationId: 'MUT-NEW' })
   })
 
+  it('EXAM-CONTINUOUS-P0: mutation mới không ghi đè op cùng học sinh đang processing', async () => {
+    const first = await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 7, source: 'quick_entry', clientMutationId: 'MUT-IN-FLIGHT' },
+    ])
+    const claimed = await useSyncStore.getState().claimOp(first[0].queueOpId)
+    expect(claimed).toMatchObject({ id: first[0].queueOpId, status: 'processing' })
+
+    const second = await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 8.5, source: 'quick_entry', clientMutationId: 'MUT-NEXT' },
+    ])
+    expect(second[0].queueOpId).not.toBe(first[0].queueOpId)
+
+    const inFlight = await getDB().syncQueue.get(first[0].queueOpId)
+    expect(inFlight?.status).toBe('processing')
+    const pending = await useSyncStore.getState().getPendingOps()
+    expect(pending).toHaveLength(1)
+    expect((await readPayload(pending[0])).score.clientMutationId).toBe('MUT-NEXT')
+
+    await useSyncStore.getState().removeOp(first[0].queueOpId)
+    const afterAck = await useSyncStore.getState().getPendingOps()
+    expect(afterAck).toHaveLength(1)
+    expect(afterAck[0].id).toBe(second[0].queueOpId)
+  })
+
+  it('phục hồi processing lease hết hạn thành retrying sau khi tiến trình bị ngắt', async () => {
+    const queued = await syncService.syncSaveExamResults('EXS-CONT-1', [
+      { studentId: 'ST-A', score: 7, source: 'quick_entry', clientMutationId: 'MUT-RECOVER' },
+    ])
+    const claimed = await useSyncStore.getState().claimOp(queued[0].queueOpId)
+    expect(claimed?.status).toBe('processing')
+    await getDB().syncQueue.update(queued[0].queueOpId, { updatedAt: '2020-01-01T00:00:00.000Z' })
+
+    await expect(useSyncStore.getState().recoverStaleProcessingOps(1)).resolves.toBe(1)
+    const recovered = await useSyncStore.getState().getPendingOps()
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]).toMatchObject({ id: queued[0].queueOpId, status: 'retrying' })
+  })
+
   it('EXAM-CONTINUOUS-P0: save của từng học sinh đứng trước complete barrier', async () => {
     await syncService.syncSaveExamResults('EXS-CONT-1', [
       { studentId: 'ST-A', score: 8, clientMutationId: 'MUT-A' },

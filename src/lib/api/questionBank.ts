@@ -41,6 +41,6 @@ export const questionBankApi = {
     request<ExamBlueprint>('POST', '/question-bank/blueprints', data),
   setExamBlueprintStatus: (id: string, status: 'active' | 'archived') =>
     request<ExamBlueprint>('POST', `/question-bank/blueprints/${encodeURIComponent(id)}/status`, { status }),
-  buildExamFromQuestionBank: (data: { mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string; scoreType: string; semester: 1 | 2; academicYear: string; maxScore: number; variantCount: number }) =>
-    request<ExamSession>('POST', '/question-bank/exams/build', data),
+  buildExamFromQuestionBank: (data: { mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string; scoreType: string; semester: 1 | 2; academicYear: string; maxScore: number; variantCount: number; buildCommandId: string }) =>
+    request<ExamSession>('POST', '/question-bank/exams/build', data, 0, { 'Idempotency-Key': data.buildCommandId }, true),
 }

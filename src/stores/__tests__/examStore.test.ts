@@ -209,10 +209,10 @@ describe('examStore — saveScores & session management', () => {
     const saveSpy = vi.spyOn(api, 'saveExamResults').mockResolvedValue({ saved: 1, upserted: 0, total: 1 })
     const refreshSpy = vi.spyOn(api, 'getExamResults').mockResolvedValue({ session: mkSession(), results: [mkResult('ST-1', 8)] })
 
-    useExamStore.setState({ selectedSessionId: 'EXS-test-1' })
+    useExamStore.setState({ selectedSessionId: 'EXS-test-1', results: [{ ...mkResult('ST-1', 7), resultVersion: 4 }] })
     const res = await useExamStore.getState().saveScores([{ studentId: 'ST-1', score: 8, source: 'quick_entry' }])
 
-    expect(saveSpy).toHaveBeenCalledWith('EXS-test-1', [{ studentId: 'ST-1', score: 8, source: 'quick_entry' }])
+    expect(saveSpy).toHaveBeenCalledWith('EXS-test-1', [{ studentId: 'ST-1', score: 8, source: 'quick_entry', expectedResultVersion: 4 }])
     expect(refreshSpy).toHaveBeenCalled()
     expect(res).toEqual({ saved: 1, upserted: 0, total: 1 })
     expect(useExamStore.getState().results).toHaveLength(1)
@@ -237,6 +237,32 @@ describe('examStore — saveScores & session management', () => {
     expect(useExamStore.getState().queuedResultMutations['MUT-CONT-1'].status).toBe('pending')
   })
 
+  it('đánh dấu mutation cũ superseded khi durable queue compact cùng học sinh', async () => {
+    vi.spyOn(syncService, 'syncSaveExamResults')
+      .mockResolvedValueOnce([{ queueOpId: 'OP-SAME', clientMutationId: 'MUT-OLD', studentId: 'ST-1' }])
+      .mockResolvedValueOnce([{ queueOpId: 'OP-SAME', clientMutationId: 'MUT-NEW', studentId: 'ST-1' }])
+    useExamStore.setState({ selectedSessionId: 'EXS-test-1' })
+
+    await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 7, source: 'quick_entry' }])
+    await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 8, source: 'quick_entry' }])
+
+    expect(useExamStore.getState().queuedResultMutations['MUT-OLD'].status).toBe('superseded')
+    expect(useExamStore.getState().queuedResultMutations['MUT-NEW'].status).toBe('pending')
+  })
+
+  it('giữ mutation đang in-flight pending khi lần quét mới nhận queue op khác', async () => {
+    vi.spyOn(syncService, 'syncSaveExamResults')
+      .mockResolvedValueOnce([{ queueOpId: 'OP-IN-FLIGHT', clientMutationId: 'MUT-IN-FLIGHT', studentId: 'ST-1' }])
+      .mockResolvedValueOnce([{ queueOpId: 'OP-NEXT', clientMutationId: 'MUT-NEXT', studentId: 'ST-1' }])
+    useExamStore.setState({ selectedSessionId: 'EXS-test-1' })
+
+    await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 7, source: 'quick_entry' }])
+    await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 8, source: 'quick_entry' }])
+
+    expect(useExamStore.getState().queuedResultMutations['MUT-IN-FLIGHT'].status).toBe('pending')
+    expect(useExamStore.getState().queuedResultMutations['MUT-NEXT'].status).toBe('pending')
+  })
+
   it('EXAM-CONTINUOUS-P1: acknowledgement cập nhật trạng thái và điểm server-authoritative', () => {
     useExamStore.setState({
       results: [mkResult('ST-1', 8)],
@@ -249,10 +275,11 @@ describe('examStore — saveScores & session management', () => {
       },
     })
 
-    useExamStore.getState().markResultMutation('MUT-CONT-1', 'synced', { serverScore: 7.5 })
+    useExamStore.getState().markResultMutation('MUT-CONT-1', 'synced', { serverScore: 7.5, resultVersion: 2 })
 
     expect(useExamStore.getState().queuedResultMutations['MUT-CONT-1']).toMatchObject({ status: 'synced', serverScore: 7.5 })
     expect(useExamStore.getState().results[0].score).toBe(7.5)
+    expect(useExamStore.getState().results[0].resultVersion).toBe(2)
   })
 
   it('EXAM-CONTINUOUS-P1: complete online vẫn xếp sau durable result đang pending', async () => {

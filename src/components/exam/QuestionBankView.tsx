@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Archive,
   ArrowRight,
@@ -142,6 +142,7 @@ export function QuestionBankView() {
     variantCount: 1,
   })
   const [createdExamId, setCreatedExamId] = useState<string | null>(null)
+  const pendingBuildCommandRef = useRef<{ fingerprint: string; commandId: string } | null>(null)
 
   const loadQuestions = async () => {
     setLoading(true)
@@ -316,12 +317,21 @@ export function QuestionBankView() {
       setMessage({ text: 'Sinh đề từ ngân hàng là thao tác server-authoritative và cần kết nối mạng.', tone: 'warning' })
       return
     }
+    setSaving(true)
     try {
-      const session = await api.buildExamFromQuestionBank({
+      const payload = {
         ...build,
         questionIds: build.mode === 'manual' ? [...selected] : undefined,
         blueprintId: build.mode === 'blueprint' ? build.blueprintId : undefined,
-      })
+      }
+      const fingerprint = JSON.stringify(payload)
+      const pending = pendingBuildCommandRef.current
+      const buildCommandId = pending?.fingerprint === fingerprint
+        ? pending.commandId
+        : (globalThis.crypto?.randomUUID?.() ?? `QB-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`)
+      pendingBuildCommandRef.current = { fingerprint, commandId: buildCommandId }
+      const session = await api.buildExamFromQuestionBank({ ...payload, buildCommandId })
+      pendingBuildCommandRef.current = null
       setCreatedExamId(session.id)
       setMessage({
         text: `Đã tạo đề thi thành công với mã ${session.id}. Đề thi đã xuất hiện trong danh sách chấm thi.`,
@@ -330,6 +340,8 @@ export function QuestionBankView() {
       setSelected(new Set())
     } catch (error) {
       setMessage({ text: (error as Error).message, tone: 'warning' })
+    } finally {
+      setSaving(false)
     }
   }
 

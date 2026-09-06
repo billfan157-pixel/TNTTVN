@@ -481,6 +481,7 @@ async function currentVersionRows(parishId: string, questionIds?: string[], exec
 export async function buildExamFromBank(input: {
   mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string;
   scoreType: 'oral'|'15m'|'1period'|'midterm'|'final'; semester: 1|2; academicYear: string; maxScore: number; variantCount: number; seed?: string;
+  buildCommandId: string;
 }, actor: { userId: string; parishId: string; role: string }) {
   return runDbTransaction(async tx => {
   const [classRow] = await tx.select({ id: classes.id }).from(classes).where(and(eq(classes.parishId, actor.parishId), eq(classes.id, input.classId))).limit(1)
@@ -493,7 +494,35 @@ export async function buildExamFromBank(input: {
     )).limit(1)
     if (!assignment) throw new QuestionBankError('Bạn không có quyền tạo đề cho lớp này.', 403, 'FORBIDDEN')
   }
-  const seed = input.seed?.trim() || generateId('EXS')
+  const seed = input.seed?.trim() || `question-bank:${input.buildCommandId}`
+  const idempotencyKey = `question-bank:${input.buildCommandId}`
+  const buildRequestHash = hash({
+    mode: input.mode,
+    questionIds: input.mode === 'manual' ? input.questionIds ?? [] : null,
+    blueprintId: input.mode === 'blueprint' ? input.blueprintId ?? null : null,
+    classId: input.classId,
+    subject: input.subject.trim(),
+    scoreType: input.scoreType,
+    semester: input.semester,
+    academicYear: input.academicYear,
+    maxScore: input.maxScore,
+    variantCount: input.variantCount,
+    seed,
+  })
+  const [existingBuild] = await tx.select().from(examSessions).where(and(
+    eq(examSessions.parishId, actor.parishId),
+    eq(examSessions.idempotencyKey, idempotencyKey),
+  )).limit(1)
+  if (existingBuild) {
+    if (existingBuild.buildRequestHash !== buildRequestHash) {
+      throw new QuestionBankError(
+        'buildCommandId đã được dùng cho một cấu hình đề khác.',
+        409,
+        'QUESTION_BANK_BUILD_IDEMPOTENCY_CONFLICT',
+      )
+    }
+    return existingBuild
+  }
   let resolvedMaxScore = input.maxScore
   let selected: VersionRow[] = []
   let blueprintSnapshot: Record<string, unknown> | null = null
@@ -571,7 +600,10 @@ export async function buildExamFromBank(input: {
       examType, questionCount: questionCount || null, answerKey: questionCount ? JSON.stringify(manifest?.variants.A?.answerKey ?? answerKey) : null,
       answerVariants: answerVariants ? JSON.stringify(answerVariants) : null, variantManifests: manifest ? JSON.stringify(manifest) : null,
       questions: JSON.stringify(questions), sourceType: input.mode === 'manual' ? 'question_bank' : 'blueprint', blueprintId: input.blueprintId ?? null,
-      blueprintSnapshot: blueprintSnapshot ? JSON.stringify(blueprintSnapshot) : null, idempotencyKey: `question-bank:${sessionId}`, createdAt: now,
+      blueprintSnapshot: blueprintSnapshot ? JSON.stringify(blueprintSnapshot) : null,
+      buildRequestHash,
+      idempotencyKey,
+      createdAt: now,
   })
   await tx.insert(examQuestionSnapshots).values(ordered.map((row, index) => ({
       id: generateId('EQS'), parishId: actor.parishId, examSessionId: sessionId, questionId: row.item.id, questionVersionId: row.version.id,

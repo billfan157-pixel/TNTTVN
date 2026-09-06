@@ -76,7 +76,7 @@ interface ExamScanModalProps {
 
 type ScanState =
   | { kind: 'scanning' }
-  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode; attemptFingerprint: string; attemptDecision: 'new' | 'conflict' }
+  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode; attemptFingerprint: string; attemptDecision: 'new' | 'conflict'; detectedAnswers: Record<string, 'A' | 'B' | 'C' | 'D' | null> }
   | { kind: 'error'; message: string }
 
 interface ScannedEntry {
@@ -508,6 +508,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
             examVersion: effectiveExamVersion,
             attemptFingerprint,
             attemptDecision: attemptDecision.kind === 'conflict' ? 'conflict' : 'new',
+            detectedAnswers: 'questions' in omr
+              ? Object.fromEntries(omr.questions.map(question => [String(question.questionIndex), question.selectedAnswer]))
+              : {},
           })
           setConflictConfirmed(false)
           return true
@@ -879,9 +882,17 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         answerMap['_confidence'] = String(Math.round(phase.omr.confidence * 100) / 100)
         answers = JSON.stringify(answerMap)
       }
-      const correctedQuestions = 'questions' in phase.omr
-        ? phase.omr.questions.filter(question => question.wasCorrected).map(question => question.questionIndex)
-        : []
+      const finalAnswers = 'questions' in phase.omr
+        ? Object.fromEntries(phase.omr.questions.map(question => [String(question.questionIndex), question.selectedAnswer]))
+        : {}
+      const corrections = Object.entries(finalAnswers)
+        .filter(([questionIndex, answer]) => phase.detectedAnswers[questionIndex] !== answer)
+        .map(([questionIndex, answer]) => ({
+          questionIndex: Number(questionIndex),
+          before: phase.detectedAnswers[questionIndex] ?? null,
+          after: answer,
+        }))
+      const correctedQuestions = corrections.map(correction => correction.questionIndex)
       const scanMetadata = JSON.stringify({
         engineVersion: 'omr-v4-live',
         protocolVersion: phase.identity.protocolVersion ?? 1,
@@ -895,6 +906,9 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         initialDetectionConfidence: phase.omr.confidence,
         correctionCount: correctedQuestions.length,
         correctedQuestions,
+        detectedAnswers: phase.detectedAnswers,
+        finalAnswers,
+        corrections,
         quality: phase.quality,
         paperQuality: phase.omr.paperQuality,
       })
@@ -1422,6 +1436,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                     const status = mutation?.status ?? 'pending'
                     const label = status === 'synced'
                       ? 'Đã đồng bộ'
+                      : status === 'superseded'
+                        ? 'Đã thay bằng lần sau'
                       : status === 'error'
                         ? 'Lỗi đồng bộ'
                         : status === 'conflict'
@@ -1429,6 +1445,8 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                           : 'Chờ đồng bộ'
                     const cls = status === 'synced'
                       ? 'text-emerald-600'
+                      : status === 'superseded'
+                        ? 'text-text-muted'
                       : status === 'error' || status === 'conflict'
                         ? 'text-red-600'
                         : 'text-amber-600'

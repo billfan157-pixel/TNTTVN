@@ -1,6 +1,6 @@
 import { db, runDbTransaction, type DbExecutor, type DbTransaction } from '../db/index.js'
 import { examSessions, examResults, examResultMutations, examFinalizations, examFinalizationItems, assessmentEntries, auditLogs, students, classes, grades, gradeOverrides } from '../db/schema.js'
-import { eq, and, inArray, isNull, notInArray } from 'drizzle-orm'
+import { eq, and, inArray, isNull, notInArray, sql } from 'drizzle-orm'
 import { createHash, randomUUID } from 'node:crypto'
 import { generateId } from '../utils/id.js'
 import { createSemesterLockSpecification } from './policyAdapters.js'
@@ -33,6 +33,8 @@ export interface ExamResultMutationInput {
   clientMutationId?: string
   attemptFingerprint?: string
   capturedAt?: string
+  /** Version read by the client. Required whenever this student already has a result. */
+  expectedResultVersion?: number
 }
 
 export interface ExamResultMutationAck {
@@ -41,6 +43,7 @@ export interface ExamResultMutationAck {
   status: 'created' | 'updated' | 'duplicate'
   clientScore: number
   serverScore: number
+  resultVersion: number
 }
 
 function hashExamResultMutation(sessionId: string, input: ExamResultMutationInput): string {
@@ -54,6 +57,8 @@ function hashExamResultMutation(sessionId: string, input: ExamResultMutationInpu
     scanMetadata: input.scanMetadata ?? null,
     examVersion: normalizeExamVersion(input.examVersion),
     attemptFingerprint: input.attemptFingerprint ?? null,
+    capturedAt: input.capturedAt ?? null,
+    expectedResultVersion: input.expectedResultVersion ?? null,
   })).digest('hex')
 }
 
@@ -221,6 +226,28 @@ function sanitizeScanMetadata(input: string | undefined): string | null {
   return serialized
 }
 
+function validateAcceptedScanProvenance(
+  source: ExamResultSource,
+  scanMetadata: string | null,
+  examVersion: ExamVersionCode,
+  questionCount: number,
+  requiresQuestionBinding: boolean,
+): void {
+  if (source !== 'omr' && source !== 'qr_scan') return
+  if (!scanMetadata) badRequest('Kết quả quét thiếu scanMetadata; không thể xác minh provenance.')
+  const metadata = JSON.parse(scanMetadata) as Record<string, unknown>
+  if (metadata.detectionStatus !== 'accepted') {
+    badRequest('Kết quả quét chưa được detector chấp nhận; không được ghi điểm.')
+  }
+  if (!requiresQuestionBinding) return
+  if (metadata.examVersion !== examVersion) {
+    badRequest('Mã đề trong scanMetadata không khớp mã đề dùng để chấm.')
+  }
+  if (metadata.questionCount !== questionCount) {
+    badRequest('Số câu trong scanMetadata không khớp phiên thi.')
+  }
+}
+
 const SCORE_FIELD_MAP = {
   oral: { field: 'scoreOral', sourceColumn: 'scoreOralSource', sourceKey: 'scoreOral_source', updatedAtKey: 'scoreOral_updated_at' },
   '15m': { field: 'score15m', sourceColumn: 'score15mSource', sourceKey: 'score15m_source', updatedAtKey: 'score15m_updated_at' },
@@ -273,6 +300,23 @@ export class ExamMutationConflictError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'ExamMutationConflictError'
+  }
+}
+
+export class ExamResultVersionConflictError extends Error {
+  public statusCode = 409
+  public code = 'EXAM_RESULT_VERSION_CONFLICT'
+  public currentVersion: number | null
+  public studentId: string
+  constructor(
+    message: string,
+    currentVersion: number | null,
+    studentId: string,
+  ) {
+    super(message)
+    this.name = 'ExamResultVersionConflictError'
+    this.currentVersion = currentVersion
+    this.studentId = studentId
   }
 }
 
@@ -648,24 +692,73 @@ export async function upsertExamResults(
         }
       }
 
-      const source = r.source ?? 'qr_scan'
-      const examVersion = normalizeExamVersion(r.examVersion)
-      const scanMetadata = sanitizeScanMetadata(r.scanMetadata)
+      const commandSource = r.source ?? 'qr_scan'
+      const incomingExamVersion = normalizeExamVersion(r.examVersion)
+      const incomingScanMetadata = sanitizeScanMetadata(r.scanMetadata)
       let authoritativeScore = r.score
       let essayComponent: number | null = null
-      // EXAM-MIXED: đọc row hiện có để merge (không được xóa answers đã quét khi
-      // chỉ gửi essayScore mới, và ngược lại giữ essayScore khi quét thêm).
-      const existingRow = isMixed
-        ? (await tx
-            .select({ answers: examResults.answers, essayScore: examResults.essayScore })
-            .from(examResults)
-            .where(and(
-              eq(examResults.parishId, parishId),
-              eq(examResults.examSessionId, sessionId),
-              eq(examResults.studentId, r.studentId),
-            ))
-            .limit(1))[0]
-        : undefined
+      // Read the aggregate once, inside the writer-first transaction. Every
+      // update below is compare-and-swap against resultVersion, so a stale UI,
+      // retry from another device or concurrent scan cannot silently win.
+      const existingRow = (await tx
+        .select({
+          id: examResults.id,
+          answers: examResults.answers,
+          essayScore: examResults.essayScore,
+          source: examResults.source,
+          examVersion: examResults.examVersion,
+          scanMetadata: examResults.scanMetadata,
+          resultVersion: examResults.resultVersion,
+          attemptFingerprint: examResults.attemptFingerprint,
+          capturedAt: examResults.capturedAt,
+          createdAt: examResults.createdAt,
+        })
+        .from(examResults)
+        .where(and(
+          eq(examResults.parishId, parishId),
+          eq(examResults.examSessionId, sessionId),
+          eq(examResults.studentId, r.studentId),
+        ))
+        .limit(1))[0]
+
+      if (existingRow) {
+        if (r.expectedResultVersion === undefined || r.expectedResultVersion !== existingRow.resultVersion) {
+          throw new ExamResultVersionConflictError(
+            `Kết quả của học sinh đã thay đổi (server v${existingRow.resultVersion}); hãy tải lại trước khi ghi.`,
+            existingRow.resultVersion,
+            r.studentId,
+          )
+        }
+      } else if (r.expectedResultVersion !== undefined && r.expectedResultVersion !== 0) {
+        throw new ExamResultVersionConflictError(
+          'Kết quả đã bị xóa hoặc chưa tồn tại; hãy tải lại phiên chấm.',
+          null,
+          r.studentId,
+        )
+      }
+
+      const carriesNewAnswers = r.answers !== undefined
+      // Essay-only phase of a mixed exam must keep the MC component's version
+      // and scan provenance. Defaulting this command to A was the B-H scoring bug.
+      const preserveExistingScan = isMixed && !carriesNewAnswers && Boolean(existingRow?.answers)
+      const examVersion = preserveExistingScan
+        ? normalizeExamVersion(existingRow?.examVersion)
+        : incomingExamVersion
+      const source = preserveExistingScan
+        ? (existingRow?.source as ExamResultSource)
+        : commandSource
+      const scanMetadata = preserveExistingScan ? existingRow?.scanMetadata ?? null : incomingScanMetadata
+      const attemptFingerprint = preserveExistingScan ? existingRow?.attemptFingerprint ?? null : r.attemptFingerprint ?? null
+      const capturedAt = preserveExistingScan ? existingRow?.capturedAt ?? null : r.capturedAt ?? now
+
+      validateAcceptedScanProvenance(
+        commandSource,
+        incomingScanMetadata,
+        incomingExamVersion,
+        mcQuestionCount,
+        session.examType === 'multiple_choice' || session.examType === 'mixed',
+      )
+
       if (session.examType === 'multiple_choice' && (source === 'omr' || source === 'qr_scan')) {
         if (mcQuestionCount < 1 || mcQuestionCount > 50) badRequest('Số câu của phiên trắc nghiệm không hợp lệ.')
         const parsedAnswers = parseSubmittedAnswers(r.answers, mcQuestionCount)
@@ -719,43 +812,68 @@ export async function upsertExamResults(
       }
 
       const candidateId = generateId('EXR')
-      const [persisted] = await tx
-        .insert(examResults)
-        .values({
+      const nextVersion = existingRow ? existingRow.resultVersion + 1 : 1
+      const persistedAnswers = r.answers ?? (isMixed ? existingRow?.answers ?? null : null)
+      let persisted: { id: string; resultVersion: number } | undefined
+      if (!existingRow) {
+        ;[persisted] = await tx.insert(examResults).values({
           id: candidateId,
           examSessionId: sessionId,
           studentId: r.studentId,
           score: authoritativeScore,
           essayScore: essayComponent,
           source,
-          answers: r.answers ?? (isMixed ? existingRow?.answers ?? null : null),
+          answers: persistedAnswers,
           examVersion,
           scanMetadata,
+          resultVersion: nextVersion,
+          attemptFingerprint,
+          capturedAt,
+          savedBy: userId,
+          savedAt: now,
           parishId,
           createdAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [examResults.parishId, examResults.examSessionId, examResults.studentId],
-          set: {
+        }).returning({ id: examResults.id, resultVersion: examResults.resultVersion })
+      } else {
+        ;[persisted] = await tx.update(examResults)
+          .set({
             score: authoritativeScore,
             ...(isMixed ? { essayScore: essayComponent } : {}),
             source,
-            answers: r.answers ?? (isMixed ? existingRow?.answers ?? null : null),
+            answers: persistedAnswers,
             examVersion,
             scanMetadata,
-          },
-        })
-        .returning({ id: examResults.id })
+            resultVersion: sql`${examResults.resultVersion} + 1`,
+            attemptFingerprint,
+            capturedAt,
+            savedBy: userId,
+            savedAt: now,
+          })
+          .where(and(
+            eq(examResults.parishId, parishId),
+            eq(examResults.id, existingRow.id),
+            eq(examResults.resultVersion, existingRow.resultVersion),
+          ))
+          .returning({ id: examResults.id, resultVersion: examResults.resultVersion })
+        if (!persisted) {
+          throw new ExamResultVersionConflictError(
+            'Kết quả vừa được cập nhật bởi thao tác khác; hãy tải lại trước khi ghi.',
+            existingRow.resultVersion + 1,
+            r.studentId,
+          )
+        }
+      }
 
-      if (persisted?.id === candidateId) saved++
+      if (!existingRow) saved++
       else upserted++
 
       const ack: ExamResultMutationAck = {
         clientMutationId: r.clientMutationId,
         studentId: r.studentId,
-        status: persisted?.id === candidateId ? 'created' : 'updated',
+        status: existingRow ? 'updated' : 'created',
         clientScore: r.score,
         serverScore: authoritativeScore,
+        resultVersion: persisted.resultVersion,
       }
       items.push(ack)
 
@@ -855,6 +973,11 @@ export async function getExamResults(sessionId: string, parishId: string, allowe
       examVersion: examResults.examVersion,
       answers: examResults.answers,
       scanMetadata: examResults.scanMetadata,
+      resultVersion: examResults.resultVersion,
+      attemptFingerprint: examResults.attemptFingerprint,
+      capturedAt: examResults.capturedAt,
+      savedBy: examResults.savedBy,
+      savedAt: examResults.savedAt,
       createdAt: examResults.createdAt,
       studentCode: students.code,
       studentName: students.fullName,
@@ -1241,6 +1364,9 @@ export async function updateAnswerKeyAndRescore(
     if (sessionBefore.status !== 'draft') {
       throw new ExamStateError('Phiên đã hoàn tất — mở lại phiên trước khi sửa đáp án.')
     }
+    if (sessionBefore.variantManifests) {
+      throw new ExamStateError('Bộ mã đề đã khóa; không được sửa đáp án tách rời khỏi manifest.')
+    }
     const oldAnswerKey = sessionBefore.answerKey
     let variants: Record<string, Record<string, string>> = {}
     if (sessionBefore.answerVariants) {
@@ -1369,7 +1495,12 @@ export async function updateAnswerKeyAndRescore(
 
       await tx
         .update(examResults)
-        .set({ score: newScore })
+        .set({
+          score: newScore,
+          resultVersion: sql`${examResults.resultVersion} + 1`,
+          savedBy: userId,
+          savedAt: new Date().toISOString(),
+        })
         .where(and(eq(examResults.id, result.id), eq(examResults.parishId, parishId)))
 
       rescored++
@@ -1413,6 +1544,7 @@ export async function updateAnswerVariantsAndRescore(
     if (!session) throw new ExamNotFoundError()
     await assertExamWriter(tx, userId, parishId, session.classId, expected)
     if (session.status !== 'draft') throw new ExamStateError('Chỉ có thể sửa mã đề khi phiên đang ở trạng thái nháp.')
+    if (session.variantManifests) throw new ExamStateError('Bộ mã đề đã khóa; không được sửa đáp án tách rời khỏi manifest.')
     // EXAM-MIXED: phần TN của đề mixed cũng hỗ trợ nhiều mã đề (chỉ áp dụng cho câu TN).
     if (session.examType !== 'multiple_choice' && session.examType !== 'mixed') badRequest('Chỉ phiên trắc nghiệm hoặc mixed mới có nhiều mã đề.')
     const isMixedVariants = session.examType === 'mixed'
@@ -1461,7 +1593,12 @@ export async function updateAnswerVariantsAndRescore(
         if (Math.abs(newScore - result.score) > 0.0001) {
           scoreChanges.push({ studentId: result.studentId, examVersion: version, oldScore: result.score, newScore })
         }
-        await tx.update(examResults).set({ score: newScore })
+        await tx.update(examResults).set({
+          score: newScore,
+          resultVersion: sql`${examResults.resultVersion} + 1`,
+          savedBy: userId,
+          savedAt: new Date().toISOString(),
+        })
           .where(and(eq(examResults.id, result.id), eq(examResults.parishId, parishId)))
         rescored++
         continue
@@ -1471,7 +1608,12 @@ export async function updateAnswerVariantsAndRescore(
       if (Math.abs(newScore - result.score) > 0.0001) {
         scoreChanges.push({ studentId: result.studentId, examVersion: version, oldScore: result.score, newScore })
       }
-      await tx.update(examResults).set({ score: newScore })
+      await tx.update(examResults).set({
+        score: newScore,
+        resultVersion: sql`${examResults.resultVersion} + 1`,
+        savedBy: userId,
+        savedAt: new Date().toISOString(),
+      })
         .where(and(eq(examResults.id, result.id), eq(examResults.parishId, parishId)))
       rescored++
     }
