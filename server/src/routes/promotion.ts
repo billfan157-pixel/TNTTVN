@@ -69,6 +69,7 @@ promotionRouter.post('/approve', roleMiddleware('admin', 'chunhiem'), zValidator
       academicYear: payload.academicYear,
       targetClassId: payload.targetClassId,
       nextClassId: payload.nextClassId,
+      newBranch: payload.newBranch,
       gpa: payload.gpa,
       attendanceRate: payload.attendanceRate,
       conductSnapshot: payload.conductSnapshot,

@@ -57,11 +57,18 @@ describe('A-NEW-22 — importStudents: classMappings phải scoped theo parish',
     await db.delete(branches).where(and(eq(branches.parishId, parishA), eq(branches.id, 'ChienCon')))
   })
 
-  it('classMappings trỏ classId cross-parish → KHÔNG được dùng (fallback tạo lớp mới trong parish hiện tại)', async () => {
+  it('classMappings trỏ classId cross-parish → KHÔNG được dùng; chỉ tạo lớp khi payload yêu cầu rõ ràng', async () => {
     const rows = [{ rowIndex: 0, holyName: 'Gioan', fullName: 'Nguyễn Văn An', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'Bố', parentPhone: '0900000001', address: 'Xã X', branch: 'ChienCon', className: 'Lớp Cross Parish' }]
 
     const result = await importStudents(
-      { rows, classMappings: { 'Lớp Cross Parish': classB }, duplicateActions: {}, fileName: 'cross-parish.xlsx' },
+      {
+        rows,
+        academicYearId: ayId,
+        classMappings: { 'Lớp Cross Parish': classB },
+        newClasses: [{ name: 'Lớp Cross Parish', branch: 'ChienCon', academicYearId: ayId }],
+        duplicateActions: {},
+        fileName: 'cross-parish.xlsx',
+      },
       adminId,
       parishA,
       '127.0.0.1',
@@ -86,7 +93,7 @@ describe('A-NEW-22 — importStudents: classMappings phải scoped theo parish',
     const rows = [{ rowIndex: 0, holyName: 'Maria', fullName: 'Trần Thị Bích', gender: 'Nữ', dateOfBirth: '2015-02-02', parentName: 'Mẹ', parentPhone: '0900000002', address: 'Xã Y', branch: 'ChienCon', className: 'Lớp A' }]
 
     const result = await importStudents(
-      { rows, classMappings: { 'Lớp A': ownClassId }, duplicateActions: {}, fileName: 'own-class.xlsx' },
+      { rows, academicYearId: ayId, classMappings: { 'Lớp A': ownClassId }, duplicateActions: {}, fileName: 'own-class.xlsx' },
       adminId,
       parishA,
       '127.0.0.1',

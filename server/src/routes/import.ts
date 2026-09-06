@@ -6,7 +6,7 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { listResponse, successResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { generateId } from '../utils/id.js'
-import { validateImport, importStudents, undoImport, getImportHistory, getMappingMemory, saveMappingMemory, deleteMappingMemory } from '../services/importService.js'
+import { validateImport, importStudents, undoImport, getImportHistory, getMappingMemory, saveMappingMemory, deleteMappingMemory, recoverInterruptedImportBatches } from '../services/importService.js'
 import { getClasses } from '../services/classService.js'
 import { importBatchStudents, importBatches, students } from '../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
@@ -31,9 +31,10 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
   // Cap tường minh chống DoS bộ nhớ (trước đây chỉ bị chặn gián tiếp bởi bodyLimit 10MB).
   // 2000 dòng ≈ quy mô giáo xứ lớn nhất + dư địa; khớp convention cap batch của repo.
   rows: z.array(importRowSchema).max(2000),
+  academicYearId: z.string().trim().min(1).max(100),
 })), async (c) => {
   const user = c.get('user') as JwtPayload
-  const { rows } = c.req.valid('json')
+  const { rows, academicYearId } = c.req.valid('json')
   try {
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
 
@@ -45,12 +46,16 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
       code: c.code,
       branchId: c.branchId,
       branchName: c.branchName || '',
+      academicYearId: c.academicYearId,
     }))
 
-    const result = await validateImport(rows, user.parishId, flatClasses, allowedClassIds)
+    const result = await validateImport(rows, user.parishId, flatClasses, academicYearId, allowedClassIds)
     return successResponse(c, result)
   } catch (err: any) {
     const msg = err?.message || String(err)
+    if (err?.code === 'ACADEMIC_YEAR_REQUIRED') {
+      return errorResponse(c, 'ACADEMIC_YEAR_REQUIRED', msg, 409)
+    }
     const stack = err?.stack || ''
     const referenceId = generateId('ERR')
     console.error(JSON.stringify({
@@ -71,6 +76,7 @@ importRouter.post('/validate', roleMiddleware('admin', 'chunhiem'), zValidator('
 importRouter.post('/import', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({
   // Cap tường minh chống DoS — xem chú thích POST /validate.
   rows: z.array(importRowSchema).max(2000),
+  academicYearId: z.string().trim().min(1).max(100),
   classMappings: boundedRecord(z.string().trim().max(100).nullable()),
   newClasses: z.array(z.object({
     name: z.string().trim().min(1).max(200), branch: z.string().trim().min(1).max(50),
@@ -92,6 +98,9 @@ importRouter.post('/import', roleMiddleware('admin', 'chunhiem'), zValidator('js
   } catch (err: any) {
     const message = String(err?.message || '')
     if (message.includes('không có quyền')) return errorResponse(c, 'FORBIDDEN', message, 403)
+    if (err?.code === 'ACADEMIC_YEAR_REQUIRED' || err?.code === 'ACADEMIC_YEAR_INVALID' || err?.code === 'ACADEMIC_YEAR_MISMATCH') {
+      return errorResponse(c, err.code, message, 409)
+    }
     const referenceId = generateId('ERR')
     console.error('[import] POST /import error:', { referenceId, parishId: user.parishId, userId: user.userId, error: err })
     return errorResponse(c, 'IMPORT_FAILED', `Không thể import dữ liệu lúc này. Mã tham chiếu: ${referenceId}`, 500)
@@ -103,7 +112,7 @@ importRouter.post('/undo/:batchId', roleMiddleware('admin'), async (c) => {
   const batchId = c.req.param('batchId')
 
   try {
-    const result = await undoImport(batchId, user.parishId)
+    const result = await undoImport(batchId, user.parishId, user.userId)
     return successResponse(c, result)
   } catch (err: any) {
     return errorResponse(c, 'UNDO_FAILED', err.message, 400)
@@ -179,6 +188,7 @@ importRouter.delete('/mappings/:id', roleMiddleware('admin'), async (c) => {
 importRouter.get('/batch/:batchId', roleMiddleware('admin', 'chunhiem'), async (c) => {
   const user = c.get('user') as JwtPayload
   const batchId = c.req.param('batchId')
+  await recoverInterruptedImportBatches(user.parishId)
 
   if (!isAdmin(user)) {
     const [batch] = await db

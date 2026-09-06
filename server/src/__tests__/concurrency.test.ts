@@ -23,7 +23,7 @@ describe('Production Readiness: Real Concurrency & Optimistic Lock Tests (ADR-00
     ]).onConflictDoNothing()
     await db.insert(catechistAssignments).values([
       { id: 'asg-conc-1', userId: user1Id, classId, roleInClass: 'chunhiem', parishId: testParish },
-      { id: 'asg-conc-2', userId: user2Id, classId, roleInClass: 'chunhiem', parishId: testParish },
+      { id: 'asg-conc-2', userId: user2Id, classId, roleInClass: 'phuta', parishId: testParish },
     ]).onConflictDoNothing()
 
     await db.insert(students).values({

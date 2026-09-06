@@ -27,6 +27,7 @@ import {
 } from '../lib/syncQueueMaintenance'
 import {
   applyServerResultAsync,
+  reconcilePermanentlyRejectedStudentOp,
   resolveConflictWithMerge,
   flushGradeBatchWithIsolation,
   flushAttendanceBatchWithIsolation,
@@ -246,6 +247,7 @@ export async function runSyncFlow(leaseHeld = false) {
         // them retrying so the user can fix the parent entity and re-sync, instead
         // of silently losing offline-entered grades/attendance.
         await store.updateOp(op.id, { status: 'failed', lastError: result.error })
+        await reconcilePermanentlyRejectedStudentOp(op)
         store.setLastError(result.error || null)
       }
     }
@@ -398,6 +400,7 @@ export async function runSyncFlow(leaseHeld = false) {
         }
       } else {
         await store.updateOp(op.id, { status: 'failed', lastError: result.error })
+        await reconcilePermanentlyRejectedStudentOp(op)
         store.setLastError(result.error || null)
         // FE-F1: permanent fail (4xx — vd 403 học kỳ đã khóa) → revert optimistic
         // complete để UI không tiếp tục hiển thị phiên "đã hoàn tất" sai.

@@ -6,7 +6,18 @@
 > - **Product Name**: `Catevia`
 >
 > Canonical Single Source of Truth (SSOT) entrypoint for LLM-assisted pair programming agents.
-> Version: 3.6 | Last reviewed: 2026-09-04 | Status: ✅ Current | Prerequisites: none
+> Version: 3.7 | Last reviewed: 2026-09-06 | Status: ✅ Current | Prerequisites: none
+
+### Module: Roster Membership, Assignment & Import Recovery (ADR-108, 2026-09-06)
+
+- **Decision:** D3 incremental hardening of the modular monolith. `studentMembershipPolicy` owns active class/branch consistency; generic membership moves require an audit reason, while promotion is online-only through the snapshot writer and validates current source, target year and destination branch.
+- **Assignment/class lifecycle:** `classAssignmentPolicy` is shared by class-centric, user-centric and create-user adapters; only `chunhiem|phuta` active/pre-activation accounts are assignable. Migration `20260906-176` adds one-CN partial UNIQUE backstops. `classDependencyService` blocks class deletion or branch/year reclassification while direct dependencies remain.
+- **Import/recovery:** explicit active `academicYearId`, year-scoped ambiguity-aware matching, normalized fail-closed duplicate detection, no demographic/branch guesses, quote-safe CSV and structured XLSX. Batch/class bootstrap is atomic; each row provenance/counter commits with its row and old `processing` batches recover after restart. Undo is actor-correct, dependency-complete and itemized.
+- **Client truthfulness:** StudentModal waits for encrypted queue insertion; permanent student mutation rejection reconciles authoritative state or removes the untrusted projection while retaining Diagnostics payload. Offline promotion does not mutate or queue generic student updates.
+- **Operations/evidence:** `npm run audit:roster-integrity` is read-only and privacy-minimized. Local/default target fingerprint `0f514a8e24b4e5c4` returned zero findings. Import maintenance now recovers pre-process batches across parish scopes before HTTP bind (**14/14** focused tests). Final `verify:ci` passed **321 files / 2,245 tests** plus lint/inventory/DS/typecheck/build; production inventory, migration 176, release SHA, deploy and smoke remain external.
+- **Code truth:** `studentMembershipPolicy.ts`, `classAssignmentPolicy.ts`, `classDependencyService.ts`, `importService.ts`, promotion application services, `studentStore.ts`, `syncApply.ts`, and the roster audit/regression suites.
+
+---
 
 ### Module: Comprehensive UX/UI Audit & Design System Hardening Waves 1–4 (2026-09-04)
 

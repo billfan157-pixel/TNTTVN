@@ -14,6 +14,11 @@ export interface PromotionAction {
   newClassId: string
 }
 
+export type StudentUpdateChanges = Partial<Omit<Student, 'id' | 'code'>> & {
+  /** Required by the server when class/branch membership actually changes. */
+  membershipChangeReason?: string
+}
+
 export interface ServerStudentChange {
   action: 'created' | 'updated'
   student: Student
@@ -27,13 +32,13 @@ interface StudentState {
 
   fetchStudents: (params?: { updatedAfter?: string; updatedBefore?: string; limit?: number; page?: number; throwOnError?: boolean }) => Promise<void>
   setStudents: (students: Student[]) => void
+  discardOptimisticStudent: (id: string) => void
   reconcileImportedStudents: (changes: ServerStudentChange[]) => void
   addStudent: (student: Omit<Student, 'id' | 'code'>) => Promise<void>
   replaceStudentId: (oldId: string, serverStudent: Student) => void
-  updateStudent: (id: string, changes: Partial<Omit<Student, 'id' | 'code'>>) => Promise<void>
+  updateStudent: (id: string, changes: StudentUpdateChanges) => Promise<void>
   deleteStudent: (id: string) => Promise<void>
   deleteStudents: (ids: string[]) => Promise<void>
-  batchPromote: (promotions: PromotionAction[]) => Promise<void>
   applyLocalPromotions: (promotions: PromotionAction[]) => void
   setPagination: (pagination: Partial<StudentState['pagination']>) => void
 }
@@ -42,7 +47,7 @@ const activeSubmissions = new Set<string>()
 
 export const useStudentStore = create<StudentState>()(
   persist(
-    (set, _get) => ({
+    (set, get) => ({
       students: [],
       isLoading: false,
       error: null,
@@ -109,6 +114,18 @@ export const useStudentStore = create<StudentState>()(
 
       setStudents: (students) => set({ students }),
 
+      discardOptimisticStudent: (id) => set((state) => {
+        if (!state.students.some(student => student.id === id)) return state
+        const students = state.students.filter(student => student.id !== id)
+        return {
+          students,
+          pagination: {
+            ...state.pagination,
+            total: Math.max(students.length, state.pagination.total - 1),
+          },
+        }
+      }),
+
       reconcileImportedStudents: (changes) => {
         const scope = getTenantScope()
         if (!scope || changes.length === 0) return
@@ -154,7 +171,12 @@ export const useStudentStore = create<StudentState>()(
           const newStudent: Student = { ...data, id, code }
 
           set((state) => ({ students: [newStudent, ...state.students] }))
-          await syncCreateStudent(newStudent)
+          try {
+            await syncCreateStudent(newStudent)
+          } catch (error) {
+            set((state) => ({ students: state.students.filter(student => student.id !== id) }))
+            throw error
+          }
           runSyncFlow()
         } finally {
           setTimeout(() => activeSubmissions.delete(submissionKey), 1000)
@@ -167,18 +189,35 @@ export const useStudentStore = create<StudentState>()(
         })),
 
       updateStudent: async (id, changes) => {
+        const previous = get().students.find(student => student.id === id)
+        const { membershipChangeReason: _membershipChangeReason, ...studentChanges } = changes
         set((state) => ({
-          students: state.students.map((s) => (s.id === id ? { ...s, ...changes } : s)),
+          students: state.students.map((s) => (s.id === id ? { ...s, ...studentChanges } : s)),
         }))
-        await syncUpdateStudent(id, changes)
+        try {
+          await syncUpdateStudent(id, changes)
+        } catch (error) {
+          if (previous) {
+            set((state) => ({
+              students: state.students.map(student => student.id === id ? previous : student),
+            }))
+          }
+          throw error
+        }
         runSyncFlow()
       },
 
       deleteStudent: async (id) => {
+        const previousStudents = get().students
         set((state) => ({
           students: state.students.filter((s) => s.id !== id),
         }))
-        await syncDeleteStudent(id)
+        try {
+          await syncDeleteStudent(id)
+        } catch (error) {
+          set({ students: previousStudents })
+          throw error
+        }
         runSyncFlow()
       },
 
@@ -191,30 +230,6 @@ export const useStudentStore = create<StudentState>()(
         for (const id of ids) {
           await syncDeleteStudent(id)
         }
-        runSyncFlow()
-      },
-
-      batchPromote: async (promotions) => {
-        for (const p of promotions) {
-          await syncUpdateStudent(p.studentId, {
-            branch: p.newBranch as BranchType,
-            classId: p.newClassId,
-            status: 'Đang học',
-          })
-        }
-        set((state) => {
-          const next: Student[] = state.students.map((s) => {
-            const p = promotions.find((pr) => pr.studentId === s.id)
-            if (!p) return s
-            return {
-              ...s,
-              branch: p.newBranch as BranchType,
-              classId: p.newClassId,
-              status: 'Đang học' as const,
-            }
-          })
-          return { students: next }
-        })
         runSyncFlow()
       },
 

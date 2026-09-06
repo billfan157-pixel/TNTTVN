@@ -24,7 +24,7 @@ import { initTelegramBot, sendTelegramInfo, sendTelegramAlert, stopTelegramBot }
 import { initNotificationQueue, stopNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler, stopSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
-import { startImportRollbackSnapshotCleanup } from './services/importService.js'
+import { runImportMaintenanceCycle, startImportRollbackSnapshotCleanup } from './services/importService.js'
 import { closeBrowser } from './services/pdfService.js'
 import cspReportRouter from './routes/cspReport.js'
 import { initSentryNode, captureServerException } from './utils/observability.js'
@@ -181,6 +181,19 @@ try {
   throw err
 }
 
+// Import row writes are intentionally partial-success, but stale `processing`
+// control rows must converge immediately after a restart rather than waiting
+// for an operator to reopen Import History. Run the tenant-scoped recovery
+// before accepting traffic; a failure aborts startup instead of hiding stale
+// provenance. The periodic worker repeats this maintenance without an initial
+// duplicate run.
+try {
+  await runImportMaintenanceCycle()
+} catch (err) {
+  console.error('[startup] Import recovery maintenance failed:', err)
+  throw err
+}
+
 // A-NEW-38 (2026-08-11): XÓA block reset admin password khỏi startup.
 // Trước đây block này ghi đè passwordHash của admin `bill` mỗi lần khởi động khi
 // SEED_ADMIN_PASSWORD tồn tại + (NODE_ENV != production hoặc ALLOW_SEED_ADMIN_RESET=true)
@@ -190,7 +203,7 @@ try {
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST })
 console.log(`Server running at http://${HOST}:${PORT}`)
-const stopImportRollbackCleanup = startImportRollbackSnapshotCleanup()
+const stopImportRollbackCleanup = startImportRollbackSnapshotCleanup(60 * 60 * 1000, false)
 
 let shutdownPromise: Promise<void> | null = null
 const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {

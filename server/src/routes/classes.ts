@@ -222,6 +222,8 @@ classesRouter.post('/', roleMiddleware('admin'), zValidator('json', classSchema)
     if (msg.includes('FOREIGN KEY constraint failed')) {
       return errorResponse(c, 'INVALID_REFERENCE', 'Ngành học (branchId) hoặc năm học (academicYearId) không tồn tại', 400)
     }
+    if (err?.code === 'CLASS_STRUCTURE_LOCKED') return errorResponse(c, err.code, err.message, 409)
+    if (err?.code === 'ACADEMIC_YEAR_INVALID') return errorResponse(c, err.code, err.message, 409)
     throw err
   }
 })
@@ -255,9 +257,16 @@ classesRouter.delete('/:id', roleMiddleware('admin'), async (c) => {
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  const success = await deleteClass(id, user.userId, user.parishId, ip, userAgent)
-  if (!success) return errorResponse(c, 'NOT_FOUND', 'Lớp học không tồn tại', 404)
-  return successResponse(c, { id, deleted: true })
+  try {
+    const success = await deleteClass(id, user.userId, user.parishId, ip, userAgent)
+    if (!success) return errorResponse(c, 'NOT_FOUND', 'Lớp học không tồn tại', 404)
+    return successResponse(c, { id, deleted: true })
+  } catch (err: any) {
+    if (err?.code === 'CLASS_HAS_DEPENDENCIES') {
+      return errorResponse(c, err.code, err.message, 409)
+    }
+    throw err
+  }
 })
 
 export default classesRouter

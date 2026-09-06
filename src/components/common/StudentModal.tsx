@@ -50,6 +50,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [membershipChangeReason, setMembershipChangeReason] = useState('')
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
   const [parentAccount, setParentAccount] = useState<ParentAccountState>({ status: 'idle' });
@@ -108,6 +110,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   useEffect(() => {
     const liveClasses = rawClassesRef.current;
     setErrors({});
+    setMembershipChangeReason('');
     if (studentToEdit) {
       setFormData({
         holyName: studentToEdit.holyName || '',
@@ -148,6 +151,9 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   }, [studentToEdit, isOpen]);
 
   const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
+  const membershipChanged = Boolean(studentToEdit && (
+    formData.classId !== studentToEdit.classId || formData.branch !== studentToEdit.branch
+  ));
 
   const { dialogRef: modalRef } = useAccessibleDialog(isOpen, onClose)
 
@@ -220,7 +226,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
@@ -228,6 +234,9 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     for (const field of fieldsToValidate) {
       const err = validateField(field, (formData as any)[field] || '');
       if (err) newErrors[field] = err;
+    }
+    if (membershipChanged && membershipChangeReason.trim().length < 5) {
+      newErrors.membershipChangeReason = 'Vui lòng nhập lý do chuyển lớp/ngành (ít nhất 5 ký tự).';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -239,15 +248,24 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     const studentPayload = {
       ...formData,
       gender: formData.gender as 'Nam' | 'Nữ',
+      ...(membershipChanged ? { membershipChangeReason: membershipChangeReason.trim() } : {}),
     }
-    if (studentToEdit) {
-      updateStudent(studentToEdit.id, studentPayload);
-      addToast('Đã cập nhật thông tin thiếu nhi thành công!', 'success')
-    } else {
-      addStudent(studentPayload);
-      addToast('Đã thêm thiếu nhi mới thành công!', 'success')
+    setIsSubmitting(true)
+    try {
+      if (studentToEdit) {
+        await updateStudent(studentToEdit.id, studentPayload);
+        addToast('Đã lưu cập nhật trên thiết bị và đưa vào hàng đợi đồng bộ.', 'success')
+      } else {
+        await addStudent(studentPayload);
+        addToast('Đã lưu hồ sơ trên thiết bị và đưa vào hàng đợi đồng bộ.', 'success')
+      }
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể lưu hồ sơ trên thiết bị.'
+      addToast(message, 'error', 5000)
+    } finally {
+      setIsSubmitting(false)
     }
-    onClose();
   };
 
   const filteredClasses = classList.filter(c => c.branch === formData.branch);
@@ -394,6 +412,31 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               </select>
             </div>
           </div>
+
+          {membershipChanged && (
+            <div className="form-group">
+              <label htmlFor="student-membership-reason" className="form-label">Lý do chuyển lớp/ngành *</label>
+              <textarea
+                id="student-membership-reason"
+                className={`form-textarea ${errors.membershipChangeReason ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
+                rows={2}
+                maxLength={500}
+                placeholder="VD: Điều chỉnh xếp lớp do nhập nhầm hồ sơ"
+                value={membershipChangeReason}
+                onChange={e => {
+                  setMembershipChangeReason(e.target.value)
+                  if (errors.membershipChangeReason) setErrors(prev => ({ ...prev, membershipChangeReason: '' }))
+                }}
+                aria-invalid={errors.membershipChangeReason ? 'true' : undefined}
+                aria-describedby={errors.membershipChangeReason ? 'membershipChangeReason-error' : undefined}
+              />
+              {errors.membershipChangeReason && (
+                <span id="membershipChangeReason-error" role="alert" className="text-xs text-parish-danger mt-1 block font-medium">
+                  {errors.membershipChangeReason}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Ngày sinh & Các Bí Tích */}
           <div className="grid grid-cols-3 gap-3.5">
@@ -563,9 +606,9 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Hủy
             </button>
-            <button type="submit" className="btn btn-primary">
-              <Save size={16} />
-              {studentToEdit ? 'Lưu Thay Đổi' : 'Thêm Thiếu Nhi'}
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting} aria-busy={isSubmitting}>
+              {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              {isSubmitting ? 'Đang lưu...' : studentToEdit ? 'Lưu Thay Đổi' : 'Thêm Thiếu Nhi'}
             </button>
           </div>
         </form>

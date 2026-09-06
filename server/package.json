@@ -16,6 +16,7 @@
     "db:restore:remote": "node --env-file-if-exists=.env --import tsx src/scripts/restoreRemoteBackup.ts",
     "db:audit:promotion-reconciliation": "node --env-file-if-exists=.env --import tsx src/scripts/auditPromotionReconciliation.ts",
     "db:audit:deployment-parish": "node --env-file-if-exists=.env --import tsx src/scripts/auditSingleParishDeployment.ts",
+    "db:audit:roster-integrity": "node --env-file-if-exists=.env --import tsx src/scripts/auditRosterIntegrity.ts",
     "notifications:audit:sunday-readiness": "node --env-file-if-exists=.env --import tsx src/scripts/auditSundayReminderReadiness.ts",
     "vapid:generate": "web-push generate-vapid-keys --json"
   },

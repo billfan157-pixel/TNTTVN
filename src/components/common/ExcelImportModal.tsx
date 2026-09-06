@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, X, Loader2, ArrowRight, Download, FileDown, History, RotateCcw, Layers, Info, Settings2, AlertTriangle } from 'lucide-react'
 import { loadXlsx } from '../../lib/xlsxLoader'
-import { findHeaderRow, detectColumnsWithConfidence, parseToImportRows, normalizeDate, type ImportRow, type ColumnDetectionResult } from '../../utils/excelParser'
+import { findHeaderRow, detectColumnsWithConfidence, parseDelimitedRows, parseToImportRows, rowsToRawStrings, normalizeDate, type ImportRow, type ColumnDetectionResult } from '../../utils/excelParser'
 import { useClassStore } from '../../stores/classStore'
 import { api } from '../../lib/api'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
@@ -56,10 +56,12 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [previousImport, setPreviousImport] = useState<{ batchId: string; fileName: string | null; createdAt: string; totalRows: number } | null>(null)
   const [serviceExclusions, setServiceExclusions] = useState<Set<number>>(new Set())
   const [editClassNames, setEditClassNames] = useState<Set<string>>(new Set())
+  const [selectedAcademicYearId, setSelectedAcademicYearId] = useState('')
 
   const branches = useClassStore((s) => s.branches)
   const academicYears = useClassStore((s) => s.academicYears)
   const activeAcademicYears = academicYears.filter(a => !a.isLocked)
+  const targetAcademicYearId = selectedAcademicYearId || activeAcademicYears[0]?.id || ''
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   const addToast = useToastStore((s) => s.addToast)
   const allFields = Object.keys(FIELD_LABELS)
@@ -81,6 +83,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setDetailView(null)
     setPreviousImport(null)
     setServiceExclusions(new Set())
+    setSelectedAcademicYearId('')
   }, [])
 
   const handleClose = useCallback(() => {
@@ -92,7 +95,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null
 
-  const readFile = (file: File): Promise<string> => {
+  const readFile = (file: File): Promise<string[][]> => {
     return new Promise((resolve, reject) => {
       const extension = file.name.toLowerCase().split('.').pop() || ''
       if (!['xlsx', 'xls', 'csv', 'txt'].includes(extension)) return reject(new Error('Chỉ hỗ trợ file .xlsx, .xls, .csv hoặc .txt'))
@@ -111,11 +114,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
             })
             const sheet = workbook.Sheets[workbook.SheetNames[0]]
             const rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '' })
-            const text = rows.map(r => r.map((c: any) => c ?? '').join('\t')).join('\n')
-            resolve(text)
+            resolve(rowsToRawStrings(rows))
           })().catch(reject)
         } else {
-          resolve(e.target?.result as string)
+          resolve(parseDelimitedRows(e.target?.result as string))
         }
       }
       reader.onerror = () => reject(reader.error)
@@ -124,17 +126,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     })
   }
 
-  const parseText = (text: string) => {
-    if (text.length > MAX_IMPORT_TEXT_CHARS) {
-      setError('Nội dung vượt quá giới hạn 10 MB')
-      setRawRows([])
-      return
-    }
-    const lines = text.split(/\r?\n/).filter(l => l.trim())
-    const parsed = lines.map(line => {
-      const delim = line.includes('\t') ? '\t' : line.includes(',') ? ',' : ';'
-      return line.split(delim).map(c => c.trim().replace(/^["']|["']$/g, ''))
-    })
+  const parseRows = (parsed: string[][]) => {
     const { headerIndex, colMap: detected } = findHeaderRow(parsed)
     if (headerIndex === -1) {
       setError('Không tìm thấy dòng tiêu đề. Vui lòng đảm bảo file có header (Tên Thánh, Họ Tên, ...)')
@@ -153,13 +145,27 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setColumnDetections(detectColumnsWithConfidence(headerRow))
   }
 
+  const parseText = (text: string) => {
+    if (text.length > MAX_IMPORT_TEXT_CHARS) {
+      setError('Nội dung vượt quá giới hạn 10 MB')
+      setRawRows([])
+      return
+    }
+    try {
+      parseRows(parseDelimitedRows(text))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đọc dữ liệu phân cách')
+      setRawRows([])
+    }
+  }
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setFileName(file.name)
     try {
-      const text = await readFile(file)
-      parseText(text)
+      const rows = await readFile(file)
+      parseRows(rows)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể đọc file. Vui lòng thử lại.')
     }
@@ -176,13 +182,17 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   const handleContinueToReview = async () => {
+    if (!targetAcademicYearId) {
+      setError('Chưa có niên khóa đang mở. Quản trị viên cần tạo niên khóa trước khi import.')
+      return
+    }
     const rows = parseToImportRows(rawRows, colMap)
       .map(r => ({ ...r, dateOfBirth: normalizeDate(r.dateOfBirth) }))
     setImportRows(rows)
     setLoading(true)
     setError('')
     try {
-      const result = await api.validateStudents(rows.map(r => ({ ...r, rowIndex: r.rowIndex })))
+      const result = await api.validateStudents(rows.map(r => ({ ...r, rowIndex: r.rowIndex })), targetAcademicYearId)
       setValidationRows(result.rows)
 
       const suggested = result.suggestedNewClasses || []
@@ -200,18 +210,6 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
           branch: nc.branch,
           academicYearId: nc.academicYearId,
         })
-      }
-
-      for (const cn of classNotFound) {
-        const canon = cn.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
-        if (!newCls.find(nc => nc.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim() === canon)) {
-          const branch = inferBranch(cn) || 'ThieuNhi'
-          newCls.push({
-            name: cn,
-            branch,
-            academicYearId: activeAcademicYears[0]?.id || '',
-          })
-        }
       }
 
       setPreviousImport(result.previousImport || null)
@@ -248,6 +246,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     try {
       const result = await api.importStudents({
         rows: importRows.map(r => ({ ...r, rowIndex: r.rowIndex })),
+        academicYearId: targetAcademicYearId,
         classMappings,
         newClasses,
         duplicateActions,
@@ -281,21 +280,25 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     if (!importResult?.batchId) return
     setUndoing(true)
     try {
-      await api.undoImport(importResult.batchId)
+      const undoResult = await api.undoImport(importResult.batchId)
       await Promise.all([
         useStudentStore.getState().fetchStudents(),
         useClassStore.getState().fetchClasses(),
       ])
-      addToast(`Đã hoàn tác ${importResult.imported} học viên`, 'success', 4000)
+      const isPartial = undoResult.errors.length > 0
+      const summary = isPartial
+        ? `Đã hoàn tác ${undoResult.undone} dòng; ${undoResult.errors.length} mục bị giữ lại an toàn.`
+        : `Đã hoàn tác ${undoResult.undone} dòng${undoResult.classesDeleted.length ? ` và ${undoResult.classesDeleted.length} lớp được tạo bởi batch` : ''}.`
+      addToast(summary, isPartial ? 'info' : 'success', 5000)
       await askConfirm({
-        title: 'Hoàn tác thành công',
-        message: `Đã hoàn tác import. ${importResult.imported} học viên đã được xóa (soft-delete).`,
+        title: isPartial ? 'Hoàn tác một phần' : 'Hoàn tác thành công',
+        message: `${summary}${isPartial ? `\n\n${undoResult.errors.slice(0, 5).join('\n')}` : ''}`,
         confirmText: 'OK',
-        variant: 'info',
+        variant: isPartial ? 'warning' : 'info',
         showCancel: false,
       })
     } catch (err: any) {
-      const msg = err?.message || 'Không thể hoàn tác. Batch có thể đã hết hạn 10 phút.'
+      const msg = err?.message || 'Không thể hoàn tác. Batch có thể đã hết hạn 24 giờ.'
       addToast(msg, 'error', 5000)
       await askConfirm({
         title: 'Không thể hoàn tác',
@@ -330,24 +333,6 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     return action === 'update' || action === 'create'
   }).length
 
-  const BRANCH_KEYWORDS: Record<string, string[]> = {
-    ChienCon: ['chien con', 'chiên con', 'cc', 'chien'],
-    AuNhi: ['au nhi', 'ấu nhi', 'an', 'au'],
-    ThieuNhi: ['thieu nhi', 'thiếu nhi', 'tn', 'thieu'],
-    NghiaSi: ['nghia si', 'nghĩa sĩ', 'ns', 'nghia'],
-    HiepSi: ['hiep si', 'hiệp sĩ', 'hs', 'hiep'],
-  }
-  const inferBranch = (className: string): string | null => {
-    const lower = className.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    for (const [branch, keywords] of Object.entries(BRANCH_KEYWORDS)) {
-      for (const kw of keywords) {
-        if (lower.includes(kw)) return branch
-      }
-    }
-    const branchName = branches.find(b => lower.includes(b.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')))
-    return branchName?.name || null
-  }
-
   const canonicalKey = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
   const unmatchedClassNames = (() => {
     const seen = new Set<string>()
@@ -363,6 +348,11 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
     return result
   })()
+  const unresolvedAmbiguousClassNames = unmatchedClassNames.filter(cn => {
+    const canon = canonicalKey(cn)
+    const isExplicitNewClass = newClasses.some(candidate => canonicalKey(candidate.name) === canon)
+    return !isExplicitNewClass && !classMappings[cn]
+  })
 
   const countErrorType = (keyword: string): number =>
     invalidRows.filter((r: any) => (r.errors || []).some((e: string) => e.includes(keyword))).length
@@ -440,6 +430,22 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="text-xs text-text-muted flex items-end pb-2">
                    File cần có dòng tiêu đề (Tên Thánh, Họ Tên, Lớp...) — Các trường khác nếu thiếu sẽ được tự động điền
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase mb-1" htmlFor="roster-import-academic-year">Niên Khóa Import</label>
+                <select
+                  id="roster-import-academic-year"
+                  value={targetAcademicYearId}
+                  onChange={event => setSelectedAcademicYearId(event.target.value)}
+                  className="form-input w-full"
+                >
+                  {activeAcademicYears.length === 0 && <option value="">Chưa có niên khóa đang mở</option>}
+                  {activeAcademicYears.map(year => (
+                    <option key={year.id} value={year.id}>{year.startDate} - {year.endDate}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-text-muted">Chỉ các lớp thuộc niên khóa này được phép ghép hoặc tạo mới.</p>
               </div>
 
               <div>
@@ -799,10 +805,10 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 </div>
               )}
 
-              {/* Unmatched classes — auto-create by default */}
+              {/* Unmatched classes — only true misses may be created; ambiguous matches require a choice. */}
               {unmatchedClassNames.length > 0 && (
                 <div className="p-4 bg-surface-app rounded-lg border border-surface-border">
-                  <h4 className="text-sm font-bold text-parish-warning mb-3">Lớp Chưa Tồn Tại — Sẽ Tự Động Tạo Mới</h4>
+                  <h4 className="text-sm font-bold text-parish-warning mb-3">Lớp Cần Xử Lý</h4>
                   <div className="space-y-2">
                     {unmatchedClassNames.map(cn => {
                       const canon = canonicalKey(cn)
@@ -817,7 +823,9 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                               <span className="text-sm font-bold text-amber-900 shrink-0">{cn}</span>
                               {!classMappings[cn] ? (
                                 <span className="text-[11px] text-amber-700 truncate">
-                                  → Tạo mới: {nc?.branch || '?'} · {ayName ? `${ayName.startDate}–${ayName.endDate}` : '?'} · {studentCount} học viên
+                                  {nc
+                                    ? `→ Tạo mới: ${nc.branch || '?'} · ${ayName ? `${ayName.startDate}–${ayName.endDate}` : '?'} · ${studentCount} học viên`
+                                    : '→ Có nhiều lớp gần giống; bắt buộc chọn lớp phù hợp'}
                                 </span>
                               ) : (
                                 <span className="text-[11px] text-emerald-700 truncate">
@@ -825,7 +833,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                 </span>
                               )}
                             </div>
-                            {!classMappings[cn] && (() => {
+                            {!classMappings[cn] && nc && (() => {
                               const canonInner = canonicalKey(cn)
                               const studentsInClass = validationRows.filter(r => canonicalKey(r.className) === canonInner && !r.duplicateOf)
                               const studentBranches = [...new Set(studentsInClass.map(r => r.branch).filter(Boolean))]
@@ -847,7 +855,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                 value={classMappings[cn] || ''}
                                 onChange={e => setClassMappings(prev => ({ ...prev, [cn]: e.target.value || null }))}
                               >
-                                <option value="">Tự động tạo mới</option>
+                                <option value="">{nc ? 'Tạo lớp mới' : 'Chọn lớp phù hợp'}</option>
                                 {(row?.classSuggestions || []).map((s: any) => (
                                   <option key={s.id} value={s.id} className={
                                     s.confidence >= 95 ? 'bg-emerald-50' :
@@ -858,7 +866,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                   </option>
                                 ))}
                               </select>
-                              {!classMappings[cn] && (
+                              {!classMappings[cn] && nc && (
                                 <button
                                   onClick={() => setEditClassNames(prev => { const n = new Set(prev); if (n.has(cn)) n.delete(cn); else n.add(cn); return n })}
                                   className="p-1 rounded hover:bg-amber-200/50 text-amber-600"
@@ -869,7 +877,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                               )}
                             </div>
                           </div>
-                          {!classMappings[cn] && editClassNames.has(cn) && (
+                          {!classMappings[cn] && nc && editClassNames.has(cn) && (
                             <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-amber-200">
                               <select
                                 className="text-xs px-2 py-1 border border-surface-border rounded bg-surface-card"
@@ -1005,7 +1013,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 flex items-center justify-between">
                   <div className="text-sm text-text-muted">
                     <span className="font-medium text-text-main">Batch ID:</span> {importResult.batchId}
-                    <span className="ml-2 text-[10px]">(Có thể hoàn tác trong vòng 10 phút)</span>
+                    <span className="ml-2 text-[10px]">(Có thể hoàn tác trong vòng 24 giờ)</span>
                   </div>
                   <button
                     onClick={handleUndo}
@@ -1127,16 +1135,20 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                             <button
                               onClick={async () => {
                                 try {
-                                  await api.undoImport(b.id)
+                                  const undoResult = await api.undoImport(b.id)
                                   await Promise.all([
                                     useStudentStore.getState().fetchStudents(),
                                     useClassStore.getState().fetchClasses(),
                                   ])
+                                  const isPartial = undoResult.errors.length > 0
+                                  const summary = isPartial
+                                    ? `Đã hoàn tác ${undoResult.undone} dòng; ${undoResult.errors.length} mục bị giữ lại an toàn.`
+                                    : `Đã hoàn tác ${undoResult.undone} dòng${undoResult.classesDeleted.length ? ` và ${undoResult.classesDeleted.length} lớp được tạo bởi batch` : ''}.`
                                   await askConfirm({
-                                    title: 'Hoàn tác thành công',
-                                    message: 'Đã hoàn tác import batch này.',
+                                    title: isPartial ? 'Hoàn tác một phần' : 'Hoàn tác thành công',
+                                    message: `${summary}${isPartial ? `\n\n${undoResult.errors.slice(0, 5).join('\n')}` : ''}`,
                                     confirmText: 'OK',
-                                    variant: 'info',
+                                    variant: isPartial ? 'warning' : 'info',
                                     showCancel: false,
                                   })
                                   loadHistory()
@@ -1216,7 +1228,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
             {step === 'upload' && rawRows.length > 0 && (
               <button
                 onClick={handleContinueToReview}
-                disabled={loading}
+                disabled={loading || !targetAcademicYearId}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold text-white bg-parish-primary hover:bg-parish-primary/90 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs transition-colors"
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -1228,7 +1240,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
             {step === 'review' && (
               <button
                 onClick={handleImport}
-                disabled={loading || plannedImportCount === 0}
+                disabled={loading || plannedImportCount === 0 || unresolvedAmbiguousClassNames.length > 0}
+                title={unresolvedAmbiguousClassNames.length > 0 ? 'Cần chọn lớp cho tất cả trường hợp mơ hồ trước khi import' : undefined}
                 className="btn btn-primary text-sm font-semibold flex items-center gap-2"
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -335,7 +335,7 @@ describe('Auth audit remediation: server invariants', () => {
       .set({ name: 'Synthetic parish B private class name' })
       .where(and(eq(classes.parishId, B), eq(classes.id, 'class1')))
 
-    const response = await request('/api/students/validate', token('teacher', 'chunhiem'), { rows: [{
+    const response = await request('/api/students/validate', token('teacher', 'chunhiem'), { academicYearId: '2025-2026', rows: [{
       rowIndex: 1,
       holyName: 'Giuse',
       fullName: 'Synthetic child1',

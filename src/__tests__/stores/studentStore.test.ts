@@ -77,6 +77,18 @@ describe('studentStore', () => {
     expect(s.gender).toBe('Nam')
   })
 
+  it('rolls back an optimistic create when durable queue insertion fails', async () => {
+    vi.mocked(syncService.syncCreateStudent).mockRejectedValueOnce(new Error('Dexie write failed'))
+
+    await expect(useStudentStore.getState().addStudent({
+      holyName: 'Anna', fullName: 'Queue Failure Create', gender: 'Nữ',
+      dateOfBirth: '2015-04-04', parentName: 'Mẹ', parentPhone: '0901111111',
+      address: 'Giáo Xứ', branch: 'AuNhi', classId: 'AU1', status: 'Đang học',
+    })).rejects.toThrow('Dexie write failed')
+
+    expect(useStudentStore.getState().students).toHaveLength(0)
+  })
+
   it('replaceStudentId replaces a student in-place', () => {
     useStudentStore.setState({ students: [makeStudent()] })
     const serverStudent: Student = makeStudent({ id: 'ST-SERVER-001', code: 'TN-2000', fullName: 'Nguyễn Văn A (Server)' })
@@ -92,11 +104,29 @@ describe('studentStore', () => {
     expect(vi.mocked(syncService.syncUpdateStudent)).toHaveBeenCalledWith('ST-001', { fullName: 'Nguyễn Văn A (Đã sửa)' })
   })
 
+  it('restores the previous student when durable update enqueue fails', async () => {
+    const original = makeStudent()
+    useStudentStore.setState({ students: [original] })
+    vi.mocked(syncService.syncUpdateStudent).mockRejectedValueOnce(new Error('Dexie write failed'))
+
+    await expect(useStudentStore.getState().updateStudent('ST-001', { fullName: 'Không được giữ lại' })).rejects.toThrow('Dexie write failed')
+    expect(useStudentStore.getState().students).toEqual([original])
+  })
+
   it('deleteStudent removes student and syncs', async () => {
     useStudentStore.setState({ students: [makeStudent()] })
     await useStudentStore.getState().deleteStudent('ST-001')
     expect(useStudentStore.getState().students).toHaveLength(0)
     expect(vi.mocked(syncService.syncDeleteStudent)).toHaveBeenCalledWith('ST-001')
+  })
+
+  it('restores the roster when durable delete enqueue fails', async () => {
+    const original = makeStudent()
+    useStudentStore.setState({ students: [original] })
+    vi.mocked(syncService.syncDeleteStudent).mockRejectedValueOnce(new Error('Dexie write failed'))
+
+    await expect(useStudentStore.getState().deleteStudent('ST-001')).rejects.toThrow('Dexie write failed')
+    expect(useStudentStore.getState().students).toEqual([original])
   })
 
   it('deleteStudents removes multiple students and enqueues sync op for each', async () => {
@@ -123,30 +153,6 @@ describe('studentStore', () => {
     await useStudentStore.getState().deleteStudents(['ST-001', 'ST-NOPE'])
     expect(useStudentStore.getState().students).toHaveLength(0)
     expect(vi.mocked(syncService.syncDeleteStudent)).toHaveBeenCalledTimes(2)
-  })
-
-  it('batchPromote updates branch and classId for multiple students', async () => {
-    const s1 = makeStudent({ id: 'ST-001', branch: 'ThieuNhi', classId: 'TN1' })
-    const s2 = makeStudent({ id: 'ST-002', fullName: 'Trần Thị B', branch: 'ThieuNhi', classId: 'TN2' })
-    useStudentStore.setState({ students: [s1, s2] })
-    await useStudentStore.getState().batchPromote([
-      { studentId: 'ST-001', newBranch: 'NghiaSi', newClassId: 'NS1' },
-      { studentId: 'ST-002', newBranch: 'NghiaSi', newClassId: 'NS2' },
-    ])
-    expect(useStudentStore.getState().students[0].branch).toBe('NghiaSi')
-    expect(useStudentStore.getState().students[0].classId).toBe('NS1')
-    expect(useStudentStore.getState().students[1].branch).toBe('NghiaSi')
-    expect(useStudentStore.getState().students[1].classId).toBe('NS2')
-    expect(vi.mocked(syncService.syncUpdateStudent)).toHaveBeenCalledTimes(2)
-  })
-
-  it('batchPromote skips students not in list', async () => {
-    const s1 = makeStudent({ id: 'ST-001', branch: 'ThieuNhi', classId: 'TN1' })
-    const s2 = makeStudent({ id: 'ST-002', fullName: 'Trần Thị B', branch: 'ChienCon', classId: 'CC1' })
-    useStudentStore.setState({ students: [s1, s2] })
-    await useStudentStore.getState().batchPromote([{ studentId: 'ST-001', newBranch: 'NghiaSi', newClassId: 'NS1' }])
-    expect(useStudentStore.getState().students[0].branch).toBe('NghiaSi')
-    expect(useStudentStore.getState().students[1].branch).toBe('ChienCon')
   })
 
   it('fetchStudents with page>1 merges with existing', async () => {

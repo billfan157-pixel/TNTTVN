@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { db } from '../../db/index.js'
 import { promotionRecords, semesterLocks, users, students, classes, branches, academicYears, grades, attendance } from '../../db/schema.js'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { batchPromotionApplicationService } from '../../services/BatchPromotionApplicationService.js'
 import { drizzleSemesterLockRepository } from '../../repositories/DrizzleSemesterLockRepository.js'
 
@@ -17,16 +17,22 @@ describe('Batch Promotion Micro-Step P3 Integration Tests', () => {
   const academicYear = '2025-2026'
   const nextYearId = 'AY-2026-2027'
   const nextClassId = 'cl-batch-next'
+  const unrelatedSourceClassId = 'cl-batch-unrelated-source'
 
   beforeAll(async () => {
     await db.insert(branches).values({ id: branchId, name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId: testParish }).onConflictDoNothing()
     await db.insert(branches).values({ id: 'br-batch-thieu-nhi', name: 'Thiếu Nhi', scarfColor: 'Xanh dương', ageMin: 10, ageMax: 11, parishId: testParish }).onConflictDoNothing()
     await db.insert(academicYears).values({ id: yearId, startDate: '2025-09-01', endDate: '2026-05-31', parishId: testParish }).onConflictDoNothing()
     await db.insert(classes).values({ id: classId, code: 'CL-BATCH', name: 'Lớp Batch', branchId, academicYearId: yearId, parishId: testParish }).onConflictDoNothing()
+    await db.insert(classes).values({ id: unrelatedSourceClassId, code: 'CL-BATCH-OTHER', name: 'Lớp Nguồn Khác', branchId, academicYearId: yearId, parishId: testParish }).onConflictDoNothing()
     await db.insert(users).values({ id: adminUserId, username: 'adminbatchprm', fullName: 'Admin Batch Prm', passwordHash: 'hash', role: 'admin', parishId: testParish }).onConflictDoNothing()
 
     // F1 (audit 2026-08-21): lớp đích năm học kế tiếp cho test chuyển lớp/ngành
     await db.insert(academicYears).values({ id: nextYearId, startDate: '2026-09-01', endDate: '2027-05-31', parishId: testParish }).onConflictDoNothing()
+    await db.update(academicYears).set({ promotionTargetYearId: nextYearId }).where(and(
+      eq(academicYears.id, yearId),
+      eq(academicYears.parishId, testParish),
+    ))
     await db.insert(classes).values({ id: nextClassId, code: 'CL-BATCH-NEXT', name: 'Lớp Batch Kế Tiếp', branchId: 'br-batch-thieu-nhi', academicYearId: nextYearId, parishId: testParish }).onConflictDoNothing()
 
     const studentList = [
@@ -58,6 +64,7 @@ describe('Batch Promotion Micro-Step P3 Integration Tests', () => {
     await db.delete(semesterLocks)
     await db.delete(grades).where(eq(grades.parishId, testParish))
     await db.delete(attendance).where(eq(attendance.parishId, testParish))
+    await db.update(students).set({ classId, branch: 'AuNhi' }).where(eq(students.parishId, testParish))
 
     // Seed điểm + chuyên cần để máy chủ tính GPA/attendance khớp payload:
     // st-batch-01: GPA 8.0, 90% (9P/10) | st-batch-02: GPA 9.0, 95% (19P/20)
@@ -229,5 +236,59 @@ describe('Batch Promotion Micro-Step P3 Integration Tests', () => {
 
     const records = await db.select().from(promotionRecords).where(eq(promotionRecords.studentId, student2Id))
     expect(records).toHaveLength(0)
+  })
+
+  it('6. CR4: rejects a source class that is not the student current class', async () => {
+    await drizzleSemesterLockRepository.setLockState(academicYear, 2, true, adminUserId, testParish)
+    const res = await batchPromotionApplicationService.approveBatch([{
+      studentId: student1Id,
+      academicYear,
+      targetClassId: unrelatedSourceClassId,
+      nextClassId,
+      newBranch: 'ThieuNhi',
+      gpa: 8,
+      attendanceRate: 90,
+      userId: adminUserId,
+      parishId: testParish,
+    }])
+
+    expect(res.errorCount).toBe(1)
+    expect(res.results[0].reason).toContain('không khớp lớp hiện tại')
+  })
+
+  it('7. CR4: rejects a destination class outside the intended next academic year', async () => {
+    await drizzleSemesterLockRepository.setLockState(academicYear, 2, true, adminUserId, testParish)
+    const res = await batchPromotionApplicationService.approveBatch([{
+      studentId: student1Id,
+      academicYear,
+      targetClassId: classId,
+      nextClassId: unrelatedSourceClassId,
+      newBranch: 'AuNhi',
+      gpa: 8,
+      attendanceRate: 90,
+      userId: adminUserId,
+      parishId: testParish,
+    }])
+
+    expect(res.errorCount).toBe(1)
+    expect(res.results[0].reason).toContain('niên khóa kế tiếp')
+  })
+
+  it('8. CR4: rejects a requested branch that conflicts with the destination class', async () => {
+    await drizzleSemesterLockRepository.setLockState(academicYear, 2, true, adminUserId, testParish)
+    const res = await batchPromotionApplicationService.approveBatch([{
+      studentId: student1Id,
+      academicYear,
+      targetClassId: classId,
+      nextClassId,
+      newBranch: 'HiepSi',
+      gpa: 8,
+      attendanceRate: 90,
+      userId: adminUserId,
+      parishId: testParish,
+    }])
+
+    expect(res.errorCount).toBe(1)
+    expect(res.results[0].reason).toContain('không khớp phân ngành lớp')
   })
 })

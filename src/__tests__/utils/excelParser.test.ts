@@ -4,11 +4,26 @@ import {
   detectColumnsWithConfidence,
   findHeaderRow,
   parseToImportRows,
+  parseDelimitedRows,
   rowsToRawStrings,
   normalizeDate,
   parseRosterText,
   convertToStudentModels,
 } from '../../utils/excelParser'
+
+describe('parseDelimitedRows', () => {
+  it('preserves quoted delimiters, escaped quotes, and embedded newlines', () => {
+    const text = 'Tên Thánh,Họ và Tên,Địa Chỉ\nMaria,"Nguyễn, Thị Mai","12 ""Đường A""\nPhường 1"'
+    expect(parseDelimitedRows(text)).toEqual([
+      ['Tên Thánh', 'Họ và Tên', 'Địa Chỉ'],
+      ['Maria', 'Nguyễn, Thị Mai', '12 "Đường A"\nPhường 1'],
+    ])
+  })
+
+  it('fails closed on an unclosed quoted field', () => {
+    expect(() => parseDelimitedRows('Họ và Tên,Địa Chỉ\nNguyễn A,"Chưa đóng')).toThrow('Dấu ngoặc kép chưa đóng')
+  })
+})
 
 describe('detectColumns', () => {
   it('detects columns from Vietnamese headers', () => {
@@ -164,6 +179,13 @@ describe('parseRosterText', () => {
     const text = 'Tên Thánh,Họ và Tên,Phái\nGiuse,Nguyễn Văn A,Nam'
     const result = parseRosterText(text)
     expect(result).toHaveLength(1)
+  })
+
+  it('keeps a quoted comma inside one roster field', () => {
+    const text = 'Tên Thánh,Họ và Tên,Phái,Ngày Sinh,Phụ Huynh,SĐT,Địa Chỉ\nGiuse,Nguyễn Văn A,Nam,2015-01-01,Cha A,0901234567,"12 Nguyễn Trãi, Phường 1"'
+    const result = parseRosterText(text)
+    expect(result).toHaveLength(1)
+    expect(result[0].address).toBe('12 Nguyễn Trãi, Phường 1')
   })
 
   it('reports errors for missing fields', () => {

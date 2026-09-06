@@ -23,6 +23,7 @@ import { getAcademicYearDateRange } from './academicYearService.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getParishClassificationThresholds } from './parishSettingsService.js'
 import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
 import { promotionApplicationService } from './PromotionApplicationService.js'
+import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 import { findNextClassInYear, branchTypeByWeight } from '../utils/promotionPath.js'
 import {
   deriveAcademicYearStatus,
@@ -848,11 +849,15 @@ export class AcademicYearLifecycleService {
         // promotion snapshot + class move is one atomic unit. A class update failure
         // must roll the newly written promotion record back for that student.
         await runDbTransaction(async (tx) => {
+          const destinationBranch = nextClassId
+            ? await resolveMembershipBranch(tx, parishId, nextClassId, nextBranchOverride)
+            : undefined
           await promotionApplicationService.approvePromotion({
             studentId: snap.studentId,
             academicYear: normalizeAcademicYear(yearId),
             targetClassId,
             nextClassId,
+            newBranch: destinationBranch,
             gpa: snap.yearGpa ?? 0,
             attendanceRate: snap.attendanceRate ?? 0,
             conductSnapshot: snap.classification,
@@ -865,7 +870,7 @@ export class AcademicYearLifecycleService {
               .update(students)
               .set({
                 classId: nextClassId,
-                ...(nextBranchOverride ? { branch: nextBranchOverride as any } : {}),
+                branch: destinationBranch,
                 updatedAt: now,
                 updatedBy: userId,
               })

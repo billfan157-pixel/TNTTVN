@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
 import { db, type DbTransaction } from '../db/index.js'
-import { classes, academicYears, students, branches, users, auditLogs, importBatches, importBatchStudents, mappingMemory, serviceAssignments, grades, attendance, examResults, promotionRecords, academicYearSnapshots, assessmentEntries, leaveRequests } from '../db/schema.js'
-import { eq, and, isNull, or, sql, desc, inArray } from 'drizzle-orm'
+import { classes, academicYears, students, branches, users, auditLogs, importBatches, importBatchStudents, mappingMemory, serviceAssignments, grades, attendance, examResults, promotionRecords, academicYearSnapshots, assessmentEntries, leaveRequests, studentFeeRecords } from '../db/schema.js'
+import { eq, and, isNull, isNotNull, or, sql, desc, inArray, gte } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
 import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
 import { getClasses } from './classService.js'
+import { getClassDependencyBlockers } from './classDependencyService.js'
+import { resolveMembershipBranch, resolveStudentBranch, STUDENT_BRANCHES, type StudentBranch } from './studentMembershipPolicy.js'
 
 interface ImportRow {
   rowIndex: number
@@ -49,8 +51,18 @@ interface ClassMatchResult {
   reason: string[]
 }
 
+type ImportClassCandidate = {
+  id: string
+  name: string
+  code: string
+  branchId: string
+  branchName: string
+  academicYearId: string
+}
+
 interface ImportInput {
   rows: ImportRow[]
+  academicYearId: string
   classMappings: Record<string, string | null>
   newClasses?: { name: string; branch: string; academicYearId: string }[]
   duplicateActions: Record<string, 'skip' | 'update' | 'create'>
@@ -89,6 +101,181 @@ interface ImportRollbackSnapshot {
   appliedUpdatedAt: string
   previousStudent?: typeof students.$inferSelect
   previousServiceAssigned?: boolean
+}
+
+interface UndoImportItemOutcome {
+  rowIndex: number
+  studentId: string
+  action: 'created' | 'updated'
+  status: 'undone' | 'blocked' | 'already_undone'
+  message?: string
+}
+
+interface UndoImportResult {
+  undone: number
+  errors: string[]
+  items: UndoImportItemOutcome[]
+  classesDeleted: string[]
+}
+
+const IMPORT_PROCESS_STARTED_AT = new Date().toISOString()
+
+function summarizeImportBatchActions(actions: Array<typeof importBatchStudents.$inferInsert>): {
+  imported: number
+  skipped: number
+  errors: number
+} {
+  let imported = 0
+  let skipped = 0
+  let errors = 0
+  for (const item of actions) {
+    if (item.action === 'created' || item.action === 'updated') imported++
+    else if (item.action === 'skipped') skipped++
+    else errors++
+  }
+  return { imported, skipped, errors }
+}
+
+async function recordImportBatchRows(
+  tx: DbTransaction,
+  actions: Array<typeof importBatchStudents.$inferInsert>,
+): Promise<void> {
+  if (actions.length === 0) return
+  const batchId = actions[0].batchId
+  const parishId = actions[0].parishId
+  if (!parishId || actions.some(item => item.batchId !== batchId || item.parishId !== parishId)) {
+    throw new Error('Import row provenance must belong to one explicit parish batch')
+  }
+  const counts = summarizeImportBatchActions(actions)
+  await tx.insert(importBatchStudents).values(actions)
+  const [updatedBatch] = await tx.update(importBatches).set({
+    imported: sql`${importBatches.imported} + ${counts.imported}`,
+    skipped: sql`${importBatches.skipped} + ${counts.skipped}`,
+    errorCount: sql`${importBatches.errorCount} + ${counts.errors}`,
+  }).where(and(
+    eq(importBatches.id, batchId),
+    eq(importBatches.parishId, parishId),
+    eq(importBatches.status, 'processing'),
+  )).returning({ id: importBatches.id })
+  if (!updatedBatch) throw new Error('Import batch is no longer processing')
+}
+
+async function finalizeImportBatchFromRows(
+  tx: DbTransaction,
+  batchId: string,
+  parishId: string,
+  totalRows: number,
+): Promise<{ imported: number; skipped: number; errors: number; status: 'completed' | 'partial' | 'failed' }> {
+  const actionRows = await tx.select({ action: importBatchStudents.action, count: sql<number>`COUNT(*)` })
+    .from(importBatchStudents)
+    .where(and(eq(importBatchStudents.batchId, batchId), eq(importBatchStudents.parishId, parishId)))
+    .groupBy(importBatchStudents.action)
+  let imported = 0
+  let skipped = 0
+  let recordedErrors = 0
+  for (const row of actionRows) {
+    const count = Number(row.count)
+    if (row.action === 'created' || row.action === 'updated') imported += count
+    else if (row.action === 'skipped') skipped += count
+    else recordedErrors += count
+  }
+  const missingRows = Math.max(0, totalRows - imported - skipped - recordedErrors)
+  const errors = recordedErrors + missingRows
+  const status = errors > 0
+    ? (imported > 0 || skipped > 0 ? 'partial' : 'failed')
+    : 'completed'
+  await tx.update(importBatches).set({ imported, skipped, errorCount: errors, status }).where(and(
+    eq(importBatches.id, batchId), eq(importBatches.parishId, parishId), eq(importBatches.status, 'processing'),
+  ))
+  return { imported, skipped, errors, status }
+}
+
+/**
+ * Recover only batches created before this server process started. Such a row
+ * cannot belong to an import still executing in this process, so recovery does
+ * not race an active request in the supported single-SQLite-writer runtime.
+ */
+export async function recoverInterruptedImportBatches(
+  parishId: string,
+  processStartedAt = IMPORT_PROCESS_STARTED_AT,
+): Promise<number> {
+  const interrupted = await db.select({
+    id: importBatches.id,
+    totalRows: importBatches.totalRows,
+    userId: importBatches.userId,
+    createdClassIds: importBatches.createdClassIds,
+  })
+    .from(importBatches)
+    .where(and(
+      eq(importBatches.parishId, parishId),
+      eq(importBatches.status, 'processing'),
+      sql`${importBatches.createdAt} < ${processStartedAt}`,
+    ))
+  for (const batch of interrupted) {
+    await db.transaction(async (tx) => {
+      let createdClassIds: string[] = []
+      try { createdClassIds = JSON.parse(batch.createdClassIds || '[]') } catch {}
+      if (createdClassIds.length > 0) {
+        await cleanupUnreferencedImportClasses(tx, createdClassIds, parishId, batch.userId, batch.id)
+      }
+      await finalizeImportBatchFromRows(tx, batch.id, parishId, batch.totalRows)
+    })
+  }
+  return interrupted.length
+}
+
+/**
+ * Composition-root recovery entrypoint. Discover only stale processing scopes,
+ * then delegate every mutation to the parish-scoped recovery boundary above.
+ * The supported production topology contains one parish, while this discovery
+ * keeps dev/test databases safe without inventing a default tenant.
+ */
+export async function recoverInterruptedImportBatchesForAllParishes(
+  processStartedAt = IMPORT_PROCESS_STARTED_AT,
+): Promise<number> {
+  const rows = await db.select({ parishId: importBatches.parishId })
+    .from(importBatches)
+    .where(and(
+      eq(importBatches.status, 'processing'),
+      sql`${importBatches.createdAt} < ${processStartedAt}`,
+    ))
+  const parishIds = [...new Set(rows.map(row => row.parishId))]
+  let recovered = 0
+  for (const parishId of parishIds) {
+    recovered += await recoverInterruptedImportBatches(parishId, processStartedAt)
+  }
+  return recovered
+}
+
+async function cleanupUnreferencedImportClasses(
+  tx: DbTransaction,
+  classIds: string[],
+  parishId: string,
+  actorUserId: string,
+  batchId: string,
+): Promise<{ deleted: string[]; blocked: string[] }> {
+  const deleted: string[] = []
+  const blocked: string[] = []
+  for (const classId of [...new Set(classIds)]) {
+    const blockers = await getClassDependencyBlockers(tx, classId, parishId)
+    if (blockers.length > 0) {
+      blocked.push(classId)
+      continue
+    }
+    const now = new Date().toISOString()
+    await tx.update(mappingMemory).set({ isActive: 0 }).where(and(
+      eq(mappingMemory.parishId, parishId), eq(mappingMemory.scope, 'class'), eq(mappingMemory.entityId, classId),
+    ))
+    await tx.update(classes).set({ deletedAt: now, updatedAt: now, updatedBy: actorUserId }).where(and(
+      eq(classes.id, classId), eq(classes.parishId, parishId), isNull(classes.deletedAt),
+    ))
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'), userId: actorUserId, action: 'UNDO_IMPORT', entityType: 'class', entityId: classId,
+      newValue: JSON.stringify({ batchId, cleanup: 'failed_or_undone_import' }), parishId,
+    })
+    deleted.push(classId)
+  }
+  return { deleted, blocked }
 }
 
 async function mapConcurrent<T, R>(items: T[], fn: (item: T) => Promise<R>, concurrency: number): Promise<R[]> {
@@ -146,40 +333,29 @@ async function getAcademicYearStart(classId: string, parishId: string, tx?: DbTr
   return year
 }
 
-async function getCurrentAcademicYearId(parishId: string): Promise<string> {
-  const now = new Date()
-  const [current] = await db
+async function requireImportAcademicYear(parishId: string, academicYearId: string): Promise<string> {
+  if (!academicYearId?.trim()) {
+    throw Object.assign(
+      new Error('Cần chọn niên khóa trước khi kiểm tra hoặc import danh sách.'),
+      { code: 'ACADEMIC_YEAR_REQUIRED' },
+    )
+  }
+
+  const [academicYear] = await db
     .select({ id: academicYears.id })
     .from(academicYears)
     .where(and(
       eq(academicYears.parishId, parishId),
+      eq(academicYears.id, academicYearId),
       eq(academicYears.isLocked, 0),
-      sql`${now.toISOString()} >= ${academicYears.startDate}`,
-      sql`${now.toISOString()} <= ${academicYears.endDate}`,
     ))
     .limit(1)
-  if (current) return current.id
+  if (academicYear) return academicYear.id
 
-  const [latest] = await db
-    .select({ id: academicYears.id, startDate: academicYears.startDate })
-    .from(academicYears)
-    .where(and(eq(academicYears.parishId, parishId), eq(academicYears.isLocked, 0)))
-    .orderBy(desc(academicYears.startDate))
-    .limit(1)
-  if (latest) return latest.id
-
-  const year = now.getFullYear()
-  const nextYear = year + 1
-  const ayId = `${year}-${nextYear}`
-  const startDate = `${year}-08-01`
-  const endDate = `${nextYear}-07-31`
-  try {
-    await db.insert(academicYears).values({ id: ayId, startDate, endDate, parishId, createdAt: now.toISOString(), updatedAt: now.toISOString(), updatedBy: 'system' }).onConflictDoNothing()
-  } catch (err: any) {
-    const isDuplicate = err?.message?.includes('UNIQUE') || err?.code === 'SQLITE_CONSTRAINT_UNIQUE'
-    if (!isDuplicate) throw err
-  }
-  return ayId
+  throw Object.assign(
+    new Error('Niên khóa đã chọn không tồn tại, đã khóa hoặc không thuộc giáo xứ hiện tại.'),
+    { code: 'ACADEMIC_YEAR_INVALID' },
+  )
 }
 
 function levenshtein(a: string, b: string): number {
@@ -224,7 +400,7 @@ function canonicalClassKey(name: string): string {
   return normalizeName(name)
 }
 
-function validateRow(row: ImportRow): string[] {
+function validateRow(row: ImportRow, requireCompleteMembership = true): string[] {
   const errors: string[] = []
   // holyName optional 2026-08-28 per user: thiếu tên thánh vẫn cho import bình thường
   // Không chặn import, để trống hoặc client điền sau. Vẫn lưu như rỗng.
@@ -237,7 +413,8 @@ function validateRow(row: ImportRow): string[] {
   const className = toStr(row.className).trim()
   if (holyName && holyName.length > 100) errors.push('Tên Thánh quá dài (tối đa 100 ký tự)')
   if (!fullName) errors.push('Thiếu Họ và Tên')
-  if (gender && !['Nam', 'Nữ'].includes(gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
+  if (!gender && requireCompleteMembership) errors.push('Thiếu Giới Tính')
+  else if (gender && !['Nam', 'Nữ'].includes(gender)) errors.push('Giới tính không hợp lệ (phải là Nam hoặc Nữ)')
   if (dateOfBirth && !isPlaceholder(dateOfBirth)) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
       errors.push('Ngày sinh không đúng định dạng (YYYY-MM-DD)')
@@ -245,11 +422,14 @@ function validateRow(row: ImportRow): string[] {
       const [year, month, day] = dateOfBirth.split('-').map(Number)
       const parsed = new Date(Date.UTC(year, month - 1, day))
       const isRealDate = parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
-      if (!isRealDate || parsed.getTime() > Date.now()) errors.push('Ngày sinh không hợp lệ hoặc nằm trong tương lai')
+      if (!isRealDate || year < 1900 || parsed.getTime() > Date.now()) {
+        errors.push('Ngày sinh không hợp lệ, phải từ năm 1900 và không nằm trong tương lai')
+      }
     }
   }
   if (parentPhone && !isPlaceholder(parentPhone) && !PHONE_RE.test(parentPhone)) errors.push('Số điện thoại không hợp lệ (phải là số Việt Nam)')
-  if (branch && !isPlaceholder(branch) && !VALID_BRANCHES.includes(branch as any)) errors.push(`Phân ngành không hợp lệ: ${branch}`)
+  if (!branch && requireCompleteMembership) errors.push('Thiếu Phân Ngành')
+  else if (branch && !isPlaceholder(branch) && !VALID_BRANCHES.includes(branch as any)) errors.push(`Phân ngành không hợp lệ: ${branch}`)
   if (!className) errors.push('Thiếu Tên Lớp')
   return errors
 }
@@ -272,18 +452,6 @@ function inferBranch(className: string): string | null {
   return null
 }
 
-const FEMALE_GENDER_KEYWORDS = [
-  'thị', 'ngọc', 'mai', 'ánh', 'loan', 'hương', 'lan', 'hoa', 'thủy', 'ly', 'trang', 'vy', 'bích', 'diễm', 'khánh', 'ngân', 'phượng', 'trâm', 'tuyết', 'yến', 'hạnh', 'thảo', 'quỳnh', 'như', 'thu', 'giang', 'nguyệt', 'băng', 'châu', 'thúy', 'kiều', 'xinh',
-]
-
-function inferGenderFromName(fullName: string): 'Nam' | 'Nữ' | null {
-  const normalized = toStr(fullName).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  for (const kw of FEMALE_GENDER_KEYWORDS) {
-    if (normalized.includes(kw)) return 'Nữ'
-  }
-  return null
-}
-
 function explainMatch(normInput: string, classNorm: string, classCandidate: any, branch: string, dist: number, levenshteinScore: number, tokenScore: number, substringBonus: number, branchBoost: number, confidence: number): string[] {
   const reasons: string[] = []
   if (levenshteinScore >= 90) reasons.push(`Tên gần giống (Levenshtein: ${levenshteinScore}%)`)
@@ -292,33 +460,46 @@ function explainMatch(normInput: string, classNorm: string, classCandidate: any,
   else if (tokenScore > 0) reasons.push(`Có ${normInput.split(' ').filter(Boolean).length} từ khớp trên ${classNorm.split(' ').filter(Boolean).length} từ`)
   if (substringBonus > 0) reasons.push('Tên lớp nằm trong tên nhập vào hoặc ngược lại')
   if (branchBoost > 0) reasons.push(`Cùng phân ngành (${classCandidate.branchName})`)
-  if (confidence >= 80) reasons.push(`Độ tin cậy: ${confidence}% — Tự động khớp`)
-  else reasons.push(`Độ tin cậy: ${confidence}% — Cần xác nhận`)
+  reasons.push(`Mức tương đồng: ${confidence}%`)
   return reasons
 }
 
 async function matchClass(
   className: string,
   branch: string,
-  allClasses: { id: string; name: string; code: string; branchId: string; branchName: string }[],
+  allClasses: ImportClassCandidate[],
 ): Promise<ClassMatchResult> {
   const trimmed = className.trim()
   const stripped = stripForMatch(trimmed)
   const normInput = canonicalClassKey(trimmed)
 
   // 1. Canonical exact match (case-insensitive, diacritic-insensitive) — 2026-08-28 fix: "LỚP 3A" vs "Lớp 3A" phải cùng lớp
-  const exact = allClasses.find(c => canonicalClassKey(c.name) === normInput || canonicalClassKey(c.code) === normInput)
-  if (exact) return { className: trimmed, matchedClass: { id: exact.id, name: exact.name, code: exact.code, branchName: exact.branchName }, suggestions: [], reason: ['Tên lớp khớp sau khi chuẩn hóa (không phân biệt hoa/thường, dấu)'] }
+  const exactMatches = allClasses.filter(c => canonicalClassKey(c.name) === normInput || canonicalClassKey(c.code) === normInput)
+  if (exactMatches.length === 1) {
+    const [exact] = exactMatches
+    return { className: trimmed, matchedClass: { id: exact.id, name: exact.name, code: exact.code, branchName: exact.branchName }, suggestions: [], reason: ['Tên lớp khớp sau khi chuẩn hóa (không phân biệt hoa/thường, dấu)'] }
+  }
+  if (exactMatches.length > 1) {
+    return {
+      className: trimmed,
+      matchedClass: null,
+      suggestions: exactMatches.slice(0, 5).map(c => ({
+        id: c.id, name: c.name, code: c.code, branchName: c.branchName, confidence: 100,
+        reason: ['Có nhiều lớp khớp chính xác trong cùng niên khóa — bắt buộc chọn thủ công'],
+      })),
+      reason: ['Có nhiều lớp khớp chính xác trong cùng niên khóa — bắt buộc chọn thủ công'],
+    }
+  }
 
   // 2. Stripped code match (fallback, strip spaces)
-  const byCode = allClasses.find(c => stripForMatch(c.code) === stripped)
-  if (byCode) return { className: trimmed, matchedClass: { id: byCode.id, name: byCode.name, code: byCode.code, branchName: byCode.branchName }, suggestions: [], reason: ['Mã lớp khớp sau khi chuẩn hóa'] }
+  const codeMatches = allClasses.filter(c => stripForMatch(c.code) === stripped)
+  if (codeMatches.length === 1) {
+    const [byCode] = codeMatches
+    return { className: trimmed, matchedClass: { id: byCode.id, name: byCode.name, code: byCode.code, branchName: byCode.branchName }, suggestions: [], reason: ['Mã lớp khớp sau khi chuẩn hóa'] }
+  }
 
   // 3. Normalized name match (kept for backward compat, same as canonical)
-  const byName = allClasses.find(c => canonicalClassKey(c.name) === normInput)
-  if (byName) return { className: trimmed, matchedClass: { id: byName.id, name: byName.name, code: byName.code, branchName: byName.branchName }, suggestions: [], reason: ['Tên lớp khớp sau khi chuẩn hóa (bỏ dấu, viết thường)'] }
-
-  // 4. Compute weighted scores using multiple signals
+  // 3. Compute weighted scores using multiple signals
   const candidates = allClasses
     .map(c => {
       const classNorm = normalizeName(c.name)
@@ -335,7 +516,7 @@ async function matchClass(
       const substringBonus = normInput.includes(classNorm) || classNorm.includes(normInput) ? 10 : 0
 
       const inferred = inferBranch(trimmed)
-      const branchBoost = c.branchName === branch || (inferred && c.branchName === inferred) ? 8 : 0
+      const branchBoost = c.branchId === branch || c.branchName === branch || (inferred && (c.branchId === inferred || c.branchName === inferred)) ? 8 : 0
 
       const confidence = Math.min(levenshteinScore * 0.5 + tokenScore * 0.3 + substringBonus + branchBoost, 100)
       const reason = explainMatch(normInput, classNorm, c, branch, dist, levenshteinScore, tokenScore, substringBonus, branchBoost, Math.round(confidence))
@@ -349,19 +530,23 @@ async function matchClass(
     const top = candidates[0]
     const suggestions = candidates.slice(0, 5).map(c => ({ id: c.id, name: c.name, code: c.code, branchName: c.branchName, confidence: c.confidence, reason: c.reason }))
 
-    if (top.confidence >= 80) {
+    const runnerUp = candidates[1]
+    const lead = runnerUp ? top.confidence - runnerUp.confidence : 100
+    if (top.confidence >= 80 && lead >= 10) {
       return {
         className: trimmed,
         matchedClass: { id: top.id, name: top.name, code: top.code, branchName: top.branchName },
         suggestions,
-        reason: top.reason,
+        reason: [...top.reason, runnerUp ? `Dẫn ứng viên kế tiếp ${lead} điểm` : 'Không có ứng viên cạnh tranh'],
       }
     }
     return {
       className: trimmed,
       matchedClass: null,
       suggestions,
-      reason: [`Độ tin cậy cao nhất chỉ ${top.confidence}% — cần bạn chọn lớp phù hợp`],
+      reason: [top.confidence < 80
+        ? `Độ tin cậy cao nhất chỉ ${top.confidence}% — cần bạn chọn lớp phù hợp`
+        : `Hai ứng viên đứng đầu chỉ chênh ${lead} điểm — cần bạn chọn lớp phù hợp`],
     }
   }
 
@@ -432,17 +617,12 @@ export function normalizeImportRows(rows: ImportRow[]): ImportRow[] {
       className: toStr((row as any).className),
       service: (row as any).service == null ? undefined : toStr((row as any).service),
     }
-    if (!r.gender.trim()) {
-      const inferred = inferGenderFromName(r.fullName)
-      r.gender = inferred || 'Nam'
-    }
     if (!r.dateOfBirth.trim()) {
       r.dateOfBirth = PLACEHOLDER
     }
     if (!r.parentName.trim()) r.parentName = PLACEHOLDER
     if (!r.parentPhone.trim()) r.parentPhone = PLACEHOLDER
     if (!r.address.trim()) r.address = PLACEHOLDER
-    if (!r.branch.trim()) r.branch = inferBranch(r.className) || 'ThieuNhi'
     normalized.push(r)
   }
   return normalized
@@ -527,23 +707,21 @@ export async function detectDuplicates(
   }
 
   const phones = [...new Set(rowsToCheck.map(r => toStr(r.parentPhone).trim()).filter(Boolean).filter(p => !isPlaceholder(p)))]
-  const nameDobPairs = [...new Set(rowsToCheck.map(r => {
-    const n = toStr(r.fullName).trim()
+  const datesOfBirth = [...new Set(rowsToCheck.map(r => {
     const d = toStr(r.dateOfBirth).trim()
-    return n && d && !isPlaceholder(d) ? `${n}||${d}` : ''
+    return d && !isPlaceholder(d) ? d : ''
   }).filter(Boolean))]
-  const namesWithoutValidDob = [...new Set(rowsToCheck.map(r => {
+  const needsNameClassLookup = rowsToCheck.some(r => {
     const d = toStr(r.dateOfBirth).trim()
     const n = toStr(r.fullName).trim()
-    return (!d || isPlaceholder(d)) && n ? n : ''
-  }).filter(Boolean))]
+    return (!d || isPlaceholder(d)) && Boolean(n)
+  })
 
-  if (phones.length === 0 && nameDobPairs.length === 0 && namesWithoutValidDob.length === 0) return result
+  if (phones.length === 0 && datesOfBirth.length === 0 && !needsNameClassLookup) return result
   if (allowedClassIds !== undefined && allowedClassIds !== null && allowedClassIds.length === 0) return result
 
   const CHUNK_PHONE = 50
-  const CHUNK_NAME_DOB = 30
-  const CHUNK_NAME = 30
+  const CHUNK_DOB = 50
   const baseCond = [eq(students.parishId, parishId), isNull(students.deletedAt)]
   if (allowedClassIds) {
     baseCond.push(inArray(students.classId, allowedClassIds))
@@ -555,140 +733,65 @@ export async function detectDuplicates(
   if (phones.length > 0) {
     for (let i = 0; i < phones.length; i += CHUNK_PHONE) {
       const chunk = phones.slice(i, i + CHUNK_PHONE)
-      try {
-        const rows = await db
-          .select({
-            id: students.id,
-            fullName: students.fullName,
-            parentPhone: students.parentPhone,
-            dateOfBirth: students.dateOfBirth,
-            classId: students.classId,
-            className: classes.name,
-            holyName: students.holyName,
-          })
-          .from(students)
-          .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
-          .where(and(...baseCond, inArray(students.parentPhone, chunk)))
-        existing.push(...rows)
-      } catch (err) {
-        console.warn('[detectDuplicates] phone chunk failed, falling back per-phone', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
-        for (const phone of chunk) {
-          try {
-            const rows = await db
-              .select({
-                id: students.id,
-                fullName: students.fullName,
-                parentPhone: students.parentPhone,
-                dateOfBirth: students.dateOfBirth,
-                classId: students.classId,
-                className: classes.name,
-                holyName: students.holyName,
-              })
-              .from(students)
-              .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
-              .where(and(...baseCond, eq(students.parentPhone, phone)))
-            existing.push(...rows)
-          } catch (inner) {
-            console.warn('[detectDuplicates] per-phone fallback failed', { phone, error: String(inner).slice(0, 300) })
-          }
-        }
-      }
+      const candidates = await db
+        .select({
+          id: students.id,
+          fullName: students.fullName,
+          parentPhone: students.parentPhone,
+          dateOfBirth: students.dateOfBirth,
+          classId: students.classId,
+          className: classes.name,
+          holyName: students.holyName,
+        })
+        .from(students)
+        .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
+        .where(and(...baseCond, inArray(students.parentPhone, chunk)))
+      existing.push(...candidates)
     }
   }
 
-  // 2. Query nameDob pairs in chunks
-  if (nameDobPairs.length > 0) {
-    for (let i = 0; i < nameDobPairs.length; i += CHUNK_NAME_DOB) {
-      const chunk = nameDobPairs.slice(i, i + CHUNK_NAME_DOB)
-      const conditions = chunk.map(pair => {
-        const [fn, dob] = pair.split('||')
-        return and(eq(students.fullName, fn), eq(students.dateOfBirth, dob))
+  // 2. Retrieve by DOB, then compare names with the same canonicalizer used
+  // below. Querying raw full_name here previously made the normalized match
+  // unreachable for case/diacritic variants.
+  if (datesOfBirth.length > 0) {
+    for (let i = 0; i < datesOfBirth.length; i += CHUNK_DOB) {
+      const chunk = datesOfBirth.slice(i, i + CHUNK_DOB)
+      const candidates = await db
+        .select({
+          id: students.id,
+          fullName: students.fullName,
+          parentPhone: students.parentPhone,
+          dateOfBirth: students.dateOfBirth,
+          classId: students.classId,
+          className: classes.name,
+          holyName: students.holyName,
+        })
+        .from(students)
+        .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
+        .where(and(...baseCond, inArray(students.dateOfBirth, chunk)))
+      existing.push(...candidates)
+    }
+  }
+
+  // 3. Rows without DOB need normalized name + class comparison. A bounded
+  // parish/class-scope candidate read is deliberate: SQLite cannot reproduce
+  // the application's Vietnamese diacritic canonicalization in an indexed
+  // predicate, and an exact raw-name predicate would fail open again.
+  if (needsNameClassLookup) {
+    const candidates = await db
+      .select({
+        id: students.id,
+        fullName: students.fullName,
+        parentPhone: students.parentPhone,
+        dateOfBirth: students.dateOfBirth,
+        classId: students.classId,
+        className: classes.name,
+        holyName: students.holyName,
       })
-      try {
-        const rows = await db
-          .select({
-            id: students.id,
-            fullName: students.fullName,
-            parentPhone: students.parentPhone,
-            dateOfBirth: students.dateOfBirth,
-            classId: students.classId,
-            className: classes.name,
-            holyName: students.holyName,
-          })
-          .from(students)
-          .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
-          .where(and(...baseCond, or(...conditions)))
-        existing.push(...rows)
-      } catch (err) {
-        console.warn('[detectDuplicates] nameDob chunk failed, falling back per-pair', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
-        for (const pair of chunk) {
-          const [fn, dob] = pair.split('||')
-          try {
-            const rows = await db
-              .select({
-                id: students.id,
-                fullName: students.fullName,
-                parentPhone: students.parentPhone,
-                dateOfBirth: students.dateOfBirth,
-                classId: students.classId,
-                className: classes.name,
-                holyName: students.holyName,
-              })
-              .from(students)
-              .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
-              .where(and(...baseCond, eq(students.fullName, fn), eq(students.dateOfBirth, dob)))
-            existing.push(...rows)
-          } catch (inner) {
-            console.warn('[detectDuplicates] per-pair fallback failed', { fn, dob, error: String(inner).slice(0, 300) })
-          }
-        }
-      }
-    }
-  }
-
-  // 3. Query names without valid DOB to detect same-name students in class
-  if (namesWithoutValidDob.length > 0) {
-    for (let i = 0; i < namesWithoutValidDob.length; i += CHUNK_NAME) {
-      const chunk = namesWithoutValidDob.slice(i, i + CHUNK_NAME)
-      try {
-        const rows = await db
-          .select({
-            id: students.id,
-            fullName: students.fullName,
-            parentPhone: students.parentPhone,
-            dateOfBirth: students.dateOfBirth,
-            classId: students.classId,
-            className: classes.name,
-            holyName: students.holyName,
-          })
-          .from(students)
-          .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
-          .where(and(...baseCond, inArray(students.fullName, chunk)))
-        existing.push(...rows)
-      } catch (err) {
-        console.warn('[detectDuplicates] name chunk failed, falling back per-name', { chunkSize: chunk.length, error: String(err).slice(0, 500) })
-        for (const name of chunk) {
-          try {
-            const rows = await db
-              .select({
-                id: students.id,
-                fullName: students.fullName,
-                parentPhone: students.parentPhone,
-                dateOfBirth: students.dateOfBirth,
-                classId: students.classId,
-                className: classes.name,
-                holyName: students.holyName,
-              })
-              .from(students)
-              .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
-              .where(and(...baseCond, eq(students.fullName, name)))
-            existing.push(...rows)
-          } catch (inner) {
-            console.warn('[detectDuplicates] per-name fallback failed', { name, error: String(inner).slice(0, 300) })
-          }
-        }
-      }
-    }
+      .from(students)
+      .leftJoin(classes, and(eq(students.classId, classes.id), eq(students.parishId, classes.parishId)))
+      .where(and(...baseCond))
+    existing.push(...candidates)
   }
 
   // Deduplicate existing records by id
@@ -840,7 +943,8 @@ async function getExistingMappings(parishId: string, academicYearId?: string): P
 export async function validateImport(
   rows: ImportRow[],
   parishId: string,
-  allClasses: { id: string; name: string; code: string; branchId: string; branchName: string }[],
+  allClasses: ImportClassCandidate[],
+  requestedAcademicYearId: string,
   allowedClassIds?: string[] | null,
 ): Promise<{
   rows: ValidationRow[]
@@ -849,9 +953,10 @@ export async function validateImport(
   contentHash: string
   previousImport: { batchId: string; fileName: string | null; createdAt: string; totalRows: number } | null
 }> {
+  const academicYearId = await requireImportAcademicYear(parishId, requestedAcademicYearId)
+  const targetYearClasses = allClasses.filter(candidate => candidate.academicYearId === academicYearId)
   const normalizedRows = normalizeImportRows(rows)
   const dupMap = await detectDuplicates(normalizedRows, parishId, allowedClassIds)
-  const academicYearId = await getCurrentAcademicYearId(parishId)
   const existingMappings = await getExistingMappings(parishId, academicYearId)
 
   // canonical cache: key = canonicalClassKey, value = result. Deduplicate case/diacritic variants.
@@ -869,7 +974,7 @@ export async function validateImport(
     const normKey = canon
     const learned = existingMappings.get(normKey)
     if (learned) {
-      const cls = allClasses.find(c => c.id === learned.classId)
+      const cls = targetYearClasses.find(c => c.id === learned.classId)
       if (cls) {
         classCache.set(canon, {
           className: cn,
@@ -883,24 +988,30 @@ export async function validateImport(
 
   const validatedRows = await mapConcurrent(normalizedRows, async (row) => {
     const rowClone = { ...row }
-    const errors = validateRow(rowClone)
 
     let classMatch: ValidationRow['classMatch'] = null
     let classSuggestions: ValidationRow['classSuggestions'] = []
     let classAutoCreate = false
+    let membershipError: string | null = null
 
     const cn = rowClone.className?.trim()
     if (cn) {
       const canon = canonicalClassKey(cn)
       if (!canonicalToOriginal.has(canon)) canonicalToOriginal.set(canon, cn)
       if (!classCache.has(canon)) {
-        classCache.set(canon, await matchClass(cn, rowClone.branch, allClasses))
+        classCache.set(canon, await matchClass(cn, rowClone.branch, targetYearClasses))
       }
       const result = classCache.get(canon)!
       classSuggestions = result.suggestions
       if (result.matchedClass) {
         const isExactCode = canonicalClassKey(result.matchedClass.code) === canon
         classMatch = { id: result.matchedClass.id, name: result.matchedClass.name, confidence: isExactCode ? 'exact_code' : 'exact_name', reason: result.reason }
+        const matchedCandidate = targetYearClasses.find(candidate => candidate.id === result.matchedClass!.id)
+        const targetBranch = resolveStudentBranch(matchedCandidate?.branchId || '', result.matchedClass.branchName)
+        if (!rowClone.branch.trim() && targetBranch) rowClone.branch = targetBranch
+        else if (targetBranch && rowClone.branch.trim() && rowClone.branch !== targetBranch) {
+          membershipError = `Phân ngành học viên (${rowClone.branch}) không khớp phân ngành lớp (${targetBranch})`
+        }
       } else if (result.suggestions.length === 0) {
         classAutoCreate = true
         missingCanonicalSet.add(canon)
@@ -908,11 +1019,8 @@ export async function validateImport(
     }
 
     const dup = dupMap.get(rowClone.rowIndex) || null
-
-    // Auto-infer branch from className if not provided
-    if (!rowClone.branch && cn) {
-      rowClone.branch = inferBranch(cn) || rowClone.branch
-    }
+    const errors = validateRow(rowClone, !dup)
+    if (membershipError) errors.push(membershipError)
 
     const detectedService = detectService(rowClone)
 
@@ -976,7 +1084,9 @@ export async function importStudents(
   userAgent: string,
   allowedClassIds?: string[] | null,
 ): Promise<ImportResult> {
+  await recoverInterruptedImportBatches(parishId)
   await clearExpiredImportRollbackSnapshots(parishId)
+  const academicYearId = await requireImportAcademicYear(parishId, input.academicYearId)
   // import_batches.user_id references users.id. Auth normally guarantees this,
   // but a stale token or a database restored without its user row otherwise
   // surfaces as an opaque SQLITE_CONSTRAINT during the INSERT below.
@@ -992,13 +1102,24 @@ export async function importStudents(
   const allowedClassSet = allowedClassIds != null ? new Set(allowedClassIds) : null
   const classesToCreate = input.newClasses || []
 
+  if (classesToCreate.some(candidate => candidate.academicYearId !== academicYearId)) {
+    throw Object.assign(
+      new Error('Mọi lớp tạo trong lượt import phải thuộc đúng niên khóa đã chọn.'),
+      { code: 'ACADEMIC_YEAR_MISMATCH' },
+    )
+  }
+
   if (allowedClassSet != null && classesToCreate.length > 0) {
     throw new Error('Chủ nhiệm không có quyền tạo mới lớp học')
   }
 
   const classMappings = input.classMappings || {}
   const duplicateActions = input.duplicateActions || {}
-  const allClasses = await getClasses(parishId)
+  const allClasses = (await getClasses(parishId)).filter(candidate => candidate.academicYearId === academicYearId)
+  const eligibleClassIds = new Set(allClasses.map(candidate => candidate.id))
+  const classBranchById = new Map<string, StudentBranch | null>(
+    allClasses.map(candidate => [candidate.id, resolveStudentBranch(candidate.branchId, candidate.branchName)]),
+  )
 
   // Canonical normalizeImportRows (IE-02)
   const normalizedRows = normalizeImportRows(input.rows)
@@ -1049,13 +1170,21 @@ export async function importStudents(
     if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, nc.name)
   }
 
-  // Atomic class creation
+  // The control row and any classes created for this import share one
+  // transaction. A crash can therefore never leave an unowned import class.
+  const batchNow = new Date().toISOString()
   await db.transaction(async (tx) => {
+    await tx.insert(importBatches).values({
+      id: batchId, userId, fileName: input.fileName || null, contentHash,
+      totalRows: input.rows.length, imported: 0, skipped: 0, errorCount: 0,
+      classesCreated: '[]', createdClassIds: '[]',
+      status: 'processing', parishId, createdAt: batchNow,
+    })
     for (const nc of dedupedClassesToCreate) {
       const id = generateId('CLS')
       const now = new Date().toISOString()
       const [branch] = await tx
-        .select({ id: branches.id })
+        .select({ id: branches.id, name: branches.name })
         .from(branches)
         .where(and(
           or(eq(branches.id, nc.branch), eq(branches.name, nc.branch)),
@@ -1071,12 +1200,10 @@ export async function importStudents(
           .from(academicYears)
           .where(and(eq(academicYears.id, ayId), eq(academicYears.parishId, parishId)))
           .limit(1)
-        if (!ay) ayId = ''
+        if (!ay) {
+          throw Object.assign(new Error(`Niên khóa "${ayId}" không tồn tại trong giáo xứ`), { code: 'ACADEMIC_YEAR_INVALID' })
+        }
       }
-      if (!ayId) {
-        ayId = await getCurrentAcademicYearId(parishId)
-      }
-
       await tx.insert(classes).values({
         id, code: nc.name, name: nc.name, branchId: branch.id,
         academicYearId: ayId, parishId, updatedBy: userId,
@@ -1088,27 +1215,24 @@ export async function importStudents(
       })
       const canon = canonicalClassKey(nc.name)
       classIdMap.set(canon, id)
+      eligibleClassIds.add(id)
+      classBranchById.set(id, resolveStudentBranch(branch.id, branch.name))
       if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, nc.name)
       result.classesCreated.push(nc.name)
       createdClassIds.push(id)
     }
-  })
-
-  // Insert import_batches BEFORE processing rows so FK on import_batch_students is satisfied
-  const batchNow = new Date().toISOString()
-  await db.insert(importBatches).values({
-    id: batchId, userId, fileName: input.fileName || null, contentHash,
-    totalRows: input.rows.length, imported: 0, skipped: 0, errorCount: 0,
-    classesCreated: JSON.stringify(result.classesCreated),
-    createdClassIds: JSON.stringify(createdClassIds),
-    status: 'processing', parishId, createdAt: batchNow,
+    if (createdClassIds.length > 0) {
+      await tx.update(importBatches).set({
+        classesCreated: JSON.stringify(result.classesCreated),
+        createdClassIds: JSON.stringify(createdClassIds),
+      }).where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
+    }
   })
 
   try {
     // Commit-time duplicate guard scans the parish. Rows that collide outside a
     // class-scoped user's assignments fail generically without exposing identity.
     const dupMap = await detectDuplicates(normalizedRows, parishId)
-    const ayCache = new Map<string, string>()
     const academicYearByClassId = new Map<string, string>()
     for (const cls of allClasses) {
       const year = cls.academicYear?.substring(0, 4)
@@ -1154,7 +1278,7 @@ export async function importStudents(
     if (!trimmed) return null
     const canon = canonicalClassKey(trimmed)
     const mapped = normClassMappings.get(canon) ?? classMappings[trimmed]
-    if (mapped && allClasses.some(c => c.id === mapped)) {
+    if (mapped && eligibleClassIds.has(mapped)) {
       if (allowedClassSet != null && !allowedClassSet.has(mapped)) return null
       return mapped
     }
@@ -1165,69 +1289,32 @@ export async function importStudents(
       return cached
     }
 
-    const existed = allClasses.find(c => canonicalClassKey(c.name) === canon || canonicalClassKey(c.code) === canon)
-    if (!existed) return null
+    const matchingClasses = allClasses.filter(c => canonicalClassKey(c.name) === canon || canonicalClassKey(c.code) === canon)
+    if (matchingClasses.length !== 1) return null
+    const [existed] = matchingClasses
     if (allowedClassSet != null && !allowedClassSet.has(existed.id)) return null
     classIdMap.set(canon, existed.id)
     if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
     return existed.id
   }
 
-  async function resolveClassId(tx: DbTransaction, rowClassName: string, rowBranch: string): Promise<string | null> {
-    const trimmed = rowClassName.trim()
-    if (!trimmed) return null
-    const canon = canonicalClassKey(trimmed)
-
-    const known = findKnownClassId(trimmed)
-    if (known) return known
-
-    if (allowedClassSet != null) {
-      // Non-admin cannot auto-create classes outside assigned scope
-      return null
+  function resolveImportMembershipBranch(row: ImportRow, classId: string): StudentBranch {
+    const requested = row.branch.trim()
+    if (requested && !STUDENT_BRANCHES.includes(requested as StudentBranch)) {
+      throw Object.assign(new Error(`Phân ngành không hợp lệ: ${requested}`), { code: 'BRANCH_INVALID' })
     }
-
-    const branchCode = rowBranch || inferBranch(trimmed) || 'ThieuNhi'
-    const [branch] = await tx.select({ id: branches.id }).from(branches).where(and(eq(branches.id, branchCode), eq(branches.parishId, parishId))).limit(1)
-    if (!branch) return null
-
-    let ayId = ayCache.get(parishId)
-    if (!ayId) {
-      ayId = await getCurrentAcademicYearId(parishId)
-      ayCache.set(parishId, ayId)
+    const targetBranch = classBranchById.get(classId)
+    if (!targetBranch) {
+      if (requested) return requested as StudentBranch
+      throw Object.assign(new Error('Không xác định được phân ngành của lớp; cần chọn phân ngành rõ ràng'), { code: 'CLASS_BRANCH_UNRESOLVED' })
     }
-
-    const newId = generateId('CLS')
-    const now = new Date().toISOString()
-    await tx.insert(classes).values({ id: newId, code: trimmed, name: trimmed, branchId: branch.id, academicYearId: ayId, parishId, updatedBy: userId, createdAt: now, updatedAt: now })
-    await tx.insert(auditLogs).values({ id: generateId('AUD'), userId, action: 'IMPORT_AUTO_CREATE_CLASS', entityType: 'class', entityId: newId, newValue: JSON.stringify({ name: trimmed, branch: branchCode, academicYearId: ayId }), ip, userAgent, parishId })
-    classIdMap.set(canon, newId)
-    if (!canonicalToOriginalImport.has(canon)) canonicalToOriginalImport.set(canon, trimmed)
-    result.classesCreated.push(trimmed)
-    createdClassIds.push(newId)
-    return newId
-  }
-
-  // Resolve auto-created classes once, before concurrent row writes. This
-  // removes the same-class creation race and lets ordinary new-class imports
-  // use the chunked create path. Rows that are guaranteed to be skipped do not
-  // create orphan classes as a side effect.
-  const unresolvedClasses = new Map<string, ImportRow>()
-  if (allowedClassSet == null) {
-    for (const row of normalizedRows) {
-      if (validateRow(row).length > 0 || findKnownClassId(row.className || '')) continue
-      const duplicate = dupMap.get(row.rowIndex)
-      const duplicateAction = duplicate ? (duplicateActions[String(row.rowIndex)] || 'skip') : 'create'
-      if (duplicate && duplicateAction === 'skip') continue
-      const canonical = canonicalClassKey(row.className || '')
-      if (canonical && !unresolvedClasses.has(canonical)) unresolvedClasses.set(canonical, row)
+    if (requested && requested !== targetBranch) {
+      throw Object.assign(
+        new Error(`Phân ngành học viên (${requested}) không khớp phân ngành lớp (${targetBranch})`),
+        { code: 'BRANCH_CLASS_MISMATCH' },
+      )
     }
-  }
-  if (unresolvedClasses.size > 0) {
-    await db.transaction(async (tx) => {
-      for (const row of unresolvedClasses.values()) {
-        await resolveClassId(tx, row.className || '', row.branch || '')
-      }
-    })
+    return targetBranch
   }
 
   type PreparedCreate = {
@@ -1241,9 +1328,20 @@ export async function importStudents(
   const fastCreateCandidates: PreparedCreate[] = []
   const remainingRows: ImportRow[] = []
   for (const row of normalizedRows) {
+    const preliminaryErrors = validateRow(row, false)
+    const classId = preliminaryErrors.length === 0 ? findKnownClassId(row.className || '') : null
+    if (preliminaryErrors.length > 0 || dupMap.has(row.rowIndex) || !classId) {
+      remainingRows.push(row)
+      continue
+    }
+    try {
+      row.branch = resolveImportMembershipBranch(row, classId)
+    } catch {
+      remainingRows.push(row)
+      continue
+    }
     const validationErrors = validateRow(row)
-    const classId = validationErrors.length === 0 ? findKnownClassId(row.className || '') : null
-    if (validationErrors.length > 0 || dupMap.has(row.rowIndex) || !classId) {
+    if (validationErrors.length > 0) {
       remainingRows.push(row)
       continue
     }
@@ -1302,9 +1400,20 @@ export async function importStudents(
     const chunk = fastCreateCandidates.slice(index, index + FAST_CREATE_CHUNK_SIZE)
     try {
       await db.transaction(async (tx) => {
+        const chunkClassIds = [...new Set(chunk.map(item => item.student.classId))]
+        const activeTargets = await tx.select({ id: classes.id, branchId: classes.branchId, branchName: branches.name })
+          .from(classes)
+          .leftJoin(branches, and(eq(branches.id, classes.branchId), eq(branches.parishId, classes.parishId)))
+          .where(and(eq(classes.parishId, parishId), inArray(classes.id, chunkClassIds), isNull(classes.deletedAt)))
+        if (activeTargets.length !== chunkClassIds.length) throw new Error('Có lớp import đã bị xóa trước khi ghi học viên')
+        const activeBranches = new Map(activeTargets.map(target => [target.id, resolveStudentBranch(target.branchId, target.branchName)]))
+        for (const item of chunk) {
+          const targetBranch = activeBranches.get(item.student.classId)
+          if (targetBranch && targetBranch !== item.student.branch) throw new Error('Phân ngành học viên không còn khớp lớp tại thời điểm ghi')
+        }
         await tx.insert(students).values(chunk.map(item => item.student))
         await tx.insert(auditLogs).values(chunk.map(item => item.audit))
-        await tx.insert(importBatchStudents).values(chunk.map(item => item.batchStudent))
+        await recordImportBatchRows(tx, chunk.map(item => item.batchStudent))
         const assignmentValues = chunk.flatMap(item => item.serviceAssignment ? [item.serviceAssignment] : [])
         if (assignmentValues.length > 0) {
           await tx.insert(serviceAssignments).values(assignmentValues).onConflictDoNothing()
@@ -1333,9 +1442,11 @@ export async function importStudents(
   const CONCURRENCY = process.env.NODE_ENV === 'test' || process.env.VITEST ? 1 : 8
   const fallbackOutcomes = await mapConcurrent<ImportRow, ImportRowOutcome>(remainingRows, async (row) => {
     try {
-      const errors = validateRow(row)
+      const duplicate = dupMap.get(row.rowIndex)
+      const requestedDuplicateAction = duplicate ? (duplicateActions[String(row.rowIndex)] || 'skip') : 'create'
+      const errors = validateRow(row, !duplicate || requestedDuplicateAction === 'create')
       if (errors.length > 0) {
-        await db.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+        await db.transaction(tx => recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }]))
         return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors }
       }
 
@@ -1355,7 +1466,7 @@ export async function importStudents(
             eq(students.id, dup.studentId), eq(students.parishId, parishId), isNull(students.deletedAt),
           )).limit(1)
           if (!duplicateStudent || !allowedClassSet.has(duplicateStudent.classId)) {
-            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+            await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }])
             rowFailureMessage = 'Có hồ sơ tương tự ngoài phạm vi lớp được phân công; vui lòng nhờ quản trị viên kiểm tra'
             rowResult = 'class_error'
             return
@@ -1363,25 +1474,25 @@ export async function importStudents(
         }
 
         if (dup && dupAction === 'skip') {
-          await tx.insert(importBatchStudents).values({
+          await recordImportBatchRows(tx, [{
             id: generateId('IBS'), batchId,
             studentId: dup.studentId === 'intra-file' ? null : dup.studentId,
             action: 'skipped', rowIndex: row.rowIndex, parishId,
-          })
+          }])
           rowResult = 'skipped'
           return
         }
 
-        const classId = await resolveClassId(tx, row.className || '', row.branch || '')
+        const classId = findKnownClassId(row.className || '')
         if (!classId) {
-          await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+          await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }])
           rowResult = 'class_error'
           return
         }
 
         if (dup && dupAction === 'update') {
           if (dup.studentId === 'intra-file') {
-            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+            await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }])
             rowResult = 'class_error'
             rowFailureMessage = 'Không thể cập nhật từ dòng trùng trong cùng file; hãy chọn Bỏ qua hoặc Tạo mới'
             return
@@ -1395,13 +1506,13 @@ export async function importStudents(
             .limit(1)
 
           if (allowedClassSet != null && (!existingStudent || !allowedClassSet.has(existingStudent.classId))) {
-            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, studentId, action: 'error', rowIndex: row.rowIndex, parishId })
+            await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, studentId, action: 'error', rowIndex: row.rowIndex, parishId }])
             rowResult = 'class_error'
             return
           }
 
           if (!existingStudent || existingStudent.deletedAt) {
-            await tx.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+            await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }])
             rowResult = 'class_error'
             return
           }
@@ -1417,6 +1528,12 @@ export async function importStudents(
             .limit(1)
 
           const provided = providedFieldsByRow.get(row.rowIndex) || new Set<keyof ImportRow>()
+          const membershipBranch = await resolveMembershipBranch(
+            tx,
+            parishId,
+            classId,
+            provided.has('branch') ? row.branch : (classId === existingStudent.classId ? existingStudent.branch : undefined),
+          )
           const updateData = {
             holyName: provided.has('holyName') ? row.holyName.trim() : existingStudent.holyName,
             fullName: row.fullName.trim(),
@@ -1425,7 +1542,7 @@ export async function importStudents(
             parentName: provided.has('parentName') ? row.parentName : existingStudent.parentName,
             parentPhone: provided.has('parentPhone') ? row.parentPhone : existingStudent.parentPhone,
             address: provided.has('address') ? row.address : existingStudent.address,
-            branch: (provided.has('branch') ? row.branch : existingStudent.branch) as typeof existingStudent.branch,
+            branch: membershipBranch,
             classId,
             updatedBy: userId,
             updatedAt: now,
@@ -1449,15 +1566,19 @@ export async function importStudents(
             previousStudent: existingStudent,
             previousServiceAssigned: Boolean(previousService),
           }
-          await tx.insert(importBatchStudents).values({
+          await recordImportBatchRows(tx, [{
             id: generateId('IBS'), batchId, studentId, action: 'updated', rowIndex: row.rowIndex, parishId,
             rollbackSnapshot: JSON.stringify(rollbackSnapshot),
-          })
+          }])
           // Gộp serviceAssignments vào cùng tx để giảm 1 round-trip
           if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
             await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
           } else {
-            await tx.delete(serviceAssignments).where(and(eq(serviceAssignments.studentId, studentId), eq(serviceAssignments.serviceType, 'le_phuc_vu')))
+            await tx.delete(serviceAssignments).where(and(
+              eq(serviceAssignments.studentId, studentId),
+              eq(serviceAssignments.serviceType, 'le_phuc_vu'),
+              eq(serviceAssignments.parishId, parishId),
+            ))
           }
           committedChange = { action: 'updated', student: updatedStudent }
           rowResult = 'updated'
@@ -1468,12 +1589,13 @@ export async function importStudents(
         const year = await getCachedAcademicYear(classId) || String(new Date().getFullYear())
         const code = reserveStudentCode(year, reservedCodes, codeFallbackCursors)
         const now = new Date().toISOString()
+        const membershipBranch = await resolveMembershipBranch(tx, parishId, classId, row.branch)
 
         const [createdStudent] = await tx.insert(students).values({
           id: studentId, code, holyName: row.holyName, fullName: row.fullName,
           gender: row.gender as any, dateOfBirth: row.dateOfBirth,
           parentName: row.parentName, parentPhone: row.parentPhone,
-          address: row.address || '', branch: row.branch as any, classId,
+          address: row.address || '', branch: membershipBranch, classId,
           parishId, updatedBy: userId, createdAt: now, updatedAt: now,
         }).returning()
         if (!createdStudent) throw new Error(`Không thể tạo học viên ở dòng ${row.rowIndex}`)
@@ -1484,10 +1606,10 @@ export async function importStudents(
           ip, userAgent, parishId,
         })
         const rollbackSnapshot: ImportRollbackSnapshot = { version: 1, kind: 'created', appliedUpdatedAt: now }
-        await tx.insert(importBatchStudents).values({
+        await recordImportBatchRows(tx, [{
           id: generateId('IBS'), batchId, studentId, action: 'created', rowIndex: row.rowIndex, parishId,
           rollbackSnapshot: JSON.stringify(rollbackSnapshot),
-        })
+        }])
         if (detectService(row) === 'yes' && !serviceExclusions.has(row.rowIndex)) {
           await tx.insert(serviceAssignments).values({ id: generateId('SA'), studentId, serviceType: 'le_phuc_vu', parishId, createdBy: userId }).onConflictDoNothing()
         }
@@ -1501,7 +1623,7 @@ export async function importStudents(
       return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'imported' as const, errors: [] as string[], change: committedChange }
     } catch (err: any) {
       try {
-        await db.insert(importBatchStudents).values({ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId })
+        await db.transaction(tx => recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }]))
       } catch {}
       return { rowIndex: row.rowIndex, studentName: row.fullName, status: 'error' as const, errors: [err?.message || 'Lỗi không xác định'] }
     }
@@ -1526,15 +1648,8 @@ export async function importStudents(
     finalStatus = (result.imported > 0 || result.skipped > 0) ? 'partial' : 'failed'
   }
 
-  await db.update(importBatches).set({
-    imported: result.imported, skipped: result.skipped,
-    errorCount: result.errors, classesCreated: JSON.stringify(result.classesCreated || []),
-    createdClassIds: JSON.stringify(createdClassIds),
-    status: finalStatus,
-  }).where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
-
   // Save class name mappings for learning (scope by academic year)
-  const ayId = await getCurrentAcademicYearId(parishId)
+  const ayId = academicYearId
   const mappingValues: (typeof mappingMemory.$inferInsert)[] = []
 
   // Save user-confirmed class mappings — alias canonical for case/diacritic-insensitive learning
@@ -1559,13 +1674,35 @@ export async function importStudents(
     })
   }
 
-  if (mappingValues.length > 0) {
-    await db.insert(mappingMemory).values(mappingValues).onConflictDoNothing()
-  }
+  await db.transaction(async (tx) => {
+    if (finalStatus === 'failed' && createdClassIds.length > 0) {
+      const cleanup = await cleanupUnreferencedImportClasses(tx, createdClassIds, parishId, userId, batchId)
+      if (cleanup.blocked.length > 0) result.orphanClasses = cleanup.blocked
+    } else if (mappingValues.length > 0) {
+      await tx.insert(mappingMemory).values(mappingValues).onConflictDoNothing()
+    }
+
+    await tx.update(importBatches).set({
+      classesCreated: JSON.stringify(result.classesCreated || []),
+      createdClassIds: JSON.stringify(createdClassIds),
+    }).where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
+    const finalized = await finalizeImportBatchFromRows(tx, batchId, parishId, input.rows.length)
+    if (finalized.status !== finalStatus
+      || finalized.imported !== result.imported
+      || finalized.skipped !== result.skipped
+      || finalized.errors !== result.errors) {
+      throw new Error('Import outcome metadata does not match committed row provenance')
+    }
+  })
 
   // Detect orphan classes (created but have 0 students)
   if (classIdMap.size > 0) {
-    const newClassIds = [...new Set(classIdMap.values())]
+    const candidateClassIds = [...new Set(classIdMap.values())]
+    const activeCreatedClasses = await db.select({ id: classes.id }).from(classes).where(and(
+      eq(classes.parishId, parishId), inArray(classes.id, candidateClassIds), isNull(classes.deletedAt),
+    ))
+    const newClassIds = activeCreatedClasses.map(item => item.id)
+    if (newClassIds.length === 0) return result
     const classCounts = await db
       .select({ classId: students.classId, count: sql<number>`count(*)` })
       .from(students)
@@ -1582,10 +1719,13 @@ export async function importStudents(
     }
   }
   } catch (err: any) {
-    await db.update(importBatches).set({
-      errorCount: result.errors || input.rows.length,
-      status: 'failed',
-    }).where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
+    await db.transaction(async (tx) => {
+      if (createdClassIds.length > 0) {
+        const cleanup = await cleanupUnreferencedImportClasses(tx, createdClassIds, parishId, userId, batchId)
+        if (cleanup.blocked.length > 0) result.orphanClasses = cleanup.blocked
+      }
+      await finalizeImportBatchFromRows(tx, batchId, parishId, input.rows.length)
+    })
     throw err
   }
 
@@ -1703,14 +1843,19 @@ export async function clearExpiredImportRollbackSnapshots(parishId?: string): Pr
     .where(and(...conditions))
 }
 
+export async function runImportMaintenanceCycle(): Promise<void> {
+  await recoverInterruptedImportBatchesForAllParishes()
+  await clearExpiredImportRollbackSnapshots()
+}
+
 let rollbackCleanupTimer: ReturnType<typeof setInterval> | null = null
 
-export function startImportRollbackSnapshotCleanup(intervalMs = 60 * 60 * 1000): () => void {
+export function startImportRollbackSnapshotCleanup(intervalMs = 60 * 60 * 1000, runImmediately = true): () => void {
   if (rollbackCleanupTimer) return () => {}
-  const run = () => void clearExpiredImportRollbackSnapshots().catch((error) => {
-    console.error('[import] rollback snapshot cleanup failed', error)
+  const run = () => void runImportMaintenanceCycle().catch((error) => {
+    console.error('[import] maintenance cycle failed', error)
   })
-  run()
+  if (runImmediately) run()
   rollbackCleanupTimer = setInterval(run, intervalMs)
   rollbackCleanupTimer.unref?.()
   return () => {
@@ -1730,15 +1875,45 @@ function parseRollbackSnapshot(raw: string | null): ImportRollbackSnapshot | nul
   }
 }
 
-async function hasStudentActivityAfterImport(tx: DbTransaction, studentId: string, parishId: string): Promise<boolean> {
+async function hasStudentActivityAfterImport(
+  tx: DbTransaction,
+  studentId: string,
+  parishId: string,
+  appliedAt: string,
+): Promise<boolean> {
   const checks = [
-    () => tx.select({ id: grades.id }).from(grades).where(and(eq(grades.studentId, studentId), eq(grades.parishId, parishId))).limit(1),
-    () => tx.select({ id: attendance.id }).from(attendance).where(and(eq(attendance.studentId, studentId), eq(attendance.parishId, parishId))).limit(1),
-    () => tx.select({ id: examResults.id }).from(examResults).where(and(eq(examResults.studentId, studentId), eq(examResults.parishId, parishId))).limit(1),
-    () => tx.select({ id: promotionRecords.id }).from(promotionRecords).where(and(eq(promotionRecords.studentId, studentId), eq(promotionRecords.parishId, parishId))).limit(1),
-    () => tx.select({ id: academicYearSnapshots.id }).from(academicYearSnapshots).where(and(eq(academicYearSnapshots.studentId, studentId), eq(academicYearSnapshots.parishId, parishId))).limit(1),
-    () => tx.select({ id: assessmentEntries.id }).from(assessmentEntries).where(and(eq(assessmentEntries.studentId, studentId), eq(assessmentEntries.parishId, parishId))).limit(1),
-    () => tx.select({ id: leaveRequests.id }).from(leaveRequests).where(and(eq(leaveRequests.studentId, studentId), eq(leaveRequests.parishId, parishId))).limit(1),
+    () => tx.select({ id: grades.id }).from(grades).where(and(
+      eq(grades.studentId, studentId), eq(grades.parishId, parishId),
+      or(gte(grades.createdAt, appliedAt), gte(grades.updatedAt, appliedAt)),
+    )).limit(1),
+    () => tx.select({ id: attendance.id }).from(attendance).where(and(
+      eq(attendance.studentId, studentId), eq(attendance.parishId, parishId),
+      or(gte(attendance.createdAt, appliedAt), gte(attendance.updatedAt, appliedAt)),
+    )).limit(1),
+    () => tx.select({ id: examResults.id }).from(examResults).where(and(
+      eq(examResults.studentId, studentId), eq(examResults.parishId, parishId),
+      or(gte(examResults.createdAt, appliedAt), gte(examResults.savedAt, appliedAt)),
+    )).limit(1),
+    () => tx.select({ id: promotionRecords.id }).from(promotionRecords).where(and(
+      eq(promotionRecords.studentId, studentId), eq(promotionRecords.parishId, parishId),
+      or(gte(promotionRecords.createdAt, appliedAt), gte(promotionRecords.updatedAt, appliedAt)),
+    )).limit(1),
+    () => tx.select({ id: academicYearSnapshots.id }).from(academicYearSnapshots).where(and(
+      eq(academicYearSnapshots.studentId, studentId), eq(academicYearSnapshots.parishId, parishId),
+      or(gte(academicYearSnapshots.createdAt, appliedAt), gte(academicYearSnapshots.updatedAt, appliedAt)),
+    )).limit(1),
+    () => tx.select({ id: assessmentEntries.id }).from(assessmentEntries).where(and(
+      eq(assessmentEntries.studentId, studentId), eq(assessmentEntries.parishId, parishId),
+      gte(assessmentEntries.createdAt, appliedAt),
+    )).limit(1),
+    () => tx.select({ id: leaveRequests.id }).from(leaveRequests).where(and(
+      eq(leaveRequests.studentId, studentId), eq(leaveRequests.parishId, parishId),
+      or(gte(leaveRequests.createdAt, appliedAt), gte(leaveRequests.updatedAt, appliedAt)),
+    )).limit(1),
+    () => tx.select({ id: studentFeeRecords.id }).from(studentFeeRecords).where(and(
+      eq(studentFeeRecords.studentId, studentId), eq(studentFeeRecords.parishId, parishId),
+      or(gte(studentFeeRecords.createdAt, appliedAt), gte(studentFeeRecords.updatedAt, appliedAt)),
+    )).limit(1),
   ]
   for (const check of checks) {
     if ((await check()).length > 0) return true
@@ -1746,7 +1921,8 @@ async function hasStudentActivityAfterImport(tx: DbTransaction, studentId: strin
   return false
 }
 
-export async function undoImport(batchId: string, parishId: string): Promise<{ undone: number; errors: string[] }> {
+export async function undoImport(batchId: string, parishId: string, actorUserId: string): Promise<UndoImportResult> {
+  await recoverInterruptedImportBatches(parishId)
   await clearExpiredImportRollbackSnapshots(parishId)
   const [batch] = await db
     .select()
@@ -1760,7 +1936,7 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
   const undoWindow = new Date(Date.now() - ROSTER_UNDO_WINDOW_MS).toISOString()
   if (batch.createdAt < undoWindow) throw new Error('Chỉ có thể hoàn tác trong vòng 24 giờ sau khi import')
 
-  const result = { undone: 0, errors: [] as string[] }
+  const result: UndoImportResult = { undone: 0, errors: [], items: [], classesDeleted: [] }
 
   await db.transaction(async (tx) => {
     const batchStudents = await tx
@@ -1771,9 +1947,14 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
     for (const bs of batchStudents) {
       if (!bs.studentId || !['created', 'updated'].includes(bs.action)) continue
       const snapshot = parseRollbackSnapshot(bs.rollbackSnapshot)
-      if (!snapshot && batch.status === 'partial_undone') continue
+      if (!snapshot && batch.status === 'partial_undone') {
+        result.items.push({ rowIndex: bs.rowIndex, studentId: bs.studentId, action: bs.action as 'created' | 'updated', status: 'already_undone' })
+        continue
+      }
       if (!snapshot || snapshot.kind !== bs.action) {
-        result.errors.push(`Dòng ${bs.rowIndex}: thiếu snapshot hoàn tác an toàn; không thay đổi dữ liệu`)
+        const message = `Dòng ${bs.rowIndex}: thiếu snapshot hoàn tác an toàn; không thay đổi dữ liệu`
+        result.errors.push(message)
+        result.items.push({ rowIndex: bs.rowIndex, studentId: bs.studentId, action: bs.action as 'created' | 'updated', status: 'blocked', message })
         continue
       }
 
@@ -1781,20 +1962,24 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
         eq(students.id, bs.studentId), eq(students.parishId, parishId),
       )).limit(1)
       if (!current || current.deletedAt || current.updatedAt !== snapshot.appliedUpdatedAt) {
-        result.errors.push(`Dòng ${bs.rowIndex}: học viên đã thay đổi sau import; từ chối hoàn tác để tránh mất dữ liệu`)
+        const message = `Dòng ${bs.rowIndex}: học viên đã thay đổi sau import; từ chối hoàn tác để tránh mất dữ liệu`
+        result.errors.push(message)
+        result.items.push({ rowIndex: bs.rowIndex, studentId: bs.studentId, action: snapshot.kind, status: 'blocked', message })
         continue
       }
 
       const now = new Date().toISOString()
+      if (await hasStudentActivityAfterImport(tx, bs.studentId, parishId, snapshot.appliedUpdatedAt)) {
+        const message = `Dòng ${bs.rowIndex}: học viên đã có dữ liệu phát sinh sau import; không thể hoàn tác tự động`
+        result.errors.push(message)
+        result.items.push({ rowIndex: bs.rowIndex, studentId: bs.studentId, action: snapshot.kind, status: 'blocked', message })
+        continue
+      }
       if (snapshot.kind === 'created') {
-        if (await hasStudentActivityAfterImport(tx, bs.studentId, parishId)) {
-          result.errors.push(`Dòng ${bs.rowIndex}: học viên đã có dữ liệu liên quan; không thể hoàn tác tự động`)
-          continue
-        }
         await tx.delete(serviceAssignments).where(and(
           eq(serviceAssignments.studentId, bs.studentId), eq(serviceAssignments.parishId, parishId),
         ))
-        await tx.update(students).set({ deletedAt: now, updatedAt: now, updatedBy: batch.userId }).where(and(
+        await tx.update(students).set({ deletedAt: now, updatedAt: now, updatedBy: actorUserId }).where(and(
           eq(students.id, bs.studentId), eq(students.parishId, parishId),
         ))
       } else {
@@ -1811,12 +1996,12 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
           parentPhone: previous.parentPhone, address: previous.address, branch: previous.branch,
           classId: previous.classId, avatarUrl: previous.avatarUrl, status: previous.status,
           notes: previous.notes, deletedAt: previous.deletedAt, idempotencyKey: previous.idempotencyKey,
-          updatedAt: now, updatedBy: batch.userId,
+          updatedAt: now, updatedBy: actorUserId,
         }).where(and(eq(students.id, bs.studentId), eq(students.parishId, parishId)))
 
         if (snapshot.previousServiceAssigned) {
           await tx.insert(serviceAssignments).values({
-            id: generateId('SA'), studentId: bs.studentId, serviceType: 'le_phuc_vu', parishId, createdBy: batch.userId,
+            id: generateId('SA'), studentId: bs.studentId, serviceType: 'le_phuc_vu', parishId, createdBy: actorUserId,
           }).onConflictDoNothing()
         } else {
           await tx.delete(serviceAssignments).where(and(
@@ -1827,7 +2012,7 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
       }
 
       await tx.insert(auditLogs).values({
-        id: generateId('AUD'), userId: batch.userId, action: 'UNDO_IMPORT', entityType: 'student', entityId: bs.studentId,
+        id: generateId('AUD'), userId: actorUserId, action: 'UNDO_IMPORT', entityType: 'student', entityId: bs.studentId,
         oldValue: JSON.stringify(redactStudentForAudit(current)),
         newValue: JSON.stringify({ batchId, rowIndex: bs.rowIndex, restored: snapshot.kind }), parishId,
       })
@@ -1835,24 +2020,31 @@ export async function undoImport(batchId: string, parishId: string): Promise<{ u
         eq(importBatchStudents.id, bs.id), eq(importBatchStudents.parishId, parishId),
       ))
       result.undone++
+      result.items.push({ rowIndex: bs.rowIndex, studentId: bs.studentId, action: snapshot.kind, status: 'undone' })
     }
 
     let createdClassIds: string[] = []
     try { createdClassIds = JSON.parse(batch.createdClassIds || '[]') } catch {}
     for (const classId of createdClassIds) {
-      const [activeStudent] = await tx.select({ id: students.id }).from(students).where(and(
-        eq(students.classId, classId), eq(students.parishId, parishId), isNull(students.deletedAt),
-      )).limit(1)
-      if (!activeStudent) {
-        await tx.update(classes)
-          .set({ deletedAt: new Date().toISOString() })
-          .where(and(eq(classes.id, classId), eq(classes.parishId, parishId)))
+      const cleanup = await cleanupUnreferencedImportClasses(tx, [classId], parishId, actorUserId, batchId)
+      if (cleanup.blocked.length > 0) {
+        const blockers = await getClassDependencyBlockers(tx, classId, parishId)
+        result.errors.push(`Lớp ${classId}: còn ${blockers.join(', ')}; không tự động xóa lớp`)
+        continue
       }
+      result.classesDeleted.push(classId)
     }
 
-    if (result.undone > 0) {
+    const [remainingRollback] = await tx.select({ id: importBatchStudents.id }).from(importBatchStudents).where(and(
+      eq(importBatchStudents.batchId, batchId), eq(importBatchStudents.parishId, parishId), isNotNull(importBatchStudents.rollbackSnapshot),
+    )).limit(1)
+    if (!remainingRollback && result.errors.length === 0) {
       await tx.update(importBatches)
-        .set({ status: result.errors.length > 0 ? 'partial_undone' : 'undone' })
+        .set({ status: 'undone' })
+        .where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
+    } else if (result.undone > 0 || batch.status === 'partial_undone') {
+      await tx.update(importBatches)
+        .set({ status: 'partial_undone' })
         .where(and(eq(importBatches.id, batchId), eq(importBatches.parishId, parishId)))
     }
   })
@@ -1884,6 +2076,7 @@ export async function detectOrphanClasses(parishId: string): Promise<string[]> {
 }
 
 export async function getImportHistory(parishId: string, limit = 20, offset = 0, userId?: string) {
+  await recoverInterruptedImportBatches(parishId)
   await clearExpiredImportRollbackSnapshots(parishId)
   const conditions = [eq(importBatches.parishId, parishId)]
   if (userId) {

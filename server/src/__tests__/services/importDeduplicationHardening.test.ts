@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db } from '../../db/index.js'
 import { students, classes, branches, academicYears, users, importBatches, importBatchStudents, auditLogs } from '../../db/schema.js'
-import { clearExpiredImportRollbackSnapshots, detectDuplicates, importStudents, undoImport } from '../../services/importService.js'
+import { clearExpiredImportRollbackSnapshots, detectDuplicates, importStudents, recoverInterruptedImportBatches, recoverInterruptedImportBatchesForAllParishes, undoImport } from '../../services/importService.js'
 import { eq } from 'drizzle-orm'
 
 describe('Import Deduplication Hardening Suite (ADR-054)', () => {
@@ -316,6 +316,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       const importResult = await importStudents(
         {
           rows,
+          academicYearId: AY_ID,
           classMappings: { 'Thiếu Nhi 1': CLASS_ID },
           duplicateActions: { '1': 'skip' },
         },
@@ -344,6 +345,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
           dateOfBirth: '2015-05-10', parentName: 'Không được ghi đè', parentPhone: '0988776655',
           address: 'Không được ghi đè', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
         }],
+        academicYearId: AY_ID,
         classMappings: { 'Thiếu Nhi 1': CLASS_ID },
         duplicateActions: {},
       }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
@@ -361,6 +363,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       }
       const result = await importStudents({
         rows: [{ ...base, rowIndex: 21 }, { ...base, rowIndex: 22 }],
+        academicYearId: AY_ID,
         classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: {},
       }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
 
@@ -378,6 +381,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
           dateOfBirth: '2015-05-10', parentName: 'Gia đình', parentPhone: '0988776655',
           address: 'Test', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
         }],
+        academicYearId: AY_ID,
         classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: { '31': 'create' },
       }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
 
@@ -392,6 +396,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
           rowIndex: 41, holyName: 'Giuse', fullName: 'Lê Văn Hoàng', gender: '', dateOfBirth: '',
           parentName: 'Phụ huynh mới', parentPhone: '', address: '', branch: '', className: 'Thiếu Nhi 1',
         }],
+        academicYearId: AY_ID,
         classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: { '41': 'update' },
       }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
 
@@ -406,8 +411,8 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       expect(updated.parentPhone).toBe(before.parentPhone)
       expect(updated.gender).toBe(before.gender)
 
-      const undone = await undoImport(result.batchId, PARISH)
-      expect(undone).toEqual({ undone: 1, errors: [] })
+      const undone = await undoImport(result.batchId, PARISH, ADMIN_ID)
+      expect(undone).toMatchObject({ undone: 1, errors: [] })
       const restored = (await db.select().from(students).where(eq(students.id, ST2_ID)))[0]
       expect(restored.parentName).toBe(before.parentName)
       expect(restored.address).toBe(before.address)
@@ -429,6 +434,71 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       await clearExpiredImportRollbackSnapshots(PARISH)
       const [row] = await db.select().from(importBatchStudents).where(eq(importBatchStudents.id, rowId))
       expect(row.rollbackSnapshot).toBeNull()
+    })
+
+    it('recovers only pre-process import batches from committed row provenance', async () => {
+      const interruptedId = 'imp-interrupted-metadata'
+      const activeId = 'imp-active-metadata'
+      await db.insert(importBatches).values([
+        {
+          id: interruptedId, userId: ADMIN_ID, parishId: PARISH, totalRows: 3,
+          imported: 0, skipped: 0, errorCount: 0, status: 'processing',
+          createdAt: '2020-01-01T00:00:00.000Z',
+        },
+        {
+          id: activeId, userId: ADMIN_ID, parishId: PARISH, totalRows: 1,
+          imported: 0, skipped: 0, errorCount: 0, status: 'processing',
+          createdAt: '2030-01-01T00:00:00.000Z',
+        },
+      ])
+      await db.insert(importBatchStudents).values([
+        { id: 'ibs-interrupted-created', batchId: interruptedId, parishId: PARISH, rowIndex: 1, action: 'created', studentId: ST1_ID },
+        { id: 'ibs-interrupted-skipped', batchId: interruptedId, parishId: PARISH, rowIndex: 2, action: 'skipped', studentId: ST2_ID },
+      ])
+
+      expect(await recoverInterruptedImportBatches(PARISH, '2025-01-01T00:00:00.000Z')).toBe(1)
+
+      const [interrupted] = await db.select().from(importBatches).where(eq(importBatches.id, interruptedId))
+      expect(interrupted).toMatchObject({ imported: 1, skipped: 1, errorCount: 1, status: 'partial' })
+      const [active] = await db.select().from(importBatches).where(eq(importBatches.id, activeId))
+      expect(active.status).toBe('processing')
+    })
+
+    it('startup recovery discovers stale processing batches without guessing a parish', async () => {
+      const otherParish = 'parish-import-startup-recovery'
+      const otherAdmin = 'usr-import-startup-recovery'
+      const localBatch = 'imp-startup-local'
+      const otherBatch = 'imp-startup-other'
+      try {
+        await db.insert(users).values({
+          id: otherAdmin,
+          username: 'import_startup_recovery',
+          passwordHash: 'hash',
+          fullName: 'Import Recovery Admin',
+          role: 'admin',
+          parishId: otherParish,
+        })
+        await db.insert(importBatches).values([
+          {
+            id: localBatch, userId: ADMIN_ID, parishId: PARISH, totalRows: 1,
+            status: 'processing', createdAt: '2000-01-01T00:00:00.000Z',
+          },
+          {
+            id: otherBatch, userId: otherAdmin, parishId: otherParish, totalRows: 2,
+            status: 'processing', createdAt: '2000-01-01T00:00:00.000Z',
+          },
+        ])
+
+        expect(await recoverInterruptedImportBatchesForAllParishes('2001-01-01T00:00:00.000Z')).toBe(2)
+        const [local] = await db.select().from(importBatches).where(eq(importBatches.id, localBatch))
+        const [other] = await db.select().from(importBatches).where(eq(importBatches.id, otherBatch))
+        expect(local).toMatchObject({ status: 'failed', imported: 0, skipped: 0, errorCount: 1 })
+        expect(other).toMatchObject({ status: 'failed', imported: 0, skipped: 0, errorCount: 2 })
+      } finally {
+        await db.delete(importBatches).where(eq(importBatches.parishId, otherParish))
+        await db.delete(importBatches).where(eq(importBatches.id, localBatch))
+        await db.delete(users).where(eq(users.parishId, otherParish))
+      }
     })
   })
 })

@@ -65,7 +65,7 @@ describe('SEC-BATCH-CAP-1: batch array caps', () => {
     const res = await app.request('/api/students/validate', {
       method: 'POST',
       headers: { Authorization: `Bearer ${adminToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: Array.from({ length: 2001 }, (_, i) => makeImportRow(i)) }),
+      body: JSON.stringify({ academicYearId: 'cap-test-year', rows: Array.from({ length: 2001 }, (_, i) => makeImportRow(i)) }),
     })
     expect(res.status).toBe(400)
   })
@@ -75,6 +75,7 @@ describe('SEC-BATCH-CAP-1: batch array caps', () => {
       method: 'POST',
       headers: { Authorization: `Bearer ${adminToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        academicYearId: 'cap-test-year',
         rows: Array.from({ length: 2001 }, (_, i) => makeImportRow(i)),
         classMappings: {},
         duplicateActions: {},

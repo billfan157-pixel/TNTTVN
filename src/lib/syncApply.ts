@@ -196,6 +196,33 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
 }
 
 /**
+ * A permanent student mutation rejection means the optimistic row is no longer
+ * a valid local projection. Keep the failed queue payload for Diagnostics, but
+ * restore the server object when possible and otherwise remove the untrusted
+ * optimistic row until the next authoritative roster pull.
+ */
+export async function reconcilePermanentlyRejectedStudentOp(op: SyncQueueItem): Promise<void> {
+  if ((op.entity || '').toLowerCase() !== 'student' || !op.entityId) return
+  const studentStore = useStudentStore.getState()
+  if (op.operation === 'CREATE') {
+    studentStore.discardOptimisticStudent(op.entityId)
+    return
+  }
+
+  try {
+    const serverStudent = await api.getStudent(op.entityId)
+    if (serverStudent?.id && !serverStudent.deletedAt) {
+      studentStore.reconcileImportedStudents([{ action: 'updated', student: serverStudent }])
+    } else {
+      studentStore.discardOptimisticStudent(op.entityId)
+    }
+  } catch (error) {
+    studentStore.discardOptimisticStudent(op.entityId)
+    Sentry.captureException(error)
+  }
+}
+
+/**
  * ADR-016 (sync-fix): Trích index + message của các record lỗi từ zod issues
  * (response 400 của @hono/zod-validator: path dạng ["grades", 21, "academicYear"]).
  * Trả null nếu không parse được → caller fallback cách ly từng record.

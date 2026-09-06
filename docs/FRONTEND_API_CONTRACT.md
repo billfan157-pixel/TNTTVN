@@ -560,15 +560,15 @@ Client: `src/lib/api.ts` (`getLeaveRequests`, `getPendingLeaveRequestsCount`, `c
 
 Client: `src/lib/api/promotion.ts` (`promotionApiClient.batchApproveStudents`) · Store: `src/stores/promotionStore.ts` (`batchApproveStudents`) · Server: `server/src/routes/promotion.ts`, `server/src/services/BatchPromotionApplicationService.ts`
 
-> **F1 (audit 2026-08-21)**: đây là đường duyệt thăng tiến thủ công SSOT khi online —
+> **F1 (audit 2026-08-21; hardened ADR-108)**: đây là đường duyệt thăng tiến thủ công SSOT —
 > sinh `promotion_records` snapshot + chuyển lớp/ngành **trong cùng transaction**,
 > enforce SemesterLock HK2 + policy phía server. Panel "Xét Lên Lớp"
-> (`PromotionPanel`) KHÔNG còn dùng `PUT /api/students/:id` khi online; offline
-> fallback cũ giữ nguyên (hạn chế đã ghi nhận trong ADR-052).
+> (`PromotionPanel`) không ghi offline và KHÔNG dùng `PUT /api/students/:id`; mất mạng
+> phải giữ nguyên projection và yêu cầu kết nối lại.
 
 | Method | Endpoint | Mô tả | Quyền | Body | Response |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/api/promotion/batch-approve` | Duyệt thăng tiến hàng loạt (partial success ADR-008). Mỗi item 1 transaction: `approvePromotion` (snapshot + verify GPA/chuyên cần authoritative) → update `students.classId`/`students.branch` nếu có `nextClassId`/`newBranch`. Move được áp cho cả item `skipped` (idempotent re-run hội tụ) | `admin`, `chunhiem` (bị chặn bởi `CanAccessStudentSpecification` + `checkUserClassAccess(nextClassId)`) | `{ items: [{ studentId, academicYear, targetClassId, nextClassId?, newBranch? ('ChienCon'\|'AuNhi'\|'ThieuNhi'\|'NghiaSi'\|'HiepSi'), gpa, attendanceRate, manualDecision?, overrideReason? }], chunkSize? }` | 200 Partial-Success Payload (§2): `saved`/`skipped`/`error`; lỗi từng item kèm `reason` |
+| `POST` | `/api/promotion/batch-approve` | Duyệt thăng tiến hàng loạt (partial success ADR-008). Mỗi item 1 transaction: `approvePromotion` (snapshot + verify GPA/chuyên cần authoritative) → update `students.classId`/`students.branch`. Source phải là class hiện tại; destination phải active/cùng parish/thuộc target year và branch được derive từ destination. Move được áp cho item `skipped` khi replay idempotent | `admin`, `chunhiem` (bị chặn bởi `CanAccessStudentSpecification` + `checkUserClassAccess(nextClassId)`) | `{ items: [{ studentId, academicYear, targetClassId, nextClassId, newBranch?, gpa, attendanceRate, manualDecision?, overrideReason? }], chunkSize? }`; branch-only promotion bị từ chối | 200 Partial-Success Payload (§2): `saved`/`skipped`/`error`; lỗi từng item kèm `reason` |
 
 Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`), `409` GPA/chuyên cần lệch máy chủ (`DATA_MISMATCH` — client phải lấy giá trị từ `GET /promotion/evaluate/:studentId`), `400` override thiếu lý do, `404` học sinh đã xóa/hết `'Đang học'`.
 
@@ -630,19 +630,21 @@ Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/khô
 
 ### Atomic class assignments (ADR-099)
 
-`PUT /api/classes/:id/assignments` (admin-only) nhận `{ homeroomTeacherId: string|null, assistantTeacherIds: string[0..20] }` và thay toàn bộ selection trong một transaction cùng audit. ID phải thuộc account active cùng tenant với role `admin|chunhiem|phuta`; một người không thể giữ hai vai trò trong cùng lớp, chủ nhiệm không thể đồng thời chủ nhiệm lớp khác. Lỗi trả 400/404 và giữ nguyên assignment cũ. `POST`/`DELETE` single-assignment được giữ tương thích nhưng cũng áp role/tenant guard.
+`PUT /api/classes/:id/assignments` (admin-only) nhận `{ homeroomTeacherId: string|null, assistantTeacherIds: string[0..20] }` và thay toàn bộ selection trong một transaction cùng audit. `POST|DELETE` class-centric, `PUT /api/users/:id/assignments` và assignment của create-user đều gọi cùng invariant owner. Chỉ account `chunhiem|phuta` chưa xóa ở `ACTIVE|FORCE_PASSWORD_CHANGE` và class active cùng tenant được nhận; admin/parent/inactive bị từ chối. Một cặp không giữ hai vai trò, một lớp tối đa một CN và một user tối đa một lớp CN; partial UNIQUE indexes chặn race. Lỗi trả 400/404 và giữ nguyên assignment cũ.
 
 ### Student roster import contract (ADR-064, 2026-08-28)
 
 | Endpoint | Contract chính |
 | :--- | :--- |
-| `POST /api/students/validate` | `rows[0..2000]`; field có max length; trả preview, class suggestions, duplicate reason và previous batch hash. Duplicate ngoài class scope của chủ nhiệm không lộ metadata. |
-| `POST /api/students/import` | `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip` tại server. `fileName ≤255`, mapping/newClasses/serviceExclusions đều có cap 2000. Partial-success itemized. Response thêm `studentChanges: [{ action: 'created'|'updated', student }]` chỉ chứa record cùng giáo xứ đã commit; report/count/batchId cũ giữ nguyên. Client phải tenant-check rồi merge ngay vào roster projection, không tạo offline sync command và không full-refetch sau import. |
-| `POST /api/students/undo/:batchId` | Admin-only, 24h; trả `{ undone, errors[] }`. Exact snapshot + post-import mutation/dependency gate; batch có thể thành `partial_undone` và retry idempotently trong cửa sổ còn lại. |
+| `POST /api/students/validate` | Body bắt buộc `{ rows[0..2000], academicYearId }`; year phải tồn tại, chưa khóa, cùng parish. Trả preview/class suggestions/duplicate reason/previous hash. Exact và fuzzy match chỉ xét year đã chọn; tie/lead không đủ phải chọn tường minh. Validation không tạo year. Duplicate ngoài class scope của CN không lộ metadata. |
+| `POST /api/students/import` | Bắt buộc cùng `academicYearId` đã validate. `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip`. `fileName ≤255`, mapping/newClasses/serviceExclusions cap 2000. Partial-success itemized. `studentChanges` chỉ chứa record commit. Row + audit/provenance/counter commit cùng transaction; batch/class bootstrap atomic; stale `processing` từ process trước được recover từ provenance. |
+| `POST /api/students/undo/:batchId` | Admin-only, 24h; trả `{ undone, errors, items: [{ rowIndex, studentId, action, status: 'undone'\|'blocked'\|'already_undone', message? }], classesDeleted }`. Exact snapshot + post-import mutation/dependency gate gồm fee; batch có thể `partial_undone` và retry idempotently. |
 
 Lỗi 500 từ validate/import trả message chung kèm mã tham chiếu; chi tiết DB/stack chỉ nằm trong server log. Client chặn file >10 MB hoặc >2000 data rows trước request.
 
 Fast path ADR-066 xử lý các row create hợp lệ theo chunk 40 trong transaction multi-row. Bất kỳ lỗi constraint/race nào rollback nguyên chunk rồi retry từng row, vì vậy response chỉ công bố `studentChanges` sau commit và vẫn giữ chính xác partial-success/undo của ADR-008/064. `studentChanges` không phải optimistic payload: nó là projection của server response; stale response khác tenant bị client bỏ qua. Undo roster tiếp tục refetch authoritative vì có thể delete record mới và restore record cũ.
+
+`POST|PUT /api/students` resolve membership branch từ class active. Khi `PUT` thực sự đổi `classId` hoặc `branch`, body bắt buộc `membershipChangeReason` dài 5–500 ký tự; audit action là `UPDATE_MEMBERSHIP_CORRECTION`. Đây là correction hành chính, không phải promotion. Client StudentModal chỉ đóng/báo đã lưu sau khi durable queue insertion thành công; nếu student mutation bị server từ chối vĩnh viễn, sync giữ failed payload trong Diagnostics và reconcile object từ `GET /api/students/:id` (hoặc bỏ projection không đáng tin nếu authoritative read thất bại).
 
 ---
 

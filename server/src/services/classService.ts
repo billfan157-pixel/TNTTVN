@@ -3,6 +3,8 @@ import { classes, branches, academicYears, auditLogs, users, catechistAssignment
 import { eq, and, desc, isNull, inArray, like, or, sql, gte, lte, asc } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
+import { mapClassAssignmentConstraintError, validateClassAssignmentReplacement } from './classAssignmentPolicy.js'
+import { getClassDependencyBlockers } from './classDependencyService.js'
 
 type CreateClassData = Pick<InferInsertModel<typeof classes>, 'code' | 'name' | 'branchId' | 'academicYearId' | 'room' | 'idempotencyKey'>
 type UpdateClassData = Partial<CreateClassData>
@@ -162,6 +164,26 @@ export async function updateClass(id: string, data: UpdateClassData, userId: str
 
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const changesStructure = (data.branchId !== undefined && data.branchId !== existing.branchId)
+      || (data.academicYearId !== undefined && data.academicYearId !== existing.academicYearId)
+    if (changesStructure) {
+      const blockers = await getClassDependencyBlockers(tx, id, parishId)
+      if (blockers.length > 0) {
+        throw Object.assign(
+          new Error(`Không thể đổi phân ngành/niên khóa khi lớp còn ${blockers.join(', ')}`),
+          { code: 'CLASS_STRUCTURE_LOCKED', blockers },
+        )
+      }
+      const targetAcademicYearId = data.academicYearId || existing.academicYearId
+      const [targetYear] = await tx.select({ id: academicYears.id, isLocked: academicYears.isLocked, status: academicYears.status })
+        .from(academicYears)
+        .where(and(eq(academicYears.id, targetAcademicYearId), eq(academicYears.parishId, parishId)))
+        .limit(1)
+      if (!targetYear || targetYear.isLocked || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(targetYear.status)) {
+        throw Object.assign(new Error('Không thể chuyển lớp vào niên khóa đã khóa/chốt hoặc không tồn tại'), { code: 'ACADEMIC_YEAR_INVALID' })
+      }
+    }
+
     await tx.update(classes)
       .set({
         code: data.code,
@@ -203,6 +225,14 @@ export async function deleteClass(id: string, userId: string, parishId: string, 
 
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const blockers = await getClassDependencyBlockers(tx, id, parishId)
+    if (blockers.length > 0) {
+      throw Object.assign(
+        new Error(`Không thể xóa lớp khi còn ${blockers.join(', ')}`),
+        { code: 'CLASS_HAS_DEPENDENCIES', blockers },
+      )
+    }
+
     await tx.update(classes)
       .set({ deletedAt: now, updatedAt: now, updatedBy: userId })
       .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
@@ -238,7 +268,7 @@ export async function getAvailableTeachers(parishId: string) {
     .where(and(
       eq(users.parishId, parishId),
       eq(users.status, 'ACTIVE'),
-      inArray(users.role, ['admin', 'chunhiem', 'phuta']),
+      inArray(users.role, ['chunhiem', 'phuta']),
     ))
     .orderBy(users.fullName)
 }
@@ -284,7 +314,9 @@ export async function assignUserToClass(
   ip: string,
   userAgent: string,
 ) {
-  const result = await runDbTransaction(async (tx) => {
+  let result
+  try {
+    result = await runDbTransaction(async (tx) => {
     const [cls] = await tx
       .select()
       .from(classes)
@@ -298,10 +330,15 @@ export async function assignUserToClass(
       .where(and(eq(users.id, userId), eq(users.parishId, parishId)))
       .limit(1)
     if (!user) return { error: 'NOT_FOUND', message: 'Người dùng không tồn tại' }
-    if (user.status !== 'ACTIVE') return { error: 'USER_INACTIVE', message: 'Tài khoản đã bị vô hiệu hóa' }
-    if (!['admin', 'chunhiem', 'phuta'].includes(user.role)) {
-      return { error: 'ASSIGNMENTS_NOT_ALLOWED', message: 'Chỉ tài khoản nhân sự được phân công lớp' }
+    if (!['ACTIVE', 'FORCE_PASSWORD_CHANGE'].includes(user.status)) return { error: 'USER_INACTIVE', message: 'Tài khoản đã bị vô hiệu hóa' }
+    if (!['chunhiem', 'phuta'].includes(user.role)) {
+      return { error: 'ASSIGNMENTS_NOT_ALLOWED', message: 'Chỉ tài khoản GLV (chủ nhiệm/phụ tá) mới được phân công lớp' }
     }
+
+    const policyError = await validateClassAssignmentReplacement(tx, parishId, [
+      { userId, classId, roleInClass },
+    ], { kind: 'pair', userId, classId })
+    if (policyError) return policyError
 
     if (roleInClass === 'chunhiem') {
       const [existingCn] = await tx
@@ -392,7 +429,12 @@ export async function assignUserToClass(
     })
 
     return { ok: true }
-  })
+    })
+  } catch (error) {
+    const policyError = mapClassAssignmentConstraintError(error)
+    if (policyError) return policyError
+    throw error
+  }
 
   return result
 }
@@ -410,7 +452,8 @@ export async function replaceClassAssignments(
     return { error: 'DUPLICATE_ASSIGNMENT_ROLE', message: 'Một nhân sự không thể đồng thời là chủ nhiệm và phụ tá của cùng lớp' }
   }
 
-  return runDbTransaction(async (tx) => {
+  try {
+    return await runDbTransaction(async (tx) => {
     const [cls] = await tx
       .select({ id: classes.id })
       .from(classes)
@@ -432,12 +475,26 @@ export async function replaceClassAssignments(
     if (requestedUsers.length !== requestedUserIds.length) {
       return { error: 'NOT_FOUND', message: 'Có nhân sự không tồn tại trong giáo xứ hiện tại' }
     }
-    if (requestedUsers.some(user => user.status !== 'ACTIVE')) {
+    if (requestedUsers.some(user => !['ACTIVE', 'FORCE_PASSWORD_CHANGE'].includes(user.status))) {
       return { error: 'USER_INACTIVE', message: 'Có tài khoản nhân sự đã bị vô hiệu hóa' }
     }
-    if (requestedUsers.some(user => !['admin', 'chunhiem', 'phuta'].includes(user.role))) {
-      return { error: 'ASSIGNMENTS_NOT_ALLOWED', message: 'Chỉ tài khoản nhân sự được phân công lớp' }
+    if (requestedUsers.some(user => !['chunhiem', 'phuta'].includes(user.role))) {
+      return { error: 'ASSIGNMENTS_NOT_ALLOWED', message: 'Chỉ tài khoản GLV (chủ nhiệm/phụ tá) mới được phân công lớp' }
     }
+
+    const proposedAssignments = [
+      ...(selection.homeroomTeacherId
+        ? [{ userId: selection.homeroomTeacherId, classId, roleInClass: 'chunhiem' as const }]
+        : []),
+      ...assistantTeacherIds.map(userId => ({ userId, classId, roleInClass: 'phuta' as const })),
+    ]
+    const policyError = await validateClassAssignmentReplacement(
+      tx,
+      parishId,
+      proposedAssignments,
+      { kind: 'class', classId },
+    )
+    if (policyError) return policyError
 
     if (selection.homeroomTeacherId) {
       const [otherHomeroom] = await tx
@@ -515,7 +572,12 @@ export async function replaceClassAssignments(
     })
 
     return { ok: true }
-  })
+    })
+  } catch (error) {
+    const policyError = mapClassAssignmentConstraintError(error)
+    if (policyError) return policyError
+    throw error
+  }
 }
 
 export async function removeUserFromClass(

@@ -1523,4 +1523,15 @@ END;
   // Nullable only for legacy rows. Every application write sets saved_at.
   { version: '20260906-174', sql: `ALTER TABLE exam_results ADD COLUMN saved_at TEXT` },
   { version: '20260906-175', sql: `ALTER TABLE exam_sessions ADD COLUMN build_request_hash TEXT` },
+  // R7-05/CR3: enforce homeroom cardinality below the service layer. Existing
+  // duplicates make this migration fail closed; choosing which assignment to
+  // delete requires an administrator decision and must never be automatic.
+  { version: '20260906-176', sql: `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_catechist_assignments_one_cn_per_class
+ON catechist_assignments(parish_id, class_id)
+WHERE role_in_class = 'chunhiem';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_catechist_assignments_one_cn_class_per_user
+ON catechist_assignments(parish_id, user_id)
+WHERE role_in_class = 'chunhiem';
+` },
 ]

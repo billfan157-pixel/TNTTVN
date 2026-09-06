@@ -44,6 +44,10 @@ const studentSchema = z.object({
   idempotencyKey: z.string().trim().optional(),
 })
 
+const studentUpdateSchema = studentSchema.partial().extend({
+  membershipChangeReason: z.string().trim().min(5).max(500).optional(),
+})
+
 studentsRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const updatedAfter = c.req.query('updatedAfter')
@@ -89,13 +93,13 @@ studentsRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json',
 
     const created = await createStudent(data, user.userId, user.parishId, ip, userAgent, data.idempotencyKey)
     return successResponse(c, created, 201)
-  } catch (err) {
+  } catch (err: any) {
     const message = err instanceof Error ? err.message : 'Lỗi tạo học sinh'
-    return errorResponse(c, 'CREATE_FAILED', message, 400)
+    return errorResponse(c, err?.code || 'CREATE_FAILED', message, err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400)
   }
 })
 
-studentsRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('json', studentSchema.partial()), async (c) => {
+studentsRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('json', studentUpdateSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const id = c.req.param('id')
   const data = c.req.valid('json')
@@ -117,9 +121,9 @@ studentsRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('json
     const updated = await updateStudent(id, data, user.userId, user.parishId, ip, userAgent)
     if (!updated) return errorResponse(c, 'NOT_FOUND', 'Học sinh không tồn tại', 404)
     return successResponse(c, updated)
-  } catch (err) {
+  } catch (err: any) {
     const message = err instanceof Error ? err.message : 'Lỗi cập nhật học sinh'
-    return errorResponse(c, 'UPDATE_FAILED', message, 400)
+    return errorResponse(c, err?.code || 'UPDATE_FAILED', message, err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400)
   }
 })
 

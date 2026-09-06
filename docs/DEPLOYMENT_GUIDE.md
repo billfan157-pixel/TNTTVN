@@ -2,7 +2,7 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
+Last Updated: 2026-09-06 (ADR-108: read-only roster integrity inventory); 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
 
 ---
 
@@ -78,6 +78,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `RESTORE_TARGET_FINGERPRINT` | ⚠️ Restore drill only | SHA-256 lowercase của normalized target URL | Xác nhận target lần hai; phải khớp chính xác trước mọi prepare/restore write |
 | `AUDIT_DATABASE_URL`, `AUDIT_DATABASE_AUTH_TOKEN` | ❌ No | Cả URL trống → dùng `TURSO_URL`/`TURSO_AUTH_TOKEN` hoặc local `DB_PATH` | Optional target cho các command inventory read-only. Khi set URL riêng, script chỉ dùng token audit riêng, không fallback chéo sang `TURSO_AUTH_TOKEN`; local file có thể không cần token |
 | `DEPLOYMENT_INVENTORY_INCLUDE_PARISH_ID` | ❌ No | `false` | Chỉ ảnh hưởng output `audit:deployment-parish`: mặc định parish reference bị hash; `true` in plain configured ID theo opt-in của operator. Không thay scope/gate. |
+| `ROSTER_INVENTORY_INCLUDE_PARISH_ID` | ❌ No | `false` | Chỉ ảnh hưởng output `audit:roster-integrity`: mặc định parish, student, class, user, assignment và batch references bị hash; biến này chỉ cho phép plain parish ID, không bao giờ in PII/raw object IDs. |
 | `TELEGRAM_BOT_TOKEN` | ❌ No | String | Optional Telegram bot token for alerts |
 | `TELEGRAM_ADMIN_CHAT_ID` | ❌ No | String | Admin chat ID for system alerts |
 | `VITE_SENTRY_DSN` | ❌ No | URL | Frontend Sentry project DSN |
@@ -285,4 +286,5 @@ CLI có hard guard từ chối target URL trùng production. Post-commit validat
 ### 9.4 Read-only preflight trước production operations
 
 - `npm run audit:promotion-reconciliation`: chỉ mở read transaction, không chạy bootstrap/migration và không xuất student ID. Báo `legacy_unbound`, `retryable_backlog` hoặc `archived_incomplete`; parish ID mặc định được hash. Chỉ bật `PROMOTION_INVENTORY_INCLUDE_PARISH_ID=true` trong terminal vận hành được kiểm soát.
+- `npm run audit:roster-integrity`: read transaction duy nhất, không bootstrap/migration/write. Báo candidate duplicate theo normalized-name + DOB thật, branch/class mismatch, reference tới class đã xóa, cardinality/stale assignment, alias lớp trùng qua năm, batch cần recovery và lớp active rỗng. Output chỉ có counts/metadata và reference SHA-256 rút gọn; finding là danh sách cần người vận hành review, không phải lệnh merge/move/delete tự động.
 - `npm run audit:sunday-readiness`: chỉ đọc các parish đã explicit opt-in, giờ lễ, số parent recipients và số endpoint Telegram/Web/native; không enqueue và không ghi sent marker. Parish ID mặc định được hash. Actual Sunday smoke vẫn là external action có thể gửi thật và phải chọn parish/time rõ ràng.

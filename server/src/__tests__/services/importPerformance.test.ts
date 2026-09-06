@@ -99,6 +99,7 @@ describe('importStudents performance regression', () => {
     const startedAt = performance.now()
     const result = await importStudents({
       rows,
+      academicYearId: ACADEMIC_YEAR_ID,
       classMappings: { 'Thiếu Nhi Performance': CLASS_ID },
       newClasses: [],
       duplicateActions: {},
@@ -140,6 +141,7 @@ describe('importStudents performance regression', () => {
             address: 'Địa chỉ B', branch: 'ThieuNhi', className: 'Thiếu Nhi Performance',
           },
         ],
+        academicYearId: ACADEMIC_YEAR_ID,
         classMappings: { 'Thiếu Nhi Performance': CLASS_ID },
         newClasses: [],
         duplicateActions: {},

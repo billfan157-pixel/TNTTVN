@@ -5,6 +5,15 @@
 > Đăng Ký**. **KHÔNG tạo file audit riêng lẻ.** Link chéo từ code/comment chỉ cần ghi
 > `SECURITY_AUDIT <A0X>` (không kèm tên file) — file này là nơi tra cứu duy nhất.
 
+## Audit ROSTER-20260906 — membership/assignment/import remediation (✅ engineering verified; chưa deployed)
+
+- Frozen baseline and finding evidence: [Students, Classes, Personnel & Import audit](students-classes-personnel-import-audit-2026-09-06.md). Post-audit disposition is isolated in §15 of that report and ADR-108.
+- Authorization boundary: all assignment writers share the same tenant/active-role/class/cardinality policy; admin/parent/inactive identities cannot become class personnel. Partial UNIQUE indexes are DB race backstops and fail migration on dirty historical collisions rather than deleting them.
+- Integrity/recovery boundary: class lifecycle blocks direct dependencies; membership corrections require audit reason; promotion no longer uses offline generic student updates; import requires an explicit year, commits row provenance/counters atomically and recovers pre-process batches from committed evidence.
+- Client boundary: durable enqueue failure rolls back StudentModal projection; permanent server rejection reconciles the student or removes the untrusted projection while preserving the failed operation for Diagnostics.
+- Read-only inventory emits only counts and hashed references. Local/default target fingerprint `0f514a8e24b4e5c4` returned zero findings; production inventory, migration 176, exact release SHA and smoke remain unverified external gates.
+- Focused regression evidence is recorded in ADR-108, including **14/14** import-recovery tests for pre-bind composition-root recovery. Final `npm run verify:ci` passed lint, inventory, DS guard, client/server TypeScript, production frontend/PWA/server build and serialized coverage **321/321 files, 2,245/2,245 tests** (70.24/59.36/62.92/72.87). Production inventory/migration/deploy/smoke remain external gates.
+
 ## Audit AUTH-RBAC-20260905 — remediation working tree (chưa deployed)
 
 Audit evidence độc lập theo yêu cầu nằm trong [report 2026-09-05, §13](authentication-authorization-rbac-audit-2026-09-05.md#13-remediation--working-tree-sau-audit-2026-09-05); report/CSV/hashes trước sửa giữ nguyên làm baseline lịch sử. Mã D ở đây không phải mã architecture audit.
@@ -21,6 +30,7 @@ Audit evidence độc lập theo yêu cầu nằm trong [report 2026-09-05, §13
 
 | Audit | Severity | Vấn đề | Trạng thái | Đóng ngày |
 | :--- | :--- | :--- | :--- | :--- |
+| ROSTER-20260906 | P0–P2 | Student identity/membership, class lifecycle, assignment cardinality, import/undo/offline recovery | ✅ Engineering verified; production inventory/migration/deploy/smoke chưa đóng — ADR-108 | 2026-09-06 (engineering) |
 | AUTH-RBAC-20260905 | P0–P2 | D1–D11 auth/tenant/object paths, H1/H3/H4/H5/H8 và single-parish deployment hardening | Sửa working tree; remaining gaps và production validation chưa đóng — xem §13–§16 report 2026-09-05 | — |
 | AUDIT-SYNC-01 | 🔴 P1/P2 | gradeStore thiếu sync trigger tức thì + thiếu audit logging trên Settings, Login, Telegram | ✅ CLOSED (2026-08-14) | `gradeStore.ts`, `DesktopGradeMatrix.tsx`, `settings.ts`, `auth.ts`, `parents.ts`, `AuditLogPage.tsx` |
 | INF-01 | 🔴 P1/P2 | backup-db.mjs guard kiểm tra sai extension (.js thay vì .mjs) | ✅ CLOSED (2026-08-14) | `scripts/backup-db.mjs`, `scripts/backup-db.js` |
@@ -2975,7 +2985,7 @@ Audit toàn diện Student/Class/Academic Structure theo Decision Matrix v4.1.2:
 
 | ID | Mức | Finding (evidence) | Xử lý |
 | :--- | :--- | :--- | :--- |
-| SCA-F1 | 🔴 P1 | **Đường xét lên lớp client bypass SSOT**: `PromotionPanel` → `batchPromote` → `PUT /students/:id` không sinh `promotion_records`, không enforce SemesterLock/policy server-side; gate thuần client tự bỏ qua khi decision null/error/offline (`PromotionPanel.tsx:110-152` cũ) — vi phạm BUSINESS_RULES §1.1/§1.6 | ✅ **FIXED (ADR-052)**: online đi qua `POST /promotion/batch-approve` — snapshot + move classId/branch trong 1 tx, server enforce lock/policy; decision null/network error → DỪNG (hết duyệt mù); offline giữ fallback queue (hạn chế ghi rõ). Test: BatchPromotionService #4/#5 |
+| SCA-F1 | 🔴 P1 | **Đường xét lên lớp client bypass SSOT**: `PromotionPanel` → `batchPromote` → `PUT /students/:id` không sinh `promotion_records`, không enforce SemesterLock/policy server-side; gate thuần client tự bỏ qua khi decision null/error/offline (`PromotionPanel.tsx:110-152` cũ) — vi phạm BUSINESS_RULES §1.1/§1.6 | ✅ **FIXED (ADR-052, superseded behavior clarified by ADR-108)**: `PromotionPanel` chỉ gọi `POST /promotion/batch-approve` khi online — snapshot + move `classId`/`branch` trong một transaction, server enforce lock/policy/topology. Decision null, network error hoặc offline đều dừng fail-closed; không còn fallback queue qua generic student update. Generic membership correction phải có `membershipChangeReason` và không được coi là promotion. Regression: `BatchPromotionService.test.ts`, `PromotionPanel.test.tsx`. |
 | SCA-F2 | 🟠 P2 | `finalizeYear` tính GPA từ điểm thô, bỏ qua grade overrides (`AcademicYearLifecycleService` cũ :439-447) trong khi verify lúc promote CÓ áp override (`PromotionApplicationService.ts:76-97,251-270`) → HS có override chắc chắn 409 `DATA_MISMATCH`, năm vẫn bị đánh PROMOTED | ✅ **FIXED (AYL-F2)**: finalize load active overrides 1 lần/năm + `applyOverridesToGrade`. Test lifecycle 8b |
 | SCA-F3 | 🟠 P2 | Race idempotency `createStudent`: mọi UNIQUE violation coi là trùng code; request song song cùng key thua 12 lần retry rồi rơi vào fallback **drop key** → tạo HS trùng im lặng (`studentService.ts:239-274` cũ) | ✅ **FIXED (IDEM-F3)**: `isIdempotencyKeyViolation` → trả về bản ghi request thắng; fallback giữ key. Test race Promise.all |
 | SCA-F4 | 🟠 P2 | `promoteYear` im lặng khi lớp năm mới thiếu cùng `code`: HS ở lại lớp năm cũ, không warning/error, năm vẫn PROMOTED (`:596-631` cũ). GRADUATED cũng bị move nếu trùng code — **CONDITIONAL** nghiệp vụ, chưa đổi | ✅ **FIXED (PRM-F4)**: thêm `summary.warnings[]` + audit `warningCount`; hành vi movement giữ nguyên chờ chủ sản phẩm xác nhận. Test lifecycle 8c |

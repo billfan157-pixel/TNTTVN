@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm'
 import { promotionApplicationService, PromotionApplicationService } from './PromotionApplicationService.js'
 import type { ApprovePromotionCommand } from './PromotionApplicationService.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
+import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 
 export interface BatchItemResult {
   studentId: string
@@ -72,7 +73,11 @@ export class BatchPromotionApplicationService {
             if (item.nextClassId || item.newBranch) {
               const update: Record<string, unknown> = { updatedAt: new Date().toISOString(), updatedBy: item.userId }
               if (item.nextClassId) update.classId = item.nextClassId
-              if (item.newBranch) update.branch = item.newBranch
+              if (item.nextClassId) {
+                update.branch = await resolveMembershipBranch(tx, item.parishId, item.nextClassId, item.newBranch)
+              } else if (item.newBranch) {
+                throw Object.assign(new Error('Không thể đổi phân ngành khi không có lớp chuyển đến'), { code: 'PROMOTION_CLASS_REQUIRED' })
+              }
               await tx
                 .update(students)
                 .set(update)

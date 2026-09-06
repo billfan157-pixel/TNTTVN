@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { db, type DbExecutor } from '../db/index.js'
-import { catechistAssignments, users, students } from '../db/schema.js'
+import { catechistAssignments, classes, users, students } from '../db/schema.js'
 import type { ActorRole } from '../types/actor.js'
 import { isSuperAdmin } from '../utils/protectedPrincipal.js'
 
@@ -37,6 +37,11 @@ export async function getUserClassIds(
   const assignments = await executor
     .select({ classId: catechistAssignments.classId })
     .from(catechistAssignments)
+    .innerJoin(classes, and(
+      eq(classes.id, catechistAssignments.classId),
+      eq(classes.parishId, catechistAssignments.parishId),
+      isNull(classes.deletedAt),
+    ))
     .where(and(eq(catechistAssignments.userId, userId), eq(catechistAssignments.parishId, parishId)))
   return assignments.map((assignment) => assignment.classId)
 }

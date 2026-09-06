@@ -19,6 +19,7 @@ describe('AUDIT D — Import Data Integrity Tests (D-01, D-02, D-03)', () => {
   it('D-01: importBatchStudents ALWAYS inherits parishId explicitly instead of defaulting to gia-ton', async () => {
     const result = await importStudents({
       fileName: 'test-d01.xlsx',
+      academicYearId: 'AY-2025-2026',
       classMappings: {},
       duplicateActions: {},
       rows: [
@@ -45,6 +46,7 @@ describe('AUDIT D — Import Data Integrity Tests (D-01, D-02, D-03)', () => {
   it('D-02 & D-03: import_batches status reflects partial/failed states accurately', async () => {
     const result = await importStudents({
       fileName: 'test-d02-partial.xlsx',
+      academicYearId: 'AY-2025-2026',
       classMappings: {},
       duplicateActions: {},
       rows: [

@@ -47,7 +47,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260902', 149, 158),
   ...migrationRange('20260903', 159, 165),
   ...migrationRange('20260904', 166, 169),
-  ...migrationRange('20260906', 170, 175),
+  ...migrationRange('20260906', 170, 176),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -58,6 +58,8 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_grades_lookup: ['parish_id', 'student_id', 'academic_year', 'semester'],
   idx_classes_code_year: ['parish_id', 'code', 'academic_year_id'],
   idx_catechist_assignments_unique: ['parish_id', 'user_id', 'class_id'],
+  idx_catechist_assignments_one_cn_per_class: ['parish_id', 'class_id'],
+  idx_catechist_assignments_one_cn_class_per_user: ['parish_id', 'user_id'],
   idx_role_permissions_pk: ['parish_id', 'role', 'permission_id'],
   idx_service_assignments_unique: ['parish_id', 'student_id', 'service_type'],
   idx_exam_results_unique: ['parish_id', 'exam_session_id', 'student_id'],

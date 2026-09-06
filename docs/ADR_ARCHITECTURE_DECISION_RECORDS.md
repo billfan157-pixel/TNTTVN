@@ -1371,6 +1371,10 @@ Audit toàn diện phát hiện đường xét lên lớp thủ công của clie
 - Targeted: studentService (10, gồm IDEM-F3 race), academicYearLifecycle (12, gồm AYL-F2 + PRM-F4), BatchPromotionService (5, gồm F1 move + rollback), students routes — **32 tests PASS**.
 - Full server suite: **110 files / 683 tests PASS**. Client store tests (promotionStore/studentStore/zustandStores): 23 PASS.
 
+### Amendment 2026-09-06 — offline fallback superseded by ADR-108
+
+Current product scope no longer needs an offline promotion writer. The `studentStore.batchPromote → PUT /students/:id` fallback described in Implementation item 1 and the ADR-016 compatibility sentence is superseded: `PromotionPanel` now requires connectivity and uses only `POST /api/promotion/batch-approve`. Generic student membership changes remain available solely as explicit audited corrections with `membershipChangeReason`; they do not create promotion provenance. The batch snapshot/lock/policy/partial-success decision in this ADR remains unchanged. See ADR-108 for source/destination/year/branch topology gates and regression evidence.
+
 ---
 
 ## ADR-053: EXAM-MIXED — Đề Kết Hợp Trắc Nghiệm + Tự Luận Trong Một Phiên Chấm (2026-08-24)
@@ -3670,4 +3674,37 @@ These are command and consistency-boundary defects, not evidence for a new servi
 ### Verification and reassessment
 
 Targeted assessment, OCC, Question Bank, queue and provenance regression: **10/10 files, 147/147 tests PASS**; remediated diagnostic probe **1/1 file, 4/4 tests PASS**. These cover mixed variant B two-phase scoring, malformed/mismatched scan metadata rejection, concurrent same-version writers, same-command build replay/conflict, direct-service manifest lock, compacted-ledger supersession, in-flight queue isolation and stale processing-lease recovery. Lint zero-warning, architecture inventory **31 routes / 6 repositories / 48 services / 12 domain files / 57 tables**, design-system guard **0/127**, client/server TypeScript and production frontend/PWA/server build PASS (**2,814 modules; 238 precache entries**). Full serialized coverage: **320/320 files, 2,225/2,225 tests PASS** in 1,118.56 seconds; Statements **69.92%**, Branches **59.22%**, Functions **62.41%**, Lines **72.56%**. `git diff --check` PASS. External field/production gates above remain open.
+
+---
+
+## ADR-108: Roster Membership, Assignment and Import Recovery Boundaries (2026-09-06)
+
+**Status: APPROVED / IMPLEMENTED — engineering verification complete; production gates remain below. Severity: D3. Profiles: DATA INTEGRITY + AUTHORIZATION + OFFLINE/RECOVERY. Reversibility: R1 for command/UI changes; partial UNIQUE indexes are R2.**
+
+### Context and evidence
+
+The current-code roster audit reproduced semantic breaks at the adapters around otherwise sound tenant-scoped persistence: normalized duplicate retrieval could miss the row it later intended to compare; class resolution could cross academic years; branch/class membership had no shared gate; three assignment writers enforced different role/cardinality rules; class deletion/structural edits could strand live dependencies; Undo omitted update dependencies/fees and the current actor; offline promotion used generic student updates without promotion provenance; and row commits could outlive stale import-batch metadata. These are concentrated consistency-boundary defects, not evidence for a service split or a roster rewrite.
+
+### Decision
+
+1. **One membership invariant owner.** Manual create/update and roster create/update resolve an active target class inside the write transaction and derive its canonical branch. A manual class/branch correction requires `membershipChangeReason` and records `UPDATE_MEMBERSHIP_CORRECTION`. Promotion is not a generic correction: source class, destination target year and destination branch are validated by `PromotionApplicationService`.
+2. **Promotion is online server-authoritative.** `PromotionPanel` no longer queues generic `PUT /students/:id` mutations. Offline attempts preserve the confirmed projection and ask for connectivity. This supersedes only ADR-052's offline-fallback clause; its batch partial-success, snapshot, lock/policy and per-item transaction decisions remain active.
+3. **One assignment invariant owner.** Class-centric, user-centric and create-user adapters call `classAssignmentPolicy` in their transaction. Only undeleted `chunhiem|phuta` accounts in `ACTIVE|FORCE_PASSWORD_CHANGE` and active same-parish classes are assignable. One user/class role, one CN per class and one CN class per user are mandatory. Migration `20260906-176` adds two partial UNIQUE indexes as commit-race backstops; pre-existing collisions make migration fail closed and require reviewed reconciliation, never automatic deletion.
+4. **Class lifecycle blocks semantic reclassification.** Delete and `branchId|academicYearId` changes are rejected while active memberships, assignments, attendance/exam sessions, leave, fees/financial rows, grade-import provenance or promotion rows reference the class. No historical row is cascaded or silently moved.
+5. **Explicit import decisions.** Validation/import require an active unlocked `academicYearId`; exact/fuzzy matching is restricted to that year and ambiguous/tied candidates require choice. Duplicate candidate reads fail closed and compare normalized candidates. CSV/TXT is quote-aware, XLSX remains structured, missing gender/branch stays unresolved, and DOB lower bound matches manual CRUD.
+6. **Durable partial-import control state.** Batch provenance and any pre-created classes share a transaction. Each committed row/chunk updates `import_batch_students` and batch counters in the same transaction island. On restart, only `processing` batches created before the current process are finalized from committed provenance; unreferenced batch classes are safely decommissioned. Intentional per-row partial success remains; there is no 2,000-row mega-transaction.
+7. **Undo and optimistic recovery are truthful.** Undo checks downstream dependencies for both created and updated students, including fees, attributes audit to the current actor and returns itemized outcomes/class cleanup. StudentModal waits for encrypted queue ownership. Permanent student create rejection removes the temp projection; update/delete rejection reads the authoritative object, or removes the untrusted projection if that read fails, while retaining the failed queue payload in Diagnostics.
+8. **Operations remain review-only.** `npm run audit:roster-integrity` opens a read transaction and emits counts plus hashed references for identity candidates, branch/class mismatches, stale class/assignment links, homeroom cardinality, cross-year aliases, interrupted batches and empty active classes. It never runs migrations or repairs data.
+
+### Alternatives rejected, compatibility and recovery
+
+- Hard UNIQUE identity keys, automatic person merging and automatic class transfer are rejected: name/DOB/phone are candidate evidence, not guaranteed identity.
+- Cascade deletion, one giant import transaction, microservices and a generic workflow/event layer are rejected because they increase migration/blast radius without fixing the reproduced semantic boundaries.
+- Existing valid imports keep partial-success and explicit duplicate decisions. Old clients missing `academicYearId` or correction reason fail closed and must update. Existing assignment collisions must be inventoried before migration 176; the migration intentionally does not guess which CN is authoritative.
+- `FORCE_PASSWORD_CHANGE` is assignable for provisioning but grants no runtime authority before activation. The supported deployment is one SQLite/libSQL writer namespace under ADR-106; recovery's process-start boundary is not a multi-writer lease claim.
+- The local/default inventory target is not production evidence. Production inventory, migration application, release SHA and operator review remain external gates.
+
+### Verification
+
+Targeted evidence: remediated roster audit probe **13/13 PASS**; CR2 recovery, including composition-root recovery across parish scopes before HTTP bind, **14/14 PASS**; permanent student rejection reconciliation **12/12 PASS**; assignment/promotion topology **8 files / 45 tests PASS**; post-gate academic-year-ID/topology and OCC regressions **3 files / 34 tests PASS**. Final `npm run verify:ci` on the complete code set after composition-root recovery wiring passed: lint zero-warning, architecture inventory **31 routes / 6 repositories / 51 services / 12 domain files / 57 tables**, design-system guard **0/127**, client/server TypeScript and production frontend/PWA/server build PASS (**2,814 modules; 238 precache entries**), serialized coverage **321/321 files, 2,245/2,245 tests PASS** in 920.08 seconds. Coverage: Statements **70.24%**, Branches **59.36%**, Functions **62.92%**, Lines **72.87%**. The read-only roster inventory completed with zero findings on target fingerprint `0f514a8e24b4e5c4`; this identifies only that configured local/default target. Production inventory, migration 176, exact release SHA, deploy and smoke remain unverified external gates.
 

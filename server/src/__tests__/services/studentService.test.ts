@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from 'vitest'
 import { getStudents, getStudentById, createStudent, updateStudent, deleteStudent } from '../../services/studentService.js'
 import { db } from '../../db/index.js'
-import { students, branches, academicYears, classes } from '../../db/schema.js'
-import { eq, inArray } from 'drizzle-orm'
+import { students, branches, academicYears, classes, auditLogs } from '../../db/schema.js'
+import { and, eq, inArray } from 'drizzle-orm'
 
 const mockGenCode = vi.hoisted(() => vi.fn())
 vi.mock('../../services/studentCodeGenerator.js', () => ({
@@ -22,6 +22,7 @@ describe('Server studentService Layer Unit Tests', () => {
     await db.insert(branches).values({ id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#16A34A', ageMin: 7, ageMax: 9, parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'test' }).onConflictDoNothing()
     await db.insert(academicYears).values({ id: '2025-2026', startDate: '2025-08-01', endDate: '2026-07-31', parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'test' }).onConflictDoNothing()
     await db.insert(classes).values({ id: 'AU1', code: 'AU-01', name: 'Ấu Nhi 1', branchId: 'AuNhi', academicYearId: '2025-2026', room: 'Phòng 102', parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'test' }).onConflictDoNothing()
+    await db.insert(classes).values({ id: 'AU2', code: 'AU-02', name: 'Ấu Nhi 2', branchId: 'AuNhi', academicYearId: '2025-2026', room: 'Phòng 103', parishId: 'gia-ton', createdAt: now, updatedAt: now, updatedBy: 'test' }).onConflictDoNothing()
     await db.update(classes).set({ parishId: 'gia-ton' }).where(eq(classes.id, 'AU1'))
   })
 
@@ -87,6 +88,37 @@ describe('Server studentService Layer Unit Tests', () => {
     const updated = await updateStudent(createdId, { fullName: 'Nguyễn Văn Test (Đã sửa)' }, 'USR-001', 'gia-ton', '127.0.0.1', 'Vitest')
     expect(updated).not.toBeNull()
     expect(updated?.fullName).toBe('Nguyễn Văn Test (Đã sửa)')
+  })
+
+  it('requires an explicit audited reason for a manual class correction', async () => {
+    await expect(updateStudent(
+      createdId,
+      { classId: 'AU2', branch: 'AuNhi' },
+      'USR-001',
+      'gia-ton',
+      '127.0.0.1',
+      'Vitest',
+    )).rejects.toMatchObject({ code: 'MEMBERSHIP_CHANGE_REASON_REQUIRED' })
+
+    const updated = await updateStudent(
+      createdId,
+      { classId: 'AU2', branch: 'AuNhi', membershipChangeReason: 'Sửa lớp do nhập nhầm hồ sơ' },
+      'USR-001',
+      'gia-ton',
+      '127.0.0.1',
+      'Vitest',
+    )
+    expect(updated?.classId).toBe('AU2')
+
+    const [audit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.entityId, createdId),
+      eq(auditLogs.action, 'UPDATE_MEMBERSHIP_CORRECTION'),
+      eq(auditLogs.parishId, 'gia-ton'),
+    )).limit(1)
+    expect(JSON.parse(audit.newValue || '{}')).toMatchObject({
+      classId: 'AU2',
+      membershipChangeReason: 'Sửa lớp do nhập nhầm hồ sơ',
+    })
   })
 
   it('createStudent với cùng idempotencyKey → trả về student đã tạo, không tạo trùng (finding #3)', async () => {

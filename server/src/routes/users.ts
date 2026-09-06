@@ -118,9 +118,10 @@ usersRouter.post('/', roleMiddleware('admin'), zValidator('json', createUserSche
   } catch (err: any) {
     if (err instanceof AdminAuthorizationChangedError) return errorResponse(c, 'SESSION_INVALID', err.message, 401)
     // ADR-027: thiếu Tên Thánh / SĐT phụ huynh → 400 (không phải 500).
-    if (err?.code === 'HOLY_NAME_REQUIRED' || err?.code === 'PHONE_REQUIRED') {
+    if (['HOLY_NAME_REQUIRED', 'PHONE_REQUIRED', 'USER_INACTIVE', 'ASSIGNMENTS_NOT_ALLOWED', 'DUPLICATE_ASSIGNMENT_ROLE', 'ALREADY_HAS_CN', 'USER_ALREADY_CN'].includes(err?.code)) {
       return errorResponse(c, err.code, err.message || 'Thiếu thông tin bắt buộc để tạo username', 400)
     }
+    if (err?.code === 'NOT_FOUND') return errorResponse(c, err.code, err.message || 'Lớp học không tồn tại', 404)
     throw err
   }
   if (!created) return errorResponse(c, 'USERNAME_EXISTS', 'Tên đăng nhập đã tồn tại, vui lòng chọn tên khác (hoặc sửa Tên Thánh / Họ tên)', 409)
@@ -201,7 +202,7 @@ usersRouter.put('/:id/phone', roleMiddleware('admin'), adminReauthRateLimiter, z
   return successResponse(c, { id, phone: result.phone, username: result.username, usernameChanged: result.status === 'updated' ? result.usernameChanged : false })
 })
 
-usersRouter.put('/:id/assignments', roleMiddleware('admin'), zValidator('json', z.object({ assignedClasses: z.array(z.string()) })), async (c) => {
+usersRouter.put('/:id/assignments', roleMiddleware('admin'), zValidator('json', z.object({ assignedClasses: z.array(z.string().trim().min(1)).max(20) })), async (c) => {
   const user = c.get('user') as JwtPayload
   const id = c.req.param('id')
   const { assignedClasses } = c.req.valid('json')
@@ -214,9 +215,10 @@ usersRouter.put('/:id/assignments', roleMiddleware('admin'), zValidator('json', 
   try {
     ok = await updateUserAssignments(id, assignedClasses, user.userId, user.parishId, ip, userAgent)
   } catch (err: any) {
-    if (err?.code === 'ASSIGNMENTS_NOT_ALLOWED') {
-      return errorResponse(c, 'ASSIGNMENTS_NOT_ALLOWED', err.message || 'Chỉ tài khoản GLV mới được phân công lớp', 400)
+    if (['ASSIGNMENTS_NOT_ALLOWED', 'USER_INACTIVE', 'DUPLICATE_ASSIGNMENT_ROLE', 'ALREADY_HAS_CN', 'USER_ALREADY_CN'].includes(err?.code)) {
+      return errorResponse(c, err.code, err.message || 'Phân công lớp không hợp lệ', 400)
     }
+    if (err?.code === 'NOT_FOUND') return errorResponse(c, err.code, err.message || 'Lớp học không tồn tại', 404)
     throw err
   }
   if (!ok) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)

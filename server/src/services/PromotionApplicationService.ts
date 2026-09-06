@@ -1,5 +1,5 @@
 import { db, runDbTransaction, type DbTransaction, type DbExecutor } from '../db/index.js'
-import { students, classes, grades, attendance, gradeOverrides, auditLogs } from '../db/schema.js'
+import { students, classes, academicYears, grades, attendance, gradeOverrides, auditLogs } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
 import { drizzlePromotionRepository, DrizzlePromotionRepository } from '../repositories/DrizzlePromotionRepository.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
@@ -11,6 +11,8 @@ import { generateId } from '../utils/id.js'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import { getAcademicYearDateRange } from './academicYearService.js'
+import { normalizeAcademicYear, parseAcademicYear } from '../utils/academicYear.js'
+import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getCurrentPolicyVersionId } from './parishSettingsService.js'
 
 import { checkUserClassAccess } from './classAccessQueryService.js'
@@ -21,6 +23,7 @@ export interface ApprovePromotionCommand {
   academicYear: string
   targetClassId: string
   nextClassId?: string | null
+  newBranch?: 'ChienCon' | 'AuNhi' | 'ThieuNhi' | 'NghiaSi' | 'HiepSi' | null
   gpa: number
   attendanceRate: number
   conductSnapshot?: string | null
@@ -221,7 +224,7 @@ export class PromotionApplicationService {
       }
       // PRM-02 (audit 2026-08-08): không ghi snapshot cho học sinh đã xoá/không còn học
       const [student] = await tx
-        .select({ id: students.id })
+        .select({ id: students.id, classId: students.classId })
         .from(students)
         .where(
           and(
@@ -237,22 +240,85 @@ export class PromotionApplicationService {
         err.status = 404
         throw err
       }
-      // PRM-03 (audit 2026-08-09): targetClassId/nextClassId không có FK vào classes
-      // và không verify thuộc parish → chặn snapshot trỏ lớp không tồn tại/khác giáo xứ.
+
+      const existing = await this.promotionRepo.findActiveSnapshot(cmd.studentId, cmd.academicYear, cmd.parishId, tx)
+      const isIdempotentMovedStudent = Boolean(
+        existing
+        && existing.targetClassId === cmd.targetClassId
+        && (existing.nextClassId || null) === (cmd.nextClassId || null)
+        && student.classId === existing.nextClassId,
+      )
+      if (student.classId !== cmd.targetClassId && !isIdempotentMovedStudent) {
+        const err = new Error('Lớp nguồn xét lên lớp không khớp lớp hiện tại của học viên') as any
+        err.status = 409
+        err.code = 'PROMOTION_SOURCE_CLASS_MISMATCH'
+        throw err
+      }
+
+      // R7-14/CR4: topology của promotion là invariant server-side. Cả lớp
+      // nguồn/lớp đích phải còn hoạt động, năm nguồn phải khớp payload và lớp
+      // đích phải thuộc đúng năm kế tiếp đã gắn (hoặc năm kế tiếp gần nhất).
       const classIds = [cmd.targetClassId, cmd.nextClassId].filter((id): id is string => Boolean(id))
       const uniqueClassIds = [...new Set(classIds)]
-      if (uniqueClassIds.length > 0) {
-        const classRows = await tx
-          .select({ id: classes.id })
-          .from(classes)
-          .where(and(inArray(classes.id, uniqueClassIds), eq(classes.parishId, cmd.parishId)))
-        const foundClassIds = new Set(classRows.map((r) => r.id))
-        const missingClassIds = uniqueClassIds.filter((id) => !foundClassIds.has(id))
-        if (missingClassIds.length > 0) {
-          const err = new Error(`Lớp đích không tồn tại hoặc thuộc giáo xứ khác: ${missingClassIds.join(', ')}`) as any
-          err.status = 400
+      const classRows = await tx
+        .select({ id: classes.id, academicYearId: classes.academicYearId })
+        .from(classes)
+        .where(and(
+          inArray(classes.id, uniqueClassIds),
+          eq(classes.parishId, cmd.parishId),
+          isNull(classes.deletedAt),
+        ))
+      const classById = new Map(classRows.map(row => [row.id, row]))
+      const missingClassIds = uniqueClassIds.filter(id => !classById.has(id))
+      if (missingClassIds.length > 0) {
+        const err = new Error(`Lớp xét lên lớp không tồn tại, đã bị xóa hoặc thuộc giáo xứ khác: ${missingClassIds.join(', ')}`) as any
+        err.status = 400
+        err.code = 'PROMOTION_CLASS_INVALID'
+        throw err
+      }
+
+      const sourceClass = classById.get(cmd.targetClassId)!
+      const [sourceYear] = await tx.select().from(academicYears).where(and(
+        eq(academicYears.id, sourceClass.academicYearId),
+        eq(academicYears.parishId, cmd.parishId),
+      )).limit(1)
+      if (!sourceYear) {
+        const err = new Error('Niên khóa của lớp nguồn không tồn tại') as any
+        err.status = 409
+        err.code = 'PROMOTION_SOURCE_YEAR_INVALID'
+        throw err
+      }
+      const normalizedSourceId = normalizeAcademicYear(sourceYear.id)
+      const sourceYearLabel = parseAcademicYear(normalizedSourceId)
+        ? normalizedSourceId
+        : `${sourceYear.startDate.slice(0, 4)}-${sourceYear.endDate.slice(0, 4)}`
+      const normalizedCommandYear = normalizeAcademicYear(cmd.academicYear)
+      // Academic-year identity is historically represented by either the row ID
+      // (which may be an opaque/custom ID) or its YYYY-YYYY business label. Both
+      // identify the same tenant-scoped source row; accepting either keeps grade,
+      // lock and snapshot lookups in the caller's established namespace without
+      // weakening the class -> academic_year topology check.
+      if (normalizedCommandYear !== normalizedSourceId && normalizedCommandYear !== sourceYearLabel) {
+        const err = new Error(`Niên khóa xét (${cmd.academicYear}) không khớp lớp nguồn (${sourceYearLabel})`) as any
+        err.status = 409
+        err.code = 'PROMOTION_SOURCE_YEAR_MISMATCH'
+        throw err
+      }
+
+      if (cmd.nextClassId) {
+        const destinationClass = classById.get(cmd.nextClassId)!
+        const parishYears = await tx.select().from(academicYears).where(eq(academicYears.parishId, cmd.parishId))
+        const inferredNextYear = [...parishYears]
+          .filter(year => year.startDate > sourceYear.startDate)
+          .sort((a, b) => a.startDate.localeCompare(b.startDate))[0]
+        const intendedNextYearId = sourceYear.promotionTargetYearId || inferredNextYear?.id
+        if (!intendedNextYearId || destinationClass.academicYearId !== intendedNextYearId) {
+          const err = new Error('Lớp chuyển đến không thuộc niên khóa kế tiếp đã xác định') as any
+          err.status = 409
+          err.code = 'PROMOTION_DESTINATION_YEAR_MISMATCH'
           throw err
         }
+        await resolveMembershipBranch(tx, cmd.parishId, cmd.nextClassId, cmd.newBranch)
       }
       // F2-audit: Không tin gpa/attendanceRate do client gửi — máy chủ tự tính lại
       // từ DB và từ chối nếu lệch (chặn dữ liệu cũ/bị chỉnh sửa, race condition,
@@ -310,9 +376,6 @@ export class PromotionApplicationService {
       // ADR-047: Capture current policy version for audit trail
       const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
       const gradeWeights = await getParishGradeWeights(cmd.parishId, tx)
-
-      // Check for existing active snapshot for Idempotency
-      const existing = await this.promotionRepo.findActiveSnapshot(cmd.studentId, cmd.academicYear, cmd.parishId, tx)
 
       // Idempotent return nếu đã approve với tham số TƯƠNG ĐƯƠNG — so cả lớp
       // đích (trước đây khác nextClassId nhưng cùng điểm vẫn bị coi là skipped,

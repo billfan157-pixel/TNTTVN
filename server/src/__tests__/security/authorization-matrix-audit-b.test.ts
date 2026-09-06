@@ -22,8 +22,10 @@ const adminBId = `usr-admin-b-${PREFIX}`
 
 const branchAId = `br-a-${PREFIX}`
 const ayAId = `AY-A-${PREFIX}`
+const ayANextId = `AY-A-NEXT-${PREFIX}`
 const classA1Id = `cls-a1-${PREFIX}`
 const classA2Id = `cls-a2-${PREFIX}`
+const classA1NextId = `cls-a1-next-${PREFIX}`
 const studentA1Id = `st-a1-${PREFIX}`
 const studentA2Id = `st-a2-${PREFIX}`
 
@@ -63,7 +65,8 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
     ]).onConflictDoNothing()
 
     await db.insert(academicYears).values([
-      { id: ayAId, parishId: parishA, startDate: `${year}-08-01`, endDate: `${year + 1}-07-31`, isLocked: 0 },
+      { id: ayAId, parishId: parishA, startDate: `${year}-08-01`, endDate: `${year + 1}-07-31`, isLocked: 0, promotionTargetYearId: ayANextId },
+      { id: ayANextId, parishId: parishA, startDate: `${year + 1}-08-01`, endDate: `${year + 2}-07-31`, isLocked: 0 },
       { id: ayBId, parishId: parishB, startDate: `${year}-08-01`, endDate: `${year + 1}-07-31`, isLocked: 0 },
     ]).onConflictDoNothing()
 
@@ -71,12 +74,14 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
     await db.insert(classes).values([
       { id: classA1Id, code: `Lớp A1-${PREFIX}`, name: `Lớp A1-${PREFIX}`, branchId: branchAId, academicYearId: ayAId, parishId: parishA },
       { id: classA2Id, code: `Lớp A2-${PREFIX}`, name: `Lớp A2-${PREFIX}`, branchId: branchAId, academicYearId: ayAId, parishId: parishA },
+      { id: classA1NextId, code: `Lớp A1 Next-${PREFIX}`, name: `Lớp A1 Next-${PREFIX}`, branchId: branchAId, academicYearId: ayANextId, parishId: parishA },
       { id: classB1Id, code: `Lớp B1-${PREFIX}`, name: `Lớp B1-${PREFIX}`, branchId: branchBId, academicYearId: ayBId, parishId: parishB },
     ]).onConflictDoNothing()
 
     // 4. Assignments
     await db.insert(catechistAssignments).values([
       { id: `asg-a1-${PREFIX}`, userId: catA1Id, classId: classA1Id, roleInClass: 'chunhiem', parishId: parishA },
+      { id: `asg-a1-next-${PREFIX}`, userId: catA1Id, classId: classA1NextId, roleInClass: 'phuta', parishId: parishA },
       { id: `asg-a2-${PREFIX}`, userId: catA2Id, classId: classA2Id, roleInClass: 'chunhiem', parishId: parishA },
     ]).onConflictDoNothing()
 
@@ -121,6 +126,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
         headers: { ...headersCatA1, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: [{ rowIndex: 0, holyName: 'Phero', fullName: 'Học Sinh Mới A1', gender: 'Nam', dateOfBirth: '2015-05-05', parentName: 'P', parentPhone: '0901234567', address: 'X', branch: 'AuNhi', className: `Lớp A1-${PREFIX}` }],
+          academicYearId: ayAId,
           classMappings: { [`Lớp A1-${PREFIX}`]: classA1Id },
           duplicateActions: {},
           fileName: 'test_a1.xlsx',
@@ -137,6 +143,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
         headers: { ...headersCatA1, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: [{ rowIndex: 0, holyName: 'Toma', fullName: 'Học Sinh Ké A2', gender: 'Nam', dateOfBirth: '2015-06-06', parentName: 'P', parentPhone: '0907654321', address: 'X', branch: 'AuNhi', className: `Lớp A2-${PREFIX}` }],
+          academicYearId: ayAId,
           classMappings: { [`Lớp A2-${PREFIX}`]: classA2Id },
           duplicateActions: {},
           fileName: 'test_a2.xlsx',
@@ -154,6 +161,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
         headers: { ...headersCatA1, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: [{ rowIndex: 0, holyName: 'Maria', fullName: 'Học Sinh A2', gender: 'Nữ', dateOfBirth: '2015-02-02', parentName: 'P2', parentPhone: '0982222222', address: 'Địa Chỉ Bị Giả Mạo', branch: 'AuNhi', className: `Lớp A1-${PREFIX}` }],
+          academicYearId: ayAId,
           classMappings: { [`Lớp A1-${PREFIX}`]: classA1Id },
           duplicateActions: { '0': 'update' },
           fileName: 'test_dup_hack.xlsx',
@@ -175,6 +183,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
         headers: { ...headersCatA1, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: [{ rowIndex: 0, holyName: 'Lucia', fullName: 'Học Sinh Lớp Mới', gender: 'Nữ', dateOfBirth: '2015-07-07', parentName: 'P', parentPhone: '0909999999', address: 'X', branch: 'AuNhi', className: 'Lớp Mới Tạo' }],
+          academicYearId: ayAId,
           classMappings: {},
           newClasses: [{ name: 'Lớp Mới Tạo', branch: 'AuNhi', academicYearId: ayAId }],
           duplicateActions: {},
@@ -194,6 +203,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
         headers: { ...headersCatA1, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: [{ rowIndex: 0, holyName: 'Maria', fullName: 'Học Sinh A2', gender: 'Nữ', dateOfBirth: '2015-02-02', parentName: 'P2', parentPhone: '0982222222', address: 'X', branch: 'AuNhi', className: `Lớp A2-${PREFIX}` }],
+          academicYearId: ayAId,
         }),
       })
       expect(res.status).toBe(200)
@@ -376,7 +386,7 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
           studentId: studentA1Id,
           academicYear: `${year}-${year + 1}`,
           targetClassId: classA1Id,
-          nextClassId: classA1Id,
+          nextClassId: classA1NextId,
           gpa: 0,
           attendanceRate: 100,
         }),

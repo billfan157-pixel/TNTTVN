@@ -27,6 +27,8 @@ export const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_classes_parish_id ON classes(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_catechist_assignments_parish_id ON catechist_assignments(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_catechist_assignments_user_id ON catechist_assignments(user_id)',
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_catechist_assignments_one_cn_per_class ON catechist_assignments(parish_id, class_id) WHERE role_in_class = 'chunhiem'",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_catechist_assignments_one_cn_class_per_user ON catechist_assignments(parish_id, user_id) WHERE role_in_class = 'chunhiem'",
   'CREATE INDEX IF NOT EXISTS idx_notifications_parish_id ON notifications(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_notifications_lookup ON notifications(parish_id, status, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_notifications_worker ON notifications(status, next_attempt_at, lease_expires_at)',

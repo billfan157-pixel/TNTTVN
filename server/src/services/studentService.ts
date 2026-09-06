@@ -5,6 +5,7 @@ import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
+import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 
 type StudentInsert = InferInsertModel<typeof students>
 
@@ -29,7 +30,7 @@ const STUDENT_WRITABLE_KEYS = [
 
 type StudentWritableKey = (typeof STUDENT_WRITABLE_KEYS)[number]
 export type CreateStudentData = Pick<StudentInsert, StudentWritableKey>
-export type UpdateStudentData = Partial<CreateStudentData>
+export type UpdateStudentData = Partial<CreateStudentData> & { membershipChangeReason?: string }
 
 /**
  * Strip client-controlled / server-owned fields so spreads cannot overwrite
@@ -184,7 +185,8 @@ export async function createStudent(
   userAgent: string,
   idempotencyKey?: string,
 ) {
-  const data = pickStudentWritable(rawData as Record<string, unknown>)
+  const input = rawData as Record<string, unknown>
+  const data = pickStudentWritable(input)
 
   // ADR-016 (offline-sync audit #3): nếu request trước bị timeout nhưng thật ra đã
   // insert (client retry cùng key), trả về student đã tạo thay vì tạo trùng.
@@ -219,6 +221,7 @@ export async function createStudent(
     const code = `TN${year}${generateStudentCodeSuffix()}`
     try {
       return await runDbTransaction(async (tx) => {
+        const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
         await tx.insert(students).values({
           holyName: data.holyName,
           fullName: data.fullName,
@@ -230,7 +233,7 @@ export async function createStudent(
           parentName: data.parentName ?? '',
           parentPhone: data.parentPhone ?? '',
           address: data.address ?? '',
-          branch: data.branch ?? 'AuNhi',
+          branch: membershipBranch,
           classId: data.classId,
           avatarUrl: data.avatarUrl ?? null,
           status: data.status ?? 'Đang học',
@@ -285,6 +288,7 @@ export async function createStudent(
   const fallbackNum = Date.now() % 1_000_000
   const code = `TN${year}${String(fallbackNum).padStart(6, '0')}`
   return await runDbTransaction(async (tx) => {
+    const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
     await tx.insert(students).values({
       holyName: data.holyName,
       fullName: data.fullName,
@@ -296,7 +300,7 @@ export async function createStudent(
       parentName: data.parentName ?? '',
       parentPhone: data.parentPhone ?? '',
       address: data.address ?? '',
-      branch: data.branch ?? 'AuNhi',
+      branch: membershipBranch,
       classId: data.classId,
       avatarUrl: data.avatarUrl ?? null,
       status: data.status ?? 'Đang học',
@@ -345,7 +349,8 @@ export async function updateStudent(
   const existing = await getStudentById(id, parishId)
   if (!existing) return null
 
-  const data = pickStudentWritable(rawData as Record<string, unknown>)
+  const input = rawData as Record<string, unknown>
+  const data = pickStudentWritable(input)
   if (Object.keys(data).length === 0) {
     return existing
   }
@@ -357,12 +362,31 @@ export async function updateStudent(
     await getAcademicYearPrefix(data.classId, parishId)
   }
 
+  const changesMembership = (data.classId !== undefined && data.classId !== existing.classId)
+    || (data.branch !== undefined && data.branch !== existing.branch)
+  const membershipChangeReason = typeof input.membershipChangeReason === 'string'
+    ? input.membershipChangeReason.trim()
+    : ''
+  if (changesMembership && membershipChangeReason.length < 5) {
+    throw Object.assign(
+      new Error('Bắt buộc nhập lý do khi điều chỉnh lớp hoặc phân ngành của học viên'),
+      { code: 'MEMBERSHIP_CHANGE_REASON_REQUIRED' },
+    )
+  }
+
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const touchesMembership = data.classId !== undefined || data.branch !== undefined
+    const updateData = touchesMembership
+      ? {
+          ...data,
+          branch: await resolveMembershipBranch(tx, parishId, data.classId || existing.classId, data.branch),
+        }
+      : data
     await tx
       .update(students)
       .set({
-        ...data,
+        ...updateData,
         updatedAt: now,
         updatedBy: userId,
       })
@@ -371,11 +395,14 @@ export async function updateStudent(
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),
       userId,
-      action: 'UPDATE',
+      action: changesMembership ? 'UPDATE_MEMBERSHIP_CORRECTION' : 'UPDATE',
       entityType: 'student',
       entityId: id,
       oldValue: JSON.stringify(redactStudentForAudit(existing)),
-      newValue: JSON.stringify(redactStudentForAudit(data)),
+      newValue: JSON.stringify(redactStudentForAudit({
+        ...updateData,
+        ...(changesMembership ? { membershipChangeReason } : {}),
+      })),
       ip,
       userAgent,
       parishId,

@@ -419,6 +419,12 @@ export const catechistAssignments = sqliteTable('catechist_assignments', {
     index('idx_catechist_assignments_parish_id').on(table.parishId),
    index('idx_catechist_assignments_user_id').on(table.userId),
    uniqueIndex('idx_catechist_assignments_unique').on(table.parishId, table.userId, table.classId),
+   uniqueIndex('idx_catechist_assignments_one_cn_per_class')
+     .on(table.parishId, table.classId)
+     .where(sql`${table.roleInClass} = 'chunhiem'`),
+   uniqueIndex('idx_catechist_assignments_one_cn_class_per_user')
+     .on(table.parishId, table.userId)
+     .where(sql`${table.roleInClass} = 'chunhiem'`),
  ])
 
 export const notifications = sqliteTable('notifications', {

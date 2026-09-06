@@ -13,10 +13,12 @@ import { initDB, getDB } from '../lib/db'
 import { useSyncStore } from '../stores/syncStore'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
+import { useStudentStore } from '../stores/studentStore'
 import { runSyncFlow } from '../lib/syncCoordinator'
 import { api, ApiError } from '../lib/api'
 import * as syncService from '../lib/syncService'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { setTenantScope } from '../lib/tenantScope'
 import type { GradeRecord, AttendanceRecord } from '../types'
 
 // A-NEW-32: payload queue mã hóa (AAD 'syncQueue') — parse qua decrypt (dual-format).
@@ -34,8 +36,10 @@ async function resetDB() {
   useSyncStore.getState().setStatus('idle')
   useSyncStore.getState().setLastError(null)
   useSyncStore.getState().setLastSync('')
+  useStudentStore.getState().setStudents([])
   localStorage.setItem('parish_access_token', 'test-token')
   localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', parishId: 'PARISH-TEST' }))
+  setTenantScope({ userId: 'U-TEST', parishId: 'PARISH-TEST' })
 }
 
 function mockAllApiMethods() {
@@ -47,6 +51,7 @@ function mockAllApiMethods() {
   vi.spyOn(api, 'batchUpsertGrades').mockResolvedValue({ results: [] } as any)
   vi.spyOn(api, 'batchUpsertAttendance').mockResolvedValue({ results: [] } as any)
   vi.spyOn(api, 'getStudents').mockResolvedValue({ data: [], total: 0 })
+  vi.spyOn(api, 'getStudent').mockResolvedValue(undefined)
   vi.spyOn(api, 'getGrades').mockResolvedValue([])
   vi.spyOn(api, 'getAttendance').mockResolvedValue([])
   vi.spyOn(api, 'getNotices').mockResolvedValue([])
@@ -135,6 +140,7 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
   })
 
   it('op fail lỗi vĩnh viễn (400) → status idle + lastError, không kẹt syncing', async () => {
+    useStudentStore.getState().setStudents([{ id: 'ST-PERM-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2', parishId: 'PARISH-TEST' } as any])
     vi.mocked(api.createStudent).mockRejectedValue(new ApiError(400, 'Bad Request', '/students'))
     syncService.syncCreateStudent({ id: 'ST-PERM-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2' })
     await waitForQueueSize(1)
@@ -148,6 +154,47 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
 
     const ops = await getDB().syncQueue.toArray()
     expect(ops.find(o => o.entityId === 'ST-PERM-1')?.status).toBe('failed')
+    expect(useStudentStore.getState().students.some(student => student.id === 'ST-PERM-1')).toBe(false)
+    expect(api.getStudent).not.toHaveBeenCalled()
+  })
+
+  it('student UPDATE bị từ chối vĩnh viễn → khôi phục projection server nhưng giữ failed payload', async () => {
+    const serverStudent = {
+      id: 'ST-PERM-UPD', fullName: 'Tên máy chủ', branch: 'AuNhi', classId: 'AU2',
+      parishId: 'PARISH-TEST', deletedAt: null,
+    } as any
+    useStudentStore.getState().setStudents([{ ...serverStudent, fullName: 'Tên optimistic sai' }])
+    vi.mocked(api.updateStudent).mockRejectedValue(new ApiError(400, 'Membership reason required', '/students/ST-PERM-UPD'))
+    vi.mocked(api.getStudent).mockResolvedValue(serverStudent)
+    vi.mocked(api.getStudents).mockResolvedValue({ data: [serverStudent], total: 1 })
+    await syncService.syncUpdateStudent('ST-PERM-UPD', { fullName: 'Tên optimistic sai' })
+    await waitForQueueSize(1)
+
+    await runSyncFlow()
+
+    expect(api.getStudent).toHaveBeenCalledWith('ST-PERM-UPD')
+    expect(useStudentStore.getState().students.find(student => student.id === 'ST-PERM-UPD')?.fullName).toBe('Tên máy chủ')
+    const [failed] = (await getDB().syncQueue.toArray()).filter(op => op.entityId === 'ST-PERM-UPD')
+    expect(failed?.status).toBe('failed')
+  })
+
+  it('student DELETE bị từ chối vĩnh viễn → phục hồi row server đã bị optimistic remove', async () => {
+    const serverStudent = {
+      id: 'ST-PERM-DEL', fullName: 'Không được xóa', branch: 'AuNhi', classId: 'AU2',
+      parishId: 'PARISH-TEST', deletedAt: null,
+    } as any
+    useStudentStore.getState().setStudents([])
+    vi.mocked(api.deleteStudent).mockRejectedValue(new ApiError(409, 'Student has dependencies', '/students/ST-PERM-DEL'))
+    vi.mocked(api.getStudent).mockResolvedValue(serverStudent)
+    vi.mocked(api.getStudents).mockResolvedValue({ data: [serverStudent], total: 1 })
+    await syncService.syncDeleteStudent('ST-PERM-DEL')
+    await waitForQueueSize(1)
+
+    await runSyncFlow()
+
+    expect(useStudentStore.getState().students.find(student => student.id === 'ST-PERM-DEL')?.fullName).toBe('Không được xóa')
+    const [failed] = (await getDB().syncQueue.toArray()).filter(op => op.entityId === 'ST-PERM-DEL')
+    expect(failed?.status).toBe('failed')
   })
 })
 

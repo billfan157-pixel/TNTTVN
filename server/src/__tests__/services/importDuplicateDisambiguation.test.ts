@@ -207,10 +207,10 @@ describe('Audit Import / Exam Fixes (IE-01 .. IE-05)', () => {
       ]
 
       const allClasses = [
-        { id: CLASS_ID, name: 'Thiếu Nhi 1', code: 'TN1', branchId: BRANCH_ID, branchName: 'Thiếu Nhi' },
+        { id: CLASS_ID, name: 'Thiếu Nhi 1', code: 'TN1', branchId: BRANCH_ID, branchName: 'Thiếu Nhi', academicYearId: AY_ID },
       ]
 
-      const validationResult = await validateImport(rawRows, PARISH, allClasses)
+      const validationResult = await validateImport(rawRows, PARISH, allClasses, AY_ID)
 
       // The validationResult.contentHash MUST equal hash of normalized rows
       expect(validationResult.contentHash).toBeDefined()
@@ -219,6 +219,7 @@ describe('Audit Import / Exam Fixes (IE-01 .. IE-05)', () => {
       const importResult = await importStudents(
         {
           rows: rawRows,
+          academicYearId: AY_ID,
           classMappings: { 'Thiếu Nhi 1': CLASS_ID },
           duplicateActions: {},
         },

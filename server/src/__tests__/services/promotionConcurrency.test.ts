@@ -16,12 +16,16 @@ describe('Phase 1 — Promotion single-transaction + concurrency', () => {
   const nextClassA = 'cl-prm-race-02'
   const nextClassB = 'cl-prm-race-03'
   const academicYear = '2025-2026'
+  const nextAcademicYear = '2026-2027'
 
   beforeAll(async () => {
     await db.insert(branches).values({ id: 'br-prm-race', name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId: testParish }).onConflictDoNothing()
-    await db.insert(academicYears).values({ id: academicYear, startDate: '2025-09-01', endDate: '2026-05-31', parishId: testParish }).onConflictDoNothing()
-    for (const [id, code, name] of [[classId, 'CL-R1', 'Lớp R1'], [nextClassA, 'CL-R2', 'Lớp R2'], [nextClassB, 'CL-R3', 'Lớp R3']] as const) {
-      await db.insert(classes).values({ id, code, name, branchId: 'br-prm-race', academicYearId: academicYear, parishId: testParish }).onConflictDoNothing()
+    await db.insert(academicYears).values({ id: academicYear, startDate: '2025-09-01', endDate: '2026-05-31', promotionTargetYearId: nextAcademicYear, parishId: testParish }).onConflictDoNothing()
+    await db.insert(academicYears).values({ id: nextAcademicYear, startDate: '2026-09-01', endDate: '2027-05-31', parishId: testParish }).onConflictDoNothing()
+    await db.update(academicYears).set({ promotionTargetYearId: nextAcademicYear }).where(and(eq(academicYears.id, academicYear), eq(academicYears.parishId, testParish)))
+    await db.insert(classes).values({ id: classId, code: 'CL-R1', name: 'Lớp R1', branchId: 'br-prm-race', academicYearId: academicYear, parishId: testParish }).onConflictDoNothing()
+    for (const [id, code, name] of [[nextClassA, 'CL-R2', 'Lớp R2'], [nextClassB, 'CL-R3', 'Lớp R3']] as const) {
+      await db.insert(classes).values({ id, code, name, branchId: 'br-prm-race', academicYearId: nextAcademicYear, parishId: testParish }).onConflictDoNothing()
     }
     await db.insert(users).values({ id: adminUserId, username: 'adminprmrace', fullName: 'Admin Race', passwordHash: 'hash', role: 'admin', parishId: testParish }).onConflictDoNothing()
     await db.insert(students).values({

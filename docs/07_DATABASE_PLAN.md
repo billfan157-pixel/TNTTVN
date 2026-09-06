@@ -19,7 +19,7 @@
 | 8 | `academic_years` | School year config + lifecycle state machine (`status`, `current_semester`, `is_locked`) | `(parish_id, id)` PK ('2025 - 2026') |
 | 9 | `classes` | Catechism classes linked to branch + year | `idx_classes_code_year` UNIQUE |
 | 10 | `system_settings` | App configuration key-value store | `(key, parish_id)` PK — gồm key `purge_version` (marker đa thiết bị, Purge v2.4) |
-| 11 | `catechist_assignments` | User ↔ class mapping with role | `idx_catechist_assignments_unique` `(user_id, class_id)` UNIQUE |
+| 11 | `catechist_assignments` | User ↔ class mapping with role | composite pair UNIQUE + partial UNIQUE `(parish_id,class_id)` and `(parish_id,user_id)` where `role_in_class='chunhiem'` |
 | 12 | `notifications` | Durable notification queue/history: audience JSON `target_user_ids`; persisted delivery kind, attempt budget, lease và next-attempt time (ADR-102) | `idx_notifications_lookup`, `idx_notifications_worker(status,next_attempt_at,lease_expires_at)` |
 | 13 | `permissions` | RBAC permission definitions | `id` PK |
 | 14 | `role_permissions` | Role ↔ permission mapping | `idx_role_permissions_pk` `(role, permission_id)` UNIQUE |
@@ -211,3 +211,10 @@ DB CHECK bắt buộc `request_count >= 1`; `PENDING` phải chưa có resolver,
 - `167` adds `notices.parent_revoked_at`: parent deltas receive a redacted eviction tombstone only for rows whose parent visibility was actually revoked; brand-new staff notices remain undisclosed.
 - Startup readiness requires all nine markers, the new columns and worker index. Compatibility ALTERs remain duplicate-safe for historical deployments.
 - Rollback is R2: code can stop consuming the new fields, but additive columns/tombstones should be retained. Do not hard-delete notice tombstones or down-migrate queue state during an incident; restore a pre-migration snapshot only through the documented database recovery procedure.
+
+## Roster assignment migration `20260906-176` (ADR-108)
+
+- Adds partial UNIQUE index `idx_catechist_assignments_one_cn_per_class` on `(parish_id,class_id)` where `role_in_class='chunhiem'`.
+- Adds partial UNIQUE index `idx_catechist_assignments_one_cn_class_per_user` on `(parish_id,user_id)` under the same predicate.
+- Existing compliant rows need no rewrite. If historical duplicates exist, migration fails closed; run the read-only roster inventory, review the actual assignments with the parish owner and apply a separate approved correction before retrying. The migration never chooses or deletes a CN automatically.
+- These indexes are concurrency backstops. `classAssignmentPolicy` remains the domain error/role/class-status owner for every writer.

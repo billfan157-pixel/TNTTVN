@@ -21,6 +21,7 @@ import { revokeAllSessionsWith } from './refreshSessionService.js'
 import { BCRYPT_COST } from '../utils/passwordPolicy.js'
 import { normalizePhone } from '../utils/phone.js'
 import { buildAutoUsername, isValidVnPhone } from '../utils/username.js'
+import { mapClassAssignmentConstraintError, validateClassAssignmentReplacement } from './classAssignmentPolicy.js'
 
 export async function getUsers(parishId: string, limit: number = 50, page: number = 1) {
   const offset = (page - 1) * limit
@@ -162,12 +163,22 @@ export async function createUser(
       })
 
       if (data.assignedClasses && data.assignedClasses.length > 0 && (data.role === 'chunhiem' || data.role === 'phuta')) {
-        for (const classId of data.assignedClasses) {
+        const assignedClassIds = [...new Set(data.assignedClasses)]
+        const roleInClass = data.role === 'chunhiem' ? 'chunhiem' as const : 'phuta' as const
+        const policyError = await validateClassAssignmentReplacement(
+          tx,
+          parishId,
+          assignedClassIds.map(classId => ({ userId: id, classId, roleInClass })),
+          { kind: 'user', userId: id },
+        )
+        if (policyError) throw Object.assign(new Error(policyError.message), { code: policyError.error })
+
+        for (const classId of assignedClassIds) {
           await tx.insert(catechistAssignments).values({
             id: generateId('ASG'),
             userId: id,
             classId,
-            roleInClass: data.role === 'chunhiem' ? 'chunhiem' : 'phuta',
+            roleInClass,
             parishId,
             createdAt: now,
             updatedAt: now,
@@ -193,6 +204,8 @@ export async function createUser(
     // Other constraints (for example an invalid class assignment) must propagate so
     // callers see the failure while the transaction rolls the new user back.
     if (isUsernameUniqueConflict(err)) return null
+    const assignmentError = mapClassAssignmentConstraintError(err)
+    if (assignmentError) throw Object.assign(new Error(assignmentError.message), { code: assignmentError.error })
     throw err
   }
 
@@ -432,7 +445,9 @@ export async function updateUserAssignments(
   ip: string,
   userAgent: string,
 ) {
-  return runDbTransaction(async (tx) => {
+  const uniqueAssignedClasses = [...new Set(assignedClasses)]
+  try {
+    return await runDbTransaction(async (tx) => {
     const [existing] = await tx.select().from(users).where(and(eq(users.id, id), eq(users.parishId, parishId), isNull(users.deletedAt))).limit(1)
     if (!existing) return null
 
@@ -440,16 +455,31 @@ export async function updateUserAssignments(
     // catechistAssignments. Trước đây chỉ vá ở createUser — update path vẫn cho
     // gán lớp vào tài khoản admin/phuhuynh (row roleInClass sai, checkUserClassAccess
     // đọc bảng này cho mọi role). Gửi danh sách RỖNG vẫn cho phép (dọn row bẩn lịch sử).
-    if ((existing.role === 'admin' || existing.role === 'phuhuynh') && assignedClasses.length > 0) {
+    if ((existing.role === 'admin' || existing.role === 'phuhuynh') && uniqueAssignedClasses.length > 0) {
       throw Object.assign(new Error('Chỉ tài khoản GLV (chủ nhiệm/phụ tá) mới được phân công lớp'), { code: 'ASSIGNMENTS_NOT_ALLOWED' })
     }
 
     const prevAssignments = await tx.select().from(catechistAssignments).where(and(eq(catechistAssignments.userId, id), eq(catechistAssignments.parishId, parishId)))
     const prevMap = new Map(prevAssignments.map((a) => [a.classId, a]))
 
+    if (uniqueAssignedClasses.length > 0) {
+      const proposed = uniqueAssignedClasses.map(classId => ({
+        userId: id,
+        classId,
+        roleInClass: prevMap.get(classId)?.roleInClass || (existing.role === 'chunhiem' ? 'chunhiem' as const : 'phuta' as const),
+      }))
+      const policyError = await validateClassAssignmentReplacement(
+        tx,
+        parishId,
+        proposed,
+        { kind: 'user', userId: id },
+      )
+      if (policyError) throw Object.assign(new Error(policyError.message), { code: policyError.error })
+    }
+
     await tx.delete(catechistAssignments).where(and(eq(catechistAssignments.userId, id), eq(catechistAssignments.parishId, parishId)))
     const now = new Date().toISOString()
-    for (const classId of assignedClasses) {
+    for (const classId of uniqueAssignedClasses) {
       const prev = prevMap.get(classId)
       await tx.insert(catechistAssignments).values({
         id: generateId('ASG'),
@@ -469,14 +499,19 @@ export async function updateUserAssignments(
       action: 'UPDATE_USER_ASSIGNMENTS',
       entityType: 'user',
       entityId: id,
-      newValue: JSON.stringify({ assignedClasses }),
+      newValue: JSON.stringify({ assignedClasses: uniqueAssignedClasses }),
       ip,
       userAgent,
       parishId,
     })
 
     return true
-  })
+    })
+  } catch (error) {
+    const policyError = mapClassAssignmentConstraintError(error)
+    if (policyError) throw Object.assign(new Error(policyError.message), { code: policyError.error })
+    throw error
+  }
 }
 
 export async function forceLogoutUser(id: string, adminUserId: string, parishId: string, ip: string, userAgent: string) {

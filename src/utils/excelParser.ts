@@ -38,6 +38,70 @@ function normalizeKeyword(s: string): string {
     .replace(/[_\s-]+/g, ' ')
 }
 
+type SupportedDelimiter = '\t' | ',' | ';'
+
+function detectDelimiter(text: string): SupportedDelimiter {
+  const counts: Record<SupportedDelimiter, number> = { '\t': 0, ',': 0, ';': 0 }
+  let quoted = false
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') index += 1
+      else quoted = !quoted
+      continue
+    }
+    if (!quoted && (character === '\r' || character === '\n')) break
+    if (!quoted && (character === '\t' || character === ',' || character === ';')) counts[character] += 1
+  }
+  if (counts['\t'] >= counts[','] && counts['\t'] >= counts[';'] && counts['\t'] > 0) return '\t'
+  if (counts[','] >= counts[';'] && counts[','] > 0) return ','
+  return ';'
+}
+
+/** Parse CSV/TSV/semicolon text without losing quoted delimiters or embedded newlines. */
+export function parseDelimitedRows(text: string): string[][] {
+  const source = text.replace(/^\uFEFF/, '')
+  if (!source.trim()) return []
+  const delimiter = detectDelimiter(source)
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+
+  const finishField = () => {
+    row.push(field.trim())
+    field = ''
+  }
+  const finishRow = () => {
+    finishField()
+    if (row.some(cell => cell.length > 0)) rows.push(row)
+    row = []
+  }
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    if (character === '"') {
+      if (quoted && source[index + 1] === '"') {
+        field += '"'
+        index += 1
+      } else {
+        quoted = !quoted
+      }
+    } else if (!quoted && character === delimiter) {
+      finishField()
+    } else if (!quoted && (character === '\r' || character === '\n')) {
+      if (character === '\r' && source[index + 1] === '\n') index += 1
+      finishRow()
+    } else {
+      field += character
+    }
+  }
+
+  if (quoted) throw new Error('Dấu ngoặc kép chưa đóng trong dữ liệu import')
+  if (field.length > 0 || row.length > 0) finishRow()
+  return rows
+}
+
 export function scoreColumn(header: string, field: string): number {
   const normalized = normalizeKeyword(header)
   const keywords = COLUMN_KEYWORDS[field]
@@ -183,7 +247,12 @@ export function parseToImportRows(rawRows: string[][], colMap: Record<string, nu
 
     if (!holyName && !fullName) continue
 
-    const gender = genderRaw.toLowerCase().includes('nữ') || genderRaw.toLowerCase() === 'f' ? 'Nữ' : 'Nam'
+    const normalizedGender = genderRaw.trim().toLowerCase()
+    const gender = normalizedGender === 'nữ' || normalizedGender === 'nu' || normalizedGender === 'f' || normalizedGender === 'female'
+      ? 'Nữ'
+      : normalizedGender === 'nam' || normalizedGender === 'm' || normalizedGender === 'male'
+        ? 'Nam'
+        : genderRaw.trim()
 
     if (holyName && fullName && fullName.startsWith(holyName)) {
       fullName = fullName.slice(holyName.length).trim()
@@ -274,22 +343,19 @@ export interface ParsedStudentRow {
  * Parses raw text from a CSV file or Excel clipboard (tab-separated)
  */
 export function parseRosterText(rawText: string, defaultClassId: string = 'AU1'): ParsedStudentRow[] {
-  const lines = rawText.split(/\r?\n/).filter((line) => line.trim().length > 0)
-  if (lines.length === 0) return []
+  const rows = parseDelimitedRows(rawText)
+  if (rows.length === 0) return []
 
   const results: ParsedStudentRow[] = []
 
   let startIdx = 0
-  const firstLine = lines[0].toLowerCase()
+  const firstLine = rows[0].join(' ').toLowerCase()
   if (firstLine.includes('tên thánh') || firstLine.includes('họ') || firstLine.includes('holy') || firstLine.includes('stt')) {
     startIdx = 1
   }
 
-  for (let i = startIdx; i < lines.length; i++) {
-    const line = lines[i]
-    const delimiter = line.includes('\t') ? '\t' : line.includes(',') ? ',' : ';'
-    const columns = line.split(delimiter).map((col) => col.trim().replace(/^["']|["']$/g, ''))
-
+  for (let i = startIdx; i < rows.length; i++) {
+    const columns = rows[i]
     if (columns.length < 2) continue
 
     let offset = 0

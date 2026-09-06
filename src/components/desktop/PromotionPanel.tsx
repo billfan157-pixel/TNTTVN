@@ -30,7 +30,6 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   const { can } = useAuth();
   const canPromoteAction = can('admin', 'chunhiem');
   const students = useStudentStore(s => s.students);
-  const batchPromote = useStudentStore(s => s.batchPromote);
   const applyLocalPromotions = useStudentStore(s => s.applyLocalPromotions);
   const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
   const getStudentAttendanceRate = useAttendanceStore(s => s.getStudentAttendanceRate);
@@ -49,7 +48,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   // ADR-017 (merge store): trạng thái hoàn tất thăng tiến là UI state tập trung
   // trong promotionStore (done/setDone) — panel chỉ đọc. evaluateStudent cũng từ
   // store (evaluationMap + error/lockError); business logic (điều kiện thăng tiến,
-  // fallback offline-first, alert khóa sổ) vẫn nằm ở panel/service, KHÔNG trong store.
+  // alert khóa sổ) vẫn nằm ở panel/service, KHÔNG trong store.
   const evaluateStudent = usePromotionStore(s => s.evaluateStudent);
   const batchApproveStudents = usePromotionStore(s => s.batchApproveStudents);
   const done = usePromotionStore(s => s.done);
@@ -112,9 +111,9 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
     // toàn PromotionEligibilitySpecification server (SemesterLock HK2 + policy),
     // nên admin có thể thăng tiến cả em chưa đủ điều kiện khi client bị lệch
     // server, và KHÔNG sinh promotion_records (vi phạm SSOT BUSINESS_RULES §1.1).
-    // Khi online: duyệt qua POST /promotion/batch-approve — server tự đánh giá
-    // lại, sinh snapshot và chuyển lớp/ngành trong cùng transaction. Offline:
-    // giữ hành vi cũ qua hàng đợi sync (hạn chế đã ghi nhận — xem ADR-052).
+    // Duyệt qua POST /promotion/batch-approve — server tự đánh giá lại, sinh
+    // snapshot và chuyển lớp/ngành trong cùng transaction. Promotion không có
+    // offline fallback vì generic student update không thể sở hữu invariant này.
     const online = typeof navigator !== 'undefined' && navigator.onLine && isAuthenticated()
     if (online && actions.length > 0) {
       const names = new Map(actions.map(a => [a.action.studentId, `${a.student.holyName} ${a.student.fullName}`]))
@@ -224,15 +223,15 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
       }
     }
 
-    // OFFLINE fallback (giữ nguyên hành vi cũ): client tự tính điều kiện, ghi vào
-    // hàng đợi sync — server sẽ từ chối lúc sync nếu vi phạm lock/policy.
-    batchPromote(actions.map(a => a.action))
-    setTimeout(() => {
-      setPromoting(false)
-      setConfirmOpen(false)
-      setDone(true)
-      setTimeout(() => setDone(false), 4000)
-    }, 800)
+    setPromoting(false)
+    await askConfirm({
+      title: 'Cần kết nối máy chủ',
+      message:
+        'Xét lên lớp chỉ được thực hiện khi đang online để máy chủ kiểm tra khóa sổ, chính sách và ghi nhận hồ sơ thăng tiến. Không có thay đổi nào được đưa vào hàng đợi.',
+      confirmText: 'OK',
+      variant: 'warning',
+      showCancel: false,
+    })
   }
 
   if (done) {
