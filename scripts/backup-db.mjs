@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { createClient } from '@libsql/client'
+import { randomUUID } from 'node:crypto'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -16,61 +17,62 @@ const RETENTION_COUNT = Number(process.env.BACKUP_RETENTION_COUNT) || 5
  * INF-03 (2026-08-14): Dùng PRAGMA wal_checkpoint(TRUNCATE) + VACUUM INTO để sao lưu
  * nhất quán trạng thái DB (snapshot-consistent) mà không copy torn-page file thô lúc WAL active.
  */
-export async function performBackup() {
-  if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true })
+export async function performBackup({ dbFile = DB_FILE, backupDir = BACKUP_DIR, retentionCount = RETENTION_COUNT } = {}) {
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true })
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const destFile = path.join(BACKUP_DIR, `parish-backup-${timestamp}.sqlite`)
+  const destFile = path.resolve(backupDir, `parish-backup-${timestamp}-${randomUUID()}.sqlite`)
+  const partialFile = `${destFile}.partial`
 
-  if (!fs.existsSync(DB_FILE)) {
-    console.log(`[BACKUP NOTICE] DB file ${DB_FILE} not found yet. Skipped.`)
+  if (!fs.existsSync(dbFile)) {
+    console.log(`[BACKUP NOTICE] DB file ${dbFile} not found yet. Skipped.`)
     return false
   }
 
   let client = null
   try {
-    const resolvedDbPath = path.resolve(DB_FILE)
-    const resolvedDestPath = path.resolve(destFile)
+    const resolvedDbPath = path.resolve(dbFile)
 
     client = createClient({ url: `file:${resolvedDbPath}` })
 
     // 1. Flush uncheckpointed WAL pages to the main database file
-    await client.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    try {
+      await client.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    } catch (err) {
+      console.warn('[BACKUP WARNING] Checkpoint failed; requiring VACUUM snapshot:', err?.message || err)
+    }
 
     // 2. Snapshot-safe backup via VACUUM INTO
-    const normalizedDest = resolvedDestPath.replace(/\\/g, '/')
-    await client.execute(`VACUUM INTO '${normalizedDest}'`)
+    const normalizedPartial = partialFile.replace(/\\/g, '/').replace(/'/g, "''")
+    await client.execute(`VACUUM INTO '${normalizedPartial}'`)
+    fs.renameSync(partialFile, destFile)
     console.log(`[BACKUP SUCCESS] Saved snapshot-consistent SQLite backup to ${destFile}`)
 
     // 3. Keep only recent backups
     const files = fs
-      .readdirSync(BACKUP_DIR)
-      .filter((f) => f.endsWith('.sqlite'))
-      .sort((a, b) => fs.statSync(path.join(BACKUP_DIR, b)).mtimeMs - fs.statSync(path.join(BACKUP_DIR, a)).mtimeMs)
+      .readdirSync(backupDir)
+      .filter((f) => /^parish-backup-.*\.sqlite$/.test(f))
+      .sort((a, b) => fs.statSync(path.join(backupDir, b)).mtimeMs - fs.statSync(path.join(backupDir, a)).mtimeMs)
 
-    if (files.length > RETENTION_COUNT) {
-      for (const oldFile of files.slice(RETENTION_COUNT)) {
-        fs.unlinkSync(path.join(BACKUP_DIR, oldFile))
+    const keep = Number.isInteger(retentionCount) && retentionCount > 0 ? retentionCount : 5
+    if (files.length > keep) {
+      for (const oldFile of files.slice(keep)) {
+        fs.unlinkSync(path.join(backupDir, oldFile))
         console.log(`[BACKUP CLEANUP] Removed old backup ${oldFile}`)
       }
     }
     return true
   } catch (err) {
-    console.error('[BACKUP ERROR] VACUUM INTO failed, attempting fallback checkpoint copy:', err?.message || err)
+    console.error('[BACKUP ERROR] Snapshot backup aborted; no raw-file fallback:', err?.message || err)
     try {
-      if (client) {
-        await client.execute('PRAGMA wal_checkpoint(TRUNCATE)')
-      }
-      const dbBuffer = fs.readFileSync(DB_FILE)
-      fs.writeFileSync(destFile, dbBuffer)
-      console.log(`[BACKUP SUCCESS (FALLBACK)] Saved copy to ${destFile}`)
-      return true
-    } catch (fallbackErr) {
-      console.error('[BACKUP FATAL] Fallback copy also failed:', fallbackErr)
-      return false
+      // Only our unique incomplete artifact, never the source or existing backups.
+      if (fs.existsSync(partialFile)) fs.unlinkSync(partialFile)
+    } catch (cleanupErr) {
+      console.warn('[BACKUP WARNING] Incomplete artifact cleanup failed:', cleanupErr?.message || cleanupErr)
     }
+    return false
   } finally {
     if (client) {
       client.close()

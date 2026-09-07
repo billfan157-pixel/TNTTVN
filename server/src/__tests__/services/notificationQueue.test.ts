@@ -73,8 +73,7 @@ describe('notificationQueue', () => {
     const id = await enqueueNotification('telegram', 'alert', 'Fail test', {}, 'gia-ton', 0)
     await vi.waitFor(() => {
       const failed = getFailedItems()
-      expect(failed.length).toBeGreaterThan(0)
-      expect(failed[0].id).toBe(id)
+      expect(failed.some(item => item.id === id)).toBe(true)
     }, { timeout: 2000 })
   })
 

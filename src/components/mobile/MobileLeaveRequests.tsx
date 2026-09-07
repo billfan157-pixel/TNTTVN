@@ -11,6 +11,7 @@ import type { LeaveRequest, LeaveRequestStatus } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { StudentName } from '../common/StudentName'
 import { ModalPortal } from '../common/ModalPortal'
+import { SubpageHeader } from '../common/SubpageHeader'
 
 const SESSION_MAP: Record<string, { label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = {
   SundayMass: { label: 'Thánh Lễ', icon: Church },
@@ -100,37 +101,33 @@ export const MobileLeaveRequests: React.FC = () => {
 
   return (
     <div className="product-view flex flex-col gap-3 pb-8">
-      {/* Header */}
-      <div className="mobile-page-header">
-        <div className="mobile-page-header__identity">
-          <div className="mobile-page-header__icon">
-            <CalendarClock className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="mobile-page-header__title truncate">
-              Đơn Xin Nghỉ Phép
-            </h3>
-            <p className="mobile-page-header__description truncate">
-              {pendingCount > 0 ? (
-                <span className="inline-flex items-center gap-1 font-bold text-amber-600">
-                  <Clock size={12} className="animate-pulse" /> {pendingCount} đơn chờ duyệt
-                </span>
-              ) : (
-                'Không có đơn chờ xử lý'
-              )}
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => fetchRequests()}
-          className="btn btn-secondary mobile-btn flex items-center gap-1.5 shrink-0"
-          disabled={loading}
-          aria-label="Làm mới danh sách"
-        >
-          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
+      {/* Subpage Header */}
+      <SubpageHeader
+        icon={<CalendarClock size={15} />}
+        title="Đơn Xin Nghỉ Phép"
+        meta={
+          <span className="truncate">
+            {pendingCount > 0 ? (
+              <span className="inline-flex items-center gap-1 font-bold text-[var(--color-parish-warning-hover)]">
+                <Clock size={11} className="animate-pulse" /> {pendingCount} đơn chờ duyệt
+              </span>
+            ) : (
+              <span className="text-text-muted font-medium">Tất cả đơn đã được xử lý</span>
+            )}
+          </span>
+        }
+        actions={
+          <button
+            type="button"
+            onClick={() => fetchRequests()}
+            className="subpage-header__btn subpage-header__btn--secondary subpage-header__btn--icon-only"
+            disabled={loading}
+            aria-label="Làm mới danh sách"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          </button>
+        }
+      />
 
       {/* Status Tabs */}
       <div className="view-tabs" role="tablist" aria-label="Trạng thái đơn xin nghỉ">

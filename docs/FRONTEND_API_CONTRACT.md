@@ -32,6 +32,14 @@ Backend REST Endpoints (/api/promotion/*, /api/attendance/*, /api/reports/*)
 
 ## 2. STANDARDIZED API RESPONSE FORMATS
 
+### Academic scope-aware pull (XD-06, 2026-09-07)
+
+`GET /api/grades?includeScope=true` and `GET /api/attendance?includeScope=true` return the standard success envelope with `data: { records, mode: 'full' | 'delta', scope: { studentIds, semester, revision } }`. Scope is complete, not cursor-filtered; current actor/assignments, scope and rows share one transaction. Empty scope is deny-all. Grade scope restricts staff to the open semester; admin Grade and Attendance use `semester: null`.
+
+Send `updatedAfter` and the last accepted `scopeRevision` together. Delta is permitted only when the revision still matches; otherwise the server ignores the cursor and returns a full snapshot, including unchanged rows newly brought into scope. Attendance scope pulls ignore `studentId/date/type` UI filters to remain complete. Calls without `includeScope=true` retain the existing array contract.
+
+Clients must validate the envelope, remove cached rows outside scope even when locally pending, and retain the durable mutation queue independently for server rejection/recovery. Inside scope, own pending edits retain their local projection. Reject an unexpected revision on a delta or records outside the declared scope. Cache persistence failure is a failed pull, not permission to advance the shared cursor. This contract does not promise erasure while disconnected or deletion tombstones for every in-scope record.
+
 ### Security contract amendment — 2026-09-05
 
 - **ADR-106 deployment scope:** production là one deployment/one parish. Client không chọn tenant: `POST /api/auth/login` và public password-reset có thể còn gửi `parishId` legacy nhưng server bỏ qua và dùng `DEPLOYMENT_PARISH_ID`; access/refresh token parish khác bị từ chối. Public QR vẫn mang signed `parishId`, nhưng verifier chỉ chấp nhận deployment parish. Response/auth marker vẫn giữ `parishId` để scope Dexie/cache/offline chính xác.
@@ -394,7 +402,7 @@ Client: `src/lib/api.ts` (`saveDailyEntries`, `deleteDailyEntry`, `getDailyEntri
 | `GET /api/daily-entries?classId=&studentId=&semester=&academicYear=&scoreType=` | List attempts (tay + máy, loại `legacy_baseline`) cho UI daily read-only. Bắt buộc `classId` hoặc `studentId` (fail-closed scope) | auth theo class | `DailyLedgerEntry[]` (`{ id, studentId, academicYear, semester, scoreType, value, date, origin: 'manual'\|'machine', examSessionId }`) | 400 thiếu scope, 403 ngoài lớp, 404 lớp không tồn tại |
 
 - **Daily idempotency**: `id` entry ổn định từ lúc tạo local qua mọi retry; offline queue entity `daily_entry` op `CREATE` (add-then-remove khi offline được compact hủy cả cặp), `DELETE` khi xóa. Sync item `error` trong response 200 → permanent-fail hiển thị Diagnostics (không nuốt).
-- **Averaging SSOT**: server finalize tính trung bình toàn sổ `(student, academicYear, semester, scoreType)` — attempts tay tự đúng không cần client ghi grade lần hai; `legacy_baseline` chỉ dựng khi sổ trống (không đếm trùng).
+- **Averaging SSOT (XD-08):** server tính trung bình toàn ledger trong cùng transaction với add/delete daily entry hoặc Exam complete. Grade update lỗi → rollback ledger mutation; duplicate cùng payload không rewrite Grade/audit. Client chỉ enqueue ledger và preview; authoritative Grade pull không bị partial-device attempts ghi đè. `serverScore` trong daily ACK vẫn là score của entry, không phải average cột; Grade được lấy qua grade pull. Legacy client `daily_avg` payload được server tính lại từ ledger (thiếu ledger mà gửi giá trị → lỗi 409 ở single Grade write / item error ở batch). Legacy null-clear không được xóa average khi còn entries. Undo Grade import trả `not-clean` nếu audit gần nhất là daily-derived projection. `legacy_baseline` chỉ dựng khi sổ trống và có Grade daily_avg cũ; không auto-repair lịch sử.
 - **Machine attempts read-only**: UI render block riêng có nhãn "Bài thi máy · chỉ xem (tính vào trung bình)", không nút xóa/sửa; manual entries giữ handler `addEntry/removeEntry` hiện tại.
 
 - **Finalize do server làm authority (ADR-048)**: `POST /complete` ghi finalization ledger + assessment entries + grade projection + session completed trong một transaction; client không tự commit grades. Trước bước finalize, ADR-049 còn yêu cầu server tự tính lại score MC scan ngay tại `POST /results`.
@@ -462,30 +470,32 @@ Corpus gate ADR-060/062 hiện chỉ định nghĩa `workload=multiple_choice`; 
 
 ### `POST /api/backup/export` — admin
 
-Export snapshot parish **9 bảng nghiệp vụ**: students, grades, attendance, classes,
-semester_locks, grade_overrides, promotion_records (`promotion_records` — payload key giữ
-tên legacy `promotionSnapshots`, backup.ts:60-65), exam_sessions, exam_results
-+ `checksum` SHA256 + `counts`.
+Export partial profile parish **14 bảng nghiệp vụ**: students, grades, attendance, classes,
+semester_locks, grade_overrides, promotion_records (payload key giữ tên legacy
+`promotionSnapshots`), question-bank items/versions/blueprints/rules, exam_sessions,
+exam_question_snapshots và exam_results + `checksum` SHA256 + `counts`.
 
-> **A22 (2026-08-10; cập nhật 2026-08-28):** KHÔNG phải "100% database" — schema có 41 bảng; 32 bảng còn lại, bao gồm auth/audit/config/import/outbox/notification/Telegram, assessment/finalization ledger, leave/finance/event và `exam_result_mutations`,
-> được loại trừ vì: (1) mật khẩu/token/session KHÔNG được phục hồi qua restore (an toàn);
-> (2) cấu hình (academicYears, settings, branches) admin khởi tạo lại qua UI;
-> (3) dữ liệu phái sinh (audit, import hashes, outbox, snapshots) tự sinh lại.
+> **A22 (2026-08-10; cập nhật XD-09 2026-09-07):** KHÔNG phải "100% database" —
+> auth/audit/config/import/outbox/notification/Telegram, academic snapshot, attendance-session,
+> assignment, assessment/finalization ledger, leave/finance/event và mutation receipts không nằm
+> trong profile. Chúng không được giả định là dữ liệu phái sinh có thể tự sinh lại. Restore chỉ chạy
+> khi lifecycle/dependency preflight chứng minh việc thay parent rows không xóa hoặc rebind các facts
+> bị loại trừ; nếu không, endpoint trả 409 và yêu cầu full-schema recovery.
 > Để khôi phục toàn bộ DB (kể cả users/audit), dùng **backup file DB cấp hệ thống**
-> (`scripts/backup-db.js` / `BACKUP_DIR` — `docs/DEPLOYMENT_GUIDE.md` §5).
+> (`scripts/backup-db.mjs` / `BACKUP_DIR` — `docs/DEPLOYMENT_GUIDE.md` §5).
 
 - **A-NEW-28 (2026-08-11):** `POST` body `{ adminPassword }` (≤128 ký tự) — chuyển từ
   `GET ?adminPassword=` trong URL (tránh mật khẩu lọt vào access logs/history).
-- 200: `{ version: '2.0-production', parish, exportedAt, checksum, counts, data: { students, grades, ... } }` (stream attachment `parish-lms-backup-<date>.json`)
+- 200: `{ version: '2.1-question-bank', parish, exportedAt, checksum, counts, data: { students, grades, ... } }` (stream attachment `parish-lms-backup-<date>.json`)
 - 400 thiếu `adminPassword`; 401 sai mật khẩu; 429 quá nhiều lần thử (10/60s/IP)
 - Audit: `EXPORT_BACKUP` (thành công) / `EXPORT_BACKUP_FAILED` (thất bại) — userId, entityId=parishId, ip, userAgent.
 
 ### `POST /api/backup/restore` — admin (DESTRUCTIVE)
 
-Xóa dữ liệu nghiệp vụ của parish (gồm 3 bảng FK-restrict còn sót dữ liệu cũ:
-`attendance_sessions`, `academic_year_snapshots`, `catechist_assignments` — parish-scoped)
-rồi insert lại từ payload (tenant-scoped); auto safety snapshot lưu trước khi xóa
-(`ensureSafetyDir`).
+**XD-09 containment:** JSON là partial-data profile, không chứa đủ aggregate học vụ để phục hồi năm đã chốt hoặc các dependency/provenance ngoài payload. Nếu current parish có `academic_year_snapshots`, năm `is_locked=1` hoặc status FINALIZED/PROMOTED/ARCHIVED, trả **409 `RESTORE_PROTECTED_ACADEMIC_STATE`**. Nếu có assessment ledger, exam mutation/finalization receipt, leave request, student fee/financial transaction, import rollback provenance, grade-import receipt/mapping memory, student/staff assignment, attendance session, notification history/delivery intent, outbox chưa dispatch, hoặc exam-question snapshot mà backup legacy 2.0 không mang theo, trả **409 `RESTORE_UNSUPPORTED_DEPENDENCIES`**. Cả hai check chạy trước safety-write và lặp lại trong transaction trước delete để đóng concurrent-write window. Không trường hợp 409 nào delete/insert business data hoặc tăng client generation. Cần quy trình full-DB recovery riêng; không tự xóa evidence/dependency để ép JSON restore chạy. Đây không phải chứng nhận full-DB recovery hay sửa dữ liệu đã mất trước remediation.
+
+Sau khi preflight xác nhận không có dependency ngoài profile, thay atomically 14 nhóm dữ liệu
+nghiệp vụ tenant-scoped từ payload; auto safety snapshot lưu trước khi xóa (`ensureSafetyDir`).
 
 - Body: `{ adminPassword, parish, version, exportedAt, checksum, data: { students, grades?, attendance?, classes?, semesterLocks?, gradeOverrides?, promotionSnapshots?, examSessions?, examResults? } }`
   - `adminPassword` **BẮT BUỘC**; `data.students` **BẮT BUỘC** (mảng, có thể rỗng).
@@ -494,12 +504,14 @@ rồi insert lại từ payload (tenant-scoped); auto safety snapshot lưu trư�
   - `parish` **BẮT BUỘC** — phải khớp parish của admin đang thao tác, sai = `400 RESTORE_PARISH_MISMATCH`
     (chống restore nhầm file giáo xứ khác).
 - Pipeline: auth → role(admin) → rate limit → zValidator → `verifyAdminReauth` → parish guard
-  → checksum → safety snapshot (fail-closed) → DELETE (fail-fast, không catch) → UPSERT 9 bảng
-  (`onConflictDoUpdate`, kể cả semesterLocks/gradeOverrides/promotionSnapshots) → verify counts
-  thực tế (`verified: true`) → audit `RESTORE_BACKUP`.
-- 200: `{ success: true, message, counts, verified: true }`; 400 thiếu field/checksum/parish
-  mismatch; 401 sai mật khẩu; 500 + audit `RESTORE_BACKUP_FAILED` + **rollback toàn bộ** nếu
-  bất kỳ bước nào fail (không commit nửa chừng).
+  → checksum → lifecycle/dependency preflight → safety snapshot (fail-closed) → lặp lại preflight
+  trong transaction → DELETE (fail-fast, không catch) → UPSERT 9 bảng (`onConflictDoUpdate`, kể
+  cả semesterLocks/gradeOverrides/promotionSnapshots) → verify counts thực tế → tăng
+  `purge_version`/client-data generation + audit `RESTORE_BACKUP` **trong cùng transaction**.
+- 200: `{ success: true, message, counts, verified: true, purgeVersion }`; 400 thiếu
+  field/checksum/parish mismatch; 401 sai mật khẩu; 409 protected lifecycle/unsupported dependency;
+  500 + audit `RESTORE_BACKUP_FAILED` + **rollback toàn bộ** nếu bất kỳ bước transactional nào fail
+  (không commit nửa chừng). Success audit failure cũng rollback restore, không trả false failure sau commit.
 - > **A19–A21 (2026-08-10):** restore fail-closed — lỗi DB không còn bị nuốt; trùng ID được
   > upsert (thay vì bỏ im lặng); counts trả theo dữ liệu THỰC TẾ sau restore (verify).
   > **A22 (2026-08-10):** restore insert lại đủ 9 bảng kể cả semesterLocks/gradeOverrides/
@@ -509,7 +521,15 @@ rồi insert lại từ payload (tenant-scoped); auto safety snapshot lưu trư�
 
 `src/components/common/BackupRestoreModal.tsx` — ô "Mật Khẩu Admin (xác nhận)" bắt buộc trước khi
 export/restore; export và restore đều gửi `adminPassword` **trong body POST** (A-NEW-28 — không
-còn `?adminPassword=` trong URL); mật khẩu bị xóa sau khi thành công.
+còn `?adminPassword=` trong URL); mật khẩu bị xóa sau khi thành công. Sau khi server ACK restore,
+client **không hydrate từ file upload**: file chỉ là command input và server có thể rewrite tenant/
+normalize row. Trước POST, client từ chối restore nếu thiết bị hiện tại còn mutation của chính user ở
+`pending|processing|retrying|failed`. Sau ACK, client bắt buộc nhận `purgeVersion`, gọi
+`resetClientData(purgeVersion)` để xóa Dexie/local state rồi đăng xuất; không dùng snapshot cũ hoặc
+full-pull trong session đã bị thay generation. Thiết bị khác probe generation trước sync và reset trước
+khi queue cũ được push; legacy device chưa có local marker nhưng còn queue cũng reset thay vì lấy server
+generation làm baseline. Nếu local reset lỗi sau server commit, UI báo rõ restore đã commit và không mời
+retry destructive command; thiết bị vẫn fail-closed khỏi sync cho đến khi reset thành công.
 
 ## 12. PDF EXPORT API (`POST /api/reports/generate-pdf`) — nhánh PDF (2026-08-12)
 
@@ -546,6 +566,8 @@ Client: `src/lib/api.ts` (`undoGradeImport`) · Server: `server/src/routes/grade
 
 Client: `src/lib/api.ts` (`getLeaveRequests`, `getPendingLeaveRequestsCount`, `createLeaveRequest`, `reviewLeaveRequest`, `cancelLeaveRequest`) · Store: `src/stores/leaveRequestStore.ts` · Server: `server/src/routes/leaveRequests.ts`
 
+**XD-05 delivery:** sau review, Telegram chỉ gửi thông báo chung yêu cầu đăng nhập. Trước mỗi send, original parentId phải còn là current parent ACTIVE, chưa xóa, cùng parish, khớp phone trẻ chưa xóa; không retarget sang parent mới. Không gửi ngày nghỉ/tên trẻ/reviewer/reviewNote ra Telegram. Delivery này vẫn best-effort post-commit; không tuyên bố durable outbox hoặc thu hồi được tin đã gửi trước lúc ownership đổi.
+
 | Method | Endpoint | Mô tả | Quyền | Body / Query | Response |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `POST` | `/api/leave-requests` | Tạo đơn xin phép nghỉ cho thiếu nhi | `phuhuynh`, `chunhiem`, `phuta`, `admin` | `{ studentId, date, sessionTypes: ('SundayMass'\|'CatechismClass'\|'EucharisticAdoration')[], reason, parentName?, parentPhone? }` | 201 `{ success: true, data: LeaveRequest }` |
@@ -557,6 +579,10 @@ Client: `src/lib/api.ts` (`getLeaveRequests`, `getPendingLeaveRequestsCount`, `c
 ---
 
 ## 15. PROMOTION BATCH APPROVE API (`/api/promotion/batch-approve`) — ADR-052 (2026-08-21)
+
+**XD-02/03 historical reads:** finalized-year `GET /reports/report-card/:studentId` and `/reports/class-summary/:classId` use the frozen academic cohort, original class label, effective scores and attendance; no recalculation from current parish settings. Current authorization/ownership and soft-delete checks remain in force. A student/class outside the frozen cohort returns 404. Missing/invalid legacy history returns 409 `REPORT_GENERATION_ERROR` with a reconciliation message, not a live-data substitute. Promotion evaluate/approve/retry validate against finalized metrics and policy, with the existing mismatch and override contracts unchanged. Open years remain live. Class fee lists preserve persisted class/year/type fee facts after membership transfer; for finalized years, synthetic unpaid rows require cohort evidence. This does not grant permission to mutate historical fees or imply legacy debt completeness.
+
+**XD-01 completion contract:** single `/promotion/approve` remains snapshot-only. Batch with a destination writes membership and completion receipt atomically. Year wizard list/reconciliation/retry/archive require ACTIVE/LATEST plus a completion receipt for the persisted target year; an approval without receipt remains unresolved. Missing class mapping now produces an item error (and unresolved count), not merely a warning that still permits archive. No public client field can assert completion. Existing legacy rows are not automatically certified or repaired.
 
 Client: `src/lib/api/promotion.ts` (`promotionApiClient.batchApproveStudents`) · Store: `src/stores/promotionStore.ts` (`batchApproveStudents`) · Server: `server/src/routes/promotion.ts`, `server/src/services/BatchPromotionApplicationService.ts`
 
@@ -576,7 +602,7 @@ Lỗi item thường gặp: `403` HK2 chưa khóa (`...chưa được khóa...`)
 
 | Method | Endpoint | Thay đổi | Lỗi mới |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/classes/academic-years` | Bắt buộc `id` khớp `YYYY-YYYY` (`parseAcademicYear`); `startDate`/`endDate` (nếu gửi) phải `YYYY-MM-DD` hợp lệ và start < end | 400 `ACADEMIC_YEAR_INVALID` |
+| `POST` | `/api/classes/academic-years` | Bắt buộc `id` khớp `YYYY-YYYY` (`parseAcademicYear`); dates hợp lệ, start < end, và nằm trong 01/08 năm đầu–31/07 năm sau. Cho phép năm dạy học ngắn hơn, không cho range vượt năm. | 400 `ACADEMIC_YEAR_INVALID` |
 | `POST` | `/api/classes` | Trùng `(parish, code, academicYear)` hoặc FK sai trả rõ nghĩa thay vì 500 | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
 | `PUT` | `/api/classes/:id` | Như trên | 409 `CLASS_CODE_EXISTS`, 400 `INVALID_REFERENCE` |
 

@@ -1,5 +1,5 @@
 import { db, runDbTransaction, type DbTransaction, type DbExecutor } from '../db/index.js'
-import { students, classes, academicYears, grades, attendance, gradeOverrides, auditLogs } from '../db/schema.js'
+import { students, classes, academicYears, academicYearSnapshots, grades, attendance, gradeOverrides, auditLogs } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
 import { drizzlePromotionRepository, DrizzlePromotionRepository } from '../repositories/DrizzlePromotionRepository.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
@@ -10,7 +10,8 @@ import type { PromotionStatus } from '../domain/PromotionDecision.js'
 import { generateId } from '../utils/id.js'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
-import { getAcademicYearDateRange } from './academicYearService.js'
+import { getAcademicYearDateRange, getFinalizedYearContext } from './academicYearService.js'
+import { historicalEvidenceRequired } from '../utils/academicYearHistory.js'
 import { normalizeAcademicYear, parseAcademicYear } from '../utils/academicYear.js'
 import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getCurrentPolicyVersionId } from './parishSettingsService.js'
@@ -56,8 +57,17 @@ export class PromotionApplicationService {
     studentId: string
     academicYear: string
     executor?: DbExecutor
-  }): Promise<{ gpa: number | null; attendanceRate: number }> {
+  }) {
     const { parishId, studentId, academicYear, executor = db } = params
+    const finalizedYear = await getFinalizedYearContext(parishId, academicYear, executor)
+    if (finalizedYear) {
+      const [snapshot] = await executor.select().from(academicYearSnapshots).where(and(
+        eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.academicYearId, finalizedYear.yearId),
+        eq(academicYearSnapshots.studentId, studentId),
+      )).limit(1)
+      if (!snapshot || snapshot.attendanceRate === null || !snapshot.sourceClassId) throw historicalEvidenceRequired()
+      return { gpa: snapshot.yearGpa, attendanceRate: snapshot.attendanceRate, finalizedYear, sourceClassId: snapshot.sourceClassId }
+    }
 
     // GPA = trung bình các GPA học kỳ (mỗi GPA học kỳ đã round theo
     // roundingDecimal từ settings) — khớp client calculateYearlyGpa.
@@ -130,7 +140,7 @@ export class PromotionApplicationService {
       ? Number(((presentMasses / attendanceRows.length) * 100).toFixed(1))
       : 100.0
 
-    return { gpa, attendanceRate }
+    return { gpa, attendanceRate, finalizedYear: null, sourceClassId: null }
   }
 
   public async evaluateStudentWithData(params: {
@@ -140,46 +150,47 @@ export class PromotionApplicationService {
     user?: ActorContext
   }): Promise<PromotionDecision> {
     const { studentId, academicYear, parishId, user } = params
+    return runDbTransaction(async tx => {
+      if (user && user.role !== 'admin') {
+        const isAuthorized = await createCanAccessStudentSpecification(tx).isSatisfiedBy(user, studentId)
+        if (!isAuthorized) {
+          const err = new Error('Bạn không có quyền đánh giá xét lên lớp cho thiếu nhi này') as any
+          err.status = 403
+          throw err
+        }
+      }
 
-    if (user && user.role !== 'admin') {
-      const isAuthorized = await createCanAccessStudentSpecification(db).isSatisfiedBy(user, studentId)
-      if (!isAuthorized) {
-        const err = new Error('Bạn không có quyền đánh giá xét lên lớp cho thiếu nhi này') as any
-        err.status = 403
+      // 1. Verify student exists in parish (excluding soft-deleted)
+      const [student] = await tx
+        .select()
+        .from(students)
+        .where(and(eq(students.id, studentId), eq(students.parishId, parishId), isNull(students.deletedAt)))
+        .limit(1)
+
+      if (!student) {
+        const err = new Error('Không tìm thấy thông tin thiếu nhi') as any
+        err.status = 404
         throw err
       }
-    }
 
-    // 1. Verify student exists in parish (excluding soft-deleted)
-    const [student] = await db
-      .select()
-      .from(students)
-      .where(and(eq(students.id, studentId), eq(students.parishId, parishId), isNull(students.deletedAt)))
-      .limit(1)
+      // 2+3. GPA & attendance từ nguồn sự thật duy nhất (settings giáo xứ)
+      const { gpa: computedGpa, attendanceRate: computedAttendanceRate, finalizedYear } =
+        await this.computeAuthoritativeMetrics({ parishId, studentId, academicYear, executor: tx })
 
-    if (!student) {
-      const err = new Error('Không tìm thấy thông tin thiếu nhi') as any
-      err.status = 404
-      throw err
-    }
+      // Policy xét thăng tiến từ settings giáo xứ (khớp client settings.promotionPolicy).
+      const policy = finalizedYear?.policy.promotionPolicy ?? await getParishPromotionPolicy(parishId, tx)
 
-    // 2+3. GPA & attendance từ nguồn sự thật duy nhất (settings giáo xứ)
-    const { gpa: computedGpa, attendanceRate: computedAttendanceRate } =
-      await this.computeAuthoritativeMetrics({ parishId, studentId, academicYear })
-
-    // Policy xét thăng tiến từ settings giáo xứ (khớp client settings.promotionPolicy).
-    const policy = await getParishPromotionPolicy(parishId)
-
-    // gpa === null nghĩa là "chưa có điểm" — truyền null xuống spec để reason
-    // là "Chưa có kết quả điểm học tập"; DTO vẫn giữ số (0) cho khách gọi.
-    return this.evaluateStudent({
-      studentId,
-      academicYear,
-      parishId,
-      gpa: computedGpa,
-      attendanceRate: computedAttendanceRate,
-      policy,
-    }, db)
+      // gpa === null nghĩa là "chưa có điểm" — truyền null xuống spec để reason
+      // là "Chưa có kết quả điểm học tập"; DTO vẫn giữ số (0) cho khách gọi.
+      return this.evaluateStudent({
+        studentId,
+        academicYear,
+        parishId,
+        gpa: computedGpa,
+        attendanceRate: computedAttendanceRate,
+        policy,
+      }, tx)
+    })
   }
 
   public async evaluateStudent(input: EvaluationInput, executor: DbExecutor = db): Promise<PromotionDecision> {
@@ -330,6 +341,7 @@ export class PromotionApplicationService {
         executor: tx,
       })
       const authoritativeGpa = authoritative.gpa ?? 0
+      if (authoritative.finalizedYear && authoritative.sourceClassId !== cmd.targetClassId) throw historicalEvidenceRequired()
       if (cmd.gpa !== authoritativeGpa) {
         const err = new Error(
           `Điểm trung bình không khớp dữ liệu máy chủ (máy chủ tính ${authoritativeGpa}, dữ liệu gửi lên ${cmd.gpa}). Hãy đồng bộ lại điểm và thử lại.`
@@ -345,8 +357,8 @@ export class PromotionApplicationService {
         throw err
       }
 
-      const parishPolicy = await getParishPromotionPolicy(cmd.parishId, tx)
-      const policy = cmd.policy || parishPolicy
+      const policy = authoritative.finalizedYear?.policy.promotionPolicy
+        ?? cmd.policy ?? await getParishPromotionPolicy(cmd.parishId, tx)
       const evalRes = await createPromotionEligibilitySpecification(tx).evaluate({
         studentId: cmd.studentId,
         academicYear: cmd.academicYear,
@@ -374,8 +386,8 @@ export class PromotionApplicationService {
       }
 
       // ADR-047: Capture current policy version for audit trail
-      const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
-      const gradeWeights = await getParishGradeWeights(cmd.parishId, tx)
+      const policyVersionId = authoritative.finalizedYear?.policy.capturedAt ?? await getCurrentPolicyVersionId(cmd.parishId, tx)
+      const gradeWeights = authoritative.finalizedYear?.policy.gradeWeights ?? await getParishGradeWeights(cmd.parishId, tx)
 
       // Idempotent return nếu đã approve với tham số TƯƠNG ĐƯƠNG — so cả lớp
       // đích (trước đây khác nextClassId nhưng cùng điểm vẫn bị coi là skipped,

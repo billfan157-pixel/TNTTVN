@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Archive, Building2, CalendarRange, FileClock, Landmark, UserRound } from 'lucide-react'
+import { Archive, Building2, CalendarRange, FileClock, Landmark, UserRound, X } from 'lucide-react'
 import { ModalShell } from '../common/ModalShell'
 import { Button, Select, TextArea, TextInput } from '../common/ui'
 import { useParishProfileStore } from '../../stores/parishProfileStore'
@@ -19,7 +19,7 @@ export type ParishEditorRequest =
   | { kind: 'unit'; value?: ParishOrganizationUnit; parentId?: string }
   | { kind: 'term'; value?: ParishServiceTerm; personId?: string; unitId?: string }
   | { kind: 'record'; value?: ParishRecord; recordType?: ParishRecord['recordType'] }
-  | { kind: 'asset'; value?: ParishArchiveAsset }
+  | { kind: 'asset'; value?: ParishArchiveAsset; initialStorageMode?: 'UPLOAD' | 'EXTERNAL'; initialAssetType?: ParishArchiveAsset['assetType'] }
 
 interface Props {
   editor: ParishEditorRequest
@@ -29,6 +29,7 @@ interface Props {
 
 const today = () => new Date().toISOString().slice(0, 10)
 const normalize = (value: string) => value.trim() || null
+const MAX_FILE_SIZE = 8 * 1024 * 1024 // 8 MiB
 
 const modalMeta = {
   profile: { title: 'Thông tin Xứ đoàn', icon: Landmark },
@@ -85,12 +86,30 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
     ? snapshot.records.filter(item => item.assetIds.includes(assetValue.id)).map(item => item.id)
     : [], [assetValue, snapshot.records])
   const [asset, setAsset] = useState({
-    assetType: assetValue?.assetType ?? 'IMAGE', title: assetValue?.title ?? '',
-    description: assetValue?.description ?? '', capturedOn: assetValue?.capturedOn ?? '',
-    visibility: assetValue?.visibility ?? 'STAFF', storageMode: 'EXTERNAL' as 'EXTERNAL' | 'UPLOAD',
-    externalUrl: assetValue?.externalUrl ?? '', recordIds: linkedRecordIds,
+    assetType: assetValue?.assetType ?? (editor.kind === 'asset' && editor.initialAssetType ? editor.initialAssetType : 'IMAGE'),
+    title: assetValue?.title ?? '',
+    description: assetValue?.description ?? '',
+    capturedOn: assetValue?.capturedOn ?? '',
+    visibility: assetValue?.visibility ?? 'STAFF',
+    storageMode: (assetValue?.storageType ?? (editor.kind === 'asset' && editor.initialStorageMode ? editor.initialStorageMode : 'UPLOAD')) as 'EXTERNAL' | 'UPLOAD',
+    externalUrl: assetValue?.externalUrl ?? '',
+    recordIds: linkedRecordIds,
   })
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null)
+
+  const totalFileSize = useMemo(() => files.reduce((acc, f) => acc + f.size, 0), [files])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || [])
+    if (selected.length === 0) return
+    setFiles(prev => {
+      const existingKeys = new Set(prev.map(f => `${f.name}-${f.size}`))
+      const newUnique = selected.filter(f => !existingKeys.has(`${f.name}-${f.size}`))
+      return [...prev, ...newUnique]
+    })
+    e.target.value = ''
+  }
 
   const [profile, setProfile] = useState({
     displayName: snapshot.profile.displayName,
@@ -140,25 +159,65 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
       ok = editor.value ? await store.updateRecord(editor.value.id, payload) : await store.createRecord(payload)
     } else if (editor.kind === 'asset') {
       const base = {
-        assetType: asset.assetType as ParishArchiveAsset['assetType'], title: asset.title,
-        description: normalize(asset.description), capturedOn: asset.capturedOn || null,
-        visibility: asset.visibility as ParishArchiveAsset['visibility'], recordIds: asset.recordIds,
+        assetType: asset.assetType as ParishArchiveAsset['assetType'],
+        description: normalize(asset.description),
+        capturedOn: asset.capturedOn || null,
+        visibility: asset.visibility as ParishArchiveAsset['visibility'],
+        recordIds: asset.recordIds,
       }
       if (editor.value) {
-        ok = await store.updateAsset(editor.value.id, base)
-      } else if (asset.storageMode === 'UPLOAD') {
-        if (!file) {
-          addToast('Vui lòng chọn file JPEG, PNG, WebP hoặc PDF', 'error')
+        if (!asset.title.trim()) {
+          addToast('Vui lòng nhập tiêu đề tư liệu', 'error')
           return
         }
-        ok = await store.uploadAsset({ ...base, file })
+        ok = await store.updateAsset(editor.value.id, { ...base, title: asset.title.trim() })
+      } else if (asset.storageMode === 'UPLOAD') {
+        if (files.length === 0) {
+          addToast('Vui lòng chọn ít nhất một file JPEG, PNG, WebP hoặc PDF', 'error')
+          return
+        }
+        const oversized = files.find(f => f.size > MAX_FILE_SIZE)
+        if (oversized) {
+          addToast(`Tệp “${oversized.name}” vượt quá dung lượng 8 MiB cho phép`, 'error')
+          return
+        }
+
+        const inputs = files.map((f, i) => {
+          const cleanBaseName = f.name.replace(/\.[^/.]+$/, '').trim() || f.name
+          const title = asset.title.trim()
+            ? (files.length > 1 ? `${asset.title.trim()} (${i + 1})` : asset.title.trim())
+            : cleanBaseName
+          return {
+            ...base,
+            title,
+            file: f,
+          }
+        })
+
+        setUploadProgress({ current: 0, total: files.length })
+        ok = await store.uploadAssets(inputs, (current, total) => {
+          setUploadProgress({ current, total })
+        })
+        setUploadProgress(null)
       } else {
-        ok = await store.createExternalAsset({ ...base, externalUrl: asset.externalUrl })
+        if (!asset.title.trim()) {
+          addToast('Vui lòng nhập tiêu đề tư liệu', 'error')
+          return
+        }
+        if (!asset.externalUrl.trim()) {
+          addToast('Vui lòng nhập liên kết HTTPS', 'error')
+          return
+        }
+        ok = await store.createExternalAsset({ ...base, title: asset.title.trim(), externalUrl: asset.externalUrl })
       }
     }
 
     if (ok) {
-      addToast('Đã lưu Hồ sơ Xứ đoàn', 'success')
+      if (editor.kind === 'asset' && !editor.value && asset.storageMode === 'UPLOAD' && files.length > 1) {
+        addToast(`Đã tải lên thành công ${files.length} tư liệu`, 'success')
+      } else {
+        addToast('Đã lưu Hồ sơ Xứ đoàn', 'success')
+      }
       onClose()
     } else {
       addToast(useParishProfileStore.getState().error || 'Không thể lưu thay đổi', 'error')
@@ -176,7 +235,16 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
       footer={(
         <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={store.isSaving}>Hủy</Button>
-          <Button type="submit" form="parish-profile-editor" loading={store.isSaving} loadingLabel="Đang lưu…">Lưu thay đổi</Button>
+          <Button
+            type="submit"
+            form="parish-profile-editor"
+            loading={store.isSaving}
+            loadingLabel={uploadProgress ? `Đang tải lên ${uploadProgress.current}/${uploadProgress.total}…` : 'Đang lưu…'}
+          >
+            {editor.kind === 'asset' && !editor.value && asset.storageMode === 'UPLOAD' && files.length > 1
+              ? `Tải lên ${files.length} tệp`
+              : 'Lưu thay đổi'}
+          </Button>
         </div>
       )}
     >
@@ -262,16 +330,102 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
         </>}
 
         {editor.kind === 'asset' && <>
-          {!editor.value && <FormField label="Nguồn tư liệu"><Select value={asset.storageMode} onChange={e => setAsset({ ...asset, storageMode: e.target.value as 'EXTERNAL' | 'UPLOAD' })}><option value="EXTERNAL">Liên kết HTTPS</option><option value="UPLOAD">Tải ảnh/PDF lên</option></Select></FormField>}
+          {!editor.value && (
+            <FormField label="Nguồn tư liệu">
+              <Select value={asset.storageMode} onChange={e => setAsset({ ...asset, storageMode: e.target.value as 'EXTERNAL' | 'UPLOAD' })}>
+                <option value="UPLOAD">Tải tệp lên (ảnh, PDF — hỗ trợ nhiều tệp)</option>
+                <option value="EXTERNAL">Liên kết HTTPS bên ngoài</option>
+              </Select>
+            </FormField>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Loại tư liệu"><Select value={asset.assetType} onChange={e => setAsset({ ...asset, assetType: e.target.value as ParishArchiveAsset['assetType'] })}><option value="IMAGE">Ảnh</option><option value="VIDEO">Video</option><option value="POSTER">Poster</option><option value="DOCUMENT">Tài liệu</option><option value="MINUTES">Biên bản</option><option value="CERTIFICATE">Giấy khen</option><option value="OTHER">Khác</option></Select></FormField>
-            <FormField label="Tiêu đề" required><TextInput required maxLength={250} value={asset.title} onChange={e => setAsset({ ...asset, title: e.target.value })} /></FormField>
+            <FormField label="Loại tư liệu">
+              <Select value={asset.assetType} onChange={e => setAsset({ ...asset, assetType: e.target.value as ParishArchiveAsset['assetType'] })}>
+                <option value="IMAGE">Ảnh</option>
+                <option value="POSTER">Poster</option>
+                <option value="DOCUMENT">Tài liệu</option>
+                <option value="MINUTES">Biên bản</option>
+                <option value="CERTIFICATE">Giấy khen</option>
+                <option value="VIDEO">Video</option>
+                <option value="OTHER">Khác</option>
+              </Select>
+            </FormField>
+            <FormField
+              label={files.length > 1 ? 'Tiêu đề chung (tiền tố)' : 'Tiêu đề'}
+              required={Boolean(editor.value) || asset.storageMode === 'EXTERNAL' || files.length <= 1}
+            >
+              <TextInput
+                required={Boolean(editor.value) || asset.storageMode === 'EXTERNAL' || files.length <= 1}
+                maxLength={250}
+                value={asset.title}
+                onChange={e => setAsset({ ...asset, title: e.target.value })}
+                placeholder={files.length > 1 ? 'Ví dụ: Lễ Bổn Mạng 2026 (để trống sẽ dùng tên từng tệp)' : 'Nhập tiêu đề tư liệu'}
+              />
+            </FormField>
             <FormField label="Ngày tư liệu"><TextInput type="date" value={asset.capturedOn} onChange={e => setAsset({ ...asset, capturedOn: e.target.value })} /></FormField>
             <VisibilityField value={asset.visibility} onChange={value => setAsset({ ...asset, visibility: value as ParishArchiveAsset['visibility'] })} />
           </div>
-          <FormField label="Mô tả"><TextArea rows={4} maxLength={3000} value={asset.description} onChange={e => setAsset({ ...asset, description: e.target.value })} /></FormField>
-          {!editor.value && asset.storageMode === 'EXTERNAL' && <FormField label="Liên kết HTTPS" required><TextInput required type="url" maxLength={1500} placeholder="https://…" value={asset.externalUrl} onChange={e => setAsset({ ...asset, externalUrl: e.target.value })} /></FormField>}
-          {!editor.value && asset.storageMode === 'UPLOAD' && <FormField label="File JPEG, PNG, WebP hoặc PDF — tối đa 8 MiB" required><TextInput required type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => setFile(e.target.files?.[0] ?? null)} /></FormField>}
+          <FormField label="Mô tả"><TextArea rows={3} maxLength={3000} value={asset.description} onChange={e => setAsset({ ...asset, description: e.target.value })} /></FormField>
+          {!editor.value && asset.storageMode === 'EXTERNAL' && (
+            <FormField label="Liên kết HTTPS" required>
+              <TextInput required type="url" maxLength={1500} placeholder="https://…" value={asset.externalUrl} onChange={e => setAsset({ ...asset, externalUrl: e.target.value })} />
+            </FormField>
+          )}
+          {!editor.value && asset.storageMode === 'UPLOAD' && (
+            <div className="space-y-2">
+              <FormField label="Chọn tệp (JPEG, PNG, WebP, PDF — tối đa 8 MiB/tệp, có thể chọn nhiều)" required={files.length === 0}>
+                <TextInput
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  onChange={handleFileChange}
+                />
+              </FormField>
+
+              {files.length > 0 && (
+                <div className="space-y-1.5 p-2.5 bg-surface-sunken rounded-lg border border-surface-border">
+                  <div className="flex items-center justify-between text-xs font-semibold text-text-secondary">
+                    <span>Đã chọn {files.length} tệp (tổng {(totalFileSize / 1024 / 1024).toFixed(2)} MB):</span>
+                    <button
+                      type="button"
+                      onClick={() => setFiles([])}
+                      className="text-text-muted hover:text-parish-danger text-xs transition-colors"
+                    >
+                      Xóa tất cả
+                    </button>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                    {files.map((f, idx) => {
+                      const isOver = f.size > MAX_FILE_SIZE
+                      return (
+                        <div
+                          key={`${f.name}-${idx}`}
+                          className={`flex items-center justify-between gap-2 text-xs py-1 px-2 rounded border ${
+                            isOver ? 'bg-parish-danger/10 border-parish-danger text-parish-danger' : 'bg-surface-card border-surface-border text-text-main'
+                          }`}
+                        >
+                          <span className="truncate max-w-[260px] sm:max-w-[400px] font-medium" title={f.name}>{f.name}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={isOver ? 'font-bold' : 'text-text-muted'}>
+                              {(f.size / 1024).toFixed(0)} KB {isOver ? '(Quá 8MB)' : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
+                              className="text-text-muted hover:text-parish-danger p-0.5 rounded transition-colors"
+                              title="Bỏ chọn tệp này"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {editor.value && <p className="typography-body-sm text-text-muted">Không thay thế file hoặc URL khi sửa metadata. Hãy tạo tư liệu mới nếu nguồn thay đổi.</p>}
           <LinkPicker title="Liên kết với bản ghi" items={snapshot.records.map(item => ({ id: item.id, label: item.title }))} selected={asset.recordIds} onToggle={id => setAsset({ ...asset, recordIds: toggleId(asset.recordIds, id) })} />
         </>}

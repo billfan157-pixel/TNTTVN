@@ -1,14 +1,16 @@
-import { eq, and, sql, desc, isNull, gte, lte } from 'drizzle-orm'
-import { db } from '../db/index.js'
+import { eq, and, sql, desc, isNull, gte, lte, inArray, or } from 'drizzle-orm'
+import { db, runDbTransaction } from '../db/index.js'
 import {
   funds,
   financialTransactions,
   studentFeeRecords,
   students,
   classes,
+  academicYears,
+  academicYearSnapshots,
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
-import { getCurrentAcademicYear } from '../utils/academicYear.js'
+import { getCurrentAcademicYear, normalizeAcademicYear } from '../utils/academicYear.js'
 import type {
   TransactionType,
   FeeStatus,
@@ -296,44 +298,71 @@ export async function listClassFeeRecords(
   academicYear: string,
   feeType: FeeType = 'NIEN_LIEM',
 ): Promise<StudentFeeRecord[]> {
-  const classStudents = await db
-    .select({
-      id: students.id,
-      code: students.code,
-      fullName: students.fullName,
-      holyName: students.holyName,
-      classId: students.classId,
-    })
-    .from(students)
-    .where(and(eq(students.classId, classId), eq(students.parishId, parishId), isNull(students.deletedAt)))
-    .orderBy(students.fullName)
+  return runDbTransaction(async (tx) => {
+    const existingRecords = await tx.select().from(studentFeeRecords).where(and(
+      eq(studentFeeRecords.classId, classId), eq(studentFeeRecords.parishId, parishId),
+      eq(studentFeeRecords.academicYear, academicYear), eq(studentFeeRecords.feeType, feeType),
+    ))
+    const [cls] = await tx.select().from(classes).where(and(eq(classes.id, classId), eq(classes.parishId, parishId))).limit(1)
+    if (!cls) return []
+    const [year] = await tx.select().from(academicYears).where(and(eq(academicYears.id, cls.academicYearId), eq(academicYears.parishId, parishId))).limit(1)
+    const matchesClassYear = normalizeAcademicYear(cls.academicYearId) === normalizeAcademicYear(academicYear)
+    const frozen = year && (year.isLocked === 1 || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status))
+    const cohort = frozen && matchesClassYear ? await tx.select({ studentId: academicYearSnapshots.studentId }).from(academicYearSnapshots).where(and(
+      eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.academicYearId, year.id),
+      eq(academicYearSnapshots.sourceClassId, classId),
+    )) : []
+    // Fee facts retain their original class even after membership changes.
+    // Legacy frozen years without cohort evidence show facts only, never invented debts.
+    const historicalIds = [...new Set([...existingRecords.map(r => r.studentId), ...cohort.map(r => r.studentId)])]
+    const rosterScope = frozen || !matchesClassYear
+      ? (historicalIds.length ? inArray(students.id, historicalIds) : sql`0 = 1`)
+      : or(eq(students.classId, classId), historicalIds.length ? inArray(students.id, historicalIds) : sql`0 = 1`)
+    const classStudents = await tx
+      .select({
+        id: students.id,
+        code: students.code,
+        fullName: students.fullName,
+        holyName: students.holyName,
+        classId: students.classId,
+      })
+      .from(students)
+      .where(and(rosterScope, eq(students.parishId, parishId), isNull(students.deletedAt)))
+      .orderBy(students.fullName)
 
-  const existingRecords = await db
-    .select()
-    .from(studentFeeRecords)
-    .where(
-      and(
-        eq(studentFeeRecords.classId, classId),
-        eq(studentFeeRecords.parishId, parishId),
-        eq(studentFeeRecords.academicYear, academicYear),
-        eq(studentFeeRecords.feeType, feeType),
-      ),
-    )
+    const recordMap = new Map(existingRecords.map((record) => [record.studentId, record]))
+    const className = cls?.name || 'Lớp'
 
-  const recordMap = new Map(existingRecords.map((record) => [record.studentId, record]))
-  const [cls] = await db
-    .select({ name: classes.name })
-    .from(classes)
-    .where(and(eq(classes.id, classId), eq(classes.parishId, parishId)))
-    .limit(1)
-  const className = cls?.name || 'Lớp'
+    return classStudents.map((student) => {
+      const record = recordMap.get(student.id)
+      if (record) {
+        return {
+          id: record.id,
+          parishId: record.parishId,
+          studentId: student.id,
+          studentName: student.fullName,
+          holyName: student.holyName,
+          studentCode: student.code,
+          classId,
+          className,
+          academicYear,
+          feeType: record.feeType as FeeType,
+          title: record.title,
+          expectedAmount: record.expectedAmount,
+          paidAmount: record.paidAmount,
+          status: record.status as FeeStatus,
+          paidDate: record.paidDate,
+          transactionId: record.transactionId,
+          note: record.note,
+          updatedBy: record.updatedBy,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        }
+      }
 
-  return classStudents.map((student) => {
-    const record = recordMap.get(student.id)
-    if (record) {
       return {
-        id: record.id,
-        parishId: record.parishId,
+        id: `fee-tmp-${student.id}`,
+        parishId,
         studentId: student.id,
         studentName: student.fullName,
         holyName: student.holyName,
@@ -341,41 +370,18 @@ export async function listClassFeeRecords(
         classId,
         className,
         academicYear,
-        feeType: record.feeType as FeeType,
-        title: record.title,
-        expectedAmount: record.expectedAmount,
-        paidAmount: record.paidAmount,
-        status: record.status as FeeStatus,
-        paidDate: record.paidDate,
-        transactionId: record.transactionId,
-        note: record.note,
-        updatedBy: record.updatedBy,
-        createdAt: record.createdAt,
-        updatedAt: record.updatedAt,
+        feeType,
+        title: `Niên liễm niên khóa ${academicYear}`,
+        expectedAmount: 100000,
+        paidAmount: 0,
+        status: 'UNPAID' as FeeStatus,
+        paidDate: null,
+        transactionId: null,
+        note: null,
+        updatedBy: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
-    }
-
-    return {
-      id: `fee-tmp-${student.id}`,
-      parishId,
-      studentId: student.id,
-      studentName: student.fullName,
-      holyName: student.holyName,
-      studentCode: student.code,
-      classId,
-      className,
-      academicYear,
-      feeType,
-      title: `Niên liễm niên khóa ${academicYear}`,
-      expectedAmount: 100000,
-      paidAmount: 0,
-      status: 'UNPAID' as FeeStatus,
-      paidDate: null,
-      transactionId: null,
-      note: null,
-      updatedBy: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
+    })
   })
 }

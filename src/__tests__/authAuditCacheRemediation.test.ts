@@ -43,7 +43,7 @@ describe('D9 client cache retirement and parent sync', () => {
     expect(useAttendanceStore.getState().attendance).toEqual([])
     expect(await getDB().syncQueue.get(queueId)).toEqual(queueBefore)
     expect(await useSyncStore.getState().getPendingOps()).toHaveLength(1)
-    expect(JSON.parse((await dexieStorage.getItem('parish_store_grades'))!)).toMatchObject({ version: 1, state: { grades: [] } })
+    expect(JSON.parse((await dexieStorage.getItem('parish_store_grades'))!)).toMatchObject({ version: 2, state: { grades: [], syncScopeRevision: null } })
   })
 
   it('ignores pre-remediation cursors and forces a full pull even with a stale lastSyncAt', async () => {

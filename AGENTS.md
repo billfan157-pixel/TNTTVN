@@ -155,7 +155,7 @@ Retrieve the smallest relevant slice.
 | Security/RBAC/privacy            | middleware/routes/services/tests + relevant `docs/SECURITY_AUDIT_LOG.md` section              |
 | Offline/sync                     | sync engine/services/Dexie stores/tests + relevant architecture/ADR sections                  |
 | Exams/grades/attendance/finance  | current route → service/domain → persistence → tests → applicable business rule               |
-| Design system/UI                 | `docs/03_DESIGN_SYSTEM.md`, `DESIGN_SYSTEM.md`, relevant primitives and design-system guard   |
+| Design system/UI                 | `docs/03_DESIGN_SYSTEM.md`, relevant primitives and design-system guard                       |
 | E2E/testing                      | `docs/08_E2E_TESTING_STRATEGY.md`, affected tests, current CI                                 |
 | Deployment/runtime               | `docs/DEPLOYMENT_GUIDE.md`, runtime config and `.github/workflows/ci.yml`                     |
 

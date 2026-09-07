@@ -157,17 +157,17 @@ export const MobileCalendarView: React.FC = () => {
     <div className="mobile-screen mobile-screen--stack product-view">
       {/* Top Header & Month Switcher */}
       <div className="mobile-page-header mobile-page-header--compact mobile-calendar-header">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center font-bold">
-            <CalendarIcon size={16} />
+        <div className="mobile-page-header__identity">
+          <div className="mobile-page-header__icon" aria-hidden="true">
+            <CalendarIcon size={20} />
           </div>
-          <div>
-            <h3 className="text-sm font-extrabold text-parish-primary m-0">Lịch Phụng Vụ</h3>
-            <span className="text-[10px] text-text-muted">HĐGMVN Standard</span>
+          <div className="min-w-0">
+            <h2 className="mobile-page-header__title truncate">Lịch Phụng Vụ</h2>
+            <p className="mobile-page-header__description truncate">Theo lịch của Hội đồng Giám mục Việt Nam</p>
           </div>
         </div>
 
-        <div className="mobile-calendar-header__toolbar flex items-center gap-1.5">
+        <div className="mobile-page-header__actions mobile-calendar-header__toolbar flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => {
@@ -194,6 +194,7 @@ export const MobileCalendarView: React.FC = () => {
             </button>
             <button
               onClick={handlePrevMonth}
+              aria-label="Về tháng trước"
               className="p-1 min-h-[44px] min-w-[44px] rounded-lg text-text-muted hover:text-text-main bg-transparent border-none cursor-pointer"
             >
               <ChevronLeft size={16} />
@@ -203,6 +204,7 @@ export const MobileCalendarView: React.FC = () => {
             </span>
             <button
               onClick={handleNextMonth}
+              aria-label="Sang tháng tiếp theo"
               className="p-1 min-h-[44px] min-w-[44px] rounded-lg text-text-muted hover:text-text-main bg-transparent border-none cursor-pointer"
             >
               <ChevronRight size={16} />

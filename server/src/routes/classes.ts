@@ -152,6 +152,9 @@ classesRouter.post('/academic-years', roleMiddleware('admin'), zValidator('json'
   if (effectiveStart >= effectiveEnd) {
     return errorResponse(c, 'ACADEMIC_YEAR_INVALID', 'Ngày bắt đầu phải trước ngày kết thúc', 400)
   }
+  if (effectiveStart < range.startDate || effectiveEnd > range.endDate) {
+    return errorResponse(c, 'ACADEMIC_YEAR_INVALID', `Khoảng ngày phải nằm trong năm học ${normId} (${range.startDate} đến ${range.endDate})`, 400)
+  }
 
   const now = new Date().toISOString()
 

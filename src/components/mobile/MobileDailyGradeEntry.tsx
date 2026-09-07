@@ -10,6 +10,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import type { DailyScoreType, Student } from '../../types'
 import { StudentName } from '../common/StudentName'
+import { SubpageHeader } from '../common/SubpageHeader'
 import { hapticFeedback } from '../../utils/haptics'
 
 const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string }> = [
@@ -122,19 +123,12 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
         {srAnnouncement}
       </div>
 
-      <section className="grade-command-deck" aria-label="Bảng chọn loại điểm hằng ngày">
-        <div className="grade-command-deck__header">
-          <div className="grade-command-deck__title-group">
-            <div className="grade-command-deck__icon-tile">
-              <BarChart3 size={16} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="grade-command-deck__title">Nhập Điểm Hằng Ngày</h2>
-              <p className="grade-command-deck__meta truncate">{activeTypeLabel} · HK {semesterRestricted ? (openSemester === 2 ? 'II' : 'I') : selectedSemester} · {filteredStudents.length} em</p>
-            </div>
-          </div>
-        </div>
-
+      <SubpageHeader
+        icon={<BarChart3 size={15} />}
+        title="Nhập Điểm Hằng Ngày"
+        meta={<span>{activeTypeLabel} · HK {semesterRestricted ? (openSemester === 2 ? 'II' : 'I') : selectedSemester} · {filteredStudents.length} em</span>}
+        ariaLabel="Bảng chọn loại điểm hằng ngày"
+      >
         <div className="grade-segmented-group" role="tablist" aria-label="Chọn loại điểm kiểm tra">
           {SCORE_TYPES.map(type => {
             const isActive = activeType === type.id
@@ -156,7 +150,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
         </div>
 
         {!canEdit && <div className="rounded-xl bg-surface-hover border border-surface-border px-3 py-1.5 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
-      </section>
+      </SubpageHeader>
 
       {stats && (
         <section className="grade-metric-strip grade-metric-strip--3col" aria-label="Thống kê điểm số">

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import * as gradeService from '../services/gradeService.js'
 import { generateTokens } from '../middleware/auth.js'
 import dailyEntriesApp from '../routes/dailyEntries.js'
 import examsApp from '../routes/exams.js'
@@ -206,5 +207,61 @@ describe('Tier 2 — daily-entries ledger API', () => {
     const [grade] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId)))
     expect(grade.scoreOral).toBe(7)
     expect(grade.scoreOralSource).toBe('daily_avg')
+  })
+
+  it('XD-08: manual add/delete after Exam complete atomically projects all attempts; retry and old-client partial averages cannot diverge', async () => {
+    const getGrade = async () => (await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId))))[0]
+    const id = `DG-${PREFIX}-after-exam`
+    const body = { entries: [entry(id, 10)] }
+    expect((await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: adminToken, body })).data.saved).toBe(1)
+    expect((await getGrade()).scoreOral).toBe(7.8) // manual8 + legacy baseline7 + exam6 + manual10
+    const version = (await getGrade()).version
+    expect((await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: adminToken, body })).data.duplicates).toBe(1)
+    expect((await getGrade()).version).toBe(version)
+    await gradeService.upsertGrade({ studentId, academicYear: yearId, semester: 1, scoreOral: 9, scoreOral_source: 'daily_avg', version }, adminId, parishId, '', '')
+    expect((await getGrade()).scoreOral).toBe(7.8)
+    const undo = await gradeService.undoGradeImport([{ studentId }], 1, yearId, adminId, parishId, '', '')
+    expect(undo[0].status).toBe('not-clean')
+    expect((await getGrade()).scoreOral).toBe(7.8)
+    expect((await jsonReq(dailyEntriesApp, `/${id}`, { method: 'DELETE', token: adminToken })).status).toBe(200)
+    expect((await getGrade()).scoreOral).toBe(7)
+    // Legacy clients clear their last local attempt. Remaining machine/manual
+    // entries still own the derived value, so the clear cannot erase it.
+    await gradeService.upsertGrade({ studentId, academicYear: yearId, semester: 1, scoreOral: null, scoreOral_source: null, version: (await getGrade()).version }, adminId, parishId, '', '')
+    expect((await getGrade()).scoreOral).toBe(7)
+  })
+
+  it('XD-08: Grade projection failure rolls back the ledger insert', async () => {
+    const id = `DG-${PREFIX}-projection-failure`
+    const projection = vi.spyOn(gradeService, 'upsertGrade').mockRejectedValueOnce(new Error('Synthetic projection failure'))
+    try {
+      const response = await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: adminToken, body: { entries: [entry(id, 10)] } })
+      expect(response.data.errorCount).toBe(1)
+      expect(await db.select().from(assessmentEntries).where(and(eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.id, id)))).toHaveLength(0)
+    } finally { projection.mockRestore() }
+  })
+
+  it('XD-08: deleting an attempt rolls back on projection failure; deleting the last attempt clears its projection', async () => {
+    const id = `DG-${PREFIX}-last`
+    const input = { ...entry(id, 9), scoreType: '15m' }
+    expect((await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: adminToken, body: { entries: [input] } })).data.saved).toBe(1)
+    const projection = vi.spyOn(gradeService, 'upsertGrade').mockRejectedValueOnce(new Error('Synthetic delete projection failure'))
+    try {
+      const failed = await jsonReq(dailyEntriesApp, `/${id}`, { method: 'DELETE', token: adminToken })
+      expect(failed.status).toBe(500)
+      expect(await db.select().from(assessmentEntries).where(and(eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.id, id)))).toHaveLength(1)
+    } finally { projection.mockRestore() }
+    expect((await jsonReq(dailyEntriesApp, `/${id}`, { method: 'DELETE', token: adminToken })).status).toBe(200)
+    const [grade] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId)))
+    expect(grade.score15m).toBeNull()
+  })
+
+  it('XD-08: manual override remains protected when the underlying ledger changes', async () => {
+    const [before] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId)))
+    await gradeService.upsertGrade({ studentId, academicYear: yearId, semester: 1, scoreOral: 9, scoreOral_source: 'manual', version: before.version }, adminId, parishId, '', '')
+    expect((await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: adminToken, body: { entries: [entry(`DG-${PREFIX}-under-override`, 2)] } })).data.saved).toBe(1)
+    const [after] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId)))
+    expect(after.scoreOral).toBe(9)
+    expect(after.scoreOralSource).toBe('manual')
   })
 })

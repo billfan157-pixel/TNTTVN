@@ -48,6 +48,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   ...migrationRange('20260903', 159, 165),
   ...migrationRange('20260904', 166, 169),
   ...migrationRange('20260906', 170, 176),
+  ...migrationRange('20260907', 177, 181),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -109,7 +110,8 @@ const REQUIRED_TRIGGER_NAMES = [
 ] as const
 
 const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
-  academic_years: ['promotion_target_year_id'],
+  academic_years: ['promotion_target_year_id', 'finalization_policy'],
+  academic_year_snapshots: ['source_class_id', 'report_snapshot'],
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
@@ -121,7 +123,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   // A-NEW-62 (2026-08-23): production từng thiếu promotion_records.is_latest
   // (di sản migration D-04/ADR-031) → mọi SELECT phiếu điểm/khuyến thăng 500 âm thầm.
   // Gate chặt cột cho bảng trong pipeline báo cáo + grade_overrides.phuhuynh-spec.
-  promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
+  promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status', 'completed_at', 'completed_target_year_id'],
   grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
   parish_profiles: ['parish_id', 'display_name', 'founded_date'],
   parish_people: ['parish_id', 'id', 'visibility', 'deleted_at'],

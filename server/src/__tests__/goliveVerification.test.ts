@@ -94,7 +94,7 @@ describe('PARISH LMS GO-LIVE PRODUCTION COMBAT VERIFICATION SUITE', () => {
 
   // ─── CHECK 2: BACKUP & RESTORE COMBAT ───
   describe('CHECK 2: Real Backup & Restore Combat Protocol', () => {
-    it('2.1 Export -> Delete -> Restore verifies 100% data integrity', async () => {
+    it('2.1 partial profile rejects excluded assignments, then round-trips supported rows', async () => {
       const testId = generateId('ST')
       await db.insert(students).values({
         id: testId,
@@ -122,6 +122,19 @@ describe('PARISH LMS GO-LIVE PRODUCTION COMBAT VERIFICATION SUITE', () => {
       const backupData = (await exportRes.json()) as any
       expect(backupData.checksum).toBeDefined()
 
+      const blockedRes = await backupRouter.request('/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+        body: JSON.stringify({ ...backupData, adminPassword: ADMIN_PASSWORD }),
+      })
+      expect(blockedRes.status).toBe(409)
+      expect(((await blockedRes.json()) as any).error.code).toBe('RESTORE_UNSUPPORTED_DEPENDENCIES')
+      expect(await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, parishId))).not.toHaveLength(0)
+
+      // This fixture deliberately narrows current state to the documented
+      // partial profile. Real state with assignments requires full DB recovery.
+      await db.delete(catechistAssignments).where(eq(catechistAssignments.parishId, parishId))
+
       // Delete record to simulate data loss
       await db.delete(students).where(eq(students.id, testId))
       const checkDeleted = await db.select().from(students).where(eq(students.id, testId))
@@ -135,7 +148,7 @@ describe('PARISH LMS GO-LIVE PRODUCTION COMBAT VERIFICATION SUITE', () => {
       })
       expect(restoreRes.status).toBe(200)
 
-      // Verify 100% restored
+      // Verify the supported profile row was restored.
       const [restoredStudent] = await db.select().from(students).where(eq(students.id, testId))
       expect(restoredStudent).toBeDefined()
       expect(restoredStudent.fullName).toBe('Thiếu Nhi Backup Test')

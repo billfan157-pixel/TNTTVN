@@ -15,6 +15,7 @@ const NoticesPage = lazyWithRetry(() => import('./pages/NoticesPage'))
 const UsersPage = lazyWithRetry(() => import('./pages/UsersPage'))
 const ClassesPage = lazyWithRetry(() => import('./pages/ClassesPage'))
 const LoginPage = lazyWithRetry(() => import('./pages/LoginPage'))
+const LandingPage = lazyWithRetry(() => import('./pages/LandingPage'))
 const StaffLoginPage = lazyWithRetry(() => import('./pages/StaffLoginPage'))
 const ParentLoginPage = lazyWithRetry(() => import('./pages/ParentLoginPage'))
 const AuditLogPage = lazyWithRetry(() => import('./pages/AuditLogPage'))
@@ -123,9 +124,13 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/dashboard' })
-  },
+  // Trang đầu tiên của webapp LUÔN là Pre-login Landing Page — kể cả khi
+  // còn session sống (CTA "Vào hệ thống" đưa user vào đúng không gian).
+  component: () => (
+    <PageSuspense>
+      <LandingPage />
+    </PageSuspense>
+  ),
 })
 
 const dashboardRoute = createRoute({
@@ -411,8 +416,19 @@ const feedbackRoute = createRoute({
   ),
 })
 
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/about',
+  component: () => (
+    <PageSuspense>
+      <LandingPage />
+    </PageSuspense>
+  ),
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  aboutRoute,
   dashboardRoute,
   studentsRoute,
   gradesRoute,

@@ -7,7 +7,7 @@ import { createCanAccessStudentSpecification } from './policyAdapters.js'
 import { checkUserClassAccess } from './classAccessQueryService.js'
 import type { ActorContext } from '../types/actor.js'
 import { runDbTransaction, type DbTransaction } from '../db/index.js'
-import { getAcademicYearDateRange } from './academicYearService.js'
+import { getAcademicYearDateRange, getFinalizedYearContext } from './academicYearService.js'
 import { getParishAttendancePolicy, getParishGradeWeights } from './parishSettingsService.js'
 
 export class ReportingApplicationService {
@@ -29,6 +29,11 @@ export class ReportingApplicationService {
   ): Promise<ReportingProjectionContext> {
     // Keep every read on the same transaction executor. Resolve sequentially
     // because the libSQL transaction handle is not a general-purpose pool.
+    const finalizedYear = await getFinalizedYearContext(parishId, academicYear, tx)
+    if (finalizedYear) return {
+      executor: tx, finalizedYear, academicYearRange: finalizedYear.policy.range,
+      gradeWeights: finalizedYear.policy.gradeWeights, attendancePolicy: finalizedYear.policy.attendancePolicy,
+    }
     const academicYearRange = await getAcademicYearDateRange(parishId, academicYear, tx)
     const gradeWeights = await getParishGradeWeights(parishId, tx)
     const attendancePolicy = await getParishAttendancePolicy(parishId, tx)

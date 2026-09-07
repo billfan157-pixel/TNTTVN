@@ -26,6 +26,7 @@ import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
 import { PageHeader } from '../common/PageHeader'
+import { SubpageHeader } from '../common/SubpageHeader'
 import { Badge, Button, Surface } from '../common/ui'
 import { Tabs, TabPanel } from '../common/ui/SelectionControls'
 
@@ -615,26 +616,51 @@ export const ExamSessionView: React.FC = () => {
         /* ========================================================================= */
         <div className="flex flex-col gap-5">
           {/* Header */}
-          <PageHeader
-            title="Chấm Bài Kiểm Tra"
-            description={
-              effectiveClassId
-                ? `Lớp: ${findClassById(effectiveClassId)?.name || 'Lớp'} — Quản lý phiên chấm, QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
-                : `Tất cả các lớp — Quản lý phiên chấm, QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
-            }
-            icon={<ClipboardList className="h-5 w-5" />}
-            actions={
-              canManage ? (
-                <Button
-                  size="sm"
-                  leadingIcon={<Plus className="h-4 w-4" />}
-                  onClick={handleOpenCreate}
-                >
-                  Tạo Phiên Chấm
-                </Button>
-              ) : undefined
-            }
-          />
+          {effectiveMode === 'mobile' ? (
+            <SubpageHeader
+              icon={<ClipboardList size={15} />}
+              title="Chấm Bài Kiểm Tra"
+              meta={
+                <span className="truncate">
+                  {effectiveClassId
+                    ? `${findClassById(effectiveClassId)?.name || 'Lớp'} · QR & OMR · NH ${normalizeActiveAY(activeAY)}`
+                    : `Tất cả lớp · QR & OMR · NH ${normalizeActiveAY(activeAY)}`}
+                </span>
+              }
+              actions={
+                canManage ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenCreate}
+                    className="subpage-header__btn subpage-header__btn--primary"
+                  >
+                    <Plus size={13} /> Tạo Phiên
+                  </button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <PageHeader
+              title="Chấm Bài Kiểm Tra"
+              description={
+                effectiveClassId
+                  ? `Lớp: ${findClassById(effectiveClassId)?.name || 'Lớp'} — Quản lý phiên chấm, QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
+                  : `Tất cả các lớp — Quản lý phiên chấm, QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
+              }
+              icon={<ClipboardList className="h-5 w-5" />}
+              actions={
+                canManage ? (
+                  <Button
+                    size="sm"
+                    leadingIcon={<Plus className="h-4 w-4" />}
+                    onClick={handleOpenCreate}
+                  >
+                    Tạo Phiên Chấm
+                  </Button>
+                ) : undefined
+              }
+            />
+          )}
 
           {/* 4 Thẻ KPI Metrics Tổng Quan */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Archive,
+  ArrowUpDown,
   Award,
   Building2,
   CalendarDays,
@@ -8,14 +9,18 @@ import {
   ExternalLink,
   Eye,
   FileClock,
+  FileText,
   History,
   Image as ImageIcon,
   Landmark,
+  Loader2,
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Trash2,
   UserRound,
+  Video,
 } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
@@ -26,6 +31,9 @@ import { ParishAssetLightboxModal } from '../components/parish/ParishAssetLightb
 import { ParishPersonDetailModal } from '../components/parish/ParishPersonDetailModal'
 import { ParishOrgChart } from '../components/parish/ParishOrgChart'
 import { ParishBulkImportModal } from '../components/parish/ParishBulkImportModal'
+import { ParishLogoModal } from '../components/parish/ParishLogoModal'
+import { PARISH_LOGO_MEANING } from '../constants/parishLogoMeaning'
+import parishLogo from '../assets/logo-gia-ton.png'
 import { useConfirmDialog } from '../hooks/useConfirmDialog'
 import { api } from '../lib/api'
 import { useParishProfileStore } from '../stores/parishProfileStore'
@@ -40,6 +48,7 @@ import type {
 } from '../types/parishProfile'
 
 type ProfileTab = 'history' | 'organization' | 'people' | 'activities' | 'archive' | 'achievements' | 'timeline'
+type AssetSortOption = 'newest' | 'oldest' | 'title_asc' | 'title_desc'
 
 const tabs = [
   { value: 'history', label: 'Lịch sử', icon: <History aria-hidden="true" className="h-4 w-4" /> },
@@ -109,6 +118,7 @@ export default function ParishProfilePage() {
   const [selectedPerson, setSelectedPerson] = useState<ParishPerson | null>(null)
   const [viewingAsset, setViewingAsset] = useState<ParishArchiveAsset | null>(null)
   const [showBulkImport, setShowBulkImport] = useState(false)
+  const [showLogoModal, setShowLogoModal] = useState(false)
   const [orgViewMode, setOrgViewMode] = useState<'grid' | 'tree'>('grid')
 
   // Bộ lọc Tab Nhân sự
@@ -121,6 +131,7 @@ export default function ParishProfilePage() {
   // Bộ lọc Tab Tư liệu
   const [assetQuery, setAssetQuery] = useState('')
   const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | ParishArchiveAsset['assetType']>('ALL')
+  const [assetSort, setAssetSort] = useState<AssetSortOption>('newest')
 
   useEffect(() => { void fetchSnapshot() }, [fetchSnapshot])
 
@@ -234,7 +245,7 @@ export default function ParishProfilePage() {
 
   const filteredAssets = useMemo(() => {
     if (!snapshot) return []
-    return snapshot.assets.filter(asset => {
+    const list = snapshot.assets.filter(asset => {
       if (assetTypeFilter !== 'ALL' && asset.assetType !== assetTypeFilter) return false
       if (assetQuery.trim()) {
         const q = assetQuery.toLowerCase().trim()
@@ -244,7 +255,27 @@ export default function ParishProfilePage() {
       }
       return true
     })
-  }, [snapshot, assetTypeFilter, assetQuery])
+
+    return [...list].sort((a, b) => {
+      if (assetSort === 'newest') {
+        const dateA = a.capturedOn || a.createdAt || ''
+        const dateB = b.capturedOn || b.createdAt || ''
+        return dateB.localeCompare(dateA)
+      }
+      if (assetSort === 'oldest') {
+        const dateA = a.capturedOn || a.createdAt || ''
+        const dateB = b.capturedOn || b.createdAt || ''
+        return dateA.localeCompare(dateB)
+      }
+      if (assetSort === 'title_asc') {
+        return a.title.localeCompare(b.title, 'vi')
+      }
+      if (assetSort === 'title_desc') {
+        return b.title.localeCompare(a.title, 'vi')
+      }
+      return 0
+    })
+  }, [snapshot, assetTypeFilter, assetQuery, assetSort])
 
   if (isLoading && !snapshot) {
     return <DesktopAppShell width="wide"><SkeletonCardGrid count={6} /></DesktopAppShell>
@@ -262,7 +293,28 @@ export default function ParishProfilePage() {
         title={snapshot.profile.displayName}
         description={snapshot.profile.patronName ? `Bổn mạng ${snapshot.profile.patronName}` : 'Hồ sơ lịch sử và đời sống Xứ đoàn'}
         icon={<Landmark aria-hidden="true" className="h-5 w-5" />}
-        actions={canManage ? <Button size="sm" variant="secondary" leadingIcon={<Pencil aria-hidden="true" className="h-4 w-4" />} onClick={() => setEditor({ kind: 'profile' })}>Cập nhật</Button> : undefined}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              leadingIcon={<Sparkles aria-hidden="true" className="h-4 w-4 text-parish-secondary" />}
+              onClick={() => setShowLogoModal(true)}
+            >
+              Ý Nghĩa Logo
+            </Button>
+            {canManage && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leadingIcon={<Pencil aria-hidden="true" className="h-4 w-4" />}
+                onClick={() => setEditor({ kind: 'profile' })}
+              >
+                Cập nhật
+              </Button>
+            )}
+          </div>
+        }
       />
 
       {isStale && (
@@ -293,6 +345,41 @@ export default function ParishProfilePage() {
       </div>
 
       <TabPanel tabsId="parish-profile-tabs" value="history" activeValue={activeTab}>
+        {/* Khối Tôn Vinh Căn Tính: Logo & Ý Nghĩa Logo Xứ Đoàn */}
+        <Surface variant="card" className="p-4 sm:p-5 mb-4 border border-surface-border flex flex-col sm:flex-row items-center gap-4 sm:gap-5 bg-surface-app/50">
+          <div className="flex h-24 w-24 sm:h-28 sm:w-28 shrink-0 items-center justify-center rounded-2xl border border-surface-border bg-surface-card p-2 shadow-card">
+            <img
+              src={parishLogo}
+              alt="Logo Xứ Đoàn Đức Mẹ Fatima"
+              className="h-full w-full object-contain"
+            />
+          </div>
+          <div className="flex-1 min-w-0 text-center sm:text-left">
+            <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap mb-1.5">
+              <span className="badge badge-primary">
+                Logo Xứ Đoàn
+              </span>
+              <span className="typography-caption text-text-muted">Con Thuyền Đức Tin · 04 biểu tượng · 05 ngành</span>
+            </div>
+            <h3 className="text-base font-extrabold text-text-main m-0 mb-1.5">
+              Ý Nghĩa Logo Xứ Đoàn Đức Mẹ Fatima
+            </h3>
+            <p className="typography-body-sm text-text-secondary leading-relaxed line-clamp-2 m-0 mb-3">
+              {PARISH_LOGO_MEANING.overview}
+            </p>
+            <div className="flex items-center justify-center sm:justify-start gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                leadingIcon={<Sparkles className="h-3.5 w-3.5" />}
+                onClick={() => setShowLogoModal(true)}
+              >
+                Khám phá ý nghĩa biểu tượng
+              </Button>
+            </div>
+          </div>
+        </Surface>
+
         <SectionHeading title="Lịch sử Xứ đoàn" description="Ngày thành lập, các đời Ban Trị Sự, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
         {milestones.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -532,6 +619,22 @@ export default function ParishProfilePage() {
                   </button>
                 ))}
               </div>
+              <div className="flex items-center gap-1.5 h-9 px-2.5 bg-surface-card border border-surface-border rounded-lg">
+                <ArrowUpDown className="h-3.5 w-3.5 text-text-muted shrink-0" />
+                <label htmlFor="archive-sort-select" className="sr-only">Sắp xếp tư liệu</label>
+                <select
+                  id="archive-sort-select"
+                  value={assetSort}
+                  onChange={e => setAssetSort(e.target.value as AssetSortOption)}
+                  className="bg-transparent text-xs font-semibold text-text-main focus:outline-none cursor-pointer"
+                  aria-label="Sắp xếp tư liệu"
+                >
+                  <option value="newest">Mới nhất</option>
+                  <option value="oldest">Cũ nhất</option>
+                  <option value="title_asc">Tên (A–Z)</option>
+                  <option value="title_desc">Tên (Z–A)</option>
+                </select>
+              </div>
             </div>
             <span className="text-xs text-text-muted">
               Hiển thị {filteredAssets.length}/{snapshot.assets.length} tư liệu
@@ -606,6 +709,7 @@ export default function ParishProfilePage() {
         />
       )}
       {showBulkImport && <ParishBulkImportModal onClose={() => setShowBulkImport(false)} />}
+      <ParishLogoModal isOpen={showLogoModal} onClose={() => setShowLogoModal(false)} />
       {dialog}
     </DesktopAppShell>
   )
@@ -752,6 +856,114 @@ function PersonCard({ person, terms, unitsById, canManage, onSelect, onEdit, onD
   )
 }
 
+function AssetThumbnail({ asset, onClick }: { asset: ParishArchiveAsset; onClick: () => void }) {
+  const isImage = asset.assetType === 'IMAGE' || asset.assetType === 'POSTER'
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(isImage && asset.storageType === 'UPLOAD')
+  const [hasError, setHasError] = useState(false)
+
+  useEffect(() => {
+    if (!isImage || asset.storageType !== 'UPLOAD') return
+    let active = true
+    let createdUrl: string | null = null
+
+    setLoading(true)
+    setHasError(false)
+
+    api.parishProfile.downloadAsset(asset.id)
+      .then(blob => {
+        if (active) {
+          createdUrl = URL.createObjectURL(blob)
+          setBlobUrl(createdUrl)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setHasError(true)
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+      if (createdUrl) URL.revokeObjectURL(createdUrl)
+    }
+  }, [asset.id, asset.storageType, isImage])
+
+  if (isImage) {
+    if (loading) {
+      return (
+        <div className="w-full h-36 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-2 text-text-muted">
+          <Loader2 className="h-6 w-6 animate-spin text-parish-primary" />
+          <span className="text-xs">Đang tải ảnh...</span>
+        </div>
+      )
+    }
+
+    const src = asset.storageType === 'EXTERNAL' ? asset.externalUrl : blobUrl
+
+    if (!hasError && src) {
+      return (
+        <div
+          className="relative w-full h-36 bg-surface-sunken rounded-lg overflow-hidden border border-surface-border cursor-pointer group"
+          onClick={onClick}
+          title="Bấm để xem ảnh phóng to"
+        >
+          <img
+            src={src}
+            alt={asset.title}
+            loading="lazy"
+            referrerPolicy={asset.storageType === 'EXTERNAL' ? 'no-referrer' : undefined}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+            onError={() => setHasError(true)}
+          />
+          <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+            <Eye className="h-6 w-6 drop-shadow-md" />
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div
+        className="w-full h-36 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-surface-app transition-colors text-text-muted"
+        onClick={onClick}
+        title="Bấm để xem ảnh phóng to"
+      >
+        <ImageIcon className="h-6 w-6 text-parish-primary" />
+        <span className="text-xs font-semibold">Bản xem trước hình ảnh</span>
+      </div>
+    )
+  }
+
+  const isVideo = asset.assetType === 'VIDEO'
+  const isCert = asset.assetType === 'CERTIFICATE'
+  return (
+    <div
+      className="w-full h-28 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-surface-app transition-colors text-text-muted group p-3 text-center"
+      onClick={onClick}
+      title={asset.externalUrl ? 'Bấm để mở liên kết' : 'Bấm để tải xuống'}
+    >
+      {isVideo ? (
+        <Video className="h-7 w-7 text-parish-primary group-hover:scale-110 transition-transform" />
+      ) : isCert ? (
+        <Award className="h-7 w-7 text-parish-primary group-hover:scale-110 transition-transform" />
+      ) : (
+        <FileText className="h-7 w-7 text-parish-primary group-hover:scale-110 transition-transform" />
+      )}
+      <span className="text-xs font-semibold text-text-secondary truncate max-w-[90%]">
+        {asset.originalFilename || assetLabels[asset.assetType] || 'Tài liệu'}
+      </span>
+      {asset.sizeBytes ? (
+        <span className="text-xs text-text-muted">
+          {(asset.sizeBytes / 1024).toFixed(0)} KB
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 function AssetCard({ asset, canManage, onOpen, onEdit, onDelete }: { asset: ParishArchiveAsset; canManage: boolean; onOpen: () => void; onEdit: () => void; onDelete: () => void }) {
   const isImage = asset.assetType === 'IMAGE' || asset.assetType === 'POSTER'
   return (
@@ -762,30 +974,7 @@ function AssetCard({ asset, canManage, onOpen, onEdit, onDelete }: { asset: Pari
           {canManage && <ActionButtons label={asset.title} onEdit={onEdit} onDelete={onDelete} />}
         </div>
 
-        {/* External images are loaded only after an intentional click so an
-            admin-provided host cannot passively track staff page views. */}
-        {isImage && asset.externalUrl && (
-          <div
-            className="w-full h-28 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-surface-app transition-colors text-text-muted"
-            onClick={onOpen}
-            title="Bấm để tải ảnh từ liên kết ngoài"
-          >
-            <ExternalLink className="h-6 w-6 text-parish-primary" />
-            <span className="text-xs font-semibold">Ảnh từ liên kết ngoài</span>
-          </div>
-        )}
-
-        {/* Placeholder nếu là ảnh tải lên */}
-        {isImage && !asset.externalUrl && (
-          <div
-            className="w-full h-28 bg-surface-sunken rounded-lg border border-surface-border flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-surface-app transition-colors text-text-muted"
-            onClick={onOpen}
-            title="Bấm để xem ảnh phóng to"
-          >
-            <ImageIcon className="h-6 w-6 text-parish-primary" />
-            <span className="text-xs font-semibold">Xem hình ảnh tư liệu</span>
-          </div>
-        )}
+        <AssetThumbnail asset={asset} onClick={onOpen} />
 
         <h3 className="typography-card-title m-0 mt-1 cursor-pointer hover:text-parish-primary transition-colors" onClick={onOpen}>
           {asset.title}

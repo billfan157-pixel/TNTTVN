@@ -1,11 +1,13 @@
+import { academicPullFixture } from '../helpers/academicPull'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useGradeStore, getCurrentAcademicYear } from '../../stores/gradeStore'
 import * as syncService from '../../lib/syncService'
 import { api } from '../../lib/api'
+import { setTenantScope } from '../../lib/tenantScope'
 
 vi.mock('../../lib/api', () => ({
   api: {
-    getGrades: vi.fn(),
+    pullGrades: vi.fn(),
   },
   isAuthenticated: () => {
     try {
@@ -38,7 +40,8 @@ vi.mock('../../stores/academicYearStore', () => ({
 vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 
 beforeEach(() => {
-  useGradeStore.setState({ grades: [] })
+  setTenantScope({ parishId: 'PARISH-TEST', userId: 'U-TEST' })
+  useGradeStore.setState({ grades: [], syncScopeRevision: 'test-scope' })
   vi.clearAllMocks()
 })
 
@@ -127,10 +130,10 @@ describe('gradeStore', () => {
   })
 
   it('fetchGrades replaces grades on full fetch (no updatedAfter)', async () => {
-    vi.mocked(api.getGrades).mockResolvedValue([
+    vi.mocked(api.pullGrades).mockResolvedValue(academicPullFixture([
       { id: 'GR-1', studentId: 'ST-001', semester: 1, academicYear: '2025 - 2026', scoreOral: 9 },
       { id: 'GR-2', studentId: 'ST-002', semester: 1, academicYear: '2025 - 2026', scoreOral: 8 },
-    ])
+    ]))
     localStorage.setItem('parish_current_user', '{"id":"U-TEST"}')
     await useGradeStore.getState().fetchGrades()
     expect(useGradeStore.getState().grades).toHaveLength(2)
@@ -141,9 +144,9 @@ describe('gradeStore', () => {
     useGradeStore.setState({
       grades: [{ id: 'GR-1', studentId: 'ST-001', semester: 1, academicYear: '2025 - 2026', scoreOral: 8 } as any],
     })
-    vi.mocked(api.getGrades).mockResolvedValue([
+    vi.mocked(api.pullGrades).mockResolvedValue(academicPullFixture([
       { id: 'GR-2', studentId: 'ST-002', semester: 1, academicYear: '2025 - 2026', scoreOral: 9 },
-    ])
+    ], ['ST-001', 'ST-002'], 'delta'))
     localStorage.setItem('parish_current_user', '{"id":"U-TEST"}')
     await useGradeStore.getState().fetchGrades('2025-01-01T00:00:00Z')
     expect(useGradeStore.getState().grades).toHaveLength(2)
@@ -156,7 +159,7 @@ describe('gradeStore', () => {
     useGradeStore.setState({
       grades: [{ id: 'GR-1', studentId: 'ST-001', semester: 1, academicYear: '2025 - 2026', scoreOral: 8 } as any],
     })
-    vi.mocked(api.getGrades).mockResolvedValue([])
+    vi.mocked(api.pullGrades).mockResolvedValue(academicPullFixture([]))
     localStorage.setItem('parish_current_user', '{"id":"U-TEST"}')
     await useGradeStore.getState().fetchGrades()
     expect(useGradeStore.getState().grades).toHaveLength(0)
@@ -167,7 +170,7 @@ describe('gradeStore', () => {
     localStorage.removeItem('parish_current_user')
     vi.clearAllMocks()
     await useGradeStore.getState().fetchGrades()
-    expect(api.getGrades).not.toHaveBeenCalled()
+    expect(api.pullGrades).not.toHaveBeenCalled()
   })
 
   it('getCurrentAcademicYear returns normalized format (ADR-017)', () => {

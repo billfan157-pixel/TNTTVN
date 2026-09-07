@@ -31,7 +31,7 @@ async function captureLayoutEvidence(page: Page, testInfo: TestInfo, name: strin
 
 async function assertViewportContainment(page: Page) {
   const layout = await page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>('#main-content, main.auth-page')
+    const main = document.querySelector<HTMLElement>('#main-content, main.auth-page, main:has(#gioi-thieu-tieu-de)')
     return ({
       viewportWidth: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,

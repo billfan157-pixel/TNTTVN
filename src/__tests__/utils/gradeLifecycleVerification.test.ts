@@ -6,7 +6,7 @@ import { useDailyGradeStore } from '../../stores/dailyGradeStore'
 import { useSyncStore } from '../../stores/syncStore'
 import { upsertGrade, getGrades } from '../../../server/src/services/gradeService'
 import { db } from '../../../server/src/db/index'
-import { grades, academicYears } from '../../../server/src/db/schema'
+import { grades, academicYears, assessmentEntries } from '../../../server/src/db/schema'
 
 describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
   beforeAll(async () => {
@@ -109,7 +109,17 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
         scoreFinal_updated_at: new Date().toISOString(),
       }
 
-      // Upsert via server service
+      // XD-08: a derived value without its ledger is not authoritative.
+      await expect(upsertGrade(payload as any, testAdminId, testParishId, '127.0.0.1', 'Vitest'))
+        .rejects.toMatchObject({ code: 'DAILY_LEDGER_REQUIRED', status: 409 })
+      expect(await getGrades(testParishId, testStudentId)).toHaveLength(0)
+      await db.insert(assessmentEntries).values({
+        id: `entry-${testStudentId}`, parishId: testParishId, studentId: testStudentId,
+        academicYear: testYearId, semester: 1, scoreType: '15m',
+        rawScore: 8, maxScore: 10, score: 8, source: 'manual_entry', createdBy: testAdminId,
+      })
+      // Deliberately stale client average: server must use ledger 8, not 3.
+      payload.score15m = 3
       await upsertGrade(payload as any, testAdminId, testParishId, '127.0.0.1', 'Vitest')
 
       // Query back via server getGrades service
@@ -119,6 +129,7 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
       const saved = fetchedGrades[0]
       expect(saved.scoreOral_source).toBe('manual')
       expect(saved.score15m_source).toBe('daily_avg')
+      expect(saved.score15m).toBe(8)
       expect(saved.scoreFinal_source).toBe('excel_import')
     })
 

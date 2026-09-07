@@ -3,8 +3,10 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { BackupRestoreModal } from '../../components/common/BackupRestoreModal'
 import { httpFetch } from '../../lib/api'
 
-vi.mock('../../lib/db', () => ({
-  db: { stores: { put: vi.fn() } },
+const recoveryFns = vi.hoisted(() => ({
+  resetClientData: vi.fn().mockResolvedValue(undefined),
+  getOwnUnsettledSyncOperations: vi.fn().mockResolvedValue([]),
+  logout: vi.fn(),
 }))
 
 vi.mock('../../lib/api', () => ({
@@ -15,42 +17,16 @@ vi.mock('../../lib/api', () => ({
     }),
     post: vi.fn().mockResolvedValue({
       success: true,
-      message: 'Khôi phục thành công dữ liệu 1 em thiếu nhi!'
+      message: 'Khôi phục thành công dữ liệu 1 em thiếu nhi!',
+      purgeVersion: 2,
     })
   }
 }))
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
-
-vi.mock('../../stores/studentStore', () => ({
-  useStudentStore: Object.assign(
-    (selector?: any) => {
-      const state = { students: [], setStudents: vi.fn() }
-      return selector ? selector(state) : state
-    },
-    { getState: () => ({ students: [] }), setState: vi.fn() },
-  ),
-}))
-
-vi.mock('../../stores/gradeStore', () => ({
-  useGradeStore: Object.assign(
-    (selector?: any) => {
-      const state = { grades: [], setGrades: vi.fn() }
-      return selector ? selector(state) : state
-    },
-    { getState: () => ({ grades: [] }), setState: vi.fn() },
-  ),
-}))
-
-vi.mock('../../stores/attendanceStore', () => ({
-  useAttendanceStore: Object.assign(
-    (selector?: any) => {
-      const state = { attendance: [], setAttendance: vi.fn() }
-      return selector ? selector(state) : state
-    },
-    { getState: () => ({ attendance: [] }), setState: vi.fn() },
-  ),
-}))
+vi.mock('../../lib/resetClientData', () => ({ resetClientData: recoveryFns.resetClientData }))
+vi.mock('../../stores/syncStore', () => ({ getOwnUnsettledSyncOperations: recoveryFns.getOwnUnsettledSyncOperations }))
+vi.mock('../../stores/authStore', () => ({ useAuthStore: { getState: () => ({ logout: recoveryFns.logout }) } }))
 
 vi.mock('lucide-react', () => ({
   Database: 'svg', Download: 'svg', Upload: 'svg', CheckCircle: 'svg', X: 'svg', Loader2: 'svg',
@@ -72,6 +48,8 @@ function getRestoreInput() {
 describe('BackupRestoreModal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    recoveryFns.resetClientData.mockResolvedValue(undefined)
+    recoveryFns.getOwnUnsettledSyncOperations.mockResolvedValue([])
     vi.stubGlobal('URL', { createObjectURL: mockCreateObjectURL, revokeObjectURL: mockRevokeObjectURL })
     vi.stubGlobal('alert', vi.fn())
   })
@@ -162,6 +140,39 @@ describe('BackupRestoreModal', () => {
     await vi.waitFor(() => {
       expect(screen.getByText(/Khôi phục thành công/i)).toBeDefined()
     }, { timeout: 3000 })
+    expect(recoveryFns.resetClientData).toHaveBeenCalledWith(2)
+    expect(recoveryFns.logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not report a committed restore as failed when local generation reset is temporarily unavailable', async () => {
+    recoveryFns.resetClientData.mockRejectedValueOnce(new Error('quota'))
+    const file = new File([JSON.stringify({
+      data: { students: [{ id: 'UNTRUSTED', fullName: 'Uploaded row' }], grades: [], attendance: [] },
+    })], 'backup.json', { type: 'application/json' })
+
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword()
+    fireEvent.change(getRestoreInput(), { target: { files: [file] } })
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/Khôi phục trên máy chủ đã thành công/i)).toBeDefined()
+    })
+    expect(recoveryFns.logout).not.toHaveBeenCalled()
+  })
+
+  it('blocks restore while this device owns unsettled offline mutations', async () => {
+    recoveryFns.getOwnUnsettledSyncOperations.mockResolvedValueOnce([{ id: 'pending-op' }] as any)
+    const file = new File([JSON.stringify({ data: { students: [], grades: [], attendance: [] } })], 'backup.json', { type: 'application/json' })
+
+    render(<BackupRestoreModal isOpen={true} onClose={vi.fn()} />)
+    typeAdminPassword()
+    fireEvent.change(getRestoreInput(), { target: { files: [file] } })
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/còn 1 thay đổi chưa hoàn tất/i)).toBeDefined()
+    })
+    expect(httpFetch.post).not.toHaveBeenCalledWith('/backup/restore', expect.anything())
+    expect(recoveryFns.resetClientData).not.toHaveBeenCalled()
   })
 
   // A07: restore phải gửi kèm adminPassword trong body (server bắt buộc re-auth)

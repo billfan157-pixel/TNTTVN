@@ -50,6 +50,8 @@ export interface PromotionRecordSnapshot {
 ### 1.3 Rule Versioning & Historical Auditability
 - All evaluation logic tags snapshots with `rulesVersion: 'v1.0'`.
 - Future changes to thresholds (e.g. GPA requirement changed from 5.0 to 6.0 in 2028) will NOT affect past snapshot evaluations or historical reporting.
+- At academic-year finalization, concrete grade weights/rounding, attendance and promotion policies, classification thresholds, date range and class labels are frozen in the same transaction as student snapshots. Historical reports consume frozen effective scores/attendance and source cohort; promotion evaluate/approve/retry consume the finalized metrics and policy. Open years continue to use current settings. Manual promotion decisions still require an override reason when differing from the frozen-policy decision.
+- Legacy finalized years without valid policy/cohort/report evidence must not be reconstructed from today's settings or class pointer: affected reporting/promotion paths stop with a historical-evidence conflict until operator reconciliation. Personal profiles, parent ownership, class authorization and soft-delete visibility remain current, not frozen privileges. Fee lists retain persisted original-class fee facts after transfer; synthetic unpaid rows require current open-year membership or an evidenced frozen cohort and are not historical payment facts.
 
 ### 1.4 Idempotency & Unique Constraints
 - Promotion approval is **100% Idempotent**.
@@ -77,6 +79,7 @@ Panel "Xét Lên Lớp" (`PromotionPanel`) **chỉ hoạt động khi có kết 
 - Mỗi item 1 transaction: snapshot `promotion_records` → update `students.classId` và `students.branch`. Lớp nguồn phải là lớp hiện tại của học viên; lớp đích phải active, cùng giáo xứ, thuộc `promotionTargetYearId` của năm nguồn (hoặc năm sau gần nhất khi mapping chưa persist) và phân ngành phải khớp lớp đích. Không thể có snapshot mà mất move hoặc ngược lại.
 - `gpa`/`attendanceRate` client gửi BẮT BUỘC lấy từ `GET /api/promotion/evaluate/:studentId` (authoritative); lệch → 409 `DATA_MISMATCH`.
 - Move được áp lại cho item `skipped` khi chạy lần 2 (idempotent hội tụ).
+- **Completion khác approval (XD-01):** `/promotion/approve` chỉ lưu quyết định, không chứng minh chuyển lớp. Year reconciliation/list/retry/archive chỉ công nhận active/latest record có `completed_at` và `completed_target_year_id` khớp target đã persist. Receipt và audit `COMPLETE_PROMOTION` commit cùng membership move; GRADUATED/TRANSFERRED có thể hoàn tất với no-move tường minh. Thiếu lớp đích cho trường hợp cần chuyển → unresolved/error, archive bị chặn. Receipt lịch sử không bị suy lại từ class pointer hiện tại. Legacy thiếu receipt không tự backfill.
 - Không dùng hàng đợi generic `PUT /students/:id` để thăng tiến: khi offline UI phải giữ nguyên dữ liệu và yêu cầu kết nối lại. `PUT /students/:id` chỉ cho correction hồ sơ/membership có lý do audit tường minh, không thay thế promotion snapshot.
 
 ---
@@ -192,6 +195,7 @@ Status is **derived** (priority order, `deriveAcademicYearStatus`):
 Only admins (or chủ nhiệm via permissions) may transition; all transitions are audit-logged (`audit_logs`).
 
 ### 4.3 Semester Transitions
+- **Date-keyed attendance (XD-04):** một ngày điểm danh phải qua khóa calendar-year và mọi `academic_years` cùng parish có range chứa ngày đó (kể cả legacy IDs/ranges). `is_locked=1`, FINALIZED/PROMOTED/ARCHIVED hoặc khóa học kỳ tương ứng của bất kỳ range đó đều chặn direct/batch/leave-approved writes trong transaction; không tự chọn một range overlap để bỏ qua khóa. Tạo năm mới chỉ chấp nhận khoảng ngày nằm trong 01/08 năm đầu–31/07 năm sau; năm dạy học ngắn hơn vẫn hợp lệ. Không tự sửa range legacy hoặc dữ liệu lịch sử.
 - **Lock HK1** → status `SEMESTER_1_LOCKED`; grade/attendance writes for semester 1 now blocked server-side.
 - **Bắt Đầu HK2** (`POST /api/academic-years/:id/start-semester-2`) requires HK1 locked; sets `current_semester=2`.
 - **Lock HK2** → status `SEMESTER_2_LOCKED`.
@@ -435,13 +439,13 @@ Quy chiếu: quyền `exam.create`/`exam.delete` cho `phuta`/`chunhiem` (ADR-025
 
 ## 12. ĐIỂM SỐ — NHẬP ĐIỂM HẰNG NGÀY (Daily Entry Scope)
 
-### 12.1 Phạm vi Nhập Điểm Hằng Ngày (SSOT: `src/stores/dailyGradeStore.ts` + `src/types/index.ts` `DailyScoreType`)
-- Nhập Điểm Hằng Ngày chỉ áp dụng cho **3 loại điểm nhập nhiều lần**: Điểm Miệng (`oral`), Điểm 15 Phút (`15m`), Điểm 1 Tiết (`1period`). Mỗi lần nhập = 1 `DailyGradeEntry`; điểm cột = **trung bình** các lần nhập (`_source: 'daily_avg'`, làm tròn 1 số thập phân — `getAverageForStudent`).
-- **Hai nguồn vào, một trung bình**: mỗi cột daily nhận attempts từ (1) nhập tay (`manual_entry` trong sổ `assessment_entries`) và (2) bài thi máy cùng `scoreType` (`exam_finalization` trong cùng sổ). Điểm cột = trung bình **toàn bộ** attempts trong sổ theo `(student, academicYear, semester, scoreType)` — server tính authoritative lúc finalize; không nguồn nào được cộng 2 lần (`legacy_baseline` chỉ dựng khi sổ chưa có dòng tay nào).
+### 12.1 Phạm vi Nhập Điểm Hằng Ngày (server: `dailyEntryService` + `gradeService`; client: `dailyGradeStore` + `DailyScoreType`)
+- Nhập Điểm Hằng Ngày chỉ áp dụng cho **3 loại điểm nhập nhiều lần**: Điểm Miệng (`oral`), Điểm 15 Phút (`15m`), Điểm 1 Tiết (`1period`). Mỗi lần nhập = 1 `DailyGradeEntry`; điểm cột = **trung bình** các lần nhập (`_source: 'daily_avg'`, làm tròn 1 số thập phân). `getAverageForStudent` là preview từ ledger mà thiết bị đang biết, không thay thế server authority.
+- **Hai nguồn vào, một trung bình**: mỗi cột daily nhận attempts từ (1) nhập tay (`manual_entry` trong sổ `assessment_entries`) và (2) bài thi máy cùng `scoreType` (`exam_finalization` trong cùng sổ). Điểm cột = trung bình **toàn bộ** attempts trong sổ theo `(student, academicYear, semester, scoreType)`, làm tròn 1 số thập phân. Server tính authoritative trong transaction của add/delete manual entry và Exam finalize; client chỉ enqueue ledger và preview, không ghi Grade lần hai. Payload `daily_avg` của client cũ được server tính lại từ ledger; thiếu ledger mà gửi giá trị thì từ chối, không đoán dữ liệu. `legacy_baseline` chỉ dựng khi sổ hoàn toàn trống và Grade đang có daily_avg cũ; giữ baseline đã có, không backfill lại điểm lịch sử tự động. Undo Import không được hoàn tác projection daily như một lần nhập Excel độc lập với ledger.
 - **Giữa Kỳ (`midterm`) & Cuối Kỳ (`final`) KHÔNG qua daily entry**: mỗi học kỳ chỉ có 1 điểm duy nhất cho mỗi loại, nhập trực tiếp qua Ma Trận/Thẻ Điểm (manual) hoặc Import Excel (`excel_import`). UI daily entry không hiển thị tab Giữa Kỳ/Cuối Kỳ; store chặn ở type-level (`DailyScoreType`).
 - **Dữ liệu cũ**: daily entry loại `midterm`/`final` có trước quy tắc này (nếu còn trong Dexie) ngừng ảnh hưởng tới `syncAllToGradeStore`; giá trị đã sync vào `GradeRecord` giữ nguyên theo source cũ.
 
-### 12.2 Nguồn điểm & xung đột (SSOT: `dailyGradeStore.syncAllToGradeStore`)
+### 12.2 Nguồn điểm & xung đột (SSOT server: `gradeService.upsertGrade`; client chỉ preview)
 - `manual` và `override` là nguồn cao nhất: `daily_avg` **không bao giờ ghi đè** field đang có `_source: 'manual'` hoặc `'override'` — chỉ khi `_source` là `daily_avg`/`excel_import`/null thì TB hằng ngày mới được áp dụng.
 - Ghi đè điểm đã nhập tay phải đi qua luồng Override chính thức (audit `grade_overrides` + lý do), không ghi đè trực tiếp.
 

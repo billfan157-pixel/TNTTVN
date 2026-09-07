@@ -9,8 +9,8 @@ import { getClientIp } from '../utils/ip.js'
 import { getGrades, upsertGrade, upsertGradeBatch, undoGradeImport } from '../services/gradeService.js'
 import { VersionConflictError } from '../domain/errors.js'
 import { getStudentClassId } from '../services/studentService.js'
-import { getStudentIdsForClasses } from '../services/classAccessQueryService.js'
-import { db } from '../db/index.js'
+import { getStudentIdsForClasses, getAcademicReadStudentIds, academicReadScope } from '../services/classAccessQueryService.js'
+import { db, runDbTransaction } from '../db/index.js'
 import { gradeImportHashes, grades } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { getCurrentAcademicYear } from '../utils/academicYear.js'
@@ -65,6 +65,17 @@ export const gradeSchema = z.object({
 gradesRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const updatedAfter = c.req.query('updatedAfter')
+  if (c.req.query('includeScope') === 'true') {
+    const result = await runDbTransaction(async tx => {
+      const ids = await getAcademicReadStudentIds(user.userId, user.parishId, { role: user.role, epoch: user.tokenVersion }, tx)
+      const semester = isAdmin(user) ? null : await academicYearLifecycleService.getOpenSemester(user.parishId, tx)
+      const scope = academicReadScope(user.parishId, user.userId, ids, semester)
+      const mode = updatedAfter && c.req.query('scopeRevision') === scope.revision ? 'delta' : 'full'
+      const records = await getGrades(user.parishId, undefined, semester ?? undefined, mode === 'delta' ? updatedAfter : undefined, ids, tx)
+      return { records, scope, mode }
+    })
+    return successResponse(c, result)
+  }
   if (isAdmin(user)) {
     const list = await getGrades(user.parishId, undefined, undefined, updatedAfter)
     return listResponse(c, list)

@@ -6,7 +6,9 @@ import {
   HeartHandshake,
   FileSpreadsheet,
   ChevronRight,
+  BarChart2,
 } from 'lucide-react'
+import { SubpageHeader } from '../common/SubpageHeader'
 import { useStudentStore } from '../../stores/studentStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useClassStore } from '../../stores/classStore'
@@ -117,14 +119,37 @@ export const MobileAttendanceSummaryView: React.FC = () => {
         summary={selectedStudentSummary}
       />
 
-      {/* Filter Header */}
-      <div className="mobile-filter-panel flex flex-col gap-2.5">
-        <div className="flex items-center justify-between gap-2">
+      {/* Subpage Header */}
+      <SubpageHeader
+        icon={<BarChart2 size={15} />}
+        title="Tổng Hợp Chuyên Cần"
+        meta={
+          <span className="truncate">
+            <strong className="text-text-main font-bold">
+              {selectedClassId === 'all' ? 'Tất cả các lớp' : classList.find((c) => c.id === selectedClassId)?.name || 'Theo lớp'}
+            </strong>
+            <span aria-hidden="true" className="text-text-muted"> · </span>
+            <span>Niên học {currentYear}</span>
+          </span>
+        }
+        actions={
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="subpage-header__btn subpage-header__btn--primary"
+            aria-label="Xuất file Excel"
+          >
+            <FileSpreadsheet size={13} aria-hidden="true" />
+            <span>Excel</span>
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-2">
           {/* Lọc Lớp */}
           <select
             value={selectedClassId}
             onChange={(e) => setSelectedClassId(e.target.value)}
-            className="form-select text-xs font-bold flex-1 min-h-[44px] py-1 pl-3 pr-8 rounded-xl"
+            className="form-select text-xs font-bold w-full min-h-[44px] py-1 pl-3 pr-8 rounded-xl"
             aria-label="Chọn lớp xem tổng hợp chuyên cần"
           >
             <option value="all">Tất cả các lớp</option>
@@ -135,58 +160,48 @@ export const MobileAttendanceSummaryView: React.FC = () => {
             ))}
           </select>
 
-          {/* Xuất Excel */}
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="btn btn-primary text-xs font-bold mobile-btn px-3 flex items-center gap-1.5 shrink-0 shadow-xs rounded-xl min-h-[44px] py-1 active:scale-[0.98] transition-transform"
-          >
-            <FileSpreadsheet size={14} aria-hidden="true" />
-            <span>Excel</span>
-          </button>
-        </div>
-
-        {/* Segmented Period Tabs */}
-        <SegmentedControl
-          id="mobile-attendance-time-filter"
-          ariaLabel="Thời gian tổng hợp chuyên cần"
-          items={[
-            { value: 'year', label: 'Cả Năm' },
-            { value: 'sem1', label: 'Học Kỳ 1' },
-            { value: 'sem2', label: 'Học Kỳ 2' },
-          ]}
-          value={timeFilterType}
-          onValueChange={setTimeFilterType}
-          className="w-full"
-        />
-
-        {/* Search Box */}
-        <div className="relative">
-          <input
-            type="search"
-            inputMode="search"
-            placeholder="Tìm theo tên hoặc mã thiếu nhi..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="form-input text-xs font-medium min-h-[44px] w-full pr-8 rounded-xl"
-            style={{ paddingLeft: '36px' }}
-            aria-label="Tìm thiếu nhi trong bảng tổng hợp"
+          {/* Segmented Period Tabs */}
+          <SegmentedControl
+            id="mobile-attendance-time-filter"
+            ariaLabel="Thời gian tổng hợp chuyên cần"
+            items={[
+              { value: 'year', label: 'Cả Năm' },
+              { value: 'sem1', label: 'Học Kỳ 1' },
+              { value: 'sem2', label: 'Học Kỳ 2' },
+            ]}
+            value={timeFilterType}
+            onValueChange={setTimeFilterType}
+            className="w-full"
           />
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
-            <Search size={14} aria-hidden="true" />
-          </span>
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-1 rounded-full text-xs font-bold"
-              aria-label="Xóa tìm kiếm"
-            >
-              ✕
-            </button>
-          )}
+
+          {/* Search Box */}
+          <div className="relative">
+            <input
+              type="search"
+              inputMode="search"
+              placeholder="Tìm theo tên hoặc mã thiếu nhi..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="form-input text-xs font-medium min-h-[44px] w-full pr-8 rounded-xl"
+              style={{ paddingLeft: '36px' }}
+              aria-label="Tìm thiếu nhi trong bảng tổng hợp"
+            />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
+              <Search size={14} aria-hidden="true" />
+            </span>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-1 rounded-full text-xs font-bold"
+                aria-label="Xóa tìm kiếm"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      </SubpageHeader>
 
       {/* Quick KPI Overview */}
       <div className="grid grid-cols-2 gap-2">

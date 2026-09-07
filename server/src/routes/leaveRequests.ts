@@ -11,9 +11,11 @@ import { leaveRequests, students, classes, attendance, users, auditLogs, telegra
 import { generateId } from '../utils/id.js'
 import { getMyChildren } from '../services/parentService.js'
 import { sendTelegramMessageToChat } from '../services/telegram.js'
+import { getCurrentChildRecipientIds, ACADEMIC_NOTIFICATION_MESSAGE } from '../services/notificationQueue.js'
 import { isValidIsoDate } from '../utils/date.js'
 import { createSemesterLockSpecification } from '../services/policyAdapters.js'
 import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
+import { isAttendanceDateLocked } from '../services/academicYearService.js'
 
 const leaveRequestsRouter = new Hono()
 leaveRequestsRouter.use('*', authMiddleware)
@@ -307,9 +309,9 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
       if (!assignment) return 'forbidden' as const
     }
 
-    if (status === 'APPROVED' && !(await createSemesterLockSpecification(tx).isSatisfiedBy(
+    if (status === 'APPROVED' && (await isAttendanceDateLocked(user.parishId, request.date, tx) || !(await createSemesterLockSpecification(tx).isSatisfiedBy(
       resolveAcademicYear(request.date), resolveSemester(request.date), user.parishId,
-    ))) return 'locked' as const
+    )))) return 'locked' as const
 
     const updated = await tx
       .update(leaveRequests)
@@ -410,8 +412,12 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
         ))
 
       for (const link of links) {
-        const msg = `🔔 *Thông Báo Đơn Xin Nghỉ*\n\nĐơn xin nghỉ ngày *${request.date}* cho em *${request.parentName}* đã được *${status === 'APPROVED' ? '✅ CHẤP THUẬN' : '❌ TỪ CHỐI'}* bởi *${reviewerName}*.\n${reviewNote ? `Ghi chú: ${reviewNote}` : ''}`
-        await sendTelegramMessageToChat(link.chatId, msg).catch(() => {})
+        // A request's historical author is not current delivery authority.
+        // Revalidate on each attempt, never retarget to the new parent, and
+        // keep private review details behind the application's current scope.
+        const recipients = await getCurrentChildRecipientIds(user.parishId, request.studentId, [request.parentId])
+        if (!recipients.includes(request.parentId)) break
+        await sendTelegramMessageToChat(link.chatId, ACADEMIC_NOTIFICATION_MESSAGE).catch(() => {})
       }
     } catch {}
   }

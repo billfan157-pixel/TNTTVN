@@ -1,12 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { createClient } from '@libsql/client'
+import { createDisposableRestoreTarget } from '../helpers/restoreTarget.js'
 import { createLogicalSnapshot, decryptLogicalSnapshot, encryptLogicalSnapshot, restoreLogicalSnapshot } from '../../services/remoteBackup.js'
 
 const TEST_KEY = '11'.repeat(32)
 
-const createMemoryClient = () => createClient({ url: 'file::memory:?cache=shared' })
+const createMemoryClient = createDisposableRestoreTarget
 
 describe('encrypted Turso logical backup', () => {
+  it('rejects a checksum-valid snapshot missing a target table before any writes', async () => {
+    const target = createMemoryClient()
+    try {
+      await target.executeMultiple('CREATE TABLE academic_years (id TEXT PRIMARY KEY, status TEXT);')
+      await target.execute("INSERT INTO academic_years VALUES ('year', 'FINALIZED')")
+      const snapshot = await createLogicalSnapshot(target as any)
+      await target.execute('DELETE FROM academic_years')
+      await target.execute('CREATE TABLE academic_year_snapshots (id TEXT PRIMARY KEY)')
+      await expect(restoreLogicalSnapshot(target, snapshot)).rejects.toThrow(/missing target tables/)
+      expect((await target.execute('SELECT * FROM academic_years')).rows).toHaveLength(0)
+    } finally { target.close() }
+  })
+
+  it('does not certify equal row counts when a target trigger changes restored content', async () => {
+    const target = createMemoryClient()
+    try {
+      await target.execute('CREATE TABLE academic_years (id TEXT PRIMARY KEY, policy TEXT)')
+      await target.execute("INSERT INTO academic_years VALUES ('year', 'original-policy')")
+      const snapshot = await createLogicalSnapshot(target as any)
+      await target.execute('DELETE FROM academic_years')
+      await target.execute("CREATE TRIGGER corrupt_policy AFTER INSERT ON academic_years BEGIN UPDATE academic_years SET policy = 'changed'; END")
+      await expect(restoreLogicalSnapshot(target, snapshot)).rejects.toThrow(/content mismatch.*discard this target/)
+    } finally { target.close() }
+  })
+
   it('captures every table row and round-trips AES-GCM without plaintext PII', async () => {
     const executor = {
       execute: async (statement: unknown) => {

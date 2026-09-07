@@ -36,14 +36,19 @@ function isChildNotification(item: Pick<NotificationQueueItem, 'type'>): boolean
 /** Never retarget an old rendered item to a new owner. No network in this check. */
 async function currentChildRecipients(item: NotificationQueueItem): Promise<string[]> {
   const originalIds = item.channel === 'telegram' ? item.telegramUserIds : item.webpushUserIds
-  if (!item.studentId || !originalIds?.length) return []
+  return getCurrentChildRecipientIds(item.parishId, item.studentId, originalIds)
+}
+
+/** Shared eligibility for child-sensitive delivery, including non-queued leave reviews. */
+export async function getCurrentChildRecipientIds(parishId: string, studentId: string | undefined, originalIds: string[] | undefined): Promise<string[]> {
+  if (!studentId || !originalIds?.length) return []
   const [student] = await db.select({ phone: students.parentPhone }).from(students)
-    .where(and(eq(students.id, item.studentId), eq(students.parishId, item.parishId), isNull(students.deletedAt))).limit(1)
+    .where(and(eq(students.id, studentId), eq(students.parishId, parishId), isNull(students.deletedAt))).limit(1)
   if (!student) return []
   const phones = new Set(phoneMatchVariants(student.phone))
   if (!phones.size) return []
   const candidates = await db.select({ id: users.id, phone: users.phone }).from(users).where(and(
-    eq(users.parishId, item.parishId), inArray(users.id, originalIds), eq(users.role, 'phuhuynh'),
+    eq(users.parishId, parishId), inArray(users.id, originalIds), eq(users.role, 'phuhuynh'),
     eq(users.status, 'ACTIVE'), isNull(users.deletedAt),
   ))
   return candidates.filter(user => user.phone && phoneMatchVariants(user.phone).some(phone => phones.has(phone))).map(user => user.id)

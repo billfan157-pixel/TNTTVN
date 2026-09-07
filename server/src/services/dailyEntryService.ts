@@ -1,16 +1,27 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { runDbTransaction, db, type DbTransaction } from '../db/index.js'
-import { assessmentEntries, auditLogs, classes, students } from '../db/schema.js'
+import { assessmentEntries, auditLogs, classes, students, grades } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { createSemesterLockSpecification } from './policyAdapters.js'
 import { getStudentClassId } from './studentService.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
+import { upsertGrade } from './gradeService.js'
+import { normalizeAcademicYear } from '../utils/academicYear.js'
+
+const DAILY_FIELDS = { oral: 'scoreOral', '15m': 'score15m', '1period': 'score1Period' } as const
+
+async function projectDailyGrade(tx: DbTransaction, entry: { studentId: string; academicYear: string; semester: number; scoreType: string }, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null, expected?: AcademicWriteExpectation) {
+  const field = DAILY_FIELDS[entry.scoreType as DailyEntryScoreType]
+  const [grade] = await tx.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, entry.studentId), eq(grades.academicYear, entry.academicYear), eq(grades.semester, entry.semester))).limit(1)
+  // upsertGrade computes the value from the ledger and preserves overrides.
+  await upsertGrade({ studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, version: grade?.version, [field]: null, [`${field}_source`]: 'daily_avg' }, userId, parishId, ip, userAgent, tx, allowedClassIds, expected)
+}
 
 /**
  * Tier 2 (daily là điểm chính thức — BUSINESS_RULES §12.1): attempts nhập tay
  * là first-class ledger rows (`source='manual_entry'`, `exam_session_id=NULL`),
- * cùng sổ với `exam_finalization`. Finalize tính trung bình toàn sổ nên điểm
- * tay tự đúng mà không cần client ghi grade lần hai.
+ * cùng sổ với `exam_finalization`. Add/delete và Exam finalize project trung
+ * bình toàn sổ trong transaction, không cần client ghi grade lần hai.
  *
  * Idempotency: `id` = mã entry ổn định của client (`DG-...`) → retry trùng
  * trả `duplicate` qua PK `(parish_id,id)`; cùng id khác payload → 409.
@@ -145,7 +156,8 @@ export async function upsertDailyEntries(
   let duplicates = 0
   let errorCount = 0
 
-  for (const entry of entries) {
+  for (const input of entries) {
+    const entry = { ...input, academicYear: normalizeAcademicYear(input.academicYear) }
     if (!isValidIsoDate(entry.date ?? '')) {
       // date là additive cho hiển thị — thiếu/sai thì lưu NULL thay vì fail cả item.
       entry.date = null
@@ -175,6 +187,20 @@ export async function upsertDailyEntries(
         }
 
         const now = new Date().toISOString()
+        // Preserve a pre-ledger daily average once, matching Exam's legacy
+        // bridge. Never overwrite legacy history with the first new attempt.
+        const [ledger] = await tx.select({ id: assessmentEntries.id }).from(assessmentEntries).where(and(
+          eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.studentId, entry.studentId),
+          eq(assessmentEntries.academicYear, entry.academicYear), eq(assessmentEntries.semester, entry.semester), eq(assessmentEntries.scoreType, entry.scoreType),
+        )).limit(1)
+        if (!ledger) {
+          const [grade] = await tx.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, entry.studentId), eq(grades.academicYear, entry.academicYear), eq(grades.semester, entry.semester))).limit(1)
+          const field = DAILY_FIELDS[entry.scoreType]
+          const sourceColumn = `${field}Source` as 'scoreOralSource' | 'score15mSource' | 'score1PeriodSource'
+          if (grade?.[sourceColumn] === 'daily_avg' && typeof grade[field] === 'number') {
+            await tx.insert(assessmentEntries).values({ id: generateId('ASM'), parishId, studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, scoreType: entry.scoreType, rawScore: grade[field]!, maxScore: 10, score: grade[field]!, source: 'legacy_baseline', createdBy: 'system', createdAt: now })
+          }
+        }
         await tx.insert(assessmentEntries).values({
           id: entry.id,
           parishId,
@@ -191,6 +217,7 @@ export async function upsertDailyEntries(
           createdBy: userId,
           createdAt: now,
         })
+        await projectDailyGrade(tx, entry, userId, parishId, ip, userAgent, allowedClassIds, expected)
         await audit(tx, {
           userId, parishId, ip, userAgent,
           action: 'DAILY_ENTRY_SAVE',
@@ -243,6 +270,7 @@ export async function deleteDailyEntry(
     await tx
       .delete(assessmentEntries)
       .where(and(eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.id, id)))
+    await projectDailyGrade(tx, existing, userId, parishId, ip, userAgent, allowedClassIds, expected)
     await audit(tx, {
       userId, parishId, ip, userAgent,
       action: 'DAILY_ENTRY_DELETE',
@@ -294,7 +322,7 @@ export async function listDailyEntries(
 
   const conditions = [eq(assessmentEntries.parishId, parishId)]
   if (params.semester !== undefined) conditions.push(eq(assessmentEntries.semester, params.semester))
-  if (params.academicYear) conditions.push(eq(assessmentEntries.academicYear, params.academicYear))
+  if (params.academicYear) conditions.push(eq(assessmentEntries.academicYear, normalizeAcademicYear(params.academicYear)))
   if (params.scoreType) conditions.push(eq(assessmentEntries.scoreType, params.scoreType as 'oral' | '15m' | '1period'))
   if (params.studentId) {
     const classId = await getStudentClassId(params.studentId, parishId, db)

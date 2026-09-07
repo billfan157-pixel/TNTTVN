@@ -47,6 +47,8 @@ Vite :3100 ── /api proxy ──► Hono :3101 ──► SQLite sandbox riên
 
 Physical camera accuracy, target-device latency, thermal behavior và release corpus ADR-060 không được tuyên bố PASS từ browser E2E.
 
+XD-06 cross-domain regression (`e2e/cross-domain-scope.spec.ts`): real staff login → Grade/Attendance API pull → encrypted IndexedDB readback → browser offline → admin revokes assignment via real API → reconnect → scope-aware full pull retracts both caches → reload does not resurrect rows. Admin readback verifies server history remains intact. No API mocks or direct Zustand mutations; browser readback decrypts synthetic sandbox data solely to assert the persisted outcome. Original assignments are restored in `finally`. This does not certify disconnected-device erasure, physical crash recovery or every domain cache.
+
 ## 4. Quy tắc deterministic và chống flaky
 
 1. Không dùng `waitForTimeout`, sleep hoặc retry thủ công. Chờ observable event: response có method/path đúng, URL, accessible state, IndexedDB state hoặc `expect.poll` trên authoritative read.

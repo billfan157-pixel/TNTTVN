@@ -1,7 +1,7 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
-  Archive, Award, CalendarDays, Landmark, Megaphone, Users, Wallet,
+  Archive, Award, CalendarDays, Landmark, Megaphone, Sparkles, Users, Wallet,
   ChevronRight, Clock, MapPin, UserCheck,
   Bell, Building2,
 } from 'lucide-react'
@@ -9,6 +9,7 @@ import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
 import { ErrorState, SkeletonCardGrid } from '../components/common/StateFeedback'
 import { Button, Surface, Badge } from '../components/common/ui'
+import { ParishLogoModal } from '../components/parish/ParishLogoModal'
 import { useAuthStore } from '../stores/authStore'
 import { useParishProfileStore } from '../stores/parishProfileStore'
 import { useParishEventStore } from '../stores/parishEventStore'
@@ -31,6 +32,7 @@ const destinations = [
 
 export default function OrganizationDashboardPage() {
   const navigate = useNavigate()
+  const [showLogoModal, setShowLogoModal] = useState(false)
   const role = useAuthStore(state => state.user?.role)
   const snapshot = useParishProfileStore(state => state.snapshot)
   const isLoading = useParishProfileStore(state => state.isLoading)
@@ -135,6 +137,14 @@ export default function OrganizationDashboardPage() {
         icon={<Landmark aria-hidden="true" className="h-6 w-6" />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              leadingIcon={<Sparkles className="h-4 w-4 text-parish-secondary" />}
+              onClick={() => setShowLogoModal(true)}
+            >
+              Ý Nghĩa Logo
+            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -449,6 +459,7 @@ export default function OrganizationDashboardPage() {
           </Surface>
         </div>
       </div>
+      <ParishLogoModal isOpen={showLogoModal} onClose={() => setShowLogoModal(false)} />
     </DesktopAppShell>
   )
 }

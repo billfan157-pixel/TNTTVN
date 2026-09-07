@@ -103,7 +103,8 @@ const SPECIAL_COMPOSITE_PRIMARY_KEYS: Record<string, string[]> = {
 }
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
-  academic_years: ['promotion_target_year_id'],
+  academic_years: ['promotion_target_year_id', 'finalization_policy'],
+  academic_year_snapshots: ['source_class_id', 'report_snapshot'],
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
   grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
@@ -113,7 +114,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   exam_results: ['parish_id', 'scan_metadata', 'exam_version', 'result_version', 'attempt_fingerprint', 'captured_at', 'saved_by', 'saved_at'],
   exam_sessions: ['idempotency_key', 'questions', 'answer_variants', 'variant_manifests', 'source_type', 'blueprint_id', 'blueprint_snapshot', 'build_request_hash'],
   exam_result_mutations: ['client_mutation_id', 'parish_id', 'user_id', 'exam_session_id', 'student_id', 'request_hash', 'response_json'],
-  promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status'],
+  promotion_records: ['is_latest', 'is_overridden', 'final_decision', 'status', 'completed_at', 'completed_target_year_id'],
   grade_overrides: ['parish_id', 'deleted_at', 'score_field', 'manual_value'],
   parish_profiles: ['parish_id', 'display_name', 'founded_date'],
   parish_people: ['parish_id', 'id', 'visibility', 'deleted_at'],
@@ -217,6 +218,21 @@ function createHealthyClient(
 }
 
 describe('database startup readiness gate', () => {
+  it.each([
+    'academic_years.finalization_policy',
+    'academic_year_snapshots.source_class_id',
+    'academic_year_snapshots.report_snapshot',
+    'promotion_records.completed_at',
+  ])('fails closed when cross-domain recovery evidence column %s is missing', async (column) => {
+    await expect(assertDatabaseReady(createHealthyClient({ omitColumn: column })))
+      .rejects.toThrow(`missing required column ${column}`)
+  })
+
+  it('requires the historical evidence migration marker even when columns exist', async () => {
+    await expect(assertDatabaseReady(createHealthyClient({ omitMigration: '20260907-181' })))
+      .rejects.toThrow('missing required migration marker 20260907-181')
+  })
+
   it('accepts a fully migrated tenant-safe schema snapshot', async () => {
     await expect(assertDatabaseReady(createHealthyClient())).resolves.toBeUndefined()
   })

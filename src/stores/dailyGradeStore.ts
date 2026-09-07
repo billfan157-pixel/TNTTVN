@@ -38,9 +38,8 @@ interface DailyGradeState {
  * bằng tập partial của 1 device rồi push ngược lên.
  * - `scoreTypes`: chỉ project (cột điểm user vừa tác động (add/remove gọi với
  *   đúng 1 type). Không scope (fetch/display) → mọi cột.
- * - `skipSync`: đường pull/display (fetchGrades) chỉ tính lại hiển thị, KHÔNG
- *   null-out giá trị server và KHÔNG enqueue. Đường user-intent (add/remove)
- *   giữ nguyên push để điểm daily chính thức lên server.
+ * - `skipSync`: đường pull/display giữ nguyên Grade authoritative.
+ *   User intent chỉ preview local và enqueue ledger; server tự project Grade.
  */
 interface SyncProjectionOpts {
   scoreTypes?: DailyScoreType[]
@@ -72,9 +71,8 @@ export const useDailyGradeStore = create<DailyGradeState>()(
           createdAt: new Date().toISOString(),
         }
         set((state) => ({ entries: [...state.entries, entry] }))
-        // Tier 2: enqueue ledger-row TRƯỚC grade-projection (Dexie giữ thứ tự
-        // gọi → server áp entry trước grade cùng chu kỳ; finalize sau đó thấy
-        // sổ đầy đủ, không dựng baseline trùng).
+        // The durable ledger mutation is the only write. Grade is projected
+        // by the server atomically; local Grade below is a preview only.
         void syncUpsertDailyEntry({
           id: entry.id,
           studentId,
@@ -92,6 +90,7 @@ export const useDailyGradeStore = create<DailyGradeState>()(
         if (entry) {
           set((state) => ({
             entries: state.entries.filter(e => e.id !== id),
+            serverEntries: state.serverEntries.filter(e => e.id !== id),
           }))
           // Tier 2: xóa ledger-row server (chỉ dòng tay) + projection local.
           // Add-then-remove khi offline được compact hủy cả cặp (không trace server).
@@ -117,7 +116,12 @@ export const useDailyGradeStore = create<DailyGradeState>()(
       },
 
       getAverageForStudent: (studentId, semester, scoreType) => {
-        const entries = get().getEntriesForStudent(studentId, semester, scoreType)
+        const year = normalizeAcademicYear(getActiveAcademicYear())
+        const merged = new Map<string, { value: number }>()
+        get().serverEntries.filter(e => e.studentId === studentId && e.semester === semester && e.scoreType === scoreType && normalizeAcademicYear(e.academicYear) === year)
+          .forEach(e => merged.set(e.id, e))
+        get().getEntriesForStudent(studentId, semester, scoreType).forEach(e => merged.set(e.id, e))
+        const entries = [...merged.values()]
         if (entries.length === 0) return null
         const sum = entries.reduce((acc, e) => acc + e.value, 0)
         return Math.round((sum / entries.length) * 10) / 10
@@ -158,6 +162,9 @@ export const useDailyGradeStore = create<DailyGradeState>()(
       },
 
       syncAllToGradeStore: (studentIds, semester, opts) => {
+        // Server pull is authoritative. Partial-device attempts must never
+        // overwrite it, even without enqueueing a write back to the server.
+        if (opts?.skipSync) return
         const currentAY = getActiveAcademicYear()
         const currentAYNorm = normalizeAcademicYear(currentAY)
         const fallbackAYNorm = normalizeAcademicYear(getCurrentAcademicYear())
@@ -243,7 +250,7 @@ export const useDailyGradeStore = create<DailyGradeState>()(
           // grade row rỗng + enqueue sync rác (vd field bị guard manual/override).
           if (Object.keys(update).length > 3) {
             void useGradeStore.getState()
-              .upsertGrade(update as Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, skipSync)
+              .upsertGrade(update as Partial<GradeRecord> & { studentId: string; semester: 1 | 2 }, true)
               .catch(err => console.warn('[dailyGradeStore] enqueue grade projection failed:', err))
           }
         })

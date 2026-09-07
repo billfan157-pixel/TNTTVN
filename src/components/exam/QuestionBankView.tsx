@@ -31,12 +31,14 @@ import type {
   QuestionDifficulty,
 } from '../../types'
 import { useAuth } from '../../hooks/useAuth'
+import { useEffectiveMode } from '../../hooks/useEffectiveMode'
 import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { Badge, type BadgeTone, Button, Surface } from '../common/ui'
 import { TabPanel, Tabs, type SelectionItem } from '../common/ui/SelectionControls'
 import { ModalShell } from '../common/ModalShell'
 import { PageHeader } from '../common/PageHeader'
+import { SubpageHeader } from '../common/SubpageHeader'
 import { QuestionEditorModal } from './QuestionEditorModal'
 import { QuestionBankImportModal } from './QuestionBankImportModal'
 import {
@@ -87,6 +89,7 @@ const DIFFICULTY_TONES: Record<QuestionDifficulty, BadgeTone> = {
 type ViewTab = 'questions' | 'blueprints' | 'builder'
 
 export function QuestionBankView() {
+  const effectiveMode = useEffectiveMode()
   const { role, user } = useAuth()
   const classes = useClassStore(state => state.classes)
   const branches = useClassStore(state => state.branches)
@@ -387,39 +390,76 @@ export function QuestionBankView() {
 
   return (
     <div className="space-y-4">
-      {/* 1. Header chính phân hệ chuẩn PageHeader (DS §5) */}
-      <PageHeader
-        title="Ngân Hàng Câu Hỏi & Đề Thi"
-        description="Question Bank → Blueprint → Immutable Exam → OMR Variants. Dữ liệu đề thi lưu trữ dưới dạng snapshot bất biến."
-        icon={<BookOpenCheck className="h-5 w-5 text-parish-primary" />}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
+      {/* 1. Header chính phân hệ: SubpageHeader trên mobile, PageHeader trên desktop */}
+      {effectiveMode === 'mobile' ? (
+        <SubpageHeader
+          icon={<BookOpenCheck size={15} />}
+          title="Ngân Hàng Đề Thi"
+          meta={<span className="truncate">Snapshot bất biến · Ma trận & OMR</span>}
+          badge={
             <Badge tone={online ? 'success' : 'warning'}>
-              {online ? 'Server sẵn sàng' : 'Chỉ đọc khi offline'}
+              {online ? 'Sẵn sàng' : 'Offline'}
             </Badge>
-            <Button
-              size="sm"
-              variant="secondary"
-              leadingIcon={<FileUp className="h-4 w-4" />}
-              onClick={() => setImportOpen(true)}
-            >
-              Import Excel / Word
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              leadingIcon={<Plus className="h-4 w-4" />}
-              onClick={() => {
-                setEditingId(null)
-                setForm(EMPTY_QUESTION)
-                setEditorOpen(true)
-              }}
-            >
-              Tạo câu hỏi nháp
-            </Button>
-          </div>
-        }
-      />
+          }
+          actions={
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setImportOpen(true)}
+                className="subpage-header__btn subpage-header__btn--secondary"
+                title="Import Excel / Word"
+              >
+                <FileUp size={13} /> Import
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingId(null)
+                  setForm(EMPTY_QUESTION)
+                  setEditorOpen(true)
+                }}
+                className="subpage-header__btn subpage-header__btn--primary"
+                title="Tạo câu hỏi nháp"
+              >
+                <Plus size={13} /> Tạo
+              </button>
+            </div>
+          }
+        />
+      ) : (
+        <PageHeader
+          title="Ngân Hàng Câu Hỏi & Đề Thi"
+          description="Question Bank → Blueprint → Immutable Exam → OMR Variants. Dữ liệu đề thi lưu trữ dưới dạng snapshot bất biến."
+          icon={<BookOpenCheck className="h-5 w-5 text-parish-primary" />}
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={online ? 'success' : 'warning'}>
+                {online ? 'Server sẵn sàng' : 'Chỉ đọc khi offline'}
+              </Badge>
+              <Button
+                size="sm"
+                variant="secondary"
+                leadingIcon={<FileUp className="h-4 w-4" />}
+                onClick={() => setImportOpen(true)}
+              >
+                Import Excel / Word
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                leadingIcon={<Plus className="h-4 w-4" />}
+                onClick={() => {
+                  setEditingId(null)
+                  setForm(EMPTY_QUESTION)
+                  setEditorOpen(true)
+                }}
+              >
+                Tạo câu hỏi nháp
+              </Button>
+            </div>
+          }
+        />
+      )}
 
       {/* 2. Thanh KPI Metrics Summary */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

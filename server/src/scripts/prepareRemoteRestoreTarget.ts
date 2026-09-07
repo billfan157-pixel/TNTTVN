@@ -1,11 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createClient } from '@libsql/client'
-import { applyBootstrapSchema } from '../db/bootstrapSchema.js'
-import { applyMigrations } from '../db/migrationRunner.js'
 import { MIGRATIONS } from '../db/migrations.js'
-import { applyDefensiveSync } from '../db/defensiveSync.js'
-import { applyIndices } from '../db/bootstrapIndices.js'
-import { assertDatabaseReady } from '../db/schemaHealth.js'
+import { prepareEmptyRestoreTarget } from '../db/restorePreparation.js'
 
 const targetUrl = process.env.RESTORE_DATABASE_URL
 const targetToken = process.env.RESTORE_DATABASE_AUTH_TOKEN
@@ -40,11 +36,7 @@ try {
   }
 
   const startedAt = Date.now()
-  await applyBootstrapSchema(target)
-  await applyMigrations(target, MIGRATIONS)
-  await applyDefensiveSync(target)
-  await applyIndices(target)
-  await assertDatabaseReady(target)
+  await prepareEmptyRestoreTarget(target)
   console.log(JSON.stringify({
     status: 'restore_target_prepared',
     targetFingerprint: fingerprint,

@@ -35,6 +35,7 @@ interface ParishProfileState {
   deleteRecord: (id: string) => Promise<boolean>
   createExternalAsset: (data: ParishExternalAssetInput) => Promise<boolean>
   uploadAsset: (data: ParishUploadAssetInput) => Promise<boolean>
+  uploadAssets: (data: ParishUploadAssetInput[], onProgress?: (current: number, total: number) => void) => Promise<boolean>
   updateAsset: (id: string, data: ParishAssetInput) => Promise<boolean>
   deleteAsset: (id: string) => Promise<boolean>
   clear: () => void
@@ -94,6 +95,12 @@ export const useParishProfileStore = create<ParishProfileState>((set, get) => {
     deleteRecord: id => mutate(() => api.parishProfile.deleteRecord(id)),
     createExternalAsset: data => mutate(() => api.parishProfile.createExternalAsset(data)),
     uploadAsset: data => mutate(() => api.parishProfile.uploadAsset(data)),
+    uploadAssets: (data, onProgress) => mutate(async () => {
+      for (let i = 0; i < data.length; i++) {
+        await api.parishProfile.uploadAsset(data[i])
+        onProgress?.(i + 1, data.length)
+      }
+    }),
     updateAsset: (id, data) => mutate(() => api.parishProfile.updateAsset(id, data)),
     deleteAsset: id => mutate(() => api.parishProfile.deleteAsset(id)),
     clear: () => set({ snapshot: null, isLoading: false, isSaving: false, error: null, isStale: false }),

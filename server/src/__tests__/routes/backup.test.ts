@@ -12,24 +12,24 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
   // A07 (2026-08-10): export/restore yêu cầu re-authentication — seed bcrypt
   // hash hợp lệ + gửi kèm adminPassword trong mọi call.
   const ADMIN_PASSWORD = 'BackupAdmin@123'
-  const { accessToken } = generateTokens({
-    userId: adminId,
-    username: 'admin_backup_test',
-    role: 'admin',
-    parishId: 'gia-ton',
-    tokenVersion: 1,
-  })
+  let parishId: string
+  let accessToken: string
 
   beforeEach(async () => {
     const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 4)
-    await db.delete(users).where(eq(users.username, 'admin_backup_test'))
+    parishId = `backup-fixture-${generateId('BR')}`
+    accessToken = generateTokens({ userId: adminId, username: 'admin_backup_test', role: 'admin', parishId, tokenVersion: 1 }).accessToken
+    // Each whole-parish restore owns its fixture, not another suite's ledger.
+    await db.insert(branches).values({ id: 'br-au-nhi', parishId, name: 'Ấu Nhi', scarfColor: 'Xanh Lá', ageMin: 6, ageMax: 9 })
+    await db.insert(academicYears).values({ id: '2025-2026', parishId, startDate: '2025-08-01', endDate: '2026-07-31' })
+    await db.insert(classes).values({ id: 'cls-test-bk', parishId, code: 'AN1-BK', name: 'Ấu Nhi 1', branchId: 'br-au-nhi', academicYearId: '2025-2026' })
     await db.insert(users).values({
       id: adminId,
       username: 'admin_backup_test',
       passwordHash,
       fullName: 'Admin Backup Test',
       role: 'admin',
-      parishId: 'gia-ton',
+      parishId,
       status: 'ACTIVE',
       tokenVersion: 1,
       createdAt: new Date().toISOString(),
@@ -43,6 +43,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
 
     await db.insert(branches).values({
       id: testBranchId,
+      parishId,
       name: 'Ấu Nhi',
       scarfColor: 'Xanh Lá',
       ageMin: 6,
@@ -51,6 +52,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
 
     await db.insert(academicYears).values({
       id: testYearId,
+      parishId,
       startDate: '2025-09-01',
       endDate: '2026-05-31',
     }).onConflictDoNothing()
@@ -58,6 +60,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
     const testClassId = 'cls-test-bk'
     await db.insert(classes).values({
       id: testClassId,
+      parishId,
       code: 'AN1-BK',
       name: 'Ấu Nhi 1',
       branchId: testBranchId,
@@ -71,6 +74,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
       id: testId,
       code: testCode,
       holyName: 'Gioan',
+      parishId,
       fullName: 'Nguyễn Văn Backup',
       gender: 'Nam',
       dateOfBirth: '2015-01-01',
@@ -109,6 +113,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
       id: testId,
       code: testCode,
       holyName: 'Maria',
+      parishId,
       fullName: 'Trần Thị Khôi Phục',
       gender: 'Nữ',
       dateOfBirth: '2016-05-05',
@@ -154,8 +159,8 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
   })
 
   it('3. Export keeps exam results tenant-scoped when session/student IDs collide', async () => {
-    const localParish = 'gia-ton'
-    const foreignParish = 'backup-domain2-foreign'
+    const localParish = parishId
+    const foreignParish = `${parishId}-foreign`
     const branchId = 'br-backup-domain2-shared'
     const yearId = 'ay-backup-domain2-shared'
     const classId = 'cls-backup-domain2-shared'
@@ -262,7 +267,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
     const now = new Date().toISOString()
     await db.insert(questionBankItems).values({
       id: questionId,
-      parishId: 'gia-ton',
+      parishId,
       status: 'active',
       currentVersion: 1,
       tags: '[]',
@@ -273,7 +278,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
     })
     await db.insert(questionBankVersions).values({
       id: versionId,
-      parishId: 'gia-ton',
+      parishId,
       questionId,
       version: 1,
       questionType: 'essay',
@@ -294,8 +299,8 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
     expect(snapshot.data.questionBankItems.some((row: any) => row.id === questionId)).toBe(true)
     expect(snapshot.data.questionBankVersions.some((row: any) => row.id === versionId)).toBe(true)
 
-    await db.delete(questionBankItems).where(and(eq(questionBankItems.parishId, 'gia-ton'), eq(questionBankItems.id, questionId)))
-    expect(await db.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, 'gia-ton'), eq(questionBankVersions.id, versionId)))).toHaveLength(0)
+    await db.delete(questionBankItems).where(and(eq(questionBankItems.parishId, parishId), eq(questionBankItems.id, questionId)))
+    expect(await db.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, parishId), eq(questionBankVersions.id, versionId)))).toHaveLength(0)
 
     const restoreRes = await backupRouter.request('/restore', {
       method: 'POST',
@@ -303,7 +308,7 @@ describe('Sprint 3.3 Real Backup & Restore Integration Test', () => {
       body: JSON.stringify({ ...snapshot, adminPassword: ADMIN_PASSWORD }),
     })
     expect(restoreRes.status).toBe(200)
-    const restored = await db.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, 'gia-ton'), eq(questionBankVersions.id, versionId)))
+    const restored = await db.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, parishId), eq(questionBankVersions.id, versionId)))
     expect(restored).toHaveLength(1)
     expect(restored[0].stem).toBe('Câu hỏi cần khôi phục nguyên vẹn?')
   })

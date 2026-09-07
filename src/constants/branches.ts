@@ -8,7 +8,7 @@ export const BRANCHES: Record<string, BranchInfo> = {
     bgColor: '#FDF2F8',
     badgeBg: '#FCE7F3',
     textColor: '#9D174D',
-    description: 'Độ tuổi mầm chồi, tập làm quen với Chúa Giê-su',
+    description: '“Hiền lành” — làm quen nhà thờ, sinh hoạt cộng đoàn và việc đạo đức',
     ageRange: '4 - 6 tuổi'
   },
   AuNhi: {
@@ -18,7 +18,7 @@ export const BRANCHES: Record<string, BranchInfo> = {
     bgColor: '#F0FDF4',
     badgeBg: '#DCFCE7',
     textColor: '#15803D',
-    description: 'Chúa Giê-su Ngoan Ngoãn, học sống hiếu thảo',
+    description: '“Ngoan” — vâng lời, ngoan ngoãn, dễ dạy',
     ageRange: '7 - 9 tuổi'
   },
   ThieuNhi: {
@@ -28,7 +28,7 @@ export const BRANCHES: Record<string, BranchInfo> = {
     bgColor: '#EFF6FF',
     badgeBg: '#DBEAFE',
     textColor: '#1D4ED8',
-    description: 'Chúa Giê-su Hy Sinh, nhiệt thành tham dự Thánh Lễ',
+    description: '“Hy sinh” — nhiệt thành tham dự Thánh lễ',
     ageRange: '10 - 12 tuổi'
   },
   NghiaSi: {
@@ -38,7 +38,7 @@ export const BRANCHES: Record<string, BranchInfo> = {
     bgColor: '#FEFCE8',
     badgeBg: '#FEF08A',
     textColor: '#854D0E',
-    description: 'Chúa Giê-su Chinh Phục, sống chứng nhân Tin Mừng',
+    description: '“Chinh phục” — bình minh vào đời, chinh phục các linh hồn cho Chúa',
     ageRange: '13 - 15 tuổi'
   },
   HiepSi: {
@@ -48,7 +48,7 @@ export const BRANCHES: Record<string, BranchInfo> = {
     bgColor: '#FAF5F0',
     badgeBg: '#EDE0D4',
     textColor: '#5C2E0B',
-    description: 'Dấn thân phục vụ Giáo hội và Xã hội',
+    description: '“Dấn thân” — nên muối men, ánh sáng giữa đời',
     ageRange: '16 - 18 tuổi'
   }
 };

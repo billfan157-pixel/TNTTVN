@@ -29,6 +29,7 @@ import { MobileLeaveRequests } from './MobileLeaveRequests'
 import { MobileAttendanceSummaryView } from './MobileAttendanceSummaryView'
 import type { AttendanceType, Student } from '../../types'
 import { TabPanel, Tabs } from '../common/ui/SelectionControls'
+import { SubpageHeader } from '../common/SubpageHeader'
 import { hapticFeedback } from '../../utils/haptics'
 
 type AttendanceStatus = 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
@@ -246,33 +247,37 @@ export const MobileAttendanceView: React.FC = () => {
   }
 
   const renderAttendanceWorkspace = () => (
-    <>
-      <section className="attendance-session-panel" aria-labelledby="attendance-session-title">
-        <div className="attendance-session-panel__heading">
-          <div>
-            <p className="attendance-eyebrow">Phiên điểm danh</p>
-            <div className="flex items-center gap-2">
-              <h2 id="attendance-session-title">{SESSION_LABELS[type]}</h2>
-              {isLocked && (
-                <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                  <Lock size={12} /> {lockError ? 'Khóa sổ' : 'Chỉ xem'}
-                </span>
-              )}
-            </div>
-            <div className={`attendance-session-context ${liturgicalColor.textClass}`}>
-              <span className="attendance-liturgical-dot" style={{ backgroundColor: liturgicalColor.hex }} aria-hidden="true" />
+    <div className="product-view flex flex-col gap-3 pb-8">
+      <SubpageHeader
+        icon={<CheckSquare size={15} />}
+        title={<span id="attendance-session-title">Phiên điểm danh</span>}
+        badge={
+          isLocked ? (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+              <Lock size={11} /> {lockError ? 'Khóa sổ' : 'Chỉ xem'}
+            </span>
+          ) : undefined
+        }
+        meta={
+          <span className="inline-flex items-center gap-1.5 truncate">
+            <strong className="text-text-main font-bold">{SESSION_LABELS[type]}</strong>
+            <span aria-hidden="true" className="text-text-muted">·</span>
+            <span className={`inline-flex items-center gap-1 ${liturgicalColor.textClass}`}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: liturgicalColor.hex }} aria-hidden="true" />
               <span className="truncate">{liturgicalDay.title}</span>
               <span aria-hidden="true">·</span>
               <strong>{liturgicalDay.colorName}</strong>
-            </div>
-          </div>
-          {!needsAdminClassSelection && (
-            <span className="attendance-total-badge tabular-nums">
-              <Users size={14} aria-hidden="true" /> {filteredStudents.length} em
             </span>
-          )}
-        </div>
-
+          </span>
+        }
+        actions={
+          !needsAdminClassSelection ? (
+            <span className="attendance-total-badge tabular-nums">
+              <Users size={13} aria-hidden="true" /> {filteredStudents.length} em
+            </span>
+          ) : undefined
+        }
+      >
         <div className="attendance-session-grid">
           <label className="attendance-field">
             <span><CalendarClock size={13} aria-hidden="true" /> Ngày</span>
@@ -351,7 +356,7 @@ export const MobileAttendanceView: React.FC = () => {
             </button>
           </div>
         )}
-      </section>
+      </SubpageHeader>
 
       {(error || lockError) && (
         <div className="attendance-feedback attendance-feedback--error" role="alert">
@@ -589,7 +594,7 @@ export const MobileAttendanceView: React.FC = () => {
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 
   return (

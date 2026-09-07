@@ -1,3 +1,4 @@
+import { academicPullFixture } from './helpers/academicPull'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }))
@@ -17,7 +18,7 @@ vi.mock('../lib/resetClientData', async (importOriginal) => {
 })
 
 import { initDB, getDB } from '../lib/db'
-import { useSyncStore } from '../stores/syncStore'
+import { useSyncStore, getOwnUnsettledSyncOperations } from '../stores/syncStore'
 import { runSyncFlow } from '../lib/syncCoordinator'
 import { api } from '../lib/api'
 import { PURGE_VERSION_KEY, resetClientData } from '../lib/resetClientData'
@@ -43,8 +44,8 @@ function mockApiMethods(purgeVersion: number) {
   vi.spyOn(api, 'probePurgeVersion').mockResolvedValue(purgeVersion)
   vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
   vi.spyOn(api, 'getStudents').mockResolvedValue({ data: [], total: 0 })
-  vi.spyOn(api, 'getGrades').mockResolvedValue([])
-  vi.spyOn(api, 'getAttendance').mockResolvedValue([])
+  vi.spyOn(api, 'pullGrades').mockResolvedValue(academicPullFixture([]))
+  vi.spyOn(api, 'pullAttendance').mockResolvedValue(academicPullFixture([]))
   vi.spyOn(api, 'getNotices').mockResolvedValue([])
   vi.spyOn(api, 'getClasses').mockResolvedValue([])
   vi.spyOn(api, 'getClassBranches').mockResolvedValue([])
@@ -71,6 +72,36 @@ describe('Sync Engine — PURGE v2.3 trên device mới (A-NEW-46)', () => {
     expect(localStorage.getItem(PURGE_VERSION_KEY)).toBe('4')
     expect(localStorage.getItem('parish_current_user')).not.toBeNull()
     expect(useSyncStore.getState().status).toBe('idle')
+  })
+
+  it('device thiếu generation key nhưng có queue cũ phải reset trước khi sync', async () => {
+    await getDB().syncQueue.put({
+      id: 'legacy-pending', entity: 'grade', entityId: 'grade-1', operation: 'UPDATE', payload: '{}',
+      retryCount: 0, lastError: null, createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
+      status: 'pending', deviceId: 'device', userId: 'U-TEST', parishId: 'PARISH-TEST',
+    })
+    mockApiMethods(4)
+
+    await runSyncFlow()
+
+    expect(resetClientDataMock).toHaveBeenCalledWith(4)
+    expect(api.getSyncWatermark).not.toHaveBeenCalled()
+  })
+
+  it('recovery barrier includes failed/processing own ops but excludes completed and other-owner rows', async () => {
+    const base = {
+      entity: 'grade' as const, entityId: 'grade-1', operation: 'UPDATE' as const, payload: '{}',
+      retryCount: 0, lastError: null, createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
+      deviceId: 'device', parishId: 'PARISH-TEST',
+    }
+    await getDB().syncQueue.bulkPut([
+      { ...base, id: 'own-failed', status: 'failed', userId: 'U-TEST' },
+      { ...base, id: 'own-processing', status: 'processing', userId: 'U-TEST' },
+      { ...base, id: 'own-completed', status: 'completed', userId: 'U-TEST' },
+      { ...base, id: 'other-pending', status: 'pending', userId: 'OTHER' },
+    ])
+
+    expect((await getOwnUnsettledSyncOperations()).map(op => op.id)).toEqual(['own-failed', 'own-processing'])
   })
 
   it('device cũ (purge key = 1) + server 4 → resetClientData được gọi với version mới', async () => {

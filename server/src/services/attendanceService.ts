@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { db, type DbExecutor } from '../db/index.js'
 import { attendance, students } from '../db/schema.js'
 import { eq, and, gte, inArray, isNull } from 'drizzle-orm'
 
@@ -17,11 +17,12 @@ export async function getAttendance(
   type?: 'SundayMass' | 'CatechismClass',
   updatedAfter?: string,
   studentIds?: string[],
+  executor: DbExecutor = db,
 ) {
   if (studentIds?.length === 0) return []
   // ADR-016: Exclude attendance rows belonging to soft-deleted students, matching
   // gradeService.getGrades which filters with `activeStudentSubquery`.
-  const activeStudentSubquery = db
+  const activeStudentSubquery = executor
     .select({ id: students.id })
     .from(students)
     .where(and(eq(students.parishId, parishId), isNull(students.deletedAt)))
@@ -35,5 +36,5 @@ export async function getAttendance(
   if (type) conditions.push(eq(attendance.type, type))
   if (updatedAfter) conditions.push(gte(attendance.updatedAt, updatedAfter))
   if (studentIds && studentIds.length > 0) conditions.push(inArray(attendance.studentId, studentIds))
-  return db.select().from(attendance).where(and(...conditions))
+  return executor.select().from(attendance).where(and(...conditions))
 }

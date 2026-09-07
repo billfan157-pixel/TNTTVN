@@ -10,7 +10,7 @@ Nền tảng quản lý điểm số, chuyên cần, hồ sơ Thiếu Nhi Thánh
 - **Core Framework**: React 19 + TypeScript 5.8
 - **Build Tool**: Vite 8
 - **Styling**: Tailwind CSS 4 + Design Token Variables (`src/index.css`)
-- **Routing**: TanStack Router (25 paths: 20 protected, 4 public/auth, 1 root redirect)
+- **Routing**: TanStack Router (25 paths: 20 protected, 5 public — trang giới thiệu `/`, 3 cổng đăng nhập, xác thực chứng nhận)
 - **State Management**: Zustand 5 + Dexie.js (IndexedDB Persistence & Offline Sync Queue)
 - **Table Component**: TanStack Table v8
 - **Monitoring & Diagnostics**: Sentry React + Custom System Diagnostics Modal
@@ -32,7 +32,7 @@ brave-davinci/
 │   ├── components/             # 97 TSX Components (auth/common/desktop/exam/finance/mobile/parish)
 │   ├── hooks/                  # 18 React Hooks (useAuth, useParentPortal, useSyncEngine, useEffectiveMode, ...)
 │   ├── lib/                    # API Client, Dexie DB, Sync Engine, Sentry
-│   ├── pages/                  # 24 Route Pages (20 protected + 4 public/auth)
+│   ├── pages/                  # 25 Route Pages (20 protected + 5 public)
 │   ├── stores/                 # 22 Zustand Stores (12 persisted, 10 in-memory)
 │   ├── types/                  # TypeScript Interfaces & Models
 │   └── utils/                  # Pure Helpers (grades, sacraments, excelParser, pdfGenerator)

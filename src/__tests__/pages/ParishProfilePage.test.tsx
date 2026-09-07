@@ -69,4 +69,115 @@ describe('ParishProfilePage', () => {
     expect(nameInput.closest('label')?.classList.contains('form-group')).toBe(true)
     expect(document.querySelector('.form-field')).toBeNull()
   })
+
+  it('hiển thị danh sách kho tư liệu kèm nút sắp xếp và ảnh xem trước', async () => {
+    vi.mocked(api.parishProfile.getSnapshot).mockResolvedValue({
+      ...snapshot,
+      assets: [
+        {
+          id: 'ASSET-1',
+          parishId: 'gia-ton',
+          assetType: 'IMAGE',
+          title: 'Ảnh Bế mạc năm học',
+          description: 'Hình chụp bế giảng',
+          capturedOn: '2026-05-15',
+          storageType: 'EXTERNAL',
+          externalUrl: 'https://example.com/photo-b.jpg',
+          originalFilename: 'photo-b.jpg',
+          mimeType: 'image/jpeg',
+          sizeBytes: 102400,
+          visibility: 'STAFF',
+          createdAt: '2026-05-15T00:00:00Z',
+          updatedAt: '2026-05-15T00:00:00Z',
+        },
+        {
+          id: 'ASSET-2',
+          parishId: 'gia-ton',
+          assetType: 'IMAGE',
+          title: 'Ảnh Khai giảng năm học',
+          description: 'Hình chụp khai giảng',
+          capturedOn: '2026-09-01',
+          storageType: 'EXTERNAL',
+          externalUrl: 'https://example.com/photo-a.jpg',
+          originalFilename: 'photo-a.jpg',
+          mimeType: 'image/jpeg',
+          sizeBytes: 204800,
+          visibility: 'STAFF',
+          createdAt: '2026-09-01T00:00:00Z',
+          updatedAt: '2026-09-01T00:00:00Z',
+        },
+      ],
+    })
+
+    render(<ParishProfilePage />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Kho tư liệu/ }))
+
+    expect(screen.getByText('Ảnh Bế mạc năm học')).toBeTruthy()
+    expect(screen.getByText('Ảnh Khai giảng năm học')).toBeTruthy()
+
+    // Preview images exist
+    const previewImages = screen.getAllByRole('img')
+    const externalImg = previewImages.find(img => img.getAttribute('src') === 'https://example.com/photo-a.jpg')
+    expect(externalImg).toBeTruthy()
+
+    // Sort control is available
+    const sortSelect = screen.getByLabelText('Sắp xếp tư liệu') as HTMLSelectElement
+    expect(sortSelect).toBeTruthy()
+    expect(sortSelect.value).toBe('newest')
+
+    // Change sort to title_asc
+    fireEvent.change(sortSelect, { target: { value: 'title_asc' } })
+    expect(sortSelect.value).toBe('title_asc')
+
+    // In title_asc order: 'Ảnh Bế mạc năm học' comes before 'Ảnh Khai giảng năm học'
+    const headings = screen.getAllByRole('heading', { level: 3 }).map(h => h.textContent)
+    const idxB = headings.indexOf('Ảnh Bế mạc năm học')
+    const idxA = headings.indexOf('Ảnh Khai giảng năm học')
+    expect(idxB).toBeLessThan(idxA)
+  })
+
+  it('cho phép chọn và tải lên nhiều tư liệu ảnh cùng lúc', async () => {
+    const uploadSpy = vi.spyOn(api.parishProfile, 'uploadAsset').mockResolvedValue({} as any)
+
+    render(<ParishProfilePage />)
+    fireEvent.click(await screen.findByRole('tab', { name: /Kho tư liệu/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm tư liệu' }))
+
+    // Modal opens
+    expect(await screen.findByRole('heading', { name: 'Tư liệu Xứ đoàn' })).toBeTruthy()
+
+    // File input with multiple attribute exists
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput).toBeTruthy()
+    expect(fileInput.multiple).toBe(true)
+
+    // Simulate selecting 2 files
+    const file1 = new File(['content1'], 'photo1.jpg', { type: 'image/jpeg' })
+    const file2 = new File(['content2'], 'photo2.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [file1, file2] } })
+
+    // Check list of selected files rendered
+    expect(await screen.findByText('photo1.jpg')).toBeTruthy()
+    expect(screen.getByText('photo2.png')).toBeTruthy()
+    expect(screen.getByText(/Đã chọn 2 tệp/)).toBeTruthy()
+
+    // Set common title prefix
+    const titleInput = screen.getByLabelText(/Tiêu đề/)
+    fireEvent.change(titleInput, { target: { value: 'Trại hè 2026' } })
+
+    // Submit form
+    fireEvent.click(screen.getByRole('button', { name: 'Tải lên 2 tệp' }))
+
+    await waitFor(() => {
+      expect(uploadSpy).toHaveBeenCalledTimes(2)
+    })
+    expect(uploadSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      title: 'Trại hè 2026 (1)',
+      file: file1,
+    }))
+    expect(uploadSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      title: 'Trại hè 2026 (2)',
+      file: file2,
+    }))
+  })
 })

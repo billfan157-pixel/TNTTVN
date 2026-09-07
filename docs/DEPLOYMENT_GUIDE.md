@@ -17,6 +17,12 @@ Last Updated: 2026-09-06 (ADR-108: read-only roster integrity inventory); 2026-0
 - Client mới migrate cache grades/attendance version 0 về rỗng và dùng `sync_cursor_v2` để full-pull lại; durable `syncQueue` không bị xóa. Cần reload/update ứng dụng. Không thể thu hồi dữ liệu đã tải xuống thiết bị chưa chạy bản mới, file export hay ảnh chụp; operator phải đánh giá exposure riêng nếu cần. Không wipe pending offline mutations như một biện pháp dọn read cache.
 - Local regression không thay smoke production: kiểm parent read 403, staff đúng lớp, admin step-up, cookie refresh và QR trên exact release đã triển khai. Chưa có xác nhận production trong remediation này.
 
+### Cross-domain evidence preflight (2026-09-07)
+
+- Sau khi migrations `20260907-177..181` đã có trên target, chạy `npm run audit:promotion-reconciliation`, `npm run audit:roster-integrity` và `npm run audit:cross-domain-reconciliation` bằng read-only `AUDIT_DATABASE_URL`/`AUDIT_DATABASE_AUTH_TOKEN`.
+- Cross-domain inventory chỉ phát hiện: năm protected thiếu policy/snapshot/cohort evidence và Grade daily-derived lệch/mất ledger; active manual override được loại trừ. Output mặc định băm parish/aggregate reference và không in tên, số điện thoại hay điểm số.
+- Finding là gate để operator review trên bản sao. Không chạy backfill, đổi Grade, mở khóa năm hay suy lịch sử từ current settings/class pointer. Script fail trước query inventory nếu target chưa có schema evidence hiện hành.
+
 This document is the **Canonical Single Source of Truth (SSOT)** for Docker packaging, Nginx reverse proxy configuration, automated SQLite backups, environment variables, and production operational procedures.
 
 ---
@@ -79,6 +85,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | `AUDIT_DATABASE_URL`, `AUDIT_DATABASE_AUTH_TOKEN` | ❌ No | Cả URL trống → dùng `TURSO_URL`/`TURSO_AUTH_TOKEN` hoặc local `DB_PATH` | Optional target cho các command inventory read-only. Khi set URL riêng, script chỉ dùng token audit riêng, không fallback chéo sang `TURSO_AUTH_TOKEN`; local file có thể không cần token |
 | `DEPLOYMENT_INVENTORY_INCLUDE_PARISH_ID` | ❌ No | `false` | Chỉ ảnh hưởng output `audit:deployment-parish`: mặc định parish reference bị hash; `true` in plain configured ID theo opt-in của operator. Không thay scope/gate. |
 | `ROSTER_INVENTORY_INCLUDE_PARISH_ID` | ❌ No | `false` | Chỉ ảnh hưởng output `audit:roster-integrity`: mặc định parish, student, class, user, assignment và batch references bị hash; biến này chỉ cho phép plain parish ID, không bao giờ in PII/raw object IDs. |
+| `CROSS_DOMAIN_INVENTORY_INCLUDE_PARISH_ID` | ❌ No | `false` | Chỉ ảnh hưởng output `audit:cross-domain-reconciliation`: mặc định parish và aggregate references bị hash; `true` chỉ cho phép plain parish ID, không in raw student/Grade ID hay điểm số. |
 | `TELEGRAM_BOT_TOKEN` | ❌ No | String | Optional Telegram bot token for alerts |
 | `TELEGRAM_ADMIN_CHAT_ID` | ❌ No | String | Admin chat ID for system alerts |
 | `VITE_SENTRY_DSN` | ❌ No | URL | Frontend Sentry project DSN |
@@ -258,6 +265,8 @@ SQLite local sử dụng cơ chế fail-closed ở chế độ WAL (`PRAGMA jour
 3. **Không raw-copy fallback**: nếu `VACUUM INTO` hoặc rename lỗi, run trả failure, xóa partial artifact và không ghi `auto_backup_last_date`. Cấm copy riêng main DB vì committed pages có thể còn trong WAL.
 4. **Chính Sách Lưu Trữ (Retention)**: Tự động giữ lại 5 bản sao lưu gần nhất (có thể cấu hình qua biến `BACKUP_RETENTION_COUNT`).
 
+Contract snapshot/unique partial/rename/no raw-copy fallback cũng áp dụng cho standalone `scripts/backup-db.mjs` (`npm run db:backup`), không chỉ scheduler. CLI không publish hoặc prune khi VACUUM/rename thất bại; retention chỉ xét các artifact `parish-backup-*.sqlite` đã hoàn tất. Regression CLI dùng filesystem/libSQL fault injection, không thao tác DB thật.
+
 Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction, snapshot toàn bộ bảng ứng dụng, ghi row count + SHA-256, gzip rồi mã hóa AES-256-GCM bằng `BACKUP_ENCRYPTION_KEY` trước khi upload `backups/turso-*.json.gz.enc` lên R2. Thiếu key/R2 hoặc upload lỗi → run thất bại và marker ngày không được ghi.
 
 ### 9.2 Các Phương Thức Kích Hoạt
@@ -277,9 +286,9 @@ Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction
 1. Tạo DB Turso cô lập, hoàn toàn mới và không chứa application table.
 2. Set `RESTORE_DATABASE_URL`, `RESTORE_DATABASE_AUTH_TOKEN`, `BACKUP_ENCRYPTION_KEY`, đủ `R2_*`, và `ALLOW_BACKUP_RESTORE=true`. `RESTORE_DATABASE_URL` phải khác `TURSO_URL`.
 3. Chuẩn hóa URL bằng cách bỏ query/hash/trailing slash, lowercase protocol/host; tính SHA-256 và set đúng giá trị vào `RESTORE_TARGET_FINGERPRINT`. Đây là xác nhận target lần hai, không dùng fingerprint của source/production.
-4. Chạy `npm --prefix server run db:prepare:restore-target`. Command dùng cùng fingerprint/production guard, từ chối target đã có application table, áp bootstrap + migrations + indices rồi bắt buộc `assertDatabaseReady` pass.
-5. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>` trên target vừa chuẩn bị. CLI từ chối nếu bất kỳ table snapshot nào đã có dữ liệu (trừ `schema_migrations`) hoặc schema/cột không khớp chính xác.
-6. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts khớp, `foreignKeyViolations=0` và `assertDatabaseReady` pass. Manifest ghi riêng `phaseDurationMs.download/decrypt/restore/readiness`; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu.
+4. Chạy `npm --prefix server run db:prepare:restore-target`. Command dùng cùng fingerprint/production guard, từ chối target đã có application table, áp bootstrap + migrations + indices. Sau đó kiểm đúng 4 default-fund seeds do migration 120 vừa tạo, xóa riêng chúng trong transaction và bắt buộc `assertDatabaseReady` pass. Bất kỳ seed/data ngoài dự kiến đều dừng; không dùng prepare làm công cụ xóa target cũ.
+5. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>` trên target vừa chuẩn bị. CLI từ chối nếu bất kỳ table snapshot nào đã có dữ liệu (trừ `schema_migrations`) hoặc tập bảng/cột không khớp chính xác ở cả hai chiều. Backup schema cũ/thiếu bảng cần recovery/migration procedure riêng; không tự thêm phần thiếu từ trạng thái hiện tại.
+6. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts và nội dung từng dòng khớp (không phụ thuộc thứ tự SELECT), `foreignKeyViolations=0` và `assertDatabaseReady` pass. Manifest ghi riêng `phaseDurationMs.download/decrypt/restore/readiness`; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu. Test full-schema local giữ policy/cohort/report/receipt qua finalize→promote→archive→encrypt→restore không thay thế drill R2→Turso thật, key recovery hoặc approval cutover.
 
 CLI có hard guard từ chối target URL trùng production. Post-commit validation failure không tự rollback toàn target, vì vậy luôn discard target lỗi và tạo target mới; tuyệt đối không sửa chữa/cutover target đó. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.
 

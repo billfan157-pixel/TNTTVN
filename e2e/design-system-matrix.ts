@@ -36,6 +36,12 @@ export const representativeProtectedRoutes = [
 export type RepresentativeProtectedRoute = (typeof representativeProtectedRoutes)[number]
 
 export const publicDesignRoutes = [
+  {
+    route: '/',
+    artifact: 'landing',
+    readySelector: '#gioi-thieu-tieu-de',
+    mainSelector: 'main:has(#gioi-thieu-tieu-de)',
+  },
   { route: '/login', artifact: 'portal-chooser', readySelector: '.auth-option' },
   { route: '/login/nhan-su', artifact: 'staff-login', readySelector: '#staff-username' },
   { route: '/login/phuhuynh', artifact: 'parent-login', readySelector: '#parent-phone' },
@@ -176,7 +182,8 @@ export async function openPublicObservation(
   observationName: string,
 ) {
   await page.goto(observation.route)
-  const main = page.locator('main.auth-page')
+  const mainSelector = 'mainSelector' in observation ? observation.mainSelector : 'main.auth-page'
+  const main = page.locator(mainSelector)
   await expect(main, `${observation.route} must render the public auth shell for ${observationName}`).toBeVisible({ timeout: 15_000 })
   const ready = page.locator(observation.readySelector).first()
   await expect(ready, `${observation.route} must finish rendering for ${observationName}`).toBeVisible({ timeout: 15_000 })

@@ -35,6 +35,16 @@ describe('Production Readiness: Database Migration & Schema Integrity Tests', ()
   beforeEach(async () => {
     await db.delete(attendance).where(eq(attendance.studentId, sId))
   })
+  it('XD-01: promotion completion columns are nullable, with no implicit legacy completion default', async () => {
+    const result = await db.run(sql`PRAGMA table_info(promotion_records)`)
+    for (const name of ['completed_at', 'completed_target_year_id']) {
+      const column = (result.rows as any[]).find(row => (row.name ?? row[1]) === name)
+      expect(column).toBeDefined()
+      expect(Number(column.notnull ?? column[3])).toBe(0)
+      expect(column.dflt_value ?? column[4]).toBeNull()
+    }
+  })
+
   it('1. Verifies SQLite foreign keys and operational table presence', async () => {
     const tableResult = await db.run(sql`SELECT name FROM sqlite_master WHERE type='table'`)
     const tables = (tableResult.rows as any[]).map(r => r[0] || r.name)
@@ -47,6 +57,21 @@ describe('Production Readiness: Database Migration & Schema Integrity Tests', ()
     // Smart Exam Grading (migrations 083-084)
     expect(tables).toContain('exam_sessions')
     expect(tables).toContain('exam_results')
+  })
+
+  it('XD-02/03: new historical evidence columns are nullable and never backfill current state', async () => {
+    for (const [table, names] of [
+      ['academic_years', ['finalization_policy']],
+      ['academic_year_snapshots', ['source_class_id', 'report_snapshot']],
+    ] as const) {
+      const result = await db.run(sql.raw(`PRAGMA table_info(${table})`))
+      for (const name of names) {
+        const column = (result.rows as any[]).find(row => (row.name ?? row[1]) === name)
+        expect(column).toBeDefined()
+        expect(Number(column.notnull ?? column[3])).toBe(0)
+        expect(column.dflt_value ?? column[4]).toBeNull()
+      }
+    }
   })
 
   it('1c. Verifies exam Phase 4 columns (exam_type/question_count/answer_key/answers)', async () => {

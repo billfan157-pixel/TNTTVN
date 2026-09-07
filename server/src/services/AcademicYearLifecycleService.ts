@@ -18,11 +18,13 @@ import { generateId } from '../utils/id.js'
 import { normalizeAcademicYear, computeAcademicYearDateRange, parseAcademicYear } from '../utils/academicYear.js'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import { getClassificationLabel } from '../utils/gradeCalculation.js'
+import { academicReportSnapshotSchema, finalizationPolicySchema } from '../utils/academicYearHistory.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import { getAcademicYearDateRange } from './academicYearService.js'
 import { getParishGradeWeights, getParishAttendancePolicy, getParishPromotionPolicy, getParishClassificationThresholds } from './parishSettingsService.js'
 import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
 import { promotionApplicationService } from './PromotionApplicationService.js'
+import { drizzlePromotionRepository, promotionCompletionPredicate } from '../repositories/DrizzlePromotionRepository.js'
 import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 import { findNextClassInYear, branchTypeByWeight } from '../utils/promotionPath.js'
 import {
@@ -136,9 +138,9 @@ export class AcademicYearLifecycleService {
    * (năm chưa Finalize, đang chứa ngày hôm nay; fallback năm chưa khóa mới nhất).
    * Dùng làm SSOT để giới hạn bộ lọc học kỳ cho tài khoản không phải admin.
    */
-  public async getOpenSemester(parishId: string): Promise<1 | 2> {
+  public async getOpenSemester(parishId: string, executor: DbExecutor = db): Promise<1 | 2> {
     const now = new Date().toISOString()
-    const [active] = await db
+    const [active] = await executor
       .select({ currentSemester: academicYears.currentSemester })
       .from(academicYears)
       .where(and(
@@ -151,7 +153,7 @@ export class AcademicYearLifecycleService {
       .limit(1)
     if (active) return active.currentSemester === 2 ? 2 : 1
 
-    const [latest] = await db
+    const [latest] = await executor
       .select({ currentSemester: academicYears.currentSemester })
       .from(academicYears)
       .where(and(
@@ -216,12 +218,14 @@ export class AcademicYearLifecycleService {
         promotionRecordId: promotionRecords.id,
       })
       .from(academicYearSnapshots)
+      .innerJoin(academicYears, and(eq(academicYears.parishId, academicYearSnapshots.parishId), eq(academicYears.id, academicYearSnapshots.academicYearId)))
       .leftJoin(promotionRecords, and(
         eq(promotionRecords.parishId, academicYearSnapshots.parishId),
         eq(promotionRecords.studentId, academicYearSnapshots.studentId),
         eq(promotionRecords.academicYear, academicYearSnapshots.academicYearId),
         eq(promotionRecords.status, 'ACTIVE'),
         eq(promotionRecords.isLatest, 1),
+        promotionCompletionPredicate(),
       ))
       .where(eq(academicYearSnapshots.parishId, parishId))
 
@@ -513,6 +517,12 @@ export class AcademicYearLifecycleService {
       const now = new Date().toISOString()
       let count = 0
 
+      const finalizationPolicy = JSON.stringify(finalizationPolicySchema.parse({
+        version: 1, capturedAt: now, gradeWeights: weights, attendancePolicy,
+        promotionPolicy: policy, classificationThresholds: thresholds, range,
+        classes: classRows.map(c => ({ id: c.id, name: c.name })),
+      }))
+
       for (const student of studentRows) {
         if (student.status !== 'Đang học') continue
         const g1 = gradeRows.find((g) => g.studentId === student.id && g.semester === 1)
@@ -544,6 +554,28 @@ export class AcademicYearLifecycleService {
           policy,
         }, tx)
 
+        const studentAttendance = attendanceRows.filter(a => a.studentId === student.id)
+        const mass = studentAttendance.filter(a => a.type === 'SundayMass')
+        const catechism = studentAttendance.filter(a => a.type === 'CatechismClass')
+        const presentCount = (rows: typeof studentAttendance) => rows.filter(a => a.status === 'Present' || a.status === 'AbsentExcused').length
+        const reportSnapshot = JSON.stringify(academicReportSnapshotSchema.parse({
+          version: 1,
+          grades: [g1, g2].filter((g): g is NonNullable<typeof g> => Boolean(g)).map(g => {
+            const effective = applyOverridesToGrade(g as any, activeOverrides as any[])
+            return {
+              semester: g.semester, scoreOral: effective.scoreOral ?? null,
+              score15m: effective.score15m ?? null, score1Period: effective.score1Period ?? null,
+              scoreMidterm: effective.scoreMidterm ?? null, scoreFinal: effective.scoreFinal ?? null,
+              gpa: effectiveGpa(g),
+            }
+          }),
+          attendanceSummary: {
+            massPresentCount: presentCount(mass), massTotalCount: mass.length,
+            catechismPresentCount: presentCount(catechism), catechismTotalCount: catechism.length,
+            overallAttendanceRate: attendanceRate,
+          },
+        }))
+
         const existing = await tx
           .select({ id: academicYearSnapshots.id })
           .from(academicYearSnapshots)
@@ -561,6 +593,8 @@ export class AcademicYearLifecycleService {
             .update(academicYearSnapshots)
             .set({
               semester1Gpa: gpa1,
+              sourceClassId: student.classId,
+              reportSnapshot,
               semester2Gpa: gpa2,
               yearGpa,
               classification,
@@ -578,6 +612,8 @@ export class AcademicYearLifecycleService {
             academicYearId: year.id,
             studentId: student.id,
             semester1Gpa: gpa1,
+            sourceClassId: student.classId,
+            reportSnapshot,
             semester2Gpa: gpa2,
             yearGpa,
             classification,
@@ -594,7 +630,7 @@ export class AcademicYearLifecycleService {
 
       const finalized = await tx
         .update(academicYears)
-        .set({ isLocked: 1, status: 'FINALIZED', updatedAt: now, updatedBy: userId })
+        .set({ isLocked: 1, status: 'FINALIZED', finalizationPolicy, updatedAt: now, updatedBy: userId })
         .where(and(
           eq(academicYears.id, year.id),
           eq(academicYears.parishId, parishId),
@@ -622,7 +658,7 @@ export class AcademicYearLifecycleService {
     return { yearId: finalizedYearId, status: 'FINALIZED', snapshotCount, finalizedAt }
   }
 
-  /** Durable worklist: snapshot chỉ được xem là resolved khi có active/latest promotion record. */
+  /** Durable worklist: approval alone is not completion of membership transfer. */
   public async getPromotionReconciliation(
     yearId: string,
     parishId: string,
@@ -636,12 +672,14 @@ export class AcademicYearLifecycleService {
         promotionRecordId: promotionRecords.id,
       })
       .from(academicYearSnapshots)
+      .innerJoin(academicYears, and(eq(academicYears.parishId, academicYearSnapshots.parishId), eq(academicYears.id, academicYearSnapshots.academicYearId)))
       .leftJoin(promotionRecords, and(
         eq(promotionRecords.parishId, academicYearSnapshots.parishId),
         eq(promotionRecords.studentId, academicYearSnapshots.studentId),
         eq(promotionRecords.academicYear, academicYearSnapshots.academicYearId),
         eq(promotionRecords.status, 'ACTIVE'),
         eq(promotionRecords.isLatest, 1),
+        promotionCompletionPredicate(),
       ))
       .where(and(
         eq(academicYearSnapshots.parishId, parishId),
@@ -653,7 +691,7 @@ export class AcademicYearLifecycleService {
       .map((row) => ({
         studentId: row.studentId,
         promotionStatus: row.promotionStatus,
-        reason: 'Chưa có promotion record ACTIVE/LATEST cho snapshot năm học',
+        reason: 'Chưa có bằng chứng hoàn tất promotion ACTIVE/LATEST đúng năm đích',
       }))
 
     return {
@@ -794,7 +832,8 @@ export class AcademicYearLifecycleService {
         summary.errors.push({ studentId: snap.studentId, reason: 'Không tìm thấy học sinh tương ứng snapshot' })
         continue
       }
-      const sourceClass = oldClasses.find((c) => c.id === student.classId)
+      const priorApproval = await drizzlePromotionRepository.findActiveSnapshot(snap.studentId, yearId, parishId)
+      const sourceClass = oldClasses.find((c) => c.id === (priorApproval?.targetClassId || student.classId))
       const targetClassId = sourceClass?.id || student.classId
 
       // PROMO-FIX (2026-08-22): chỉ học sinh ĐẠT điều kiện (PROMOTED /
@@ -852,7 +891,10 @@ export class AcademicYearLifecycleService {
           const destinationBranch = nextClassId
             ? await resolveMembershipBranch(tx, parishId, nextClassId, nextBranchOverride)
             : undefined
-          await promotionApplicationService.approvePromotion({
+          if (!nextClassId && !['GRADUATED', 'TRANSFERRED'].includes(status || '')) {
+            throw httpError('Chưa có lớp đích; cần cấu hình lớp năm mới trước khi retry', 409)
+          }
+          const approved = await promotionApplicationService.approvePromotion({
             studentId: snap.studentId,
             academicYear: normalizeAcademicYear(yearId),
             targetClassId,
@@ -876,6 +918,7 @@ export class AcademicYearLifecycleService {
               })
               .where(and(eq(students.id, snap.studentId), eq(students.parishId, parishId)))
           }
+          await drizzlePromotionRepository.markCompleted(approved, nextYearId, userId, tx)
         })
 
         if (nextClassId && !(status === 'GRADUATED' || status === 'TRANSFERRED')) summary.movedToNextYear++

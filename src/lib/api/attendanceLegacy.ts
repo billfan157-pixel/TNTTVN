@@ -1,7 +1,14 @@
 import { request } from './core'
+import type { AcademicPullResponse } from '../academicPull'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const attendanceLegacyApi = {
+  pullAttendance: (updatedAfter?: string, scopeRevision?: string | null) => {
+    const qs = new URLSearchParams({ includeScope: 'true' })
+    if (updatedAfter) qs.set('updatedAfter', updatedAfter)
+    if (scopeRevision) qs.set('scopeRevision', scopeRevision)
+    return request<AcademicPullResponse>('GET', `/attendance?${qs}`)
+  },
   getAttendance: (params?: { studentId?: string; date?: string; type?: string; updatedAfter?: string }) => {
     const qs = new URLSearchParams()
     if (params?.studentId) qs.set('studentId', params.studentId)

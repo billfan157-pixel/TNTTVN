@@ -1,10 +1,10 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { dexieStorage, getDB } from '../lib/db'
+import { getDB } from '../lib/db'
+import { academicCacheStorage, beginAcademicPull, flushAcademicCache, mergeAcademicPull } from '../lib/academicPull'
 import type { GradeRecord } from '../types'
 import { calculateGradeAverage, calculateAttendanceRate, matchAcademicYear } from '../utils/grades'
 import { getCurrentAcademicYear, normalizeAcademicYear } from '../utils/academicYear'
-import { useDailyGradeStore } from './dailyGradeStore'
 import * as syncService from '../lib/syncService'
 import { api, isAuthenticated } from '../lib/api'
 import * as Sentry from '@sentry/react'
@@ -80,6 +80,7 @@ export { getCurrentAcademicYear } from '../utils/academicYear'
 export const CURRENT_ACADEMIC_YEAR = getCurrentAcademicYear()
 
 interface GradeState {
+  syncScopeRevision: string | null
   grades: GradeRecord[]
   error: string | null
   setGrades: (grades: GradeRecord[]) => void
@@ -94,43 +95,25 @@ export const useGradeStore = create<GradeState>()(
   persist(
     (set, get) => ({
       grades: [],
+      syncScopeRevision: null,
       error: null,
       setGrades: (grades) => set({ grades }),
 
       fetchGrades: async (updatedAfter?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
+        const pull = beginAcademicPull('grade')
         try {
-          const params = updatedAfter ? { updatedAfter } : undefined
-          const fetched = await api.getGrades(params)
-          if (Array.isArray(fetched)) {
-            if (updatedAfter) {
-              // ADR-016 (offline-sync audit #6): merge theo natural key thay vì id.
-              // Trước đây Map keyed by id → bản ghi local còn temp GR- id và row
-              // server (cùng natural key) thành 2 dòng trùng lặp. Row server là
-              // canonical (id + version thật). Không đè row đang có op pending.
-              const pendingKeys = await getPendingGradeNaturalKeys()
-              set((state) => {
-                const merged = new Map<string, GradeRecord>()
-                for (const g of state.grades) merged.set(gradeNaturalKey(g), g)
-                for (const g of fetched) {
-                  const key = gradeNaturalKey(g)
-                  const local = merged.get(key)
-                  if (local && pendingKeys.has(key)) continue
-                  merged.set(key, g)
-                }
-                return { grades: Array.from(merged.values()) }
-              })
-            } else {
-              set({ grades: fetched })
-            }
-            // Tier 1 containment: pull về chỉ tính lại hiển thị từ entries local,
-            // KHÔNG null-out giá trị authoritative của server, KHÔNG enqueue
-            // (xem SyncProjectionOpts trong dailyGradeStore).
-            useDailyGradeStore.getState().syncAllToGradeStore(undefined, undefined, { skipSync: true })
-          }
+          const revision = get().syncScopeRevision
+          const fetched = await api.pullGrades(updatedAfter, revision)
+          const pendingKeys = await getPendingGradeNaturalKeys()
+          pull.assertCurrent()
+          const merged = mergeAcademicPull(fetched, get().grades, pendingKeys, gradeNaturalKey, revision)
+          set({ grades: merged.rows, syncScopeRevision: merged.revision, error: null })
+          await flushAcademicCache('parish_store_grades')
+          pull.assertCurrent()
         } catch (err) {
           Sentry.captureException(err)
-          set({ error: (err as Error)?.message || 'Lỗi tải điểm số' })
+          if (pull.current()) set({ error: (err as Error)?.message || 'Lỗi tải điểm số' })
           if (throwOnError) throw err
         }
       },
@@ -283,9 +266,9 @@ export const useGradeStore = create<GradeState>()(
     {
       name: 'parish_store_grades',
       // Retire pre-D9 read snapshots; durable mutation ownership lives in syncQueue.
-      version: 1,
-      migrate: () => ({ grades: [] }),
-      storage: createJSONStorage(() => dexieStorage),
+      version: 2,
+      migrate: () => ({ grades: [], syncScopeRevision: null }),
+      storage: createJSONStorage(() => academicCacheStorage),
     }
   )
 )

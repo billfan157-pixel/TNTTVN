@@ -17,6 +17,7 @@ import { eq, and } from 'drizzle-orm'
 import { academicYearLifecycleService } from '../../services/AcademicYearLifecycleService.js'
 import { drizzleSemesterLockRepository } from '../../repositories/DrizzleSemesterLockRepository.js'
 import { promotionApplicationService } from '../../services/PromotionApplicationService.js'
+import { drizzlePromotionRepository } from '../../repositories/DrizzlePromotionRepository.js'
 
 describe('Academic Year Lifecycle — State Machine & Wizard', () => {
   const testParish = 'parish-ayl-test'
@@ -304,7 +305,9 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     }).onConflictDoNothing()
 
     const res = await academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)
-    expect(res.errors).toHaveLength(0)
+    expect(res.errors).toHaveLength(2)
+    expect(res.unresolvedCount).toBe(2)
+    await expect(academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish)).rejects.toMatchObject({ status: 409 })
     expect(res.movedToNextYear).toBe(0)
     expect(res.warnings).toHaveLength(2)
     // PROMO-FIX (2026-08-22): HS ĐỦ ĐIỀU KIỆN đi qua nhánh "lên khối +1" — khi
@@ -320,6 +323,57 @@ describe('Academic Year Lifecycle — State Machine & Wizard', () => {
     // HS vẫn ở lại lớp cũ (năm học cũ) — hành vi giữ nguyên, chỉ không còn im lặng
     const [goodStudent] = await db.select().from(students).where(eq(students.id, studentGood))
     expect(goodStudent.classId).toBe(classId)
+  })
+
+  it('XD-01: approval-only is unresolved; completion survives a later membership correction and has no duplicate receipt on retry', async () => {
+    await lockBothSemesters()
+    await seedGrade(studentGood, 9, 1)
+    await seedGrade(studentGood, 9, 2)
+    await seedGrade(studentLow, 3, 1)
+    await seedGrade(studentLow, 3, 2)
+    await academicYearLifecycleService.finalizeYear(yearId, adminUserId, testParish)
+    await academicYearLifecycleService.copyAcademicYear(yearId, nextYearId, adminUserId, testParish)
+    const snapshots = await db.select().from(academicYearSnapshots).where(eq(academicYearSnapshots.parishId, testParish))
+    const snap = snapshots.find(row => row.studentId === studentGood)!
+    const approval = await promotionApplicationService.approvePromotion({ studentId: studentGood, academicYear: yearId, targetClassId: classId, nextClassId: `${nextYearId}-${classCode}`, gpa: snap.yearGpa!, attendanceRate: snap.attendanceRate!, userId: adminUserId, parishId: testParish })
+    expect(approval.completedAt).toBeFalsy()
+    expect((await academicYearLifecycleService.getPromotionReconciliation(yearId, testParish)).unresolvedCount).toBe(2)
+    const result = await academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)
+    expect(result).toMatchObject({ attempted: 2, unresolvedCount: 0, movedToNextYear: 2 })
+    const [receipt] = await db.select().from(promotionRecords).where(and(eq(promotionRecords.parishId, testParish), eq(promotionRecords.id, approval.id)))
+    expect(receipt.completedAt).toBeTruthy()
+    expect(receipt.completedTargetYearId).toBe(nextYearId)
+    await db.update(promotionRecords).set({ completedTargetYearId: 'wrong-year' }).where(and(eq(promotionRecords.parishId, testParish), eq(promotionRecords.id, approval.id)))
+    expect((await academicYearLifecycleService.getPromotionReconciliation(yearId, testParish)).unresolvedCount).toBe(1)
+    expect((await academicYearLifecycleService.listAcademicYears(testParish)).find(row => row.id === yearId)?.unresolvedPromotionCount).toBe(1)
+    await expect(academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish)).rejects.toMatchObject({ status: 409 })
+    await db.update(promotionRecords).set({ completedTargetYearId: nextYearId }).where(and(eq(promotionRecords.parishId, testParish), eq(promotionRecords.id, approval.id)))
+    // Historical completion is not derived from today's mutable class pointer.
+    await db.update(students).set({ classId }).where(and(eq(students.parishId, testParish), eq(students.id, studentGood)))
+    expect((await academicYearLifecycleService.getPromotionReconciliation(yearId, testParish)).unresolvedCount).toBe(0)
+    await expect(academicYearLifecycleService.retryPromotion(yearId, adminUserId, testParish)).rejects.toMatchObject({ status: 409 })
+    await expect(academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish)).resolves.toMatchObject({ status: 'ARCHIVED' })
+  })
+
+  it('XD-01: failed completion receipt rolls membership and approval back; retry completes only that item', async () => {
+    await lockBothSemesters()
+    await seedGrade(studentGood, 9, 1)
+    await seedGrade(studentGood, 9, 2)
+    await seedGrade(studentLow, 3, 1)
+    await seedGrade(studentLow, 3, 2)
+    await academicYearLifecycleService.finalizeYear(yearId, adminUserId, testParish)
+    const original = drizzlePromotionRepository.markCompleted.bind(drizzlePromotionRepository)
+    const failure = vi.spyOn(drizzlePromotionRepository, 'markCompleted').mockImplementation(async (...args) => {
+      await original(...args)
+      if (args[0].studentId === studentGood) throw new Error('Synthetic receipt failure after write')
+    })
+    try {
+      expect((await academicYearLifecycleService.promoteYear(yearId, nextYearId, adminUserId, testParish)).unresolvedCount).toBe(1)
+      expect(await db.select().from(promotionRecords).where(and(eq(promotionRecords.parishId, testParish), eq(promotionRecords.studentId, studentGood)))).toHaveLength(0)
+      expect((await db.select().from(students).where(and(eq(students.parishId, testParish), eq(students.id, studentGood))))[0].classId).toBe(classId)
+      await expect(academicYearLifecycleService.archiveYear(yearId, adminUserId, testParish)).rejects.toMatchObject({ status: 409 })
+    } finally { failure.mockRestore() }
+    expect(await academicYearLifecycleService.retryPromotion(yearId, adminUserId, testParish)).toMatchObject({ attempted: 1, unresolvedCount: 0 })
   })
 
   it('9. archiveYear rejects khi chưa PROMOTED (403) và thành công sau promote, chạy lại 409', async () => {

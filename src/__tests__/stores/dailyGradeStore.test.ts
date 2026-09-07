@@ -180,8 +180,8 @@ describe('DailyGradeStore', () => {
 
       expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
       const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
-      // Cột có entries → hiển thị local; cột thiếu entries → giữ nguyên server.
-      expect(grade?.scoreOral).toBe(9)
+      // A partial local ledger must never replace the authoritative pull.
+      expect(grade?.scoreOral).toBe(8)
       expect(grade?.score15m).toBe(7)
       expect((grade as unknown as Record<string, unknown>)?.['score15m_source']).toBe('daily_avg')
     })
@@ -191,7 +191,7 @@ describe('DailyGradeStore', () => {
 
       useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
 
-      expect(vi.mocked(syncService.syncUpsertGrade)).toHaveBeenCalled()
+      expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
       const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
       expect(grade?.scoreOral).toBe(8)
       // Cột 15m của server (vd từ finalize) không bị đè/null bởi device thiếu entries.
@@ -199,14 +199,14 @@ describe('DailyGradeStore', () => {
       expect((grade as unknown as Record<string, unknown>)?.['score15m_source']).toBe('daily_avg')
     })
 
-    it('removeEntry entry cuối vẫn null-out + push (giữ delete semantics)', () => {
+    it('removeEntry cuối preview null và chỉ enqueue ledger delete, không ghi Grade', () => {
       useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
       vi.clearAllMocks()
       const id = useDailyGradeStore.getState().entries[0].id
 
       useDailyGradeStore.getState().removeEntry(id)
 
-      expect(vi.mocked(syncService.syncUpsertGrade)).toHaveBeenCalled()
+      expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
       const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
       expect(grade?.scoreOral).toBeNull()
     })
@@ -223,6 +223,17 @@ describe('DailyGradeStore', () => {
   })
 
   describe('Tier 2 — ledger sync wiring', () => {
+    it('XD-08: preview averages known server machine entries and local attempts without double-counting IDs', () => {
+      const academicYear = '2025 - 2026'
+      useDailyGradeStore.setState({ entries: [{ id: 'manual', studentId: 'ST-001', academicYear, semester: 1, scoreType: 'oral', value: 8, date: '2025-10-01', createdAt: '' }], serverEntries: [
+        { id: 'manual', studentId: 'ST-001', academicYear, semester: 1, scoreType: 'oral', value: 8, date: '2025-10-01', origin: 'manual', examSessionId: null },
+        { id: 'machine', studentId: 'ST-001', academicYear, semester: 1, scoreType: 'oral', value: 6, date: null, origin: 'machine', examSessionId: 'exam' },
+      ] })
+      expect(useDailyGradeStore.getState().getAverageForStudent('ST-001', 1, 'oral')).toBe(7)
+      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 10, 1)
+      expect(useDailyGradeStore.getState().getAverageForStudent('ST-001', 1, 'oral')).toBe(8)
+      expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
+    })
     it('addEntry enqueue daily_entry CREATE trước grade projection', async () => {
       useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
       await Promise.resolve()

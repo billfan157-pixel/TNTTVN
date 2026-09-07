@@ -1,4 +1,4 @@
-import { useSyncStore } from '../stores/syncStore'
+import { useSyncStore, isOwnOp } from '../stores/syncStore'
 import { useStudentStore } from '../stores/studentStore'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
@@ -7,6 +7,7 @@ import { useClassStore } from '../stores/classStore'
 import { useExamStore } from '../stores/examStore'
 import { api, ApiError } from './api'
 import type { SyncQueueItem } from './db'
+import { getDB } from './db'
 import * as Sentry from '@sentry/react'
 import {
   parseQueuePayload,
@@ -98,25 +99,20 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
   try {
     if (entity === 'student' && serverData?.id && serverData.id !== op.entityId) {
       const studentStore = useStudentStore.getState()
-      const localStudent = studentStore.students.find(s => s.id === op.entityId)
-      if (localStudent) {
-        const oldId = op.entityId!
-        const newId = serverData.id
-        studentStore.replaceStudentId(oldId, serverData)
-        // ADR-016 (S4): AWAIT remap so Phase 2 sees the real studentId.
-        await remapStudentIdInPendingOps(oldId, newId)
-      }
+      const oldId = op.entityId!
+      const newId = serverData.id
+      studentStore.replaceStudentId(oldId, serverData)
+      // ADR-016 (S4): AWAIT remap so Phase 2 sees the real studentId.
+      await remapStudentIdInPendingOps(oldId, newId)
     }
 
     if (entity === 'class' && serverData?.id && serverData.id !== op.entityId) {
       const classStore = useClassStore.getState()
-      if (classStore.classes.some(c => c.id === op.entityId)) {
-        const oldClassId = op.entityId!
-        const newClassId = serverData.id
-        classStore.replaceClassId(oldClassId, serverData)
-        // ADR-016 (S4): AWAIT remap so Phase 2 sees the real classId.
-        await remapClassIdInPendingOps(oldClassId, newClassId)
-      }
+      const oldClassId = op.entityId!
+      const newClassId = serverData.id
+      classStore.replaceClassId(oldClassId, serverData)
+      // ADR-016 (S4): AWAIT remap so Phase 2 sees the real classId.
+      await remapClassIdInPendingOps(oldClassId, newClassId)
     }
 
     if ((entity === 'exam' || entity === 'exams') && serverData?.id && serverData.id !== op.entityId) {
@@ -192,6 +188,26 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any)
     }
   } catch (err) {
     Sentry.captureException(err)
+    if (op.operation === 'CREATE') throw err
+  }
+}
+
+/** XD-07: durable encrypted acknowledgement is the retry journal. Only retire
+ * a committed parent after every local remap has succeeded. A failure aborts
+ * this sync cycle so dependent batches cannot send unresolved temp IDs. */
+export async function acknowledgeCreatedParent(op: SyncQueueItem, serverData: any): Promise<void> {
+  const store = useSyncStore.getState()
+  try {
+    if (!isOwnOp(op)) throw new Error('CREATE acknowledgement owner changed')
+    if (!serverData || typeof serverData.id !== 'string' || !serverData.id) throw new Error('Missing canonical identity in CREATE acknowledgement')
+    await store.updateOp(op.id, { serverAcknowledgement: JSON.stringify(serverData) })
+    const persisted = await getDB().syncQueue.get(op.id)
+    if (!persisted?.serverAcknowledgement || !isOwnOp(persisted)) throw new Error('CREATE acknowledgement was not retained for the current owner')
+    await applyServerResultAsync(op, serverData)
+    await store.removeOp(op.id)
+  } catch (error) {
+    await store.updateOp(op.id, { status: 'retrying', lastError: 'Local acknowledgement reconciliation interrupted; retry required' })
+    throw error
   }
 }
 

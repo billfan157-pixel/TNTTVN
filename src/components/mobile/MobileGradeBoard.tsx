@@ -11,6 +11,7 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { StudentName } from '../common/StudentName'
+import { SubpageHeader } from '../common/SubpageHeader'
 import { hapticFeedback } from '../../utils/haptics'
 import type { GradeRecord, Student } from '../../types'
 
@@ -104,25 +105,19 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
 
   return (
     <div className="product-view flex flex-col gap-3">
-      <section className="grade-command-deck" aria-label="Bảng điều khiển điểm số">
-        <div className="grade-command-deck__header">
-          <div className="grade-command-deck__title-group">
-            <div className="grade-command-deck__icon-tile">
-              <Grid3X3 size={15} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="grade-command-deck__title">Bảng điểm</h2>
-              <p className="grade-command-deck__meta truncate">HK {effectiveSemester === 1 ? 'I' : 'II'} · {selectedClassLabel} · {filteredStudents.length} em</p>
-            </div>
-          </div>
-          
-          <div className="grade-command-deck__status-cluster">
+      <SubpageHeader
+        icon={<Grid3X3 size={15} />}
+        title="Bảng điểm"
+        meta={<span>HK {effectiveSemester === 1 ? 'I' : 'II'} · {selectedClassLabel} · {filteredStudents.length} em</span>}
+        ariaLabel="Bảng điều khiển điểm số"
+        actions={
+          <div className="flex items-center gap-1.5">
             {pendingCount > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900">
                 ☁ {pendingCount}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
                 <Check size={11} /> Đã lưu
               </span>
             )}
@@ -149,11 +144,11 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
               )}
             </div>
           </div>
-        </div>
-
+        }
+      >
         {!canEdit && <div className="rounded-xl bg-surface-hover border border-surface-border px-3 py-1.5 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
         {semesterRestricted && <div className="rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">Học kỳ đang khóa theo quyền tài khoản; chỉ được thao tác ở HK {effectiveSemester === 1 ? 'I' : 'II'}.</div>}
-      </section>
+      </SubpageHeader>
 
       {filteredStudents.length === 0 ? (
         <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Không có thiếu nhi trong bộ lọc hiện tại.</div>

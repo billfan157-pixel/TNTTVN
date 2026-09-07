@@ -6,6 +6,7 @@ import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 import type { GradeRecord } from '../../types'
 import { StudentName } from '../common/StudentName'
+import { SubpageHeader } from '../common/SubpageHeader'
 
 const SCORE_FIELDS: Array<{ key: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal'>; label: string }> = [
   { key: 'scoreOral', label: 'M' },
@@ -43,20 +44,13 @@ export const MobileGradeComparison: React.FC = () => {
   const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
 
   return (
-    <div className="product-view flex flex-col gap-2.5">
-      <section className="grade-command-deck" aria-label="Tổng quan so sánh điểm">
-        <div className="grade-command-deck__header">
-          <div className="grade-command-deck__title-group">
-            <div className="grade-command-deck__icon-tile">
-              <Columns3 size={16} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="grade-command-deck__title">So Sánh Học Kỳ I vs II</h2>
-              <p className="grade-command-deck__meta truncate">{comparisonData.length} thiếu nhi có dữ liệu điểm</p>
-            </div>
-          </div>
-        </div>
-      </section>
+    <div className="product-view flex flex-col gap-3 pb-8">
+      <SubpageHeader
+        icon={<Columns3 size={15} />}
+        title="So Sánh Học Kỳ I vs II"
+        meta={<span>{comparisonData.length} thiếu nhi có dữ liệu điểm</span>}
+        ariaLabel="Tổng quan so sánh điểm"
+      />
 
       <section className="grade-metric-strip grade-metric-strip--4col" aria-label="Thống kê so sánh 2 học kỳ">
         <div className="grade-metric-cell">

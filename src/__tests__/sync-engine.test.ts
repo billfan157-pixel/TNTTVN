@@ -1,3 +1,4 @@
+import { academicPullFixture } from './helpers/academicPull'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { initDB, getDB } from '../lib/db'
 import { useSyncStore } from '../stores/syncStore'
@@ -32,8 +33,8 @@ function mockAllApiMethods() {
   vi.spyOn(api, 'upsertGrade').mockResolvedValue({})
   vi.spyOn(api, 'upsertAttendance').mockResolvedValue({})
   vi.spyOn(api, 'getStudents').mockResolvedValue({ data: [], total: 0 })
-  vi.spyOn(api, 'getGrades').mockResolvedValue([])
-  vi.spyOn(api, 'getAttendance').mockResolvedValue([])
+  vi.spyOn(api, 'pullGrades').mockResolvedValue(academicPullFixture([]))
+  vi.spyOn(api, 'pullAttendance').mockResolvedValue(academicPullFixture([]))
   vi.spyOn(api, 'getNotices').mockResolvedValue([])
 }
 

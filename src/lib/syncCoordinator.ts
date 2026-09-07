@@ -1,4 +1,4 @@
-import { useSyncStore, migrateLegacyQueueOwnership, isOwnOp } from '../stores/syncStore'
+import { useSyncStore, migrateLegacyQueueOwnership, isOwnOp, getOwnUnsettledSyncOperations } from '../stores/syncStore'
 import { api, isAuthenticated } from '../lib/api'
 import { getDB } from '../lib/db'
 import { resetClientData, getLocalPurgeVersion, PURGE_VERSION_KEY } from '../lib/resetClientData'
@@ -29,6 +29,7 @@ import {
 } from '../lib/syncQueueMaintenance'
 import {
   applyServerResultAsync,
+  acknowledgeCreatedParent,
   reconcilePermanentlyRejectedStudentOp,
   resolveConflictWithMerge,
   flushGradeBatchWithIsolation,
@@ -107,6 +108,11 @@ export async function markFailedExamResultOp(op: SyncQueueItem, error?: string):
 
 async function processClaimedOperation(op: SyncQueueItem) {
   try {
+    if (op.serverAcknowledgement && op.operation === 'CREATE') {
+      const raw = await decryptQueueValue(op.serverAcknowledgement)
+      if (!raw) throw new Error('Cannot read committed CREATE acknowledgement')
+      return { ok: true, data: JSON.parse(raw) } as Awaited<ReturnType<typeof processOperation>>
+    }
     return await processOperation(op)
   } catch (error) {
     await useSyncStore.getState().updateOp(op.id, {
@@ -219,14 +225,7 @@ export async function runSyncFlow(leaseHeld = false) {
       await new Promise(r => setTimeout(r, 200))
 
       if (result.ok) {
-        await store.removeOp(op.id)
-        if (result.data) {
-          // ADR-016 (S4): Await applyServerResult so that ID remap
-          // (remapStudentIdInPendingOps / remapClassIdInPendingOps) completes
-          // BEFORE Phase 2 reads the queue. Previously this was fire-and-forget,
-          // causing grade batches to send stale temp IDs → 404 → data loss.
-          await applyServerResultAsync(op, result.data)
-        }
+        await acknowledgeCreatedParent(op, result.data)
         // SYNC-CONFLICT-1: CREATE student/class/exam không còn nhánh isConflict —
         // business 409 (vd CLASS_CODE_EXISTS) giờ là permanent-fail (xử lý ở
         // nhánh else bên dưới), op giữ payload để user xử lý tường minh.
@@ -374,12 +373,16 @@ export async function runSyncFlow(leaseHeld = false) {
           syncState.mergedConflictCount++
           await resolveConflictWithMerge(op, result.data)
         } else {
-          await store.removeOp(op.id)
-          if (result.data) {
+          if (op.operation === 'CREATE') {
+            await acknowledgeCreatedParent(op, result.data)
+          } else {
+            await store.removeOp(op.id)
+            if (result.data) {
             // ADR-016 (S24): AWAIT remap (audit finding #9) — trước đây fire-and-forget
             // nên student/class CREATE được remap trong cùng cycle này, các op sau
             // trong Phase 3 vẫn đọc queue cũ với temp ID.
-            await applyServerResultAsync(op, result.data)
+              await applyServerResultAsync(op, result.data)
+            }
           }
         }
       } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
@@ -484,7 +487,24 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
       if (purgeVersion === null) {
         // probe fail → giữ hành vi cũ: bỏ qua check, pull delta bình thường
       } else if (!hasLocalPurgeKey) {
-        // Device chưa từng sync: ghi baseline, không wipe, không logout.
+        // A truly clean device can adopt the current generation as baseline.
+        // A legacy/offline device with an owned queue is not clean: accepting a
+        // new baseline would let pre-purge/restore intent replay into the new DB.
+        const unsettled = await getOwnUnsettledSyncOperations()
+        if (unsettled.length > 0) {
+          try {
+            await resetClientData(purgeVersion)
+          } catch (resetErr) {
+            console.error('Client generation reset failed — giữ nguyên phiên, không sync queue:', resetErr)
+            useSyncStore.getState().setLastError(
+              'Không thể cách ly thay đổi cũ sau khi dữ liệu giáo xứ được thay thế — hãy thử lại trước khi đồng bộ.'
+            )
+            useSyncStore.getState().setStatus('failed')
+            return { queryTime: '', ok: false }
+          }
+          window.location.href = '/login'
+          return { queryTime: '', ok: false }
+        }
         try { localStorage.setItem(PURGE_VERSION_KEY, String(purgeVersion)) } catch {}
       } else if (purgeVersion > getLocalPurgeVersion()) {
         try {

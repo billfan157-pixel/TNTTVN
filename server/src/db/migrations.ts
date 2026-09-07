@@ -1534,4 +1534,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_catechist_assignments_one_cn_class_per_use
 ON catechist_assignments(parish_id, user_id)
 WHERE role_in_class = 'chunhiem';
 ` },
+  // XD-01: no inferred legacy backfill; approval does not prove membership completion.
+  { version: '20260907-177', sql: `ALTER TABLE promotion_records ADD COLUMN completed_at TEXT` },
+  { version: '20260907-178', sql: `ALTER TABLE promotion_records ADD COLUMN completed_target_year_id TEXT` },
+  // Historical policy/cohort cannot be inferred from today's mutable settings/roster.
+  { version: '20260907-179', sql: `ALTER TABLE academic_years ADD COLUMN finalization_policy TEXT` },
+  { version: '20260907-180', sql: `ALTER TABLE academic_year_snapshots ADD COLUMN source_class_id TEXT` },
+  { version: '20260907-181', sql: `ALTER TABLE academic_year_snapshots ADD COLUMN report_snapshot TEXT` },
 ]

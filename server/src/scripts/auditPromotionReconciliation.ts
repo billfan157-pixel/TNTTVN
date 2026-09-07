@@ -29,6 +29,10 @@ try {
   const columns = await client.execute("PRAGMA table_info('academic_years')")
   const hasTarget = columns.rows.some((row) => String(row.name ?? row[1]) === 'promotion_target_year_id')
   if (!hasTarget) throw new Error('promotion_target_year_id is missing; deploy migration 20260904-169 before inventory')
+  const receiptColumns = await client.execute("PRAGMA table_info('promotion_records')")
+  if (!['completed_at', 'completed_target_year_id'].every(name => receiptColumns.rows.some(row => String(row.name ?? row[1]) === name))) {
+    throw new Error('Promotion receipt columns are missing; deploy migrations 20260907-177/178 before inventory')
+  }
 
   const tx = await client.transaction('read')
   try {
@@ -54,6 +58,8 @@ try {
        AND pr.academic_year = s.academic_year_id
        AND pr.status = 'ACTIVE'
        AND pr.is_latest = 1
+       AND pr.completed_at IS NOT NULL
+       AND pr.completed_target_year_id = ay.promotion_target_year_id
       WHERE ay.status IN ('PROMOTED', 'ARCHIVED')
       GROUP BY ay.parish_id, ay.id, ay.status, ay.promotion_target_year_id
       ORDER BY ay.parish_id, ay.start_date

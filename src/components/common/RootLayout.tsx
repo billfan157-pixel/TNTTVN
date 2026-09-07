@@ -174,7 +174,7 @@ export function RootLayout() {
     )
   }
 
-  const isAuthRoute = pathname === '/login' || pathname.startsWith('/login/') || pathname === '/verify' || !currentUser
+  const isAuthRoute = pathname === '/' || pathname === '/about' || pathname === '/login' || pathname.startsWith('/login/') || pathname === '/verify' || !currentUser
 
   if (isAuthRoute) {
     return (

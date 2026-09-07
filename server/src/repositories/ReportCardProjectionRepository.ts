@@ -1,10 +1,12 @@
 import type { DbExecutor } from '../db/index.js'
-import { students, classes, grades, attendance, promotionRecords, gradeOverrides } from '../db/schema.js'
+import { students, classes, grades, attendance, promotionRecords, gradeOverrides, academicYearSnapshots } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
 import { computeWeightedGpa, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
+import { academicReportSnapshotSchema, historicalEvidenceRequired, parseHistoricalEvidence, type FinalizationPolicy } from '../utils/academicYearHistory.js'
 
 export interface ReportingProjectionContext {
+  finalizedYear?: { yearId: string; policy: FinalizationPolicy }
   executor: DbExecutor
   gradeWeights: GradeWeightsConfig
   attendancePolicy: { excusedWeight: number }
@@ -76,6 +78,30 @@ export class ReportCardProjectionRepository {
       .limit(1)
 
     if (!studentRow) return null
+
+    if (context.finalizedYear) {
+      const { yearId, policy } = context.finalizedYear
+      const [snapshot] = await executor.select().from(academicYearSnapshots).where(and(
+        eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.studentId, studentId),
+        eq(academicYearSnapshots.academicYearId, yearId),
+      )).limit(1)
+      if (!snapshot) return null // Not in the frozen academic cohort.
+      const sourceClass = policy.classes.find(c => c.id === snapshot.sourceClassId)
+      if (!sourceClass) throw historicalEvidenceRequired()
+      const frozen = parseHistoricalEvidence(academicReportSnapshotSchema, snapshot.reportSnapshot)
+      const [promotion] = await executor.select().from(promotionRecords).where(and(
+        eq(promotionRecords.parishId, parishId), eq(promotionRecords.studentId, studentId),
+        eq(promotionRecords.academicYear, academicYear), eq(promotionRecords.status, 'ACTIVE'),
+      )).limit(1)
+      return {
+        student: { ...studentRow, className: sourceClass.name }, academicYear,
+        grades: frozen.grades, attendanceSummary: frozen.attendanceSummary,
+        promotion: promotion ? {
+          status: promotion.finalDecision, gpa: promotion.gpaSnapshot, attendanceRate: promotion.attendanceSnapshot,
+          isOverridden: !!promotion.isOverridden, overrideReason: promotion.overrideReason, approvedAt: promotion.approvedAt,
+        } : null,
+      }
+    }
 
     // 2. Fetch Grade Rows
     const gradeRows = await executor

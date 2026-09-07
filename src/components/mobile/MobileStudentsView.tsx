@@ -24,6 +24,7 @@ import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
 import { TabPanel, Tabs } from '../common/ui/SelectionControls';
 import { DesktopClasses } from '../desktop/DesktopClasses';
+import { SubpageHeader } from '../common/SubpageHeader';
 
 interface MobileStudentsViewProps {
   workspace: StudentWorkspace;
@@ -203,16 +204,33 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       )}
 
       <TabPanel tabsId="mobile-students-workspace-tabs" value="promotions" activeValue={activeWorkspace}>
-        <Suspense fallback={<div className="p-2"><SkeletonTable rows={6} cols={3} /></div>}>
-          <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
-        </Suspense>
+        <div className="product-view flex flex-col gap-3 pb-8">
+          <SubpageHeader
+            icon={<TrendingUp size={15} />}
+            title="Xét Lên Lớp & Chuyển Ngành"
+            meta={<span className="truncate">Quản lý tiến trình hoàn thành chương trình giáo lý</span>}
+          />
+          <Suspense fallback={<div className="p-2"><SkeletonTable rows={6} cols={3} /></div>}>
+            <PromotionPanel onViewPhotoCard={onViewPhotoCard} onViewCertificate={onViewCertificate} />
+          </Suspense>
+        </div>
       </TabPanel>
       <TabPanel
         tabsId="mobile-students-workspace-tabs"
         value="students"
         activeValue={activeWorkspace}
       >
-        <>
+        <div className="product-view flex flex-col gap-3 pb-8">
+          <SubpageHeader
+            icon={<Users size={15} />}
+            title="Danh Sách Thiếu Nhi"
+            meta={<span className="truncate">{selectedClassId === 'all' ? 'Toàn xứ đoàn' : (classList.find(c => c.id === selectedClassId)?.name || 'Theo lớp')} · {filteredStudents.length} em</span>}
+            actions={
+              <span className="attendance-total-badge tabular-nums">
+                <Users size={13} aria-hidden="true" /> {filteredStudents.length} em
+              </span>
+            }
+          />
           {/* Search & Actions — responsive: search full width + actions row */}
       <div className="flex flex-col gap-2.5">
         <label className="relative flex-1 block" aria-label="Tìm thiếu nhi">
@@ -481,7 +499,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       )}
       </>
       )}
-      </>
+      </div>
       </TabPanel>
     </div>
       {selectionMode && selectedStudents.length > 0 && (

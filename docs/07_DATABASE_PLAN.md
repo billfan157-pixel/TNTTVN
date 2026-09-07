@@ -7,6 +7,12 @@
 
 ## All Production Tables (59)
 
+**Recovery readiness (XD-09, 2026-09-07):** startup/restore readiness requires migration markers `20260907-177..181` and the promotion completion / academic policy / cohort / report columns. The isolated restore-target preparation applies the real schema, verifies and removes only the four known freshly created default-fund seeds, and rejects any other application data. Logical restore requires an exact table set and column sequence, then verifies row contents as well as counts and foreign keys. A post-commit mismatch invalidates the target; discard it, do not cut over. Schema readiness does not certify the evidence content of legacy rows or authorize a backfill.
+
+**Historical academic evidence (XD-02/03):** migrations `20260907-179..181` add nullable `academic_years.finalization_policy` (versioned JSON with concrete policy inputs, dates and original class labels), `academic_year_snapshots.source_class_id`, and `academic_year_snapshots.report_snapshot` (versioned effective semester scores and attendance summary, no copied personal profile). Finalize writes these atomically with the year lock. NULL is legacy/unknown, never a backfill from current settings/membership. Readers validate the JSON version/shape and fail closed where required evidence is missing. These additive migrations require no destructive recovery; roll back application deployment without dropping evidence columns. Restore/cutover must preserve them; existing full-DB compatibility gates still apply.
+
+**Read-only reconciliation (XD-02/03/08):** `npm run audit:cross-domain-reconciliation` checks protected years for missing policy/snapshot/cohort evidence and compares daily-derived Grade projections with the full assessment ledger while excluding active manual overrides. It first requires the current evidence columns, opens a read transaction, emits only hashed aggregate references/counts/reason codes by default, and never backfills or changes scores. Use `AUDIT_DATABASE_URL`/`AUDIT_DATABASE_AUTH_TOKEN` for an explicit target; findings require operator review rather than automatic repair.
+
 | # | Table Name | Purpose | Unique Indexes / Constraints |
 |---|------------|---------|------------------------------|
 | 1 | `users` | User accounts, auth status, roles, token version, bcrypt `password_hash`, `holy_name`; `deleted_at` soft-delete account (migration `20260901-147`, ADR-089). `password_encrypted` là cột legacy deprecated, bắt buộc `NULL`; migration `20260827-131` purge ciphertext (ADR-058) | `(parish_id, username)` UNIQUE (`idx_users_username_parish` — ADR-046), `idx_users_parish_id`, `idx_users_active_role(parish_id,role,deleted_at)` |
@@ -86,6 +92,9 @@
 | `unlocked_by` / `unlocked_at` | TEXT | NULL | Admin unlock audit info (schema.ts:545-546) |
 
 ### `promotion_records`
+
+XD-01 adds nullable `completed_at` and `completed_target_year_id` in migrations `20260907-177/178`. These are completion metadata, not mutable decision fields: membership transaction writes them once plus `COMPLETE_PROMOTION` audit. Legacy rows remain NULL; approval alone is insufficient evidence to backfill. Reconciliation requires ACTIVE/LATEST plus a receipt matching `academic_years.promotion_target_year_id`. Run the read-only promotion inventory against an explicitly selected target after migration; old ARCHIVED rows without receipts require operator review, not automatic unarchive/move. These additive columns require no data deletion; retain them on rollback, and do not deploy an older writer that can again create receipt-less transitions without re-enabling the old defect.
+
 | Column | Type | Default | Notes |
 | :--- | :--- | :--- | :--- |
 | `id` | TEXT PK | | `PRM-` prefix |
@@ -174,11 +183,12 @@
 
 DB CHECK bắt buộc `request_count >= 1`; `PENDING` phải chưa có resolver, còn `RESOLVED|DISMISSED` phải có đủ `resolved_at/resolved_by`. Không có cột phone/password/IP/user-agent trong ticket. Network metadata chỉ nằm trong audit bảo mật hiện hữu; `PASSWORD_RESET_REQUESTED` ghi rõ actor là unauthenticated request, không tuyên bố `user_id` là người đã xác thực.
 
-## Purge v2.4 — `purge_version` marker (ghost-data prevention)
+## Client data generation — legacy key `purge_version` (ghost/replay prevention)
 
-- Key `purge_version` trong bảng `system_settings` (value = số nguyên, mặc định `1`, tăng +1 mỗi lần purge).
+- Key persisted `purge_version` trong bảng `system_settings` được giữ để tương thích client (value = số nguyên, mặc định `1`). Đây là client-data generation theo parish, tăng +1 trong cùng transaction với mỗi purge hoặc partial JSON restore thành công.
 - Mọi client lưu `purge_version` local (localStorage `parish_purge_version`); mỗi chu kỳ sync, `GET /api/system/purge-version` được gọi trước pull delta.
-- Nếu server version > local version → dữ liệu offline của thiết bị là **GHOST DATA** (đã bị xóa trên server) → client tự xóa sạch Dexie + localStorage + đăng xuất, không bao giờ push lại queue cũ.
+- Nếu server version > local version → cache/queue offline thuộc generation cũ → client tự xóa sạch Dexie + localStorage + đăng xuất trước push. Thiết bị legacy chưa có marker nhưng còn mutation chưa settled cũng reset thay vì baseline generation hiện tại. Restore UI chặn command khi chính thiết bị còn mutation `pending|processing|retrying|failed`.
+- Generation increment và success audit nằm trong transaction destructive tương ứng: rollback không phát generation giả; audit failure không được tạo trạng thái server đã thay nhưng HTTP báo restore thất bại.
 - Purge **không DROP bảng** — chỉ `DELETE rows` của 26 bảng trong hợp đồng `PURGE_TABLES`, gồm `password_reset_requests` và `feedback_messages`. `exam_result_mutations` được xóa trước `exam_results`/`exam_sessions`; mọi bảng trong danh sách đều có `parish_id`.
 - Trước khi xóa: snapshot v3.1 (26 bảng, SHA256 checksum) ghi tại `server/data/backups/safety/purge-safety-<parish>-<ts>.json` (mặc định; override bằng env `SAFETY_BACKUP_DIR` — xem `server/src/utils/safetyDir.ts` và `docs/DEPLOYMENT_GUIDE.md` §3).
 

@@ -19,6 +19,7 @@ export async function pruneStaleQueueItems(now = Date.now()): Promise<number> {
   const cutoff = now - FAILED_OP_RETENTION_MS
   const stale = terminal.filter((item) => {
     if (!isOwnOp(item)) return false
+    if (item.serverAcknowledgement) return false
     if (item.status === 'completed') return true
     const updatedAt = Date.parse(item.updatedAt || item.createdAt)
     return Number.isFinite(updatedAt) && updatedAt < cutoff
@@ -34,13 +35,22 @@ export async function pruneStaleQueueItems(now = Date.now()): Promise<number> {
  * AES-GCM (AAD 'syncQueue'); legacy plaintext (queue cũ / test mocks) trả nguyên
  * — dual-format. Ciphertext hỏng → {} (caller tự fallback như payload hỏng cũ).
  */
-export async function parseQueuePayload(raw: unknown): Promise<Record<string, unknown>> {
-  if (typeof raw !== 'string') return {}
+export async function parseQueuePayload(raw: unknown, strict = false): Promise<Record<string, unknown>> {
+  if (typeof raw !== 'string') {
+    if (strict) throw new Error('Cannot reconcile invalid queue payload')
+    return {}
+  }
   const plain = await decryptQueueValue(raw)
-  if (plain === null) return {}
+  if (plain === null) {
+    if (strict) throw new Error('Cannot decrypt queue payload for identity reconciliation')
+    return {}
+  }
   try {
-    return JSON.parse(plain) as Record<string, unknown>
-  } catch {
+    const value = JSON.parse(plain)
+    if (strict && (!value || typeof value !== 'object' || Array.isArray(value))) throw new Error('Invalid queue payload')
+    return value as Record<string, unknown>
+  } catch (error) {
+    if (strict) throw error
     return {}
   }
 }
@@ -76,26 +86,23 @@ export async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
   const db = getDB()
   const pending = await db.syncQueue
     .where('status')
-    .anyOf(['pending', 'retrying'])
+    .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
   for (const item of pending.filter(isOwnOp)) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip unparseable
+    if (item.serverAcknowledgement) continue
+    const payload = await parseQueuePayload(item.payload, true)
+    if (!payload) continue
+    const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
+    if (item.entityId === oldId) {
+      updates.entityId = newId
+    }
+    if (payload.id === oldId) {
+      payload.id = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (updates.entityId || updates.payload) {
+      updates.updatedAt = new Date().toISOString()
+      await db.syncQueue.update(item.id, updates)
     }
   }
 }
@@ -105,33 +112,30 @@ export async function remapClassIdInPendingOps(oldId: string, newId: string) {
   const db = getDB()
   const raw = await db.syncQueue
     .where('status')
-    .anyOf(['pending', 'retrying'])
+    .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
   const pending = raw.filter(isOwnOp)
   for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      // ADR-016 (S23): Cập nhật CẢ entityId của chính op (class UPDATE dùng
-      // temp ID làm entityId → server trả 404 vĩnh viễn nếu không remap).
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (payload.classId === oldId) {
-        payload.classId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip items with unparseable payload
+    if (item.serverAcknowledgement) continue
+    const payload = await parseQueuePayload(item.payload, true)
+    if (!payload) continue
+    const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
+    // ADR-016 (S23): Cập nhật CẢ entityId của chính op (class UPDATE dùng
+    // temp ID làm entityId → server trả 404 vĩnh viễn nếu không remap).
+    if (item.entityId === oldId) {
+      updates.entityId = newId
+    }
+    if (payload.classId === oldId) {
+      payload.classId = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (payload.id === oldId) {
+      payload.id = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (updates.entityId || updates.payload) {
+      updates.updatedAt = new Date().toISOString()
+      await db.syncQueue.update(item.id, updates)
     }
   }
 }
@@ -141,53 +145,50 @@ export async function remapStudentIdInPendingOps(oldId: string, newId: string) {
   const db = getDB()
   const raw = await db.syncQueue
     .where('status')
-    .anyOf(['pending', 'retrying'])
+    .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
   const pending = raw.filter(isOwnOp)
   for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      // ADR-016 (S23): Op UPDATE của chính student đó (entityId = temp ID)
-      // phải được remap entityId, không chỉ studentId trong payload của các op khác.
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (item.entity === 'exam_result' && item.entityId.endsWith(`::result::${oldId}`)) {
-        updates.entityId = `${item.entityId.slice(0, -oldId.length)}${newId}`
-      }
-      if (payload.studentId === oldId) {
-        payload.studentId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      // Student UPDATE payload chứa cả field `id` của chính nó.
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (Array.isArray(payload.scores)) {
-        let modified = false
-        for (const s of payload.scores) {
-          if (s && s.studentId === oldId) {
-            s.studentId = newId
-            modified = true
-          }
-        }
-        if (modified) {
-          updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    if (item.serverAcknowledgement) continue
+    const payload = await parseQueuePayload(item.payload, true)
+    if (!payload) continue
+    const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
+    // ADR-016 (S23): Op UPDATE của chính student đó (entityId = temp ID)
+    // phải được remap entityId, không chỉ studentId trong payload của các op khác.
+    if (item.entityId === oldId) {
+      updates.entityId = newId
+    }
+    if (item.entity === 'exam_result' && item.entityId.endsWith(`::result::${oldId}`)) {
+      updates.entityId = `${item.entityId.slice(0, -oldId.length)}${newId}`
+    }
+    if (payload.studentId === oldId) {
+      payload.studentId = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    // Student UPDATE payload chứa cả field `id` của chính nó.
+    if (payload.id === oldId) {
+      payload.id = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (Array.isArray(payload.scores)) {
+      let modified = false
+      for (const s of payload.scores) {
+        if (s && s.studentId === oldId) {
+          s.studentId = newId
+          modified = true
         }
       }
-      if (payload.score && typeof payload.score === 'object' && (payload.score as Record<string, unknown>).studentId === oldId) {
-        ;(payload.score as Record<string, unknown>).studentId = newId
+      if (modified) {
         updates.payload = await encryptQueueValue(JSON.stringify(payload))
       }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip items with unparseable payload
+    }
+    if (payload.score && typeof payload.score === 'object' && (payload.score as Record<string, unknown>).studentId === oldId) {
+      ;(payload.score as Record<string, unknown>).studentId = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (updates.entityId || updates.payload) {
+      updates.updatedAt = new Date().toISOString()
+      await db.syncQueue.update(item.id, updates)
     }
   }
 }
@@ -197,38 +198,35 @@ export async function remapExamSessionIdInPendingOps(oldId: string, newId: strin
   const db = getDB()
   const raw = await db.syncQueue
     .where('status')
-    .anyOf(['pending', 'retrying'])
+    .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
   const pending = raw.filter(isOwnOp)
   for (const item of pending) {
-    try {
-      const payload = await parseQueuePayload(item.payload)
-      if (!payload) continue
-      const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
-      if (item.entityId === oldId) {
-        updates.entityId = newId
-      }
-      if (item.entity === 'exam_result' && item.entityId.startsWith(`${oldId}::result::`)) {
-        updates.entityId = `${newId}${item.entityId.slice(oldId.length)}`
-      }
-      if (payload.sessionId === oldId) {
-        payload.sessionId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (payload.examSessionId === oldId) {
-        payload.examSessionId = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (payload.id === oldId) {
-        payload.id = newId
-        updates.payload = await encryptQueueValue(JSON.stringify(payload))
-      }
-      if (updates.entityId || updates.payload) {
-        updates.updatedAt = new Date().toISOString()
-        await db.syncQueue.update(item.id, updates)
-      }
-    } catch {
-      // skip items with unparseable payload
+    if (item.serverAcknowledgement) continue
+    const payload = await parseQueuePayload(item.payload, true)
+    if (!payload) continue
+    const updates: { payload?: string; entityId?: string; updatedAt?: string } = {}
+    if (item.entityId === oldId) {
+      updates.entityId = newId
+    }
+    if (item.entity === 'exam_result' && item.entityId.startsWith(`${oldId}::result::`)) {
+      updates.entityId = `${newId}${item.entityId.slice(oldId.length)}`
+    }
+    if (payload.sessionId === oldId) {
+      payload.sessionId = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (payload.examSessionId === oldId) {
+      payload.examSessionId = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (payload.id === oldId) {
+      payload.id = newId
+      updates.payload = await encryptQueueValue(JSON.stringify(payload))
+    }
+    if (updates.entityId || updates.payload) {
+      updates.updatedAt = new Date().toISOString()
+      await db.syncQueue.update(item.id, updates)
     }
   }
 }

@@ -343,6 +343,7 @@ export const academicYears = sqliteTable('academic_years', {
    // active promotion records; this field makes retry deterministic even when
    // the first attempt produced zero successful records.
    promotionTargetYearId: text('promotion_target_year_id'),
+   finalizationPolicy: text('finalization_policy'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
    updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
@@ -688,6 +689,8 @@ export const academicYearSnapshots = sqliteTable('academic_year_snapshots', {
   academicYearId: text('academic_year_id').notNull(),
   studentId: text('student_id').notNull(),
   semester1Gpa: real('semester1_gpa'),
+  sourceClassId: text('source_class_id'),
+  reportSnapshot: text('report_snapshot'),
   semester2Gpa: real('semester2_gpa'),
   yearGpa: real('year_gpa'),
   classification: text('classification'),
@@ -734,6 +737,8 @@ export const promotionRecords = sqliteTable('promotion_records', {
   status: text('status', { enum: ['ACTIVE', 'SUPERSEDED'] }).notNull().default('ACTIVE'),
   version: integer('version').notNull().default(1),
   isLatest: integer('is_latest', { mode: 'number' }).notNull().default(1),
+  completedAt: text('completed_at'),
+  completedTargetYearId: text('completed_target_year_id'),
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 }, (table) => [

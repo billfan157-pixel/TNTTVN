@@ -10,6 +10,7 @@ import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
 import { VersionConflictError } from '../domain/errors.js'
 import { isValidIsoDate } from '../utils/date.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
+import { isAttendanceDateLocked } from './academicYearService.js'
 
 export interface MarkAttendanceCommand {
   studentId: string
@@ -83,7 +84,7 @@ export class AttendanceApplicationService {
 
       // 2. Check Semester Lock Specification
       const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(academicYear, semester, cmd.parishId)
-      if (!isSemesterUnlocked) {
+      if (!isSemesterUnlocked || await isAttendanceDateLocked(cmd.parishId, cmd.date, tx)) {
         const err = new Error(`Học kỳ ${semester} năm học ${academicYear} đã bị khóa sổ điểm. Không thể điểm danh.`) as any
         err.status = 403
         throw err

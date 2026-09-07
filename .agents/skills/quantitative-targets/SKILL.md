@@ -1,3 +1,11 @@
+---
+name: quantitative-targets
+description: >
+  Evaluate measurable engineering targets, benchmarks, SLOs,
+  performance, reliability, OMR accuracy, latency, capacity,
+  resource usage and cost. Use only when a Catevia decision
+  depends on quantitative evidence or historical numerical targets.
+---
 # Quantitative Targets & SLOs
 
 ## Decision Matrix v5.1 Final Reference

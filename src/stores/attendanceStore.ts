@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { dexieStorage, getDB } from '../lib/db'
+import { getDB } from '../lib/db'
+import { academicCacheStorage, beginAcademicPull, flushAcademicCache, mergeAcademicPull } from '../lib/academicPull'
 import type { AttendanceRecord, AttendanceType } from '../types'
 import { calculateAttendanceRate, countAttendancePresent } from '../utils/grades'
 import { useAcademicYearStore } from './academicYearStore'
@@ -60,6 +61,7 @@ async function triggerSyncFlow() {
 }
 
 interface AttendanceState {
+  syncScopeRevision: string | null
   attendance: AttendanceRecord[]
   error: string | null
   lockError: string | null
@@ -86,6 +88,7 @@ export const useAttendanceStore = create<AttendanceState>()(
   persist(
     (set, get) => ({
       attendance: [],
+      syncScopeRevision: null,
       error: null,
       lockError: null,
       batchResult: null,
@@ -94,34 +97,19 @@ export const useAttendanceStore = create<AttendanceState>()(
 
       fetchAttendance: async (updatedAfter?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
+        const pull = beginAcademicPull('attendance')
         try {
-          const params = updatedAfter ? { updatedAfter } : undefined
-          const fetched = await api.getAttendance(params)
-          if (Array.isArray(fetched)) {
-            if (updatedAfter) {
-              // ADR-016 (offline-sync audit #6): merge theo natural key thay vì id —
-              // bản ghi local còn temp AT- id và row server cùng (studentId,date,type)
-              // từng thành 2 dòng trùng. Row server là canonical; không đè row đang
-              // có op pending (thay đổi chưa sync sẽ áp dụng qua applyServerResult).
-              const pendingKeys = await getPendingAttendanceNaturalKeys()
-              set((state) => {
-                const merged = new Map<string, AttendanceRecord>()
-                for (const a of state.attendance) merged.set(attendanceNaturalKey(a), a)
-                for (const a of fetched) {
-                  const key = attendanceNaturalKey(a)
-                  const local = merged.get(key)
-                  if (local && pendingKeys.has(key)) continue
-                  merged.set(key, a)
-                }
-                return { attendance: Array.from(merged.values()) }
-              })
-            } else {
-              set({ attendance: fetched })
-            }
-          }
+          const revision = get().syncScopeRevision
+          const fetched = await api.pullAttendance(updatedAfter, revision)
+          const pendingKeys = await getPendingAttendanceNaturalKeys()
+          pull.assertCurrent()
+          const merged = mergeAcademicPull(fetched, get().attendance, pendingKeys, attendanceNaturalKey, revision)
+          set({ attendance: merged.rows, syncScopeRevision: merged.revision, error: null })
+          await flushAcademicCache('parish_store_attendance')
+          pull.assertCurrent()
         } catch (err) {
           Sentry.captureException(err)
-          set({ error: (err as Error)?.message || 'Lỗi tải điểm danh' })
+          if (pull.current()) set({ error: (err as Error)?.message || 'Lỗi tải điểm danh' })
           if (throwOnError) throw err
         }
       },
@@ -369,9 +357,9 @@ export const useAttendanceStore = create<AttendanceState>()(
     }),
     {
       name: 'parish_store_attendance',
-      version: 1,
-      migrate: () => ({ attendance: [] }),
-      storage: createJSONStorage(() => dexieStorage),
+      version: 2,
+      migrate: () => ({ attendance: [], syncScopeRevision: null }),
+      storage: createJSONStorage(() => academicCacheStorage),
     }
   )
 )

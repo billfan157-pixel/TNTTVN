@@ -115,6 +115,19 @@ async function getPendingQueueItems(): Promise<SyncQueueItem[]> {
     .toArray()
 }
 
+/**
+ * Operations that make a destructive server data replacement unsafe on this
+ * device. Unlike the normal sync worklist, this includes failed and currently
+ * processing rows because both still carry pre-replacement user intent.
+ */
+export async function getOwnUnsettledSyncOperations(): Promise<SyncQueueItem[]> {
+  const rows = await getDB().syncQueue
+    .where('status')
+    .anyOf(['pending', 'processing', 'retrying', 'failed'])
+    .toArray()
+  return rows.filter(isOwnOp).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
 /** OS-02: Migration 1 lần cho legacy queue items rỗng/thiếu userId khi user đăng nhập. */
 export async function migrateLegacyQueueUserIds(): Promise<void> {
   await migrateLegacyQueueOwnership()
@@ -259,6 +272,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     const item: SyncQueueItem = {
       id,
       ...op,
+      serverAcknowledgement: undefined, // only the ACK boundary may create a receipt
       payload: encryptedPayload,
       retryCount: 0,
       lastError: null,
@@ -281,6 +295,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         .toArray()
       const dup = siblings.find((i) =>
         i.id !== id &&
+        !i.serverAcknowledgement &&
         isOwnOp(i) &&
         i.entity === op.entity &&
         i.entityId === op.entityId &&
@@ -319,6 +334,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
     if (typeof next.lastError === 'string') {
       next.lastError = await encryptQueueValue(next.lastError)
+    }
+    if (typeof next.serverAcknowledgement === 'string') {
+      next.serverAcknowledgement = await encryptQueueValue(next.serverAcknowledgement)
     }
     await getDB().syncQueue.update(id, { ...next, updatedAt: new Date().toISOString() })
   },
@@ -441,6 +459,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     // Group by (entity, entityId)
     const groups = new Map<string, SyncQueueItem[]>()
     for (const op of pending) {
+      if (op.serverAcknowledgement) continue // committed parent is a recovery journal, never compact it
       if (discardedExamResultIds.has(op.id)) continue
       const key = `${op.entity}:${op.entityId}`
       if (!groups.has(key)) groups.set(key, [])

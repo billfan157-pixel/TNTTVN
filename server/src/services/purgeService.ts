@@ -1,14 +1,14 @@
 import { createHash } from 'crypto'
-import { sql, and, eq } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { db, client } from '../db/index.js'
-import { auditLogs, systemSettings } from '../db/schema.js'
+import { auditLogs } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { writeSafetySnapshot, pruneSafetySnapshots } from './safetySnapshot.js'
+import { advanceClientResetVersion } from './clientDataGeneration.js'
+
+export { PURGE_VERSION_KEY, DEFAULT_PURGE_VERSION } from './clientDataGeneration.js'
 
 export const PURGE_CONFIRM_KEY = 'XÓA TẤT CẢ'
-
-export const PURGE_VERSION_KEY = 'purge_version'
-export const DEFAULT_PURGE_VERSION = 1
 
 // ─── Các bảng nghiệp vụ thuộc hợp đồng Purge v2.5 ───
 // Mọi bảng đều có cột parish_id → xóa theo parish (audit P4:
@@ -158,38 +158,10 @@ export async function purgeParishData(
       }
     }
 
-    // A-NEW-36 (2026-08-11): lọc theo CẢ key + parishId — trước đây SELECT chỉ theo
-    // key GLOBAL (PK cũ) → purge của parish này có thể đọc/upsert đè purge_version
-    // của parish khác (dữ liệu bị 'cướp', ghost data không bao giờ wipe).
-    const [existing] = await tx.select().from(systemSettings)
-      .where(and(eq(systemSettings.key, PURGE_VERSION_KEY), eq(systemSettings.parishId, parishId)))
-      .limit(1)
-    const currentVersion = existing && existing.value
-      ? Number(existing.value)
-      : DEFAULT_PURGE_VERSION
-    const nextVersion = currentVersion + 1
-
+    // A-NEW-36: marker is tenant-scoped and advances in the same transaction as
+    // the destructive mutation. JSON restore reuses this boundary as well.
+    const nextVersion = await advanceClientResetVersion(tx, parishId, userId)
     const now = new Date().toISOString()
-    await tx.insert(systemSettings)
-      .values({
-        key: PURGE_VERSION_KEY,
-        value: String(nextVersion),
-        description: 'Purge version marker — tăng khi xóa toàn bộ dữ liệu giáo xứ',
-        updatedBy: userId,
-        updatedAt: now,
-        parishId,
-      })
-      .onConflictDoUpdate({
-        // A-NEW-36: target phải khớp composite PK (key, parish_id) — target key đơn
-        // sẽ sinh ON CONFLICT(key) không khớp PK → SQLITE_CONSTRAINT mọi lần purge.
-        target: [systemSettings.key, systemSettings.parishId],
-        set: {
-          value: String(nextVersion),
-          updatedBy: userId,
-          updatedAt: now,
-          parishId,
-        },
-      })
 
     // Audit log — ghi SAU khi purge, trong cùng transaction (audit_logs không bị xóa).
     await tx.insert(auditLogs).values({

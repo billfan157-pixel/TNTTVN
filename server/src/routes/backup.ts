@@ -2,15 +2,18 @@ import { Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { eq, inArray, count, getTableColumns, sql, and } from 'drizzle-orm'
+import { eq, inArray, count, getTableColumns, sql, and, ne } from 'drizzle-orm'
 import { createHash } from 'crypto'
-import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
+import { db, runDbTransaction, type DbTransaction, type DbExecutor } from '../db/index.js'
 import {
   students, grades, attendance, classes, semesterLocks, gradeOverrides,
   promotionRecords, examSessions, examResults, auditLogs, attendanceSessions,
-  academicYearSnapshots, catechistAssignments, questionBankItems,
+  academicYearSnapshots, academicYears, catechistAssignments, questionBankItems,
   questionBankVersions, examBlueprints, examBlueprintRules,
   examQuestionSnapshots,
+  assessmentEntries, examResultMutations, examFinalizations, leaveRequests,
+  studentFeeRecords, importBatchStudents, serviceAssignments, outboxMessages,
+  notifications, financialTransactions, gradeImportHashes, mappingMemory,
 } from '../db/schema.js'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { adminReauthRateLimiter } from '../middleware/security.js'
@@ -19,8 +22,68 @@ import { errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { generateId } from '../utils/id.js'
 import { writeSafetySnapshot, pruneSafetySnapshots } from '../services/safetySnapshot.js'
+import { advanceClientResetVersion } from '../services/clientDataGeneration.js'
 
 const backupRouter = new Hono()
+
+/** JSON restore is a partial data import, not a complete academic recovery
+ * image. Never delete immutable evidence while leaving its lifecycle state
+ * behind. Repeat this preflight inside the destructive transaction to cover
+ * a finalize that commits while the safety snapshot is being written. */
+async function assertJsonRestoreLifecycleSafe(executor: DbExecutor, parishId: string): Promise<void> {
+  const [snapshot] = await executor.select({ id: academicYearSnapshots.id }).from(academicYearSnapshots)
+    .where(eq(academicYearSnapshots.parishId, parishId)).limit(1)
+  const years = await executor.select({ status: academicYears.status, isLocked: academicYears.isLocked }).from(academicYears)
+    .where(eq(academicYears.parishId, parishId))
+  if (snapshot || years.some(year => year.isLocked === 1 || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status || ''))) {
+    throw Object.assign(new Error('Không thể dùng bản JSON khôi phục một phần khi giáo xứ có năm đã chốt hoặc snapshot học vụ. Cần quy trình khôi phục cơ sở dữ liệu đầy đủ để bảo toàn lịch sử.'), { code: 'RESTORE_PROTECTED_ACADEMIC_STATE', status: 409 })
+  }
+}
+
+/**
+ * The JSON profile does not contain these cross-domain facts. Replacing their
+ * parents would either hit an FK backstop or silently cascade provenance/user
+ * intent. Block before the safety write, and repeat in the transaction to close
+ * a concurrent insert window. Full-schema recovery is the supported path.
+ */
+async function assertJsonRestoreDependencySafe(executor: DbExecutor, parishId: string, includeQuestionBank: boolean): Promise<void> {
+  const blockers: string[] = []
+  const tables: Array<{ label: string; table: any; column: any }> = [
+    { label: 'assessment ledger', table: assessmentEntries, column: assessmentEntries.id },
+    { label: 'exam mutation receipts', table: examResultMutations, column: examResultMutations.clientMutationId },
+    { label: 'exam finalization receipts', table: examFinalizations, column: examFinalizations.id },
+    { label: 'leave requests', table: leaveRequests, column: leaveRequests.id },
+    { label: 'student fee records', table: studentFeeRecords, column: studentFeeRecords.id },
+    { label: 'financial transactions', table: financialTransactions, column: financialTransactions.id },
+    { label: 'import rollback provenance', table: importBatchStudents, column: importBatchStudents.id },
+    { label: 'student service assignments', table: serviceAssignments, column: serviceAssignments.id },
+    { label: 'staff class assignments', table: catechistAssignments, column: catechistAssignments.id },
+    { label: 'attendance sessions', table: attendanceSessions, column: attendanceSessions.id },
+    { label: 'notification history or delivery intent', table: notifications, column: notifications.id },
+    { label: 'grade import receipts', table: gradeImportHashes, column: gradeImportHashes.id },
+    { label: 'import mapping memory', table: mappingMemory, column: mappingMemory.id },
+  ]
+  for (const { label, table, column } of tables) {
+    const [row] = await executor.select({ id: column }).from(table)
+      .where(eq(table.parishId, parishId)).limit(1)
+    if (row) blockers.push(label)
+  }
+  const [undispatched] = await executor.select({ id: outboxMessages.id }).from(outboxMessages)
+    .where(and(eq(outboxMessages.parishId, parishId), ne(outboxMessages.status, 'dispatched'))).limit(1)
+  if (undispatched) blockers.push('undispatched outbox messages')
+  if (!includeQuestionBank) {
+    const [questionSnapshot] = await executor.select({ id: examQuestionSnapshots.id }).from(examQuestionSnapshots)
+      .where(eq(examQuestionSnapshots.parishId, parishId)).limit(1)
+    if (questionSnapshot) blockers.push('exam question snapshots unsupported by this legacy backup version')
+  }
+
+  if (blockers.length > 0) {
+    throw Object.assign(
+      new Error(`Bản JSON không chứa đủ dependency để thay thế an toàn (${blockers.join(', ')}). Hãy dùng quy trình khôi phục cơ sở dữ liệu đầy đủ.`),
+      { code: 'RESTORE_UNSUPPORTED_DEPENDENCIES', status: 409 },
+    )
+  }
+}
 
 backupRouter.use('/*', authMiddleware)
 
@@ -146,14 +209,12 @@ async function verifyActualCount(tx: DbTransaction, table: any, label: string, e
  * classes, semesterLocks, gradeOverrides, promotionSnapshots (bảng
  * `promotion_records` — key payload giữ tên legacy), questionBankItems,
  * questionBankVersions, examBlueprints, examBlueprintRules, examSessions,
- * examQuestionSnapshots, examResults — kèm SHA256 checksum. KHÔNG bao gồm: users, refreshTokens,
- * auditLogs, branches, academicYears, systemSettings, catechistAssignments,
- * notifications, permissions, rolePermissions, importBatches,
- * importBatchStudents, gradeImportHashes, pushSubscriptions, nativePushTokens, serviceAssignments,
- * mappingMemory, outboxMessages, academicYearSnapshots, attendanceSessions,
- * assessments, notices, telegramLinks, telegramLinkTokens. Auth/audit/config
- * KHÔNG nằm trong snapshot để restore
- * không phá trạng thái đăng nhập/kiểm toán (chi tiết: SECURITY_AUDIT_LOG A22).
+ * examQuestionSnapshots, examResults — kèm SHA256 checksum. Đây là partial
+ * interchange profile, không phải database backup. Auth/audit/config không nằm
+ * trong payload. Restore từ chối trước mutation nếu state hiện tại có lifecycle,
+ * ledger, receipt, assignment, notification hoặc provenance ngoài profile mà
+ * việc thay parent rows có thể xóa hoặc rebind; dùng full-schema recovery cho
+ * các trạng thái đó (chi tiết: SECURITY_AUDIT_LOG XD-20260907).
  */
 backupRouter.post('/export', roleMiddleware('admin'), adminReauthRateLimiter, zValidator('json', exportBackupBodySchema), async (c) => {
   const user = c.get('user') as JwtPayload
@@ -366,6 +427,9 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       return c.json({ error: `File sao lưu quá lớn (${totalRows} dòng — giới hạn ${MAX_RESTORE_ROWS}) — không thể khôi phục`, }, 400)
     }
 
+    await assertJsonRestoreLifecycleSafe(db, user.parishId)
+    await assertJsonRestoreDependencySafe(db, user.parishId, includeQuestionBank)
+
     // 2. Pre-Restore Auto-Safety Backup — A20: fail-closed. KHÔNG .catch(() => [])
     // như trước: không đọc được dữ liệu hiện tại → không thể tạo bản rollback →
     // ABORT restore (thay vì ghi file safety RỖNG + restore tiếp).
@@ -473,7 +537,9 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
     // db.transaction — transaction restore là transaction DÀI (nhiều statement)
     // nên rủi ro SQLITE_BUSY cao; helper set busy_timeout ngay trong tx + retry
     // SQLITE_BUSY với backoff → restore không chết oan dưới concurrency.
-    await runDbTransaction(async (tx) => {
+    const purgeVersion = await runDbTransaction(async (tx) => {
+      await assertJsonRestoreLifecycleSafe(tx, user.parishId)
+      await assertJsonRestoreDependencySafe(tx, user.parishId, includeQuestionBank)
       // ── 1. Xóa trạng thái hiện tại của parish (con → cha; gồm các bảng phái
       //    sinh FK-restrict KHÔNG nằm trong payload để không chặn việc xóa:
       //    catechistAssignments, academicYearSnapshots, attendanceSessions —
@@ -539,35 +605,43 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
         eq(examResults.parishId, user.parishId),
         esIds.length > 0 ? inArray(examResults.examSessionId, esIds) : eq(examResults.examSessionId, '__none__'),
       ))
-    })
 
-    await db.insert(auditLogs).values({
-      id: generateId('AUD'),
-      userId: user.userId,
-      action: 'RESTORE_BACKUP',
-      entityType: 'parish',
-      entityId: user.parishId,
-      newValue: JSON.stringify({
-        counts: {
-          students: restoredStudents.length,
-          grades: restoredGrades?.length ?? 0,
-          attendance: restoredAttendance?.length ?? 0,
-          semesterLocks: restoredSemesterLocks?.length ?? 0,
-          gradeOverrides: restoredGradeOverrides?.length ?? 0,
-          promotionSnapshots: restoredPromotionSnapshots?.length ?? 0,
-          questionBankItems: includeQuestionBank ? restoredQuestionBankItems.length : 'preserved-legacy-backup',
-          questionBankVersions: includeQuestionBank ? restoredQuestionBankVersions.length : 'preserved-legacy-backup',
-          examBlueprints: includeQuestionBank ? restoredExamBlueprints.length : 'preserved-legacy-backup',
-          examBlueprintRules: includeQuestionBank ? restoredExamBlueprintRules.length : 'preserved-legacy-backup',
-          examSessions: restoredExamSessions?.length ?? 0,
-          examQuestionSnapshots: includeQuestionBank ? restoredExamQuestionSnapshots.length : 0,
-          examResults: restoredExamResults?.length ?? 0,
-        },
-        verified: true,
-      }),
-      ip,
-      userAgent,
-      parishId: user.parishId,
+      // A restore replaces the server generation. Advance the same marker used
+      // by purge so every device clears old encrypted caches and queued writes
+      // before it can sync against the restored database. Keep marker + success
+      // audit in this transaction: neither may acknowledge a rolled-back restore,
+      // and an audit failure must not produce a committed restore with HTTP 500.
+      const nextPurgeVersion = await advanceClientResetVersion(tx, user.parishId, user.userId)
+      await tx.insert(auditLogs).values({
+        id: generateId('AUD'),
+        userId: user.userId,
+        action: 'RESTORE_BACKUP',
+        entityType: 'parish',
+        entityId: user.parishId,
+        newValue: JSON.stringify({
+          counts: {
+            students: restoredStudents.length,
+            grades: restoredGrades?.length ?? 0,
+            attendance: restoredAttendance?.length ?? 0,
+            semesterLocks: restoredSemesterLocks?.length ?? 0,
+            gradeOverrides: restoredGradeOverrides?.length ?? 0,
+            promotionSnapshots: restoredPromotionSnapshots?.length ?? 0,
+            questionBankItems: includeQuestionBank ? restoredQuestionBankItems.length : 'preserved-legacy-backup',
+            questionBankVersions: includeQuestionBank ? restoredQuestionBankVersions.length : 'preserved-legacy-backup',
+            examBlueprints: includeQuestionBank ? restoredExamBlueprints.length : 'preserved-legacy-backup',
+            examBlueprintRules: includeQuestionBank ? restoredExamBlueprintRules.length : 'preserved-legacy-backup',
+            examSessions: restoredExamSessions?.length ?? 0,
+            examQuestionSnapshots: includeQuestionBank ? restoredExamQuestionSnapshots.length : 0,
+            examResults: restoredExamResults?.length ?? 0,
+          },
+          verified: true,
+          purgeVersion: nextPurgeVersion,
+        }),
+        ip,
+        userAgent,
+        parishId: user.parishId,
+      })
+      return nextPurgeVersion
     })
 
     return c.json({
@@ -581,6 +655,7 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
         examSessions: restoredExamSessions?.length || 0,
       },
       verified: true,
+      purgeVersion,
     })
   } catch (err: any) {
     console.error('SERVER RESTORE ERROR:', err)
@@ -595,6 +670,9 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       userAgent,
       parishId: user.parishId,
     }).catch(() => {})
+    if (err?.status === 409 && typeof err?.code === 'string') {
+      return errorResponse(c, err.code, err.message, 409)
+    }
     return c.json({ error: 'Không thể khôi phục dữ liệu', details: process.env.NODE_ENV === 'development' ? err?.message || String(err) : undefined }, 500)
   }
 })

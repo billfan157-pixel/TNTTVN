@@ -1,7 +1,40 @@
 import { db, type DbExecutor } from '../db/index.js'
 import { academicYears } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
-import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademicYear } from '../utils/academicYear.js'
+import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademicYear, resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
+import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
+import { finalizationPolicySchema, historicalEvidenceRequired, parseHistoricalEvidence } from '../utils/academicYearHistory.js'
+
+/** Null means live/open, never a fallback for a finalized legacy year. */
+export async function getFinalizedYearContext(parishId: string, academicYear: string, executor: DbExecutor) {
+  const rows = await executor.select().from(academicYears).where(eq(academicYears.parishId, parishId))
+  const matches = rows.filter(row => normalizeAcademicYear(row.id) === normalizeAcademicYear(academicYear))
+  if (matches.length > 1) throw historicalEvidenceRequired()
+  const year = matches[0]
+  if (!year || (year.isLocked !== 1 && !['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status))) return null
+  return { yearId: year.id, policy: parseHistoricalEvidence(finalizationPolicySchema, year.finalizationPolicy) }
+}
+
+/**
+ * Attendance is keyed by date, not academicYear. Every historical projection
+ * containing that date must remain immutable when locked, including legacy
+ * year IDs/ranges. Check all matching periods rather than choose an arbitrary
+ * overlapping row, plus the canonical calendar lock when no year row exists.
+ * Caller must pass its write transaction (no check-then-write gap).
+ */
+export async function isAttendanceDateLocked(parishId: string, date: string, executor: DbExecutor): Promise<boolean> {
+  const years = await executor.select().from(academicYears).where(eq(academicYears.parishId, parishId))
+  const candidates = years.filter(year => {
+    const range = year.startDate && year.endDate ? year : computeAcademicYearDateRange(year.id)
+    return range.startDate <= date && date <= range.endDate
+  })
+  if (candidates.some(year => year.isLocked === 1 || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status || ''))) return true
+  const ids = new Set([resolveAcademicYear(date), ...candidates.map(year => year.id)])
+  for (const id of ids) {
+    if (await drizzleSemesterLockRepository.isLocked(id, resolveSemester(date), parishId, executor)) return true
+  }
+  return false
+}
 
 /**
  * ADR-017 (F2): Date range của năm học dùng để giới hạn attendance theo năm.

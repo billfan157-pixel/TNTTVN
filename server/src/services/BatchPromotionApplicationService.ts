@@ -1,9 +1,10 @@
 import { runDbTransaction, type DbTransaction } from '../db/index.js'
-import { students } from '../db/schema.js'
+import { students, classes } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 import { promotionApplicationService, PromotionApplicationService } from './PromotionApplicationService.js'
 import type { ApprovePromotionCommand } from './PromotionApplicationService.js'
 import type { PromotionRecordDTO } from '../repositories/DrizzlePromotionRepository.js'
+import { drizzlePromotionRepository } from '../repositories/DrizzlePromotionRepository.js'
 import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 
 export interface BatchItemResult {
@@ -82,6 +83,9 @@ export class BatchPromotionApplicationService {
                 .update(students)
                 .set(update)
                 .where(and(eq(students.id, item.studentId), eq(students.parishId, item.parishId)))
+              const [destination] = await tx.select({ yearId: classes.academicYearId }).from(classes).where(and(eq(classes.parishId, item.parishId), eq(classes.id, item.nextClassId!))).limit(1)
+              if (!destination) throw new Error('Không tìm thấy niên khóa lớp đích')
+              await drizzlePromotionRepository.markCompleted(snapshot, destination.yearId, item.userId, tx)
             }
 
             // If approvedAt was generated prior to this batch execution, it was an idempotent skip

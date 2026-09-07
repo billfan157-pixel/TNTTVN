@@ -1,10 +1,9 @@
 import React, { useState } from 'react'
 import { Database, Download, Upload, CheckCircle, X, Loader2 } from 'lucide-react'
-import { useStudentStore } from '../../stores/studentStore'
-import { useGradeStore } from '../../stores/gradeStore'
-import { useAttendanceStore } from '../../stores/attendanceStore'
-import { db } from '../../lib/db'
 import { httpFetch } from '../../lib/api'
+import { resetClientData } from '../../lib/resetClientData'
+import { getOwnUnsettledSyncOperations } from '../../stores/syncStore'
+import { useAuthStore } from '../../stores/authStore'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import * as Sentry from '@sentry/react'
@@ -22,9 +21,6 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
   // sao lưu / khôi phục (server bắt buộc, verifyAdminReauth).
   const [adminPassword, setAdminPassword] = useState('')
 
-  const setStudents = useStudentStore((s) => s.setStudents)
-  const setGrades = useGradeStore((g) => g.setGrades)
-  const setAttendance = useAttendanceStore((a) => a.setAttendance)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
 
@@ -101,16 +97,30 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
           return
         }
 
+        // A destructive replacement cannot safely race this device's durable
+        // intent. Failed/processing rows count too: both may be retried later.
+        const unsettled = await getOwnUnsettledSyncOperations()
+        if (unsettled.length > 0) {
+          setStatusMessage(`Không thể khôi phục khi thiết bị còn ${unsettled.length} thay đổi chưa hoàn tất. Hãy đồng bộ hoặc xử lý các thay đổi này trước.`)
+          setIsLoading(null)
+          return
+        }
+
         const restoreRes = await httpFetch.post<any>('/backup/restore', { ...parsed, adminPassword: adminPassword.trim() })
 
-        // Refresh Zustand stores
-        if (parsed.data.students) setStudents(parsed.data.students)
-        if (parsed.data.grades) setGrades(parsed.data.grades)
-        if (parsed.data.attendance) setAttendance(parsed.data.attendance)
-
-        await db.stores.put({ key: 'parish_store_students', value: JSON.stringify(parsed.data.students) })
-        await db.stores.put({ key: 'parish_store_grades', value: JSON.stringify(parsed.data.grades) })
-        await db.stores.put({ key: 'parish_store_attendance', value: JSON.stringify(parsed.data.attendance) })
+        // The uploaded JSON is command input, never a local read model. Server
+        // restore advances the durable client generation so this device and all
+        // other devices must discard pre-restore caches/queues before syncing.
+        try {
+          if (!Number.isFinite(restoreRes.purgeVersion)) throw new Error('Server không trả client data generation sau restore')
+          await resetClientData(restoreRes.purgeVersion)
+          useAuthStore.getState().logout()
+        } catch (resetError) {
+          Sentry.captureException(resetError)
+          setStatusMessage('Khôi phục trên máy chủ đã thành công, nhưng thiết bị chưa thể cách ly dữ liệu cũ. Không thực hiện lại restore; hãy tải lại trang và xử lý cảnh báo đồng bộ.')
+          setAdminPassword('')
+          return
+        }
 
         setStatusMessage(restoreRes.message || `Khôi phục thành công dữ liệu ${parsed.data.students.length} em thiếu nhi!`)
         setAdminPassword('')

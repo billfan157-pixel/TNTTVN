@@ -61,6 +61,8 @@ const PARENT_ONLY = ['phuhuynh'] as const satisfies readonly Role[]
  * fail-closed UX boundary so a role never enters a workspace it cannot use.
  */
 export const ROUTE_POLICIES = {
+  '/': { requiresAuth: false, roles: [], mobileTitle: 'Giới thiệu' },
+  '/about': { requiresAuth: false, roles: [], mobileTitle: 'Giới thiệu Catevia' },
   '/login': { requiresAuth: false, roles: [], mobileTitle: 'Đăng nhập' },
   '/login/nhan-su': { requiresAuth: false, roles: [], mobileTitle: 'Đăng nhập nhân sự' },
   '/login/phuhuynh': { requiresAuth: false, roles: [], mobileTitle: 'Đăng nhập phụ huynh' },

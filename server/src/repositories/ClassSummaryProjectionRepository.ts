@@ -1,7 +1,8 @@
-import { students, classes, grades, attendance, promotionRecords } from '../db/schema.js'
+import { students, classes, grades, attendance, promotionRecords, academicYearSnapshots } from '../db/schema.js'
 import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import type { ReportingProjectionContext } from './ReportCardProjectionRepository.js'
+import { historicalEvidenceRequired } from '../utils/academicYearHistory.js'
 
 export interface ClassStudentSummaryDTO {
   studentId: string
@@ -45,6 +46,43 @@ export class ClassSummaryProjectionRepository {
       .limit(1)
 
     if (!classRow) return null
+
+    if (context.finalizedYear) {
+      const { yearId, policy } = context.finalizedYear
+      const sourceClass = policy.classes.find(c => c.id === classId)
+      if (!sourceClass) return null
+      const snapshots = await executor.select().from(academicYearSnapshots).where(and(
+        eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.academicYearId, yearId),
+      ))
+      if (snapshots.some(s => !s.sourceClassId || !policy.classes.some(c => c.id === s.sourceClassId))) throw historicalEvidenceRequired()
+      const cohort = snapshots.filter(s => s.sourceClassId === classId)
+      const ids = cohort.map(s => s.studentId)
+      const profiles = ids.length ? await executor.select().from(students).where(and(
+        eq(students.parishId, parishId), inArray(students.id, ids), isNull(students.deletedAt),
+      )) : []
+      const promotions = ids.length ? await executor.select().from(promotionRecords).where(and(
+        eq(promotionRecords.parishId, parishId), inArray(promotionRecords.studentId, ids),
+        eq(promotionRecords.academicYear, academicYear), eq(promotionRecords.status, 'ACTIVE'),
+      )) : []
+      const roster: ClassStudentSummaryDTO[] = profiles.map(s => {
+        const snapshot = cohort.find(row => row.studentId === s.id)!
+        if (snapshot.attendanceRate === null) throw historicalEvidenceRequired()
+        return {
+          studentId: s.id, code: s.code, holyName: s.holyName, fullName: s.fullName,
+          gpa: snapshot.yearGpa ?? 0, attendanceRate: snapshot.attendanceRate,
+          promotionStatus: promotions.find(p => p.studentId === s.id)?.finalDecision ?? snapshot.promotionStatus,
+        }
+      })
+      return {
+        classId, className: sourceClass.name, academicYear, totalStudents: roster.length,
+        promotedCount: roster.filter(s => ['PROMOTED', 'GRADUATED', 'CONDITIONALLY_PROMOTED'].includes(s.promotionStatus || '')).length,
+        retainedCount: roster.filter(s => s.promotionStatus === 'RETAINED').length,
+        transferredCount: roster.filter(s => s.promotionStatus === 'TRANSFERRED').length,
+        averageGpa: roster.length ? Number((roster.reduce((sum, s) => sum + s.gpa, 0) / roster.length).toFixed(2)) : 0,
+        averageAttendanceRate: roster.length ? Number((roster.reduce((sum, s) => sum + s.attendanceRate, 0) / roster.length).toFixed(1)) : 100,
+        students: roster,
+      }
+    }
 
     // 2. Fetch Roster Students (excluding soft-deleted)
     const studentRows = await executor

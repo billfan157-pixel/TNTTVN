@@ -13,6 +13,8 @@ export interface SyncQueueItem {
   entityId: string
   operation: 'CREATE' | 'UPDATE' | 'DELETE'
   payload: string
+  /** Encrypted committed CREATE response retained until local ID remap succeeds. */
+  serverAcknowledgement?: string
   retryCount: number
   lastError: string | null
   createdAt: string

@@ -134,8 +134,10 @@ export function verifyLogicalSnapshot(snapshot: LogicalBackupSnapshot): void {
   if (!/^[a-f0-9]{64}$/i.test(checksum) || actual !== checksum) throw new Error('Logical backup checksum mismatch')
   const rows = snapshot.tables.reduce((sum, table) => sum + table.rows.length, 0)
   if (rows !== snapshot.rowCount) throw new Error('Logical backup row count mismatch')
+  if (new Set(snapshot.tables.map(table => table.name)).size !== snapshot.tables.length) throw new Error('Duplicate table in logical backup')
   for (const table of snapshot.tables) {
     quoteIdentifier(table.name)
+    if (new Set(table.columns).size !== table.columns.length) throw new Error(`Duplicate column in ${table.name}`)
     table.columns.forEach(quoteIdentifier)
     if (table.rows.some(row => row.length !== table.columns.length)) throw new Error(`Invalid row width in ${table.name}`)
   }
@@ -164,6 +166,10 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%'",
   )
   const available = new Set(targetTables.rows.map(row => String(row.name)))
+  const captured = new Set(snapshot.tables.map(table => table.name))
+  if ([...available].some(name => !captured.has(name))) {
+    throw new Error('Logical backup is missing target tables; partial or older-schema snapshots require an explicit migration/recovery procedure')
+  }
   for (const table of snapshot.tables) {
     if (!available.has(table.name)) throw new Error(`Restore target is missing table ${table.name}; run migrations first`)
     const info = await client.execute(`PRAGMA table_info(${quoteIdentifier(table.name)})`)
@@ -202,6 +208,15 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
         throw new Error(`Post-restore row count mismatch for ${table.name}: expected ${table.rows.length}, got ${actual}; discard this target`)
       }
       tableCounts[table.name] = actual
+      // Counts alone miss coercion/trigger corruption of historical policy,
+      // effective report payloads and completion receipts. Compare row multisets
+      // without relying on SQLite's unspecified SELECT order; never log contents.
+      const readback = await client.execute(`SELECT * FROM ${quoteIdentifier(table.name)}`)
+      const actualRows = readback.rows.map(row => JSON.stringify(table.columns.map(column => encodeCell(row[column])))).sort()
+      const expectedRows = table.rows.map(row => JSON.stringify(row)).sort()
+      if (actualRows.some((row, index) => row !== expectedRows[index])) {
+        throw new Error(`Post-restore content mismatch for ${table.name}; discard this target`)
+      }
     }
     const foreignKeyCheck = await client.execute('PRAGMA foreign_key_check')
     if (foreignKeyCheck.rows.length > 0) {

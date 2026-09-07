@@ -12,21 +12,21 @@ test.describe('Smoke Tests', () => {
   })
 
   test('navigates to Students page via sidebar', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/dashboard')
     await page.getByRole('navigation', { name: 'Điều hướng quản lý' })
       .getByRole('button', { name: 'Thiếu Nhi', exact: true }).click()
     await expect(page).toHaveURL('/students')
   })
 
   test('navigates to Grades page via sidebar', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/dashboard')
     await page.getByRole('navigation', { name: 'Điều hướng quản lý' })
       .getByRole('button', { name: 'Bảng Điểm', exact: true }).click()
     await expect(page).toHaveURL('/grades')
   })
 
   test('navigates to Attendance page via sidebar', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/dashboard')
     await page.getByRole('navigation', { name: 'Điều hướng quản lý' })
       .getByRole('button', { name: 'Điểm Danh', exact: true }).click()
     await expect(page).toHaveURL('/attendance')

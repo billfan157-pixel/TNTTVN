@@ -309,8 +309,8 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
     })
   })
 
-  describe('B-03: Restore Backup Cross-Tenant Overwrite Protection', () => {
-    it('restore payload containing existing ID from foreign parish is REJECTED with RESTORE_TENANT_VIOLATION', async () => {
+  describe('B-03: Restore dependency guard and cross-tenant isolation', () => {
+    it('fails closed on non-exported local provenance without touching the foreign same-ID row', async () => {
       const dataPayload = {
         students: [
           // studentB1Id belongs to parishB in DB!
@@ -334,7 +334,8 @@ describe('AUDIT B — Comprehensive Authorization Matrix Integration Tests', () 
         }),
       })
 
-      expect(res.status).toBe(500)
+      expect(res.status).toBe(409)
+      expect(((await res.json()) as any).error.code).toBe('RESTORE_UNSUPPORTED_DEPENDENCIES')
       // Verify studentB1 in parishB was NOT overwritten or stolen
       const [stB] = await db.select().from(students).where(eq(students.id, studentB1Id))
       expect(stB.parishId).toBe(parishB)

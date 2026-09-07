@@ -1,5 +1,5 @@
-import { db, type DbTransaction } from '../db/index.js'
-import { grades, auditLogs, gradeOverrides, students, academicYears } from '../db/schema.js'
+import { db, type DbTransaction, type DbExecutor } from '../db/index.js'
+import { grades, auditLogs, gradeOverrides, students, academicYears, assessmentEntries } from '../db/schema.js'
 import { runDbTransaction } from '../db/index.js'
 import { eq, and, gte, inArray, isNull, desc } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
@@ -37,9 +37,9 @@ function formatGradeRow(row: any) {
   }
 }
 
-export async function getGrades(parishId: string, studentId?: string, semester?: number, updatedAfter?: string, studentIds?: string[]) {
+export async function getGrades(parishId: string, studentId?: string, semester?: number, updatedAfter?: string, studentIds?: string[], executor: DbExecutor = db) {
   if (studentIds?.length === 0) return []
-  const activeStudentSubquery = db
+  const activeStudentSubquery = executor
     .select({ id: students.id })
     .from(students)
     .where(and(eq(students.parishId, parishId), isNull(students.deletedAt)))
@@ -52,7 +52,7 @@ export async function getGrades(parishId: string, studentId?: string, semester?:
   if (semester) conditions.push(eq(grades.semester, semester))
   if (updatedAfter) conditions.push(gte(grades.updatedAt, updatedAfter))
   if (studentIds && studentIds.length > 0) conditions.push(inArray(grades.studentId, studentIds))
-  const rows = await db.select().from(grades).where(and(...conditions))
+  const rows = await executor.select().from(grades).where(and(...conditions))
   return rows.map(formatGradeRow)
 }
 
@@ -110,12 +110,13 @@ function collectManualOverrideEntries(data: GradeData): { scoreField: ScoreField
   return entries
 }
 
-export async function upsertGrade(data: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null, expected?: AcademicWriteExpectation) {
+export async function upsertGrade(input: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null, expected?: AcademicWriteExpectation) {
   // Phase 2 (outbox convergence): manual entries thuần theo data (không DB) để
   // notify post-commit — chỉ khi service sở hữu tx (externalTx thì caller
   // commit, không notify ở đây để tránh phantom alert khi rollback).
-  const manualEntriesForNotice = externalTx ? [] : collectManualOverrideEntries(data)
+  const manualEntriesForNotice = externalTx ? [] : collectManualOverrideEntries(input)
   const executeFn = async (tx: DbTransaction) => {
+    const data = { ...input }
     // Get current policy version for audit trail
     const policyVersionId = await getCurrentPolicyVersionId(parishId, tx)
 
@@ -198,6 +199,33 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
         ),
       )
       .limit(1)
+
+    // XD-08: old clients may still send a partial-device daily average (or a
+    // null clear after deleting their last local attempt). Never trust it as
+    // the projection: resolve every affected daily field from the full ledger
+    // on this transaction, just like Exam finalization.
+    for (const [field, scoreType, sourceColumn] of [
+      ['scoreOral', 'oral', 'scoreOralSource'],
+      ['score15m', '15m', 'score15mSource'],
+      ['score1Period', '1period', 'score1PeriodSource'],
+    ] as const) {
+      const sourceKey = `${field}_source` as const
+      const legacyClear = data[field] === null && data[sourceKey] === null && existing?.[sourceColumn] === 'daily_avg'
+      if (data[sourceKey] !== 'daily_avg' && !legacyClear) continue
+      const entries = await tx.select({ score: assessmentEntries.score }).from(assessmentEntries).where(and(
+        eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.studentId, data.studentId),
+        eq(assessmentEntries.academicYear, normYear), eq(assessmentEntries.semester, data.semester!),
+        eq(assessmentEntries.scoreType, scoreType),
+      ))
+      if (!entries.length && !externalTx && data[field] != null) {
+        throw Object.assign(new Error('Thiếu sổ điểm hằng ngày; cần đồng bộ các lần nhập trước khi cập nhật trung bình.'), { status: 409, code: 'DAILY_LEDGER_REQUIRED' })
+      }
+      data[field] = entries.length ? Math.round(entries.reduce((sum, entry) => sum + entry.score, 0) / entries.length * 10) / 10 : null
+      data[sourceKey] = 'daily_avg'
+      data[`${field}_updated_at`] = new Date().toISOString()
+      // A stale client clear must not bypass the ledger projection below.
+      if (data.clearFields) data.clearFields = data.clearFields.filter(key => key !== field)
+    }
 
     if (existing) {
       // ADR-016 (S24): OCC luôn bắt buộc — bỏ cờ env STRICT_OCC_ENFORCEMENT.
@@ -375,7 +403,7 @@ export async function upsertGrade(data: GradeData, userId: string, parishId: str
   // noticeService). Không throw — lỗi đã catch trong notify.
   for (const entry of manualEntriesForNotice) {
     await notifyGradeOverride(parishId, {
-      studentId: data.studentId,
+      studentId: input.studentId,
       scoreField: entry.scoreField,
       manualValue: entry.manualValue,
       reasonCode: 'TeacherAdjustment',
@@ -482,13 +510,20 @@ export async function undoGradeImport(
           // `_source === 'manual'` ⇒ lần ghi gần nhất là CHỈNH TAY, không phải
           // import → chặn hoàn tác tự động để không lặng lẽ xóa sửa tay của GV
           // (đúng tuyên bố ADR-028: "tránh mất dữ liệu sửa tay sau import").
-          if (entry.action === 'UPDATE' && entry.newValue) {
+          if (entry.newValue) {
             try {
               const written = JSON.parse(entry.newValue) as Record<string, unknown>
+              // A derived ledger projection is not an import snapshot. Undo
+              // must not revert Grade independently while keeping its attempts.
+              const hasDailySource = Object.keys(written).some(key =>
+                (key.endsWith('_source') || key.endsWith('Source')) && written[key] === 'daily_avg')
+              if (hasDailySource) {
+                return { studentId: item.studentId, status: 'not-clean', message: 'Điểm đã được tính từ sổ điểm hằng ngày — cần sửa lần nhập tương ứng, không hoàn tác projection như nhập Excel' }
+              }
               const hasManualSource = Object.keys(written).some(
                 (key) => key.endsWith('_source') && (written as Record<string, unknown>)[key] === 'manual',
               )
-              if (hasManualSource) {
+              if (entry.action === 'UPDATE' && hasManualSource) {
                 return { studentId: item.studentId, status: 'not-clean', message: 'Đã có chỉnh tay của giáo lý viên sau đợt nhập — không thể hoàn tác tự động' }
               }
             } catch {

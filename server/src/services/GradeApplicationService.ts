@@ -1,4 +1,4 @@
-import { db } from '../db/index.js'
+import { runDbTransaction } from '../db/index.js'
 import { drizzleGradeRepository, DrizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
 import { createCanOverrideGradeSpecification, createSemesterLockSpecification } from './policyAdapters.js'
 import { GradeAggregate, type ScoreField } from '../domain/GradeAggregate.js'
@@ -38,7 +38,7 @@ export class GradeApplicationService {
 
   public async overrideScore(cmd: OverrideScoreCommand) {
     let notifiedStudentId = cmd.studentId ?? ''
-    const overrideDTO = await db.transaction(async (tx) => {
+    const overrideDTO = await runDbTransaction(async (tx) => {
       // 0. Get current policy version ID for audit trail
       const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
 
@@ -118,7 +118,7 @@ export class GradeApplicationService {
 
   public async restoreScore(cmd: RestoreScoreCommand) {
     let notifiedStudentId = ''
-    const restoredRecord = await db.transaction(async (tx) => {
+    const restoredRecord = await runDbTransaction(async (tx) => {
       // 0. Get current policy version ID for audit trail
       const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
 

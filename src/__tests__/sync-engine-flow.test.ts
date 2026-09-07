@@ -1,3 +1,4 @@
+import { academicPullFixture } from './helpers/academicPull'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }))
@@ -52,8 +53,8 @@ function mockAllApiMethods() {
   vi.spyOn(api, 'batchUpsertAttendance').mockResolvedValue({ results: [] } as any)
   vi.spyOn(api, 'getStudents').mockResolvedValue({ data: [], total: 0 })
   vi.spyOn(api, 'getStudent').mockResolvedValue(undefined)
-  vi.spyOn(api, 'getGrades').mockResolvedValue([])
-  vi.spyOn(api, 'getAttendance').mockResolvedValue([])
+  vi.spyOn(api, 'pullGrades').mockResolvedValue(academicPullFixture([]))
+  vi.spyOn(api, 'pullAttendance').mockResolvedValue(academicPullFixture([]))
   vi.spyOn(api, 'getNotices').mockResolvedValue([])
   vi.spyOn(api, 'getClasses').mockResolvedValue([])
   vi.spyOn(api, 'getClassBranches').mockResolvedValue([])
@@ -113,6 +114,77 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('XD-07: remap failure retains encrypted ACK, blocks children, and recovers after local roster reset without another server CREATE', async () => {
+    const parentId = await syncService.syncCreateStudent({ id: 'ST-TEMP-ACK', fullName: 'Synthetic', branch: 'AuNhi', classId: 'AU2' })
+    const childId = await syncService.syncUpsertGrade({ studentId: 'ST-TEMP-ACK', semester: 1, academicYear: '2026-2027', scoreFinal: 8 })
+    vi.mocked(api.createStudent).mockResolvedValue({ id: 'ST-CANONICAL-ACK', fullName: 'Synthetic' })
+    const queue = getDB().syncQueue
+    const originalUpdate = queue.update.bind(queue)
+    const failure = vi.spyOn(queue, 'update').mockImplementation((id, changes) => {
+      if (id === childId) throw new Error('Synthetic remap write failure')
+      return originalUpdate(id, changes)
+    })
+    try { await runSyncFlow() } finally { failure.mockRestore() }
+    const retained = (await queue.get(parentId))!
+    expect(retained.status).toBe('retrying')
+    expect(retained.serverAcknowledgement).toBeTruthy()
+    expect(retained.serverAcknowledgement).not.toContain('ST-CANONICAL-ACK')
+    expect(JSON.parse((await decryptQueueValue(retained.serverAcknowledgement!))!).id).toBe('ST-CANONICAL-ACK')
+    expect((await readPayload((await queue.get(childId))!)).studentId).toBe('ST-TEMP-ACK')
+    expect(api.batchUpsertGrades).not.toHaveBeenCalled()
+    // Simulate loss of ephemeral projection; durable queue survives.
+    useStudentStore.setState({ students: [] })
+    useSyncStore.getState().setStatus('idle')
+    await useSyncStore.getState().compactQueue()
+    expect((await queue.get(parentId))?.serverAcknowledgement).toBe(retained.serverAcknowledgement)
+    vi.mocked(api.batchUpsertGrades).mockResolvedValue({ results: [{ studentId: 'ST-CANONICAL-ACK', status: 'saved', record: { id: 'GR-ACK', studentId: 'ST-CANONICAL-ACK', semester: 1, academicYear: '2026-2027', scoreFinal: 8 } }] } as any)
+    await runSyncFlow()
+    expect(api.createStudent).toHaveBeenCalledTimes(1)
+    expect(api.batchUpsertGrades).toHaveBeenCalled()
+    expect(JSON.stringify(vi.mocked(api.batchUpsertGrades).mock.calls)).toContain('ST-CANONICAL-ACK')
+    expect(JSON.stringify(vi.mocked(api.batchUpsertGrades).mock.calls)).not.toContain('ST-TEMP-ACK')
+    expect(await queue.get(parentId)).toBeUndefined()
+    expect(await queue.get(childId)).toBeUndefined()
+  })
+
+  it.each(['ack-write', 'retire'] as const)('XD-07: interrupted %s keeps the parent recoverable and children unsent', async point => {
+    const parentId = await syncService.syncCreateStudent({ id: 'ST-TEMP-WINDOW', fullName: 'Synthetic', branch: 'AuNhi', classId: 'AU2' })
+    const childId = await syncService.syncUpsertGrade({ studentId: 'ST-TEMP-WINDOW', semester: 1, academicYear: '2026-2027', scoreFinal: 8 })
+    vi.mocked(api.createStudent).mockResolvedValue({ id: 'ST-SERVER-WINDOW' })
+    const queue = getDB().syncQueue
+    const update = queue.update.bind(queue)
+    const remove = queue.delete.bind(queue)
+    const fault = point === 'ack-write'
+      ? vi.spyOn(queue, 'update').mockImplementation((id, changes) => {
+        if (id === parentId && typeof changes === 'object' && changes.serverAcknowledgement) throw new Error('Synthetic ACK persistence failure')
+        return update(id, changes)
+      })
+      : vi.spyOn(queue, 'delete').mockImplementation(id => {
+        if (id === parentId) throw new Error('Synthetic ACK retirement failure')
+        return remove(id)
+      })
+    try { await runSyncFlow() } finally { fault.mockRestore() }
+    expect(await queue.get(parentId)).toBeDefined()
+    expect(await queue.get(childId)).toBeDefined()
+    expect(api.batchUpsertGrades).not.toHaveBeenCalled()
+    useSyncStore.getState().setStatus('idle')
+    vi.mocked(api.batchUpsertGrades).mockResolvedValue({ results: [{ studentId: 'ST-SERVER-WINDOW', status: 'saved' }] } as any)
+    await runSyncFlow()
+    expect(api.createStudent).toHaveBeenCalledTimes(point === 'ack-write' ? 2 : 1)
+    expect(await queue.get(parentId)).toBeUndefined()
+    expect(await queue.get(childId)).toBeUndefined()
+    const keys = vi.mocked(api.createStudent).mock.calls.map(([body]) => body.idempotencyKey)
+    expect(new Set(keys)).toEqual(new Set(['ST-TEMP-WINDOW']))
+  })
+
+  it('XD-07: a corrupt ACK fails closed without repeating the server CREATE', async () => {
+    const parentId = await syncService.syncCreateStudent({ id: 'ST-TEMP-BAD-ACK', fullName: 'Synthetic', branch: 'AuNhi', classId: 'AU2' })
+    await useSyncStore.getState().updateOp(parentId, { serverAcknowledgement: 'broken-json' })
+    await runSyncFlow()
+    expect(api.createStudent).not.toHaveBeenCalled()
+    expect((await getDB().syncQueue.get(parentId))?.serverAcknowledgement).toBeTruthy()
   })
 
   it('op lỗi network (ApiError status 0) → status retrying, KHÔNG kẹt syncing, cycle sau retry được', async () => {
@@ -227,7 +299,7 @@ describe('Sync Engine — grade batch rehydrate server record (audit #2)', () =>
     } as any)
     // Sau khi queue rỗng, engine pull incremental/full — server phải trả lại chính
     // record vừa lưu (nếu không, pull full sẽ thay bằng dữ liệu cũ hơn).
-    vi.mocked(api.getGrades).mockResolvedValue([serverRecord] as any)
+    vi.mocked(api.pullGrades).mockResolvedValue(academicPullFixture([serverRecord]))
 
     await runSyncFlow()
 
@@ -360,9 +432,9 @@ describe('Sync Engine — natural-key merge khi pull incremental (audit #6)', ()
 
   it('grade: row server cùng natural key thay thế row local temp id — không tạo dòng trùng', async () => {
     useGradeStore.getState().setGrades([mkGrade({ id: 'GR-TEMP', studentId: 'ST-6', semester: 1, scoreFinal: 8 })])
-    vi.mocked(api.getGrades).mockResolvedValue([
+    vi.mocked(api.pullGrades).mockResolvedValue(academicPullFixture([
       mkGrade({ id: 'GR-SRV', studentId: 'ST-6', semester: 1, academicYear: '2026-2027', scoreFinal: 9 }) as any,
-    ])
+    ]))
 
     await useGradeStore.getState().fetchGrades('2026-08-01T00:00:00.000Z')
 
@@ -374,9 +446,9 @@ describe('Sync Engine — natural-key merge khi pull incremental (audit #6)', ()
   it('grade: row có op pending KHÔNG bị server đè (giữ thay đổi chưa sync)', async () => {
     useGradeStore.getState().setGrades([mkGrade({ id: 'GR-TEMP', studentId: 'ST-6', semester: 1, scoreFinal: 8 })])
     await syncService.syncUpsertGrade({ id: 'GR-TEMP', studentId: 'ST-6', semester: 1, scoreFinal: 8 })
-    vi.mocked(api.getGrades).mockResolvedValue([
+    vi.mocked(api.pullGrades).mockResolvedValue(academicPullFixture([
       mkGrade({ id: 'GR-SRV', studentId: 'ST-6', semester: 1, academicYear: '2026-2027', scoreFinal: 9 }) as any,
-    ])
+    ]))
 
     await useGradeStore.getState().fetchGrades('2026-08-01T00:00:00.000Z')
 
@@ -390,9 +462,9 @@ describe('Sync Engine — natural-key merge khi pull incremental (audit #6)', ()
     useAttendanceStore.getState().setAttendance([
       mkAttendance({ id: 'AT-TEMP', studentId: 'ST-7', status: 'Present' }),
     ])
-    vi.mocked(api.getAttendance).mockResolvedValue([
+    vi.mocked(api.pullAttendance).mockResolvedValue(academicPullFixture([
       mkAttendance({ id: 'AT-SRV', studentId: 'ST-7', status: 'AbsentUnexcused' }) as any,
-    ])
+    ]))
 
     await useAttendanceStore.getState().fetchAttendance('2026-08-01T00:00:00.000Z')
 
@@ -406,9 +478,9 @@ describe('Sync Engine — natural-key merge khi pull incremental (audit #6)', ()
       mkAttendance({ id: 'AT-TEMP', studentId: 'ST-7', status: 'Present' }),
     ])
     await syncService.syncSaveAttendance({ id: 'AT-TEMP', studentId: 'ST-7', date: '2026-08-02', type: 'SundayMass', status: 'Present' })
-    vi.mocked(api.getAttendance).mockResolvedValue([
+    vi.mocked(api.pullAttendance).mockResolvedValue(academicPullFixture([
       mkAttendance({ id: 'AT-SRV', studentId: 'ST-7', status: 'AbsentUnexcused' }) as any,
-    ])
+    ]))
 
     await useAttendanceStore.getState().fetchAttendance('2026-08-01T00:00:00.000Z')
 

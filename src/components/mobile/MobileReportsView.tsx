@@ -23,7 +23,8 @@ import type { Student } from '../../types';
 import type { ReportType } from '../../utils/pdfGenerator';
 import { StudentName } from '../common/StudentName';
 import { PrintReportModal } from '../common/PrintReportModal';
-import { Tabs, TabPanel, SegmentedControl } from '../common/ui/SelectionControls';
+import { SubpageHeader } from '../common/SubpageHeader';
+import { Tabs, TabPanel } from '../common/ui/SelectionControls';
 import { sortClassesByHierarchy } from '../../utils/classSort';
 import {
   buildBranchSummaryRows,
@@ -206,6 +207,44 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
     }
   };
 
+  const renderSemesterActions = () => {
+    if (semesterRestricted) {
+      return (
+        <span className="subpage-header__btn subpage-header__btn--secondary font-bold text-xs shrink-0 pointer-events-none">
+          HK {openSemester === 2 ? 'II' : 'I'}
+        </span>
+      );
+    }
+    return (
+      <div className="subpage-header__seg-control" role="group" aria-label="Chọn học kỳ báo cáo">
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic(8);
+            setSelectedSemester(1);
+          }}
+          className={`subpage-header__seg-btn ${selectedSemester === 1 ? 'is-active' : ''}`}
+          aria-pressed={selectedSemester === 1}
+          aria-label="Học Kỳ I"
+        >
+          HK I
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic(8);
+            setSelectedSemester(2);
+          }}
+          className={`subpage-header__seg-btn ${selectedSemester === 2 ? 'is-active' : ''}`}
+          aria-pressed={selectedSemester === 2}
+          aria-label="Học Kỳ II"
+        >
+          HK II
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
       {/* Header Command Deck */}
@@ -245,36 +284,16 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
         ]}
       />
 
-      {/* Semester Selector Bar */}
-      <div className="mobile-filter-panel flex items-center justify-between gap-3">
-        <span className="text-xs font-extrabold uppercase tracking-wider text-text-muted flex items-center gap-1.5 shrink-0">
-          <Sparkles size={14} className="text-parish-secondary" /> Học kỳ:
-        </span>
-        {semesterRestricted ? (
-          <span className="min-h-[44px] px-4 py-2 flex items-center justify-center text-xs font-bold rounded-xl bg-surface-card border border-surface-border text-parish-primary shadow-xs">
-            Học Kỳ {openSemester === 2 ? 'II' : 'I'} (Đang mở)
-          </span>
-        ) : (
-          <SegmentedControl
-            id="mobile-reports-semester-selector"
-            ariaLabel="Chọn học kỳ báo cáo"
-            items={[
-              { value: '1', label: 'Học Kỳ I' },
-              { value: '2', label: 'Học Kỳ II' },
-            ]}
-            value={String(selectedSemester)}
-            onValueChange={(val) => {
-              triggerHaptic(8);
-              setSelectedSemester(Number(val) as 1 | 2);
-            }}
-            className="flex-1 max-w-[240px]"
-          />
-        )}
-      </div>
-
       {/* Tab 1: In Phiếu Điểm & Sổ Điểm */}
       <TabPanel tabsId="mobile-reports-tabs" value="print" activeValue={activeTab}>
-        <div className="app-panel p-4 flex flex-col gap-3">
+        <div className="product-view flex flex-col gap-3 pb-8">
+          <SubpageHeader
+            icon={<Printer size={15} />}
+            title="In Phiếu Điểm & Sổ Điểm"
+            meta={<span className="truncate">Học Kỳ {selectedSemester} · {students.length} em</span>}
+            actions={renderSemesterActions()}
+          />
+          <div className="app-panel p-4 flex flex-col gap-3">
           {/* Quick Print Actions */}
           {canPrint && (
             <div className="flex gap-2">
@@ -424,12 +443,19 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
               </button>
             )}
           </div>
+          </div>
         </div>
       </TabPanel>
 
       {/* Tab 2: Thống Kê Phân Ngành */}
       <TabPanel tabsId="mobile-reports-tabs" value="analytics" activeValue={activeTab}>
-        <div className="flex flex-col gap-3">
+        <div className="product-view flex flex-col gap-3 pb-8">
+          <SubpageHeader
+            icon={<Award size={15} />}
+            title="Thống Kê Học Lực Phân Ngành"
+            meta={<span className="truncate">4 phân ngành giáo xứ · {students.length} em</span>}
+            actions={renderSemesterActions()}
+          />
           {/* Overview KPI Cards */}
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-surface-card p-3.5 rounded-xl border border-surface-border shadow-xs">
@@ -516,21 +542,21 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
 
       {/* Tab 3: Xuất Dữ Liệu Excel / CSV */}
       <TabPanel tabsId="mobile-reports-tabs" value="export" activeValue={activeTab}>
-        <div className="flex flex-col gap-3">
+        <div className="product-view flex flex-col gap-3 pb-8">
           {exportMessage && (
             <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
               <Sparkles size={16} /> {exportMessage}
             </div>
           )}
 
+          <SubpageHeader
+            icon={<Download size={15} />}
+            title="Xuất Báo Cáo & Dữ Liệu"
+            meta={<span className="truncate">Định dạng Excel / CSV · Chuẩn UTF-8 tiếng Việt</span>}
+            actions={renderSemesterActions()}
+          />
+
           <div className="app-panel p-4 flex flex-col gap-3">
-            <h3 className="text-sm font-extrabold text-parish-primary m-0 flex items-center gap-2">
-              <Download size={16} className="text-emerald-600" />
-              Xuất Báo Cáo & Dữ Liệu (Excel / CSV)
-            </h3>
-            <p className="text-xs text-text-muted m-0">
-              Trích xuất dữ liệu học lực và kết quả chuyên cần theo chuẩn tiếng Việt UTF-8.
-            </p>
 
             {/* Export Card 1: Branch Summary */}
             <div className="border border-surface-border rounded-xl p-3.5 bg-surface-hover flex flex-col gap-2.5">

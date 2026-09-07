@@ -737,3 +737,95 @@ Mỗi file chỉ được giữ nguyên hoặc giảm; file mới/missing baseli
 - Error là `role="alert"`; trạng thái xác minh là `role="status"`. Nút mở khóa có loading label; nút recovery luôn mô tả hậu quả “Đăng xuất và dùng mật khẩu”.
 - Setting dùng switch có `role="switch"`, `aria-checked`, disabled khi OS báo unavailable và giải thích lý do. Tắt khóa cũng yêu cầu xác minh.
 - Web/PWA hiển thị trạng thái không khả dụng trong Settings, không mô phỏng biometric hoặc hiển thị control có vẻ hoạt động.
+
+---
+
+## 23. Mobile SubpageHeader Standard (DS §5 / Command Deck — 2026-09-07)
+
+> Quy chuẩn bắt buộc cho **mọi subpage / subtab** trên giao diện mobile.
+> Component: [`SubpageHeader`](../src/components/common/SubpageHeader.tsx).
+> CSS: `.subpage-header*` trong `src/styles/design-system/60-view-language.css` (dòng 1012–1203).
+
+### 23.1 Component bắt buộc
+
+Mọi subpage trên mobile **phải** dùng `<SubpageHeader>` từ `src/components/common/SubpageHeader.tsx`. Cấm tự viết khung tiêu đề subpage bằng HTML/JSX rời hoặc Tailwind ad-hoc.
+
+```tsx
+import { SubpageHeader } from '../common/SubpageHeader';
+
+<SubpageHeader
+  icon={<IconComponent size={15} />}    // Bắt buộc — Lucide icon size 15
+  title="Tiêu đề subpage"               // Bắt buộc
+  meta={<span className="truncate">Dòng ngữ cảnh phụ</span>}  // Khuyến khích
+  actions={...}                          // Tùy chọn — nút/toggle bên phải
+/>
+```
+
+### 23.2 Thông số kích thước cố định
+
+| Thành phần | Class CSS | Kích thước |
+| :--- | :--- | :--- |
+| Container | `.subpage-header` | padding `10px 12px`, border-radius `var(--radius-card)`, bg `surface-card` |
+| Icon Tile | `.subpage-header__icon` | `28 × 28px`, SVG bên trong `15 × 15px`, bg `parish-primary-light` |
+| Action button | `.subpage-header__btn` | Cao `30px`, padding ngang `10px`, radius `var(--radius-sm)` |
+| Action button icon-only | `.subpage-header__btn--icon-only` | `30 × 30px`, padding `0` |
+| Segmented control | `.subpage-header__seg-control` | padding `2px`, gap `2px`, bg `surface-sunken` |
+| Segmented button | `.subpage-header__seg-btn` | Cao `24px`, padding ngang `8px` |
+
+### 23.3 Typography cố định
+
+| Vai trò | Font-size | Font-weight | Màu |
+| :--- | :--- | :--- | :--- |
+| Tiêu đề (`__title`) | `13.5px` | `800` | `var(--color-parish-primary)` |
+| Meta / mô tả (`__meta`) | `11px` | `550` | `var(--color-text-muted)` |
+| Eyebrow (`__eyebrow`) | `10px` | `700` | `var(--color-text-muted)`, uppercase |
+| Button text (`__btn`) | `11.5px` | `700` | theo variant (primary: white, secondary: text-main) |
+| Segmented text (`__seg-btn`) | `11px` | `700` | inactive: `text-secondary`, active: white trên `parish-primary` |
+
+### 23.4 Vị trí đặt
+
+SubpageHeader **phải** là phần tử đầu tiên bên trong container `product-view`:
+
+```tsx
+<TabPanel ...>
+  <div className="product-view flex flex-col gap-3 pb-8">
+    <SubpageHeader ... />    {/* ← Luôn đầu tiên */}
+    {/* Nội dung subpage phía dưới */}
+  </div>
+</TabPanel>
+```
+
+### 23.5 Tích hợp bộ lọc
+
+Khi subpage có bộ lọc chung (ví dụ: chọn học kỳ), **phải** gộp trực tiếp vào slot `actions` của `SubpageHeader`. **KHÔNG** tạo thanh lọc riêng biệt (`.mobile-filter-panel` hoặc tương tự) chiếm thêm chiều dọc.
+
+Mẫu chuẩn cho semester selector (đã áp dụng tại `MobileReportsView`):
+
+- Bình thường: `subpage-header__seg-control` chứa 2 nút `subpage-header__seg-btn` (HK I / HK II), `role="group"`, `aria-pressed` trên từng nút.
+- Học kỳ bị hạn chế: Badge tĩnh `.subpage-header__btn--secondary` + `pointer-events-none`.
+
+### 23.6 Danh sách 12 subpage đã chuẩn hóa
+
+| # | Phân hệ | File | Tiêu đề |
+|---|---------|------|---------|
+| 1 | Điểm Danh | `MobileAttendanceView.tsx` | Phiên điểm danh |
+| 2 | Điểm Danh | `MobileAttendanceSummaryView.tsx` | Tổng Hợp Chuyên Cần |
+| 3 | Điểm Danh | `MobileLeaveRequests.tsx` | Đơn Xin Nghỉ Phép |
+| 4 | Sổ Điểm | `MobileGradeBoard.tsx` | Bảng điểm |
+| 5 | Sổ Điểm | `MobileDailyGradeEntry.tsx` | Nhập Điểm Hằng Ngày |
+| 6 | Sổ Điểm | `MobileGradeComparison.tsx` | So Sánh Học Kỳ I vs II |
+| 7 | Sổ Điểm | `MobileGradeMatrix.tsx` | Ma trận điểm |
+| 8 | Báo Cáo | `MobileReportsView.tsx` | In Phiếu Điểm & Sổ Điểm |
+| 9 | Báo Cáo | `MobileReportsView.tsx` | Thống Kê Học Lực Phân Ngành |
+| 10 | Báo Cáo | `MobileReportsView.tsx` | Xuất Báo Cáo & Dữ Liệu |
+| 11 | Thiếu Nhi | `MobileStudentsView.tsx` | Danh Sách Thiếu Nhi |
+| 12 | Thiếu Nhi | `MobileStudentsView.tsx` | Xét Lên Lớp & Chuyển Ngành |
+| 13 | Sổ Điểm | `ExamSessionView.tsx` | Chấm Bài Kiểm Tra |
+| 14 | Sổ Điểm | `QuestionBankView.tsx` | Ngân Hàng Đề Thi |
+
+### 23.7 Cấm
+
+- Override kích thước / font của `.subpage-header*` bằng Tailwind inline.
+- Tạo class mới có prefix `subpage-` ngoài `60-view-language.css`.
+- Dùng `style={{ }}` inline để ghi đè layout của SubpageHeader.
+- Viết khung tiêu đề subpage ad-hoc mà không dùng `<SubpageHeader>`.

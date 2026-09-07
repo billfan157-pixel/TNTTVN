@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { db } from '../../db/index.js'
-import { students, classes, branches, academicYears, users, importBatches, importBatchStudents, auditLogs } from '../../db/schema.js'
+import { students, classes, branches, academicYears, users, importBatches, importBatchStudents, auditLogs, funds, financialTransactions } from '../../db/schema.js'
 import { clearExpiredImportRollbackSnapshots, detectDuplicates, importStudents, recoverInterruptedImportBatches, recoverInterruptedImportBatchesForAllParishes, undoImport } from '../../services/importService.js'
 import { eq } from 'drizzle-orm'
 
@@ -10,6 +10,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
   const BRANCH_ID = 'ThieuNhi-dedup'
   const CLASS_ID = 'cls-dedup-01'
   const ADMIN_ID = 'usr-dedup-admin'
+  const FUND_ID = 'fund-dedup-01'
 
   const ST1_ID = 'st-dedup-1'
   const ST2_ID = 'st-dedup-2'
@@ -57,6 +58,15 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       createdAt: new Date().toISOString(),
     }).onConflictDoNothing()
 
+    await db.insert(funds).values({
+      id: FUND_ID,
+      parishId: PARISH,
+      name: 'Quỹ kiểm thử import',
+      code: 'IMPORT-UNDO',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).onConflictDoNothing()
+
     const now = new Date().toISOString()
     await db.insert(students).values([
       {
@@ -97,13 +107,15 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
   })
 
   afterAll(async () => {
+    await db.delete(financialTransactions).where(eq(financialTransactions.parishId, PARISH))
     await db.delete(importBatchStudents).where(eq(importBatchStudents.parishId, PARISH))
     await db.delete(importBatches).where(eq(importBatches.parishId, PARISH))
     await db.delete(students).where(eq(students.parishId, PARISH))
     await db.delete(classes).where(eq(classes.parishId, PARISH))
     await db.delete(branches).where(eq(branches.parishId, PARISH))
     await db.delete(academicYears).where(eq(academicYears.parishId, PARISH))
-    await db.delete(users).where(eq(users.id, ADMIN_ID))
+    await db.delete(users).where(eq(users.parishId, PARISH))
+    await db.delete(funds).where(eq(funds.parishId, PARISH))
     await db.delete(auditLogs).where(eq(auditLogs.parishId, PARISH))
   })
 
@@ -417,6 +429,65 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       expect(restored.parentName).toBe(before.parentName)
       expect(restored.address).toBe(before.address)
       expect(restored.parentPhone).toBe(before.parentPhone)
+    })
+
+    it('blocks undo when a manual financial transaction was recorded after import', async () => {
+      const result = await importStudents({
+        rows: [{
+          rowIndex: 42, holyName: 'Phêrô', fullName: 'Nguyễn Minh Tài', gender: 'Nam',
+          dateOfBirth: '2015-09-09', parentName: 'Nguyễn Văn Phụ', parentPhone: '0909000042',
+          address: 'Test', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
+        }],
+        academicYearId: AY_ID,
+        classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: {},
+      }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
+      const studentId = result.studentChanges[0]?.student.id
+      expect(studentId).toBeTruthy()
+
+      await db.insert(financialTransactions).values({
+        id: 'txn-import-undo-42', parishId: PARISH, fundId: FUND_ID, type: 'INCOME',
+        amount: 100000, category: 'Đóng góp', title: 'Phiếu thu sau import', studentId,
+        classId: CLASS_ID, academicYear: AY_ID, transactionDate: '2025-09-10',
+        recordedBy: ADMIN_ID, recordedByName: 'Dedup Admin', createdAt: new Date().toISOString(),
+      })
+
+      const undone = await undoImport(result.batchId, PARISH, ADMIN_ID)
+      expect(undone.undone).toBe(0)
+      expect(undone.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ studentId, status: 'blocked' }),
+      ]))
+      const [preserved] = await db.select().from(students).where(eq(students.id, studentId!))
+      expect(preserved.deletedAt).toBeNull()
+    })
+
+    it('blocks undo when a parent account was provisioned from the imported phone', async () => {
+      const parentPhone = '0909000043'
+      const result = await importStudents({
+        rows: [{
+          rowIndex: 43, holyName: 'Maria', fullName: 'Nguyễn Minh An', gender: 'Nữ',
+          dateOfBirth: '2015-10-10', parentName: 'Nguyễn Văn Phụ', parentPhone,
+          address: 'Test', branch: 'ThieuNhi', className: 'Thiếu Nhi 1',
+        }],
+        academicYearId: AY_ID,
+        classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: {},
+      }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
+      const studentId = result.studentChanges[0]?.student.id
+      expect(studentId).toBeTruthy()
+
+      await db.insert(users).values({
+        id: 'parent-import-undo-43', parishId: PARISH, username: parentPhone,
+        passwordHash: 'hash', fullName: 'Phụ huynh sau import', phone: parentPhone,
+        role: 'phuhuynh', status: 'FORCE_PASSWORD_CHANGE',
+        createdAt: new Date(Date.now() + 1_000).toISOString(),
+      })
+
+      const undone = await undoImport(result.batchId, PARISH, ADMIN_ID)
+      expect(undone.undone).toBe(0)
+      expect(undone.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ studentId, status: 'blocked' }),
+      ]))
+      const [preserved] = await db.select().from(students).where(eq(students.id, studentId!))
+      expect(preserved.deletedAt).toBeNull()
     })
 
     it('purges rollback snapshots after the 24-hour privacy window', async () => {

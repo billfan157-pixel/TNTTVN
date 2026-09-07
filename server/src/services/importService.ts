@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { db, type DbTransaction } from '../db/index.js'
-import { classes, academicYears, students, branches, users, auditLogs, importBatches, importBatchStudents, mappingMemory, serviceAssignments, grades, attendance, examResults, promotionRecords, academicYearSnapshots, assessmentEntries, leaveRequests, studentFeeRecords } from '../db/schema.js'
+import { classes, academicYears, students, branches, users, auditLogs, importBatches, importBatchStudents, mappingMemory, serviceAssignments, grades, attendance, examResults, promotionRecords, academicYearSnapshots, assessmentEntries, leaveRequests, studentFeeRecords, financialTransactions } from '../db/schema.js'
 import { eq, and, isNull, isNotNull, or, sql, desc, inArray, gte } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
@@ -8,6 +8,7 @@ import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
 import { getClasses } from './classService.js'
 import { getClassDependencyBlockers } from './classDependencyService.js'
 import { resolveMembershipBranch, resolveStudentBranch, STUDENT_BRANCHES, type StudentBranch } from './studentMembershipPolicy.js'
+import { phoneMatchVariants } from '../utils/phone.js'
 
 interface ImportRow {
   rowIndex: number
@@ -1880,6 +1881,7 @@ async function hasStudentActivityAfterImport(
   studentId: string,
   parishId: string,
   appliedAt: string,
+  importedParentPhone: string,
 ): Promise<boolean> {
   const checks = [
     () => tx.select({ id: grades.id }).from(grades).where(and(
@@ -1914,9 +1916,45 @@ async function hasStudentActivityAfterImport(
       eq(studentFeeRecords.studentId, studentId), eq(studentFeeRecords.parishId, parishId),
       or(gte(studentFeeRecords.createdAt, appliedAt), gte(studentFeeRecords.updatedAt, appliedAt)),
     )).limit(1),
+    // Manual finance entries may reference a student without a student-fee row.
+    // Undoing a newly imported student would otherwise soft-delete the roster
+    // identity while leaving a later receipt/expense linked to hidden history.
+    () => tx.select({ id: financialTransactions.id }).from(financialTransactions).where(and(
+      eq(financialTransactions.studentId, studentId), eq(financialTransactions.parishId, parishId),
+      gte(financialTransactions.createdAt, appliedAt),
+    )).limit(1),
   ]
   for (const check of checks) {
     if ((await check()).length > 0) return true
+  }
+
+  // Parent ownership is an implicit phone link rather than a foreign key.
+  // If an account was provisioned, or an existing account was relinked to the
+  // imported phone after this row committed, undoing the student would silently
+  // orphan that later identity decision. Historical phone values are redacted
+  // in the audit log, so only the current evidenced link is considered here.
+  const phoneVariants = phoneMatchVariants(importedParentPhone)
+  if (phoneVariants.length > 0) {
+    const linkedParents = await tx
+      .select({ id: users.id, createdAt: users.createdAt })
+      .from(users)
+      .where(and(
+        eq(users.parishId, parishId),
+        eq(users.role, 'phuhuynh'),
+        isNull(users.deletedAt),
+        inArray(users.phone, phoneVariants),
+      ))
+    if (linkedParents.some(parent => parent.createdAt >= appliedAt)) return true
+    if (linkedParents.length > 0) {
+      const relink = await tx.select({ id: auditLogs.id }).from(auditLogs).where(and(
+        eq(auditLogs.parishId, parishId),
+        eq(auditLogs.entityType, 'user'),
+        eq(auditLogs.action, 'UPDATE_USER_PHONE'),
+        inArray(auditLogs.entityId, linkedParents.map(parent => parent.id)),
+        gte(auditLogs.createdAt, appliedAt),
+      )).limit(1)
+      if (relink.length > 0) return true
+    }
   }
   return false
 }
@@ -1969,7 +2007,15 @@ export async function undoImport(batchId: string, parishId: string, actorUserId:
       }
 
       const now = new Date().toISOString()
-      if (await hasStudentActivityAfterImport(tx, bs.studentId, parishId, snapshot.appliedUpdatedAt)) {
+      const parentLinkCanChange = snapshot.kind === 'created'
+        || snapshot.previousStudent?.parentPhone !== current.parentPhone
+      if (await hasStudentActivityAfterImport(
+        tx,
+        bs.studentId,
+        parishId,
+        snapshot.appliedUpdatedAt,
+        parentLinkCanChange ? current.parentPhone : '',
+      )) {
         const message = `Dòng ${bs.rowIndex}: học viên đã có dữ liệu phát sinh sau import; không thể hoàn tác tự động`
         result.errors.push(message)
         result.items.push({ rowIndex: bs.rowIndex, studentId: bs.studentId, action: snapshot.kind, status: 'blocked', message })

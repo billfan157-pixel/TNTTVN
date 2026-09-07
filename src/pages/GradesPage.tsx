@@ -27,7 +27,7 @@ const VIEW_TABS: { id: GradeViewMode; label: string; icon: React.ReactNode; desc
   { id: 'comparison', label: 'So Sánh', icon: <Columns3 size={16} />, desc: 'HK I vs HK II' },
   { id: 'daily', label: 'Hằng Ngày', icon: <Calculator size={16} />, desc: 'Nhập nhiều lần' },
   { id: 'exam', label: 'Chấm Bài', icon: <ClipboardList size={16} />, desc: 'QR + nhập nhanh' },
-  { id: 'bank', label: 'Ngân Hàng', icon: <LibraryBig size={16} />, desc: 'Câu hỏi + ma trận đề' },
+  { id: 'bank', label: 'Ngân Hàng Đề Thi', icon: <LibraryBig size={16} />, desc: 'Câu hỏi + ma trận đề' },
 ]
 
 export function GradesPage() {
@@ -51,7 +51,7 @@ export function GradesPage() {
     label: (
       <>
         <span>{tab.label}</span>
-        <span className={`text-xs hidden sm:inline ${viewMode === tab.id ? 'text-white/80' : 'text-text-muted'}`}>
+        <span className={`text-xs hidden 2xl:inline ${viewMode === tab.id ? 'opacity-80' : 'text-text-muted'}`}>
           {tab.desc}
         </span>
       </>
@@ -62,14 +62,14 @@ export function GradesPage() {
   if (effectiveMode === 'desktop') {
     return (
       <div className="flex flex-col gap-4">
-        {/* View Mode Tabs — PHA 4: flex-wrap để không tràn ngang @1024px */}
+        {/* View Mode Tabs — Cùng hàng không ngắt dòng */}
         <Tabs
           id="desktop-grade-view-tabs"
           ariaLabel="Chế độ quản lý điểm"
           items={viewItems}
           value={viewMode}
           onValueChange={handleViewChange}
-          className="self-start flex-wrap"
+          className="self-start max-w-full flex-nowrap"
         />
 
         {/* Active View with Suspense */}
