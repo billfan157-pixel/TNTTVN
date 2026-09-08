@@ -26,6 +26,8 @@ import {
   QR_SIZE,
 } from '../lib/answerSheetTemplate'
 import { escapeHtml } from './grades'
+import { withPreviewStylesheet } from './printPreviewCss'
+import { useToastStore } from '../stores/toastStore'
 import { ReportExportService } from '../services/reportExportService'
 import { isMcGradedExamType } from '../types'
 import type { ExamQuestion, ExamType } from '../types'
@@ -48,7 +50,7 @@ export function sanitizeSvgInner(svgInner: string): string {
     .replace(/<foreignObject\b[^<]*(?:(?!<\/foreignObject>)<[^<]*)*<\/foreignObject>/gi, '')
 }
 export function buildQrSheetHtml(title: string, qrSvgs: { payload: string; svg: string; name: string; code: string }[]): string {
-  return `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>
+  return withPreviewStylesheet(`<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>
     body { font-family: sans-serif; padding: 24px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     h2 { margin: 0 0 4px; }
     .meta { color: #666; font-size: 12px; margin-bottom: 16px; }
@@ -61,13 +63,16 @@ export function buildQrSheetHtml(title: string, qrSvgs: { payload: string; svg: 
   </style></head><body>
   <h2>${escapeHtml(title)}</h2>
   <div class="meta">Mỗi phiếu chứa mã QR riêng của học sinh — cắt rời trước khi phát. Quét mã sẽ ghi điểm vào đúng học sinh (Phase 2).</div>
-  <div class="grid">${qrSvgs.map(q => `<div class="card">${q.svg}<div class="name">${escapeHtml(q.name)}</div><div class="code">${escapeHtml(q.code)}</div><div class="hint">${escapeHtml(q.payload)}</div></div>`).join('')}</div>
-  </body></html>`
+   <div class="grid">${qrSvgs.map(q => `<div class="card">${q.svg}<div class="name">${escapeHtml(q.name)}</div><div class="code">${escapeHtml(q.code)}</div><div class="hint">${escapeHtml(q.payload)}</div></div>`).join('')}</div>
+   </body></html>`, 'print-qr-sheet.css')
 }
 
 export function printQrSheet(title: string, qrSvgs: { payload: string; svg: string; name: string; code: string }[]) {
   const win = window.open('', '_blank', 'width=900,height=700')
-  if (!win) return
+  if (!win) {
+    useToastStore.getState().addToast('Trình duyệt đang chặn cửa sổ pop-up. Vui lòng cho phép pop-up cho trang web này để in thẻ mã QR!', 'info', 6000)
+    return
+  }
   try {
     try { win.opener = null } catch {}
     const url = URL.createObjectURL(new Blob([buildQrSheetHtml(title, qrSvgs)], { type: 'text/html;charset=utf-8' }))
@@ -298,7 +303,7 @@ export function buildBatchAnswerSheetsHtml(
     return `<div class="answer-sheet-page">${svgString}</div>`
   }).join('')
 
-  return `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>
+  return withPreviewStylesheet(`<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>
     @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; background: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -327,7 +332,7 @@ export function buildBatchAnswerSheetsHtml(
     }
   </style></head><body>
     ${pagesHtml}
-  </body></html>`
+  </body></html>`, 'print-answer-sheet.css')
 }
 
 /** In hàng loạt phiếu trả lời cho danh sách học viên qua Blob URL và ReportExportService. */
@@ -376,8 +381,15 @@ export interface ExamPaperPrintOptions {
   }
 }
 
-/** Lấy toàn bộ CSS style dùng chung cho in Đề Thi đơn lẻ và in Đề Thi hàng loạt */
-export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox = true): string {
+/** Lấy toàn bộ CSS style dùng chung cho in Đề Thi đơn lẻ và in Đề Thi hàng loạt.
+ *
+ * CSP-SRCDOC-PREVIEW (2026-09-08): hàm này PHẢI thuần tĩnh (không param, không
+ * interpolation động) vì output được mirror vào `public/print-preview.css`
+ * (kênh duy nhất qua được `style-src 'self'` trong iframe `srcDoc` preview ở
+ * production). Mọi tùy chọn động (số cột, khung điểm) dùng class toggle
+ * `.cols-2` / `.is-hidden` đã khai báo sẵn bên dưới.
+ */
+export function getExamPaperStyles(): string {
   return `
     @page {
       size: A4 portrait;
@@ -559,13 +571,15 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       margin-bottom: 3px;
     }
 
-    /* Bảng chấm điểm & Lời phê của GLV */
+    /* Bảng chấm điểm & Lời phê của GLV.
+       CSP-SRCDOC-PREVIEW: rule tĩnh duy nhất (div chỉ render khi bật toggle
+       nên không cần branch ẩn/hiện trong CSS). */
     .grading-box {
-      width: ${includeGradingBox ? '280px' : '0'};
-      max-width: ${includeGradingBox ? '39%' : '0'};
-      min-width: ${includeGradingBox ? '250px' : '0'};
-      flex: ${includeGradingBox ? '0 1 280px' : '0 0 0'};
-      display: ${includeGradingBox ? 'flex' : 'none'};
+      width: 280px;
+      max-width: 39%;
+      min-width: 250px;
+      flex: 0 1 280px;
+      display: flex;
       flex-direction: column;
       border: 1px solid #000;
       border-radius: 4px;
@@ -760,10 +774,16 @@ export function getExamPaperStyles(layoutColumns: 1 | 2 = 2, includeGradingBox =
       border-color: #0f172a !important;
     }
 
-    /* Khối câu hỏi đề thi */
+    /* Khối câu hỏi đề thi.
+       CSP-SRCDOC-PREVIEW: số cột là class toggle cols-2 (rule tĩnh) để
+       preview production qua link stylesheet vẫn tôn trọng toggle 1/2 cột. */
     .questions-wrapper {
       min-width: 0;
-      ${layoutColumns === 2 ? 'column-count: 2; column-gap: 16px; column-rule: 1px solid #e2e8f0;' : ''}
+    }
+    .questions-wrapper.cols-2 {
+      column-count: 2;
+      column-gap: 16px;
+      column-rule: 1px solid #e2e8f0;
     }
     .question-block {
       min-width: 0;
@@ -1060,9 +1080,9 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     `
   }
 
-  const styles = getExamPaperStyles(layoutColumns, includeGradingBox)
+  const styles = getExamPaperStyles()
 
-  return `<!DOCTYPE html>
+  return withPreviewStylesheet(`<!DOCTYPE html>
 <html lang="vi" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
 <head>
   <meta charset="utf-8" />
@@ -1163,7 +1183,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     ${answerGridHtml}
 
     <!-- Nội dung câu hỏi đề thi -->
-    <div class="questions-wrapper">
+    <div class="questions-wrapper${layoutColumns === 2 ? ' cols-2' : ''}">
       ${questionsHtml}
     </div>
 
@@ -1171,7 +1191,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     </div>
   </div>
 </body>
-</html>`
+</html>`, 'print-exam-single.css')
 }
 
 /** Dựng HTML in hàng loạt đề thi tích hợp cho từng học viên (mỗi em 1 đề kèm QR riêng). */
@@ -1179,9 +1199,9 @@ export function buildBatchExamPapersHtml(
   students: StudentSheetInfo[],
   options: ExamPaperPrintOptions
 ): string {
-  const { layoutColumns = 2, includeGradingBox = true, subject, classLabel } = options
+  const { subject, classLabel } = options
   const title = `Đề Thi & Phiếu Trả Lời Hàng Loạt — ${subject} (${classLabel})`
-  const baseStyles = getExamPaperStyles(layoutColumns, includeGradingBox)
+  const baseStyles = getExamPaperStyles()
 
   // P0 Guard: Không bao giờ in hàng loạt đề thi kèm đáp án và mã QR học sinh (tránh gian lận điểm)
   if (options.showAnswerKey) {
@@ -1199,7 +1219,7 @@ export function buildBatchExamPapersHtml(
     return `<div class="batch-exam-page">${content}</div>`
   }).join('')
 
-  return `<!DOCTYPE html><html lang="vi" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
+  return withPreviewStylesheet(`<!DOCTYPE html><html lang="vi" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
   <!--[if gte mso 9]>
   <xml>
     <w:WordDocument>
@@ -1266,7 +1286,7 @@ export function buildBatchExamPapersHtml(
     <div class="Section1">
       ${pagesHtml}
     </div>
-  </body></html>`
+  </body></html>`, 'print-exam-batch.css')
 }
 
 /** In đề thi A4 trực tiếp qua ReportExportService */

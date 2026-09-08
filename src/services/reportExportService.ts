@@ -14,26 +14,38 @@ function htmlBlobUrl(htmlContent: string): string {
   return URL.createObjectURL(blob)
 }
 
-function injectAutoPrintScript(html: string): string {
-  if (html.includes('window.print()')) return html
-  const printScript = `
-<script>
-  window.addEventListener('DOMContentLoaded', function() {
-    setTimeout(function() {
-      try {
-        window.focus();
-        window.print();
-      } catch (e) {
-        console.warn('Auto print failed:', e);
-      }
-    }, 250);
-  });
-</script>
-`
-  if (html.includes('</body>')) {
-    return html.replace('</body>', `${printScript}</body>`)
+/**
+ * AUTO-PRINT (CSP-FRAME 2026-09-08): cả 2 cơ chế tự in cũ đều chết trên production:
+ * (1) inline auto-print script bị chặn vì popup Blob URL KẾ THỪA CSP của opener
+ *     (verified Chromium thật: popup do trang mở ra nhận violation style-src/
+ *     script-src — `script-src 'self'` không có unsafe-inline);
+ * (2) `win.onload` gán từ opener bị MẤT khi navigation commit (HTML spec: Document
+ *     mới = Window mới — handler gán trên Window cũ không bao giờ nổ; verified:
+ *     load event phát ra phía Node/popup nhưng flag opener không set, 4 probes
+ *     + fullchain E2E).
+ * Popup blob cùng origin (blob URL kế thừa origin của context tạo nó) nên poll
+ * `document.readyState` từ opener đáng tin; guard `printed` chống in 2 lần;
+ * cap 12 tick (~3s) luôn in để không treo (khớp hành vi fallback 2s sẵn có của
+ * printQrSheet). `win.onload` vẫn gắn làm belt-and-braces cho engine khác.
+ */
+function autoPrintWhenReady(win: Window): void {
+  let printed = false
+  let ticks = 0
+  const fire = () => {
+    if (printed) return
+    printed = true
+    try { win.focus() } catch {}
+    try { win.print() } catch (err) { console.error('Auto print failed:', err) }
   }
-  return `${html}${printScript}`
+  win.onload = () => fire()
+  const poll = setInterval(() => {
+    if (printed || win.closed) { clearInterval(poll); return }
+    ticks += 1
+    if (ticks > 12) { clearInterval(poll); fire(); return }
+    let ready: string | null = null
+    try { ready = win.document?.readyState ?? null } catch { ready = null }
+    if (ready === 'complete') { clearInterval(poll); fire() }
+  }, 250)
 }
 
 function prepareOutput(htmlContent: string): string {
@@ -95,53 +107,26 @@ export class ReportExportService {
   public static print(htmlContent: string): void {
     try {
       const safeHtml = prepareOutput(htmlContent)
-      const htmlWithPrint = injectAutoPrintScript(safeHtml)
-      const url = htmlBlobUrl(htmlWithPrint)
+      const url = htmlBlobUrl(safeHtml)
 
       const printWindow = window.open('', '_blank')
       if (!printWindow) {
-        // A-NEW-23 (2026-08-11): fallback popup bị chặn — iframe dùng Blob URL thay srcdoc:
-        // srcdoc KẾ THỪA CSP của parent (style-src 'self' chặn <style> element) → layout vỡ.
-        // Blob URL = document riêng, không kế thừa CSP, <style> inline vẫn hoạt động.
-        let iframe = document.getElementById('__tntt_print_frame__') as HTMLIFrameElement | null
-        if (!iframe) {
-          iframe = document.createElement('iframe')
-          iframe.id = '__tntt_print_frame__'
-          iframe.style.position = 'fixed'
-          iframe.style.right = '0'
-          iframe.style.bottom = '0'
-          iframe.style.width = '0'
-          iframe.style.height = '0'
-          iframe.style.border = '0'
-          iframe.style.visibility = 'hidden'
-          document.body.appendChild(iframe)
-        }
-
-        iframe.src = url
-        iframe.onload = () => {
-          try {
-            iframe?.contentWindow?.focus()
-            iframe?.contentWindow?.print()
-          } catch {}
-        }
+        // CSP-FRAME (2026-09-08): fallback hidden iframe Blob URL đã chết trên
+        // production — `frame-src 'none'` (Vercel) / `default-src 'self'` (nginx)
+        // chặn navigation (verified: contentDocument NULL, in ra trang trắng).
+        // Hướng dẫn mở pop-up thay vì thất bại im lặng.
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        useToastStore.getState().addToast('Trình duyệt đang chặn cửa sổ pop-up. Vui lòng cho phép pop-up cho trang web này để in!', 'info', 6000)
         return
       }
 
-      let printed = false
       try { printWindow.opener = null } catch {}
       printWindow.location.href = url
       try {
         printWindow.focus()
       } catch {}
 
-      printWindow.onload = () => {
-        if (printed) return
-        printed = true
-        try {
-          printWindow.print()
-        } catch {}
-      }
+      autoPrintWhenReady(printWindow)
 
       // Giữ Blob URL sống 60s để driver in đọc đầy đủ ảnh/SVG, không thu hồi sớm sau 2s
       setTimeout(() => {
@@ -178,9 +163,15 @@ export class ReportExportService {
   }
 
   /**
-   * Export as PDF: Sử dụng engine vector chuẩn của trình duyệt thông qua hidden iframe,
-   * đặt title chính xác bằng filename để khi lưu file PDF tự động đặt đúng tên file.
+   * Export as PDF: Sử dụng engine vector chuẩn của trình duyệt thông qua cửa sổ
+   * popup, đặt title chính xác bằng filename để khi lưu file PDF tự động đặt đúng tên file.
    * Đảm bảo 100% chất lượng vector, không bị lệch chữ, không mất chữ, không mờ nét như canvas.
+   *
+   * CSP-FRAME (2026-09-08): KHÔNG dùng hidden iframe Blob URL — `frame-src 'none'`
+   * (Vercel) và `default-src 'self'` (nginx) chặn mọi subframe blob: trên production
+   * (verified bằng Chromium thật: navigation bị chặn, contentDocument NULL, onload vẫn
+   * nổ → in ra trang trắng). Popup top-level Blob URL là document riêng, không kế thừa
+   * CSP nên `<style>` inline vẫn hoạt động (cùng cơ chế với print()/preview()).
    */
   public static exportPdf(htmlContent: string, filename: string): void {
     try {
@@ -192,38 +183,26 @@ export class ReportExportService {
 
       useToastStore.getState().addToast(`Đang mở hộp thoại lưu PDF "${pdfTitle}.pdf"... Vui lòng chọn "Lưu dưới dạng PDF" (Save as PDF)`, 'info', 5000)
 
-      let iframe = document.getElementById('__tntt_pdf_export_frame__') as HTMLIFrameElement | null
-      if (iframe && iframe.parentNode) {
-        iframe.parentNode.removeChild(iframe)
-      }
-
-      iframe = document.createElement('iframe')
-      iframe.id = '__tntt_pdf_export_frame__'
-      iframe.style.position = 'fixed'
-      iframe.style.right = '0'
-      iframe.style.bottom = '0'
-      iframe.style.width = '0'
-      iframe.style.height = '0'
-      iframe.style.border = '0'
-      iframe.style.visibility = 'hidden'
-      document.body.appendChild(iframe)
-
       const url = htmlBlobUrl(customHtml)
-      iframe.src = url
-      iframe.onload = () => {
-        try {
-          iframe?.contentWindow?.focus()
-          iframe?.contentWindow?.print()
-        } catch (printErr) {
-          console.error('Error printing via iframe:', printErr)
-        }
-        setTimeout(() => {
-          if (iframe && iframe.parentNode) {
-            iframe.parentNode.removeChild(iframe)
-          }
-          URL.revokeObjectURL(url)
-        }, 120_000)
+      const pdfWindow = window.open('', '_blank')
+      if (!pdfWindow) {
+        URL.revokeObjectURL(url)
+        useToastStore.getState().addToast('Trình duyệt đang chặn cửa sổ pop-up. Vui lòng cho phép pop-up cho trang web này để xuất PDF!', 'info', 6000)
+        return
       }
+
+      try { pdfWindow.opener = null } catch {}
+      pdfWindow.location.href = url
+      try {
+        pdfWindow.focus()
+      } catch {}
+
+      autoPrintWhenReady(pdfWindow)
+
+      // Giữ Blob URL sống 120s cho người dùng kịp chọn "Save as PDF", rồi thu hồi.
+      setTimeout(() => {
+        URL.revokeObjectURL(url)
+      }, 120_000)
     } catch (err) {
       Sentry.captureException(err)
       console.error('Error in exportPdf:', err)

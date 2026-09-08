@@ -1,0 +1,170 @@
+/* GENERATED — DO NOT EDIT BY HAND.
+ * Mirror của khối <style> do builders sinh ra (Phiếu thu/chi (buildReceiptHtml)).
+ * Tái sinh: xem hướng dẫn đầu file src/__tests__/printPreviewCsp.test.ts
+ * Sync test: src/__tests__/printPreviewCsp.test.ts
+ * Lý do tồn tại: src/utils/printPreviewCss.ts (CSP-SRCDOC-PREVIEW).
+ */
+@page {
+      size: A4 portrait;
+      margin: 15mm;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Times New Roman', Times, serif;
+    }
+    body {
+      background: #f4f4f4;
+      padding: 20px;
+      color: #111;
+    }
+    .page-container {
+      background: #fff;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 30px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border-radius: 4px;
+    }
+    .header-table {
+      width: 100%;
+      margin-bottom: 20px;
+      border-collapse: collapse;
+    }
+    .header-left {
+      width: 60%;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .header-left.with-logo { display: flex; align-items: center; gap: 10px; text-align: left; }
+    .header-left .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+    .header-left-text { flex: 1; text-align: center; }
+    .header-left .unit {
+      font-weight: bold;
+      text-transform: uppercase;
+      color: #b91c1c;
+      font-size: 14px;
+    }
+    .header-right {
+      width: 40%;
+      text-align: right;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .voucher-title {
+      text-align: center;
+      margin: 15px 0 5px 0;
+    }
+    .voucher-title h1 {
+      font-size: 24px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    /* CSP-SRCDOC-PREVIEW: màu theo loại phiếu là class tĩnh (rule qua được
+       style-src self trong iframe srcDoc preview ở production). */
+    .voucher-income .voucher-title h1 {
+      color: #15803d;
+    }
+    .voucher-transfer .voucher-title h1 {
+      color: #1d4ed8;
+    }
+    .voucher-expense .voucher-title h1 {
+      color: #b91c1c;
+    }
+    .voucher-date {
+      text-align: center;
+      font-style: italic;
+      font-size: 13px;
+      margin-bottom: 20px;
+      color: #555;
+    }
+    .content-table {
+      width: 100%;
+      margin-bottom: 25px;
+      border-collapse: collapse;
+      font-size: 14.5px;
+      line-height: 1.8;
+    }
+    .content-table td {
+      padding: 6px 4px;
+      vertical-align: top;
+    }
+    .label {
+      width: 28%;
+      font-weight: 500;
+    }
+    .dots {
+      border-bottom: 1px dotted #777;
+      font-weight: bold;
+    }
+    .amount-box {
+      background: #f8fafc;
+      border: 1.5px solid #cbd5e1;
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin: 15px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .amount-highlight {
+      font-size: 20px;
+      font-weight: bold;
+    }
+    .voucher-income .amount-highlight {
+      color: #166534;
+    }
+    .voucher-transfer .amount-highlight {
+      color: #1e40af;
+    }
+    .voucher-expense .amount-highlight {
+      color: #991b1b;
+    }
+    .signatures-table {
+      width: 100%;
+      margin-top: 30px;
+      border-collapse: collapse;
+      text-align: center;
+      font-size: 13.5px;
+    }
+    .signatures-table th {
+      font-weight: bold;
+      padding-bottom: 8px;
+    }
+    .signatures-table td {
+      height: 90px;
+      vertical-align: bottom;
+      font-style: italic;
+      color: #444;
+    }
+    .divider {
+      border-top: 1.5px dashed #aaa;
+      margin: 35px 0;
+      position: relative;
+    }
+    .divider::after {
+      content: '✂ Cắt theo đường này';
+      position: absolute;
+      top: -10px;
+      right: 20px;
+      background: #fff;
+      padding: 0 10px;
+      font-size: 11px;
+      color: #888;
+    }
+    @media print {
+      body {
+        background: #fff;
+        padding: 0;
+      }
+      .page-container {
+        box-shadow: none;
+        padding: 0;
+        max-width: 100%;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }

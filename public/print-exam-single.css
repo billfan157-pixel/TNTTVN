@@ -1,0 +1,514 @@
+/* GENERATED — DO NOT EDIT BY HAND.
+ * Mirror của khối <style> do builders sinh ra (Đề thi đơn (buildExamPaperHtml)).
+ * Tái sinh: xem hướng dẫn đầu file src/__tests__/printPreviewCsp.test.ts
+ * Sync test: src/__tests__/printPreviewCsp.test.ts
+ * Lý do tồn tại: src/utils/printPreviewCss.ts (CSP-SRCDOC-PREVIEW).
+ */
+@page Section1 {
+      size: 210mm 297mm;
+      margin: 12mm 8mm 10mm 8mm;
+      mso-header-margin: 0pt;
+      mso-footer-margin: 0pt;
+      mso-paper-source: 0;
+    }
+    div.Section1 {
+      page: Section1;
+    }
+    
+    @page {
+      size: A4 portrait;
+      /* QB-MARGIN (2026-08-27d): 2/4/2/4 → 4/6/4/6 tăng 2mm theo yêu cầu (review = in).
+         Tổng lề in = @page 6mm ngang + container 5.6mm = 11.6mm, dọc = @page 4mm + container 2mm = 6mm. */
+      margin: 4mm 6mm 4mm 6mm;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.3;
+      color: #000;
+      background: #fff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    @media screen {
+      /* Đồng bộ preview = in: body padding mô phỏng @page 4mm/6mm, container 2mm/5.6mm. */
+      html { background: #e5e7eb; }
+      body { background: #e5e7eb; padding: 4mm 6mm; }
+      .exam-paper-container {
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 8px 24px rgba(0,0,0,0.08);
+        border-radius: 2px;
+        padding: 2mm 5.6mm !important;
+        margin: 0 auto;
+      }
+    }
+    @media print {
+      html, body { background: #fff; padding: 0; }
+      .exam-paper-container { box-shadow: none; border-radius: 0; background: #fff; }
+    }
+    .exam-paper-container {
+      width: 100%;
+      max-width: 210mm;
+      min-width: 0;
+      margin: 0 auto;
+      position: relative;
+      /* 5.6mm giữ toàn bộ mực marker cách mép A4 tối thiểu 6mm sau phần overhang. */
+      padding: 2mm 5.6mm;
+    }
+    .watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-35deg);
+      font-size: 48pt;
+      font-weight: 900;
+      color: rgba(0, 0, 0, 0.035);
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 0;
+      user-select: none;
+      letter-spacing: 8px;
+    }
+    /* Header V4: tổng chiều rộng hữu hạn. Bản cũ dùng 40% + 46% + 20% =
+       106%, khiến browser/driver in tự shrink khác nhau và làm QR/header lệch. */
+    .paper-header {
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1.12fr) 122px;
+      column-gap: 10px;
+      align-items: center;
+      width: 100%;
+      min-width: 0;
+      border-bottom: 2px solid #000;
+      padding-bottom: 5px;
+      margin-bottom: 6px;
+    }
+    .header-logo { display: flex; align-items: center; justify-content: center; }
+    .header-logo .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+    .header-left {
+      text-align: center;
+      width: auto;
+      min-width: 0;
+      font-size: 10.25pt;
+      line-height: 1.22;
+    }
+    .header-left .org-top {
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+    .header-left .org-parish {
+      text-transform: uppercase;
+      font-weight: 800;
+      color: #1e3a8a;
+    }
+    .header-right {
+      text-align: center;
+      width: auto;
+      min-width: 0;
+      line-height: 1.22;
+      padding-top: 1px;
+    }
+    .header-right .exam-title {
+      font-size: 12.5pt;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #b91c1c;
+      margin: 2px 0;
+      overflow-wrap: break-word;
+    }
+    .header-right .exam-sub {
+      font-size: 10.5pt;
+      font-weight: bold;
+    }
+    .header-right .exam-time {
+      font-size: 9.75pt;
+      font-style: italic;
+    }
+    .header-qr-zone {
+      width: 122px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .qr-box {
+      /* QR production gồm 21 data module + quiet zone. 120px tạo dư địa hơn
+         4px/module trước khi camera thu nhỏ cả tờ A4, vẫn nằm gọn trong cột. */
+      width: 120px;
+      height: 120px;
+      padding: 0;
+      background: #fff;
+      border: 1px solid #0f172a;
+      border-radius: 4px;
+    }
+    .qr-label {
+      font-size: 6.5pt;
+      font-weight: bold;
+      color: #475569;
+      text-align: center;
+      margin-top: 2px;
+      line-height: 1.1;
+    }
+
+    /* Khung thông tin học sinh & Khung chấm điểm của Giáo Lý Viên gộp chung */
+    .top-meta-container {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+      min-width: 0;
+      margin-bottom: 5px;
+      align-items: stretch;
+    }
+    .student-info-box {
+      flex: 1 1 auto;
+      min-width: 0;
+      border: 1px solid #000;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 10.25pt;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      gap: 3px;
+    }
+    .student-info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      min-width: 0;
+      gap: 6px;
+    }
+    .student-info-row > span {
+      min-width: 0;
+      white-space: nowrap;
+    }
+    .dots {
+      border-bottom: 1px dotted #666;
+      flex: 1;
+      min-width: 24px;
+      margin-bottom: 3px;
+    }
+
+    /* Bảng chấm điểm & Lời phê của GLV.
+       CSP-SRCDOC-PREVIEW: rule tĩnh duy nhất (div chỉ render khi bật toggle
+       nên không cần branch ẩn/hiện trong CSS). */
+    .grading-box {
+      width: 280px;
+      max-width: 39%;
+      min-width: 250px;
+      flex: 0 1 280px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #000;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .grading-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      height: 100%;
+      text-align: center;
+      font-size: 9pt;
+    }
+    .grading-table th {
+      background: #f1f5f9;
+      border: 1px solid #000;
+      padding: 2px;
+      font-weight: bold;
+      font-size: 8pt;
+      line-height: 1.15;
+      overflow-wrap: break-word;
+    }
+    .grading-table td {
+      border: 1px solid #000;
+      padding: 2px;
+      height: 34px;
+      vertical-align: middle;
+    }
+    .grade-score-cell {
+      font-size: 13pt;
+      font-weight: 900;
+      color: #b91c1c;
+    }
+    .feedback-cell {
+      font-size: 8pt;
+      font-style: italic;
+      color: #64748b;
+      text-align: left;
+      padding-left: 4px;
+    }
+
+    /* Khung OMR Tích Hợp với 4 Góc Định Vị Homography — geometry px phải
+       khớp 100% hằng số SSOT (INTEGRATED_* trong answerSheetTemplate.ts).
+       V4 chỉ sửa cách browser phân bổ track; không thay tâm marker/bubble. */
+    .integrated-omr-wrapper {
+      width: 100%;
+      min-width: 0;
+      /* Marker đáy nhô 18px khỏi khung; chừa 25px từ mép khung giúp phần
+         câu hỏi còn cách marker 7px (~1.9mm), không đổi geometry quét. */
+      margin-bottom: 25px;
+      background: #f8fafc;
+      border-radius: 4px;
+    }
+    .omr-frame {
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      padding: 3px 5px;
+      border: 1.5px solid #0f172a;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .omr-corner-marker {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      background: #000000;
+      box-shadow: 0 0 0 3px #ffffff;
+    }
+    /* Marker nằm LỆCH RA NGOÀI khung (.omr-frame) — không đè bubble cạnh mép.
+       Kích thước, overhang và detector dùng chung SSOT answerSheetTemplate.ts. */
+    .omr-marker-tl { top: -18px; left: -18px; }
+    .omr-marker-tr { top: -18px; right: -18px; }
+    .omr-marker-bl { bottom: -18px; left: -18px; }
+    .omr-marker-br { bottom: -18px; right: -18px; }
+
+    .answer-sheet-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      min-width: 0;
+      margin-bottom: 4px;
+      border-bottom: 1px dashed #cbd5e1;
+      padding-bottom: 3px;
+    }
+    .omr-badge {
+      display: inline-block;
+      background: #0f172a;
+      color: #ffffff;
+      font-size: 6.5pt;
+      font-weight: 900;
+      padding: 0.5px 3.5px;
+      border-radius: 2px;
+      margin-right: 3px;
+      letter-spacing: 0.4px;
+    }
+    .answer-sheet-title {
+      min-width: 0;
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #1e3a8a;
+      text-transform: uppercase;
+      letter-spacing: 0.2px;
+      line-height: 1.15;
+    }
+    .answer-sheet-guide {
+      min-width: 0;
+      font-size: 7.25pt;
+      font-style: italic;
+      color: #475569;
+      text-align: right;
+      line-height: 1.15;
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+    /* 1fr có min-content floor; với 8 cột × (số câu + 4 bubble), Chromium
+       từng nới grid vượt frame ở 50 câu. minmax(0,1fr) ép track tuân theo
+       frame thật. Bubble được neo tuyệt đối vào content-box đúng công thức
+       integratedMcOptionToCellForRect nên tâm OMR không đổi. */
+    .answer-grid-container {
+      display: grid;
+      width: 100%;
+      min-width: 0;
+      gap: 4px 4px;
+    }
+    .grid-q-row {
+      position: relative;
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 2px;
+      padding: 0;
+      box-sizing: border-box;
+      height: 18px;
+    }
+    .q-num {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      display: block;
+      font-weight: 800;
+      font-size: 6pt;
+      width: 12px;
+      color: #1e293b;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .bubble-group {
+      position: absolute;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      white-space: nowrap;
+    }
+    .bubble {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      box-sizing: border-box;
+      border-radius: 50%;
+      border: 1.1px solid #64748b;
+      font-size: 7pt;
+      font-weight: 600;
+      color: #64748b;
+      line-height: 1;
+      background: #fff;
+      flex: 0 0 16px;
+    }
+    .bubble-correct {
+      background: #16a34a !important;
+      color: #ffffff !important;
+      border-color: #15803d !important;
+      font-weight: 900;
+    }
+    .bubble-filled {
+      background: #0f172a !important;
+      color: #ffffff !important;
+      border-color: #0f172a !important;
+    }
+
+    /* Khối câu hỏi đề thi.
+       CSP-SRCDOC-PREVIEW: số cột là class toggle cols-2 (rule tĩnh) để
+       preview production qua link stylesheet vẫn tôn trọng toggle 1/2 cột. */
+    .questions-wrapper {
+      min-width: 0;
+    }
+    .questions-wrapper.cols-2 {
+      column-count: 2;
+      column-gap: 16px;
+      column-rule: 1px solid #e2e8f0;
+    }
+    .question-block {
+      min-width: 0;
+      margin-bottom: 5px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      font-size: 10pt;
+    }
+    .question-title {
+      min-width: 0;
+      font-weight: normal;
+      margin-bottom: 2px;
+      text-align: left;
+      line-height: 1.27;
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+    /* Câu tự luận vẫn dàn cùng hai cột với đề; thay hai khoảng trắng cao
+       64px bằng nhiều dòng viết đều nhau để sử dụng không gian hợp lý. */
+    .essay-section-title {
+      font-size: 11pt;
+      font-weight: 800;
+      color: #1e3a8a;
+      border-bottom: 1.5px solid #1e3a8a;
+      padding-bottom: 3px;
+      margin: 8px 0 7px;
+    }
+    .essay-question-block {
+      margin: 0 0 10px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      font-size: 10pt;
+    }
+    .essay-answer-lines {
+      margin-top: 4px;
+      padding-left: 3px;
+    }
+    .essay-answer-line {
+      height: 8.2mm;
+      border-bottom: 1px dotted #94a3b8;
+      break-inside: avoid;
+    }
+    .options-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+      gap: 2px 8px;
+      min-width: 0;
+      padding-left: 4px;
+    }
+    .option-item {
+      min-width: 0;
+      font-size: 10pt;
+      line-height: 1.2;
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+    .option-label {
+      font-weight: bold;
+      margin-right: 2px;
+    }
+    .option-correct {
+      font-weight: bold;
+      color: #15803d;
+      background: #dcfce7;
+      border-radius: 3px;
+      padding: 0 3px;
+    }
+    .answer-key-summary {
+      margin-top: 12px;
+      border-top: 2px solid #000;
+      padding-top: 6px;
+      break-inside: avoid;
+    }
+    .key-header {
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 5px;
+      color: #1e3a8a;
+      font-size: 10.5pt;
+    }
+    .key-grid {
+      display: grid;
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+      gap: 3px;
+      text-align: center;
+    }
+    .key-cell {
+      min-width: 0;
+      border: 1px solid #94a3b8;
+      border-radius: 3px;
+      padding: 2px;
+      font-size: 9pt;
+    }
+    .key-q {
+      color: #64748b;
+      font-size: 8pt;
+      display: block;
+    }
+    .key-ans {
+      font-weight: bold;
+      color: #b91c1c;
+      font-size: 10pt;
+    }

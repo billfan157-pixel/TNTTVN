@@ -117,7 +117,11 @@ export default defineConfig({
       injectManifest: {
         globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js'],
       },
-      includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.png'],
+      includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.png',
+        // CSP-SRCDOC-PREVIEW: CSS cho iframe preview tài liệu in — precache để
+        // lần mở preview đầu tiên khi offline vẫn có style (runtime SWR chỉ có
+        // sau lần fetch đầu; response precache cùng origin nên qua style-src).
+        'print-exam-single.css', 'print-exam-batch.css', 'print-answer-sheet.css', 'print-qr-sheet.css', 'print-receipt.css'],
       manifest: {
         name: 'Catevia — Quản Lý Giáo Xứ & TNTT',
         short_name: 'Catevia',

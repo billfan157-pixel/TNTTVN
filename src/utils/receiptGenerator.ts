@@ -1,9 +1,10 @@
 /**
  * Convert numbers to Vietnamese words for official receipts & financial vouchers.
  */
-import { useToastStore } from '../stores/toastStore'
 import { PARISH_LOGO_DATA_URI } from './parishLogo'
 import { escapeHtml } from './grades'
+import { withPreviewStylesheet } from './printPreviewCss'
+import { ReportExportService } from '../services/reportExportService'
 
 export function numberToVietnameseWords(n: number): string {
   if (n === 0) return 'Không đồng'
@@ -108,7 +109,7 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
     }
   })()
 
-  return `<!DOCTYPE html>
+  return withPreviewStylesheet(`<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
@@ -171,7 +172,17 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
       font-size: 24px;
       font-weight: bold;
       letter-spacing: 1px;
-      color: ${isIncome ? '#15803d' : isTransfer ? '#1d4ed8' : '#b91c1c'};
+    }
+    /* CSP-SRCDOC-PREVIEW: màu theo loại phiếu là class tĩnh (rule qua được
+       style-src self trong iframe srcDoc preview ở production). */
+    .voucher-income .voucher-title h1 {
+      color: #15803d;
+    }
+    .voucher-transfer .voucher-title h1 {
+      color: #1d4ed8;
+    }
+    .voucher-expense .voucher-title h1 {
+      color: #b91c1c;
     }
     .voucher-date {
       text-align: center;
@@ -212,7 +223,15 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
     .amount-highlight {
       font-size: 20px;
       font-weight: bold;
-      color: ${isIncome ? '#166534' : isTransfer ? '#1e40af' : '#991b1b'};
+    }
+    .voucher-income .amount-highlight {
+      color: #166534;
+    }
+    .voucher-transfer .amount-highlight {
+      color: #1e40af;
+    }
+    .voucher-expense .amount-highlight {
+      color: #991b1b;
     }
     .signatures-table {
       width: 100%;
@@ -262,7 +281,7 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
     }
   </style>
 </head>
-<body>
+<body class="${isIncome ? 'voucher-income' : isTransfer ? 'voucher-transfer' : 'voucher-expense'}">
   <div class="page-container">
     <!-- Header -->
     <table class="header-table">
@@ -344,27 +363,13 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
     </table>
   </div>
 </body>
-</html>`
+</html>`, 'print-receipt.css')
 }
 
 export function printReceipt(data: ReceiptPrintData): void {
-  const html = buildReceiptHtml(data)
-  const printWindow = window.open('', '_blank')
-  if (!printWindow) {
-    useToastStore.getState().addToast('Trình duyệt đang chặn cửa sổ pop-up. Vui lòng cho phép pop-up để in phiếu.', 'info', 6000)
-    return
-  }
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
-  try { printWindow.opener = null } catch {}
-  printWindow.location.href = url
-  let printed = false
-  printWindow.onload = () => {
-    if (printed) return
-    printed = true
-    try {
-      printWindow.focus()
-      printWindow.print()
-    } catch {}
-  }
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  // CSP-FRAME (2026-09-08): popup-blob onload gán từ opener bị MẤT qua navigation
+  // (Window mới) và inline auto-print script bị CSP kế thừa chặn → đường onload-only
+  // không bao giờ tự in trên production. Ủng quyền cho pipeline chung
+  // ReportExportService.print (safety gate + auto-print polling + toast khi block).
+  ReportExportService.print(buildReceiptHtml(data))
 }

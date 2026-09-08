@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import {
   generateStudentReportCardHTML,
   generateSacramentCertificateHTML,
@@ -9,6 +9,7 @@ import { ReportExportService } from '../../services/reportExportService'
 import { getCurrentAcademicYear } from '../../utils/academicYear'
 import type { Student, GradeRecord, AttendanceRecord } from '../../types'
 import { buildReceiptHtml, printReceipt, type ReceiptPrintData } from '../../utils/receiptGenerator'
+import { useToastStore } from '../../stores/toastStore'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -185,17 +186,34 @@ describe('A01 Phase 2 — ReportExportService không còn document.write', () =>
     expect(fakePopup.print).toHaveBeenCalledTimes(1)
   })
 
-  it('print - popup bị chặn: fallback iframe dùng Blob URL (không srcdoc kế thừa CSP), không document.write', () => {
+  it('print: onload không nổ (production) → polling readyState complete tự in đúng 1 lần', async () => {
+    const fakePopup = {
+      document: { write: vi.fn(), close: vi.fn(), open: vi.fn(), readyState: 'complete' },
+      location: { href: '' },
+      opener: {} as unknown,
+      closed: false,
+      focus: vi.fn(),
+      print: vi.fn(),
+      onload: null as (() => void) | null,
+    }
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup as unknown as Window)
+    ReportExportService.print('<html><body>x</body></html>')
+    expect(fakePopup.onload).toBeTypeOf('function')
+    // KHÔNG gọi onload thủ công — polling phải tự phát hiện readyState.
+    await vi.waitFor(() => expect(fakePopup.print).toHaveBeenCalledTimes(1), { timeout: 3000, interval: 100 })
+    await new Promise((r) => setTimeout(r, 700))
+    expect(fakePopup.print).toHaveBeenCalledTimes(1)
+  })
+
+  it('print - popup bị chặn: toast hướng dẫn, KHÔNG tạo hidden iframe (CSP-FRAME: frame-src chặn blob)', () => {
     vi.spyOn(window, 'open').mockReturnValue(null)
     const html = '<html><body>fallback</body></html>'
     ReportExportService.print(html)
-    const iframe = document.querySelector('iframe')
-    expect(iframe).toBeTruthy()
-    // A-NEW-23: srcdoc kế thừa CSP parent (style-src 'self' chặn <style> element) →
-    // fallback phải dùng Blob URL — document riêng, <style> inline vẫn chạy.
-    expect((iframe as HTMLIFrameElement).srcdoc).toBe('')
-    expect((iframe as HTMLIFrameElement).src).toBe('blob:mock-report')
-    expect(document.body.innerHTML).toContain('iframe')
+    // Hidden blob iframe bị frame-src 'none' / default-src 'self' chặn trên production
+    // (verified Chromium thật) → không được tạo iframe thất bại im lặng nữa.
+    expect(document.querySelector('iframe')).toBeNull()
+    const toasts = useToastStore.getState().toasts
+    expect(toasts[toasts.length - 1]?.message).toContain('pop-up')
   })
 })
 
@@ -224,8 +242,79 @@ describe('A-NEW-03 — printQrSheet (ExamSessionView) không còn document.write
     expect(fakePopup.print).toHaveBeenCalledTimes(1)
   })
 
-  it('popup bị chặn (null) → không throw', () => {
+  it('popup bị chặn (null) → toast hướng dẫn, không throw', () => {
     vi.spyOn(window, 'open').mockReturnValue(null)
+    useToastStore.setState({ toasts: [] })
     expect(() => printQrSheet('Lớp TN1', [])).not.toThrow()
+    const toasts = useToastStore.getState().toasts
+    expect(toasts[toasts.length - 1]?.message).toContain('pop-up')
+  })
+})
+
+describe('CSP-FRAME — exportPdf qua popup (hidden blob iframe bị frame-src chặn production)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    useToastStore.setState({ toasts: [] })
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:mock-pdf'), revokeObjectURL: vi.fn() })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    document.body.innerHTML = ''
+  })
+
+  // jsdom Blob chưa có .text() — đọc qua FileReader.
+  function blobText(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result ?? ''))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(blob)
+    })
+  }
+
+  it('popup mở được: Blob URL qua location.href, opener null, onload in đúng 1 lần, title theo filename đã sanitize', async () => {
+    const fakePopup = {
+      document: { write: vi.fn(), close: vi.fn(), open: vi.fn() },
+      location: { href: '' },
+      opener: {} as unknown,
+      focus: vi.fn(),
+      print: vi.fn(),
+      onload: null as (() => void) | null,
+    }
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup as unknown as Window)
+    ReportExportService.exportPdf('<html><head><title>old</title></head><body>pdf me</body></html>', 'De_Thi_Toan')
+    expect(fakePopup.document.write).not.toHaveBeenCalled()
+    expect(fakePopup.location.href).toBe('blob:mock-pdf')
+    expect(fakePopup.opener).toBeNull()
+    fakePopup.onload?.()
+    fakePopup.onload?.()
+    expect(fakePopup.print).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('iframe')).toBeNull()
+    const blobArg = (URL.createObjectURL as unknown as Mock).mock.calls[0][0] as Blob
+    await expect(blobText(blobArg)).resolves.toContain('<title>De_Thi_Toan</title>')
+  })
+
+  it('popup mở được: filename độc hại không lọt script vào <title> (EP-F1)', async () => {
+    const fakePopup = {
+      document: { write: vi.fn(), close: vi.fn(), open: vi.fn() },
+      location: { href: '' },
+      focus: vi.fn(),
+      print: vi.fn(),
+      onload: null as (() => void) | null,
+    }
+    vi.spyOn(window, 'open').mockReturnValue(fakePopup as unknown as Window)
+    ReportExportService.exportPdf('<html><head><title>t</title></head><body>x</body></html>', 'X</title><img src=x onerror=alert(1)>')
+    const blobArg = (URL.createObjectURL as unknown as Mock).mock.calls[0][0] as Blob
+    const text = await blobText(blobArg)
+    expect(text).not.toContain('<script>')
+    expect(text).not.toContain('<img src=x')
+  })
+
+  it('popup bị chặn: không tạo iframe, toast hướng dẫn, không throw', () => {
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    expect(() => ReportExportService.exportPdf('<html><body>x</body></html>', 'f')).not.toThrow()
+    expect(document.querySelector('iframe')).toBeNull()
+    const toasts = useToastStore.getState().toasts
+    expect(toasts[toasts.length - 1]?.message).toContain('pop-up')
   })
 })

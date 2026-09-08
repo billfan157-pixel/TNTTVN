@@ -1,0 +1,15 @@
+/* GENERATED — DO NOT EDIT BY HAND.
+ * Mirror của khối <style> do builders sinh ra (Thẻ mã QR (buildQrSheetHtml)).
+ * Tái sinh: xem hướng dẫn đầu file src/__tests__/printPreviewCsp.test.ts
+ * Sync test: src/__tests__/printPreviewCsp.test.ts
+ * Lý do tồn tại: src/utils/printPreviewCss.ts (CSP-SRCDOC-PREVIEW).
+ */
+body { font-family: sans-serif; padding: 24px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h2 { margin: 0 0 4px; }
+    .meta { color: #666; font-size: 12px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .card { border: 1px dashed #999; border-radius: 8px; padding: 10px; text-align: center; page-break-inside: avoid; }
+    .name { font-weight: bold; font-size: 13px; margin-top: 4px; }
+    .code { font-size: 11px; color: #666; }
+    .hint { font-size: 10px; color: #999; margin-top: 2px; }
+    svg { width: 120px; height: 120px; }
