@@ -68,7 +68,7 @@ Affects multiple modules, shared state, API contracts, persistence, cross-layer 
 
 Load:
 
-`.gemini/skills/decision-matrix/SKILL.md`
+`.agents/skills/quantitative-targets/SKILL.md`
 
 **D3 — Critical**
 
@@ -89,7 +89,7 @@ Affects one or more of:
 
 Load:
 
-`.gemini/skills/decision-matrix/SKILL.md`
+`.agents/skills/quantitative-targets/SKILL.md`
 
 D3 requires applicable hard gates and recovery analysis.
 
@@ -304,7 +304,7 @@ When code and an authoritative document disagree:
 
 ## 9. Agent Skill Activation
 
-Load `.gemini/skills/decision-matrix/SKILL.md` only when:
+Load `.agents/skills/quantitative-targets/SKILL.md` only when:
 
 * the task is D2 or D3;
 * the user explicitly requests an architecture/security/risk audit;
