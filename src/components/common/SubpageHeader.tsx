@@ -3,6 +3,7 @@ import React from 'react'
 export interface SubpageHeaderProps {
   icon: React.ReactNode
   title: React.ReactNode
+  titleId?: string
   eyebrow?: React.ReactNode
   meta?: React.ReactNode
   badge?: React.ReactNode
@@ -15,17 +16,18 @@ export interface SubpageHeaderProps {
 /**
  * SubpageHeader — Chuẩn hóa khung tiêu đề cho các subpage / subtabs (DS v4.5)
  * Cung cấp bố cục đồng bộ 100% gồm:
- * - Icon tile 28×28px
- * - Eyebrow tùy chọn (tiền đề ngữ cảnh)
- * - Tiêu đề 13.5px font-bold
- * - Dòng ngữ cảnh / meta 11px text-muted
+ * - Icon tile 32×32px
+ * - Eyebrow tùy chọn (tiền đề ngữ cảnh) 11px
+ * - Tiêu đề 16px font-bold (Title Case)
+ * - Dòng ngữ cảnh / meta 12px text-muted
  * - Badge trạng thái
- * - Cụm nút hành động nhanh bên phải
+ * - Cụm nút hành động nhanh bên phải (32px / btn-sm)
  * - Khối thanh công cụ / bộ lọc tùy chọn bên dưới (children)
  */
 export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
   icon,
   title,
+  titleId,
   eyebrow,
   meta,
   badge,
@@ -51,7 +53,7 @@ export const SubpageHeader: React.FC<SubpageHeaderProps> = ({
               </p>
             )}
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h2 className="subpage-header__title truncate">
+              <h2 id={titleId} className="subpage-header__title truncate">
                 {title}
               </h2>
               {badge && <div className="subpage-header__badge">{badge}</div>}

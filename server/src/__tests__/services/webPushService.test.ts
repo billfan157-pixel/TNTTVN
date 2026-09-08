@@ -13,6 +13,8 @@ const PREFIX = Date.now()
 const parishId = `parish-webpush-${PREFIX}`
 const userOneId = `usr-wp-1-${PREFIX}`
 const userTwoId = `usr-wp-2-${PREFIX}`
+const lockedUserId = `usr-wp-locked-${PREFIX}`
+const deletedUserId = `usr-wp-deleted-${PREFIX}`
 
 async function insertSub(endpoint: string, userId: string | null = null) {
   await db.insert(pushSubscriptions).values({
@@ -33,6 +35,8 @@ describe('webPushService', () => {
     await db.insert(users).values([
       { id: userOneId, username: `wp1_${PREFIX}`, passwordHash: 'hash', fullName: 'WebPush User 1', role: 'phuhuynh', parishId, status: 'ACTIVE', tokenVersion: 1 },
       { id: userTwoId, username: `wp2_${PREFIX}`, passwordHash: 'hash', fullName: 'WebPush User 2', role: 'phuhuynh', parishId, status: 'ACTIVE', tokenVersion: 1 },
+      { id: lockedUserId, username: `wpl_${PREFIX}`, passwordHash: 'hash', fullName: 'WebPush Locked', role: 'phuhuynh', parishId, status: 'LOCKED', tokenVersion: 1 },
+      { id: deletedUserId, username: `wpd_${PREFIX}`, passwordHash: 'hash', fullName: 'WebPush Deleted', role: 'phuhuynh', parishId, status: 'ACTIVE', deletedAt: new Date().toISOString(), tokenVersion: 1 },
     ])
   })
 
@@ -64,8 +68,8 @@ describe('webPushService', () => {
 
   it('gửi tới mọi subscription của parish + trả counts', async () => {
     const { sendWebPushToParish } = await import('../../services/webPushService.js')
-    await insertSub('https://endpoint-a.example')
-    await insertSub('https://endpoint-b.example')
+    await insertSub('https://endpoint-a.example', userOneId)
+    await insertSub('https://endpoint-b.example', userTwoId)
     webPushMock.sendNotification.mockResolvedValue(undefined as never)
 
     const result = await sendWebPushToParish(parishId, { title: 'Tiêu đề', body: 'Nội dung', url: '/notices' })
@@ -84,9 +88,9 @@ describe('webPushService', () => {
     const dead = 'https://endpoint-dead.example'
     const alive = 'https://endpoint-alive.example'
     const flaky = 'https://endpoint-flaky.example'
-    await insertSub(dead)
-    await insertSub(alive)
-    await insertSub(flaky)
+    await insertSub(dead, userOneId)
+    await insertSub(alive, userOneId)
+    await insertSub(flaky, userTwoId)
 
     webPushMock.sendNotification.mockImplementation(((_sub: { endpoint: string }) => {
       if (_sub.endpoint === dead) return Promise.reject({ statusCode: 410 })
@@ -110,6 +114,21 @@ describe('webPushService', () => {
     const result = await sendWebPushToParish(parishId, { title: 'T', body: 'B' })
     expect(result).toEqual({ configured: true, sent: 0, failed: 0, total: 0, removed: 0 })
     expect(webPushMock.sendNotification).not.toHaveBeenCalled()
+  })
+
+  it('broadcast chỉ gửi tới subscription gắn với account ACTIVE', async () => {
+    const { sendWebPushToParish } = await import('../../services/webPushService.js')
+    await insertSub('https://endpoint-active.example', userOneId)
+    await insertSub('https://endpoint-locked.example', lockedUserId)
+    await insertSub('https://endpoint-deleted.example', deletedUserId)
+    await insertSub('https://endpoint-unbound.example', null)
+    webPushMock.sendNotification.mockResolvedValue(undefined as never)
+
+    const result = await sendWebPushToParish(parishId, { title: 'T', body: 'B' })
+
+    expect(result).toEqual({ configured: true, sent: 1, failed: 0, total: 1, removed: 0 })
+    expect(webPushMock.sendNotification).toHaveBeenCalledTimes(1)
+    expect(webPushMock.sendNotification.mock.calls[0][0].endpoint).toBe('https://endpoint-active.example')
   })
 
   it('sendWebPushToUsers chỉ gửi tới subscriptions của userId mục tiêu (bỏ qua sub khác + sub không có userId)', async () => {

@@ -124,7 +124,7 @@ export function DesktopLeaveRequests() {
           <button
             onClick={() => setStatusFilter('PENDING')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-              statusFilter === 'PENDING' ? 'bg-surface-card text-amber-600 shadow-xs' : 'text-text-muted hover:text-text-main'
+              statusFilter === 'PENDING' ? 'bg-surface-card text-parish-warning shadow-xs' : 'text-text-muted hover:text-text-main'
             }`}
           >
             Chờ duyệt ({pendingCount})
@@ -132,7 +132,7 @@ export function DesktopLeaveRequests() {
           <button
             onClick={() => setStatusFilter('APPROVED')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-              statusFilter === 'APPROVED' ? 'bg-surface-card text-emerald-600 shadow-xs' : 'text-text-muted hover:text-text-main'
+              statusFilter === 'APPROVED' ? 'bg-surface-card text-parish-success shadow-xs' : 'text-text-muted hover:text-text-main'
             }`}
           >
             Đã duyệt
@@ -140,7 +140,7 @@ export function DesktopLeaveRequests() {
           <button
             onClick={() => setStatusFilter('REJECTED')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-              statusFilter === 'REJECTED' ? 'bg-surface-card text-rose-600 shadow-xs' : 'text-text-muted hover:text-text-main'
+              statusFilter === 'REJECTED' ? 'bg-surface-card text-parish-danger shadow-xs' : 'text-text-muted hover:text-text-main'
             }`}
           >
             Từ chối
@@ -346,7 +346,7 @@ export function DesktopLeaveRequests() {
                             </button>
                             <button
                               onClick={() => handleOpenReview(req, 'REJECTED')}
-                              className="btn btn-secondary btn-sm px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 border-rose-200"
+                              className="btn btn-secondary btn-sm px-2 py-1 text-xs text-parish-danger hover:bg-parish-danger-bg border-parish-danger/30"
                               title="Từ chối đơn"
                             >
                               <X size={13} />
@@ -402,11 +402,11 @@ export function DesktopLeaveRequests() {
               </div>
 
               {reviewingRequest.action === 'APPROVED' ? (
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="p-3 rounded-xl bg-parish-success-bg border border-parish-success/30 text-xs text-parish-success">
                   ⚡ <strong>Tự động đồng bộ:</strong> Hệ thống sẽ tự động cập nhật bản ghi điểm danh ngày này thành <strong>"Có phép" (AbsentExcused)</strong> cho tất cả các buổi đã chọn.
                 </div>
               ) : (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-300">
+                <div className="p-3 rounded-xl bg-parish-danger-bg border border-parish-danger/30 text-xs text-parish-danger">
                   ⚠️ Đơn sẽ bị từ chối và thông báo phản hồi sẽ được gửi tới phụ huynh.
                 </div>
               )}

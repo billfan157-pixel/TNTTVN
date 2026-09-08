@@ -1,3 +1,4 @@
+import { EmptyState } from './StateFeedback'
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { HeartHandshake, Loader2, AlertCircle, Users2, ChevronRight, Megaphone, FileText, CalendarPlus, Clock, CheckCircle2, XCircle, Ban, CalendarDays, GraduationCap } from 'lucide-react'
@@ -90,7 +91,7 @@ export const ParentDashboard: React.FC = () => {
       </section>
 
       {error && (
-        <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950 text-rose-600 text-sm rounded-lg border border-rose-200 dark:border-rose-900">
+        <div className="flex items-center gap-2 p-3 bg-parish-danger-bg text-parish-danger text-sm rounded-lg border border-parish-danger/30">
           <AlertCircle size={16} />{error}
         </div>
       )}
@@ -98,10 +99,12 @@ export const ParentDashboard: React.FC = () => {
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-text-muted" /></div>
       ) : children.length === 0 ? (
-        <div className="text-center py-16 text-text-muted space-y-2 bg-surface-card border border-surface-border rounded-2xl shadow-card">
-          <Users2 size={40} className="mx-auto opacity-40" />
-          <p className="text-sm font-medium text-text-main">Chưa có thiếu nhi nào được liên kết với số điện thoại này.</p>
-          <p className="text-xs">Vui lòng liên hệ Ban Giáo Lý để kiểm tra lại số điện thoại phụ huynh.</p>
+        <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
+          <EmptyState
+            icon={Users2}
+            title="Chưa có hồ sơ thiếu nhi"
+            description="Chưa có thiếu nhi nào được liên kết với số điện thoại này. Vui lòng liên hệ Ban Giáo Lý để kiểm tra lại số điện thoại phụ huynh."
+          />
         </div>
       ) : (
         <>
@@ -139,7 +142,7 @@ export const ParentDashboard: React.FC = () => {
             {reportLoading ? (
               <div className="flex justify-center py-10"><Loader2 size={22} className="animate-spin text-text-muted" /></div>
             ) : reportError ? (
-              <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950 text-rose-600 text-sm rounded-lg border border-rose-200 dark:border-rose-900">
+              <div className="flex items-center gap-2 p-3 bg-parish-danger-bg text-parish-danger text-sm rounded-lg border border-parish-danger/30">
                 <AlertCircle size={16} />{reportError}
               </div>
             ) : report && selectedChild ? (
@@ -242,13 +245,13 @@ export const ParentDashboard: React.FC = () => {
                           <div className="flex items-start gap-2.5">
                             <div className="mt-0.5">
                               {req.status === 'APPROVED' ? (
-                                <CheckCircle2 size={16} className="text-emerald-500" />
+                                <CheckCircle2 size={16} className="text-parish-success" />
                               ) : req.status === 'REJECTED' ? (
-                                <XCircle size={16} className="text-rose-500" />
+                                <XCircle size={16} className="text-parish-danger" />
                               ) : req.status === 'CANCELLED' ? (
                                 <Ban size={16} className="text-text-muted" />
                               ) : (
-                                <Clock size={16} className="text-amber-500 animate-pulse" />
+                                <Clock size={16} className="text-parish-warning animate-pulse" />
                               )}
                             </div>
                             <div>
@@ -287,7 +290,7 @@ export const ParentDashboard: React.FC = () => {
                             {req.status === 'PENDING' && (
                               <button
                                 onClick={() => cancelRequest(req.id)}
-                                className="text-[11px] text-rose-500 hover:underline font-bold"
+                                className="text-[11px] text-parish-danger hover:underline font-bold"
                               >
                                 Hủy đơn
                               </button>
@@ -346,7 +349,7 @@ export const ParentDashboard: React.FC = () => {
                   <span
                     aria-hidden
                     className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${
-                      n.priority === 'urgent' ? 'bg-rose-500 animate-pulse' : n.priority === 'important' ? 'bg-amber-500' : 'bg-sky-400 opacity-70'
+                      n.priority === 'urgent' ? 'bg-parish-danger animate-pulse' : n.priority === 'important' ? 'bg-parish-warning' : 'bg-parish-info opacity-70'
                     }`}
                   />
                   <span className="min-w-0">

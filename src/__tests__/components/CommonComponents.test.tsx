@@ -1,6 +1,8 @@
+
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { PageHeader } from '../../components/common/PageHeader'
+import { SubpageHeader } from '../../components/common/SubpageHeader'
 import { ModalShell } from '../../components/common/ModalShell'
 import { FormField } from '../../components/common/FormField'
 
@@ -117,3 +119,58 @@ describe('FormField (DS §3.2 / ADR-032)', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('aria-describedby', 'external-help name-hint')
   })
 })
+
+describe('SubpageHeader (DS §23 / DS v4.5)', () => {
+  it('renders semantic section with title and subpage-header classes', () => {
+    render(
+      <SubpageHeader
+        icon={<span data-testid="subpage-icon" />}
+        title="Bảng Điểm Lớp"
+        meta="Học kỳ I · 35 em"
+      />,
+    )
+    expect(screen.getByRole('heading', { level: 2, name: 'Bảng Điểm Lớp' })).toHaveClass('subpage-header__title')
+    expect(screen.getByText('Học kỳ I · 35 em')).toHaveClass('subpage-header__meta')
+    expect(screen.getByTestId('subpage-icon').parentElement).toHaveClass('subpage-header__icon')
+  })
+
+  it('renders eyebrow and badge when provided', () => {
+    render(
+      <SubpageHeader
+        icon={<span>Icon</span>}
+        title="Tiêu đề"
+        eyebrow="Khối Ấu Nhi"
+        badge={<span data-testid="subpage-badge">Đang mở</span>}
+      />,
+    )
+    expect(screen.getByText('Khối Ấu Nhi')).toHaveClass('subpage-header__eyebrow')
+    expect(screen.getByTestId('subpage-badge').parentElement).toHaveClass('subpage-header__badge')
+  })
+
+  it('renders actions and toolbar children', () => {
+    render(
+      <SubpageHeader
+        icon={<span>Icon</span>}
+        title="Tiêu đề"
+        actions={<button>Xuất Excel</button>}
+      >
+        <div data-testid="toolbar-child">Filter</div>
+      </SubpageHeader>,
+    )
+    expect(screen.getByRole('button', { name: 'Xuất Excel' })).toBeInTheDocument()
+    expect(screen.getByTestId('toolbar-child').parentElement).toHaveClass('subpage-header__toolbar')
+  })
+
+  it('applies titleId to the heading when provided', () => {
+    render(
+      <SubpageHeader
+        icon={<span>Icon</span>}
+        title="Phiên Điểm Danh"
+        titleId="attendance-session-title"
+      />,
+    )
+    const heading = screen.getByRole('heading', { level: 2, name: 'Phiên Điểm Danh' })
+    expect(heading).toHaveAttribute('id', 'attendance-session-title')
+  })
+})
+

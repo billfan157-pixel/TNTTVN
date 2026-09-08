@@ -157,7 +157,7 @@ export function LandingPage() {
                 Xứ Đoàn Đức Mẹ Fatima
               </p>
               <p className="text-xs font-medium text-text-inverse/80 truncate">
-                Giáo Xứ Gia Tôn — Hạt Gia Kiệm · Giáo Phận Xuân Lộc
+                Giáo Xứ Gia Tôn — Giáo hạt Gia Kiệm · Giáo Phận Xuân Lộc
               </p>
             </div>
           </div>

@@ -51,12 +51,12 @@ type ProfileTab = 'history' | 'organization' | 'people' | 'activities' | 'archiv
 type AssetSortOption = 'newest' | 'oldest' | 'title_asc' | 'title_desc'
 
 const tabs = [
-  { value: 'history', label: 'Lịch sử', icon: <History aria-hidden="true" className="h-4 w-4" /> },
-  { value: 'organization', label: 'Cơ cấu', icon: <Building2 aria-hidden="true" className="h-4 w-4" /> },
-  { value: 'people', label: 'Huynh trưởng / GLV', icon: <UserRound aria-hidden="true" className="h-4 w-4" /> },
-  { value: 'activities', label: 'Hoạt động', icon: <CalendarDays aria-hidden="true" className="h-4 w-4" /> },
-  { value: 'archive', label: 'Kho tư liệu', icon: <Archive aria-hidden="true" className="h-4 w-4" /> },
-  { value: 'achievements', label: 'Thành tích', icon: <Award aria-hidden="true" className="h-4 w-4" /> },
+  { value: 'history', label: 'Lịch Sử', icon: <History aria-hidden="true" className="h-4 w-4" /> },
+  { value: 'organization', label: 'Cơ Cấu', icon: <Building2 aria-hidden="true" className="h-4 w-4" /> },
+  { value: 'people', label: 'Huynh Trưởng / GLV', icon: <UserRound aria-hidden="true" className="h-4 w-4" /> },
+  { value: 'activities', label: 'Hoạt Động', icon: <CalendarDays aria-hidden="true" className="h-4 w-4" /> },
+  { value: 'archive', label: 'Kho Tư Liệu', icon: <Archive aria-hidden="true" className="h-4 w-4" /> },
+  { value: 'achievements', label: 'Thành Tích', icon: <Award aria-hidden="true" className="h-4 w-4" /> },
   { value: 'timeline', label: 'Timeline', icon: <FileClock aria-hidden="true" className="h-4 w-4" /> },
 ] as const
 
@@ -380,7 +380,7 @@ export default function ParishProfilePage() {
           </div>
         </Surface>
 
-        <SectionHeading title="Lịch sử Xứ đoàn" description="Ngày thành lập, các đời Ban Trị Sự, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
+        <SectionHeading title="Lịch Sử Xứ Đoàn" description="Ngày thành lập, các đời Ban Trị Sự, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
         {milestones.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="relative">
@@ -406,7 +406,7 @@ export default function ParishProfilePage() {
       <TabPanel tabsId="parish-profile-tabs" value="organization" activeValue={activeTab}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <SectionHeading
-            title="Cơ cấu tổ chức"
+            title="Cơ Cấu Tổ Chức"
             description="Ban Trị Sự, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách."
             action={canManage ? () => setEditor({ kind: 'unit' }) : undefined}
             actionLabel="Thêm đơn vị"
@@ -478,7 +478,7 @@ export default function ParishProfilePage() {
 
       <TabPanel tabsId="parish-profile-tabs" value="people" activeValue={activeTab}>
         <SectionHeading
-          title="Hồ sơ Huynh trưởng / GLV"
+          title="Hồ Sơ Huynh Trưởng / GLV"
           description="Quá trình phục vụ, nhiệm vụ, cấp bậc, thời gian hoạt động và thành tích liên quan."
           action={canManage ? () => setEditor({ kind: 'person' }) : undefined}
           actionLabel="Thêm hồ sơ"
@@ -565,7 +565,7 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="activities" activeValue={activeTab}>
-        <SectionHeading title="Nhật ký hoạt động" description="Trại, lễ bổn mạng, khai giảng, tổng kết, diễn nguyện và chương trình lớn." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACTIVITY' }) : undefined} />
+        <SectionHeading title="Nhật Ký Hoạt Động" description="Trại, lễ bổn mạng, khai giảng, tổng kết, diễn nguyện và chương trình lớn." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACTIVITY' }) : undefined} />
         {activities.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="relative">
@@ -589,7 +589,7 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="archive" activeValue={activeTab}>
-        <SectionHeading title="Kho tư liệu" description="Ảnh, video, poster, tài liệu, biên bản, chương trình và giấy khen." action={canManage ? () => setEditor({ kind: 'asset' }) : undefined} actionLabel="Thêm tư liệu" />
+        <SectionHeading title="Kho Tư Liệu" description="Ảnh, video, poster, tài liệu, biên bản, chương trình và giấy khen." action={canManage ? () => setEditor({ kind: 'asset' }) : undefined} actionLabel="Thêm tư liệu" />
         {snapshot.assets.length > 0 && (
           <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2 flex-wrap">
@@ -668,7 +668,7 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="achievements" activeValue={activeTab}>
-        <SectionHeading title="Khen thưởng & thành tích" description="Ghi nhận cá nhân, tập thể và những mốc đáng nhớ." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACHIEVEMENT' }) : undefined} />
+        <SectionHeading title="Khen Thưởng & Thành Tích" description="Ghi nhận cá nhân, tập thể và những mốc đáng nhớ." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACHIEVEMENT' }) : undefined} />
         {achievements.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="relative">
@@ -692,7 +692,7 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="timeline" activeValue={activeTab}>
-        <SectionHeading title="Timeline Xứ đoàn" description="Dòng thời gian được tổng hợp từ ngày thành lập, nhiệm kỳ và các bản ghi được chọn hiển thị." />
+        <SectionHeading title="Timeline Xứ Đoàn" description="Dòng thời gian được tổng hợp từ ngày thành lập, nhiệm kỳ và các bản ghi được chọn hiển thị." />
         <Timeline items={snapshot.timeline} />
       </TabPanel>
 

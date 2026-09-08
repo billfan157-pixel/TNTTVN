@@ -57,20 +57,12 @@ try {
         JOIN users u ON u.parish_id = n.parish_id AND u.id = n.user_id
         WHERE n.parish_id = ? AND u.role = 'phuhuynh' AND u.status != 'INACTIVE' AND u.deleted_at IS NULL
       `, parishId)
-      const telegramLinks = await count(tx, `
-        SELECT COUNT(DISTINCT t.id) AS count
-        FROM telegram_links t
-        JOIN users u ON u.parish_id = t.parish_id AND u.id = t.user_id
-        WHERE t.parish_id = ? AND t.status = 'ACTIVE' AND t.notifications_enabled = 1
-          AND u.role = 'phuhuynh' AND u.status != 'INACTIVE' AND u.deleted_at IS NULL
-      `, parishId)
-
       parishes.push({
         parishRef: parishReference(parishId),
         sundayMassTime: typeof settings.sundayMassTime === 'string' ? settings.sundayMassTime : '08:00',
         parentRecipients,
-        deliveryEndpoints: { webPushSubscriptions, nativePushTokens, telegramLinks },
-        hasAnyDeliveryEndpoint: webPushSubscriptions + nativePushTokens + telegramLinks > 0,
+        deliveryEndpoints: { webPushSubscriptions, nativePushTokens },
+        hasAnyDeliveryEndpoint: webPushSubscriptions + nativePushTokens > 0,
       })
     }
     await tx.commit()
@@ -83,7 +75,6 @@ try {
         webPush: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY),
         android: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
         ios: Boolean(process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID && process.env.APNS_PRIVATE_KEY),
-        telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       },
       enabledParishCount: parishes.length,
       parishes,

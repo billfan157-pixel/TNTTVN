@@ -74,7 +74,7 @@ describe('GradeApplicationService Integration Tests (Pilot B)', () => {
     ).rejects.toThrow(/Bạn không có quyền ghi đè điểm cho thiếu nhi này/)
   })
 
-  it('Success -> Updates override, increments grade version to 2, writes audit log & queue notice (Phase 2)', async () => {
+  it('updates override, increments grade version, and keeps the audit trail without external delivery', async () => {
     const res = await gradeApplicationService.overrideScore({
       gradeId: gradeAId,
       studentId: studentAId,
@@ -99,14 +99,9 @@ describe('GradeApplicationService Integration Tests (Pilot B)', () => {
     expect(audits.length).toBe(1)
     expect(audits[0].action).toBe('OVERRIDE_GRADE')
 
-    // Verify notification queued via notificationQueue (durable engine duy nhất)
+    // Grade overrides remain an in-app/audit concern after Telegram retirement.
     const notices = await db.select().from(notifications).where(eq(notifications.parishId, testParish))
-    expect(notices.length).toBe(1)
-    expect(notices[0].type).toBe('telegram')
-    expect(notices[0].message).toContain('Điểm thủ công đã lưu')
-    expect(notices[0].message).toContain('scoreFinal')
-    // escapeMarkdown của templateEngine escape dấu chấm (telegram MarkdownV2).
-    expect(notices[0].message).toContain('9\\.5')
+    expect(notices).toHaveLength(0)
   })
 
   it('binds semester-lock and class-authorization policies to the supplied transaction', async () => {

@@ -34,7 +34,7 @@ export const DEFAULT_PARISH_SETTINGS = {
     minGpa: 5.0,
     minAttendance: 80,
   },
-  // Giờ Thánh Lễ Thiếu Nhi Chúa Nhật (HH:MM) — dùng cho reminder web push/telegram
+  // Giờ Thánh Lễ Thiếu Nhi Chúa Nhật (HH:MM) — dùng cho reminder Web/Native Push
   // tự động (sundayReminderScheduler) + render template + client useSundayReminder.
   sundayMassTime: '08:00',
   // Background fan-out is explicit opt-in. Client-local reminder remains

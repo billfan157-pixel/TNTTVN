@@ -61,10 +61,6 @@ vi.mock('../../stores/leaveRequestStore', () => ({
   },
 }))
 
-vi.mock('../../components/common/TelegramLinkCard', () => ({
-  TelegramLinkCard: () => <div data-testid="telegram-card">Telegram Card</div>,
-}))
-
 vi.mock('../../components/common/LeaveRequestModal', () => ({
   LeaveRequestModal: ({ isOpen }: { isOpen: boolean }) =>
     isOpen ? <div data-testid="leave-modal">Leave Request Modal</div> : null,

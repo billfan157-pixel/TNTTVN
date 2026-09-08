@@ -103,7 +103,7 @@ export const ParishLogoModal: React.FC<ParishLogoModalProps> = ({ isOpen, onClos
               {PARISH_LOGO_MEANING.overview}
             </p>
             <p className="typography-caption text-text-muted m-0">
-              Đọc từ trái sang phải, từ dưới lên trên: con thuyền rẽ sóng — năm sắc màu hiệp nhất — Mẹ Fatima che chở — nhà thờ cội nguồn.
+              Đọc từ trái sang phải, từ dưới lên trên: con thuyền rẽ sóng — năm sắc màu hiệp nhất — Đức Mẹ Fatima che chở — nhà thờ cội nguồn.
             </p>
           </div>
         </div>

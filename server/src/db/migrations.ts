@@ -1541,4 +1541,277 @@ WHERE role_in_class = 'chunhiem';
   { version: '20260907-179', sql: `ALTER TABLE academic_years ADD COLUMN finalization_policy TEXT` },
   { version: '20260907-180', sql: `ALTER TABLE academic_year_snapshots ADD COLUMN source_class_id TEXT` },
   { version: '20260907-181', sql: `ALTER TABLE academic_year_snapshots ADD COLUMN report_snapshot TEXT` },
+  { version: '20260907-182', sql: `CREATE TABLE IF NOT EXISTS operation_workstreams (id TEXT NOT NULL, parish_id TEXT NOT NULL, operation_event_id TEXT, source_unit_id TEXT, name TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'PLANNING' CHECK(status IN ('PLANNING','IN_PROGRESS','READY','BLOCKED')), is_required INTEGER NOT NULL DEFAULT 0 CHECK(is_required IN (0,1)), leader_person_id TEXT, leader_user_id TEXT, version INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL, updated_by TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, PRIMARY KEY (parish_id, id), FOREIGN KEY (parish_id, source_unit_id) REFERENCES parish_organization_units(parish_id, id) ON DELETE RESTRICT, FOREIGN KEY (parish_id, leader_person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT, FOREIGN KEY (parish_id, leader_user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT)` },
+  { version: '20260907-183', sql: `CREATE TABLE IF NOT EXISTS operation_tasks (id TEXT NOT NULL, parish_id TEXT NOT NULL, operation_event_id TEXT, workstream_id TEXT, parent_task_id TEXT, title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'TODO' CHECK(status IN ('BACKLOG','TODO','IN_PROGRESS','BLOCKED','DONE','CANCELLED')), priority TEXT NOT NULL DEFAULT 'NORMAL' CHECK(priority IN ('LOW','NORMAL','HIGH','URGENT')), due_at TEXT, started_at TEXT, completed_at TEXT, completion_note TEXT, version INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL, updated_by TEXT NOT NULL, completed_by TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, PRIMARY KEY (parish_id, id), FOREIGN KEY (parish_id, workstream_id) REFERENCES operation_workstreams(parish_id, id) ON DELETE RESTRICT, FOREIGN KEY (parish_id, parent_task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE RESTRICT, FOREIGN KEY (parish_id, completed_by) REFERENCES users(parish_id, id) ON DELETE RESTRICT)` },
+  { version: '20260907-184', sql: `CREATE TABLE IF NOT EXISTS operation_task_assignees (parish_id TEXT NOT NULL, task_id TEXT NOT NULL, user_id TEXT, person_id TEXT, assignment_role TEXT NOT NULL CHECK(assignment_role IN ('OWNER','CONTRIBUTOR','APPROVER','OBSERVER')), acknowledgement_status TEXT NOT NULL DEFAULT 'PENDING' CHECK(acknowledgement_status IN ('PENDING','ACCEPTED','DECLINED')), assigned_by TEXT NOT NULL, assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, responded_at TEXT, completed_at TEXT, note TEXT, PRIMARY KEY (parish_id, task_id, assignment_role), FOREIGN KEY (parish_id, task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE CASCADE, FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT, FOREIGN KEY (parish_id, person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT, CHECK((user_id IS NOT NULL AND person_id IS NULL) OR (user_id IS NULL AND person_id IS NOT NULL)))` },
+  { version: '20260907-185', sql: `CREATE TABLE IF NOT EXISTS operation_checklist_items (parish_id TEXT NOT NULL, task_id TEXT NOT NULL, id TEXT NOT NULL, label TEXT NOT NULL, is_required INTEGER NOT NULL DEFAULT 0 CHECK(is_required IN (0,1)), is_done INTEGER NOT NULL DEFAULT 0 CHECK(is_done IN (0,1)), completed_by TEXT, completed_at TEXT, sort_order INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (parish_id, task_id, id), FOREIGN KEY (parish_id, task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE CASCADE, FOREIGN KEY (parish_id, completed_by) REFERENCES users(parish_id, id) ON DELETE RESTRICT)` },
+  { version: '20260907-186', sql: `CREATE INDEX IF NOT EXISTS idx_operation_workstreams_scope ON operation_workstreams(parish_id, source_unit_id, deleted_at)` },
+  { version: '20260907-187', sql: `CREATE INDEX IF NOT EXISTS idx_operation_workstreams_event ON operation_workstreams(parish_id, operation_event_id, deleted_at)` },
+  { version: '20260907-188', sql: `CREATE INDEX IF NOT EXISTS idx_operation_tasks_list ON operation_tasks(parish_id, status, due_at, deleted_at)` },
+  { version: '20260907-189', sql: `CREATE INDEX IF NOT EXISTS idx_operation_tasks_workstream ON operation_tasks(parish_id, workstream_id, deleted_at)` },
+  { version: '20260907-190', sql: `CREATE INDEX IF NOT EXISTS idx_operation_task_assignees_user ON operation_task_assignees(parish_id, user_id, acknowledgement_status)` },
+  { version: '20260907-191', sql: `CREATE INDEX IF NOT EXISTS idx_operation_task_assignees_person ON operation_task_assignees(parish_id, person_id, acknowledgement_status)` },
+  { version: '20260907-192', sql: `CREATE INDEX IF NOT EXISTS idx_operation_checklist_task ON operation_checklist_items(parish_id, task_id, sort_order)` },
+  { version: '20260907-193', sql: `CREATE TABLE IF NOT EXISTS operation_events (id TEXT NOT NULL, parish_id TEXT NOT NULL, source_parish_event_id TEXT, title TEXT NOT NULL, description TEXT, event_type TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, timezone TEXT NOT NULL, location TEXT, status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT','PLANNING','READY','LIVE','COMPLETED','CANCELLED')), visibility TEXT NOT NULL DEFAULT 'INTERNAL' CHECK(visibility IN ('INTERNAL','PUBLIC_SUMMARY')), organizer_person_id TEXT, organizer_user_id TEXT, expected_headcount INTEGER, version INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL, updated_by TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, PRIMARY KEY (parish_id, id), CHECK(ends_at > starts_at), CHECK(expected_headcount IS NULL OR expected_headcount >= 0))` },
+  { version: '20260907-194', sql: `CREATE TABLE IF NOT EXISTS operation_event_participants (parish_id TEXT NOT NULL, event_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, person_id TEXT, participant_role TEXT NOT NULL DEFAULT 'ATTENDEE', attendance_status TEXT NOT NULL DEFAULT 'PLANNED' CHECK(attendance_status IN ('PLANNED','CONFIRMED','DECLINED','ATTENDED','ABSENT')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (parish_id, event_id, id), CHECK((user_id IS NOT NULL AND person_id IS NULL) OR (user_id IS NULL AND person_id IS NOT NULL)))` },
+  { version: '20260907-195', sql: `CREATE TABLE IF NOT EXISTS operation_blockouts (parish_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT, person_id TEXT, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, reason TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, PRIMARY KEY (parish_id, id), CHECK(ends_at > starts_at), CHECK((user_id IS NOT NULL AND person_id IS NULL) OR (user_id IS NULL AND person_id IS NOT NULL)))` },
+  { version: '20260907-196', sql: `CREATE TABLE IF NOT EXISTS operation_reminders (parish_id TEXT NOT NULL, id TEXT NOT NULL, task_id TEXT, event_id TEXT, recipient_user_id TEXT NOT NULL, trigger_at TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('TASK_DUE','EVENT_START','OVERDUE')), dedupe_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','ENQUEUED','SENT','FAILED','CANCELLED')), read_at TEXT, attempt_count INTEGER NOT NULL DEFAULT 0, sent_at TEXT, error TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (parish_id, id), UNIQUE(parish_id, dedupe_key))` },
+  { version: '20260907-197', sql: `CREATE INDEX IF NOT EXISTS idx_operation_events_list ON operation_events(parish_id, status, starts_at, deleted_at)` },
+  { version: '20260907-198', sql: `CREATE INDEX IF NOT EXISTS idx_operation_events_source ON operation_events(parish_id, source_parish_event_id)` },
+  { version: '20260907-199', sql: `CREATE INDEX IF NOT EXISTS idx_operation_events_visibility ON operation_events(parish_id, visibility, starts_at)` },
+  { version: '20260907-200', sql: `CREATE INDEX IF NOT EXISTS idx_operation_event_participants_event ON operation_event_participants(parish_id, event_id, attendance_status)` },
+  { version: '20260907-201', sql: `CREATE INDEX IF NOT EXISTS idx_operation_event_participants_user ON operation_event_participants(parish_id, user_id, attendance_status)` },
+  { version: '20260907-202', sql: `CREATE INDEX IF NOT EXISTS idx_operation_blockouts_user_time ON operation_blockouts(parish_id, user_id, starts_at, ends_at, deleted_at)` },
+  { version: '20260907-203', sql: `CREATE INDEX IF NOT EXISTS idx_operation_blockouts_person_time ON operation_blockouts(parish_id, person_id, starts_at, ends_at, deleted_at)` },
+  { version: '20260907-204', sql: `CREATE INDEX IF NOT EXISTS idx_operation_reminders_dedupe ON operation_reminders(parish_id, dedupe_key)` },
+  { version: '20260907-205', sql: `CREATE INDEX IF NOT EXISTS idx_operation_reminders_due ON operation_reminders(parish_id, status, trigger_at)` },
+  { version: '20260907-206', sql: `ALTER TABLE operation_tasks ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED' CHECK(approval_status IN ('NOT_REQUIRED','PENDING','APPROVED','REJECTED'))` },
+  { version: '20260907-207', sql: `ALTER TABLE operation_tasks ADD COLUMN approved_by TEXT` },
+  { version: '20260907-208', sql: `ALTER TABLE operation_tasks ADD COLUMN approved_at TEXT` },
+  { version: '20260907-209', sql: `CREATE TABLE IF NOT EXISTS operation_task_dependencies (parish_id TEXT NOT NULL, task_id TEXT NOT NULL, depends_on_task_id TEXT NOT NULL, dependency_type TEXT NOT NULL DEFAULT 'BLOCKED_BY' CHECK(dependency_type = 'BLOCKED_BY'), PRIMARY KEY (parish_id, task_id, depends_on_task_id), FOREIGN KEY (parish_id, task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE CASCADE, FOREIGN KEY (parish_id, depends_on_task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE RESTRICT, CHECK(task_id <> depends_on_task_id))` },
+  { version: '20260907-210', sql: `CREATE INDEX IF NOT EXISTS idx_operation_task_dependencies_task ON operation_task_dependencies(parish_id, task_id)` },
+  { version: '20260907-211', sql: `ALTER TABLE operation_reminders ADD COLUMN enqueued_at TEXT` },
+  { version: '20260907-212', sql: `ALTER TABLE operation_reminders ADD COLUMN lease_expires_at TEXT` },
+  { version: '20260907-213', sql: `ALTER TABLE operation_events ADD COLUMN scope_unit_id TEXT` },
+  { version: '20260907-214', sql: `ALTER TABLE operation_events ADD COLUMN outcome_summary TEXT` },
+  { version: '20260907-215', sql: `ALTER TABLE operation_tasks ADD COLUMN blocked_reason TEXT` },
+  { version: '20260907-216', sql: `ALTER TABLE operation_reminders ADD COLUMN next_attempt_at TEXT` },
+  { version: '20260907-217', sql: `ALTER TABLE operation_reminders ADD COLUMN notification_id TEXT` },
+  { version: '20260907-218', sql: `
+    ALTER TABLE operation_task_assignees RENAME TO operation_task_assignees_legacy;
+    DROP INDEX IF EXISTS idx_operation_task_assignees_user;
+    DROP INDEX IF EXISTS idx_operation_task_assignees_person;
+    CREATE TABLE operation_task_assignees (
+      id TEXT NOT NULL,
+      parish_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      user_id TEXT,
+      person_id TEXT,
+      assignment_role TEXT NOT NULL CHECK(assignment_role IN ('OWNER','CONTRIBUTOR','APPROVER','OBSERVER')),
+      acknowledgement_status TEXT NOT NULL DEFAULT 'PENDING' CHECK(acknowledgement_status IN ('PENDING','ACCEPTED','DECLINED')),
+      assigned_by TEXT NOT NULL,
+      assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      responded_at TEXT,
+      completed_at TEXT,
+      note TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      removed_at TEXT,
+      PRIMARY KEY (parish_id, id),
+      FOREIGN KEY (parish_id, task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE CASCADE,
+      FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT,
+      FOREIGN KEY (parish_id, person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT,
+      CHECK((user_id IS NOT NULL AND person_id IS NULL) OR (user_id IS NULL AND person_id IS NOT NULL))
+    );
+    INSERT INTO operation_task_assignees (id, parish_id, task_id, user_id, person_id, assignment_role, acknowledgement_status, assigned_by, assigned_at, responded_at, completed_at, note)
+      SELECT 'OPA-' || lower(hex(randomblob(12))), parish_id, task_id, user_id, person_id, assignment_role, acknowledgement_status, assigned_by, assigned_at, responded_at, completed_at, note
+      FROM operation_task_assignees_legacy;
+    DROP TABLE operation_task_assignees_legacy;
+    CREATE UNIQUE INDEX idx_operation_task_owner_active ON operation_task_assignees(parish_id, task_id) WHERE assignment_role = 'OWNER' AND removed_at IS NULL;
+    CREATE UNIQUE INDEX idx_operation_task_assignee_user_role_active ON operation_task_assignees(parish_id, task_id, user_id, assignment_role) WHERE user_id IS NOT NULL AND removed_at IS NULL;
+    CREATE UNIQUE INDEX idx_operation_task_assignee_person_role_active ON operation_task_assignees(parish_id, task_id, person_id, assignment_role) WHERE person_id IS NOT NULL AND removed_at IS NULL;
+    CREATE INDEX idx_operation_task_assignees_user ON operation_task_assignees(parish_id, user_id, acknowledgement_status, removed_at);
+    CREATE INDEX idx_operation_task_assignees_person ON operation_task_assignees(parish_id, person_id, acknowledgement_status, removed_at);
+  ` },
+  { version: '20260907-219', sql: `CREATE TABLE IF NOT EXISTS operation_workstream_members (id TEXT NOT NULL, parish_id TEXT NOT NULL, workstream_id TEXT NOT NULL, user_id TEXT, person_id TEXT, operation_role TEXT NOT NULL CHECK(operation_role IN ('WORKSTREAM_LEAD','CONTRIBUTOR','APPROVER','OBSERVER')), assigned_by TEXT NOT NULL, assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, starts_at TEXT, ends_at TEXT, version INTEGER NOT NULL DEFAULT 1, removed_at TEXT, PRIMARY KEY (parish_id, id), FOREIGN KEY (parish_id, workstream_id) REFERENCES operation_workstreams(parish_id, id) ON DELETE CASCADE, FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT, FOREIGN KEY (parish_id, person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT, CHECK((user_id IS NOT NULL AND person_id IS NULL) OR (user_id IS NULL AND person_id IS NOT NULL)))` },
+  { version: '20260907-220', sql: `CREATE TABLE IF NOT EXISTS operation_task_comments (id TEXT NOT NULL, parish_id TEXT NOT NULL, task_id TEXT NOT NULL, author_user_id TEXT NOT NULL, content TEXT NOT NULL, evidence_url TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TEXT, PRIMARY KEY (parish_id, id), FOREIGN KEY (parish_id, task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE CASCADE, FOREIGN KEY (parish_id, author_user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT)` },
+  { version: '20260907-221', sql: `CREATE TABLE IF NOT EXISTS operation_mutation_receipts (parish_id TEXT NOT NULL, actor_user_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, command TEXT NOT NULL, request_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (parish_id, actor_user_id, idempotency_key), FOREIGN KEY (parish_id, actor_user_id) REFERENCES users(parish_id, id) ON DELETE RESTRICT)` },
+  { version: '20260907-222', sql: `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_operation_workstream_member_user_role_active ON operation_workstream_members(parish_id, workstream_id, user_id, operation_role) WHERE user_id IS NOT NULL AND removed_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_operation_workstream_member_person_role_active ON operation_workstream_members(parish_id, workstream_id, person_id, operation_role) WHERE person_id IS NOT NULL AND removed_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_operation_workstream_members_user ON operation_workstream_members(parish_id, user_id, removed_at);
+    CREATE INDEX IF NOT EXISTS idx_operation_workstream_members_person ON operation_workstream_members(parish_id, person_id, removed_at);
+    CREATE INDEX IF NOT EXISTS idx_operation_task_comments_task ON operation_task_comments(parish_id, task_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_operation_mutation_receipts_created ON operation_mutation_receipts(parish_id, created_at);
+    DROP INDEX IF EXISTS idx_operation_events_source;
+    CREATE UNIQUE INDEX idx_operation_events_source ON operation_events(parish_id, source_parish_event_id) WHERE source_parish_event_id IS NOT NULL AND deleted_at IS NULL;
+  ` },
+  { version: '20260907-223', sql: `
+    INSERT INTO operation_workstream_members (id, parish_id, workstream_id, user_id, person_id, operation_role, assigned_by, assigned_at)
+      SELECT 'OWM-' || lower(hex(randomblob(12))), parish_id, id, leader_user_id, NULL, 'WORKSTREAM_LEAD', created_by, created_at
+      FROM operation_workstreams WHERE leader_user_id IS NOT NULL AND leader_person_id IS NULL;
+    INSERT INTO operation_workstream_members (id, parish_id, workstream_id, user_id, person_id, operation_role, assigned_by, assigned_at)
+      SELECT 'OWM-' || lower(hex(randomblob(12))), parish_id, id, NULL, leader_person_id, 'WORKSTREAM_LEAD', created_by, created_at
+      FROM operation_workstreams WHERE leader_person_id IS NOT NULL AND leader_user_id IS NULL;
+  ` },
+  { version: '20260907-224', sql: `
+    CREATE TRIGGER check_operation_event_scope_insert BEFORE INSERT ON operation_events BEGIN
+      SELECT CASE WHEN NEW.visibility = 'PUBLIC_SUMMARY' AND NEW.source_parish_event_id IS NULL THEN RAISE(ABORT, 'PUBLIC_SUMMARY_REQUIRES_PARISH_EVENT') END;
+      SELECT CASE WHEN NEW.source_parish_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.source_parish_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_SOURCE') END;
+      SELECT CASE WHEN NEW.scope_unit_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_organization_units u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_SCOPE') END;
+    END;
+    CREATE TRIGGER check_operation_event_scope_update BEFORE UPDATE OF visibility, source_parish_event_id, scope_unit_id ON operation_events BEGIN
+      SELECT CASE WHEN NEW.visibility = 'PUBLIC_SUMMARY' AND NEW.source_parish_event_id IS NULL THEN RAISE(ABORT, 'PUBLIC_SUMMARY_REQUIRES_PARISH_EVENT') END;
+      SELECT CASE WHEN NEW.source_parish_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.source_parish_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_SOURCE') END;
+      SELECT CASE WHEN NEW.scope_unit_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_organization_units u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_SCOPE') END;
+    END;
+    CREATE TRIGGER check_operation_workstream_scope_insert BEFORE INSERT ON operation_workstreams BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_EVENT') END;
+      SELECT CASE WHEN NEW.source_unit_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_organization_units u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.source_unit_id AND u.deleted_at IS NULL AND u.is_active = 1) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_SCOPE') END;
+    END;
+    CREATE TRIGGER check_operation_task_scope_insert BEFORE INSERT ON operation_tasks BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_EVENT') END;
+      SELECT CASE WHEN NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_WORKSTREAM') END;
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.operation_event_id = NEW.operation_event_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'OPERATION_TASK_EVENT_WORKSTREAM_MISMATCH') END;
+    END;
+    CREATE TRIGGER check_operation_task_scope_update BEFORE UPDATE OF operation_event_id, workstream_id ON operation_tasks BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_EVENT') END;
+      SELECT CASE WHEN NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_WORKSTREAM') END;
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.operation_event_id = NEW.operation_event_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'OPERATION_TASK_EVENT_WORKSTREAM_MISMATCH') END;
+    END;
+  ` },
+  { version: '20260907-225', sql: `ALTER TABLE operation_tasks ADD COLUMN is_required INTEGER NOT NULL DEFAULT 0 CHECK(is_required IN (0,1))` },
+  { version: '20260907-226', sql: `
+    CREATE TRIGGER check_operation_workstream_scope_update BEFORE UPDATE OF operation_event_id, source_unit_id ON operation_workstreams BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_EVENT') END;
+      SELECT CASE WHEN NEW.source_unit_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_organization_units u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.source_unit_id AND u.deleted_at IS NULL AND u.is_active = 1) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_SCOPE') END;
+    END;
+    CREATE TRIGGER check_operation_event_organizer_insert BEFORE INSERT ON operation_events BEGIN
+      SELECT CASE WHEN NEW.organizer_user_id IS NOT NULL AND NEW.organizer_person_id IS NOT NULL THEN RAISE(ABORT, 'OPERATION_EVENT_MULTIPLE_ORGANIZERS') END;
+      SELECT CASE WHEN NEW.organizer_user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.organizer_user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_ORGANIZER_USER') END;
+      SELECT CASE WHEN NEW.organizer_person_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_people p WHERE p.parish_id = NEW.parish_id AND p.id = NEW.organizer_person_id AND p.service_status = 'ACTIVE' AND p.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_ORGANIZER_PERSON') END;
+    END;
+    CREATE TRIGGER check_operation_event_organizer_update BEFORE UPDATE OF organizer_user_id, organizer_person_id ON operation_events BEGIN
+      SELECT CASE WHEN NEW.organizer_user_id IS NOT NULL AND NEW.organizer_person_id IS NOT NULL THEN RAISE(ABORT, 'OPERATION_EVENT_MULTIPLE_ORGANIZERS') END;
+      SELECT CASE WHEN NEW.organizer_user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.organizer_user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_ORGANIZER_USER') END;
+      SELECT CASE WHEN NEW.organizer_person_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_people p WHERE p.parish_id = NEW.parish_id AND p.id = NEW.organizer_person_id AND p.service_status = 'ACTIVE' AND p.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_EVENT_ORGANIZER_PERSON') END;
+    END;
+    CREATE TRIGGER check_operation_participant_target_insert BEFORE INSERT ON operation_event_participants BEGIN
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_PARTICIPANT_EVENT') END;
+      SELECT CASE WHEN NEW.user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_PARTICIPANT_USER') END;
+      SELECT CASE WHEN NEW.person_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_people p WHERE p.parish_id = NEW.parish_id AND p.id = NEW.person_id AND p.service_status = 'ACTIVE' AND p.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_PARTICIPANT_PERSON') END;
+    END;
+    CREATE TRIGGER check_operation_blockout_target_insert BEFORE INSERT ON operation_blockouts BEGIN
+      SELECT CASE WHEN NEW.user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_BLOCKOUT_USER') END;
+      SELECT CASE WHEN NEW.person_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_people p WHERE p.parish_id = NEW.parish_id AND p.id = NEW.person_id AND p.service_status = 'ACTIVE' AND p.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_BLOCKOUT_PERSON') END;
+    END;
+    CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation_reminders BEGIN
+      SELECT CASE WHEN (NEW.task_id IS NULL) = (NEW.event_id IS NULL) THEN RAISE(ABORT, 'OPERATION_REMINDER_EXACTLY_ONE_TARGET') END;
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.recipient_user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_RECIPIENT') END;
+      SELECT CASE WHEN NEW.task_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_tasks t WHERE t.parish_id = NEW.parish_id AND t.id = NEW.task_id AND t.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_TASK') END;
+      SELECT CASE WHEN NEW.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_EVENT') END;
+    END;
+  ` },
+  { version: '20260908-227', sql: `ALTER TABLE operation_event_participants ADD COLUMN version INTEGER NOT NULL DEFAULT 1` },
+  { version: '20260908-228', sql: `ALTER TABLE operation_workstreams ADD COLUMN blocked_reason TEXT` },
+  { version: '20260908-229', sql: `
+    CREATE UNIQUE INDEX idx_operation_event_participant_user_unique ON operation_event_participants(parish_id, event_id, user_id) WHERE user_id IS NOT NULL;
+    CREATE UNIQUE INDEX idx_operation_event_participant_person_unique ON operation_event_participants(parish_id, event_id, person_id) WHERE person_id IS NOT NULL;
+  ` },
+  { version: '20260908-230', sql: `
+    ALTER TABLE parish_service_terms ADD COLUMN position_code TEXT CHECK(position_code IN ('PARISH_LEADER','BRANCH_LEADER','COMMITTEE_LEADER'));
+    UPDATE parish_service_terms SET position_code = CASE
+      WHEN lower(trim(position_title)) IN ('trưởng xứ đoàn', 'xứ đoàn trưởng')
+        AND (unit_id IS NULL OR EXISTS (
+          SELECT 1 FROM parish_organization_units u
+          WHERE u.parish_id = parish_service_terms.parish_id
+            AND u.id = parish_service_terms.unit_id
+            AND u.unit_type = 'BOARD'
+            AND u.is_active = 1
+            AND u.deleted_at IS NULL
+        )) THEN 'PARISH_LEADER'
+      WHEN lower(trim(position_title)) = 'trưởng ngành' AND EXISTS (
+        SELECT 1 FROM parish_organization_units u
+        WHERE u.parish_id = parish_service_terms.parish_id
+          AND u.id = parish_service_terms.unit_id
+          AND u.unit_type = 'BRANCH'
+          AND u.is_active = 1
+          AND u.deleted_at IS NULL
+      ) THEN 'BRANCH_LEADER'
+      WHEN lower(trim(position_title)) = 'trưởng ban' AND EXISTS (
+        SELECT 1 FROM parish_organization_units u
+        WHERE u.parish_id = parish_service_terms.parish_id
+          AND u.id = parish_service_terms.unit_id
+          AND u.unit_type = 'COMMITTEE'
+          AND u.is_active = 1
+          AND u.deleted_at IS NULL
+      ) THEN 'COMMITTEE_LEADER'
+      ELSE NULL
+    END
+    WHERE position_code IS NULL;
+  ` },
+  { version: '20260908-231', sql: `
+    CREATE TRIGGER check_parish_term_position_scope_insert
+    BEFORE INSERT ON parish_service_terms
+    WHEN NEW.position_code IS NOT NULL
+    BEGIN
+      SELECT CASE
+        WHEN NEW.position_code = 'PARISH_LEADER' AND NOT (
+          NEW.unit_id IS NULL OR EXISTS (
+            SELECT 1 FROM parish_organization_units u
+            WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+              AND u.unit_type = 'BOARD' AND u.is_active = 1 AND u.deleted_at IS NULL
+          )
+        ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+        WHEN NEW.position_code = 'BRANCH_LEADER' AND NOT EXISTS (
+          SELECT 1 FROM parish_organization_units u
+          WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+            AND u.unit_type = 'BRANCH' AND u.is_active = 1 AND u.deleted_at IS NULL
+        ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+        WHEN NEW.position_code = 'COMMITTEE_LEADER' AND NOT EXISTS (
+          SELECT 1 FROM parish_organization_units u
+          WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+            AND u.unit_type = 'COMMITTEE' AND u.is_active = 1 AND u.deleted_at IS NULL
+        ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+      END;
+    END;
+    CREATE TRIGGER check_parish_term_position_scope_update
+    BEFORE UPDATE OF parish_id, unit_id, position_code ON parish_service_terms
+    WHEN NEW.position_code IS NOT NULL
+    BEGIN
+      SELECT CASE
+        WHEN NEW.position_code = 'PARISH_LEADER' AND NOT (
+          NEW.unit_id IS NULL OR EXISTS (
+            SELECT 1 FROM parish_organization_units u
+            WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+              AND u.unit_type = 'BOARD' AND u.is_active = 1 AND u.deleted_at IS NULL
+          )
+        ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+        WHEN NEW.position_code = 'BRANCH_LEADER' AND NOT EXISTS (
+          SELECT 1 FROM parish_organization_units u
+          WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+            AND u.unit_type = 'BRANCH' AND u.is_active = 1 AND u.deleted_at IS NULL
+        ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+        WHEN NEW.position_code = 'COMMITTEE_LEADER' AND NOT EXISTS (
+          SELECT 1 FROM parish_organization_units u
+          WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+            AND u.unit_type = 'COMMITTEE' AND u.is_active = 1 AND u.deleted_at IS NULL
+        ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+      END;
+    END;
+  ` },
+  { version: '20260908-232', sql: `ALTER TABLE operation_tasks ADD COLUMN cancellation_reason TEXT` },
+  { version: '20260908-233', sql: `
+    CREATE TRIGGER check_operation_task_cancellation_insert
+    BEFORE INSERT ON operation_tasks
+    WHEN NEW.status = 'CANCELLED' AND trim(coalesce(NEW.cancellation_reason, '')) = ''
+    BEGIN
+      SELECT RAISE(ABORT, 'OPERATION_TASK_CANCELLATION_REASON_REQUIRED');
+    END;
+    CREATE TRIGGER check_operation_task_cancellation_update
+    BEFORE UPDATE OF status, cancellation_reason ON operation_tasks
+    WHEN NEW.status = 'CANCELLED' AND trim(coalesce(NEW.cancellation_reason, '')) = ''
+    BEGIN
+      SELECT RAISE(ABORT, 'OPERATION_TASK_CANCELLATION_REASON_REQUIRED');
+    END;
+  ` },
+  { version: '20260908-234', sql: `ALTER TABLE operation_mutation_receipts ADD COLUMN response_pruned_at TEXT` },
+  { version: '20260908-235', sql: `
+    UPDATE telegram_link_tokens
+    SET consumed_at = COALESCE(consumed_at, CURRENT_TIMESTAMP)
+    WHERE consumed_at IS NULL;
+    UPDATE telegram_links
+    SET status = 'REVOKED',
+        notifications_enabled = 0,
+        revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE status = 'ACTIVE' OR notifications_enabled <> 0;
+    UPDATE notifications
+    SET status = 'failed',
+        error = 'CHANNEL_RETIRED',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        next_attempt_at = NULL
+    WHERE type = 'telegram' AND status = 'retrying';
+  ` },
+  { version: '20260909-236', sql: `ALTER TABLE operation_tasks ADD COLUMN phase TEXT NOT NULL DEFAULT 'PREPARATION' CHECK (phase IN ('PREPARATION', 'EXECUTION', 'FOLLOW_UP'))` },
 ]

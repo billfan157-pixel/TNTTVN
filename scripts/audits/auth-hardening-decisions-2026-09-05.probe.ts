@@ -3,22 +3,14 @@ import { Hono } from 'hono'
 import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../../server/src/db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, assessmentEntries, telegramLinks, notifications } from '../../server/src/db/schema.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, assessmentEntries } from '../../server/src/db/schema.js'
 import auth from '../../server/src/routes/auth.js'
 import userRoutes from '../../server/src/routes/users.js'
 import dailyRoutes from '../../server/src/routes/dailyEntries.js'
 import { generateTokens } from '../../server/src/middleware/auth.js'
-import { resetUserPassword, updateUserStatus, forceLogoutUser, updateUserPhone } from '../../server/src/services/userService.js'
+import { resetUserPassword, updateUserStatus, forceLogoutUser } from '../../server/src/services/userService.js'
 import { removeUserFromClass } from '../../server/src/services/classService.js'
-import { createTelegramLinkToken, consumeTelegramLinkToken, setTelegramNotifications } from '../../server/src/services/telegramLinkService.js'
-
-// No real push or Telegram network requests; actual DB and delivery selection remain.
-vi.mock('../../server/src/services/telegram.js', () => ({
-  isTelegramEnabled: vi.fn().mockReturnValue(true),
-  sendTelegramMessageToChat: vi.fn().mockResolvedValue(undefined),
-  sendTelegramInfo: vi.fn().mockResolvedValue(undefined),
-  sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
-}))
+// No real push network requests; actual DB and delivery selection remain.
 vi.mock('../../server/src/services/appPushService.js', () => ({ sendAppPushToParish: vi.fn(), sendAppPushToUsers: vi.fn() }))
 
 const P = 'hardening-decision-lab'
@@ -106,34 +98,4 @@ describe('Research-only gap reproduction; PASS does not mean secure', () => {
     expect(await db.select().from(assessmentEntries).where(and(eq(assessmentEntries.parishId, P), eq(assessmentEntries.id, 'post-revoke-entry')))).toHaveLength(1)
   })
 
-  it('H6: service accepts a group-shaped identity and changes preferences without sender identity', async () => {
-    // Service-level evidence only. Actual command registration/update dispatch is NOT tested.
-    const { token: linkToken } = await createTelegramLinkToken('parent', P)
-    expect(await consumeTelegramLinkToken(linkToken, { chatId: '-100123', telegramUserId: '1001' })).toMatchObject({ ok: true })
-    const [link] = await db.select().from(telegramLinks).where(and(eq(telegramLinks.parishId, P), eq(telegramLinks.userId, 'parent')))
-    expect(link).toMatchObject({ chatId: '-100123', telegramUserId: '1001', notificationsEnabled: 1 })
-    expect(await setTelegramNotifications('-100123', false)).toBe(true)
-    const [changed] = await db.select().from(telegramLinks).where(and(eq(telegramLinks.id, link.id), eq(telegramLinks.parishId, P)))
-    expect(changed.notificationsEnabled).toBe(0)
-  })
-
-  it('H7: recovered report sends to old parent after canonical phone change and account lock', async () => {
-    // Independent fixture: this probe must also work when selected alone.
-    const telegram = await import('../../server/src/services/telegram.js')
-    const send = vi.spyOn(telegram, 'sendTelegramMessageToChat').mockResolvedValue(undefined)
-    vi.spyOn(telegram, 'isTelegramEnabled').mockReturnValue(true)
-    await db.insert(telegramLinks).values({ id: 'report-link', parishId: P, userId: 'parent', chatId: '100999', telegramUserId: '100999', status: 'ACTIVE', notificationsEnabled: 1 })
-    await db.update(telegramLinks).set({ notificationsEnabled: 0 }).where(and(eq(telegramLinks.parishId, P), eq(telegramLinks.chatId, '-100123')))
-    await db.insert(notifications).values({ id: 'queued-report', parishId: P, type: 'telegram', channel: 'report_card', deliveryKind: 'report', status: 'retrying', recipient: 'Synthetic Parent', message: 'Synthetic Child grade 9', targetUserIds: JSON.stringify(['parent']), triggeredByType: 'system' })
-    await updateUserPhone('parent', '0900000299', 'admin', P, 'lab', 'lab')
-    await updateUserStatus('parent', 'LOCKED', 'admin', P, 'lab', 'lab')
-    const { initNotificationQueue } = await import('../../server/src/services/notificationQueue.js')
-    await initNotificationQueue()
-    await vi.waitFor(() => expect(send).toHaveBeenCalledWith('100999', 'Synthetic Child grade 9', true))
-    await vi.waitFor(async () => {
-      const [row] = await db.select().from(notifications).where(and(eq(notifications.parishId, P), eq(notifications.id, 'queued-report')))
-      expect(row.status).toBe('sent')
-      expect(row.studentId).toBeNull()
-    })
-  })
 })

@@ -173,10 +173,10 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               <X size={20} />
             </button>
           </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex flex-col items-start gap-3">
+          <div className="bg-parish-warning-bg border border-parish-warning/30 rounded-xl p-5 flex flex-col items-start gap-3">
             <div className="flex items-center gap-2">
               <UserPlus size={20} className="text-amber-600" />
-              <p className="text-sm font-bold text-amber-800 m-0">Chưa có lớp học nào</p>
+              <p className="text-sm font-bold text-parish-warning m-0">Chưa có lớp học nào</p>
             </div>
             <p className="text-sm text-amber-700 m-0 font-medium leading-relaxed">
               Quy trình sử dụng: <strong>Tạo Năm Học → Tạo Lớp Học → Nhập Danh Sách Thiếu Nhi</strong>.
@@ -541,7 +541,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 )}
               </div>
               {parentAccount.status === 'done' && (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 rounded-xl text-xs flex flex-col gap-1">
+                <div className="p-3 bg-parish-success-bg border border-parish-success/30 rounded-xl text-xs flex flex-col gap-1">
                   <p className="m-0 font-bold text-emerald-700 flex items-center gap-1.5">
                     <CheckCircle2 size={14} /> Đã tạo tài khoản phụ huynh
                   </p>
@@ -563,8 +563,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 <div
                   className={`p-3 rounded-xl text-xs border flex items-start gap-2 ${
                     parentAccount.alreadyExists
-                      ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-900 text-amber-700'
-                      : 'bg-rose-50 dark:bg-rose-950 border-rose-200 dark:border-rose-900 text-rose-600'
+                      ? 'bg-parish-warning-bg border-parish-warning/30 text-parish-warning'
+                      : 'bg-parish-danger-bg border-parish-danger/30 text-parish-danger'
                   }`}
                 >
                   <AlertCircle size={14} className="shrink-0 mt-0.5" />

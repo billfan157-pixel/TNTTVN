@@ -214,7 +214,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({ isOpen, onClose, notic
           label="Gửi Đến"
           htmlFor="notice-audience"
           required
-          hint={formData.targetAudience === 'staff' ? 'Chỉ GLV/Admin/Phụ tá nhận Telegram nội bộ' : formData.targetAudience === 'parents' ? 'Chỉ phụ huynh nhận Web Push (theo ngành nếu lọc)' : 'Cả GLV (Telegram) và phụ huynh (Web Push)'}
+          hint={formData.targetAudience === 'staff' ? 'Chỉ GLV/Admin/Phụ tá nhận thông báo ứng dụng' : formData.targetAudience === 'parents' ? 'Chỉ phụ huynh nhận thông báo ứng dụng (theo ngành nếu lọc)' : 'Cả nhân sự và phụ huynh nhận thông báo ứng dụng'}
         >
           <select
             id="notice-audience"

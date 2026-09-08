@@ -75,5 +75,6 @@ describe('parish event tenant, calendar and audit boundary', () => {
     const visible = await request('/', { auth: adminToken })
     const body = await visible.json() as any
     expect(body.data.some((event: { parishId: string }) => event.parishId !== parishA)).toBe(false)
+    expect(body.data.every((event: Record<string, unknown>) => !('tasks' in event) && !('assignees' in event) && !('comments' in event) && !('readiness' in event))).toBe(true)
   })
 })

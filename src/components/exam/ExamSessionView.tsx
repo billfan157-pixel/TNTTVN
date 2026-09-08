@@ -25,18 +25,26 @@ import { parseQuickAnswerString } from '../../utils/examQuickKeyParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
+import { ErrorBoundary } from '../common/ErrorBoundary'
 import { PageHeader } from '../common/PageHeader'
 import { SubpageHeader } from '../common/SubpageHeader'
 import { Badge, Button, Surface } from '../common/ui'
 import { Tabs, TabPanel } from '../common/ui/SelectionControls'
+import { lazyWithRetry } from '../../utils/lazyWithRetry'
 
-const GuidedGradeModal = React.lazy(() => import('./GuidedGradeModal').then(module => ({ default: module.GuidedGradeModal })))
-const ExamScanModal = React.lazy(() => import('./ExamScanModal').then(module => ({ default: module.ExamScanModal })))
-const ExamImportModal = React.lazy(() => import('./ExamImportModal').then(module => ({ default: module.ExamImportModal })))
-const ExamPaperModal = React.lazy(() => import('./ExamPaperModal').then(module => ({ default: module.ExamPaperModal })))
-const ExamBatchScanModal = React.lazy(() => import('./ExamBatchScanModal').then(module => ({ default: module.ExamBatchScanModal })))
-const ExamAnalyticsPanel = React.lazy(() => import('./ExamAnalyticsPanel').then(module => ({ default: module.ExamAnalyticsPanel })))
-const ExamVariantsModal = React.lazy(() => import('./ExamVariantsModal').then(module => ({ default: module.ExamVariantsModal })))
+// Dùng lazyWithRetry (thay vì React.lazy trần) để tự retry khi Vite dev trả
+// 504 "Outdated Optimize Dep" cho qrcode-generator/jsqr trong lúc optimizer
+// re-bundle. Lỗi transient này trước đây làm sập cả ExamPaperModal ngay lần
+// fetch đầu tiên và rơi lên ErrorBoundary cấp route.
+// Giữ nguyên factory `.then(m => ({ default: m.X }))` để TypeScript suy được
+// đúng kiểu props của từng modal (như React.lazy trước đây).
+const GuidedGradeModal = lazyWithRetry<typeof import('./GuidedGradeModal').GuidedGradeModal>(() => import('./GuidedGradeModal').then(module => ({ default: module.GuidedGradeModal })))
+const ExamScanModal = lazyWithRetry<typeof import('./ExamScanModal').ExamScanModal>(() => import('./ExamScanModal').then(module => ({ default: module.ExamScanModal })))
+const ExamImportModal = lazyWithRetry<typeof import('./ExamImportModal').ExamImportModal>(() => import('./ExamImportModal').then(module => ({ default: module.ExamImportModal })))
+const ExamPaperModal = lazyWithRetry<typeof import('./ExamPaperModal').ExamPaperModal>(() => import('./ExamPaperModal').then(module => ({ default: module.ExamPaperModal })))
+const ExamBatchScanModal = lazyWithRetry<typeof import('./ExamBatchScanModal').ExamBatchScanModal>(() => import('./ExamBatchScanModal').then(module => ({ default: module.ExamBatchScanModal })))
+const ExamAnalyticsPanel = lazyWithRetry<typeof import('./ExamAnalyticsPanel').ExamAnalyticsPanel>(() => import('./ExamAnalyticsPanel').then(module => ({ default: module.ExamAnalyticsPanel })))
+const ExamVariantsModal = lazyWithRetry<typeof import('./ExamVariantsModal').ExamVariantsModal>(() => import('./ExamVariantsModal').then(module => ({ default: module.ExamVariantsModal })))
 
 const SCORE_TYPES: { id: ExamScoreType; label: string; daily: boolean }[] = [
   { id: 'oral', label: 'Điểm Miệng', daily: true },
@@ -618,7 +626,7 @@ export const ExamSessionView: React.FC = () => {
           {/* Header */}
           {effectiveMode === 'mobile' ? (
             <SubpageHeader
-              icon={<ClipboardList size={15} />}
+              icon={<ClipboardList size={16} />}
               title="Chấm Bài Kiểm Tra"
               meta={
                 <span className="truncate">
@@ -1187,7 +1195,25 @@ export const ExamSessionView: React.FC = () => {
       )}
 
       {/* Scan modal — tự động QR+OMR hoặc OMR với học sinh đã chọn. */}
+      {/* ERR-ISO-1: boundary riêng — lỗi camera/OMR chỉ hạ modal, không crash cả phiên chấm. */}
       {showScanner && activeSession && (
+        <ErrorBoundary
+          onReset={() => { setShowScanner(false); setFixedScanStudent(null) }}
+          fallback={(
+            <div className="modal-overlay app-modal-layer" role="alert">
+              <div className="modal-content w-[90%] max-w-[400px] p-6 text-center">
+                <p className="typography-body text-text-secondary">Quét OMR gặp lỗi. Hãy đóng và thử lại.</p>
+                <button
+                  type="button"
+                  className="btn btn-secondary text-[13px] px-4 py-2 rounded-lg mt-4"
+                  onClick={() => { setShowScanner(false); setFixedScanStudent(null) }}
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          )}
+        >
         <React.Suspense fallback={null}>
         <ExamScanModal
           sessionId={activeSession.id}
@@ -1200,6 +1226,7 @@ export const ExamSessionView: React.FC = () => {
           onClose={() => { setShowScanner(false); setFixedScanStudent(null) }}
         />
         </React.Suspense>
+        </ErrorBoundary>
       )}
 
 

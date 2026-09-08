@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isOriginAllowed, resolveAllowedOrigins, DEFAULT_ALLOWED_ORIGINS } from '../../utils/originPolicy.js'
+import { ALLOWED_CORS_HEADERS, isOriginAllowed, resolveAllowedOrigins, DEFAULT_ALLOWED_ORIGINS } from '../../utils/originPolicy.js'
 
 /**
  * A13 (2026-08-10): CORS allowlist CỨNG — đã xóa wildcard `*.vercel.app`.
@@ -8,6 +8,10 @@ import { isOriginAllowed, resolveAllowedOrigins, DEFAULT_ALLOWED_ORIGINS } from 
  */
 
 describe('A13 — CORS allowlist (no wildcard)', () => {
+  it('allows retry-safe mutation headers through browser preflight', () => {
+    expect(ALLOWED_CORS_HEADERS).toEqual(expect.arrayContaining(['Idempotency-Key', 'X-Idempotency-Key']))
+  })
+
   it('production origin tnttvn.vercel.app được phép', () => {
     expect(isOriginAllowed('https://tnttvn.vercel.app', DEFAULT_ALLOWED_ORIGINS)).toBe(true)
   })
@@ -36,7 +40,7 @@ describe('A13 — CORS allowlist (no wildcard)', () => {
     process.env.CLIENT_ORIGIN = 'https://app.tnttvn.vn,http://localhost:3000'
     try {
       const origins = resolveAllowedOrigins()
-      expect(origins).toEqual(['https://app.tnttvn.vn', 'http://localhost:3000', 'capacitor://localhost', 'https://localhost', 'http://localhost'])
+      expect(origins).toEqual(['https://app.tnttvn.vn', 'http://localhost:3000', 'capacitor://localhost', 'https://localhost'])
       expect(isOriginAllowed('https://app.tnttvn.vn', origins)).toBe(true)
       expect(isOriginAllowed('capacitor://localhost', origins)).toBe(true)
       expect(isOriginAllowed('https://localhost', origins)).toBe(true)
@@ -50,7 +54,7 @@ describe('A13 — CORS allowlist (no wildcard)', () => {
     process.env.NODE_ENV = 'production'
     try {
       const origins = resolveAllowedOrigins()
-      expect(origins).toEqual(['https://tnttvn.vercel.app', 'capacitor://localhost', 'https://localhost', 'http://localhost'])
+      expect(origins).toEqual(['https://tnttvn.vercel.app', 'capacitor://localhost', 'https://localhost'])
       expect(isOriginAllowed('http://localhost:5173', origins)).toBe(false)
       expect(isOriginAllowed('http://localhost:5174', origins)).toBe(false)
       expect(isOriginAllowed('https://tnttvn.vercel.app', origins)).toBe(true)
@@ -65,7 +69,9 @@ describe('A13 — CORS allowlist (no wildcard)', () => {
       const origins = resolveAllowedOrigins()
       expect(isOriginAllowed('capacitor://localhost', origins)).toBe(true)
       expect(isOriginAllowed('https://localhost', origins)).toBe(true)
-      expect(isOriginAllowed('http://localhost', origins)).toBe(true)
+      // SEC-CORS-1: `http://localhost` (port 80) bị từ chối cả production —
+      // native shell thật không dùng origin này.
+      expect(isOriginAllowed('http://localhost', origins)).toBe(false)
       expect(isOriginAllowed('http://localhost:5173', origins)).toBe(false)
     } finally {
       delete process.env.NODE_ENV
@@ -83,7 +89,7 @@ describe('A13 — CORS allowlist (no wildcard)', () => {
     process.env.CLIENT_ORIGIN = 'https://app.tnttvn.vn'
     try {
       const origins = resolveAllowedOrigins()
-      expect(origins).toEqual(['https://app.tnttvn.vn', 'capacitor://localhost', 'https://localhost', 'http://localhost'])
+      expect(origins).toEqual(['https://app.tnttvn.vn', 'capacitor://localhost', 'https://localhost'])
       expect(isOriginAllowed('https://app.tnttvn.vn', origins)).toBe(true)
       expect(isOriginAllowed('capacitor://localhost', origins)).toBe(true)
       expect(isOriginAllowed('https://tnttvn.vercel.app', origins)).toBe(false)
@@ -98,7 +104,7 @@ describe('A13 — CORS allowlist (no wildcard)', () => {
     process.env.CLIENT_ORIGIN = 'https://tnttvn.vercel.app , http://localhost:5173 '
     try {
       const origins = resolveAllowedOrigins()
-      expect(origins).toEqual(['https://tnttvn.vercel.app', 'http://localhost:5173', 'capacitor://localhost', 'https://localhost', 'http://localhost'])
+      expect(origins).toEqual(['https://tnttvn.vercel.app', 'http://localhost:5173', 'capacitor://localhost', 'https://localhost'])
       expect(isOriginAllowed('http://localhost:5173', origins)).toBe(true)
       expect(isOriginAllowed('https://tnttvn.vercel.app', origins)).toBe(true)
       expect(isOriginAllowed('capacitor://localhost', origins)).toBe(true)

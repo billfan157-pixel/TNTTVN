@@ -3,7 +3,6 @@ import { drizzleGradeRepository, DrizzleGradeRepository } from '../repositories/
 import { createCanOverrideGradeSpecification, createSemesterLockSpecification } from './policyAdapters.js'
 import { GradeAggregate, type ScoreField } from '../domain/GradeAggregate.js'
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
-import { notifyGradeOverride } from './smartNotifications.js'
 
 export interface OverrideScoreCommand {
   gradeId: string
@@ -37,7 +36,6 @@ export class GradeApplicationService {
   }
 
   public async overrideScore(cmd: OverrideScoreCommand) {
-    let notifiedStudentId = cmd.studentId ?? ''
     const overrideDTO = await runDbTransaction(async (tx) => {
       // 0. Get current policy version ID for audit trail
       const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
@@ -49,7 +47,6 @@ export class GradeApplicationService {
         err.status = 404
         throw err
       }
-      notifiedStudentId = gradeRecord.studentId
 
       // 2. Check Semester Lock Specification FIRST
       const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(
@@ -104,20 +101,10 @@ export class GradeApplicationService {
       return overrideDTO
     })
 
-    // Phase 2 (outbox convergence): post-commit qua notificationQueue
-    // (precedent noticeService — delivery best-effort, audit trong tx là trail).
-    // Await để deterministic (không bao giờ throw — lỗi đã catch trong notify).
-    await notifyGradeOverride(cmd.parishId, {
-      studentId: notifiedStudentId,
-      scoreField: overrideDTO.scoreField,
-      manualValue: overrideDTO.manualValue,
-      reasonCode: overrideDTO.reasonCode,
-    })
     return overrideDTO
   }
 
   public async restoreScore(cmd: RestoreScoreCommand) {
-    let notifiedStudentId = ''
     const restoredRecord = await runDbTransaction(async (tx) => {
       // 0. Get current policy version ID for audit trail
       const policyVersionId = await getCurrentPolicyVersionId(cmd.parishId, tx)
@@ -125,7 +112,6 @@ export class GradeApplicationService {
       // 1. Load Grade Record
       const gradeRecord = await this.gradeRepo.findById(cmd.gradeId, cmd.parishId, tx)
       if (!gradeRecord) return null
-      notifiedStudentId = gradeRecord.studentId
 
       // 2. Check Semester Lock Specification FIRST
       const isSemesterUnlocked = await createSemesterLockSpecification(tx).isSatisfiedBy(
@@ -166,14 +152,6 @@ export class GradeApplicationService {
       return restoredRecord
     })
 
-    // Phase 2 (outbox convergence): post-commit qua notificationQueue.
-    if (restoredRecord) {
-      await notifyGradeOverride(cmd.parishId, {
-        studentId: notifiedStudentId,
-        scoreField: cmd.scoreField,
-        removed: true,
-      })
-    }
     return restoredRecord
   }
 

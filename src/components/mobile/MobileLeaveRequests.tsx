@@ -21,9 +21,9 @@ const SESSION_MAP: Record<string, { label: string; icon: React.ComponentType<{ s
 
 const STATUS_TABS: { key: 'ALL' | LeaveRequestStatus; label: string; color: string }[] = [
   { key: 'ALL', label: 'Tất cả', color: 'text-parish-primary' },
-  { key: 'PENDING', label: 'Chờ duyệt', color: 'text-amber-600' },
-  { key: 'APPROVED', label: 'Đã duyệt', color: 'text-emerald-600' },
-  { key: 'REJECTED', label: 'Từ chối', color: 'text-rose-600' },
+  { key: 'PENDING', label: 'Chờ duyệt', color: 'text-parish-warning' },
+  { key: 'APPROVED', label: 'Đã duyệt', color: 'text-parish-success' },
+  { key: 'REJECTED', label: 'Từ chối', color: 'text-parish-danger' },
 ]
 
 export const MobileLeaveRequests: React.FC = () => {
@@ -103,7 +103,7 @@ export const MobileLeaveRequests: React.FC = () => {
     <div className="product-view flex flex-col gap-3 pb-8">
       {/* Subpage Header */}
       <SubpageHeader
-        icon={<CalendarClock size={15} />}
+        icon={<CalendarClock size={16} />}
         title="Đơn Xin Nghỉ Phép"
         meta={
           <span className="truncate">
@@ -348,7 +348,7 @@ export const MobileLeaveRequests: React.FC = () => {
                     </button>
                     <button
                       onClick={() => handleOpenReview(req, 'REJECTED')}
-                      className="flex-1 min-h-[44px] rounded-xl bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-900 text-rose-600 text-sm font-bold flex items-center justify-center gap-1.5 transition-colors"
+                      className="flex-1 min-h-[44px] rounded-xl bg-parish-danger-bg border border-parish-danger/30 text-parish-danger text-sm font-bold flex items-center justify-center gap-1.5 transition-colors"
                     >
                       <X size={16} /> Từ chối
                     </button>
@@ -386,12 +386,12 @@ export const MobileLeaveRequests: React.FC = () => {
               <h3 id={titleId} className="text-base font-bold text-text-main m-0 flex items-center gap-2">
                 {reviewingRequest.action === 'APPROVED' ? (
                   <>
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                    <CheckCircle2 className="w-5 h-5 text-parish-success" />
                     Xác Nhận Duyệt
                   </>
                 ) : (
                   <>
-                    <XCircle className="w-5 h-5 text-rose-600" />
+                    <XCircle className="w-5 h-5 text-parish-danger" />
                     Từ Chối Đơn
                   </>
                 )}
@@ -432,12 +432,12 @@ export const MobileLeaveRequests: React.FC = () => {
               </div>
 
               {reviewingRequest.action === 'APPROVED' ? (
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="p-3 rounded-xl bg-parish-success-bg border border-parish-success/30 text-xs text-parish-success">
                   ⚡ <strong>Tự động đồng bộ:</strong> Hệ thống sẽ tự động cập nhật bản ghi điểm danh ngày này thành{' '}
                   <strong>"Có phép" (AbsentExcused)</strong> cho tất cả các buổi đã chọn.
                 </div>
               ) : (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950 border border-rose-200 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-300">
+                <div className="p-3 rounded-xl bg-parish-danger-bg border border-parish-danger/30 text-xs text-parish-danger">
                   ⚠️ Đơn sẽ bị từ chối và thông báo phản hồi sẽ được gửi tới phụ huynh.
                 </div>
               )}

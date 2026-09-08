@@ -22,11 +22,20 @@ describe('App-wide UI System v4.5 migration contract', () => {
       'components/desktop/DesktopStudentList.tsx',
     ]
 
-    for (const file of directViews) expect(source(file), file).toContain('product-view')
+    for (const file of directViews) {
+      const src = source(file)
+      expect(src.includes('product-view') || src.includes('DesktopAppShell'), file).toBe(true)
+    }
     expect(source('components/desktop/DesktopAppShell.tsx')).toContain('product-view')
-    // Shared management pages now inherit the product-view language from the
-    // responsive shell rather than duplicating it on their route component.
+    // Shared management and data workspace pages now use DesktopAppShell
     expect(source('components/desktop/DesktopClasses.tsx')).toContain('<DesktopAppShell')
+    expect(source('pages/StudentsPage.tsx')).toContain('<DesktopAppShell')
+    expect(source('pages/GradesPage.tsx')).toContain('<DesktopAppShell')
+    expect(source('components/desktop/DesktopAttendanceGrid.tsx')).toContain('<DesktopAppShell')
+    expect(source('components/desktop/DesktopReports.tsx')).toContain('<DesktopAppShell')
+    expect(source('components/desktop/DesktopCalendarView.tsx')).toContain('<DesktopAppShell')
+    expect(source('components/desktop/DesktopNotices.tsx')).toContain('<DesktopAppShell')
+    expect(source('components/desktop/DesktopDashboard.tsx')).toContain('<DesktopAppShell')
   })
 
   it('covers every mobile workflow with shared view, header, panel or entity primitives', () => {
@@ -47,8 +56,8 @@ describe('App-wide UI System v4.5 migration contract', () => {
     ]
 
     for (const file of mobileViews) expect(source(file), file).toContain('product-view')
-    expect(source('components/mobile/MobileNoticesView.tsx')).toContain('mobile-page-header--brand')
-    expect(source('components/mobile/MobileReportsView.tsx')).toContain('mobile-page-header--brand')
+    expect(source('components/mobile/MobileNoticesView.tsx')).toContain('<SubpageHeader')
+    expect(source('components/mobile/MobileReportsView.tsx')).toContain('<SubpageHeader')
     expect(source('components/mobile/MobileAttendanceView.tsx')).toContain('<Tabs')
     expect(source('components/mobile/MobileAttendanceView.tsx')).toContain('<TabPanel')
     expect(source('components/mobile/MobileStudentsView.tsx')).toContain('entity-card')

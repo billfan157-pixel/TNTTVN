@@ -44,7 +44,12 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         msg.includes('Failed to fetch dynamically imported module') ||
         this.state.error?.name === 'ChunkLoadError' ||
         msg.includes('Loading chunk') ||
-        msg.includes('Importing a module script failed');
+        msg.includes('Importing a module script failed') ||
+        // Vite dev trả 504 khi browser fetch optimized dep (vd. qrcode-generator)
+        // bằng hash cũ trong lúc optimizer re-bundle ("Outdated Optimize Dep").
+        // lazyWithRetry đã retry, tới đây là stale/deploy thật → cho reload.
+        msg.includes('Outdated Optimize Dep') ||
+        msg.includes('Failed to fetch');
 
       return (
         <div className="flex flex-col items-center justify-center min-h-[300px] p-10 text-center text-text-secondary">

@@ -16,6 +16,7 @@ import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { DesktopLeaveRequests } from './DesktopLeaveRequests';
 import { DesktopAttendanceSummary } from './DesktopAttendanceSummary';
 import { PageHeader } from '../common/PageHeader';
+import { DesktopAppShell } from './DesktopAppShell';
 import { getLiturgicalDay } from '../../utils/liturgicalEngine';
 import { LITURGICAL_COLORS } from '../../constants/liturgical';
 import type { AttendanceType } from '../../types';
@@ -196,7 +197,13 @@ export const DesktopAttendanceGrid: React.FC = () => {
   }
 
   return (
-    <div className="product-view flex flex-col gap-4">
+    <DesktopAppShell width="full">
+      {/* Unified Top Header */}
+      <PageHeader
+        icon={<CheckSquare className="text-parish-primary" size={24} />}
+        title="Điểm Danh & Chuyên Cần"
+        description="Theo dõi chuyên cần theo ngày, tổng hợp tỷ lệ tham dự Thánh Lễ - Giáo Lý và duyệt đơn nghỉ phép"
+      />
       {/* Top Main Tab Navigation */}
       <div className="view-toolbar">
         <Tabs
@@ -228,18 +235,13 @@ export const DesktopAttendanceGrid: React.FC = () => {
       <TabPanel tabsId="desktop-attendance-tabs" value="attendance" activeValue={activeSubTab}>
         <>
           {/* Controls Bar */}
-          <PageHeader
-            icon={<CheckSquare size={20} />}
-            title="Điểm Danh Chuyên Cần"
-            description={
-              <span>
-                Có mặt: <strong className="text-parish-success">{presentCount}</strong> •{' '}
-                Vắng có phép: <strong className="text-parish-warning">{excusedCount}</strong> •{' '}
-                Vắng không phép: <strong className="text-parish-danger">{unexcusedCount}</strong>
-              </span>
-            }
-            actions={
-              <>
+          <div className="view-toolbar flex flex-wrap items-center justify-between gap-3 bg-surface-card p-3 rounded-2xl border border-surface-border">
+            <div className="text-xs font-semibold text-text-secondary">
+              Có mặt: <strong className="text-parish-success">{presentCount}</strong> •{' '}
+              Vắng có phép: <strong className="text-parish-warning">{excusedCount}</strong> •{' '}
+              Vắng không phép: <strong className="text-parish-danger">{unexcusedCount}</strong>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
                 <Select
                   value={selectedClassId}
                   onChange={e => setSelectedClassId(e.target.value)}
@@ -297,9 +299,8 @@ export const DesktopAttendanceGrid: React.FC = () => {
                     {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
                   </Button>
                 )}
-              </>
-            }
-          />
+            </div>
+          </div>
 
       {/* Attendance Table */}
       <div className="app-panel overflow-hidden">
@@ -418,6 +419,6 @@ export const DesktopAttendanceGrid: React.FC = () => {
       </div>
         </>
       </TabPanel>
-    </div>
+    </DesktopAppShell>
   );
 };

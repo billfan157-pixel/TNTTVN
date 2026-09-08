@@ -5,6 +5,7 @@ import {
   isTolerableMigrationError,
   type MigrationClient,
 } from '../db/migrationRunner.js'
+import { MIGRATIONS } from '../db/migrations.js'
 
 function makeClient(options: { failSql?: string; failMessage?: string } = {}) {
   const executed: string[] = []
@@ -122,5 +123,50 @@ describe('migration runner fail-closed policy', () => {
     const enabled = Array.isArray(foreignKeys.rows[0]) ? foreignKeys.rows[0][0] : (foreignKeys.rows[0] as any)?.foreign_keys
     expect(Number(enabled)).toBe(1)
     client.close()
+  })
+
+  it('migration 235 retires live Telegram state without deleting delivered history', async () => {
+    const client = createClient({ url: 'file::memory:' })
+    await client.executeMultiple(`
+      CREATE TABLE telegram_link_tokens (id TEXT PRIMARY KEY, consumed_at TEXT);
+      CREATE TABLE telegram_links (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, notifications_enabled INTEGER NOT NULL,
+        revoked_at TEXT, updated_at TEXT
+      );
+      CREATE TABLE notifications (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, status TEXT NOT NULL, error TEXT,
+        lease_owner TEXT, lease_expires_at TEXT, next_attempt_at TEXT, message TEXT
+      );
+      INSERT INTO telegram_link_tokens (id, consumed_at) VALUES ('open', NULL), ('used', '2026-01-01');
+      INSERT INTO telegram_links (id, status, notifications_enabled) VALUES ('live', 'ACTIVE', 1), ('old', 'REVOKED', 0);
+      INSERT INTO notifications (id, type, status, message) VALUES
+        ('pending', 'telegram', 'retrying', 'pending'),
+        ('history', 'telegram', 'sent', 'delivered'),
+        ('push', 'web_push', 'retrying', 'push');
+    `)
+    const migration = MIGRATIONS.find(item => item.version === '20260908-235')
+    expect(migration).toBeDefined()
+    await applyMigrations(client, [migration!])
+
+    expect((await client.execute("SELECT consumed_at FROM telegram_link_tokens WHERE id='open'" )).rows[0]?.consumed_at).toBeTruthy()
+    expect((await client.execute("SELECT status, notifications_enabled, revoked_at FROM telegram_links WHERE id='live'" )).rows[0]).toMatchObject({ status: 'REVOKED', notifications_enabled: 0 })
+    expect((await client.execute("SELECT status, error FROM notifications WHERE id='pending'" )).rows[0]).toMatchObject({ status: 'failed', error: 'CHANNEL_RETIRED' })
+    expect((await client.execute("SELECT status, message FROM notifications WHERE id='history'" )).rows[0]).toMatchObject({ status: 'sent', message: 'delivered' })
+    expect((await client.execute("SELECT status FROM notifications WHERE id='push'" )).rows[0]).toMatchObject({ status: 'retrying' })
+    client.close()
+  })
+
+  it('migration 236 preserves legacy task status and defaults phase without inference', async () => {
+    const client = createClient({ url: 'file::memory:' })
+    try {
+      await client.executeMultiple("CREATE TABLE operation_tasks (id TEXT PRIMARY KEY, status TEXT); INSERT INTO operation_tasks VALUES ('legacy', 'DONE');")
+      const migration = MIGRATIONS.find(item => item.version === '20260909-236')!
+      await applyMigrations(client, [migration])
+      expect((await client.execute('SELECT * FROM operation_tasks')).rows[0]).toMatchObject({ id: 'legacy', status: 'DONE', phase: 'PREPARATION' })
+      await expect(client.execute("INSERT INTO operation_tasks (id, phase) VALUES ('bad', 'UNKNOWN')")).rejects.toThrow()
+      await client.execute("INSERT INTO operation_tasks (id, phase) VALUES ('during', 'EXECUTION'), ('after', 'FOLLOW_UP')")
+      await applyMigrations(client, [migration])
+      expect((await client.execute('SELECT count(*) AS total FROM operation_tasks')).rows[0].total).toBe(3)
+    } finally { client.close() }
   })
 })

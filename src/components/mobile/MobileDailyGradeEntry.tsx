@@ -124,7 +124,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
       </div>
 
       <SubpageHeader
-        icon={<BarChart3 size={15} />}
+        icon={<BarChart3 size={16} />}
         title="Nhập Điểm Hằng Ngày"
         meta={<span>{activeTypeLabel} · HK {semesterRestricted ? (openSemester === 2 ? 'II' : 'I') : selectedSemester} · {filteredStudents.length} em</span>}
         ariaLabel="Bảng chọn loại điểm hằng ngày"

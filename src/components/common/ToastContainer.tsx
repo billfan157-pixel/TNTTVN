@@ -4,24 +4,24 @@ import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react'
 const typeConfig = {
   success: {
     icon: CheckCircle2,
-    bg: 'bg-emerald-50 dark:bg-emerald-950',
-    border: 'border-emerald-200 dark:border-emerald-800',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    iconColor: 'text-emerald-500',
+    bg: 'bg-parish-success-bg',
+    border: 'border-parish-success/30',
+    text: 'text-parish-success',
+    iconColor: 'text-parish-success',
   },
   error: {
     icon: AlertCircle,
-    bg: 'bg-rose-50 dark:bg-rose-950',
-    border: 'border-rose-200 dark:border-rose-800',
-    text: 'text-rose-700 dark:text-rose-300',
-    iconColor: 'text-rose-500',
+    bg: 'bg-parish-danger-bg',
+    border: 'border-parish-danger/30',
+    text: 'text-parish-danger',
+    iconColor: 'text-parish-danger',
   },
   info: {
     icon: Info,
-    bg: 'bg-sky-50 dark:bg-sky-950',
-    border: 'border-sky-200 dark:border-sky-800',
-    text: 'text-sky-700 dark:text-sky-300',
-    iconColor: 'text-sky-500',
+    bg: 'bg-parish-info-bg',
+    border: 'border-parish-info/30',
+    text: 'text-parish-info',
+    iconColor: 'text-parish-info',
   },
 }
 

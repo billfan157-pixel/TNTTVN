@@ -106,18 +106,18 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
   return (
     <div className="product-view flex flex-col gap-3">
       <SubpageHeader
-        icon={<Grid3X3 size={15} />}
-        title="Bảng điểm"
+        icon={<Grid3X3 size={16} />}
+        title="Bảng Điểm"
         meta={<span>HK {effectiveSemester === 1 ? 'I' : 'II'} · {selectedClassLabel} · {filteredStudents.length} em</span>}
         ariaLabel="Bảng điều khiển điểm số"
         actions={
           <div className="flex items-center gap-1.5">
             {pendingCount > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold text-parish-info bg-parish-info-bg border border-parish-info/30">
                 ☁ {pendingCount}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold text-parish-success bg-parish-success-bg border border-parish-success/30">
                 <Check size={11} /> Đã lưu
               </span>
             )}
@@ -147,7 +147,7 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
         }
       >
         {!canEdit && <div className="rounded-xl bg-surface-hover border border-surface-border px-3 py-1.5 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
-        {semesterRestricted && <div className="rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-900 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">Học kỳ đang khóa theo quyền tài khoản; chỉ được thao tác ở HK {effectiveSemester === 1 ? 'I' : 'II'}.</div>}
+        {semesterRestricted && <div className="rounded-xl bg-parish-warning-bg border border-parish-warning/30 px-3 py-1.5 text-xs font-semibold text-parish-warning">Học kỳ đang khóa theo quyền tài khoản; chỉ được thao tác ở HK {effectiveSemester === 1 ? 'I' : 'II'}.</div>}
       </SubpageHeader>
 
       {filteredStudents.length === 0 ? (
@@ -187,8 +187,8 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
                   <div key={field.key} className={`p-2.5 text-center ${field.highlight ? 'bg-parish-secondary-light/20' : 'bg-surface-card'}`}>
                     <div className={`text-[10px] font-semibold truncate ${field.highlight ? 'text-text-primary' : 'text-text-muted'}`}>{field.label}</div>
                     <div className={`text-sm font-black mt-1 ${field.highlight ? 'text-parish-secondary' : 'text-text-main'}`}>{grade?.[field.key] ?? '—'}</div>
-                    {source === 'manual' && <div className="text-[9px] text-amber-700 font-bold mt-0.5">Thủ công</div>}
-                    {source === 'daily_avg' && <div className="text-[9px] text-sky-700 font-bold mt-0.5">Từ hằng ngày</div>}
+                    {source === 'manual' && <div className="text-[10px] text-parish-warning-hover font-bold mt-0.5">Thủ công</div>}
+                    {source === 'daily_avg' && <div className="text-[10px] text-parish-info font-bold mt-0.5">Từ hằng ngày</div>}
                   </div>
                 )
               })}

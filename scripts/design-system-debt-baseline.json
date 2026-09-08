@@ -6,7 +6,7 @@
   "rules": {
     "NO_ARBITRARY_PX_FONT_SIZE_INCREASE": {
       "description": "Arbitrary pixel font-size classes (text-[Npx])",
-      "total": 287,
+      "total": 280,
       "files": {
         "components/common/ErrorBoundary.tsx": 3,
         "components/common/ExcelGradeImportModal.tsx": 6,
@@ -18,7 +18,6 @@
         "components/common/ParentWidgets.tsx": 1,
         "components/common/StudentModal.tsx": 1,
         "components/common/StudentName.tsx": 3,
-        "components/common/TelegramLinkCard.tsx": 7,
         "components/desktop/ConflictInboxModal.tsx": 5,
         "components/desktop/DesktopAttendanceGrid.tsx": 2,
         "components/desktop/DesktopAttendanceSummary.tsx": 12,

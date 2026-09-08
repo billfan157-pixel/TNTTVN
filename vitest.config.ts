@@ -29,7 +29,6 @@ export default defineConfig({
           '@libsql/client',
           'bcryptjs',
           'drizzle-orm',
-          'grammy',
           'jsonwebtoken',
           'web-push',
           'zod',
@@ -39,6 +38,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'json-summary', 'html'],
+      // QA-COV-1 (2026-09-09): `all: true` — tính cả file KHÔNG được import trong
+      // test vào mẫu số. Trước đây các God component (ExamSessionView 111KB,
+      // QuestionBankView, ExamScanModal…) vắng mặt khỏi report nên 74% là ảo.
       // QUALITY-GATE-1 (2026-08-24): nâng gate từ 40/30/30/40 (thực tế ~65/53/57/66)
       // để chặn regression — dư địa giảm coverage mà gate không bắt là quá rộng.
       // Lưu ý JWT_SECRET ở env trên phải ≥32 ký tự — khớp SEC-HMAC-1.

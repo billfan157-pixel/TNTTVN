@@ -564,7 +564,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
               <span className="px-2 py-1 bg-surface-hover rounded-lg">{modal.checklist.totals.openSessions} buổi điểm danh chưa chốt</span>
             </div>
             {modal.checklist.issues.length === 0 ? (
-              <div className="flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-xl">
+              <div className="flex items-center gap-2 px-4 py-3 bg-parish-success-bg border border-parish-success/30 text-parish-success text-xs font-bold rounded-xl">
                 <CheckCircle2 className="w-4 h-4" /> Dữ liệu đầy đủ — sẵn sàng chốt năm học.
               </div>
             ) : (
@@ -573,7 +573,7 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
                   <div key={issue.code} className={`px-4 py-3 rounded-xl border text-xs ${
                     issue.severity === 'error'
                       ? 'bg-red-50 border-red-200 text-red-700'
-                      : 'bg-amber-50 border-amber-200 text-amber-700'
+                      : 'bg-parish-warning-bg border-parish-warning/30 text-parish-warning'
                   }`}>
                     <p className="font-bold flex items-center gap-1.5">
                       {issue.severity === 'error' ? <AlertTriangle className="w-3.5 h-3.5" /> : <Info className="w-3.5 h-3.5" />}

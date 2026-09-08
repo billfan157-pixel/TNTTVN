@@ -393,7 +393,7 @@ export function QuestionBankView() {
       {/* 1. Header chính phân hệ: SubpageHeader trên mobile, PageHeader trên desktop */}
       {effectiveMode === 'mobile' ? (
         <SubpageHeader
-          icon={<BookOpenCheck size={15} />}
+          icon={<BookOpenCheck size={16} />}
           title="Ngân Hàng Đề Thi"
           meta={<span className="truncate">Snapshot bất biến · Ma trận & OMR</span>}
           badge={

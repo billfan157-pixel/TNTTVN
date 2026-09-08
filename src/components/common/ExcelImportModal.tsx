@@ -950,8 +950,8 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {step === 'report' && importResult && (
             <div className="p-6 space-y-6">
               {/* Banner rõ ràng thành công/thất bại */}
-              <div className={`flex items-start gap-3 p-4 rounded-xl border ${importResult.errors > 0 && importResult.imported === 0 ? 'bg-rose-50 dark:bg-rose-950 border-rose-200 text-rose-700' : importResult.errors > 0 ? 'bg-amber-50 dark:bg-amber-950 border-amber-200 text-amber-800' : 'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 text-emerald-700'}`}>
-                <div className={`p-2 rounded-full shrink-0 ${importResult.errors > 0 && importResult.imported === 0 ? 'bg-rose-100 text-rose-600' : importResult.errors > 0 ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+              <div className={`flex items-start gap-3 p-4 rounded-xl border ${importResult.errors > 0 && importResult.imported === 0 ? 'bg-parish-danger-bg border-parish-danger/30 text-parish-danger' : importResult.errors > 0 ? 'bg-parish-warning-bg border-parish-warning/30 text-parish-warning' : 'bg-parish-success-bg border-parish-success/30 text-parish-success'}`}>
+                <div className={`p-2 rounded-full shrink-0 ${importResult.errors > 0 && importResult.imported === 0 ? 'bg-parish-danger-bg text-parish-danger' : importResult.errors > 0 ? 'bg-parish-warning-bg text-parish-warning' : 'bg-parish-success-bg text-parish-success'}`}>
                   {importResult.errors > 0 && importResult.imported === 0 ? <AlertTriangle className="w-5 h-5" /> : importResult.errors > 0 ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
                 </div>
                 <div>
@@ -1018,7 +1018,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   <button
                     onClick={handleUndo}
                     disabled={undoing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed border border-rose-200 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-parish-danger bg-parish-danger-bg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed border border-parish-danger/30 transition-colors"
                   >
                     {undoing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                     <span>Hoàn Tác Import</span>

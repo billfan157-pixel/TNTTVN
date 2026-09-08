@@ -4,6 +4,9 @@ import { NoticeModal } from '../common/NoticeModal';
 import { useAuth } from '../../hooks/useAuth';
 import { ParishNotice } from '../../types';
 import { Bell, AlertCircle, Calendar, User, Plus, Pencil } from 'lucide-react';
+import { SubpageHeader } from '../common/SubpageHeader';
+import { EmptyState } from '../common/StateFeedback';
+import { Button } from '../common/ui/Button';
 
 export const MobileNoticesView: React.FC = () => {
   const notices = useNoticeStore(s => s.notices);
@@ -21,36 +24,33 @@ export const MobileNoticesView: React.FC = () => {
 
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
-      {/* Banner Header */}
-      <div className="mobile-page-header mobile-page-header--brand">
-        <div className="mobile-page-header__identity">
-          <div className="mobile-page-header__icon"><Bell size={20} /></div>
-          <div>
-            <h2 className="mobile-page-header__title">Thông Báo Giáo Xứ</h2>
-            <p className="mobile-page-header__description">Tin tức & thông báo mới nhất từ Xứ Đoàn</p>
-          </div>
-        </div>
-        <div className="mobile-page-header__actions">
-          <span className="bg-white/20 text-white px-2.5 py-1 rounded-full text-xs font-bold">
-            {notices.length} tin
-          </span>
-          {canManageNotices && (
-            <button
+      {/* Subpage Header */}
+      <SubpageHeader
+        icon={<Bell size={16} />}
+        title="Thông Báo Giáo Xứ"
+        meta={<span>{notices.length} tin thông báo</span>}
+        actions={
+          canManageNotices && (
+            <Button
               onClick={() => { setEditingNotice(null); setShowModal(true); }}
-              className="btn btn-secondary mobile-btn"
+              variant="primary"
+              size="sm"
+              leadingIcon={<Plus size={14} />}
             >
-              <Plus size={14} /> Thêm
-            </button>
-          )}
-        </div>
-      </div>
+              Thêm
+            </Button>
+          )
+        }
+      />
 
       {/* Notices Cards List */}
       <div className="flex flex-col gap-3">
         {notices.length === 0 ? (
-          <div className="bg-surface-card rounded-2xl p-8 text-center text-text-muted border border-surface-border text-sm">
-            Chưa có thông báo nào.
-          </div>
+          <EmptyState
+            icon={Bell}
+            title="Chưa có thông báo nào"
+            description="Các thông báo gửi đến thiếu nhi và phụ huynh sẽ hiển thị ở đây."
+          />
         ) : (
           notices.map(n => {
             const colors = priorityColors[n.priority as keyof typeof priorityColors] || priorityColors.normal;

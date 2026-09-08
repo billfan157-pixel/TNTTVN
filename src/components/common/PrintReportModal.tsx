@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
-import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
-import { Printer, FileText, Award, X, Download, Eye, Layers, User, Loader2, FileDown } from 'lucide-react'
+import { Printer, FileText, Award, Download, Eye, Layers, User, Loader2, FileDown } from 'lucide-react'
 import {
   generateClassGradebookHTML,
   generateStudentReportCardHTML,
@@ -15,7 +14,7 @@ import { ReportViewModelFactory } from '../../utils/reportViewModelFactory'
 import { ReportExportService } from '../../services/reportExportService'
 import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { api } from '../../lib/api'
-import { ModalPortal } from './ModalPortal'
+import { ModalShell } from './ModalShell'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
@@ -42,7 +41,6 @@ export const PrintReportModal: React.FC<Props> = ({
   initialStudentId,
 }) => {
   const [reportType, setReportType] = useState<ReportType>(initialReportType || 'CLASS_GRADEBOOK')
-  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
   const [selectedClassId, setSelectedClassId] = useState(initialClassId || 'AU1')
   const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId || '')
   const [meetingTime, setMeetingTime] = useState('')
@@ -157,7 +155,7 @@ export const PrintReportModal: React.FC<Props> = ({
   }
 
   const handlePreview = () => {
-    const { html } = buildHTML()
+    const { html, filename } = buildHTML()
     if (!html) {
       void askConfirm({
         title: 'Chưa có dữ liệu',
@@ -168,7 +166,7 @@ export const PrintReportModal: React.FC<Props> = ({
       })
       return
     }
-    ReportExportService.preview(html)
+    ReportExportService.preview(html, filename)
   }
 
   const handleDownloadHTML = () => {
@@ -242,29 +240,55 @@ export const PrintReportModal: React.FC<Props> = ({
     }
   }
 
+  const printFooter = (
+    <div className="w-full px-4 sm:px-6 py-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:pb-3 border-t border-surface-border space-y-2">
+      <div className="flex gap-2">
+        <button onClick={handlePreview} className="btn btn-secondary flex-1 min-h-[44px] text-xs font-semibold">
+          <Eye className="w-4 h-4" />
+          <span>Xem Trước</span>
+        </button>
+        <button onClick={handlePrint} className="btn btn-primary flex-[2] min-h-[44px] text-xs font-semibold">
+          <Printer className="w-4 h-4" />
+          <span>In Tất Cả / PDF</span>
+        </button>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleExportExcel}
+          className="flex flex-1 items-center justify-center gap-1.5 min-h-[44px] rounded-lg text-xs font-semibold text-parish-success bg-parish-success-bg border border-parish-success/30 transition-colors"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Excel</span>
+        </button>
+        <button onClick={handleDownloadHTML} className="btn btn-secondary flex-1 min-h-[44px] text-xs font-semibold">
+          <Download className="w-3.5 h-3.5" />
+          <span>HTML</span>
+        </button>
+        <button
+          onClick={handleExportPdf}
+          disabled={isGeneratingPdf}
+          className="flex flex-1 items-center justify-center gap-1.5 min-h-[44px] rounded-lg text-xs font-semibold text-parish-warning bg-parish-warning-bg border border-parish-warning/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+          <span>{isGeneratingPdf ? 'Đang Xuất PDF...' : 'PDF'}</span>
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <>
-    <ModalPortal>
-    <div className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4" role="dialog" aria-modal="true" aria-label="In báo cáo">
-      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-parish-primary-light text-parish-primary rounded-lg">
-              <Printer className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-text-main">In Báo Cáo & Sổ Điểm Nhà Xứ</h2>
-              <p className="text-xs text-text-muted">Xuất file PDF & HTML chuẩn in ấn Sổ điểm & Phiếu kết quả học tập</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-5">
+      <ModalShell
+        isOpen={isOpen}
+        onClose={onClose}
+        title="In Báo Cáo & Sổ Điểm Nhà Xứ"
+        subtitle="Xuất file PDF & HTML chuẩn in ấn Sổ điểm & Phiếu kết quả học tập"
+        icon={<Printer className="w-5 h-5" />}
+        maxWidth="576px"
+        closeOnOverlay={false}
+        footer={printFooter}
+      >
+        <div className="space-y-4">
           {/* Report Type Selection */}
           <div>
             <label className="block text-xs font-semibold text-text-muted uppercase mb-2">Loại Báo Cáo Cần In</label>
@@ -291,7 +315,7 @@ export const PrintReportModal: React.FC<Props> = ({
                     : 'border-surface-border hover:bg-surface-hover text-text-main'
                 }`}
               >
-                <Layers className="w-5 h-5 mb-2 text-amber-600" />
+                <Layers className="w-5 h-5 mb-2" />
                 <span className="text-xs">KQ Học Tập (Loạt)</span>
               </button>
 
@@ -330,7 +354,7 @@ export const PrintReportModal: React.FC<Props> = ({
                     : 'border-surface-border hover:bg-surface-hover text-text-main'
                 }`}
               >
-                <User className="w-5 h-5 mb-2 text-emerald-600" />
+                <User className="w-5 h-5 mb-2" />
                 <span className="text-xs">Thẻ Thiếu Nhi (Loạt)</span>
               </button>
 
@@ -343,7 +367,7 @@ export const PrintReportModal: React.FC<Props> = ({
                     : 'border-surface-border hover:bg-surface-hover text-text-main'
                 }`}
               >
-                <Award className="w-5 h-5 mb-2 text-sky-600" />
+                <Award className="w-5 h-5 mb-2" />
                 <span className="text-xs">Phiếu Mời PH (Loạt)</span>
               </button>
 
@@ -356,7 +380,7 @@ export const PrintReportModal: React.FC<Props> = ({
                     : 'border-surface-border hover:bg-surface-hover text-text-main'
                 }`}
               >
-                <FileText className="w-5 h-5 mb-2 text-sky-600" />
+                <FileText className="w-5 h-5 mb-2" />
                 <span className="text-xs">Phiếu Mời PH (Riêng)</span>
               </button>
             </div>
@@ -364,9 +388,9 @@ export const PrintReportModal: React.FC<Props> = ({
 
           {/* Roster Info Summary Banner for Batch Export */}
           {(reportType === 'BATCH_STUDENT_REPORT_CARDS' || reportType === 'BATCH_PHOTO_CARDS' || reportType === 'BATCH_PARENT_INVITATIONS') && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between text-xs text-amber-700 dark:text-amber-300">
+            <div className="p-3 bg-parish-warning-bg border border-parish-warning/30 rounded-lg flex items-center justify-between text-xs text-parish-warning">
               <span>Sẵn sàng xuất hàng loạt <strong>{classStudents.length} {reportType === 'BATCH_PHOTO_CARDS' ? 'thẻ thiếu nhi A6' : reportType === 'BATCH_PARENT_INVITATIONS' ? 'giấy mời A4' : 'kết quả học tập A4'}</strong> cho lớp <strong>{targetClass?.name || selectedClassId}</strong></span>
-              <span className="px-2 py-0.5 bg-amber-500/20 rounded font-semibold">{classStudents.length} Học sinh</span>
+              <span className="px-2 py-0.5 bg-parish-warning/20 rounded font-semibold">{classStudents.length} Học sinh</span>
             </div>
           )}
 
@@ -405,8 +429,8 @@ export const PrintReportModal: React.FC<Props> = ({
             )}
 
             {(reportType === 'PARENT_INVITATION' || reportType === 'BATCH_PARENT_INVITATIONS') && (
-              <div className="p-3.5 bg-sky-500/10 border border-sky-500/30 rounded-lg space-y-3">
-                <div className="text-xs font-semibold text-sky-700 dark:text-sky-300 uppercase flex items-center gap-1.5">
+              <div className="p-3.5 bg-parish-info-bg border border-parish-info/30 rounded-lg space-y-3">
+                <div className="text-xs font-semibold text-parish-info uppercase flex items-center gap-1.5">
                   <FileText className="w-4 h-4" />
                   <span>Cấu Hình Chi Tiết Giấy Mời Họp Phụ Huynh</span>
                 </div>
@@ -481,55 +505,8 @@ export const PrintReportModal: React.FC<Props> = ({
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-4 border-t border-surface-border bg-surface-hover/30">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Xuất Excel</span>
-            </button>
-            <button
-              onClick={handleDownloadHTML}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-500/10 hover:bg-slate-500/20 border border-slate-500/30 transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Tải HTML</span>
-            </button>
-            <button
-              onClick={handleExportPdf}
-              disabled={isGeneratingPdf}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
-              <span>{isGeneratingPdf ? 'Đang Xuất PDF...' : 'Xuất PDF'}</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePreview}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-text-main bg-surface-hover hover:bg-surface-border transition-colors border border-surface-border"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>Xem Trước</span>
-            </button>
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-parish-primary hover:bg-parish-primary-hover shadow-xs transition-colors"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>In Tất Cả / PDF</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-    </ModalPortal>
-    {confirmDialog}
+      </ModalShell>
+      {confirmDialog}
     </>
   )
 }

@@ -1,3 +1,4 @@
+import { EmptyState } from '../components/common/StateFeedback'
 import React, { useState, useEffect } from 'react'
 import { HeartHandshake, Loader2, AlertCircle, Users2, Printer, CheckCircle2, GraduationCap, CalendarPlus, Clock, XCircle, Ban } from 'lucide-react'
 import { getClassificationLabel } from '../utils/grades'
@@ -8,7 +9,6 @@ import { BRANCHES } from '../constants/branches'
 import { useParentPortal } from '../hooks/useParentPortal'
 import { LeaveRequestModal } from '../components/common/LeaveRequestModal'
 import { useLeaveRequestStore } from '../stores/leaveRequestStore'
-import { TelegramLinkCard } from '../components/common/TelegramLinkCard'
 import { PageHeader } from '../components/common/PageHeader'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { ChildAvatar, AttendanceBar, StatCard, PromotionBanner } from '../components/common/ParentWidgets'
@@ -79,10 +79,12 @@ export const ParentPage: React.FC = () => {
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-text-muted" /></div>
       ) : children.length === 0 ? (
-        <div className="text-center py-12 text-text-muted space-y-2 bg-surface-card border border-surface-border rounded-2xl shadow-card">
-          <Users2 size={36} className="mx-auto opacity-40" />
-          <p className="text-sm">Chưa có thiếu nhi nào được liên kết với số điện thoại này.</p>
-          <p className="text-xs">Vui lòng liên hệ Ban Giáo Lý để kiểm tra lại số điện thoại phụ huynh.</p>
+        <div className="bg-surface-card border border-surface-border rounded-2xl shadow-card overflow-hidden">
+          <EmptyState
+            icon={Users2}
+            title="Chưa có thiếu nhi được liên kết"
+            description="Chưa có thiếu nhi nào được liên kết với số điện thoại này. Vui lòng liên hệ Ban Giáo Lý để kiểm tra lại số điện thoại phụ huynh."
+          />
         </div>
       ) : (
         <>
@@ -320,7 +322,6 @@ export const ParentPage: React.FC = () => {
         </>
       )}
 
-      <TelegramLinkCard />
     </DesktopAppShell>
   )
 }

@@ -19,6 +19,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { LiturgicalTodayWidget } from './LiturgicalTodayWidget';
 import { formatDateVi } from '../../utils/formatDate';
 import { Button, IconButton } from '../common/ui/Button';
+import { DesktopAppShell } from './DesktopAppShell';
 
 interface DesktopDashboardProps {
   onOpenAddStudent: () => void;
@@ -92,7 +93,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
   const _maxBranchCount = Math.max(...Object.values(branchStats), 1);
 
   return (
-    <div className="product-view space-y-6 pb-10">
+    <DesktopAppShell width="full" className="space-y-6 pb-10">
       {/* Liturgical Day Widget */}
       <LiturgicalTodayWidget />
 
@@ -353,6 +354,6 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           </div>
         </div>
       </div>
-    </div>
+    </DesktopAppShell>
   );
 };

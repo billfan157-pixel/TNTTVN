@@ -1,9 +1,8 @@
 import React, { useEffect, useId, useState } from 'react'
-import { CheckCircle2, Copy, ExternalLink, MessageCircle, Send, ShieldCheck, X } from 'lucide-react'
-import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
-import { ModalPortal } from '../common/ModalPortal'
-import { Button, IconButton } from '../common/ui/Button'
+import { CheckCircle2, Copy, ExternalLink, MessageCircle, Send, ShieldCheck } from 'lucide-react'
+import { Button } from '../common/ui/Button'
 import { TextInput } from '../common/ui/FormControls'
+import { ModalShell } from '../common/ModalShell'
 import { api } from '../../lib/api'
 import { isValidVnPhone, parentUsername } from '../../utils/username'
 
@@ -14,7 +13,6 @@ interface ParentForgotPasswordModalProps {
 }
 
 export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps> = ({ isOpen, onClose, initialPhone = '' }) => {
-  const { dialogRef, titleId } = useAccessibleDialog(isOpen, onClose)
   const phoneId = useId()
   const [phone, setPhone] = useState('')
   const [copied, setCopied] = useState(false)
@@ -65,74 +63,60 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
   }
 
   return (
-    <ModalPortal>
-    <div className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/55 p-4" onClick={onClose}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={event => event.stopPropagation()} className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-card shadow-2xl">
-        <div className="flex items-start justify-between border-b border-surface-border p-5">
-          <div>
-            <h2 id={titleId} className="flex items-center gap-2 text-lg font-bold text-text-main">
-              <ShieldCheck aria-hidden="true" className="h-5 w-5 text-parish-primary" /> Khôi Phục Tài Khoản An Toàn
-            </h2>
-            <p className="mt-1 text-xs text-text-muted">Ban Giáo Lý sẽ xác minh danh tính trước khi cấp mật khẩu tạm.</p>
-          </div>
-          <IconButton
-            onClick={onClose}
-            label="Đóng"
-            icon={<X aria-hidden="true" className="h-5 w-5" />}
-            variant="ghost"
-            mobile
-            className="rounded-lg text-text-muted"
-          />
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      icon={<ShieldCheck aria-hidden="true" className="h-5 w-5 text-parish-primary" />}
+      title="Khôi Phục Tài Khoản An Toàn"
+      subtitle="Ban Giáo Lý sẽ xác minh danh tính trước khi cấp mật khẩu tạm."
+      maxWidth="32rem"
+    >
+      <div className="space-y-4">
+        <div className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg p-3 text-xs leading-relaxed text-text-main">
+          Yêu cầu này không tự đổi mật khẩu. Admin sẽ xác minh danh tính trước khi cấp mật khẩu tạm qua kênh riêng; hệ thống không dùng tên hoặc ngày sinh của trẻ để xác thực.
         </div>
 
-        <div className="space-y-4 p-5">
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-text-main">
-            Yêu cầu này không tự đổi mật khẩu. Admin sẽ xác minh danh tính trước khi cấp mật khẩu tạm qua kênh riêng; hệ thống không dùng tên hoặc ngày sinh của trẻ để xác thực.
-          </div>
-
-          {successMessage ? (
-            <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm leading-relaxed text-text-main">
-              <div className="mb-1 flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 aria-hidden="true" className="h-5 w-5" /> Đã tiếp nhận yêu cầu
-              </div>
-              {successMessage}
+        {successMessage ? (
+          <div role="status" className="rounded-xl border border-parish-success/30 bg-parish-success-bg p-4 text-sm leading-relaxed text-text-main">
+            <div className="mb-1 flex items-center gap-2 font-bold text-parish-success-hover">
+              <CheckCircle2 aria-hidden="true" className="h-5 w-5" /> Đã tiếp nhận yêu cầu
             </div>
-          ) : (
-            <form onSubmit={submitRequest} className="space-y-3">
-              <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
-                Số điện thoại đăng nhập
-                <TextInput id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="username" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg" />
-              </label>
-              {error && <div role="alert" className="text-xs font-semibold text-rose-600">{error}</div>}
-              <Button type="submit" loading={submitting} loadingLabel="Đang gửi yêu cầu..." variant="primary" mobile fullWidth>
-                <Send aria-hidden="true" className="h-4 w-4" /> Gửi yêu cầu cho Admin
-              </Button>
-            </form>
-          )}
+            {successMessage}
+          </div>
+        ) : (
+          <form onSubmit={submitRequest} className="space-y-3">
+            <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
+              Số điện thoại đăng nhập
+              <TextInput id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="username" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg" />
+            </label>
+            {error && <div role="alert" className="text-xs font-semibold text-parish-danger">{error}</div>}
+            <Button type="submit" loading={submitting} loadingLabel="Đang gửi yêu cầu..." variant="primary" mobile fullWidth>
+              <Send aria-hidden="true" className="h-4 w-4" /> Gửi yêu cầu cho Admin
+            </Button>
+          </form>
+        )}
 
-          <div className="flex items-center gap-3" aria-hidden="true">
-            <span className="h-px flex-1 bg-surface-border" />
-            <span className="text-xs font-semibold uppercase text-text-muted">Hoặc liên hệ trực tiếp</span>
-            <span className="h-px flex-1 bg-surface-border" />
-          </div>
-          <div>
-            <div className="mb-1.5 text-xs font-semibold uppercase text-text-muted">Tin nhắn mẫu</div>
-            <div className="rounded-xl border border-surface-border bg-surface-hover/50 p-3 text-xs leading-relaxed text-text-main">{message}</div>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Button type="button" onClick={copyMessage} variant="secondary" mobile fullWidth>
-              {copied ? <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-parish-success" /> : <Copy aria-hidden="true" className="h-4 w-4" />}
-              {copied ? 'Đã sao chép' : 'Sao chép tin nhắn'}
-            </Button>
-            <Button type="button" onClick={() => window.open('https://zalo.me', '_blank', 'noopener,noreferrer')} variant="secondary" mobile fullWidth>
-              <MessageCircle aria-hidden="true" className="h-4 w-4" /> Mở Zalo <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-          <Button type="button" onClick={onClose} variant="ghost" mobile fullWidth>Quay lại đăng nhập</Button>
+        <div className="flex items-center gap-3" aria-hidden="true">
+          <span className="h-px flex-1 bg-surface-border" />
+          <span className="text-xs font-semibold uppercase text-text-muted">Hoặc liên hệ trực tiếp</span>
+          <span className="h-px flex-1 bg-surface-border" />
         </div>
+        <div>
+          <div className="mb-1.5 text-xs font-semibold uppercase text-text-muted">Tin nhắn mẫu</div>
+          <div className="rounded-xl border border-surface-border bg-surface-hover/50 p-3 text-xs leading-relaxed text-text-main">{message}</div>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Button type="button" onClick={copyMessage} variant="secondary" mobile fullWidth>
+            {copied ? <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-parish-success" /> : <Copy aria-hidden="true" className="h-4 w-4" />}
+            {copied ? 'Đã sao chép' : 'Sao chép tin nhắn'}
+          </Button>
+          <Button type="button" onClick={() => window.open('https://zalo.me', '_blank', 'noopener,noreferrer')} variant="secondary" mobile fullWidth>
+            <MessageCircle aria-hidden="true" className="h-4 w-4" /> Mở Zalo <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <Button type="button" onClick={onClose} variant="ghost" mobile fullWidth>Quay lại đăng nhập</Button>
       </div>
-    </div>
-    </ModalPortal>
+    </ModalShell>
   )
 }
 

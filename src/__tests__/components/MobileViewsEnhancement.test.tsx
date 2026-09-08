@@ -71,10 +71,10 @@ describe('MobileViewsEnhancement Tests', () => {
       render(<MobileBottomNav activeTab="home" setActiveTab={setActiveTab} />)
 
       expect(screen.getByRole('navigation', { name: 'Điều hướng chính' })).toHaveClass('mobile-bottom-nav')
-      expect(screen.getByRole('button', { name: 'Trang chủ' })).toHaveAttribute('aria-current', 'page')
-      fireEvent.click(screen.getByRole('button', { name: 'Điểm danh' }))
+      expect(screen.getByRole('button', { name: /Trang chủ/i })).toHaveAttribute('aria-current', 'page')
+      fireEvent.click(screen.getByRole('button', { name: /Điểm danh/i }))
       expect(setActiveTab).toHaveBeenCalledWith('attendance')
-      fireEvent.click(screen.getByRole('button', { name: 'Báo cáo' }))
+      fireEvent.click(screen.getByRole('button', { name: /Báo cáo/i }))
       expect(setActiveTab).toHaveBeenCalledWith('reports')
     })
 
@@ -84,9 +84,9 @@ describe('MobileViewsEnhancement Tests', () => {
       })
       render(<MobileBottomNav activeTab="home" setActiveTab={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: 'Con tôi' })).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Điểm danh' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Thiếu nhi' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Con tôi/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Điểm danh/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Thiếu nhi/i })).not.toBeInTheDocument()
     })
 
     it('keeps the reports workspace available to phuta', () => {
@@ -95,7 +95,7 @@ describe('MobileViewsEnhancement Tests', () => {
       })
       render(<MobileBottomNav activeTab={null} setActiveTab={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: 'Báo cáo' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Báo cáo/i })).toBeInTheDocument()
       expect(screen.queryByRole('button', { current: 'page' })).not.toBeInTheDocument()
     })
   })
@@ -234,7 +234,7 @@ describe('MobileViewsEnhancement Tests', () => {
       render(<MobileAttendanceView />)
 
       // Command Deck header exists
-      expect(screen.getByText('Phiên điểm danh')).toBeInTheDocument()
+      expect(screen.getByText(/Phiên Điểm Danh/i)).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /Có mặt tất cả/i })).toBeInTheDocument()
 
       // Search input exists and filters student list

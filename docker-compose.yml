@@ -21,6 +21,7 @@ services:
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:-}
       - BACKUP_DIR=/app/backups
       - DB_PATH=/app/data/parish.db
+      - OPERATIONS_RECEIPT_RESPONSE_RETENTION_DAYS=${OPERATIONS_RECEIPT_RESPONSE_RETENTION_DAYS:-}
       - TRUST_PROXY=true
       # A15 (2026-08-10): getClientIp chỉ tin proxy header khi có flag này.
       # docker-compose có Nginx đứng trước (nginx.conf ghi đè X-Real-IP/X-Forwarded-For)

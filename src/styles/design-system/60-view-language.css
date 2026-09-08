@@ -164,23 +164,23 @@
 .mobile-page-header__title {
   margin: 0;
   color: var(--color-text-main);
-  font-size: 14px;
-  font-weight: 750;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .mobile-page-header--brand .mobile-page-header__title { color: #FFFFFF; }
 
 .mobile-page-header__description {
-  margin: 1px 0 0;
+  margin: 2px 0 0;
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.3;
 }
 
-.mobile-page-header--brand .mobile-page-header__description { color: rgba(255, 255, 255, 0.76); }
+.mobile-page-header--brand .mobile-page-header__description { color: rgba(255, 255, 255, 0.82); }
 
 .mobile-page-header__actions {
   position: relative;
@@ -306,29 +306,25 @@
 .attendance-session-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
-  gap: 8px;
+  gap: 10px 8px;
 }
 
 .attendance-field {
-  position: relative;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   min-width: 0;
 }
 
 .attendance-field > span {
-  position: absolute;
-  top: 5px;
-  left: 11px;
-  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: var(--color-text-secondary);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  pointer-events: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
 }
 
 .attendance-field .form-input,
@@ -336,11 +332,10 @@
   width: 100%;
   height: 40px;
   min-height: 40px;
-  padding-top: 13px;
-  padding-bottom: 2px;
+  padding: 0 10px;
   border-radius: var(--radius-md);
-  font-size: 16px;
-  font-weight: 650;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .attendance-field--class { grid-column: 1 / -1; }
@@ -1040,8 +1035,8 @@
 
 .subpage-header__icon {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -1051,14 +1046,14 @@
 }
 
 .subpage-header__icon svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .subpage-header__eyebrow {
   margin: 0 0 1px;
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1068,17 +1063,18 @@
 .subpage-header__title {
   margin: 0;
   color: var(--color-parish-primary);
-  font-size: 13.5px;
-  font-weight: 800;
-  line-height: 1.2;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
 }
 
 .subpage-header__meta {
   margin: 1.5px 0 0;
   color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: 550;
-  line-height: 1.2;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .subpage-header__badge {
@@ -1095,16 +1091,16 @@
 
 .subpage-header__btn {
   display: inline-flex;
-  height: 30px;
-  min-height: 30px;
+  height: 32px;
+  min-height: 32px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: background-color var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out), transform var(--motion-fast) var(--motion-ease-out);
@@ -1143,8 +1139,8 @@
 }
 
 .subpage-header__btn--icon-only {
-  width: 30px;
-  min-width: 30px;
+  width: 32px;
+  min-width: 32px;
   padding: 0;
 }
 
@@ -1170,15 +1166,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
-  min-height: 24px;
+  height: 26px;
+  min-height: 26px;
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: calc(var(--radius-sm) - 2px);
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: background-color var(--motion-fast) var(--motion-ease-out),

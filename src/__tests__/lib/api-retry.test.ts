@@ -39,6 +39,14 @@ describe('A12 — method-aware retry (api request)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('Operations list keeps pagination metadata for load-more instead of stripping the envelope', async () => {
+    const envelope = { success: true, data: [], meta: { page: 2, limit: 25, total: 26, totalPages: 2 }, error: null }
+    fetchMock.mockResolvedValueOnce(fakeResponse(200, envelope))
+
+    await expect(api.getEvents(2, 25)).resolves.toEqual(envelope)
+    expect(fetchMock.mock.calls[0][0]).toContain('/operations/events?page=2&limit=25')
+  })
+
   it('discards an old-session response that resolves after logout', async () => {
     let resolveFetch!: (response: ReturnType<typeof fakeResponse>) => void
     fetchMock.mockImplementationOnce(() => new Promise(resolve => { resolveFetch = resolve }))
@@ -71,6 +79,18 @@ describe('A12 — method-aware retry (api request)', () => {
     const key2 = JSON.parse(fetchMock.mock.calls[1][1].body).idempotencyKey
     expect(key1).toBeTruthy()
     expect(key1).toBe(key2)
+  })
+
+  it('Operations POST retries with one stable header idempotency key', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('response lost')).mockResolvedValueOnce(fakeResponse(201, { success: true, data: { id: 'OPS-1', parishId: 'p-1' } }))
+    const pending = api.createEvent({ title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T09:00:00Z', timezone: 'Asia/Ho_Chi_Minh' })
+    await vi.advanceTimersByTimeAsync(1000)
+    await expect(pending).resolves.toMatchObject({ id: 'OPS-1' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const first = fetchMock.mock.calls[0][1].headers['Idempotency-Key']
+    const second = fetchMock.mock.calls[1][1].headers['Idempotency-Key']
+    expect(first).toBeTruthy()
+    expect(second).toBe(first)
   })
 
   it('EXAM-CONTINUOUS-P0: save result retry giữ nguyên header và per-item mutation', async () => {

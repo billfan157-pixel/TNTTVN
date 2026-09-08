@@ -1,6 +1,7 @@
 import { useNoticeStore } from '../../stores/noticeStore';
 import { NoticeModal } from '../../components/common/NoticeModal';
 import { PageHeader } from '../common/PageHeader';
+import { DesktopAppShell } from './DesktopAppShell';
 import { EmptyState } from '../../components/common/StateFeedback';
 import { Bell, AlertCircle, Calendar, User, Plus } from 'lucide-react';
 import { formatDateVi } from '../../utils/formatDate';
@@ -24,7 +25,7 @@ export function DesktopNotices() {
   const [editingNotice, setEditingNotice] = useState<import('../../types').ParishNotice | null>(null);
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <DesktopAppShell width="wide">
       {/* Header */}
       <PageHeader
         icon={<Bell size={20} />}
@@ -132,6 +133,6 @@ export function DesktopNotices() {
         onClose={() => { setShowModal(false); setEditingNotice(null); }}
         noticeToEdit={editingNotice}
       />
-    </div>
+    </DesktopAppShell>
   );
 }

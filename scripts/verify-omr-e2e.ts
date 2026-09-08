@@ -19,7 +19,6 @@ const dbDir = mkdtempSync(join(tmpdir(), 'omr-e2e-'))
 process.env.DB_PATH = join(dbDir, 'parish-e2e.db')
 process.env.PORT = '8897'
 process.env.JWT_SECRET = 'omr-e2e-secret-key-0123456789abcdef'
-process.env.TELEGRAM_BOT_TOKEN = ''
 process.env.OPS_TOKEN = ''
 
 const BASE = 'http://localhost:8897'

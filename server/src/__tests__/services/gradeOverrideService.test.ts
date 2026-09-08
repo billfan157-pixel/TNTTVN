@@ -145,7 +145,7 @@ describe('Grade Override Service & Outbox Transactions', () => {
     expect(batchRes[0].status).toBe('restored')
   })
 
-  it('upsertGrade manual path enqueues GradeOverrideCreated via notificationQueue (Phase 2 convergence)', async () => {
+  it('upsertGrade manual path keeps the override and audit without external delivery', async () => {
     await upsertGrade(
       {
         studentId: testStudentId,
@@ -164,15 +164,9 @@ describe('Grade Override Service & Outbox Transactions', () => {
       null
     )
 
-    // Phase 2: không còn outbox_messages — thông báo đi qua notifications
-    // (durable queue duy nhất), audit OVERRIDE_GRADE trong tx là trail chính.
+    // Telegram is retired; audit OVERRIDE_GRADE in the transaction is the trail.
     const rows = await db.select().from(notifications).where(eq(notifications.parishId, testParish))
-    expect(rows.length).toBe(1)
-    expect(rows[0].type).toBe('telegram')
-    expect(rows[0].message).toContain('Điểm thủ công đã lưu')
-    expect(rows[0].message).toContain('scoreOral')
-    // escapeMarkdown của templateEngine escape dấu chấm (telegram MarkdownV2).
-    expect(rows[0].message).toContain('8\\.5')
+    expect(rows).toHaveLength(0)
 
     const ov = await db.select().from(gradeOverrides).where(eq(gradeOverrides.gradeId, testGradeId))
     expect(ov.length).toBe(1)

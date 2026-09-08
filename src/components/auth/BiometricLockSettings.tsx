@@ -26,7 +26,7 @@ export function BiometricLockSettings() {
         <span className="w-8 h-8 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
           <Fingerprint className="w-4 h-4" aria-hidden="true" />
         </span>
-        <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Khóa Sinh Trắc Học</h2>
+        <h2 className="text-sm font-bold text-text-main tracking-wide m-0">Khóa Sinh Trắc Học</h2>
       </div>
 
       <div className="flex items-start gap-3">

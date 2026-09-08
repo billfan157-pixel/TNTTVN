@@ -66,7 +66,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     const parentHome: SidebarItem[] = canRoleAccessRoute('/parent', role)
       ? [
           { id: 'parent', label: 'Con Của Tôi', icon: HeartHandshake },
-          { id: 'feedback', label: 'Thư góp ý', icon: MessageSquareText },
+          { id: 'feedback', label: 'Thư Góp Ý', icon: MessageSquareText },
         ]
       : [];
 
@@ -79,21 +79,21 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     ];
 
     const organization: SidebarItem[] = [
-      { id: 'parish-home', label: 'Tổng quan Xứ đoàn', icon: LayoutDashboard },
-      { id: 'parish-profile', label: 'Hồ sơ Xứ đoàn', icon: Landmark },
-      { id: 'catechists', label: 'Giáo lý viên', icon: UserCheck },
-      { id: 'calendar', label: 'Lịch phụng vụ', icon: CalendarClock },
-      { id: 'notices', label: 'Thông báo', icon: Bell },
-      { id: 'feedback', label: 'Thư góp ý', icon: MessageSquareText },
+      { id: 'parish-home', label: 'Tổng Quan Xứ Đoàn', icon: LayoutDashboard },
+      { id: 'parish-profile', label: 'Hồ Sơ Xứ Đoàn', icon: Landmark },
+      { id: 'catechists', label: 'Giáo Lý Viên', icon: UserCheck },
+      { id: 'calendar', label: 'Lịch Phụng Vụ', icon: CalendarClock },
+      { id: 'notices', label: 'Thông Báo', icon: Bell },
+      { id: 'feedback', label: 'Thư Góp Ý', icon: MessageSquareText },
     ];
 
     const organizationGovernance: SidebarItem[] = role === 'admin' ? [
-      { id: 'finances', label: 'Quỹ & thu chi', icon: Wallet },
+      { id: 'finances', label: 'Quỹ & Thu Chi', icon: Wallet },
     ] : [];
 
     const platformGovernance: SidebarItem[] = role === 'admin' ? [
-      { id: 'management', label: 'Quản lý hệ thống', icon: ShieldCheck },
-      { id: 'audit-logs', label: 'Nhật ký', icon: FileText },
+      { id: 'management', label: 'Quản Lý Hệ Thống', icon: ShieldCheck },
+      { id: 'audit-logs', label: 'Nhật Ký', icon: FileText },
     ] : [];
 
     if (activeWorkspace === 'parent') {

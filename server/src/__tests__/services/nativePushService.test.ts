@@ -24,6 +24,8 @@ const parishB = `native-push-b-${suffix}`
 const userA1 = `native-user-a1-${suffix}`
 const userA2 = `native-user-a2-${suffix}`
 const userB = `native-user-b-${suffix}`
+const lockedUser = `native-user-locked-${suffix}`
+const deletedUser = `native-user-deleted-${suffix}`
 
 async function insertToken(id: string, installationId: string, platform: 'android' | 'ios', token: string, userId: string, parishId: string) {
   await db.insert(nativePushTokens).values({ id, installationId, platform, token, userId, parishId })
@@ -34,6 +36,8 @@ describe('nativePushService — targeting, tenant isolation and dead-token clean
     await db.insert(users).values([
       { id: userA1, username: `native_a1_${suffix}`, passwordHash: 'hash', fullName: 'Native A1', role: 'phuhuynh', parishId: parishA },
       { id: userA2, username: `native_a2_${suffix}`, passwordHash: 'hash', fullName: 'Native A2', role: 'phuhuynh', parishId: parishA },
+      { id: lockedUser, username: `native_locked_${suffix}`, passwordHash: 'hash', fullName: 'Native Locked', role: 'phuhuynh', parishId: parishA, status: 'LOCKED' },
+      { id: deletedUser, username: `native_deleted_${suffix}`, passwordHash: 'hash', fullName: 'Native Deleted', role: 'phuhuynh', parishId: parishA, deletedAt: new Date().toISOString() },
       { id: userB, username: `native_b_${suffix}`, passwordHash: 'hash', fullName: 'Native B', role: 'phuhuynh', parishId: parishB },
     ])
   })
@@ -86,5 +90,18 @@ describe('nativePushService — targeting, tenant isolation and dead-token clean
     expect(await db.select().from(nativePushTokens).where(and(eq(nativePushTokens.parishId, parishA), eq(nativePushTokens.token, dead)))).toHaveLength(0)
     expect(await db.select().from(nativePushTokens).where(eq(nativePushTokens.token, alive))).toHaveLength(1)
     expect(await db.select().from(nativePushTokens).where(eq(nativePushTokens.token, otherParish))).toHaveLength(1)
+  })
+
+  it('broadcast bỏ qua token của account không còn ACTIVE', async () => {
+    await insertToken(`npt-active-${suffix}`, `installation_active_${suffix}`, 'android', `token-active-${suffix}`, userA1, parishA)
+    await insertToken(`npt-locked-${suffix}`, `installation_locked_${suffix}`, 'android', `token-locked-${suffix}`, lockedUser, parishA)
+    await insertToken(`npt-deleted-${suffix}`, `installation_deleted_${suffix}`, 'android', `token-deleted-${suffix}`, deletedUser, parishA)
+    providers.fcm.mockResolvedValue({ sent: 1, failed: 0, deadTokens: [] })
+
+    const { sendNativePushToParish } = await import('../../services/nativePushService.js')
+    const result = await sendNativePushToParish(parishA, { title: 'T', body: 'B' })
+
+    expect(providers.fcm).toHaveBeenCalledWith([`token-active-${suffix}`], expect.any(Object))
+    expect(result).toMatchObject({ sent: 1, total: 1 })
   })
 })

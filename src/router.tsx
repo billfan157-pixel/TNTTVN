@@ -30,6 +30,7 @@ const CalendarPage = lazyWithRetry(() => import('./pages/CalendarPage'))
 const FinancePage = lazyWithRetry(() => import('./pages/FinancePage'))
 const ParishProfilePage = lazyWithRetry(() => import('./pages/ParishProfilePage'))
 const OrganizationDashboardPage = lazyWithRetry(() => import('./pages/OrganizationDashboardPage'))
+const OperationsPage = lazyWithRetry(() => import('./pages/OperationsPage'))
 const FeedbackPage = lazyWithRetry(() => import('./pages/FeedbackPage'))
 
 const patchedViewTransitionDocuments = new WeakSet<Document>()
@@ -327,6 +328,17 @@ const calendarRoute = createRoute({
   ),
 })
 
+const operationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/operations',
+  beforeLoad: requireRouteAccess('/operations'),
+  component: () => (
+    <PageSuspense>
+      <OperationsPage />
+    </PageSuspense>
+  ),
+})
+
 const parishProfileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/parish-profile',
@@ -448,6 +460,7 @@ const routeTree = rootRoute.addChildren([
   parentRoute,
   leaveRequestsRoute,
   calendarRoute,
+  operationsRoute,
   organizationDashboardRoute,
   parishProfileRoute,
   verifyRoute,

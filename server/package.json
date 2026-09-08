@@ -29,7 +29,6 @@
     "@sentry/node": "^10.70.0",
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.45.2",
-    "grammy": "^1.45.1",
     "hono": "^4.13.5",
     "jsonwebtoken": "^9.0.2",
     "puppeteer": "^25.6.0",

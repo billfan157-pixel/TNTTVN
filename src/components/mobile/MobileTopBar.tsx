@@ -107,7 +107,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
             ) : pendingCount > 0 ? (
               <div role="status" className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 relative" title={`${pendingCount} thay đổi chưa đồng bộ`} aria-label={`${pendingCount} thay đổi chưa đồng bộ`}>
                 <WifiOff aria-hidden="true" size={16} />
-                <span aria-hidden="true" className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-slate-950 rounded-full text-[9px] font-bold flex items-center justify-center">
+                <span aria-hidden="true" className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 rounded-full text-[10px] font-bold flex items-center justify-center">
                   {pendingCount}
                 </span>
               </div>
@@ -208,7 +208,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
                       <MessageSquareText size={17} className="text-amber-300" />
                     </span>
                     <span className="mobile-control-tile__content">
-                      <strong className="mobile-control-tile__title">Thư góp ý</strong>
+                      <strong className="mobile-control-tile__title">Thư Góp Ý</strong>
                       <span className="mobile-control-tile__desc">Gửi hoặc xem thư</span>
                     </span>
                   </button>
@@ -224,7 +224,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
                       {theme === 'dark' ? <Sun size={17} className="text-amber-300" /> : <Moon size={17} className="text-sky-300" />}
                     </span>
                     <span className="mobile-control-tile__content">
-                      <strong className="mobile-control-tile__title">Giao diện</strong>
+                      <strong className="mobile-control-tile__title">Giao Diện</strong>
                       <span className="mobile-control-tile__desc">{theme === 'dark' ? 'Chế độ Tối' : 'Chế độ Sáng'}</span>
                     </span>
                   </button>
@@ -242,7 +242,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
                       <Activity size={17} className="text-emerald-300" />
                     </span>
                     <span className="mobile-control-tile__content">
-                      <strong className="mobile-control-tile__title">Chẩn đoán</strong>
+                      <strong className="mobile-control-tile__title">Chẩn Đoán</strong>
                       <span className="mobile-control-tile__desc">Hệ thống & DB</span>
                     </span>
                   </button>

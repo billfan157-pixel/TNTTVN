@@ -94,7 +94,6 @@ describe('Phase 3 — domain dependency gate', () => {
       'stopSundayReminderScheduler()',
       'stopNotificationQueue()',
       'closeBrowser()',
-      'stopTelegramBot()',
     ]) {
       expect(source).toContain(stopCall)
     }

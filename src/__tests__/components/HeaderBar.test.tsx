@@ -91,7 +91,7 @@ describe('HeaderBar Component', () => {
   it('renders the header with title', () => {
     render(<HeaderBar />)
     expect(screen.getByText('Catevia')).toBeDefined()
-    expect(screen.getByText('Thiếu nhi & Học vụ')).toBeDefined()
+    expect(screen.getByText(/Thiếu nhi & Học vụ/i)).toBeDefined()
   })
 
   it('does not render duplicate page-level search input', () => {

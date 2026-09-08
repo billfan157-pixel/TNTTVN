@@ -32,11 +32,17 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
 }) => {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
   const { dialogRef: modalRef, titleId } = useAccessibleDialog(isOpen, onCancel)
 
   useEffect(() => {
-    if (isOpen) confirmRef.current?.focus()
-  }, [isOpen])
+    if (!isOpen) return
+    // UX-SAFE-1 (2026-09-09): hành động phá hủy (variant="danger") KHÔNG được
+    // auto-focus vào nút Xác nhận/Xóa — Enter/Space vô tình sẽ xóa dữ liệu ngay.
+    // Focus mặc định vào nút Hủy; chỉ focus nút xác nhận khi không phá hủy.
+    if (variant === 'danger' && showCancel) cancelRef.current?.focus()
+    else confirmRef.current?.focus()
+  }, [isOpen, variant, showCancel])
 
   if (!isOpen) return null
 
@@ -96,6 +102,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           <div className="flex gap-2.5 justify-end">
             {showCancel && (
               <Button
+                ref={cancelRef}
                 onClick={onCancel}
                 variant="secondary"
               >

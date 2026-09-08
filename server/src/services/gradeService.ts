@@ -9,7 +9,6 @@ import { SCORE_FIELDS, buildSourceMapping } from '../domain/ScoreFields.js'
 import { drizzleGradeRepository } from '../repositories/DrizzleGradeRepository.js'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../utils/academicYear.js'
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
-import { notifyGradeOverride } from './smartNotifications.js'
 import { VersionConflictError } from '../domain/errors.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 
@@ -114,7 +113,6 @@ export async function upsertGrade(input: GradeData, userId: string, parishId: st
   // Phase 2 (outbox convergence): manual entries thuần theo data (không DB) để
   // notify post-commit — chỉ khi service sở hữu tx (externalTx thì caller
   // commit, không notify ở đây để tránh phantom alert khi rollback).
-  const manualEntriesForNotice = externalTx ? [] : collectManualOverrideEntries(input)
   const executeFn = async (tx: DbTransaction) => {
     const data = { ...input }
     // Get current policy version for audit trail
@@ -398,18 +396,7 @@ export async function upsertGrade(input: GradeData, userId: string, parishId: st
   if (externalTx) {
     return executeFn(externalTx)
   }
-  const result = await runDbTransaction(executeFn)
-  // Phase 2 (outbox convergence): post-commit qua notificationQueue (precedent
-  // noticeService). Không throw — lỗi đã catch trong notify.
-  for (const entry of manualEntriesForNotice) {
-    await notifyGradeOverride(parishId, {
-      studentId: input.studentId,
-      scoreField: entry.scoreField,
-      manualValue: entry.manualValue,
-      reasonCode: 'TeacherAdjustment',
-    })
-  }
-  return result
+  return runDbTransaction(executeFn)
 }
 
 // ADR-028 (2026-08-12): Undo import điểm dựa trên audit_logs làm nguồn restore.

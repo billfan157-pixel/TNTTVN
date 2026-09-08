@@ -87,7 +87,7 @@ jobs:
         run: npm run lint:ds
 
   e2e-tests:
-    name: Playwright E2E (chromium)
+    name: Playwright E2E (chromium + webkit)
     runs-on: ubuntu-latest
     # QUALITY-GATE-1 (2026-08-24): E2E chỉ chạy khi unit/typecheck/build đã xanh —
     # trước đây chạy song song nên unit test đỏ vẫn tốn tài nguyên chạy E2E.
@@ -113,8 +113,8 @@ jobs:
       - name: Install Dependencies
         run: npm ci --allow-remote=all
 
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium --with-deps
+      - name: Install Playwright Chromium + WebKit
+        run: npx playwright install chromium webkit --with-deps
 
       - name: Run Critical Business E2E Tests
         if: github.event_name == 'pull_request'

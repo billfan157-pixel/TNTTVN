@@ -1264,7 +1264,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
                         className={`flex flex-col items-center justify-center p-1 rounded border text-[11px] font-bold cursor-pointer hover:ring-2 hover:ring-parish-primary/40 transition-all ${bgClass}`}
                         title={title}
                       >
-                        <span className="text-[9px] text-text-muted">câu {q.questionIndex}</span>
+                        <span className="text-[10px] text-text-muted">câu {q.questionIndex}</span>
                         <span className="font-black text-xs">
                           {needsReview ? '⚠' : isBlank ? '—' : q.selectedAnswer || '—'}
                         </span>
@@ -1558,7 +1558,7 @@ const SheetAlignmentGuide: React.FC<{
           </span>
           <div className="absolute inset-x-0 -bottom-20 rounded-lg bg-black/80 px-3 py-2 text-center">
             <p className="text-[11px] font-black text-white">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Đưa riêng khung đáp án vào vùng sáng'}</p>
-            <p className="mt-1 text-[9px] text-emerald-200">Giữ đủ 4 ô đen trong khung; không cần đưa phần câu hỏi bên dưới vào vùng quét</p>
+            <p className="mt-1 text-[10px] text-emerald-200">Giữ đủ 4 ô đen trong khung; không cần đưa phần câu hỏi bên dưới vào vùng quét</p>
           </div>
         </div>
       </div>
@@ -1578,7 +1578,7 @@ const SheetAlignmentGuide: React.FC<{
         ))}
         <div className="absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1.5 text-center">
           <p className="text-[10px] font-bold text-white">{isMcGradedExamType(examType) ? 'Giữ trọn phiếu A4 và căn đủ 4 ô đen' : 'Căn 4 chấm xanh vào 4 ô đen trên phiếu'}</p>
-          <p className="mt-0.5 text-[9px] text-emerald-200">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Mã đã đọc, đang xác nhận OMR'}</p>
+          <p className="mt-0.5 text-[10px] text-emerald-200">{skipIdentityCode ? 'Căn xong rồi bấm “Chụp & chấm”' : 'Bước 2/2 · Mã đã đọc, đang xác nhận OMR'}</p>
         </div>
       </div>
     </div>

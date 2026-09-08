@@ -20,7 +20,7 @@ const snapshot: ParishProfileSnapshot = {
     sortOrder: 0, isActive: true, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
   }],
   terms: [{
-    id: 'PST-1', parishId: 'gia-ton', personId: 'PPE-1', unitId: 'POU-1', positionTitle: 'Xứ đoàn trưởng', rankTitle: 'Huynh trưởng cấp III',
+    id: 'PST-1', parishId: 'gia-ton', personId: 'PPE-1', unitId: 'POU-1', positionTitle: 'Xứ đoàn trưởng', positionCode: 'PARISH_LEADER', rankTitle: 'Huynh trưởng cấp III',
     startDate: '2024-01-01', endDate: null, notes: null, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
   }],
   records: [
@@ -46,9 +46,9 @@ describe('ParishProfilePage', () => {
     expect(screen.getAllByRole('tab')).toHaveLength(7)
     expect(screen.getByText('Cột mốc khai sinh Xứ đoàn.')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('tab', { name: /Hoạt động/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Hoạt động/i }))
     expect(screen.getByText('Trại hè 2026')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: /Cơ cấu/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Cơ cấu/i }))
     expect(screen.getAllByText('Ban Trị Sự')).toHaveLength(2)
     expect(screen.getByText(/Xứ đoàn trưởng/)).toBeTruthy()
   })
@@ -110,7 +110,7 @@ describe('ParishProfilePage', () => {
     })
 
     render(<ParishProfilePage />)
-    fireEvent.click(await screen.findByRole('tab', { name: /Kho tư liệu/ }))
+    fireEvent.click(await screen.findByRole('tab', { name: /Kho tư liệu/i }))
 
     expect(screen.getByText('Ảnh Bế mạc năm học')).toBeTruthy()
     expect(screen.getByText('Ảnh Khai giảng năm học')).toBeTruthy()
@@ -140,11 +140,11 @@ describe('ParishProfilePage', () => {
     const uploadSpy = vi.spyOn(api.parishProfile, 'uploadAsset').mockResolvedValue({} as any)
 
     render(<ParishProfilePage />)
-    fireEvent.click(await screen.findByRole('tab', { name: /Kho tư liệu/ }))
+    fireEvent.click(await screen.findByRole('tab', { name: /Kho tư liệu/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Thêm tư liệu' }))
 
     // Modal opens
-    expect(await screen.findByRole('heading', { name: 'Tư liệu Xứ đoàn' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: /Tư liệu Xứ đoàn/i })).toBeTruthy()
 
     // File input with multiple attribute exists
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement

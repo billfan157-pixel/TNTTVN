@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, grades, semesterLocks, leaveRequests, attendance, telegramLinks, refreshTokens } from '../db/schema.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, grades, semesterLocks, leaveRequests, attendance, refreshTokens } from '../db/schema.js'
 import { generateTokens, getSuperAdminId } from '../middleware/auth.js'
 import auth from '../routes/auth.js'
 import gradesRouter from '../routes/grades.js'
@@ -21,7 +21,6 @@ import { getAttendance } from '../services/attendanceService.js'
 import usersRouter from '../routes/users.js'
 import examsRouter from '../routes/exams.js'
 import { enqueueNotification } from '../services/notificationQueue.js'
-import { getTelegramLinkForChat } from '../services/telegramLinkService.js'
 
 vi.mock('../services/notificationQueue.js', () => ({ enqueueNotification: vi.fn().mockResolvedValue(undefined) }))
 
@@ -158,7 +157,7 @@ describe('Auth audit remediation: server invariants', () => {
     } finally { spy.mockRestore() }
   })
 
-  it('D3/H5: unresolved recipients do not fall back to a global Telegram chat or count as sent', async () => {
+  it('D3/H5: unresolved recipients do not fall back to a broad app-push audience or count as sent', async () => {
     vi.mocked(enqueueNotification).mockClear()
     await db.update(students).set({ parentPhone: '0900999999' }).where(and(eq(students.id, 'moved'), eq(students.parishId, A)))
     const response = await request('/api/notifications/smart/report-cards', token('admin', 'admin'), { students: [{
@@ -267,16 +266,6 @@ describe('Auth audit remediation: server invariants', () => {
     expect((await request('/api/auth/me', token(getSuperAdminId(), 'phuhuynh', B), undefined, 'GET')).status).toBe(401)
     await db.update(users).set({ role: 'admin' }).where(and(eq(users.id, getSuperAdminId()), eq(users.parishId, B)))
     expect((await request('/api/auth/me', token(getSuperAdminId(), 'admin', B), undefined, 'GET')).status).toBe(401)
-  })
-
-  it('D7: Telegram status join returns the linked parish parent name for a shared user ID', async () => {
-    await db.insert(users).values([
-      { id: 'telegram-shared', parishId: A, username: 'telegram-shared', fullName: 'Other parish synthetic name', role: 'phuhuynh', passwordHash: 'unused' },
-      { id: 'telegram-shared', parishId: B, username: 'telegram-shared', fullName: 'Linked parish synthetic name', role: 'phuhuynh', passwordHash: 'unused' },
-    ])
-    await db.insert(telegramLinks).values({ id: 'telegram-link', parishId: B, userId: 'telegram-shared', chatId: 'synthetic-chat', telegramUserId: 'synthetic-user', status: 'ACTIVE', notificationsEnabled: 1 })
-    const result = await getTelegramLinkForChat('synthetic-chat')
-    expect(result).toMatchObject({ parishId: B, fullName: 'Linked parish synthetic name' })
   })
 
   it('D8: login error body does not distinguish a real parent account from a nonexistent one', async () => {

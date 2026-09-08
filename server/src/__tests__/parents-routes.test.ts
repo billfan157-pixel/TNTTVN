@@ -91,4 +91,21 @@ describe('Server Parents Route (Cổng Phụ Huynh) Tests', () => {
     const body = (await res.json()) as any
     expect(body.data).toEqual([])
   })
+
+  it.each([
+    ['POST', '/telegram/link-token'],
+    ['GET', '/telegram/status'],
+    ['POST', '/telegram/notifications'],
+    ['DELETE', '/telegram/link'],
+  ] as const)('keeps the retired Telegram contract authenticated and returns 410 (%s %s)', async (method, path) => {
+    const res = await parentsApp.request(path, { method, headers: parentHeaders(parentId) })
+    expect(res.status).toBe(410)
+    const body = (await res.json()) as any
+    expect(body.error).toMatchObject({ code: 'CHANNEL_RETIRED' })
+  })
+
+  it('keeps retired Telegram endpoints fail-closed for non-parent roles', async () => {
+    const res = await parentsApp.request('/telegram/status', { headers: staffHeaders() })
+    expect(res.status).toBe(403)
+  })
 })

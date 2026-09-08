@@ -27,6 +27,7 @@ import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import type { LiturgicalDay } from '../../types/liturgical'
 import type { ParishEvent } from '../../stores/parishEventStore'
 import { PageHeader } from '../common/PageHeader'
+import { DesktopAppShell } from './DesktopAppShell'
 import { useParishEventStore } from '../../stores/parishEventStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useToastStore } from '../../stores/toastStore'
@@ -225,7 +226,7 @@ export const DesktopCalendarView: React.FC = () => {
   const dayHeaders = ['Chúa Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy']
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <DesktopAppShell width="full">
       {confirmDialog}
       {/* Header Bar */}
       <PageHeader
@@ -358,7 +359,7 @@ export const DesktopCalendarView: React.FC = () => {
                     </span>
 
                     {dayItem.isHolyDayOfObligation && (
-                      <span className="text-[9px] font-black uppercase text-rose-600 mt-0.5 block">
+                      <span className="text-[10px] font-black uppercase text-parish-danger mt-0.5 block">
                         Lễ Buộc
                       </span>
                     )}
@@ -480,9 +481,9 @@ export const DesktopCalendarView: React.FC = () => {
               </div>
 
               {selectedDayParishEvents.length === 0 ? (
-                <p className="text-xs text-text-muted m-0 italic py-2">
+                <div className="py-4 px-3 text-center rounded-xl bg-surface-app border border-surface-border text-xs text-text-muted">
                   Không có sự kiện đặc biệt của xứ đoàn trong ngày này.
-                </p>
+                </div>
               ) : (
                 <div className="flex flex-col gap-1.5">
                   {selectedDayParishEvents.map((ev) => (
@@ -510,7 +511,7 @@ export const DesktopCalendarView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleDeleteEvent(ev)}
-                              className="p-1 rounded-md text-text-muted hover:text-rose-600 hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+                              className="p-1 rounded-md text-text-muted hover:text-parish-danger hover:bg-parish-danger-bg transition-colors border border-transparent hover:border-parish-danger/30 cursor-pointer"
                               title="Xóa sự kiện"
                             >
                               <Trash2 size={12} />
@@ -774,6 +775,6 @@ export const DesktopCalendarView: React.FC = () => {
             </form>
         </ModalShell>
       )}
-    </div>
+    </DesktopAppShell>
   )
 }

@@ -125,7 +125,7 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-5 text-sm text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải yêu cầu...</div>
         ) : loadError ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-600">
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-parish-danger/30 bg-parish-danger-bg p-3 text-sm text-parish-danger">
             <span>{loadError}</span>
             <Button type="button" variant="secondary" size="sm" onClick={() => void loadRequests()}>Thử lại</Button>
           </div>
@@ -167,15 +167,15 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
         >
           {credential ? (
             <div className="space-y-4">
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-main">
-                <div className="mb-1 flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-5 w-5" /> Đã cấp mật khẩu tạm</div>
+              <div className="rounded-xl border border-parish-success/30 bg-parish-success-bg p-3 text-sm text-text-main">
+                <div className="mb-1 flex items-center gap-2 font-bold text-parish-success"><CheckCircle2 className="h-5 w-5" /> Đã cấp mật khẩu tạm</div>
                 Mọi phiên cũ đã bị thu hồi. Phụ huynh bắt buộc đổi mật khẩu sau khi đăng nhập.
               </div>
               <div className="rounded-xl border border-surface-border bg-surface-hover p-4 text-center">
                 <div className="text-xs text-text-muted">Mật khẩu chỉ hiển thị một lần</div>
                 <div className="mt-2 break-all font-mono text-xl font-bold tracking-wider text-parish-primary">{credential.tempPassword}</div>
               </div>
-              {processError && <div role="alert" className="text-xs font-semibold text-rose-600">{processError}</div>}
+              {processError && <div role="alert" className="text-xs font-semibold text-parish-danger">{processError}</div>}
               <Button type="button" variant="secondary" fullWidth onClick={() => void copyCredential()}>
                 {copied ? <CheckCircle2 className="h-4 w-4 text-parish-success" /> : <Copy className="h-4 w-4" />}
                 {copied ? 'Đã sao chép' : 'Sao chép thông tin đăng nhập'}
@@ -184,8 +184,8 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
             </div>
           ) : (
             <form onSubmit={handleReset} className="space-y-4">
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-relaxed text-text-main">
-                <div className="mb-1 flex items-center gap-2 font-bold"><ShieldCheck className="h-4 w-4 text-amber-600" /> Bước xác minh bắt buộc</div>
+              <div className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg p-3 text-xs leading-relaxed text-text-main">
+                <div className="mb-1 flex items-center gap-2 font-bold"><ShieldCheck className="h-4 w-4 text-parish-warning" /> Bước xác minh bắt buộc</div>
                 Chỉ tiếp tục sau khi đã xác minh người yêu cầu qua số điện thoại/kênh liên lạc đã có trong hồ sơ. Phiếu gửi từ màn đăng nhập không phải bằng chứng danh tính.
               </div>
               <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-surface-border p-3 text-sm text-text-main">
@@ -196,7 +196,7 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
                 Mật khẩu hiện tại của Admin
                 <input type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} autoComplete="current-password" required className="form-input-sm mt-1.5 w-full" />
               </label>
-              {processError && <div role="alert" className="flex items-center gap-2 text-xs font-semibold text-rose-600"><AlertCircle className="h-4 w-4" /> {processError}</div>}
+              {processError && <div role="alert" className="flex items-center gap-2 text-xs font-semibold text-parish-danger"><AlertCircle className="h-4 w-4" /> {processError}</div>}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => setSelected(null)}>Hủy</Button>
                 <Button type="submit" variant="primary" loading={processing} loadingLabel="Đang cấp..." disabled={!identityVerified || !adminPassword.trim()}>

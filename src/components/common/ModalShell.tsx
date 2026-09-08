@@ -17,6 +17,8 @@ interface ModalShellProps {
   maxWidth?: string
   /** overlay-click đóng modal (mặc định true) */
   closeOnOverlay?: boolean
+  /** hiển thị nút đóng ✕ ở header (mặc định true, tắt đối với modal bắt buộc) */
+  showCloseButton?: boolean
   /** vùng hành động cố định dưới nội dung cuộn */
   footer?: React.ReactNode
   children: React.ReactNode
@@ -36,6 +38,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
   headerActions,
   maxWidth = '560px',
   closeOnOverlay = true,
+  showCloseButton = true,
   footer,
   children,
 }) => {
@@ -78,14 +81,16 @@ export const ModalShell: React.FC<ModalShellProps> = ({
             </div>
             <div className="modal-content__header-actions flex items-center gap-2 shrink-0">
               {headerActions}
-              <IconButton
-                onClick={onClose}
-                label="Đóng"
-                icon={<span aria-hidden="true">✕</span>}
-                size="sm"
-                variant="ghost"
-                className="mobile-touch-target shrink-0"
-              />
+              {showCloseButton && (
+                <IconButton
+                  onClick={onClose}
+                  label="Đóng"
+                  icon={<span aria-hidden="true">✕</span>}
+                  size="sm"
+                  variant="ghost"
+                  className="mobile-touch-target shrink-0"
+                />
+              )}
             </div>
           </div>
           <div className="modal-content__body">{children}</div>

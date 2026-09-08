@@ -44,12 +44,6 @@ services:
       # ─── Tuỳ chọn ───
       - key: OPS_TOKEN
         sync: false
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_ADMIN_CHAT_ID
-        sync: false
-      - key: TELEGRAM_BOT_USERNAME
-        sync: false
       - key: SENTRY_DSN
         sync: false
       # ─── Native push (ADR-095): FCM Android + APNs iOS ───

@@ -10,7 +10,7 @@ import { Hono } from 'hono'
 import bcrypt from 'bcryptjs'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../../server/src/db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, grades, semesterLocks, leaveRequests, attendance, telegramLinks } from '../../server/src/db/schema.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, grades, semesterLocks, leaveRequests, attendance } from '../../server/src/db/schema.js'
 import { generateTokens, getSuperAdminId } from '../../server/src/middleware/auth.js'
 import auth from '../../server/src/routes/auth.js'
 import gradesRouter from '../../server/src/routes/grades.js'
@@ -22,7 +22,6 @@ import verificationRouter from '../../server/src/routes/verification.js'
 import importRouter from '../../server/src/routes/import.js'
 import { updateUserStatus } from '../../server/src/services/userService.js'
 import { enqueueNotification } from '../../server/src/services/notificationQueue.js'
-import { getTelegramLinkForChat } from '../../server/src/services/telegramLinkService.js'
 
 vi.mock('../../server/src/services/notificationQueue.js', () => ({ enqueueNotification: vi.fn().mockResolvedValue(undefined) }))
 
@@ -150,16 +149,6 @@ describe('Opt-in AUTH audit: passes mean defect reproduced', () => {
   it('D6: superadmin ID collision grants LOCKED exemption to another-tenant parent', async () => {
     expect((await request('/api/auth/me', token('ordinary-locked', 'phuhuynh', B), undefined, 'GET')).status).toBe(401)
     expect((await request('/api/auth/me', token(getSuperAdminId(), 'phuhuynh', B), undefined, 'GET')).status).toBe(200)
-  })
-
-  it('D7: Telegram status join can return a different parish parent name for a shared user ID', async () => {
-    await db.insert(users).values([
-      { id: 'telegram-shared', parishId: A, username: 'telegram-shared', fullName: 'Other parish synthetic name', role: 'phuhuynh', passwordHash: 'unused' },
-      { id: 'telegram-shared', parishId: B, username: 'telegram-shared', fullName: 'Linked parish synthetic name', role: 'phuhuynh', passwordHash: 'unused' },
-    ])
-    await db.insert(telegramLinks).values({ id: 'telegram-link', parishId: B, userId: 'telegram-shared', chatId: 'synthetic-chat', telegramUserId: 'synthetic-user', status: 'ACTIVE', notificationsEnabled: 1 })
-    const result = await getTelegramLinkForChat('synthetic-chat')
-    expect(result).toMatchObject({ parishId: B, fullName: 'Other parish synthetic name' })
   })
 
   it('D8: login error body distinguishes a real parent account from a nonexistent one', async () => {

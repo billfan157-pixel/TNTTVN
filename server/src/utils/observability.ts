@@ -4,11 +4,8 @@ import * as Sentry from '@sentry/node'
  * OBS-2 (2026-08-24): Sentry node SDK — error aggregation phía server.
  *
  * Opt-in qua env (chuẩn ADR-041): thiếu `SENTRY_DSN` → hoàn toàn vô hiệu,
- * zero overhead, hành vi cũ giữ nguyên (console structured log + Telegram alert
- * vẫn là kênh chính — OBS-1). Set `SENTRY_DSN` → bật capture exception toàn cục.
- *
- * Khác kênh Telegram (fire-and-forget, chỉ admin chat): Sentry gom nhóm theo
- * stack trace, giữ context giữa các sự cố, không mất event khi bot chưa config.
+ * zero overhead, vẫn còn structured console logs. Set `SENTRY_DSN` để bật
+ * aggregation theo stack trace mà không gửi request body/header chứa PII.
  */
 
 export interface ObservabilityStatus {

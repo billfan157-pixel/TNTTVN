@@ -432,7 +432,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex-1 overflow-y-auto space-y-2.5 max-h-56 pr-1">
             {kpis.atRiskStudents.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center text-text-muted">
-                <CheckCircle2 size={32} className="text-emerald-500 mb-2 opacity-80" />
+                <CheckCircle2 size={32} className="text-parish-success mb-2 opacity-80" />
                 <p className="text-xs font-bold text-text-main m-0">Không có học sinh nguy cơ</p>
                 <p className="text-[11px] text-text-muted mt-0.5 m-0">Tất cả các em đều đạt mức chuyên cần an toàn</p>
               </div>

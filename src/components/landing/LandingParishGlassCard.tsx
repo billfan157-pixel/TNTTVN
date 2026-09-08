@@ -14,7 +14,7 @@ export function LandingParishGlassCard({ onLogin, isLoggedIn = false }: LandingP
   const displayYear = activeYear.replace('-', '–')
 
   return (
-    <figure className="m-0 relative h-[calc(100vh-4rem)] h-[calc(100dvh-4rem)] min-h-[520px] sm:h-auto sm:min-h-[640px] lg:min-h-[720px] 2xl:min-h-[800px] w-full overflow-hidden border-b border-surface-border shadow-card flex flex-col justify-between p-3.5 sm:p-8 lg:p-12 2xl:p-16 pb-[max(0.875rem,env(safe-area-inset-bottom,0px))] group">
+    <figure className="m-0 relative w-full h-[calc(100vh-4rem)] h-[calc(100dvh-4rem)] min-h-[540px] sm:h-[calc(100vh-4rem)] sm:min-h-[calc(100vh-4rem)] lg:min-h-[calc(100vh-4rem)] 2xl:min-h-[calc(100vh-4rem)] overflow-hidden border-b border-surface-border shadow-card flex flex-col justify-between p-3.5 sm:p-8 lg:p-12 2xl:p-16 pb-[max(0.875rem,env(safe-area-inset-bottom,0px))] group">
       {/* ẢNH TẬP THỂ XỨ ĐOÀN LÀM NỀN TOÀN CẢNH (Full-bleed Hero Background) */}
       <img
         src="/images/xu-doan-tap-the.jpg"
@@ -50,7 +50,7 @@ export function LandingParishGlassCard({ onLogin, isLoggedIn = false }: LandingP
           </p>
           <p className="m-0 text-xs sm:text-sm font-semibold text-white/90 flex items-center justify-center gap-1.5 drop-shadow-sm">
             <Church aria-hidden="true" className="w-4 h-4 shrink-0 text-parish-secondary-light" />
-            <span>Giáo Xứ Gia Tôn — Hạt Gia Kiệm · Giáo Phận Xuân Lộc</span>
+            <span>Giáo Xứ Gia Tôn — Giáo hạt Gia Kiệm · Giáo Phận Xuân Lộc</span>
           </p>
         </div>
 

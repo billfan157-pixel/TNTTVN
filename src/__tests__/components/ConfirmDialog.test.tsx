@@ -106,6 +106,17 @@ describe('ConfirmDialog', () => {
     expect(confirmBtn.style.background).toContain('var(--color-parish-danger)')
   })
 
+  it('UX-SAFE-1: variant="danger" auto-focus vào nút Hủy, không phải nút Xác nhận', () => {
+    render(<ConfirmDialog isOpen={true} message="Xóa?" variant="danger" confirmText="Xóa" cancelText="Hủy" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Hủy' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Xóa' })).not.toHaveFocus()
+  })
+
+  it('UX-SAFE-1: variant non-danger vẫn focus nút Xác nhận như trước', () => {
+    render(<ConfirmDialog isOpen={true} message="OK?" variant="warning" confirmText="Đồng ý" cancelText="Hủy" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Đồng ý' })).toHaveFocus()
+  })
+
   it('stops propagation when clicking inside modal', () => {
     const onCancel = vi.fn()
     render(<ConfirmDialog isOpen={true} message="Test" onConfirm={vi.fn()} onCancel={onCancel} />)

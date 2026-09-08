@@ -32,12 +32,12 @@ const normalize = (value: string) => value.trim() || null
 const MAX_FILE_SIZE = 8 * 1024 * 1024 // 8 MiB
 
 const modalMeta = {
-  profile: { title: 'Thông tin Xứ đoàn', icon: Landmark },
-  person: { title: 'Hồ sơ Huynh trưởng / GLV', icon: UserRound },
-  unit: { title: 'Đơn vị tổ chức', icon: Building2 },
-  term: { title: 'Nhiệm kỳ phục vụ', icon: CalendarRange },
-  record: { title: 'Bản ghi Xứ đoàn', icon: FileClock },
-  asset: { title: 'Tư liệu Xứ đoàn', icon: Archive },
+  profile: { title: 'Thông Tin Xứ Đoàn', icon: Landmark },
+  person: { title: 'Hồ Sơ Huynh Trưởng / GLV', icon: UserRound },
+  unit: { title: 'Đơn Vị Tổ Chức', icon: Building2 },
+  term: { title: 'Nhiệm Kỳ Phục Vụ', icon: CalendarRange },
+  record: { title: 'Bản Ghi Xứ Đoàn', icon: FileClock },
+  asset: { title: 'Tư Liệu Xứ Đoàn', icon: Archive },
 } as const
 
 export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
@@ -66,7 +66,7 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
   const [term, setTerm] = useState({
     personId: termValue?.personId ?? (editor.kind === 'term' ? editor.personId ?? '' : ''),
     unitId: termValue?.unitId ?? (editor.kind === 'term' ? editor.unitId ?? '' : ''),
-    positionTitle: termValue?.positionTitle ?? '', rankTitle: termValue?.rankTitle ?? '',
+    positionTitle: termValue?.positionTitle ?? '', positionCode: termValue?.positionCode ?? '', rankTitle: termValue?.rankTitle ?? '',
     startDate: termValue?.startDate ?? today(), endDate: termValue?.endDate ?? '', notes: termValue?.notes ?? '',
   })
 
@@ -145,6 +145,7 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
     } else if (editor.kind === 'term') {
       const payload = {
         personId: term.personId, unitId: normalize(term.unitId), positionTitle: term.positionTitle,
+        positionCode: (term.positionCode || null) as ParishServiceTerm['positionCode'],
         rankTitle: normalize(term.rankTitle), startDate: term.startDate, endDate: term.endDate || null, notes: normalize(term.notes),
       }
       ok = editor.value ? await store.updateTerm(editor.value.id, payload) : await store.createTerm(payload)
@@ -304,6 +305,7 @@ export function ParishProfileEditorModal({ editor, snapshot, onClose }: Props) {
             <FormField label="Nhân sự" required><Select required value={term.personId} onChange={e => setTerm({ ...term, personId: e.target.value })}><option value="">Chọn nhân sự</option>{snapshot.people.map(item => <option key={item.id} value={item.id}>{item.holyName ? `${item.holyName} ` : ''}{item.fullName}</option>)}</Select></FormField>
             <FormField label="Đơn vị"><Select value={term.unitId} onChange={e => setTerm({ ...term, unitId: e.target.value })}><option value="">Toàn Xứ đoàn</option>{snapshot.units.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></FormField>
             <FormField label="Chức vụ" required><TextInput required maxLength={200} value={term.positionTitle} onChange={e => setTerm({ ...term, positionTitle: e.target.value })} /></FormField>
+            <FormField label="Quyền Operations theo chức vụ"><Select value={term.positionCode ?? ''} onChange={e => setTerm({ ...term, positionCode: e.target.value as Exclude<ParishServiceTerm['positionCode'], null> | '' })}><option value="">Không cấp quyền điều phối</option><option value="PARISH_LEADER">Trưởng Xứ đoàn</option><option value="BRANCH_LEADER">Trưởng ngành</option><option value="COMMITTEE_LEADER">Trưởng ban</option></Select></FormField>
             <FormField label="Cấp bậc"><TextInput maxLength={150} value={term.rankTitle} onChange={e => setTerm({ ...term, rankTitle: e.target.value })} /></FormField>
             <FormField label="Bắt đầu" required><TextInput required type="date" value={term.startDate} onChange={e => setTerm({ ...term, startDate: e.target.value })} /></FormField>
             <FormField label="Kết thúc"><TextInput type="date" min={term.startDate} value={term.endDate} onChange={e => setTerm({ ...term, endDate: e.target.value })} /></FormField>

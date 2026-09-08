@@ -1,3 +1,4 @@
+import { EmptyState } from '../common/StateFeedback';
 import React, { useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
@@ -246,8 +247,11 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
 
   if (promotions.length === 0) {
     return (
-      <div className="bg-surface-card rounded-2xl p-6 border border-surface-border shadow-card">
-        <p className="text-text-muted text-sm">Chưa có dữ liệu để đánh giá thăng tiến.</p>
+      <div className="app-panel overflow-hidden">
+        <EmptyState
+          title="Chưa có dữ liệu thăng tiến"
+          description="Chưa có dữ liệu học viên để đánh giá thăng tiến cho năm học này."
+        />
       </div>
     );
   }

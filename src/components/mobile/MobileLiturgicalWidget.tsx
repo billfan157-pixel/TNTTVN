@@ -41,7 +41,7 @@ export const MobileLiturgicalWidget: React.FC<MobileLiturgicalWidgetProps> = ({ 
           {/* Date tile kiểu icon app lịch */}
           <div className={`shrink-0 w-11 rounded-xl border text-center py-1 ${colorMeta.bgClass} ${colorMeta.borderClass}`}>
             <div className={`text-lg font-black leading-none ${colorMeta.textClass}`}>{dayNumber}</div>
-            <div className={`text-[9px] font-extrabold uppercase leading-none mt-0.5 ${colorMeta.textClass}`}>{monthShort}</div>
+            <div className={`text-[10px] font-extrabold uppercase leading-none mt-0.5 ${colorMeta.textClass}`}>{monthShort}</div>
           </div>
 
           <div className="min-w-0 flex-1">
@@ -62,7 +62,7 @@ export const MobileLiturgicalWidget: React.FC<MobileLiturgicalWidgetProps> = ({ 
           </span>
           <span className="text-[10px] font-bold text-text-secondary">{today.seasonName}</span>
           {today.isHolyDayOfObligation && (
-            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wide badge-danger">Lễ buộc</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide badge-danger">Lễ buộc</span>
           )}
         </div>
 

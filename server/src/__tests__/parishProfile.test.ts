@@ -4,15 +4,17 @@ import { Hono } from 'hono'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { auditLogs, parishEvents, parishPeople, parishRecords, users } from '../db/schema.js'
+import { auditLogs, parishEvents, parishPeople, parishRecords, parishServiceTerms, users } from '../db/schema.js'
 import { generateTokens } from '../middleware/auth.js'
 import parishProfileRouter from '../routes/parishProfile.js'
 import {
   createParishPerson,
   createParishPeople,
   createParishRecord,
+  createParishTerm,
   createParishUnit,
   getParishProfileSnapshot,
+  updateParishTerm,
   updateParishUnit,
 } from '../services/parishProfileService.js'
 import type { MutationContext } from '../types/parishProfile.js'
@@ -145,6 +147,60 @@ describe('ADR-081 parish profile domain boundary', () => {
     )).limit(1)
     expect(audit?.newValue).not.toContain('Tên riêng không được log')
     expect(audit?.newValue).not.toContain('Tiểu sử không được log')
+  })
+
+  it('stores an explicit Operations position code and rejects a code/unit mismatch', async () => {
+    const branch = await createParishUnit({ name: `Ngành quyền ${Date.now()}`, unitType: 'BRANCH', sortOrder: 2, isActive: true }, ctx(PARISH_A))
+    const person = await createParishPerson({ fullName: `Trưởng ngành ${Date.now()}`, serviceStatus: 'ACTIVE', visibility: 'STAFF' }, ctx(PARISH_A))
+
+    await expect(createParishTerm({
+      personId: person.id,
+      unitId: branch.id,
+      positionTitle: 'Trưởng ban ghi nhầm phạm vi',
+      positionCode: 'COMMITTEE_LEADER',
+      startDate: '2026-01-01',
+    }, ctx(PARISH_A))).rejects.toMatchObject({ status: 400, code: 'PARISH_POSITION_SCOPE_MISMATCH' })
+
+    let databaseError: unknown
+    try {
+      await db.insert(parishServiceTerms).values({
+        id: `TERM-MISMATCH-${Date.now()}`,
+        parishId: PARISH_A,
+        personId: person.id,
+        unitId: branch.id,
+        positionTitle: 'Bypass service validation',
+        positionCode: 'COMMITTEE_LEADER',
+        startDate: '2026-01-01',
+        createdBy: adminId,
+        updatedBy: adminId,
+      })
+    } catch (error) {
+      databaseError = error
+    }
+    const databaseErrorChain: string[] = []
+    let currentError = databaseError
+    while (currentError instanceof Error) {
+      databaseErrorChain.push(currentError.message)
+      currentError = currentError.cause
+    }
+    expect(databaseErrorChain.join(' ')).toContain('PARISH_POSITION_SCOPE_MISMATCH')
+
+    const term = await createParishTerm({
+      personId: person.id,
+      unitId: branch.id,
+      positionTitle: 'Phụ trách Ngành Thiếu',
+      positionCode: 'BRANCH_LEADER',
+      startDate: '2026-01-01',
+    }, ctx(PARISH_A))
+    expect(term.positionCode).toBe('BRANCH_LEADER')
+
+    const updated = await updateParishTerm(term.id, {
+      personId: person.id,
+      unitId: branch.id,
+      positionTitle: 'Phụ trách Ngành Thiếu — cập nhật tên hiển thị',
+      startDate: '2026-01-01',
+    }, ctx(PARISH_A))
+    expect(updated.positionCode).toBe('BRANCH_LEADER')
   })
 })
 

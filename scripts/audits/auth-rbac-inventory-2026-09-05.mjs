@@ -65,8 +65,10 @@ for (const mount of index.matchAll(/app\.route\('([^']+)', (\w+)\)/g)) {
       scope = local.startsWith('/report-card') ? 'CLASS_OR_CURRENT_PARENT_CHILD' : local.startsWith('/class-summary') ? 'ASSIGNED_CLASS' : 'CALLER_HTML_ONLY'
       note = 'Read context authorized in tx; parent phone ownership; PDF renderer does not query child data'
     } else if (module === 'parents') {
-      scope = local === '/my-children' ? 'CURRENT_PHONE_CHILDREN' : 'SELF_TELEGRAM_LINK'
-      note = 'Tenant+current user phone; active student; legacy KBA not authority'
+      scope = local === '/my-children' ? 'CURRENT_PHONE_CHILDREN' : 'RETIRED_CHANNEL_TOMBSTONE'
+      note = local === '/my-children'
+        ? 'Tenant+current user phone; active student; legacy KBA not authority'
+        : 'Authenticated parent-only compatibility endpoint returns 410 without reading or mutating channel state'
     } else if (module === 'leaveRequests') {
       scope = method === 'POST' || method === 'GET' && local === '/' ? 'STAFF_CLASS_OR_PARENT_CHILD' : 'REQUEST_SNAPSHOT_CLASS'
       if (local.endsWith('/review')) { allowed = ['admin', 'chunhiem', 'phuta']; note = 'D2: snapshot class used; attendance writes omit semester lock/current student check' }

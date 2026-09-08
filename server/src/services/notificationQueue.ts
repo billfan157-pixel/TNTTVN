@@ -1,8 +1,7 @@
-import { isTelegramEnabled, sendTelegramAlert, sendTelegramInfo } from './telegram.js'
 import { renderTemplate, type TemplateContext } from './templateEngine.js'
-import { sendAppPushToParish, sendAppPushToUsers } from './appPushService.js'
-import { db } from '../db/index.js'
-import { notifications, students, users } from '../db/schema.js'
+import { sendAppPushToUsers } from './appPushService.js'
+import { db, runDbTransaction } from '../db/index.js'
+import { notifications, students, telegramLinks, telegramLinkTokens, users } from '../db/schema.js'
 import { phoneMatchVariants } from '../utils/phone.js'
 import { eq, and, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
@@ -11,7 +10,7 @@ import { assertDeploymentParishScope, getEnforcedDeploymentParishId } from '../u
 
 interface NotificationQueueItem {
   id: string
-  channel: 'telegram' | 'webpush'
+  channel: 'webpush'
   type: 'alert' | 'info' | 'absence' | 'report' | 'reminder'
   template: string
   context: TemplateContext
@@ -22,8 +21,7 @@ interface NotificationQueueItem {
   createdAt: string
   parishId: string
   /** Web push CÓ CHỦ ĐÍCH: chỉ gửi tới subscriptions của các userId này. */
-  webpushUserIds?: string[]
-  telegramUserIds?: string[]
+  webpushUserIds: string[]
   studentId?: string
 }
 
@@ -35,8 +33,20 @@ function isChildNotification(item: Pick<NotificationQueueItem, 'type'>): boolean
 
 /** Never retarget an old rendered item to a new owner. No network in this check. */
 async function currentChildRecipients(item: NotificationQueueItem): Promise<string[]> {
-  const originalIds = item.channel === 'telegram' ? item.telegramUserIds : item.webpushUserIds
-  return getCurrentChildRecipientIds(item.parishId, item.studentId, originalIds)
+  return getCurrentChildRecipientIds(item.parishId, item.studentId, item.webpushUserIds)
+}
+
+/** Revalidate every targeted non-child notification immediately before provider delivery. */
+export async function getCurrentActiveRecipientIds(parishId: string, originalIds: string[] | undefined): Promise<string[]> {
+  if (!originalIds?.length) return []
+  const rows = await db.select({ id: users.id }).from(users).where(and(
+    eq(users.parishId, parishId),
+    inArray(users.id, [...new Set(originalIds)]),
+    eq(users.status, 'ACTIVE'),
+    isNull(users.deletedAt),
+  ))
+  const allowed = new Set(rows.map(row => row.id))
+  return originalIds.filter((id, index) => allowed.has(id) && originalIds.indexOf(id) === index)
 }
 
 /** Shared eligibility for child-sensitive delivery, including non-queued leave reviews. */
@@ -96,6 +106,7 @@ async function ensureRecovered(): Promise<void> {
 export async function initNotificationQueue(): Promise<void> {
   stopping = false
   recovered = true
+  await retireLegacyTelegramChannelData()
   await recoverQueueFromDb()
   void processQueue().catch((error) => console.error('[notificationQueue] initial drain failed:', error))
   if (!workerPollTimer && process.env.NODE_ENV !== 'test') {
@@ -108,6 +119,31 @@ export async function initNotificationQueue(): Promise<void> {
   }
 }
 
+/**
+ * Telegram was retired as a product channel in ADR-111. Keep historical rows,
+ * but revoke live links/tokens and terminalize undelivered Telegram work so a
+ * restore or rolling deployment cannot restart bot delivery.
+ */
+export async function retireLegacyTelegramChannelData(now = new Date()): Promise<void> {
+  const nowIso = now.toISOString()
+  await runDbTransaction(async (tx) => {
+    await tx.update(telegramLinkTokens).set({ consumedAt: nowIso }).where(isNull(telegramLinkTokens.consumedAt))
+    await tx.update(telegramLinks).set({
+      status: 'REVOKED',
+      notificationsEnabled: 0,
+      revokedAt: sql`coalesce(${telegramLinks.revokedAt}, ${nowIso})`,
+      updatedAt: nowIso,
+    }).where(or(eq(telegramLinks.status, 'ACTIVE'), eq(telegramLinks.notificationsEnabled, 1)))
+    await tx.update(notifications).set({
+      status: 'failed',
+      error: 'CHANNEL_RETIRED',
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      nextAttemptAt: null,
+    }).where(and(eq(notifications.type, 'telegram'), eq(notifications.status, 'retrying')))
+  })
+}
+
 export async function recoverQueueFromDb(): Promise<void> {
   try {
     // ADR-016 (S14): Recover ALL parishes' retrying notifications, not just a
@@ -115,6 +151,17 @@ export async function recoverQueueFromDb(): Promise<void> {
     // silently dropped notifications from parishes whose ID didn't match the env.
     const now = new Date().toISOString()
     const deploymentParishId = getEnforcedDeploymentParishId()
+    await db.update(notifications).set({
+      status: 'failed',
+      error: 'CHANNEL_RETIRED',
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      nextAttemptAt: null,
+    }).where(and(
+      eq(notifications.type, 'telegram'),
+      eq(notifications.status, 'retrying'),
+      deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
+    ))
     await db.update(notifications).set({
       status: 'failed',
       error: 'NOTIFICATION_ATTEMPTS_EXHAUSTED',
@@ -128,6 +175,7 @@ export async function recoverQueueFromDb(): Promise<void> {
       deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
     const pending = await db.select().from(notifications).where(and(
+      eq(notifications.type, 'web_push'),
       eq(notifications.status, 'retrying'),
       or(isNull(notifications.nextAttemptAt), lte(notifications.nextAttemptAt, now)),
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
@@ -137,7 +185,7 @@ export async function recoverQueueFromDb(): Promise<void> {
       if (queue.some((queued) => queued.id === row.id && queued.parishId === row.parishId)) continue
       const item: NotificationQueueItem = {
         id: row.id,
-        channel: row.type === 'telegram' ? 'telegram' : 'webpush',
+        channel: 'webpush',
         type: row.deliveryKind === 'alert' || row.deliveryKind === 'info' || row.deliveryKind === 'absence' || row.deliveryKind === 'report' || row.deliveryKind === 'reminder'
           ? row.deliveryKind
           : row.channel === 'report_card' ? 'report' : row.channel === 'reminder' ? 'reminder' : 'absence',
@@ -150,9 +198,9 @@ export async function recoverQueueFromDb(): Promise<void> {
         createdAt: row.createdAt,
         parishId: row.parishId,
         studentId: row.studentId ?? undefined,
-        ...(row.type === 'telegram'
-          ? { telegramUserIds: row.targetUserIds ? (safeParseUserIds(row.targetUserIds) ?? []) : undefined }
-          : { webpushUserIds: row.targetUserIds ? (safeParseUserIds(row.targetUserIds) ?? []) : undefined }),
+        // Durable queue delivery is always explicitly targeted. Historical or
+        // malformed rows without a target fail closed during recipient checks.
+        webpushUserIds: row.targetUserIds ? (safeParseUserIds(row.targetUserIds) ?? []) : [],
       }
       queue.push(item)
     }
@@ -165,13 +213,13 @@ export async function recoverQueueFromDb(): Promise<void> {
 }
 
 export async function enqueueNotification(
-  channel: NotificationQueueItem['channel'],
+  channel: 'webpush',
   type: NotificationQueueItem['type'],
   template: string,
   context: TemplateContext,
   parishId: string,
-  maxRetries: number = MAX_RETRIES,
-  options?: { webpushUserIds?: string[]; telegramUserIds?: string[]; studentId?: string },
+  maxRetries: number | undefined,
+  options: { webpushUserIds: string[]; studentId?: string },
 ): Promise<string> {
   assertDeploymentParishScope(parishId)
   const id = generateId('NOT')
@@ -184,13 +232,12 @@ export async function enqueueNotification(
     context,
     renderedMessage,
     retryCount: 0,
-    maxRetries,
+    maxRetries: maxRetries ?? MAX_RETRIES,
     lastError: null,
     createdAt: new Date().toISOString(),
     parishId,
-    webpushUserIds: options?.webpushUserIds,
-    telegramUserIds: options?.telegramUserIds,
-    studentId: options?.studentId,
+    webpushUserIds: options.webpushUserIds,
+    studentId: options.studentId,
   }
   // ADR-102: persistence is the enqueue acknowledgement. If the process exits
   // after this INSERT but before the in-memory projection is populated, the
@@ -198,10 +245,10 @@ export async function enqueueNotification(
   await db.insert(notifications)
     .values({
       id,
-      type: channel === 'telegram' ? 'telegram' : 'web_push',
+      type: 'web_push',
       channel: type === 'report' ? 'report_card' : type === 'reminder' ? 'reminder' : 'absence',
       deliveryKind: type,
-      status: maxRetries > 0 ? 'retrying' : 'failed',
+      status: item.maxRetries > 0 ? 'retrying' : 'failed',
       recipient: isChildNotification(item) ? 'Parent' : context.parentPhone || context.studentName || 'System',
       studentId: item.studentId ?? null,
       message: renderedMessage,
@@ -209,15 +256,11 @@ export async function enqueueNotification(
       createdAt: item.createdAt,
       parishId,
       attemptCount: 0,
-      maxAttempts: maxRetries,
-      targetUserIds: item.webpushUserIds !== undefined
-        ? JSON.stringify(item.webpushUserIds)
-        : item.telegramUserIds !== undefined
-          ? JSON.stringify(item.telegramUserIds)
-          : null,
+      maxAttempts: item.maxRetries,
+      targetUserIds: JSON.stringify(item.webpushUserIds),
     })
 
-  if (maxRetries <= 0) {
+  if (item.maxRetries <= 0) {
     failedItems.push(item)
     return id
   }
@@ -320,80 +363,49 @@ async function drainQueue(): Promise<void> {
             queue.shift()
             continue
           }
-          if (item.channel === 'telegram') item.telegramUserIds = recipients
-          else item.webpushUserIds = recipients
+          item.webpushUserIds = recipients
+        } else {
+          const recipients = await getCurrentActiveRecipientIds(item.parishId, item.webpushUserIds)
+          if (!recipients.length) {
+            await suppressNotification(item, 'DELIVERY_TARGET_NOT_ACTIVE')
+            queue.shift()
+            continue
+          }
+          item.webpushUserIds = recipients
         }
 
-        if (item.channel === 'telegram') {
-          if (!isTelegramEnabled()) {
-            item.lastError = 'TELEGRAM_PROVIDER_NOT_CONFIGURED'
-            item.retryCount = item.maxRetries
-            await db.update(notifications).set({
-              status: 'failed',
-              error: item.lastError,
-              leaseOwner: null,
-              leaseExpiresAt: null,
-              nextAttemptAt: null,
-            }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
-            rememberFailed(item)
-            queue.shift()
-            continue
-          }
-          if (item.telegramUserIds !== undefined) {
-            const { getActiveTelegramLinksForUsers } = await import('./telegramLinkService.js')
-            const { sendTelegramMessageToChat } = await import('./telegram.js')
-            const activeLinks = await getActiveTelegramLinksForUsers(item.telegramUserIds, item.parishId)
-            if (childNotification && activeLinks.length === 0) {
-              await suppressNotification(item, 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE')
-              queue.shift()
-              continue
-            }
-            for (const link of activeLinks) {
-              await sendTelegramMessageToChat(link.chatId, message, true)
-            }
-          } else {
-            if (item.type === 'alert') {
-              await sendTelegramAlert(message, true)
-            } else {
-              await sendTelegramInfo(message, true)
-            }
-          }
-        } else {
-          // ADR S1 + ADR-095: channel persisted tên legacy `webpush`, nhưng
-          // bộ gửi SSOT fan-out cả browser Web Push và native FCM/APNs.
-          // Có webpushUserIds → gửi CÓ CHỦ ĐÍCH tới nhóm người dùng (phụ huynh
-          // theo chi đoàn); không có → gửi toàn giáo xứ như trước.
-          const payload = { title: childNotification ? 'Catevia' : webPushTitle(item), body: message, url: '/' }
-          const result = item.webpushUserIds !== undefined
-            ? await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)
-            : await sendAppPushToParish(item.parishId, payload)
-          if (!result.configured) {
-            // Không provider nào được cấu hình → không retry vô ích.
-            item.lastError = 'PUSH_PROVIDER_NOT_CONFIGURED'
-            item.retryCount = item.maxRetries
-            await db.update(notifications).set({
-              status: 'failed',
-              error: item.lastError,
-              leaseOwner: null,
-              leaseExpiresAt: null,
-              nextAttemptAt: null,
-            }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
-            rememberFailed(item)
-            queue.shift()
-            continue
-          }
-          if (result.failed > 0) {
-            console.warn(`[notificationQueue] app push ${item.id}: ${result.sent}/${result.total} sent, ${result.failed} failed, ${result.removed} dead subscriptions removed, ${result.skipped} skipped`)
-            // The aggregate item is retried when any configured provider reports
-            // a transient failure. This is intentionally at-least-once: already
-            // delivered recipients can receive a duplicate after a partial send.
-            throw new Error(`APP_PUSH_PARTIAL_FAILURE:${result.failed}`)
-          }
-          if (childNotification && result.sent === 0) {
-            await suppressNotification(item, 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE')
-            queue.shift()
-            continue
-          }
+        // Persisted type remains `web_push` for compatibility; appPushService
+        // fans out to configured browser Web Push and native FCM/APNs providers.
+        const payload = { title: childNotification ? 'Catevia' : webPushTitle(item), body: message, url: '/' }
+        const result = await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)
+        if (!result.configured) {
+          item.lastError = 'PUSH_PROVIDER_NOT_CONFIGURED'
+          item.retryCount = item.maxRetries
+          await db.update(notifications).set({
+            status: 'failed',
+            error: item.lastError,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            nextAttemptAt: null,
+          }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
+          rememberFailed(item)
+          queue.shift()
+          continue
+        }
+        const retryableFailed = Math.max(0, result.failed - result.removed)
+        if (result.failed > 0) {
+          console.warn(`[notificationQueue] app push ${item.id}: ${result.sent}/${result.total} sent, ${result.failed} failed, ${result.removed} dead subscriptions removed, ${result.skipped} skipped`)
+        }
+        if (retryableFailed > 0) {
+          // The aggregate item is retried when any configured provider reports
+          // a transient failure. Permanently dead endpoints were already removed
+          // and must not cause a duplicate resend to healthy endpoints.
+          throw new Error(`APP_PUSH_PARTIAL_FAILURE:${retryableFailed}`)
+        }
+        if (result.sent === 0) {
+          await suppressNotification(item, childNotification ? 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE' : 'DELIVERY_TARGET_UNAVAILABLE')
+          queue.shift()
+          continue
         }
 
         const now = new Date().toISOString()

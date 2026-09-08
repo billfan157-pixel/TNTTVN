@@ -1,10 +1,16 @@
 /**
  * Normalizes academic year strings (e.g. "2025 - 2026", "2025–2026") into standardized "2025-2026" format.
+ *
+ * UTIL-DRIFT-1 (2026-09-09): fallback cho input rỗng TRƯỚC ĐÂY hardcode '2025-2026'
+ * (trong khi client `src/utils/academicYear.ts` trả `''`) — vừa lệch client/server
+ * âm thầm, vừa thành time-bomb (sau tháng 8/2026 mọi record thiếu năm vẫn bị đóng
+ * dấu năm cũ). Nay fallback về `getCurrentAcademicYear()` động (quy ước tháng 8,
+ * khớp client `resolveActiveAcademicYear`).
  */
 export function normalizeAcademicYear(rawYear?: string | null): string {
-  if (!rawYear) return '2025-2026'
+  if (!rawYear) return getCurrentAcademicYear()
   const normalized = rawYear.trim().replace(/\s*[-–—]\s*/g, '-')
-  return normalized || '2025-2026'
+  return normalized || getCurrentAcademicYear()
 }
 
 /**

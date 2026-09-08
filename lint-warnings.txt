@@ -55,7 +55,6 @@
  4 | import { eq, and, sql } from 'drizzle-orm'
    :              ^|^
    :               `-- 'and' is imported here
- 5 | import { sendTelegramInfo, isTelegramEnabled } from './telegram.js'
    `----
   help: Consider removing this import.
 

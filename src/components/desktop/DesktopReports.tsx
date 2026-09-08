@@ -7,6 +7,7 @@ import { useClassStore } from '../../stores/classStore';
 import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Download, Search } from 'lucide-react';
 import type { Student } from '../../types';
 import { PageHeader } from '../common/PageHeader';
+import { DesktopAppShell } from './DesktopAppShell';
 import { PrintReportModal } from '../common/PrintReportModal';
 import { ExcelImportModal } from '../common/ExcelImportModal';
 import { BackupRestoreModal } from '../common/BackupRestoreModal';
@@ -78,7 +79,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   };
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <DesktopAppShell width="full">
       {/* Modals */}
       <PrintReportModal isOpen={isPrintModalOpen} onClose={() => setIsPrintModalOpen(false)} initialReportType={printReportType} />
       <ExcelImportModal isOpen={isExcelModalOpen} onClose={() => setIsExcelModalOpen(false)} />
@@ -268,6 +269,6 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
           </>
         )}
       </div>
-    </div>
+    </DesktopAppShell>
   );
 }

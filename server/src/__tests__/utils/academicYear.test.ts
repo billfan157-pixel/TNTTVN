@@ -24,9 +24,11 @@ describe('normalizeAcademicYear Utility Unit Tests (Fix F15)', () => {
   })
 
   it('provides default fallback for null or undefined input', () => {
-    expect(normalizeAcademicYear(null)).toBe('2025-2026')
-    expect(normalizeAcademicYear(undefined)).toBe('2025-2026')
-    expect(normalizeAcademicYear('')).toBe('2025-2026')
+    // UTIL-DRIFT-1: fallback động theo năm hiện tại (quy ước tháng 8), không hardcode.
+    const current = getCurrentAcademicYear()
+    expect(normalizeAcademicYear(null)).toBe(current)
+    expect(normalizeAcademicYear(undefined)).toBe(current)
+    expect(normalizeAcademicYear('')).toBe(current)
   })
 })
 

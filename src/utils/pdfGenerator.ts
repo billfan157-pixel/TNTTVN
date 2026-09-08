@@ -53,7 +53,15 @@ function resolveParishName(options?: ReportOptions): string {
 }
 
 function buildWatermarkBlock(parishName: string): string {
-  const safe = parishName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  // SEC-XSS-1 (2026-09-09): parishName là input do admin cấu hình, được inject vào
+  // <style> (rawtext — HTML parser đóng tag ở `</style>` đầu tiên bất kể CSS quoting).
+  // Chỉ escape `\` và `'` là KHÔNG đủ: payload `</style><script>…` vẫn breakout.
+  // Sanitize: loại bỏ `<`, `>`, `"` và ký tự xuống dòng trước khi escape CSS string.
+  const safe = parishName
+    .replace(/[<>"\u201C\u201D]/g, '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
   return `
   /* Watermark for document security */
   @media print {

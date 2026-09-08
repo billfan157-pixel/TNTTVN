@@ -1,7 +1,7 @@
 import webPush from 'web-push'
 import { db } from '../db/index.js'
-import { pushSubscriptions } from '../db/schema.js'
-import { and, eq, inArray } from 'drizzle-orm'
+import { pushSubscriptions, users } from '../db/schema.js'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@giaoly.com'
 
@@ -59,7 +59,18 @@ async function sendWebPush(parishId: string, payload: WebPushPayload, userIds?: 
   if (userIds) {
     conditions.push(inArray(pushSubscriptions.userId, userIds))
   }
-  const subs = await db.select().from(pushSubscriptions).where(and(...conditions))
+  const subs = await db.select({
+    endpoint: pushSubscriptions.endpoint,
+    p256dh: pushSubscriptions.p256dh,
+    auth: pushSubscriptions.auth,
+  }).from(pushSubscriptions).innerJoin(users, and(
+    eq(users.parishId, pushSubscriptions.parishId),
+    eq(users.id, pushSubscriptions.userId),
+  )).where(and(
+    ...conditions,
+    eq(users.status, 'ACTIVE'),
+    isNull(users.deletedAt),
+  ))
   if (subs.length === 0) return { configured: true, sent: 0, failed: 0, total: 0, removed: 0 }
 
   const results = await Promise.allSettled(

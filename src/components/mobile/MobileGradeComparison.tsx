@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react'
-import { ArrowDown, ArrowUp, Columns3, Minus } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart2, Columns3, Minus } from 'lucide-react'
+import { EmptyState } from '../common/StateFeedback'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
@@ -46,7 +47,7 @@ export const MobileGradeComparison: React.FC = () => {
   return (
     <div className="product-view flex flex-col gap-3 pb-8">
       <SubpageHeader
-        icon={<Columns3 size={15} />}
+        icon={<Columns3 size={16} />}
         title="So Sánh Học Kỳ I vs II"
         meta={<span>{comparisonData.length} thiếu nhi có dữ liệu điểm</span>}
         ariaLabel="Tổng quan so sánh điểm"
@@ -54,12 +55,12 @@ export const MobileGradeComparison: React.FC = () => {
 
       <section className="grade-metric-strip grade-metric-strip--4col" aria-label="Thống kê so sánh 2 học kỳ">
         <div className="grade-metric-cell">
-          <span className="grade-metric-cell__label text-emerald-700 dark:text-emerald-300">Tiến bộ</span>
-          <strong className="grade-metric-cell__value text-emerald-600 dark:text-emerald-400">+{stats.up}</strong>
+          <span className="grade-metric-cell__label text-parish-success">Tiến bộ</span>
+          <strong className="grade-metric-cell__value text-parish-success font-black">+{stats.up}</strong>
         </div>
         <div className="grade-metric-cell">
-          <span className="grade-metric-cell__label text-rose-700 dark:text-rose-300">Giảm</span>
-          <strong className="grade-metric-cell__value text-rose-600 dark:text-rose-400">-{stats.down}</strong>
+          <span className="grade-metric-cell__label text-parish-danger">Giảm</span>
+          <strong className="grade-metric-cell__value text-parish-danger font-black">-{stats.down}</strong>
         </div>
         <div className="grade-metric-cell">
           <span className="grade-metric-cell__label">Giữ nguyên</span>
@@ -72,7 +73,11 @@ export const MobileGradeComparison: React.FC = () => {
       </section>
 
       {comparisonData.length === 0 ? (
-        <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Chưa có dữ liệu điểm để so sánh.</div>
+        <EmptyState
+          icon={BarChart2}
+          title="Chưa có dữ liệu so sánh"
+          description="Cần có kết quả học tập của cả hai học kỳ để tiến hành đối sánh học lực."
+        />
       ) : comparisonData.map(item => (
         <article key={item.student.id} className="entity-card p-4">
           <div className="flex items-start justify-between gap-3">
@@ -80,7 +85,7 @@ export const MobileGradeComparison: React.FC = () => {
               <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="base" />
               <div className="text-xs text-text-muted mt-1 truncate">{item.student.code} • {classNameById.get(item.student.classId) || '—'}</div>
             </div>
-            <div className={`shrink-0 flex items-center gap-1 text-sm font-black ${item.trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' : item.trend === 'down' ? 'text-rose-600 dark:text-rose-400' : 'text-text-muted'}`}>
+            <div className={`shrink-0 flex items-center gap-1 text-sm font-black ${item.trend === 'up' ? 'text-parish-success' : item.trend === 'down' ? 'text-parish-danger' : 'text-text-muted'}`}>
               {item.trend === 'up' && <ArrowUp size={16} />}
               {item.trend === 'down' && <ArrowDown size={16} />}
               {item.trend === 'same' && <Minus size={16} />}

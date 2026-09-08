@@ -19,10 +19,11 @@ import { assertDatabaseReady } from './db/schemaHealth.js'
 import { assertSingleParishDeploymentData } from './db/deploymentParishHealth.js'
 import { assertDeploymentParishConfiguration, getEnforcedDeploymentParishId } from './utils/deploymentParish.js'
 import { seedIfEmpty } from './seed.js'
-import { isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
-import { initTelegramBot, sendTelegramInfo, sendTelegramAlert, stopTelegramBot } from './services/telegram.js'
+import { ALLOWED_CORS_HEADERS, isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
 import { initNotificationQueue, stopNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler, stopSundayReminderScheduler } from './services/sundayReminderScheduler.js'
+import { initOperationsReminderScheduler, stopOperationsReminderScheduler } from './services/operationsReminderService.js'
+import { initOperationsReceiptMaintenance, stopOperationsReceiptMaintenance } from './services/operationsReceiptMaintenance.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
 import { runImportMaintenanceCycle, startImportRollbackSnapshotCleanup } from './services/importService.js'
 import { closeBrowser } from './services/pdfService.js'
@@ -69,7 +70,9 @@ app.use('/*', cors({
   origin: (origin) => isOriginAllowed(origin, allowedOrigins) ? origin : null,
   credentials: true,
   allowMethods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  // Operations and other retry-safe commands use a custom idempotency header;
+  // production browser calls are cross-origin and therefore preflighted.
+  allowHeaders: ALLOWED_CORS_HEADERS,
   maxAge: 86400,
 }))
 
@@ -98,6 +101,7 @@ import passwordResetRequestsRouter from './routes/passwordResetRequests.js'
 import syncRouter from './routes/sync.js'
 import questionBankRouter from './routes/questionBank.js'
 import dailyEntriesRouter from './routes/dailyEntries.js'
+import operationsRouter from './routes/operations.js'
 import { loggerMiddleware } from './middleware/logger.js'
 import { metricsMiddleware } from './middleware/metrics.js'
 
@@ -141,6 +145,7 @@ app.route('/api/password-reset-requests', passwordResetRequestsRouter)
 app.route('/api/sync', syncRouter)
 app.route('/api/question-bank', questionBankRouter)
 app.route('/api/daily-entries', dailyEntriesRouter)
+app.route('/api/operations', operationsRouter)
 
 // A-NEW-49 (2026-08-17): Railway injects PORT env at runtime và DÙNG giá trị này
 // cho healthcheck + public routing. Code cũ (3f01bd0) đọc process.env.PORT → bind
@@ -194,6 +199,15 @@ try {
   throw err
 }
 
+// Optional policy-gated receipt maintenance must validate and complete its
+// startup pass before the server accepts traffic.
+try {
+  await initOperationsReceiptMaintenance()
+} catch (err) {
+  console.error('[startup] Operations receipt maintenance failed:', err)
+  throw err
+}
+
 // A-NEW-38 (2026-08-11): XÓA block reset admin password khỏi startup.
 // Trước đây block này ghi đè passwordHash của admin `bill` mỗi lần khởi động khi
 // SEED_ADMIN_PASSWORD tồn tại + (NODE_ENV != production hoặc ALLOW_SEED_ADMIN_RESET=true)
@@ -222,6 +236,8 @@ const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
       stopImportRollbackCleanup()
       const backupStopped = stopBackupScheduler()
       const sundayStopped = stopSundayReminderScheduler()
+      stopOperationsReminderScheduler()
+      stopOperationsReceiptMaintenance()
       const httpClosed = new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve())
       })
@@ -229,7 +245,6 @@ const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
       await Promise.all([backupStopped, sundayStopped, httpClosed])
       await stopNotificationQueue()
       await closeBrowser()
-      await stopTelegramBot()
       try { await client.execute('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}
       client.close()
       clearTimeout(forceExitTimer)
@@ -250,7 +265,7 @@ process.on('SIGINT', () => { void gracefulShutdown('SIGINT') })
 // OBS-1 (2026-08-24): process-level error visibility. Trước đây unhandledRejection
 // / uncaughtException chỉ phụ thuộc default behavior của Node — log rải rác,
 // không alert, sự cố prod phải SSH vào container mới thấy (A-NEW-61/62).
-// - unhandledRejection: log + Telegram alert, process SỐNG TIẾP (không giết
+// - unhandledRejection: structured log + Sentry, process SỐNG TIẾP (không giết
 //   request đang chạy vì lỗi async không chạm state).
 // - uncaughtException: log + checkpoint DB + alert + exit(1) fail-closed —
 //   state sau exception đồng bộ không đáng tin, Railway sẽ restart container.
@@ -265,7 +280,6 @@ if (process.env.NODE_ENV !== 'test') {
       stack: reason instanceof Error ? reason.stack : undefined,
     }))
     captureServerException(reason, { kind: 'unhandledRejection' })
-    void sendTelegramAlert(`Unhandled rejection: ${message.slice(0, 500)}`)
   })
 
   process.on('uncaughtException', (err) => {
@@ -277,17 +291,14 @@ if (process.env.NODE_ENV !== 'test') {
       stack: err?.stack,
     }))
     captureServerException(err, { kind: 'uncaughtException' })
-    void sendTelegramAlert(`Uncaught exception — container sẽ thoát: ${String(err?.message || err).slice(0, 500)}`)
-    // Cho Telegram/log flush trước khi thoát; WAL checkpoint trong gracefulShutdown.
-    setTimeout(() => { void gracefulShutdown('uncaughtException', 1) }, 1000)
+    void gracefulShutdown('uncaughtException', 1)
   })
 }
 
-initTelegramBot()
 // Phase 2 (outbox convergence): notificationQueue là delivery engine duy nhất —
 // outbox worker/subscribers đã gỡ (bảng outbox_messages giữ dormant, không xóa
-// destructive). Thông báo override đi qua notifyGradeOverride post-commit.
+// destructive). Telegram đã retire; queue chỉ dispatch Web/Native Push.
 await initNotificationQueue()
 initSundayReminderScheduler()
+initOperationsReminderScheduler()
 initBackupScheduler()
-sendTelegramInfo(`🟢 Server khởi động thành công\n🕐 ${new Date().toLocaleString('vi-VN')}\n📍 Port: ${PORT}`)

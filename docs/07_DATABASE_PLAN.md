@@ -1,11 +1,11 @@
 # Database Schema Specification & Plan
 
-> Canonical Single Source of Truth (SSOT) for all 59 SQLite production tables managed by the database bootstrap, migration runner and Drizzle mappings.
-> Version: 3.2 | Last reviewed: 2026-09-03 | Status: ✅ Current | Prerequisites: 02
+> Canonical Single Source of Truth (SSOT) for all 71 SQLite production tables managed by the database bootstrap, migration runner and Drizzle mappings.
+> Version: 3.3 | Last reviewed: 2026-09-08 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
-## All Production Tables (59)
+## All Production Tables (71)
 
 **Recovery readiness (XD-09, 2026-09-07):** startup/restore readiness requires migration markers `20260907-177..181` and the promotion completion / academic policy / cohort / report columns. The isolated restore-target preparation applies the real schema, verifies and removes only the four known freshly created default-fund seeds, and rejects any other application data. Logical restore requires an exact table set and column sequence, then verifies row contents as well as counts and foreign keys. A post-commit mismatch invalidates the target; discard it, do not cut over. Schema readiness does not certify the evidence content of legacy rows or authorize a backfill.
 
@@ -45,8 +45,8 @@
 | 28 | `refresh_tokens` | JWT refresh rotation sessions (chỉ lưu sha256 hash — không plaintext) | `token_hash` UNIQUE, `idx_refresh_tokens_parish_id`, `idx_refresh_tokens_user_id` |
 | 29 | `exam_sessions` | Smart Exam Grading session; `exam_type` ∈ `written\|multiple_choice\|mixed` (EXAM-MIXED, ADR-053 — mixed: đề TN + TL, `question_count` = số câu TN); `answer_key` là key legacy/mã A, `answer_variants` nullable JSON map A–H (ADR-050); `questions` JSON ngân hàng câu hỏi (`type`/`points` per câu); `variant_manifests` nullable immutable JSON set gồm materialized questions/order/options/answer keys/hash/seed (ADR-094); idempotency key NOT NULL | migrations cũ + `20260818-124` (`answer_variants`) + `20260815-119` (`questions`) + `20260901-148` (`variant_manifests`); schema readiness bắt buộc cột mới, indexes giữ nguyên |
 | 30 | `exam_results` | Per-student score; `essay_score` REAL nullable = điểm phần tự luận nhập tay (mixed; `score` = điểm TN tự chấm + essay_score — migration `20260824-129`); `answers`, `scan_metadata` aggregate không ảnh, `exam_version` A–H default A. MC scan được server tính lại bằng key theo version | migrations cũ + `20260818-123` (`scan_metadata`) + `20260818-125` (`exam_version`) + `20260824-129` (`essay_score`); unique `(exam_session_id, student_id)`, lookup tenant/session |
-| 31 | `telegram_link_tokens` | One-time link tokens (sha256 hash) để bind tài khoản Telegram với user (`token_hash` — không plaintext), có expiry/consumed | `token_hash` UNIQUE, PK `(parish_id, id)`, `idx_telegram_link_tokens_user` `(parish_id, user_id)`, `idx_telegram_link_tokens_expiry` |
-| 32 | `telegram_links` | Chat liên kết Telegram ↔ user (trạng thái `ACTIVE`/`REVOKED`, bật/tắt thông báo, last_seen) | `chat_id` UNIQUE, PK `(parish_id, id)`, `idx_telegram_links_user` `(parish_id, user_id, status)`, `idx_telegram_links_chat_status` `(chat_id, status)` |
+| 31 | `telegram_link_tokens` | **Legacy retained (ADR-111):** token hash lịch sử; migration `20260908-235` consume mọi token còn mở, runtime không tạo token mới | `token_hash` UNIQUE, PK `(parish_id, id)`, `idx_telegram_link_tokens_user` `(parish_id, user_id)`, `idx_telegram_link_tokens_expiry` |
+| 32 | `telegram_links` | **Legacy retained (ADR-111):** liên kết lịch sử; migration/startup revoke mọi link active/enabled, runtime không đọc để delivery | `chat_id` UNIQUE, PK `(parish_id, id)`, `idx_telegram_links_user` `(parish_id, user_id, status)`, `idx_telegram_links_chat_status` `(chat_id, status)` |
 | 33 | `exam_result_mutations` | Durable idempotency receipt cho từng mutation kết quả quét liên tiếp; lưu request hash + response acknowledgement, không lưu ảnh (ADR-067, migration `20260828-135`) | PK `(parish_id, user_id, client_mutation_id)`, `idx_exam_result_mutations_session` `(parish_id, exam_session_id, created_at)`; FK cascade session, restrict student |
 | 34 | `assessment_entries` | Server assessment ledger lưu attempt sinh grade projection | PK `(parish_id,id)`, `idx_assessment_entries_exam_student` UNIQUE, `idx_assessment_entries_lookup` |
 | 35 | `exam_finalizations` | Receipt finalize mỗi exam session | PK `(parish_id,id)`, `idx_exam_finalizations_session` UNIQUE |
@@ -59,8 +59,8 @@
 | 42 | `parish_profiles` | Identity, ngày thành lập, bổn mạng, khẩu hiệu và giới thiệu Xứ đoàn | PK `parish_id` |
 | 43 | `parish_people` | Identity tổ chức duy nhất cho người đang/từng phục vụ; có thể liên kết một tài khoản đăng nhập | PK `(parish_id,id)`; partial UNIQUE `(parish_id,linked_user_id)` khi active; name/status indexes |
 | 44 | `parish_organization_units` | Ban Trị Sự, ban, ngành, chi đoàn và cây tổ chức | PK `(parish_id,id)`; parent/type indexes; cycle chặn tại service |
-| 45 | `parish_service_terms` | Chức vụ, cấp bậc và nhiệm kỳ của một người trong một đơn vị | PK `(parish_id,id)`; person/unit/date indexes; tenant composite FKs |
-| 46 | `parish_records` | Cột mốc, hoạt động và thành tích có draft/publication/timeline state | PK `(parish_id,id)`; type/timeline indexes |
+| 45 | `parish_service_terms` | Chức vụ, cấp bậc và nhiệm kỳ; `position_title` là nhãn, `position_code` mới là Operations authority có kiểm tra loại unit | PK `(parish_id,id)`; person/unit/date indexes; tenant composite FKs; position-code/unit triggers |
+| 46 | `parish_records` | Cột mốc, hoạt động và thành tích có draft/publication/timeline state; `source_event_id` là soft/nonunique history link, không phải Operations ownership key | PK `(parish_id,id)`; type/timeline indexes |
 | 47 | `parish_record_people` | Quan hệ nhiều-nhiều record ↔ person | PK `(parish_id,record_id,person_id)`; composite tenant FKs |
 | 48 | `parish_archive_assets` | Metadata tư liệu upload riêng tư hoặc external HTTPS | PK `(parish_id,id)`; type/storage indexes; storage XOR constraint |
 | 49 | `parish_record_assets` | Quan hệ nhiều-nhiều record ↔ asset | PK `(parish_id,record_id,asset_id)`; composite tenant FKs |
@@ -74,6 +74,18 @@
 | 57 | `exam_question_snapshots` | Snapshot bất biến của đúng version câu hỏi đã materialize vào phiên thi | PK `(parish_id,id)`; UNIQUE session/position; composite FK session/question/version |
 | 58 | `rate_limits` | Bộ đếm rate-limit bền vững dùng chung giữa tiến trình/API; dữ liệu vận hành, không phải tenant business record | `key` PK; `count` và epoch `reset_at` bắt buộc |
 | 59 | `schema_migrations` | Ledger phiên bản migration đã áp dụng để bootstrap idempotent và fail-closed | `version` PK; `applied_at` mặc định `CURRENT_TIMESTAMP` |
+| 60 | `operation_events` | Aggregate điều phối sự kiện nội bộ, optional one-to-one link tới lịch công khai | PK `(parish_id,id)`; source/scope/visibility indexes; source/scope/organizer triggers |
+| 61 | `operation_event_participants` | Người tham gia nội bộ theo đúng một active user/person | PK `(parish_id,event_id,id)`; unique active user/person per event; target trigger |
+| 62 | `operation_blockouts` | Khoảng không sẵn sàng của user/person dùng để cảnh báo phân công | PK `(parish_id,id)`; target/time indexes và target trigger |
+| 63 | `operation_reminders` | Reminder domain dedupe/read/delivery reconciliation | PK `(parish_id,id)`; UNIQUE `(parish_id,dedupe_key)`; due index và target trigger |
+| 64 | `operation_workstreams` | Nhóm công việc theo event/unit, readiness và OCC | PK `(parish_id,id)`; event/scope indexes và cross-context scope triggers |
+| 65 | `operation_tasks` | Task lifecycle/OCC/approval/completion/block/cancellation | PK `(parish_id,id)`; list/workstream indexes; event/workstream scope và cancellation-reason triggers |
+| 66 | `operation_task_dependencies` | Cạnh `BLOCKED_BY` tenant-scoped | PK `(parish_id,task_id,depends_on_task_id)`; composite FKs và self-loop CHECK |
+| 67 | `operation_task_assignees` | OWNER/CONTRIBUTOR/APPROVER/OBSERVER có identity, acknowledgement, version và soft revoke | PK `(parish_id,id)`; partial UNIQUE một OWNER active và target-role uniqueness |
+| 68 | `operation_checklist_items` | Checklist required/done của task | PK `(parish_id,task_id,id)`; task/sort index; composite FK |
+| 69 | `operation_workstream_members` | Resource role có thời hạn/version/soft revoke | PK `(parish_id,id)`; target-role uniqueness và user/person indexes |
+| 70 | `operation_task_comments` | Comment/evidence HTTPS metadata riêng của task | PK `(parish_id,id)`; task/time index; composite FKs |
+| 71 | `operation_mutation_receipts` | Receipt `(actor,key)` với command/request hash/response snapshot cho retry idempotent; response có thể compact theo policy nhưng identity tombstone không bị xóa | PK `(parish_id,actor_user_id,idempotency_key)`; created-at index; `response_pruned_at` migration `20260908-234`; retention duration còn mở/mặc định tắt |
 
 ---
 

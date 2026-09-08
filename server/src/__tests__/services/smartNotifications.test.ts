@@ -23,14 +23,15 @@ function webpushCalls() {
   return vi.mocked(enqueueNotification).mock.calls.filter((call) => call[0] === 'webpush')
 }
 
-function webpushUserIds(): string[] {
-  const call = webpushCalls()[0]
-  const options = call[6] as { webpushUserIds?: string[] } | undefined
-  return options?.webpushUserIds ?? []
+function webpushTargetGroups(): string[][] {
+  return webpushCalls().map((call) => {
+    const options = call[6] as { webpushUserIds?: string[] } | undefined
+    return options?.webpushUserIds ?? []
+  })
 }
 
-function telegramCalls() {
-  return vi.mocked(enqueueNotification).mock.calls.filter((call) => call[0] === 'telegram')
+function allWebpushUserIds(): string[] {
+  return webpushTargetGroups().flat()
 }
 
 describe('smartNotifications', () => {
@@ -95,54 +96,51 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
 
   it('notifyAbsence targets only the matching parent account', async () => {
     await notifyAbsence(parishId, 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', '01/01/2025', 'AbsentUnexcused', 'PH Thiếu Nhi', '0901234567', undefined, `st-tn-${PREFIX}`)
-    expect(webpushUserIds()).toEqual([parentThieuNhiId])
+    expect(allWebpushUserIds()).toEqual([parentThieuNhiId])
   })
 
   it('notifyReportCard targets the canonical student parent despite a conflicting phone', async () => {
     await notifyReportCard(parishId, 'Nguyễn Văn A', 'Giuse', 'Lớp TN1', 8.5, 'Giỏi', 90, 18, 20, `st-tn-${PREFIX}`, '0987654321')
-    expect(webpushUserIds()).toEqual([parentThieuNhiId])
+    expect(allWebpushUserIds()).toEqual([parentThieuNhiId])
   })
 
   it('notifyClassReminder targets parents in the requested class only', async () => {
     await notifyClassReminder(parishId, 'Lớp TN1', '15/01/2025')
-    expect(webpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
+    expect(allWebpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
   })
 
-  it('notifySundayMassReminder uses explicit parent targets for both channels', async () => {
+  it('notifySundayMassReminder uses explicit parent targets on app push only', async () => {
     await expect(notifySundayMassReminder(parishId)).resolves.toBe(true)
     expect(webpushCalls()).toHaveLength(1)
-    expect(telegramCalls()).toHaveLength(1)
-    expect(webpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
-    const telegramOptions = telegramCalls()[0][6] as { telegramUserIds?: string[] }
-    expect(telegramOptions.telegramUserIds).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
+    expect(allWebpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
   })
 
   it('targetBranch cụ thể → chỉ webpush tới phụ huynh có con trong chi đoàn đó (khớp phone chuẩn hóa)', async () => {
     const { notifyParishNotice } = await import('../../services/smartNotifications.js')
     await notifyParishNotice(parishId, 'Lễ Mừng', 'Nội dung', 'Admin', 'ThieuNhi')
 
-    expect(webpushCalls()).toHaveLength(1)
-    expect(webpushUserIds()).toEqual([parentThieuNhiId])
+    expect(webpushCalls()).toHaveLength(2)
+    expect(webpushTargetGroups()).toContainEqual([parentThieuNhiId])
+    expect(webpushTargetGroups()).toContainEqual([staffId])
   })
 
-  it('targetBranch = All → webpush tới TẤT CẢ phụ huynh, telegram vẫn gửi staff', async () => {
+  it('targetBranch = All → app push tách nhóm staff và tất cả phụ huynh', async () => {
     const { notifyParishNotice } = await import('../../services/smartNotifications.js')
     const sent = await notifyParishNotice(parishId, 'Thông báo chung', 'Nội dung', 'Admin', 'All')
 
-    expect(webpushCalls()).toHaveLength(1)
-    const ids = webpushUserIds()
+    expect(webpushCalls()).toHaveLength(2)
+    const ids = allWebpushUserIds()
     expect(ids).toContain(parentThieuNhiId)
     expect(ids).toContain(parentAuNhiId)
-    expect(telegramCalls()).toHaveLength(1)
-    expect(telegramCalls()[0][3]).toEqual(expect.objectContaining({ title: 'Thông báo chung', parentPhone: '0911222333' }))
-    expect(sent).toBe(1)
+    expect(ids).toContain(staffId)
+    expect(sent).toBe(3)
   })
 
-  it('không có phụ huynh khớp branch → KHÔNG enqueue webpush (không broadcast)', async () => {
+  it('không có phụ huynh khớp branch → chỉ enqueue staff, không broadcast phụ huynh', async () => {
     const { notifyParishNotice } = await import('../../services/smartNotifications.js')
     await notifyParishNotice(parishId, 'Lễ HiepSi', 'Nội dung', 'Admin', 'HiepSi')
 
-    expect(webpushCalls()).toHaveLength(0)
+    expect(webpushTargetGroups()).toEqual([[staffId]])
   })
 
   it('phụ huynh INACTIVE bị loại khỏi danh sách mục tiêu', async () => {
@@ -150,7 +148,7 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
     await db.update(users).set({ status: 'INACTIVE' }).where(eq(users.id, parentThieuNhiId))
     try {
       await notifyParishNotice(parishId, 'Thông báo', 'Nội dung', 'Admin', 'All')
-      const ids = webpushUserIds()
+      const ids = allWebpushUserIds()
       expect(ids).not.toContain(parentThieuNhiId)
       expect(ids).toContain(parentAuNhiId)
     } finally {

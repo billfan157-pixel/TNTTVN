@@ -173,9 +173,8 @@ export class DrizzleGradeRepository {
       })
 
       // Phase 2 (outbox convergence): KHÔNG insert outbox_messages nữa.
-      // Thông báo telegram đi qua notificationQueue (durable lease) bằng
-      // notifyGradeOverride post-commit ở tầng service (GradeApplicationService
-      // / gradeService.upsertGrade) — audit_logs trong tx này là trail chính.
+        // audit_logs trong transaction này là trail chính. Telegram và thông báo
+        // override ngoài ứng dụng đã retire; không phát sinh side effect ở đây.
     }
   }
 

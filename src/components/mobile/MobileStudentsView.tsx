@@ -206,7 +206,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       <TabPanel tabsId="mobile-students-workspace-tabs" value="promotions" activeValue={activeWorkspace}>
         <div className="product-view flex flex-col gap-3 pb-8">
           <SubpageHeader
-            icon={<TrendingUp size={15} />}
+            icon={<TrendingUp size={16} />}
             title="Xét Lên Lớp & Chuyển Ngành"
             meta={<span className="truncate">Quản lý tiến trình hoàn thành chương trình giáo lý</span>}
           />
@@ -222,7 +222,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       >
         <div className="product-view flex flex-col gap-3 pb-8">
           <SubpageHeader
-            icon={<Users size={15} />}
+            icon={<Users size={16} />}
             title="Danh Sách Thiếu Nhi"
             meta={<span className="truncate">{selectedClassId === 'all' ? 'Toàn xứ đoàn' : (classList.find(c => c.id === selectedClassId)?.name || 'Theo lớp')} · {filteredStudents.length} em</span>}
             actions={

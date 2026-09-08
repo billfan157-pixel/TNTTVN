@@ -144,8 +144,6 @@ function configureIsolatedEnvironment() {
     R2_ACCESS_KEY_ID: '',
     R2_SECRET_ACCESS_KEY: '',
     R2_BUCKET: '',
-    TELEGRAM_BOT_TOKEN: '',
-    TELEGRAM_ADMIN_CHAT_ID: '',
     SENTRY_DSN: '',
   })
 

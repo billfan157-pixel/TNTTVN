@@ -33,6 +33,13 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // QA-WEBKIT-1 (2026-09-09): chạy cùng suite trên Desktop Safari (WebKit) —
+    // giáo lý viên/phụ huynh dùng iPhone/Safari chiếm đa số nhưng trước đây CI
+    // chỉ test Chromium, bỏ sót lỗi đặc thù WebKit (date input, IndexedDB, PWA).
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
   ],
   webServer: {
     // Wrapper chỉ log READY sau khi Vite + backend + seed trên DB temp riêng sẵn sàng.

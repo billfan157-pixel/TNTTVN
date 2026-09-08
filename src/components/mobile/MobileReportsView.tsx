@@ -9,7 +9,6 @@ import { BRANCHES } from '../../constants/branches';
 import {
   Printer,
   FileText,
-  BarChart2,
   Award,
   Search,
   Users,
@@ -247,27 +246,6 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
 
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
-      {/* Header Command Deck */}
-      <div className="mobile-page-header mobile-page-header--brand">
-        <div className="mobile-page-header__identity">
-          <div className="mobile-page-header__icon" aria-hidden="true">
-            <BarChart2 size={20} />
-          </div>
-          <div>
-            <h2 className="mobile-page-header__title">Báo Cáo & Thống Kê</h2>
-            <p className="mobile-page-header__description">
-              Tổng hợp kết quả học tập & in ấn phiếu điểm
-            </p>
-          </div>
-        </div>
-        <div className="mobile-page-header__actions">
-          <span className="badge text-xs font-bold bg-white/20 text-white border-white/20 tabular-nums">
-            <Users size={12} className="inline mr-1" />
-            {students.length} em
-          </span>
-        </div>
-      </div>
-
       {/* Function Sub-Tabs */}
       <Tabs
         id="mobile-reports-tabs"
@@ -288,7 +266,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
       <TabPanel tabsId="mobile-reports-tabs" value="print" activeValue={activeTab}>
         <div className="product-view flex flex-col gap-3 pb-8">
           <SubpageHeader
-            icon={<Printer size={15} />}
+            icon={<Printer size={16} />}
             title="In Phiếu Điểm & Sổ Điểm"
             meta={<span className="truncate">Học Kỳ {selectedSemester} · {students.length} em</span>}
             actions={renderSemesterActions()}
@@ -451,7 +429,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
       <TabPanel tabsId="mobile-reports-tabs" value="analytics" activeValue={activeTab}>
         <div className="product-view flex flex-col gap-3 pb-8">
           <SubpageHeader
-            icon={<Award size={15} />}
+            icon={<Award size={16} />}
             title="Thống Kê Học Lực Phân Ngành"
             meta={<span className="truncate">4 phân ngành giáo xứ · {students.length} em</span>}
             actions={renderSemesterActions()}
@@ -510,11 +488,11 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
 
                     <div className="grid grid-cols-5 gap-1.5 text-center text-xs mt-1">
                       {[
-                        ['XS', excellent, 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400'],
-                        ['Giỏi', good, 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400'],
-                        ['Khá', fair, 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400'],
+                        ['XS', excellent, 'bg-parish-success-bg border-parish-success/30 text-parish-success'],
+                        ['Giỏi', good, 'bg-parish-info-bg border-parish-info/30 text-parish-info'],
+                        ['Khá', fair, 'bg-parish-warning-bg border-parish-warning/30 text-parish-warning'],
                         ['TB', average, 'bg-surface-card border-surface-border text-text-muted'],
-                        ['Yếu', weak, 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400'],
+                        ['Yếu', weak, 'bg-parish-danger-bg border-parish-danger/30 text-parish-danger'],
                       ].map(([label, val, cls]) => (
                         <div key={String(label)} className={`rounded-lg p-2 border ${cls} flex flex-col items-center justify-center`}>
                           <span className="text-xs font-bold leading-none">{label as string}</span>
@@ -544,13 +522,13 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
       <TabPanel tabsId="mobile-reports-tabs" value="export" activeValue={activeTab}>
         <div className="product-view flex flex-col gap-3 pb-8">
           {exportMessage && (
-            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
+            <div className="p-3 rounded-xl bg-parish-success-bg border border-parish-success/30 text-parish-success text-xs font-bold flex items-center gap-2">
               <Sparkles size={16} /> {exportMessage}
             </div>
           )}
 
           <SubpageHeader
-            icon={<Download size={15} />}
+            icon={<Download size={16} />}
             title="Xuất Báo Cáo & Dữ Liệu"
             meta={<span className="truncate">Định dạng Excel / CSV · Chuẩn UTF-8 tiếng Việt</span>}
             actions={renderSemesterActions()}

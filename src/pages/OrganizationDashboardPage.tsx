@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
-  Archive, Award, CalendarDays, Landmark, Megaphone, Sparkles, Users, Wallet,
+  Archive, Award, CalendarDays, ClipboardList, Landmark, Megaphone, Sparkles, Users, Wallet,
   ChevronRight, Clock, MapPin, UserCheck,
   Bell, Building2,
 } from 'lucide-react'
@@ -26,6 +26,7 @@ const destinations = [
   { title: 'Hồ sơ Xứ đoàn', description: 'Lịch sử, cơ cấu, nhân sự, hoạt động, thành tích và timeline.', to: '/parish-profile', icon: Landmark, adminOnly: false },
   { title: 'Huynh trưởng / GLV', description: 'Danh bạ, phân công giảng dạy và thông tin phục vụ.', to: '/catechists', icon: Users, adminOnly: false },
   { title: 'Lịch & sự kiện', description: 'Lịch phụng vụ và hoạt động đang vận hành.', to: '/calendar', icon: CalendarDays, adminOnly: false },
+  { title: 'Vận hành', description: 'Phân công, theo dõi readiness và việc của tôi.', to: '/operations', icon: ClipboardList, adminOnly: false },
   { title: 'Thông báo', description: 'Thông tin điều hành gửi tới các nhóm liên quan.', to: '/notices', icon: Megaphone, adminOnly: false },
   { title: 'Quỹ & thu chi', description: 'Theo dõi quỹ, giao dịch và nghĩa vụ tài chính.', to: '/finances', icon: Wallet, adminOnly: true },
 ] as const

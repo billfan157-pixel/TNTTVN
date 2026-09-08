@@ -5,6 +5,8 @@
 > Phạm vi: tính năng **phân công nhiệm vụ & tổ chức chuẩn bị sự kiện** cho workspace `organization`.
 > Phân loại: **D2 — Cross-module** (schema mới + notifications + offline queue + organization workspace).
 
+> **Historical proposal — superseded for implementation (2026-09-08):** schema `parish_event_tasks` và offline write queue trong bản đề xuất này không phải kiến trúc hiện hành. Dùng [implementation plan Operations](TASK_EVENT_OPERATIONS_IMPLEMENTATION_PLAN_2026-09-07.md), ADR-110/111 và [research roadmap mới](TASK_EVENT_OPERATIONS_RESEARCH_ROADMAP_2026-09-08.md). Giữ nội dung dưới đây để tra cứu ý tưởng ban đầu, không dùng để tạo nguồn task/calendar thứ hai.
+
 ---
 
 ## 1. Nghiên cứu đối chiếu các hệ thống hàng đầu thế giới

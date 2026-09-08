@@ -8,6 +8,9 @@ import { lazyWithRetry } from '../utils/lazyWithRetry'
 import type { Student } from '../types'
 import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
 import { SkeletonTable, SkeletonCardGrid } from '../components/common/StateFeedback'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
+import { PageHeader } from '../components/common/PageHeader'
+import { ErrorBoundary } from '../components/common/ErrorBoundary'
 
 const DesktopGradeMatrix = lazyWithRetry(() => import('../components/desktop/DesktopGradeMatrix'), 'DesktopGradeMatrix')
 const DesktopGradeCards = lazyWithRetry<React.FC<{
@@ -61,7 +64,14 @@ export function GradesPage() {
 
   if (effectiveMode === 'desktop') {
     return (
-      <div className="flex flex-col gap-4">
+      <DesktopAppShell width="full">
+        {/* Header Bar */}
+        <PageHeader
+          icon={<FileSpreadsheet className="text-parish-primary" size={24} />}
+          title="Sổ Điểm & Khảo Thí Giáo Lý"
+          description="Hệ thống quản lý điểm số, đánh giá học lực, phiên chấm bài và ngân hàng đề thi Giáo lý"
+        />
+
         {/* View Mode Tabs — Cùng hàng không ngắt dòng */}
         <Tabs
           id="desktop-grade-view-tabs"
@@ -72,26 +82,26 @@ export function GradesPage() {
           className="self-start max-w-full flex-nowrap"
         />
 
-        {/* Active View with Suspense */}
+        {/* Active View with Suspense — mỗi view có ErrorBoundary riêng (ERR-ISO-1): lỗi runtime ở OMR/matrix/PDF export chỉ hạ 1 tab, không crash cả trang. */}
         <TabPanel tabsId="desktop-grade-view-tabs" value="matrix" activeValue={viewMode}>
-          <Suspense fallback={<SkeletonTable rows={8} cols={7} />}><DesktopGradeMatrix /></Suspense>
+          <ErrorBoundary><Suspense fallback={<SkeletonTable rows={8} cols={7} />}><DesktopGradeMatrix /></Suspense></ErrorBoundary>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="cards" activeValue={viewMode}>
-          <Suspense fallback={<SkeletonCardGrid count={6} />}><DesktopGradeCards onViewReport={openReport} onPrintReport={openReportForPrint} /></Suspense>
+          <ErrorBoundary><Suspense fallback={<SkeletonCardGrid count={6} />}><DesktopGradeCards onViewReport={openReport} onPrintReport={openReportForPrint} /></Suspense></ErrorBoundary>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="comparison" activeValue={viewMode}>
-          <Suspense fallback={<SkeletonTable rows={8} cols={6} />}><DesktopGradeComparison /></Suspense>
+          <ErrorBoundary><Suspense fallback={<SkeletonTable rows={8} cols={6} />}><DesktopGradeComparison /></Suspense></ErrorBoundary>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="daily" activeValue={viewMode}>
-          <Suspense fallback={<SkeletonTable rows={8} cols={5} />}><DesktopDailyGradeEntry /></Suspense>
+          <ErrorBoundary><Suspense fallback={<SkeletonTable rows={8} cols={5} />}><DesktopDailyGradeEntry /></Suspense></ErrorBoundary>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="exam" activeValue={viewMode}>
-          <Suspense fallback={<SkeletonCardGrid count={4} />}><ExamSessionView /></Suspense>
+          <ErrorBoundary><Suspense fallback={<SkeletonCardGrid count={4} />}><ExamSessionView /></Suspense></ErrorBoundary>
         </TabPanel>
         <TabPanel tabsId="desktop-grade-view-tabs" value="bank" activeValue={viewMode}>
-          <Suspense fallback={<SkeletonTable rows={6} cols={5} />}><QuestionBankView /></Suspense>
+          <ErrorBoundary><Suspense fallback={<SkeletonTable rows={6} cols={5} />}><QuestionBankView /></Suspense></ErrorBoundary>
         </TabPanel>
-      </div>
+      </DesktopAppShell>
     )
   }
 

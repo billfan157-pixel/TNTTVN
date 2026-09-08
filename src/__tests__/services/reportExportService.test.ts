@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { sanitizeFilename, applyPdfTitle } from '../../services/reportExportService'
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { sanitizeFilename, applyPdfTitle, ReportExportService } from '../../services/reportExportService'
 
 describe('EP-F1/F2 (audit 2026-08-21) — filename & PDF title sanitization', () => {
   it('sanitizeFilename thay ký tự bất hợp lệ Windows và không đổi tên sạch', () => {
@@ -31,5 +31,46 @@ describe('EP-F1/F2 (audit 2026-08-21) — filename & PDF title sanitization', ()
   it('applyPdfTitle giữ nguyên HTML sạch', () => {
     const html = `<html><head><title>OK</title></head></html>`
     expect(applyPdfTitle(html, 'Ten_File')).toContain('<title>Ten_File</title>')
+  })
+})
+
+const { toastSpy } = vi.hoisted(() => ({ toastSpy: vi.fn() }))
+vi.mock('../../stores/toastStore', () => ({
+  useToastStore: { getState: () => ({ addToast: toastSpy }) },
+}))
+
+describe('B5 (2026-09-08) — preview fallback khi popup bị chặn', () => {
+  beforeEach(() => {
+    toastSpy.mockClear()
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, writable: true, value: vi.fn(() => 'blob:mock-url') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, writable: true, value: vi.fn() })
+  })
+
+  it('popup bị chặn → fallback tải file .html + toast hướng dẫn (không dead-end)', () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const result = ReportExportService.preview('<html><body>report</body></html>', 'So_Diem_Lop')
+
+    expect(result).toBe(false)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('a[download="So_Diem_Lop.html"]')).not.toBeNull()
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('đã tải bản xem trước'), 'info', expect.any(Number))
+    openSpy.mockRestore()
+    clickSpy.mockRestore()
+  })
+
+  it('popup mở được → giữ hành vi cũ (không download, không toast lỗi)', () => {
+    const fakeWindow = { opener: null, location: { href: '' }, focus: () => {}, closed: false, document: { readyState: 'complete' } } as unknown as Window
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow)
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const result = ReportExportService.preview('<html><body>report</body></html>')
+
+    expect(result).toBe(true)
+    expect(clickSpy).not.toHaveBeenCalled()
+    expect(toastSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+    clickSpy.mockRestore()
   })
 })

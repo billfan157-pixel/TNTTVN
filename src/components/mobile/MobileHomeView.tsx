@@ -97,7 +97,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       <div className="mobile-home-hero">
         <div className="relative z-1 flex items-center gap-1.5 mb-1">
           <Sparkles size={11} className="text-amber-300/80 shrink-0" />
-          <span className="text-[9.5px] font-bold tracking-[0.08em] text-amber-200/80 uppercase">
+          <span className="text-[10px] font-bold tracking-[0.08em] text-amber-200/80 uppercase">
             Giáo Xứ Gia Tôn
           </span>
         </div>
@@ -195,7 +195,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
               </span>
             </div>
             {pendingCount > 0 && (
-              <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-black leading-none shadow-xs animate-pulse">
+              <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black leading-none shadow-xs animate-pulse">
                 {pendingCount}
               </span>
             )}

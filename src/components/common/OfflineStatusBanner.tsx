@@ -24,9 +24,9 @@ export const OfflineStatusBanner: React.FC = () => {
   }, []);
 
   const conflictBanner = unresolvedConflictsCount > 0 ? (
-    <div className="offline-status-banner offline-status-banner--conflict bg-amber-50 text-amber-900 border-b border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-colors">
+    <div className="offline-status-banner offline-status-banner--conflict bg-parish-warning-bg text-parish-warning border-b border-parish-warning/30 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-colors">
       <div className="offline-status-banner__content flex items-center gap-2">
-        <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+        <AlertTriangle size={15} className="text-parish-warning shrink-0" />
         <span>⚠️ <strong>Xung đột dữ liệu:</strong> Có {unresolvedConflictsCount} mục cần bạn kiểm tra phiên bản.</span>
       </div>
       <button
@@ -61,9 +61,9 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
-        <div className="offline-status-banner offline-status-banner--failed bg-rose-50 text-rose-900 border-b border-rose-200 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-900 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-all">
+        <div className="offline-status-banner offline-status-banner--failed bg-parish-danger-bg text-parish-danger border-b border-parish-danger/30 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-all">
           <div className="offline-status-banner__content flex items-center gap-2">
-            <WifiOff size={15} className="text-rose-600 shrink-0" />
+            <WifiOff size={15} className="text-parish-danger shrink-0" />
             <span>🔴 <strong>Lỗi đồng bộ:</strong> Chưa thể gửi dữ liệu lên máy chủ.</span>
           </div>
           <button
@@ -84,13 +84,13 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
-        <div className="offline-status-banner offline-status-banner--syncing bg-sky-50 text-sky-800 border-b border-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:border-sky-900 px-4 py-2 text-xs font-semibold flex items-center justify-between animate-pulse">
+        <div className="offline-status-banner offline-status-banner--syncing bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between animate-pulse">
           <div className="offline-status-banner__content flex items-center gap-2">
-            <RefreshCw size={15} className="text-sky-600 animate-spin shrink-0" />
+            <RefreshCw size={15} className="text-parish-info animate-spin shrink-0" />
             <span>🔄 <strong>Đang đồng bộ:</strong> Đang lưu {pendingCount} thay đổi lên máy chủ...</span>
           </div>
-          <div className="offline-status-banner__progress w-20 bg-sky-200 dark:bg-sky-900 h-1.5 rounded-md overflow-hidden">
-            <div className="bg-sky-600 dark:bg-sky-400 h-full w-2/3 animate-pulse"></div>
+          <div className="offline-status-banner__progress w-20 bg-parish-info/20 h-1.5 rounded-md overflow-hidden">
+            <div className="bg-parish-info h-full w-2/3 animate-pulse"></div>
           </div>
         </div>
         {conflictModal}
@@ -103,13 +103,13 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
-        <div className="offline-status-banner offline-status-banner--offline bg-amber-50 text-amber-900 border-b border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-900 px-4 py-2 text-xs font-semibold flex items-center justify-between">
+        <div className="offline-status-banner offline-status-banner--offline bg-parish-warning-bg text-parish-warning border-b border-parish-warning/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">
             <WifiOff size={15} className="text-amber-600 shrink-0" />
             <span>🟡 <strong>Mất kết nối Internet:</strong> Dữ liệu được lưu an toàn trên máy.</span>
           </div>
           {pendingCount > 0 && (
-            <span className="offline-status-banner__pending bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 dark:border-amber-700 px-2 py-0.5 rounded-md font-bold text-[11px] border border-amber-300 shrink-0">
+            <span className="offline-status-banner__pending bg-parish-warning-bg text-parish-warning px-2 py-0.5 rounded-md font-bold text-[11px] border border-parish-warning/30 shrink-0">
               {pendingCount} thay đổi chờ gửi
             </span>
           )}
@@ -124,9 +124,9 @@ export const OfflineStatusBanner: React.FC = () => {
     <>
       {conflictBanner}
       {pendingCount > 0 && (
-        <div className="offline-status-banner offline-status-banner--pending bg-sky-50 text-sky-800 border-b border-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:border-sky-900 px-4 py-2 text-xs font-semibold flex items-center justify-between">
+        <div className="offline-status-banner offline-status-banner--pending bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">
-            <Wifi size={15} className="text-sky-600 shrink-0" />
+            <Wifi size={15} className="text-parish-info shrink-0" />
             <span>☁ <strong>Đã lưu trên máy:</strong> {pendingCount} thay đổi sẽ tự đồng bộ khi có mạng.</span>
           </div>
         </div>

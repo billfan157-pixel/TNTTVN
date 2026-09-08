@@ -225,6 +225,10 @@
     border-radius: 20px 20px 0 0;
     padding: 20px var(--mobile-content-gutter) calc(20px + env(safe-area-inset-bottom, 0px));
   }
+
+  .modal-content__footer {
+    margin: 12px calc(-1 * var(--mobile-content-gutter)) calc(-20px - env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .mobile-home-hero {

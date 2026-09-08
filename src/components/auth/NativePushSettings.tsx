@@ -52,7 +52,7 @@ export function NativePushSettings() {
           <Bell className="w-4 h-4" />
         </span>
         <div>
-          <h2 id="native-push-title" className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Thông Báo Trên Thiết Bị</h2>
+          <h2 id="native-push-title" className="text-sm font-bold text-text-main tracking-wide m-0">Thông Báo Trên Thiết Bị</h2>
           <p className="text-xs text-text-muted m-0 mt-0.5">Nhận điểm danh, phiếu điểm, lịch học và thông báo giáo xứ</p>
         </div>
       </div>

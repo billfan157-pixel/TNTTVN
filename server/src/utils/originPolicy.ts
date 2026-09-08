@@ -28,7 +28,10 @@
 export const NATIVE_ALLOWED_ORIGINS = [
   'capacitor://localhost',
   'https://localhost',
-  'http://localhost',
+  // SEC-CORS-1 (2026-09-09): LOẠI `http://localhost` (port 80 plain-http) khỏi allowlist.
+  // Native shell thật chỉ dùng `capacitor://localhost` (iOS) và `https://localhost`
+  // (Android) — xem ADR-029. Giữ `http://localhost` + `credentials: true` cho phép bất kỳ
+  // service nào nghe port 80 trên máy user gửi request credentialed tới production API.
 ]
 
 export const DEFAULT_ALLOWED_ORIGINS = [
@@ -38,6 +41,14 @@ export const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:4173',
   'https://tnttvn.vercel.app',
   ...NATIVE_ALLOWED_ORIGINS,
+]
+
+export const ALLOWED_CORS_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Requested-With',
+  'Idempotency-Key',
+  'X-Idempotency-Key',
 ]
 
 // A-NEW-12 (2026-08-10): production KHÔNG được chứa localhost dev ports trong default

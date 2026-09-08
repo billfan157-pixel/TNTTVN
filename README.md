@@ -20,7 +20,7 @@ Nền tảng quản lý điểm số, chuyên cần, hồ sơ Thiếu Nhi Thánh
 - **Database**: SQLite via `@libsql/client` (WAL Mode enabled)
 - **ORM**: Drizzle ORM (51 tables, tenant-scoped SQLite/Turso)
 - **Authentication**: JWT (Access 15m, Refresh 7d), bcrypt, Role-Based Access Control (RBAC)
-- **Integrations**: Grammy (Telegram Bot Notification Engine), Web Push Notifications
+- **Notifications**: Web Push và Native Push trong ứng dụng
 
 ---
 

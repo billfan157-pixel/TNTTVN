@@ -18,6 +18,8 @@ import { Button } from '../components/common/ui/Button'
 import { TabPanel, Tabs } from '../components/common/ui/SelectionControls'
 import { SkeletonTable } from '../components/common/StateFeedback'
 import { useAuth } from '../hooks/useAuth'
+import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
+import { PageHeader } from '../components/common/PageHeader'
 
 const STUDENT_WORKSPACE_TABS = [
   { value: 'students' as const, label: 'Danh Sách & Lớp', icon: <Users aria-hidden="true" size={14} /> },
@@ -157,38 +159,47 @@ export function StudentsPage() {
 
   if (effectiveMode === 'desktop') {
     return (
-      <><div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <Tabs
-            id="students-workspace-tabs"
-            ariaLabel="Không gian quản lý thiếu nhi"
-            items={STUDENT_WORKSPACE_TABS}
-            value={activeWorkspace}
-            onValueChange={setActiveWorkspace}
-            className="w-fit"
-          />
-          {isAdmin && activeWorkspace === 'students' && <Button
-            onClick={() => setShowConfirmSend(true)}
-            disabled={sendingCards || filteredStudentsForSend.length === 0}
-            loading={sendingCards}
-            loadingLabel="Đang gửi..."
-            leadingIcon={<Send aria-hidden="true" size={14} />}
-            title={filteredStudentsForSend.length === 0 ? 'Không có thiếu nhi để gửi' : `Gửi cho ${confirmSendInfo.count} em ${confirmSendInfo.label}`}
-            variant="primary"
-            className="text-xs font-bold disabled:opacity-50"
-          >
-            {`Gửi Kết Quả Học Tập${confirmSendInfo.count > 0 ? ` (${confirmSendInfo.count})` : ''}`}
-          </Button>}
-        </div>
+      <>
+        <DesktopAppShell width="full">
+        <PageHeader
+          icon={<Users className="text-parish-primary" size={24} />}
+          title="Hồ Sơ Thiếu Nhi & Lớp Học"
+          description="Quản lý danh sách thiếu nhi, phân chia lớp giáo lý, hồ sơ cá nhân và xét duyệt thăng tiến"
+          actions={
+            isAdmin && activeWorkspace === 'students' ? (
+              <Button
+                onClick={() => setShowConfirmSend(true)}
+                disabled={sendingCards || filteredStudentsForSend.length === 0}
+                loading={sendingCards}
+                loadingLabel="Đang gửi..."
+                leadingIcon={<Send aria-hidden="true" size={14} />}
+                title={filteredStudentsForSend.length === 0 ? 'Không có thiếu nhi để gửi' : `Gửi cho ${confirmSendInfo.count} em ${confirmSendInfo.label}`}
+                variant="primary"
+                className="text-xs font-bold disabled:opacity-50"
+              >
+                {`Gửi Kết Quả Học Tập${confirmSendInfo.count > 0 ? ` (${confirmSendInfo.count})` : ''}`}
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <Tabs
+          id="students-workspace-tabs"
+          ariaLabel="Không gian quản lý thiếu nhi"
+          items={STUDENT_WORKSPACE_TABS}
+          value={activeWorkspace}
+          onValueChange={setActiveWorkspace}
+          className="w-fit"
+        />
 
         {cardSuccess && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-700 flex items-center gap-2">
+          <div className="p-3 bg-parish-success-bg border border-parish-success/30 rounded-xl text-xs font-bold text-parish-success flex items-center gap-2">
             <CheckCircle className="w-4 h-4 shrink-0" />
             <span>{cardSuccess}</span>
           </div>
         )}
         {cardError && (
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-bold text-rose-600 flex items-center gap-2">
+          <div className="p-3 bg-parish-danger-bg border border-parish-danger/30 rounded-xl text-xs font-bold text-parish-danger flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{cardError}</span>
           </div>
@@ -210,22 +221,22 @@ export function StudentsPage() {
             />
           </Suspense>
         </TabPanel>
-      </div>
+        </DesktopAppShell>
 
-      {showImportModal && (
-        <Suspense fallback={null}>
-          <ExcelImportModal isOpen onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
-        </Suspense>
-      )}
-      <ConfirmDialog
-        isOpen={showConfirmSend}
-        title="Gửi Kết Quả Học Tập"
-        message={`Bạn có chắc muốn gửi phiếu điểm học kỳ ${selectedSemester} cho ${confirmSendInfo.count} em ${confirmSendInfo.label !== 'toàn xứ' ? `lớp ${confirmSendInfo.label}` : 'toàn xứ đang học'}? Phụ huynh đã liên kết SĐT sẽ nhận Web Push + Telegram.`}
-        confirmText={`Gửi ${confirmSendInfo.count} phiếu`}
-        variant="info"
-        onConfirm={handleSendReportCards}
-        onCancel={() => setShowConfirmSend(false)}
-      />
+        {showImportModal && (
+          <Suspense fallback={null}>
+            <ExcelImportModal isOpen onClose={() => { setShowImportModal(false); useFilterStore.getState().setSelectedClassId('all'); useFilterStore.getState().setSelectedBranchId('all'); }} />
+          </Suspense>
+        )}
+        <ConfirmDialog
+          isOpen={showConfirmSend}
+          title="Gửi Kết Quả Học Tập"
+          message={`Bạn có chắc muốn gửi phiếu điểm học kỳ ${selectedSemester} cho ${confirmSendInfo.count} em ${confirmSendInfo.label !== 'toàn xứ' ? `lớp ${confirmSendInfo.label}` : 'toàn xứ đang học'}? Phụ huynh đã liên kết SĐT sẽ nhận thông báo ứng dụng.`}
+          confirmText={`Gửi ${confirmSendInfo.count} phiếu`}
+          variant="info"
+          onConfirm={handleSendReportCards}
+          onCancel={() => setShowConfirmSend(false)}
+        />
       </>
     )
   }

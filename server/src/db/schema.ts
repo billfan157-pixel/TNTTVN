@@ -28,6 +28,8 @@ export const users = sqliteTable('users', {
 
 // Refresh session management (JWT rotation + reuse detection).
 // tokenHash = sha256(refreshToken) — KHÔNG lưu token dạng plaintext.
+// ADR-111 legacy-retained tables: runtime creates no new link/token. Keep the
+// schema for audit/backup compatibility until a separate retention migration.
 export const telegramLinkTokens = sqliteTable('telegram_link_tokens', {
   id: text('id').notNull(),
   userId: text('user_id').notNull(),
@@ -431,6 +433,7 @@ export const catechistAssignments = sqliteTable('catechist_assignments', {
 export const notifications = sqliteTable('notifications', {
    id: text('id').notNull(),
    studentId: text('student_id'),
+   // `telegram` is historical-only after ADR-111; new code writes `web_push`.
    type: text('type', { enum: ['telegram', 'web_push'] }).notNull(),
    channel: text('channel', { enum: ['absence', 'report_card', 'reminder'] }).notNull(),
    deliveryKind: text('delivery_kind', { enum: ['alert', 'info', 'absence', 'report', 'reminder'] }),
@@ -1243,6 +1246,109 @@ export const parishEvents = sqliteTable('parish_events', {
   index('idx_parish_events_parish_category').on(table.parishId, table.category),
 ])
 
+export const operationEvents = sqliteTable('operation_events', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  sourceParishEventId: text('source_parish_event_id'),
+  title: text('title').notNull(),
+  description: text('description'),
+  eventType: text('event_type').notNull(),
+  startsAt: text('starts_at').notNull(),
+  endsAt: text('ends_at').notNull(),
+  timezone: text('timezone').notNull(),
+  location: text('location'),
+  status: text('status', { enum: ['DRAFT', 'PLANNING', 'READY', 'LIVE', 'COMPLETED', 'CANCELLED'] }).notNull().default('DRAFT'),
+  visibility: text('visibility', { enum: ['INTERNAL', 'PUBLIC_SUMMARY'] }).notNull().default('INTERNAL'),
+  scopeUnitId: text('scope_unit_id'),
+  organizerPersonId: text('organizer_person_id'),
+  organizerUserId: text('organizer_user_id'),
+  expectedHeadcount: integer('expected_headcount'),
+  outcomeSummary: text('outcome_summary'),
+  version: integer('version').notNull().default(1),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.sourceParishEventId], foreignColumns: [parishEvents.parishId, parishEvents.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.organizerUserId], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  check('operation_event_public_source_required', sql`${table.visibility} <> 'PUBLIC_SUMMARY' OR ${table.sourceParishEventId} IS NOT NULL`),
+  check('operation_event_time_order', sql`${table.endsAt} > ${table.startsAt}`),
+  check('operation_event_headcount_nonnegative', sql`${table.expectedHeadcount} IS NULL OR ${table.expectedHeadcount} >= 0`),
+  check('operation_event_organizer_at_most_one', sql`${table.organizerUserId} IS NULL OR ${table.organizerPersonId} IS NULL`),
+  index('idx_operation_events_list').on(table.parishId, table.status, table.startsAt, table.deletedAt),
+  uniqueIndex('idx_operation_events_source').on(table.parishId, table.sourceParishEventId)
+    .where(sql`${table.sourceParishEventId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+  index('idx_operation_events_visibility').on(table.parishId, table.visibility, table.startsAt),
+])
+
+export const operationEventParticipants = sqliteTable('operation_event_participants', {
+  parishId: text('parish_id').notNull(),
+  eventId: text('event_id').notNull(),
+  id: text('id').notNull(),
+  userId: text('user_id'),
+  personId: text('person_id'),
+  participantRole: text('participant_role').notNull().default('ATTENDEE'),
+  attendanceStatus: text('attendance_status', { enum: ['PLANNED', 'CONFIRMED', 'DECLINED', 'ATTENDED', 'ABSENT'] }).notNull().default('PLANNED'),
+  version: integer('version').notNull().default(1),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.eventId, table.id] }),
+  check('operation_event_participant_exactly_one_target', sql`(${table.userId} IS NOT NULL AND ${table.personId} IS NULL) OR (${table.userId} IS NULL AND ${table.personId} IS NOT NULL)`),
+  index('idx_operation_event_participants_event').on(table.parishId, table.eventId, table.attendanceStatus),
+  index('idx_operation_event_participants_user').on(table.parishId, table.userId, table.attendanceStatus),
+  uniqueIndex('idx_operation_event_participant_user_unique').on(table.parishId, table.eventId, table.userId)
+    .where(sql`${table.userId} IS NOT NULL`),
+  uniqueIndex('idx_operation_event_participant_person_unique').on(table.parishId, table.eventId, table.personId)
+    .where(sql`${table.personId} IS NOT NULL`),
+])
+
+export const operationBlockouts = sqliteTable('operation_blockouts', {
+  parishId: text('parish_id').notNull(),
+  id: text('id').notNull(),
+  userId: text('user_id'),
+  personId: text('person_id'),
+  startsAt: text('starts_at').notNull(),
+  endsAt: text('ends_at').notNull(),
+  reason: text('reason'),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  check('operation_blockout_exactly_one_target', sql`(${table.userId} IS NOT NULL AND ${table.personId} IS NULL) OR (${table.userId} IS NULL AND ${table.personId} IS NOT NULL)`),
+  check('operation_blockout_time_order', sql`${table.endsAt} > ${table.startsAt}`),
+  index('idx_operation_blockouts_user_time').on(table.parishId, table.userId, table.startsAt, table.endsAt, table.deletedAt),
+  index('idx_operation_blockouts_person_time').on(table.parishId, table.personId, table.startsAt, table.endsAt, table.deletedAt),
+])
+
+export const operationReminders = sqliteTable('operation_reminders', {
+  parishId: text('parish_id').notNull(),
+  id: text('id').notNull(),
+  taskId: text('task_id'),
+  eventId: text('event_id'),
+  recipientUserId: text('recipient_user_id').notNull(),
+  triggerAt: text('trigger_at').notNull(),
+  kind: text('kind', { enum: ['TASK_DUE', 'EVENT_START', 'OVERDUE'] }).notNull(),
+  dedupeKey: text('dedupe_key').notNull(),
+  status: text('status', { enum: ['PENDING', 'ENQUEUED', 'SENT', 'FAILED', 'CANCELLED'] }).notNull().default('PENDING'),
+  readAt: text('read_at'),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  enqueuedAt: text('enqueued_at'),
+  leaseExpiresAt: text('lease_expires_at'),
+  nextAttemptAt: text('next_attempt_at'),
+  notificationId: text('notification_id'),
+  sentAt: text('sent_at'),
+  error: text('error'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  uniqueIndex('idx_operation_reminders_dedupe').on(table.parishId, table.dedupeKey),
+  index('idx_operation_reminders_due').on(table.parishId, table.status, table.triggerAt),
+])
+
 // ADR-081: Hồ sơ Xứ đoàn is a separate bounded context from operational calendar.
 export const parishProfiles = sqliteTable('parish_profiles', {
   parishId: text('parish_id').notNull(),
@@ -1307,6 +1413,7 @@ export const parishServiceTerms = sqliteTable('parish_service_terms', {
   personId: text('person_id').notNull(),
   unitId: text('unit_id'),
   positionTitle: text('position_title').notNull(),
+  positionCode: text('position_code', { enum: ['PARISH_LEADER', 'BRANCH_LEADER', 'COMMITTEE_LEADER'] }),
   rankTitle: text('rank_title'),
   startDate: text('start_date').notNull(),
   endDate: text('end_date'),
@@ -1328,6 +1435,193 @@ export const parishServiceTerms = sqliteTable('parish_service_terms', {
   }).onDelete('restrict'),
   index('idx_parish_terms_person').on(table.parishId, table.personId, table.startDate),
   index('idx_parish_terms_unit').on(table.parishId, table.unitId, table.startDate),
+])
+
+export const operationWorkstreams = sqliteTable('operation_workstreams', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  operationEventId: text('operation_event_id'),
+  sourceUnitId: text('source_unit_id'),
+  name: text('name').notNull(),
+  description: text('description'),
+  status: text('status', { enum: ['PLANNING', 'IN_PROGRESS', 'READY', 'BLOCKED'] }).notNull().default('PLANNING'),
+  blockedReason: text('blocked_reason'),
+  isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(false),
+  leaderPersonId: text('leader_person_id'),
+  leaderUserId: text('leader_user_id'),
+  version: integer('version').notNull().default(1),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.sourceUnitId], foreignColumns: [parishOrganizationUnits.parishId, parishOrganizationUnits.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.operationEventId], foreignColumns: [operationEvents.parishId, operationEvents.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.leaderPersonId], foreignColumns: [parishPeople.parishId, parishPeople.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.leaderUserId], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_operation_workstreams_scope').on(table.parishId, table.sourceUnitId, table.deletedAt),
+  index('idx_operation_workstreams_event').on(table.parishId, table.operationEventId, table.deletedAt),
+])
+
+export const operationTasks = sqliteTable('operation_tasks', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  operationEventId: text('operation_event_id'),
+  workstreamId: text('workstream_id'),
+  parentTaskId: text('parent_task_id'),
+  phase: text('phase', { enum: ['PREPARATION', 'EXECUTION', 'FOLLOW_UP'] }).notNull().default('PREPARATION'),
+  title: text('title').notNull(),
+  description: text('description'),
+  status: text('status', { enum: ['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED'] }).notNull().default('TODO'),
+  priority: text('priority', { enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'] }).notNull().default('NORMAL'),
+  isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(false),
+  dueAt: text('due_at'),
+  startedAt: text('started_at'),
+  completedAt: text('completed_at'),
+  completionNote: text('completion_note'),
+  blockedReason: text('blocked_reason'),
+  cancellationReason: text('cancellation_reason'),
+  approvalStatus: text('approval_status', { enum: ['NOT_REQUIRED', 'PENDING', 'APPROVED', 'REJECTED'] }).notNull().default('NOT_REQUIRED'),
+  approvedBy: text('approved_by'),
+  approvedAt: text('approved_at'),
+  version: integer('version').notNull().default(1),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  completedBy: text('completed_by'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.operationEventId], foreignColumns: [operationEvents.parishId, operationEvents.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.workstreamId], foreignColumns: [operationWorkstreams.parishId, operationWorkstreams.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.parentTaskId], foreignColumns: [table.parishId, table.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.completedBy], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.approvedBy], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_operation_tasks_list').on(table.parishId, table.status, table.dueAt, table.deletedAt),
+  index('idx_operation_tasks_workstream').on(table.parishId, table.workstreamId, table.deletedAt),
+])
+
+export const operationTaskDependencies = sqliteTable('operation_task_dependencies', {
+  parishId: text('parish_id').notNull(),
+  taskId: text('task_id').notNull(),
+  dependsOnTaskId: text('depends_on_task_id').notNull(),
+  dependencyType: text('dependency_type', { enum: ['BLOCKED_BY'] }).notNull().default('BLOCKED_BY'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.taskId, table.dependsOnTaskId] }),
+  foreignKey({ columns: [table.parishId, table.taskId], foreignColumns: [operationTasks.parishId, operationTasks.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.dependsOnTaskId], foreignColumns: [operationTasks.parishId, operationTasks.id] }).onDelete('restrict'),
+  check('operation_task_dependency_not_self', sql`${table.taskId} <> ${table.dependsOnTaskId}`),
+  index('idx_operation_task_dependencies_task').on(table.parishId, table.taskId),
+])
+
+export const operationTaskAssignees = sqliteTable('operation_task_assignees', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  taskId: text('task_id').notNull(),
+  userId: text('user_id'),
+  personId: text('person_id'),
+  assignmentRole: text('assignment_role', { enum: ['OWNER', 'CONTRIBUTOR', 'APPROVER', 'OBSERVER'] }).notNull(),
+  acknowledgementStatus: text('acknowledgement_status', { enum: ['PENDING', 'ACCEPTED', 'DECLINED'] }).notNull().default('PENDING'),
+  assignedBy: text('assigned_by').notNull(),
+  assignedAt: text('assigned_at').notNull().$defaultFn(() => new Date().toISOString()),
+  respondedAt: text('responded_at'),
+  completedAt: text('completed_at'),
+  note: text('note'),
+  version: integer('version').notNull().default(1),
+  removedAt: text('removed_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.taskId], foreignColumns: [operationTasks.parishId, operationTasks.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.userId], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.personId], foreignColumns: [parishPeople.parishId, parishPeople.id] }).onDelete('restrict'),
+  check('operation_task_assignee_exactly_one_target', sql`(${table.userId} IS NOT NULL AND ${table.personId} IS NULL) OR (${table.userId} IS NULL AND ${table.personId} IS NOT NULL)`),
+  uniqueIndex('idx_operation_task_owner_active').on(table.parishId, table.taskId)
+    .where(sql`${table.assignmentRole} = 'OWNER' AND ${table.removedAt} IS NULL`),
+  uniqueIndex('idx_operation_task_assignee_user_role_active').on(table.parishId, table.taskId, table.userId, table.assignmentRole)
+    .where(sql`${table.userId} IS NOT NULL AND ${table.removedAt} IS NULL`),
+  uniqueIndex('idx_operation_task_assignee_person_role_active').on(table.parishId, table.taskId, table.personId, table.assignmentRole)
+    .where(sql`${table.personId} IS NOT NULL AND ${table.removedAt} IS NULL`),
+  index('idx_operation_task_assignees_user').on(table.parishId, table.userId, table.acknowledgementStatus, table.removedAt),
+  index('idx_operation_task_assignees_person').on(table.parishId, table.personId, table.acknowledgementStatus, table.removedAt),
+])
+
+export const operationChecklistItems = sqliteTable('operation_checklist_items', {
+  parishId: text('parish_id').notNull(),
+  taskId: text('task_id').notNull(),
+  id: text('id').notNull(),
+  label: text('label').notNull(),
+  isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(false),
+  isDone: integer('is_done', { mode: 'boolean' }).notNull().default(false),
+  completedBy: text('completed_by'),
+  completedAt: text('completed_at'),
+  sortOrder: integer('sort_order').notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.taskId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.taskId], foreignColumns: [operationTasks.parishId, operationTasks.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.completedBy], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_operation_checklist_task').on(table.parishId, table.taskId, table.sortOrder),
+])
+
+export const operationWorkstreamMembers = sqliteTable('operation_workstream_members', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  workstreamId: text('workstream_id').notNull(),
+  userId: text('user_id'),
+  personId: text('person_id'),
+  operationRole: text('operation_role', { enum: ['WORKSTREAM_LEAD', 'CONTRIBUTOR', 'APPROVER', 'OBSERVER'] }).notNull(),
+  assignedBy: text('assigned_by').notNull(),
+  assignedAt: text('assigned_at').notNull().$defaultFn(() => new Date().toISOString()),
+  startsAt: text('starts_at'),
+  endsAt: text('ends_at'),
+  version: integer('version').notNull().default(1),
+  removedAt: text('removed_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.workstreamId], foreignColumns: [operationWorkstreams.parishId, operationWorkstreams.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.userId], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  foreignKey({ columns: [table.parishId, table.personId], foreignColumns: [parishPeople.parishId, parishPeople.id] }).onDelete('restrict'),
+  check('operation_workstream_member_exactly_one_target', sql`(${table.userId} IS NOT NULL AND ${table.personId} IS NULL) OR (${table.userId} IS NULL AND ${table.personId} IS NOT NULL)`),
+  check('operation_workstream_member_time_order', sql`${table.startsAt} IS NULL OR ${table.endsAt} IS NULL OR ${table.endsAt} > ${table.startsAt}`),
+  uniqueIndex('idx_operation_workstream_member_user_role_active').on(table.parishId, table.workstreamId, table.userId, table.operationRole)
+    .where(sql`${table.userId} IS NOT NULL AND ${table.removedAt} IS NULL`),
+  uniqueIndex('idx_operation_workstream_member_person_role_active').on(table.parishId, table.workstreamId, table.personId, table.operationRole)
+    .where(sql`${table.personId} IS NOT NULL AND ${table.removedAt} IS NULL`),
+  index('idx_operation_workstream_members_user').on(table.parishId, table.userId, table.removedAt),
+  index('idx_operation_workstream_members_person').on(table.parishId, table.personId, table.removedAt),
+])
+
+export const operationTaskComments = sqliteTable('operation_task_comments', {
+  id: text('id').notNull(),
+  parishId: text('parish_id').notNull(),
+  taskId: text('task_id').notNull(),
+  authorUserId: text('author_user_id').notNull(),
+  content: text('content').notNull(),
+  evidenceUrl: text('evidence_url'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({ columns: [table.parishId, table.taskId], foreignColumns: [operationTasks.parishId, operationTasks.id] }).onDelete('cascade'),
+  foreignKey({ columns: [table.parishId, table.authorUserId], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_operation_task_comments_task').on(table.parishId, table.taskId, table.createdAt),
+])
+
+export const operationMutationReceipts = sqliteTable('operation_mutation_receipts', {
+  parishId: text('parish_id').notNull(),
+  actorUserId: text('actor_user_id').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  command: text('command').notNull(),
+  requestHash: text('request_hash').notNull(),
+  responseJson: text('response_json').notNull(),
+  responsePrunedAt: text('response_pruned_at'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.actorUserId, table.idempotencyKey] }),
+  foreignKey({ columns: [table.parishId, table.actorUserId], foreignColumns: [users.parishId, users.id] }).onDelete('restrict'),
+  index('idx_operation_mutation_receipts_created').on(table.parishId, table.createdAt),
 ])
 
 export const parishRecords = sqliteTable('parish_records', {

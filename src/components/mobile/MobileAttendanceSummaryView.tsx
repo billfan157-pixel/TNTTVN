@@ -121,7 +121,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
 
       {/* Subpage Header */}
       <SubpageHeader
-        icon={<BarChart2 size={15} />}
+        icon={<BarChart2 size={16} />}
         title="Tổng Hợp Chuyên Cần"
         meta={
           <span className="truncate">
@@ -269,10 +269,12 @@ export const MobileAttendanceSummaryView: React.FC = () => {
           </div>
         ) : (
           filteredSummaries.map((item) => (
-            <div
+            <button
+              type="button"
               key={item.student.id}
               onClick={() => openStudentHistory(item)}
-              className="entity-card p-3.5 active:bg-surface-hover flex flex-col gap-2.5 cursor-pointer"
+              aria-label={`Xem lịch sử điểm danh của ${item.student.holyName} ${item.student.fullName}`}
+              className="entity-card p-3.5 active:bg-surface-hover flex flex-col gap-2.5 cursor-pointer w-full text-left"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -329,7 +331,7 @@ export const MobileAttendanceSummaryView: React.FC = () => {
                   </span>
                 </div>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>

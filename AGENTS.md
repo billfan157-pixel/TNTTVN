@@ -132,6 +132,14 @@ Preserve, where applicable:
 
 Complexity that protects these invariants is not automatically technical debt.
 
+### Design system and UI/UX invariants
+
+* **Button standard:** Base button height is standard 40px (`--control-height-md: 40px`, `.btn`); mobile touch target area must be >= 44px (`min-height: max(var(--touch-target-min), 44px)`).
+* **Title prominence hierarchy:** Subpage titles (`.subpage-header__title`) and mobile primary titles (`.mobile-page-header__title`) must be 20px (`1.25rem`), font-weight 800 (`font-extrabold`), tracking -0.02em; titles must always be larger and more prominent than interactive buttons.
+* **Modal architecture:** All dialogs/modals must use `<ModalShell>` (or documented design-system primitives), ensuring focus trapping (WCAG 2.1 AA), scroll lock, ESC handling, and responsive mobile bottom-sheet behavior.
+* **Empty states:** Must use standard `<EmptyState>` / `<NoResultState>` with appropriate icon and action guidance; do not render raw unstyled text messages.
+* **Dark Mode semantic tokens:** Raw Tailwind pastel colors (`bg-rose-50`, `bg-emerald-50`, `bg-amber-50`, `bg-sky-50`) are banned in application views; use semantic tokens (`bg-parish-*-bg`, `text-parish-*`, `border-parish-*/30`).
+
 ### Business behavior
 
 Do not infer intended business rules solely from code.

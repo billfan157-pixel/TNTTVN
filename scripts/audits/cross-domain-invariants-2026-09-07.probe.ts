@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db, dbConfig } from '../../server/src/db/index.js'
-import { academicYears, branches, classes, users, students, grades, attendance, academicYearSnapshots, telegramLinks, catechistAssignments, studentFeeRecords } from '../../server/src/db/schema.js'
+import { academicYears, branches, classes, users, students, grades, attendance, academicYearSnapshots, catechistAssignments, studentFeeRecords } from '../../server/src/db/schema.js'
 import { academicYearLifecycleService as lifecycle } from '../../server/src/services/AcademicYearLifecycleService.js'
 import { reportingApplicationService as reporting } from '../../server/src/services/ReportingApplicationService.js'
 import { drizzleSemesterLockRepository as locks } from '../../server/src/repositories/DrizzleSemesterLockRepository.js'
@@ -11,7 +11,7 @@ import promotionRouter from '../../server/src/routes/promotion.js'
 import leaveRouter from '../../server/src/routes/leaveRequests.js'
 import settingsRouter from '../../server/src/routes/settings.js'
 import { updateStudent } from '../../server/src/services/studentService.js'
-import { sendTelegramMessageToChat } from '../../server/src/services/telegram.js'
+import { enqueueNotification } from '../../server/src/services/notificationQueue.js'
 import { updateUserAssignments } from '../../server/src/services/userService.js'
 import { listClassFeeRecords } from '../../server/src/services/financeService.js'
 import gradesRouter from '../../server/src/routes/grades.js'
@@ -30,7 +30,7 @@ import examsRouter from '../../server/src/routes/exams.js'
 import backupRouter from '../../server/src/routes/backup.js'
 import bcrypt from 'bcryptjs'
 
-vi.mock('../../server/src/services/telegram.js', () => ({ sendTelegramMessageToChat: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../server/src/services/notificationQueue.js', () => ({ enqueueNotification: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('../../server/src/services/safetySnapshot.js', () => ({ writeSafetySnapshot: vi.fn().mockResolvedValue('synthetic-safety'), pruneSafetySnapshots: vi.fn().mockResolvedValue(undefined) }))
 
 let sequence = 0
@@ -177,17 +177,16 @@ describe('Cross-domain remediation: regression and containment controls', () => 
     await expect(lifecycle.finalizeYear(f.year, 'admin', f.parishId)).rejects.toThrow()
   })
 
-  it('XD-05 regression: leave review does not send to the old parent after ownership changes', async () => {
+  it('XD-05 regression: leave review does not enqueue to the old parent after ownership changes', async () => {
     const f = await fixture()
     const created = await leaveRouter.request('/', { method: 'POST', headers: f.parentHeaders, body: JSON.stringify({ studentId: 'student', date: '2026-05-03', sessionTypes: ['SundayMass'], reason: 'Synthetic reason' }) })
     expect(created.status).toBe(201)
     const requestId = ((await created.json()) as any).data.id
-    await db.insert(telegramLinks).values({ id: 'link', parishId: f.parishId, userId: 'parent', chatId: f.parishId, status: 'ACTIVE', notificationsEnabled: 1 })
     await updateStudent('student', { parentPhone: '0907654321' }, 'admin', f.parishId, '', 'audit')
-    vi.mocked(sendTelegramMessageToChat).mockClear()
+    vi.mocked(enqueueNotification).mockClear()
     const response = await leaveRouter.request(`/${requestId}/review`, { method: 'PATCH', headers: f.headers, body: JSON.stringify({ status: 'APPROVED', reviewNote: 'Synthetic private follow-up' }) })
     expect(response.status).toBe(200)
-    expect(sendTelegramMessageToChat).not.toHaveBeenCalled()
+    expect(enqueueNotification).not.toHaveBeenCalled()
   })
 
   it('S-lock: canonical year lock blocks direct attendance and leave approval consistently', async () => {

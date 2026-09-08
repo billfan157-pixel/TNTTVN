@@ -41,7 +41,7 @@ export interface ParishLogoMeaningData {
 export const PARISH_LOGO_MEANING: ParishLogoMeaningData = {
   parishName: 'Giáo Xứ Gia Tôn',
   diocese: 'Giáo Phận Xuân Lộc',
-  deanery: 'Hạt Gia Kiệm',
+  deanery: 'Giáo hạt Gia Kiệm',
   unitName: 'Xứ Đoàn Thiếu Nhi Thánh Thể Đức Mẹ Fatima',
   title: 'Ý Nghĩa Logo Xứ Đoàn',
   overview:
@@ -80,7 +80,7 @@ export const PARISH_LOGO_MEANING: ParishLogoMeaningData = {
     {
       id: 'patron',
       title: 'Đức Mẹ Fatima — Đấng Bổn Mạng',
-      shortLabel: 'Mẹ Fatima',
+      shortLabel: 'Đức Mẹ Fatima',
       subtitle: 'Nữ Vương Thiên Quốc & Tràng Chuỗi Mân Côi',
       iconName: 'patron',
       description:

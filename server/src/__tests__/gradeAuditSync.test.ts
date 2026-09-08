@@ -7,7 +7,7 @@ import settingsApp from '../routes/settings.js'
 import authApp from '../routes/auth.js'
 import parentsApp from '../routes/parents.js'
 import { db } from '../db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, auditLogs,  telegramLinks } from '../db/schema.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, auditLogs } from '../db/schema.js'
 import { eq, and, desc } from 'drizzle-orm'
 
 // GRADE-SYNC-1 (2026-08-14): E2E mô phỏng luồng frontend upsertGrade → backend
@@ -49,9 +49,6 @@ describe('GRADE-SYNC-1: upsertGrade → audit_logs → GET /api/audit-logs', () 
     }).onConflictDoNothing()
     await db.insert(catechistAssignments).values({
       id: 'asg-audit-01', userId: 'usr-audit-cn', classId: 'cl-audit-01', roleInClass: 'chunhiem', parishId,
-    }).onConflictDoNothing()
-    await db.insert(telegramLinks).values({
-      id: 'tg-audit-01', userId: 'usr-audit-parent', parishId, chatId: 'chat_test_123', status: 'ACTIVE', notificationsEnabled: 1,
     }).onConflictDoNothing()
   })
 
@@ -134,24 +131,17 @@ describe('GRADE-SYNC-1: upsertGrade → audit_logs → GET /api/audit-logs', () 
     expect(auditSuccess?.action).toBe('LOGIN')
   })
 
-  it('POST /api/parents/telegram/notifications ghi audit_logs (parent)', async () => {
+  it('retired Telegram preference endpoint returns 410 without writing a new audit event', async () => {
     const parentToken = generateTokens({ userId: 'usr-audit-parent', username: 'audit_parent', role: 'phuhuynh', parishId }).accessToken
+    const before = await db.select().from(auditLogs).where(and(eq(auditLogs.entityType, 'parent'), eq(auditLogs.action, 'UPDATE_TELEGRAM_NOTIFICATIONS'), eq(auditLogs.userId, 'usr-audit-parent')))
     const { status } = await jsonReq(parentsApp, '/telegram/notifications', {
       method: 'POST',
       token: parentToken,
       body: { enabled: false },
     })
-    expect(status).toBe(200)
-
-    const [audit] = await db
-      .select()
-      .from(auditLogs)
-      .where(and(eq(auditLogs.entityType, 'parent'), eq(auditLogs.action, 'UPDATE_TELEGRAM_NOTIFICATIONS'), eq(auditLogs.userId, 'usr-audit-parent')))
-      .orderBy(desc(auditLogs.createdAt))
-      .limit(1)
-
-    expect(audit).toBeDefined()
-    expect(audit?.action).toBe('UPDATE_TELEGRAM_NOTIFICATIONS')
+    expect(status).toBe(410)
+    const after = await db.select().from(auditLogs).where(and(eq(auditLogs.entityType, 'parent'), eq(auditLogs.action, 'UPDATE_TELEGRAM_NOTIFICATIONS'), eq(auditLogs.userId, 'usr-audit-parent')))
+    expect(after).toHaveLength(before.length)
   })
 
   it('GET /api/audit-logs hiển thị userName đúng parish (tenant isolation join)', async () => {

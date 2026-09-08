@@ -14,6 +14,9 @@ import {
   users,
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
+import {
+  isOperationsPositionValidForUnit,
+} from '../utils/organizationalPosition.js'
 import type {
   MutationContext,
   ParishAssetInput,
@@ -96,12 +99,21 @@ async function assertLinkedUserAvailable(tx: DbTransaction, parishId: string, li
 }
 
 async function requireUnit(tx: DbTransaction, parishId: string, id: string) {
-  const [row] = await tx.select({ id: parishOrganizationUnits.id }).from(parishOrganizationUnits).where(and(
+  const [row] = await tx.select({ id: parishOrganizationUnits.id, unitType: parishOrganizationUnits.unitType }).from(parishOrganizationUnits).where(and(
     eq(parishOrganizationUnits.parishId, parishId),
     eq(parishOrganizationUnits.id, id),
     isNull(parishOrganizationUnits.deletedAt),
   )).limit(1)
   if (!row) parishError(404, 'PARISH_UNIT_NOT_FOUND', 'Không tìm thấy đơn vị tổ chức trong Xứ đoàn hiện tại')
+  return row
+}
+
+function resolveTermPositionCode(input: ParishTermInput, unitType: 'BOARD' | 'COMMITTEE' | 'BRANCH' | 'CHAPTER' | 'OTHER' | null) {
+  const positionCode = input.positionCode ?? null
+  if (positionCode && !isOperationsPositionValidForUnit(positionCode, unitType)) {
+    parishError(400, 'PARISH_POSITION_SCOPE_MISMATCH', 'Quyền Operations của chức vụ không phù hợp với loại đơn vị đã chọn')
+  }
+  return positionCode
 }
 
 async function requireRecord(tx: DbTransaction, parishId: string, id: string) {
@@ -484,7 +496,8 @@ export async function deleteParishUnit(id: string, context: MutationContext) {
 export async function createParishTerm(input: ParishTermInput, context: MutationContext) {
   return runDbTransaction(async tx => {
     await requirePerson(tx, context.parishId, input.personId)
-    if (input.unitId) await requireUnit(tx, context.parishId, input.unitId)
+    const unit = input.unitId ? await requireUnit(tx, context.parishId, input.unitId) : null
+    const positionCode = resolveTermPositionCode(input, unit?.unitType ?? null)
     const id = generateId('PST')
     const now = new Date().toISOString()
     const row = {
@@ -493,6 +506,7 @@ export async function createParishTerm(input: ParishTermInput, context: Mutation
       personId: input.personId,
       unitId: input.unitId || null,
       positionTitle: input.positionTitle.trim(),
+      positionCode,
       rankTitle: nullableText(input.rankTitle),
       startDate: input.startDate,
       endDate: input.endDate || null,
@@ -504,23 +518,28 @@ export async function createParishTerm(input: ParishTermInput, context: Mutation
       deletedAt: null,
     }
     await tx.insert(parishServiceTerms).values(row)
-    await audit(tx, context, 'PARISH_TERM_CREATE', 'parish_service_term', id, ['personId', 'unitId', 'positionTitle', 'startDate', 'endDate'])
+    await audit(tx, context, 'PARISH_TERM_CREATE', 'parish_service_term', id, ['personId', 'unitId', 'positionTitle', 'positionCode', 'startDate', 'endDate'])
     return row
   })
 }
 
 export async function updateParishTerm(id: string, input: ParishTermInput, context: MutationContext) {
   return runDbTransaction(async tx => {
-    const [existing] = await tx.select({ id: parishServiceTerms.id }).from(parishServiceTerms).where(and(
+    const [existing] = await tx.select({ id: parishServiceTerms.id, positionCode: parishServiceTerms.positionCode }).from(parishServiceTerms).where(and(
       eq(parishServiceTerms.parishId, context.parishId), eq(parishServiceTerms.id, id), isNull(parishServiceTerms.deletedAt),
     )).limit(1)
     if (!existing) parishError(404, 'PARISH_TERM_NOT_FOUND', 'Không tìm thấy nhiệm kỳ trong Xứ đoàn hiện tại')
     await requirePerson(tx, context.parishId, input.personId)
-    if (input.unitId) await requireUnit(tx, context.parishId, input.unitId)
+    const unit = input.unitId ? await requireUnit(tx, context.parishId, input.unitId) : null
+    const positionCode = resolveTermPositionCode({
+      ...input,
+      positionCode: input.positionCode === undefined ? existing.positionCode : input.positionCode,
+    }, unit?.unitType ?? null)
     const row = {
       personId: input.personId,
       unitId: input.unitId || null,
       positionTitle: input.positionTitle.trim(),
+      positionCode,
       rankTitle: nullableText(input.rankTitle),
       startDate: input.startDate,
       endDate: input.endDate || null,

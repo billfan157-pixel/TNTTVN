@@ -20,7 +20,7 @@ describe('mobile navigation responsiveness', () => {
       />,
     )
 
-    const attendance = screen.getByRole('button', { name: 'Điểm danh' })
+    const attendance = screen.getByRole('button', { name: /Điểm danh/i })
     fireEvent.pointerDown(attendance)
     fireEvent.click(attendance)
 
@@ -29,7 +29,7 @@ describe('mobile navigation responsiveness', () => {
     expect(attendance).toHaveClass('is-active', 'is-pending')
     expect(attendance).toHaveAttribute('aria-busy', 'true')
     expect(attendance).not.toHaveAttribute('aria-current')
-    expect(screen.getByRole('button', { name: 'Trang chủ' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: /Trang chủ/i })).toHaveAttribute('aria-current', 'page')
   })
 
   it('keeps the newest pending tab when an older rapid navigation commits first', () => {
@@ -42,15 +42,15 @@ describe('mobile navigation responsiveness', () => {
       <MobileBottomNav activeTab="home" setActiveTab={setActiveTab} />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Điểm danh' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Báo cáo' }))
+    fireEvent.click(screen.getByRole('button', { name: /Điểm danh/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Báo cáo/i }))
 
     rerender(<MobileBottomNav activeTab="attendance" setActiveTab={setActiveTab} />)
-    expect(screen.getByRole('button', { name: 'Báo cáo' })).toHaveClass('is-active', 'is-pending')
-    expect(screen.getByRole('button', { name: 'Báo cáo' })).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('button', { name: /Báo cáo/i })).toHaveClass('is-active', 'is-pending')
+    expect(screen.getByRole('button', { name: /Báo cáo/i })).toHaveAttribute('aria-busy', 'true')
 
     rerender(<MobileBottomNav activeTab="reports" setActiveTab={setActiveTab} />)
-    expect(screen.getByRole('button', { name: 'Báo cáo' })).not.toHaveClass('is-pending')
-    expect(screen.getByRole('button', { name: 'Báo cáo' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: /Báo cáo/i })).not.toHaveClass('is-pending')
+    expect(screen.getByRole('button', { name: /Báo cáo/i })).toHaveAttribute('aria-current', 'page')
   })
 })

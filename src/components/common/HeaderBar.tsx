@@ -73,7 +73,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h1 className="app-header__title">Catevia</h1>
                   <span className="app-header__parish-badge">
-                    {activeWorkspace === 'organization' ? 'Xứ đoàn & Giáo xứ' : activeWorkspace === 'parent' ? 'Phụ huynh' : 'Thiếu nhi & Học vụ'}
+                    {activeWorkspace === 'organization' ? 'Xứ Đoàn & Giáo Xứ' : activeWorkspace === 'parent' ? 'Phụ Huynh' : 'Thiếu Nhi & Học Vụ'}
                   </span>
                 </div>
                 <div className="app-header__meta">

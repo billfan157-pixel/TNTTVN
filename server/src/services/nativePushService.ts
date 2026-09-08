@@ -1,6 +1,6 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { nativePushTokens } from '../db/schema.js'
+import { nativePushTokens, users } from '../db/schema.js'
 import { isFcmConfigured, sendFcmPush } from './fcmPushProvider.js'
 import { isApnsConfigured, sendApnsPush } from './apnsPushProvider.js'
 import type { AppPushPayload, NativeProviderResult } from './pushTypes.js'
@@ -49,7 +49,11 @@ export async function sendNativePush(
   if (userIds) conditions.push(inArray(nativePushTokens.userId, userIds))
   const rows = await db.select({ token: nativePushTokens.token, platform: nativePushTokens.platform })
     .from(nativePushTokens)
-    .where(and(...conditions))
+    .innerJoin(users, and(
+      eq(users.parishId, nativePushTokens.parishId),
+      eq(users.id, nativePushTokens.userId),
+    ))
+    .where(and(...conditions, eq(users.status, 'ACTIVE'), isNull(users.deletedAt)))
 
   const androidTokens = rows.filter(row => row.platform === 'android').map(row => row.token)
   const iosTokens = rows.filter(row => row.platform === 'ios').map(row => row.token)

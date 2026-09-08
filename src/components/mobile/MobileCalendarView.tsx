@@ -368,9 +368,9 @@ export const MobileCalendarView: React.FC = () => {
           )}
         </div>
         {selectedDayParishEvents.length === 0 ? (
-          <p className="text-xs text-text-muted italic py-2">
+          <div className="py-3 px-3 text-center rounded-xl bg-surface-app border border-surface-border text-xs text-text-muted">
             {canManageEvents ? 'Chưa có sự kiện — bấm Thêm để tạo.' : 'Chưa có sự kiện Xứ đoàn trong ngày này.'}
-          </p>
+          </div>
         ) : (
           <div className="flex flex-col gap-1.5">
             {selectedDayParishEvents.map((ev) => (
@@ -380,7 +380,7 @@ export const MobileCalendarView: React.FC = () => {
                   <span className="flex items-center gap-1 shrink-0">
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">{ev.categoryName || ev.category}</span>
                     {canManageEvents && <button onClick={() => handleOpenEdit(ev)} className="p-1 rounded-md hover:bg-surface-card" aria-label="Sửa"><Pencil size={12} /></button>}
-                    {canManageEvents && <button onClick={() => handleDelete(ev)} className="p-1 rounded-md hover:bg-rose-50 text-text-muted hover:text-rose-600" aria-label="Xóa"><Trash2 size={12} /></button>}
+                    {canManageEvents && <button onClick={() => handleDelete(ev)} className="p-1 rounded-md hover:bg-parish-danger-bg text-text-muted hover:text-parish-danger" aria-label="Xóa"><Trash2 size={12} /></button>}
                   </span>
                 </div>
                 {(ev.time || ev.location) && (

@@ -124,8 +124,8 @@ Việc điều chỉnh foreground Nghĩa Sĩ chỉ sửa contrast của chữ ba
 `src/index.css` là ordered import manifest duy nhất; declarations đầy đủ nằm trong graph `src/styles/design-system/00-tokens.css` đến `70-sidebar.css` — **chỉ dùng các class này, không viết lại pattern thủ công.**
 
 ### 3.1 Buttons
-- `btn` (base) + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-ghost`
-- `btn-sm` (32px) / `btn-lg` (44px)
+- `btn` (base, chuẩn hóa 40px đồng bộ trục với `form-input` & `form-select`) + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-ghost`
+- `btn-sm` (32px) / `btn-lg` (44px) / `mobile-btn` (touch target ≥44px)
 - `pill-btn` / `pill-btn-primary` / `pill-btn-secondary` / `pill-btn-active` + `pill-group` (segmented control)
 
 ### 3.2 Form
@@ -175,29 +175,35 @@ Cấm: `text-slate-*`, `text-gray-*`, `text-[10px]/[11px]` tùy tiện (dùng `t
 
 ---
 
-## 5. Page Pattern (Khung Trang Tiêu Chuẩn)
+## 5. Page Pattern (Khung Trang Tiêu Chuẩn — Pattern A)
+
+Chuẩn hóa toàn bộ trang Desktop theo **Pattern A** (`DesktopAppShell` → `PageHeader` → `Tabs` → `Content`), triệt tiêu hiện tượng giật cục giao diện và mất Header khi chuyển tab:
 
 ```tsx
-<div className="flex flex-col gap-6 max-w-7xl mx-auto p-6">
-  {/* Header */}
-  <div className="card flex justify-between items-center flex-wrap gap-4">
-    <div>
-      <div className="flex items-center gap-2">
-        <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center">
-          <Icon size={20} />
-        </div>
-        <h1 className="text-lg font-extrabold text-text-main m-0">Tiêu Đề Trang</h1>
-      </div>
-      <p className="text-xs font-medium text-text-muted mt-1 m-0">Mô tả chức năng</p>
-    </div>
-    <div className="flex items-center gap-3">
-      <button className="btn btn-primary">Hành Động Chính</button>
-    </div>
+<DesktopAppShell width="full">
+  {/* 1. Header ổn định trên đỉnh trang */}
+  <PageHeader
+    icon={<Icon size={24} className="text-parish-primary" />}
+    title="Tiêu Đề Trang"
+    description="Mô tả chức năng nghiệp vụ của trang"
+    actions={<Button variant="primary">Hành Động Cấp Trang</Button>}
+  />
+
+  {/* 2. Điều hướng Tabs phân hệ chính (nếu có) */}
+  <div className="view-toolbar">
+    <Tabs id="workspace-tabs" items={tabItems} value={activeTab} onValueChange={setActiveTab} />
   </div>
 
-  {/* Nội dung */}
-  <div className="card">{/* content */}</div>
-</div>
+  {/* 3. Nội dung bên trong TabPanel — dùng view-toolbar cho thanh lọc/tìm kiếm con */}
+  <TabPanel tabsId="workspace-tabs" value="tab1" activeValue={activeTab}>
+    <div className="view-toolbar flex items-center justify-between gap-3">
+      {/* Bộ lọc, tìm kiếm, nút lưu con */}
+    </div>
+    <div className="app-panel">
+      {/* Bảng dữ liệu / Lưới nội dung */}
+    </div>
+  </TabPanel>
+</DesktopAppShell>
 ```
 
 ---
@@ -222,6 +228,28 @@ Cấm: thead `bg-slate-800 text-white`, `bg-slate-50/*`, `bg-parish-primary text
 ---
 
 ## 8. Mobile (PWA/Native)
+
+### 8.1 Quy Chuẩn Nút Bấm & Vùng Chạm (Button & Touch Targets)
+- **Base button:** 40px (`--control-height-md: 40px`, `.btn`, `.form-input`, `.form-select`).
+- **Compact button:** 32px (`.btn-sm`, icon-only secondary actions).
+- **Mobile tap target invariant:** Touch target area >= 44px trên mobile (`min-height: max(var(--touch-target-min), 44px)`).
+
+### 8.2 Phân Cấp Tiêu Đề Màn Hình & SubpageHeader
+- **SubpageHeader title (`.subpage-header__title`):** `20px` (1.25rem), `font-weight: 800 (font-extrabold)`, `tracking: -0.02em`, màu `var(--color-text-main)`.
+- **Mobile primary page title (`.mobile-page-header__title`):** `20px` (1.25rem), `font-weight: 800`, `tracking: -0.02em`.
+- **Quy tắc:** Tiêu đề màn hình luôn lớn hơn, đậm hơn và phân cấp cao hơn các nút bấm tương tác.
+
+### 8.3 Kiến Trúc Modal (`<ModalShell>`)
+- Toàn bộ modal phải sử dụng `<ModalShell>` từ `src/components/common/ModalShell.tsx`. Cấm tự dựng `fixed inset-0` riêng rẽ.
+- Hỗ trợ WCAG 2.1 AA focus trapping, scroll lock, phím ESC và tự động biến thành bottom-sheet mượt mà trên mobile.
+
+### 8.4 Trạng Thái Rỗng (Empty States)
+- Bắt buộc dùng `<EmptyState>` / `<NoResultState>` từ `src/components/common/StateFeedback.tsx` với icon và action guidance.
+
+### 8.5 Vệ Sinh Màu Sắc & Dark Mode
+- Cấm dùng màu pastel thô (`bg-rose-50`, `bg-emerald-50`, `bg-amber-50`, `bg-sky-50`). Bắt buộc dùng semantic tokens: `bg-parish-*-bg`, `text-parish-*`, `border-parish-*/30`.
+
+
 
 - **Hai loại shell, một contract chạm:** Workflow mobile-native dùng `.mobile-app-shell` → `.mobile-app-main` → `.mobile-screen` (`max-width: 760px`, gutter token) + `.mobile-screen--stack` (`gap: 14px`, `padding-top: 16px`). Route dùng chung desktop/touch dùng `DesktopAppShell` → `.responsive-page-shell`; đây là primitive khác, không gắn `.mobile-screen` lên cùng node.
 - **Responsive `DesktopAppShell`:** dưới `1024px`, `.responsive-page-shell` có `max-width: 760px`, gutter 16px và gap 14px; từ `1024px`, tier được CSS khai báo tường minh: `full` không giới hạn, `wide` 80rem, `narrow` 48rem, gap 24px. `embedded` chỉ dùng `.embedded-page-section`: parent giữ quyền sở hữu gutter/max-width, tránh double padding và cap bề rộng ngoài ý muốn.
@@ -334,7 +362,7 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 **UX/UI Audit Batch 2026-08-16 (Pha 3 — a11y modal + tables + icon buttons)**:
 - `scope="col"` cho **129 `<th>` / 18 file** (scripted; `ExamResultsTable` 1 th tự-đóng → `aria-label="Thao tác"`).
 - `aria-label` cho icon-only buttons: HeaderBar 6 nút, DesktopStudentList 5 nút, AuditLogPage Eye (+`aria-expanded`), ParentLoginPage show/hide. UserManagementPage không còn reveal-password (ADR-058).
-- `ModalShell` mở rộng props optional: `icon` (icon tile), `subtitle`, `headerActions` (như PrintReceiptModal); `title` kiểu `ReactNode` (icon trong title). **Batch 1 migrate (finance 4/4)**: `FundManageModal`, `TransactionModal`, `PrintReceiptModal`, `ClassFeeCollectionModal` — shell full-bleed (toolbar `-mt-4 -mx-6`) giữ nguyên visual. **Batch 2 migrate (desktop 16 modal)**: `AttendanceHistoryModal`, `DesktopCalendarView` ×2, `DesktopClasses` ×2 (confirmDelete → `ConfirmDialog`), `DesktopLeaveRequests` review, `PromotionPanel` confirm, `UserManagementPage` 8/8.
+- `ModalShell` mở rộng props optional: `icon` (icon tile), `subtitle`, `headerActions` (như PrintReceiptModal); `title` kiểu `ReactNode` (icon trong title). **Batch 1 migrate (finance 4/4)**: `FundManageModal`, `TransactionModal`, `PrintReceiptModal`, `ClassFeeCollectionModal` — shell full-bleed (toolbar `-mt-4 -mx-6`) giữ nguyên visual. **Batch 2 migrate (desktop 16 modal)**: `AttendanceHistoryModal`, `DesktopCalendarView` ×2, `DesktopClasses` ×2 (confirmDelete → `ConfirmDialog`), `DesktopLeaveRequests` review, `PromotionPanel` confirm, `UserManagementPage` 8/8. **Batch 3 (2026-09-08)**: `PrintReportModal` → `ModalShell` (`closeOnOverlay={false}` giữ hành vi đóng cũ, `maxWidth="576px"`); footer sticky chuẩn `.modal-content__footer` (mobile-first: In + Xem Trước hàng đầu, mọi nút ≥44px); màu raw amber/sky/emerald/slate → token `parish-warning`/`parish-info`/`parish-success`.
 - **Quy ước Tier B** (modal giữ shell custom — header brand/màu, tabs, sticky footer, camera/print): thêm trực tiếp `role="dialog"|"alertdialog"` + `aria-modal` + `aria-labelledby` (id trên heading) + Escape + scroll-lock. Đã áp: `ConflictInboxModal`, `GradeFormulaConfigModal`, `SystemDiagnosticsModal`, `ExcelImportModal`, `ExcelGradeImportModal`, `ConflictResolutionModal`, `BackupRestoreModal`, `PurgeDataModal` (alertdialog), `ForcePasswordChangeModal` (gate — chỉ scroll-lock, không Escape), `ParentForgotPasswordModal`, `ExamPaperModal`, `ExamImportModal`, `AnswerSheetModal`, `ExamScanModal`, `ExamSessionView` ×2.
 - **Modal tạo phiên chấm trên desktop**: giữ bottom-sheet một cột và touch target 44px ở mobile; từ desktop breakpoint mở rộng tối đa `max-w-5xl`, dùng lưới 12 cột để đặt Lớp/Hình thức và Import/Thông tin điểm theo cặp, còn đáp án chuẩn chiếm toàn chiều ngang. Khung modal `overflow-hidden`, body là vùng cuộn duy nhất và footer hành động sticky; không nhân đôi form hoặc thay đổi validation/nghiệp vụ tạo phiên.
 - **Lưu ý kỹ thuật**: effect a11y (Escape/scroll-lock) phải đặt TRƯỚC early-return `if (!isOpen) return null` (guard bên trong effect) — nếu không, oxlint `rules-of-hooks` báo error.
@@ -435,6 +463,17 @@ flex h-screen flex-col
 | `.sidebar-nav-item-active` | `parish-primary-light` + inset ring `color-mix(parish-primary 25%)` + `aria-current="page"` |
 | `.sidebar-footer` | ghim đáy: border-top + gap 12 — chứa Bộ lọc (admin) + Cài Đặt, MỘT divider duy nhất |
 | `.sidebar-filter-field` | label 11px/600 · select compact 32px/12.5px |
+
+### Bố Cục Pattern A Bắt Buộc (Desktop Layout Contract — Giai đoạn 2)
+1. **100% Data Workspaces** (`StudentsPage`, `GradesPage`, `AttendancePage`/`DesktopAttendanceGrid`, `DesktopReports`, `DesktopCalendarView`, `DesktopDashboard`) bắt buộc bọc ngoài cùng bằng `<DesktopAppShell width="full">`.
+2. **Thứ tự phân cấp bất biến (Pattern A):**
+   * Cấp 1: `DesktopAppShell` bao bọc toàn trang.
+   * Cấp 2: `PageHeader` ổn định trên đỉnh (Title, Description, Icon, Actions chính).
+   * Cấp 3: Thanh điều hướng `Tabs` ngay dưới Header.
+   * Cấp 4: Nội dung con bên trong từng `TabPanel`. Các công cụ lọc, tìm kiếm con chỉ được dùng `view-toolbar` hoặc `app-panel`, **tuyệt đối cấm tạo thêm `PageHeader` cấp 2** gây lặp tiêu đề và layout shift.
+3. **Chuẩn hóa Header Mobile:**
+   * Tuyệt đối không dùng banner xanh thương hiệu `.mobile-page-header--brand` trên các màn hình có Tabs hoặc subviews đa tầng (như Reports, Notices).
+   * 100% các subviews / subtabs mobile đồng bộ về chuẩn component `<SubpageHeader>` (DS §23).
 
 ### Quy tắc
 1. Cấm container max-width tự phát ngoài 3 tier trên.
@@ -754,7 +793,7 @@ Mọi subpage trên mobile **phải** dùng `<SubpageHeader>` từ `src/componen
 import { SubpageHeader } from '../common/SubpageHeader';
 
 <SubpageHeader
-  icon={<IconComponent size={15} />}    // Bắt buộc — Lucide icon size 15
+  icon={<IconComponent size={16} />}    // Bắt buộc — Lucide icon size 16
   title="Tiêu đề subpage"               // Bắt buộc
   meta={<span className="truncate">Dòng ngữ cảnh phụ</span>}  // Khuyến khích
   actions={...}                          // Tùy chọn — nút/toggle bên phải
@@ -766,21 +805,21 @@ import { SubpageHeader } from '../common/SubpageHeader';
 | Thành phần | Class CSS | Kích thước |
 | :--- | :--- | :--- |
 | Container | `.subpage-header` | padding `10px 12px`, border-radius `var(--radius-card)`, bg `surface-card` |
-| Icon Tile | `.subpage-header__icon` | `28 × 28px`, SVG bên trong `15 × 15px`, bg `parish-primary-light` |
-| Action button | `.subpage-header__btn` | Cao `30px`, padding ngang `10px`, radius `var(--radius-sm)` |
-| Action button icon-only | `.subpage-header__btn--icon-only` | `30 × 30px`, padding `0` |
+| Icon Tile | `.subpage-header__icon` | `32 × 32px`, SVG bên trong `16 × 16px`, bg `parish-primary-light` |
+| Action button | `.subpage-header__btn` | Cao `32px` (`btn-sm`), padding ngang `10px`, radius `var(--radius-sm)` |
+| Action button icon-only | `.subpage-header__btn--icon-only` | `32 × 32px`, padding `0` |
 | Segmented control | `.subpage-header__seg-control` | padding `2px`, gap `2px`, bg `surface-sunken` |
-| Segmented button | `.subpage-header__seg-btn` | Cao `24px`, padding ngang `8px` |
+| Segmented button | `.subpage-header__seg-btn` | Cao `26px`, padding ngang `8px` |
 
 ### 23.3 Typography cố định
 
 | Vai trò | Font-size | Font-weight | Màu |
 | :--- | :--- | :--- | :--- |
-| Tiêu đề (`__title`) | `13.5px` | `800` | `var(--color-parish-primary)` |
-| Meta / mô tả (`__meta`) | `11px` | `550` | `var(--color-text-muted)` |
-| Eyebrow (`__eyebrow`) | `10px` | `700` | `var(--color-text-muted)`, uppercase |
-| Button text (`__btn`) | `11.5px` | `700` | theo variant (primary: white, secondary: text-main) |
-| Segmented text (`__seg-btn`) | `11px` | `700` | inactive: `text-secondary`, active: white trên `parish-primary` |
+| Tiêu đề (`__title`) | `16px` | `700` | `var(--color-parish-primary)` |
+| Meta / mô tả (`__meta`) | `12px` | `500` | `var(--color-text-muted)` |
+| Eyebrow (`__eyebrow`) | `11px` | `700` | `var(--color-text-muted)`, uppercase |
+| Button text (`__btn`) | `12px` | `600` | theo variant (primary: white, secondary: text-main) |
+| Segmented text (`__seg-btn`) | `12px` | `600` | inactive: `text-secondary`, active: white trên `parish-primary` |
 
 ### 23.4 Vị trí đặt
 
@@ -804,17 +843,17 @@ Mẫu chuẩn cho semester selector (đã áp dụng tại `MobileReportsView`):
 - Bình thường: `subpage-header__seg-control` chứa 2 nút `subpage-header__seg-btn` (HK I / HK II), `role="group"`, `aria-pressed` trên từng nút.
 - Học kỳ bị hạn chế: Badge tĩnh `.subpage-header__btn--secondary` + `pointer-events-none`.
 
-### 23.6 Danh sách 12 subpage đã chuẩn hóa
+### 23.6 Danh sách 14 subpage đã chuẩn hóa
 
-| # | Phân hệ | File | Tiêu đề |
-|---|---------|------|---------|
-| 1 | Điểm Danh | `MobileAttendanceView.tsx` | Phiên điểm danh |
+| # | Phân hệ | File | Tiêu đề (Title Case) |
+|---|---------|------|----------------------|
+| 1 | Điểm Danh | `MobileAttendanceView.tsx` | Phiên Điểm Danh |
 | 2 | Điểm Danh | `MobileAttendanceSummaryView.tsx` | Tổng Hợp Chuyên Cần |
 | 3 | Điểm Danh | `MobileLeaveRequests.tsx` | Đơn Xin Nghỉ Phép |
-| 4 | Sổ Điểm | `MobileGradeBoard.tsx` | Bảng điểm |
+| 4 | Sổ Điểm | `MobileGradeBoard.tsx` | Bảng Điểm |
 | 5 | Sổ Điểm | `MobileDailyGradeEntry.tsx` | Nhập Điểm Hằng Ngày |
 | 6 | Sổ Điểm | `MobileGradeComparison.tsx` | So Sánh Học Kỳ I vs II |
-| 7 | Sổ Điểm | `MobileGradeMatrix.tsx` | Ma trận điểm |
+| 7 | Sổ Điểm | `MobileGradeMatrix.tsx` | Ma Trận Điểm |
 | 8 | Báo Cáo | `MobileReportsView.tsx` | In Phiếu Điểm & Sổ Điểm |
 | 9 | Báo Cáo | `MobileReportsView.tsx` | Thống Kê Học Lực Phân Ngành |
 | 10 | Báo Cáo | `MobileReportsView.tsx` | Xuất Báo Cáo & Dữ Liệu |

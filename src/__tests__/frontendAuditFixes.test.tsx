@@ -75,7 +75,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.getByText('Giáo lý viên')).toBeDefined()
+      expect(screen.getByText(/Giáo lý viên/i)).toBeDefined()
     })
 
     it('displays the read-only catechist directory for phuta role', () => {
@@ -98,7 +98,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.getByText('Giáo lý viên')).toBeDefined()
+      expect(screen.getByText(/Giáo lý viên/i)).toBeDefined()
     })
 
     it('displays catechists tab for admin role', () => {
@@ -121,7 +121,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
         />
       )
 
-      expect(screen.getByText('Giáo lý viên')).toBeDefined()
+      expect(screen.getByText(/Giáo lý viên/i)).toBeDefined()
       expect(screen.queryByText('BỘ LỌC PHÂN NGÀNH & LỚP')).toBeNull()
     })
 

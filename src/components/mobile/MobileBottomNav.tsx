@@ -38,27 +38,27 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
   }, [activeTab])
 
   const orgTabs: MobileNavItem[] = [
-    { id: 'parish-home', label: 'Tổng quan', icon: Home },
-    ...(canRoleAccessRoute('/catechists', role) ? [{ id: 'catechists' as const, label: 'Huynh trưởng', icon: Users }] : []),
-    ...(canRoleAccessRoute('/calendar', role) ? [{ id: 'calendar' as const, label: 'Lịch xứ', icon: Calendar }] : []),
+    { id: 'parish-home', label: 'Tổng Quan', icon: Home },
+    ...(canRoleAccessRoute('/catechists', role) ? [{ id: 'catechists' as const, label: 'Huynh Trưởng', icon: Users }] : []),
+    ...(canRoleAccessRoute('/calendar', role) ? [{ id: 'calendar' as const, label: 'Lịch Xứ', icon: Calendar }] : []),
     ...(canRoleAccessRoute('/finances', role)
-      ? [{ id: 'finances' as const, label: 'Sổ quỹ', icon: Wallet }]
+      ? [{ id: 'finances' as const, label: 'Sổ Quỹ', icon: Wallet }]
       : canRoleAccessRoute('/notices', role)
-        ? [{ id: 'notices' as const, label: 'Thông báo', icon: Bell }]
+        ? [{ id: 'notices' as const, label: 'Thông Báo', icon: Bell }]
         : []),
-    ...(canRoleAccessRoute('/parish-profile', role) ? [{ id: 'parish-profile' as const, label: 'Hồ sơ xứ', icon: FileText }] : []),
+    ...(canRoleAccessRoute('/parish-profile', role) ? [{ id: 'parish-profile' as const, label: 'Hồ Sơ Xứ', icon: FileText }] : []),
   ]
 
   const academicTabs: MobileNavItem[] = [
-    { id: 'home', label: 'Trang chủ', icon: Home },
-    ...(canRoleAccessRoute('/attendance', role) ? [{ id: 'attendance' as const, label: 'Điểm danh', icon: CheckSquare }] : []),
-    ...(canRoleAccessRoute('/grades', role) ? [{ id: 'grades' as const, label: 'Bảng điểm', icon: FileSpreadsheet }] : []),
+    { id: 'home', label: 'Trang Chủ', icon: Home },
+    ...(canRoleAccessRoute('/attendance', role) ? [{ id: 'attendance' as const, label: 'Điểm Danh', icon: CheckSquare }] : []),
+    ...(canRoleAccessRoute('/grades', role) ? [{ id: 'grades' as const, label: 'Bảng Điểm', icon: FileSpreadsheet }] : []),
     ...(canRoleAccessRoute('/parent', role)
-      ? [{ id: 'parent' as const, label: 'Con tôi', icon: HeartHandshake }]
+      ? [{ id: 'parent' as const, label: 'Con Tôi', icon: HeartHandshake }]
       : canRoleAccessRoute('/students', role)
-        ? [{ id: 'students' as const, label: 'Thiếu nhi', icon: Users }]
+        ? [{ id: 'students' as const, label: 'Thiếu Nhi', icon: Users }]
         : []),
-    ...(canRoleAccessRoute('/reports', role) ? [{ id: 'reports' as const, label: 'Báo cáo', icon: PieChart }] : []),
+    ...(canRoleAccessRoute('/reports', role) ? [{ id: 'reports' as const, label: 'Báo Cáo', icon: PieChart }] : []),
   ]
 
   const tabs = activeWorkspace === 'organization' ? orgTabs : academicTabs

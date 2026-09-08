@@ -52,8 +52,9 @@ describe('ParishLogoModal', () => {
       expect(screen.getByText(branch.name)).toBeDefined()
     }
 
-    fireEvent.click(screen.getByRole('button', { name: /Mẹ Fatima/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Đức Mẹ Fatima/ }))
     expect(screen.getByText('Đức Mẹ Fatima — Đấng Bổn Mạng')).toBeDefined()
+    expect(screen.getByText(/Giáo hạt Gia Kiệm/)).toBeDefined()
   })
 
   it('calls onClose when close button is clicked', () => {

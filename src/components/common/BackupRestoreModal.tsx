@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
-import { Database, Download, Upload, CheckCircle, X, Loader2 } from 'lucide-react'
+import { Database, Download, Upload, CheckCircle, Loader2 } from 'lucide-react'
 import { httpFetch } from '../../lib/api'
 import { resetClientData } from '../../lib/resetClientData'
 import { getOwnUnsettledSyncOperations } from '../../stores/syncStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import * as Sentry from '@sentry/react'
-import { ModalPortal } from './ModalPortal'
+import { ModalShell } from './ModalShell'
 
 interface Props {
   isOpen: boolean
@@ -22,7 +21,6 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [adminPassword, setAdminPassword] = useState('')
 
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
-  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
 
   if (!isOpen) return null
 
@@ -153,29 +151,17 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   return (
     <>
-    <ModalPortal>
-    <div role="dialog" aria-modal="true" aria-labelledby="backup-restore-title" className="app-modal-layer fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div ref={trapRef} className="bg-surface-card border border-surface-border rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border bg-surface-hover/30">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-100 dark:bg-amber-950 text-amber-600 rounded-lg">
-              <Database className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 id="backup-restore-title" className="text-lg font-bold text-text-main">Sao Lưu & Khôi Phục Dữ Liệu</h2>
-              <p className="text-xs text-text-muted">Giúp Admin Giáo xứ bảo vệ dữ liệu hoạt động (học sinh, lớp, điểm số, điểm danh, kỳ thi) chỉ với 1-Click</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
+      <ModalShell
+        isOpen={isOpen}
+        onClose={onClose}
+        icon={<Database className="w-5 h-5 text-parish-primary" />}
+        title="Sao Lưu & Khôi Phục Dữ Liệu"
+        subtitle="Giúp Admin Giáo xứ bảo vệ dữ liệu hoạt động chỉ với 1-Click"
+        maxWidth="32rem"
+      >
+        <div className="space-y-5">
           {statusMessage && (
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded-lg text-xs font-semibold flex items-center gap-2">
+            <div className="p-3 bg-parish-success-bg border border-parish-success/30 text-parish-success-hover rounded-lg text-xs font-semibold flex items-center gap-2">
               <CheckCircle className="w-4 h-4 shrink-0" />
               <span>{statusMessage}</span>
             </div>
@@ -203,12 +189,12 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {/* Action 1: Backup */}
           <div className="p-4 rounded-xl border border-surface-border bg-surface-hover/20 space-y-3">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600">
+              <div className="p-2 rounded-lg bg-parish-primary-light text-parish-primary">
                 <Download className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-text-main">Tạo Bản Sao Lưu Dữ Liệu</h3>
-                <p className="text-xs text-text-muted">Tải file sao lưu an toàn về máy tính (parish-lms-backup-YYYY-MM-DD.json)</p>
+                <p className="text-xs text-text-muted">Tải file sao lưu an toàn về máy tính (.json)</p>
               </div>
             </div>
             <button
@@ -224,15 +210,15 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
           {/* Action 2: Restore */}
           <div className="p-4 rounded-xl border border-surface-border bg-surface-hover/20 space-y-3">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600">
+              <div className="p-2 rounded-lg bg-parish-warning-bg text-parish-warning-hover">
                 <Upload className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-text-main">Khôi Phục Dữ Liệu</h3>
-                <p className="text-xs text-text-muted">Nạp lại dữ liệu từ file sao lưu khi đổi máy tính hoặc khôi phục hỏng hóc</p>
+                <p className="text-xs text-text-muted">Nạp lại dữ liệu từ file sao lưu khi đổi máy hoặc khắc phục sự cố</p>
               </div>
             </div>
-            <label className={`flex items-center justify-center w-full py-2.5 px-4 rounded-lg border border-amber-500/50 ${isLoading === 'import' ? 'bg-amber-500/20 cursor-wait' : 'bg-amber-500/10 hover:bg-amber-500/20 cursor-pointer'} text-amber-700 text-xs font-bold transition-colors`}>
+            <label className={`flex items-center justify-center w-full py-2.5 px-4 rounded-lg border border-parish-warning/40 ${isLoading === 'import' ? 'bg-parish-warning-bg cursor-wait' : 'bg-parish-warning-bg hover:bg-parish-warning-bg/80 cursor-pointer'} text-parish-warning-hover text-xs font-bold transition-colors`}>
               {isLoading === 'import' ? (
                 <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Đang khôi phục dữ liệu...</>
               ) : (
@@ -242,17 +228,8 @@ export const BackupRestoreModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </label>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 border-t border-surface-border bg-surface-hover/30">
-          <button onClick={onClose} className="px-5 py-2 rounded-lg text-sm font-semibold text-text-main hover:bg-surface-hover transition-colors">
-            Đóng
-          </button>
-        </div>
-      </div>
-    </div>
-    </ModalPortal>
-    {confirmDialog}
+      </ModalShell>
+      {confirmDialog}
     </>
   )
 }

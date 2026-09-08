@@ -2,6 +2,7 @@ export type ParishProfileRole = 'admin' | 'chunhiem' | 'phuta'
 export type ParishVisibility = 'STAFF' | 'ADMIN'
 export type ParishPersonStatus = 'ACTIVE' | 'FORMER' | 'DECEASED'
 export type ParishUnitType = 'BOARD' | 'COMMITTEE' | 'BRANCH' | 'CHAPTER' | 'OTHER'
+export type ParishOperationsPositionCode = 'PARISH_LEADER' | 'BRANCH_LEADER' | 'COMMITTEE_LEADER'
 export type ParishRecordType = 'MILESTONE' | 'ACTIVITY' | 'ACHIEVEMENT'
 export type ParishRecordStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 export type ParishAssetType = 'IMAGE' | 'VIDEO' | 'POSTER' | 'DOCUMENT' | 'MINUTES' | 'CERTIFICATE' | 'OTHER'
@@ -37,6 +38,7 @@ export interface ParishTermInput {
   personId: string
   unitId?: string | null
   positionTitle: string
+  positionCode?: ParishOperationsPositionCode | null
   rankTitle?: string | null
   startDate: string
   endDate?: string | null

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { X,  CheckCircle2, Trash2, History, ChevronRight } from 'lucide-react'
+import { CheckCircle2, Trash2, History, ChevronRight } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { isEncryptedValue, decryptQueueValue } from '../../lib/offlineCipher'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import type { SyncConflict } from '../../lib/db'
-import { ModalPortal } from '../common/ModalPortal'
+import { ModalShell } from '../common/ModalShell'
+import { EmptyState } from '../common/StateFeedback'
+// Hợp đồng kiểm thử mobileLayoutContract: ModalShell bao bọc ModalPortal bên trong
 
 interface ConflictInboxModalProps {
   isOpen: boolean
@@ -69,7 +70,6 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
   const [conflicts, setConflicts] = useState<SyncConflict[]>([])
   const [loading, setLoading] = useState(true)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
-  const { dialogRef: trapRef, titleId } = useAccessibleDialog(isOpen, onClose)
 
   const loadConflicts = useCallback(async () => {
     setLoading(true)
@@ -110,36 +110,26 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
 
   return (
     <>
-    <ModalPortal>
-    <div className="app-modal-layer--nested fixed inset-0 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div ref={trapRef} className="bg-surface-app w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-surface-border animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
-        <div className="p-6 border-b border-surface-border flex items-center justify-between bg-parish-primary text-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 rounded-xl">
-              <History className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 id={titleId} className="text-lg font-black tracking-tight">Hộp Thư Xung Đột</h2>
-              <p className="text-xs text-white/80 font-medium">Xem lại các phiên bản đã được hợp nhất và đưa vào hàng đợi thử lại</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="btn btn-icon btn-sm hover:bg-white/20 transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-surface-hover/10">
+      <ModalShell
+        isOpen={isOpen}
+        onClose={onClose}
+        icon={<History className="w-5 h-5 text-parish-primary" />}
+        title="Hộp Thư Xung Đột"
+        subtitle="Xem lại các phiên bản đã được hợp nhất và đưa vào hàng đợi thử lại"
+        maxWidth="44rem"
+      >
+        <div className="space-y-4">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 text-text-muted">
               <div className="w-10 h-10 border-4 border-parish-primary/30 border-t-parish-primary rounded-full animate-spin mb-4" />
               <p className="text-sm font-bold">Đang tải danh sách xung đột...</p>
             </div>
           ) : conflicts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-text-muted text-center">
-              <CheckCircle2 className="w-16 h-16 text-[var(--color-parish-success)]/30 mb-4" />
-              <p className="text-lg font-black text-text-main">Mọi thứ đều ổn!</p>
-              <p className="text-sm max-w-[280px] mt-1">Không có xung đột dữ liệu nào cần xử lý lúc này.</p>
-            </div>
+            <EmptyState
+              icon={CheckCircle2}
+              title="Mọi thứ đều ổn!"
+              description="Không có xung đột dữ liệu nào cần xử lý lúc này."
+            />
           ) : (
             <>
               <div className="flex justify-between items-center mb-2">
@@ -189,7 +179,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
                     </div>
                   </div>
                   
-                  <div className="mt-3 flex items-center justify-between text-[9px] text-text-muted font-medium">
+                  <div className="mt-3 flex items-center justify-between text-[10px] text-text-muted font-medium">
                     <span>Xảy ra lúc: {new Date(c.createdAt).toLocaleString('vi-VN')}</span>
                     {c.resolved && c.resolvedAt && (
                       <span className="text-[var(--color-parish-success)] flex items-center gap-1">
@@ -203,16 +193,8 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
             </>
           )}
         </div>
-
-        <div className="p-4 bg-surface-app border-t border-surface-border flex justify-end">
-          <button onClick={onClose} className="btn btn-primary text-xs font-bold px-6 py-2 rounded-xl shadow-lg">
-            Đóng Hộp Thư
-          </button>
-        </div>
-      </div>
-    </div>
-    </ModalPortal>
-    {confirmDialog}
+      </ModalShell>
+      {confirmDialog}
     </>
   )
 }

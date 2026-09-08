@@ -7,11 +7,10 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, errorResponse, listResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { db, runDbTransaction } from '../db/index.js'
-import { leaveRequests, students, classes, attendance, users, auditLogs, telegramLinks, catechistAssignments } from '../db/schema.js'
+import { leaveRequests, students, classes, attendance, users, auditLogs, catechistAssignments } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { getMyChildren } from '../services/parentService.js'
-import { sendTelegramMessageToChat } from '../services/telegram.js'
-import { getCurrentChildRecipientIds, ACADEMIC_NOTIFICATION_MESSAGE } from '../services/notificationQueue.js'
+import { enqueueNotification, getCurrentChildRecipientIds, ACADEMIC_NOTIFICATION_MESSAGE } from '../services/notificationQueue.js'
 import { isValidIsoDate } from '../utils/date.js'
 import { createSemesterLockSpecification } from '../services/policyAdapters.js'
 import { resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
@@ -398,26 +397,16 @@ leaveRequestsRouter.patch('/:id/review', zValidator('json', reviewSchema), async
     return errorResponse(c, 'INVALID_STATE', 'Đơn xin nghỉ vừa được xử lý bởi người khác', 409)
   }
 
-  // Telegram notification nếu phụ huynh đã liên kết
+  // Post-commit app notification. The durable worker revalidates the same
+  // parent/student relationship again immediately before provider delivery.
   if (request.parentId) {
     try {
-      const links = await db
-        .select({ chatId: telegramLinks.chatId })
-        .from(telegramLinks)
-        .where(and(
-          eq(telegramLinks.parishId, user.parishId),
-          eq(telegramLinks.userId, request.parentId),
-          eq(telegramLinks.status, 'ACTIVE'),
-          eq(telegramLinks.notificationsEnabled, 1),
-        ))
-
-      for (const link of links) {
-        // A request's historical author is not current delivery authority.
-        // Revalidate on each attempt, never retarget to the new parent, and
-        // keep private review details behind the application's current scope.
-        const recipients = await getCurrentChildRecipientIds(user.parishId, request.studentId, [request.parentId])
-        if (!recipients.includes(request.parentId)) break
-        await sendTelegramMessageToChat(link.chatId, ACADEMIC_NOTIFICATION_MESSAGE).catch(() => {})
+      const recipients = await getCurrentChildRecipientIds(user.parishId, request.studentId, [request.parentId])
+      if (recipients.includes(request.parentId)) {
+        await enqueueNotification('webpush', 'absence', ACADEMIC_NOTIFICATION_MESSAGE, {}, user.parishId, undefined, {
+          webpushUserIds: [request.parentId],
+          studentId: request.studentId,
+        })
       }
     } catch {}
   }

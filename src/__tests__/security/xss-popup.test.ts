@@ -102,6 +102,18 @@ describe('A01 Phase 2 — popup HTML builders không nhúng dữ liệu user th�
     expect(html).not.toContain(EVIL)
     expect(html).toContain('&lt;script&gt;')
   })
+
+  it('SEC-XSS-1 — parishName không thể breakout khỏi <style> watermark (CSS rawtext injection)', () => {
+    const evilParish = `Xứ Đạo</style><script>alert(document.cookie)</script>`
+    const html = generateStudentReportCardHTML(
+      makeStudent(), [makeGrade()], [makeAttendance('2026-08-01')],
+      { ...options, parishName: evilParish },
+    )
+    // Chỉ còn đúng 1 thẻ đóng </style> hợp lệ của document — không có breakout.
+    expect(html.match(/<\/style>/gi)?.length).toBe(1)
+    expect(html).not.toContain('</style><script>')
+    expect(html).not.toContain('<script>alert(document.cookie)')
+  })
 })
 
 describe('FIN-XSS-1 — receipt printing avoids the about:blank document.write sink', () => {

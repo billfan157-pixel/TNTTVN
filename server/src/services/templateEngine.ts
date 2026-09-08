@@ -56,7 +56,7 @@ export const NOTIFICATION_TEMPLATES = {
   absenceExcused: '📝 {studentName} ({className}) vắng mặt có phép ngày {date}. Lý do: {note}.',
 
   // Report card
-  reportCard: '📋 *Phiếu Điểm {academicYear}*\n{studentName} ({className})\nĐiểm TB: {score} - {rank}\nChuyên cần: {attendanceRate}% ({attendancePresent}/{attendanceTotal})\n\nXem chi tiết tại ứng dụng.',
+  reportCard: '📋 Phiếu Điểm {academicYear}\n{studentName} ({className})\nĐiểm TB: {score} - {rank}\nChuyên cần: {attendanceRate}% ({attendancePresent}/{attendanceTotal})\n\nXem chi tiết tại ứng dụng.',
 
   // Reminders (sundayMassTime từ parish settings — không còn hardcode 8h00)
   sundayMassReminder: '⛪ Nhắc nhở: Chúa Nhật này các em đi Lễ đầy đủ nhé! Thánh Lễ Thiếu Nhi lúc {sundayMassTime}.',
@@ -66,10 +66,10 @@ export const NOTIFICATION_TEMPLATES = {
   sacramentUpcoming: '🙏 Chuẩn bị lãnh nhận Bí Tích {note} cho {studentName} vào {date}.',
 
   // Batch summary
-  batchAbsenceSummary: '📊 *Báo Cáo Vắng Học*\nNgày: {date}\nTổng số vắng: {attendancePresent}/{attendanceTotal} em\nCác em vắng không phép: {note}',
+  batchAbsenceSummary: '📊 Báo Cáo Vắng Học\nNgày: {date}\nTổng số vắng: {attendancePresent}/{attendanceTotal} em\nCác em vắng không phép: {note}',
 
   // Parish Notice
-  parishNotice: '🔔 *{title}*\n{content}\n\n— {author}',
+  parishNotice: '🔔 {title}\n{content}\n\n— {author}',
 
   // Grade override (Phase 2: thay outbox subscriber — cùng nội dung, qua queue bền vững)
   gradeOverride: '✏️ Điểm thủ công đã lưu\n• Thiếu nhi: {studentName}\n• Cột điểm: {scoreField} = {manualValue}\n• Lý do: {reasonCode}',
@@ -81,35 +81,12 @@ export function renderTemplate(template: string, context: TemplateContext): stri
   for (const [key, value] of Object.entries(TEMPLATE_VARIABLES)) {
     const val = context[value]
     if (val !== undefined && val !== null) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), escapeMarkdown(String(val)))
+      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), String(val))
     }
   }
   // Remove any remaining unfilled variables
   result = result.replace(/\{[a-zA-Z]+\}/g, '')
   return result
-}
-
-function escapeMarkdown(text: string): string {
-  return text
-    .replace(/\\/g, '\\\\')
-    .replace(/\*/g, '\\*')
-    .replace(/_/g, '\\_')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    .replace(/~/g, '\\~')
-    .replace(/`/g, '\\`')
-    .replace(/>/g, '\\>')
-    .replace(/#/g, '\\#')
-    .replace(/\+/g, '\\+')
-    .replace(/-/g, '\\-')
-    .replace(/=/g, '\\=')
-    .replace(/\|/g, '\\|')
-    .replace(/\{/g, '\\{')
-    .replace(/\}/g, '\\}')
-    .replace(/\./g, '\\.')
-    .replace(/!/g, '\\!')
 }
 
 export function buildContext(overrides: Partial<TemplateContext> = {}): TemplateContext {

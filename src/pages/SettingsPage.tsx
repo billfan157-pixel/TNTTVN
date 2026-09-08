@@ -129,7 +129,7 @@ const SettingsPage: React.FC = () => {
       <span className="w-8 h-8 rounded-lg bg-parish-primary-light dark:bg-parish-primary/15 text-parish-primary flex items-center justify-center shrink-0">
         {icon}
       </span>
-      <h2 className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">{text}</h2>
+      <h2 className="text-sm font-bold text-text-main tracking-wide m-0">{text}</h2>
     </div>
   )
 
@@ -196,7 +196,7 @@ const SettingsPage: React.FC = () => {
           <section className="app-panel p-5 space-y-4">
             <SectionTitle icon={<Key className="w-4 h-4" />} text="Đổi Mật Khẩu" />
             {cpSuccess ? (
-              <div className="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 rounded-lg border border-emerald-200 text-sm">
+              <div className="flex items-center gap-2 p-3 bg-parish-success-bg text-parish-success rounded-lg border border-parish-success/30 text-sm">
                 <CheckCircle2 size={16} />
                 <span>Đổi mật khẩu thành công! Phiên hiện tại đã được làm mới bằng mật khẩu mới.</span>
               </div>
@@ -394,17 +394,17 @@ const SettingsPage: React.FC = () => {
           {role === 'admin' && (
             <section className="bg-surface-card border border-rose-200 dark:border-rose-900 rounded-2xl p-5 space-y-3">
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">
+                <div className="p-2 bg-parish-danger-bg text-parish-danger rounded-lg">
                   <AlertTriangle size={18} />
                 </div>
                 <div>
-                  <h2 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider m-0">Vùng Nguy Hiểm</h2>
+                  <h2 className="text-sm font-bold text-parish-danger tracking-wide m-0">Vùng Nguy Hiểm</h2>
                   <p className="text-xs text-text-muted m-0 mt-0.5">Xóa toàn bộ dữ liệu giáo xứ để bắt đầu năm học mới từ đầu</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowPurge(true)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-rose-300 dark:border-rose-900 text-rose-600 dark:text-rose-400 font-semibold text-sm hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-parish-danger/30 text-parish-danger font-semibold text-sm hover:bg-parish-danger-bg transition-colors"
               >
                 <Trash2 size={16} />
                 Xóa Toàn Bộ Dữ Liệu Giáo Xứ
@@ -414,7 +414,7 @@ const SettingsPage: React.FC = () => {
 
           <button
             onClick={() => { authStore.logout(); navigate({ to: '/login' }) }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-rose-200 text-rose-600 font-semibold hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-parish-danger/30 text-parish-danger font-semibold hover:bg-parish-danger-bg transition-colors"
           >
             <LogOut size={18} />
             Đăng Xuất

@@ -1,6 +1,7 @@
 export type ParishVisibility = 'STAFF' | 'ADMIN'
 export type ParishPersonStatus = 'ACTIVE' | 'FORMER' | 'DECEASED'
 export type ParishUnitType = 'BOARD' | 'COMMITTEE' | 'BRANCH' | 'CHAPTER' | 'OTHER'
+export type ParishOperationsPositionCode = 'PARISH_LEADER' | 'BRANCH_LEADER' | 'COMMITTEE_LEADER'
 export type ParishRecordType = 'MILESTONE' | 'ACTIVITY' | 'ACHIEVEMENT'
 export type ParishRecordStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 export type ParishAssetType = 'IMAGE' | 'VIDEO' | 'POSTER' | 'DOCUMENT' | 'MINUTES' | 'CERTIFICATE' | 'OTHER'
@@ -50,6 +51,7 @@ export interface ParishServiceTerm {
   personId: string
   unitId: string | null
   positionTitle: string
+  positionCode: ParishOperationsPositionCode | null
   rankTitle: string | null
   startDate: string
   endDate: string | null
@@ -129,7 +131,7 @@ export interface ParishProfileSnapshot {
 export type ParishProfileInput = Pick<ParishProfile, 'displayName' | 'patronName' | 'foundedDate' | 'motto' | 'description'>
 export type ParishPersonInput = Pick<ParishPerson, 'linkedUserId' | 'holyName' | 'fullName' | 'birthYear' | 'biography' | 'serviceStatus' | 'visibility'>
 export type ParishUnitInput = Pick<ParishOrganizationUnit, 'parentId' | 'name' | 'unitType' | 'description' | 'sortOrder' | 'isActive'>
-export type ParishTermInput = Pick<ParishServiceTerm, 'personId' | 'unitId' | 'positionTitle' | 'rankTitle' | 'startDate' | 'endDate' | 'notes'>
+export type ParishTermInput = Pick<ParishServiceTerm, 'personId' | 'unitId' | 'positionTitle' | 'positionCode' | 'rankTitle' | 'startDate' | 'endDate' | 'notes'>
 export type ParishRecordInput = Pick<ParishRecord, 'recordType' | 'title' | 'summary' | 'content' | 'occurredOn' | 'endedOn' | 'location' | 'status' | 'visibility' | 'showOnTimeline' | 'sourceEventId' | 'personIds' | 'assetIds'>
 export type ParishAssetInput = Pick<ParishArchiveAsset, 'assetType' | 'title' | 'description' | 'capturedOn' | 'visibility'> & { recordIds: string[] }
 export type ParishExternalAssetInput = ParishAssetInput & { externalUrl: string }

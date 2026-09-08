@@ -22,11 +22,11 @@ import { SubpageHeader } from '../common/SubpageHeader';
 | Thành phần | Class CSS | Kích thước |
 | :--- | :--- | :--- |
 | Container | `.subpage-header` | padding `10px 12px`, border-radius `var(--radius-card)` |
-| Icon Tile | `.subpage-header__icon` | `28 × 28px`, SVG bên trong `15 × 15px` |
-| Actions button | `.subpage-header__btn` | Cao `30px` |
-| Actions button icon-only | `.subpage-header__btn--icon-only` | `30 × 30px` |
+| Icon Tile | `.subpage-header__icon` | `32 × 32px`, SVG bên trong `16 × 16px` |
+| Actions button | `.subpage-header__btn` | Cao `32px` (`btn-sm`) |
+| Actions button icon-only | `.subpage-header__btn--icon-only` | `32 × 32px` |
 | Segmented control | `.subpage-header__seg-control` | padding `2px`, gap `2px` |
-| Segmented button | `.subpage-header__seg-btn` | Cao `24px`, padding ngang `8px` |
+| Segmented button | `.subpage-header__seg-btn` | Cao `26px`, padding ngang `8px` |
 
 ---
 
@@ -34,11 +34,11 @@ import { SubpageHeader } from '../common/SubpageHeader';
 
 | Vai trò | Font-size | Font-weight | Màu |
 | :--- | :--- | :--- | :--- |
-| Tiêu đề (`__title`) | `13.5px` | `800` | `var(--color-parish-primary)` |
-| Meta / mô tả (`__meta`) | `11px` | `550` | `var(--color-text-muted)` |
-| Eyebrow (`__eyebrow`) | `10px` | `700` | `var(--color-text-muted)`, uppercase |
-| Button text (`__btn`) | `11.5px` | `700` | theo variant |
-| Segmented text (`__seg-btn`) | `11px` | `700` | theo trạng thái active |
+| Tiêu đề (`__title`) | `20px` (1.25rem) | `800` (font-extrabold) | `var(--color-text-main)` / `var(--color-parish-primary)` |
+| Meta / mô tả (`__meta`) | `12px` | `500` | `var(--color-text-muted)` |
+| Eyebrow (`__eyebrow`) | `11px` | `700` | `var(--color-text-muted)`, uppercase |
+| Button text (`__btn`) | `12px` | `600` | theo variant |
+| Segmented text (`__seg-btn`) | `12px` | `600` | theo trạng thái active |
 
 ---
 
@@ -48,7 +48,7 @@ Mỗi `<SubpageHeader>` phải có tối thiểu:
 
 ```tsx
 <SubpageHeader
-  icon={<IconComponent size={15} />}    // Bắt buộc — Lucide icon size 15
+  icon={<IconComponent size={16} />}    // Bắt buộc — Lucide icon size 16
   title="Tiêu đề subpage"               // Bắt buộc
   meta={<span className="truncate">Dòng ngữ cảnh phụ</span>}  // Khuyến khích
 />
@@ -118,7 +118,7 @@ const renderSemesterActions = () => {
 
 // Sử dụng:
 <SubpageHeader
-  icon={<Printer size={15} />}
+  icon={<Printer size={16} />}
   title="Tiêu đề"
   meta={<span className="truncate">...</span>}
   actions={renderSemesterActions()}
@@ -131,15 +131,15 @@ const renderSemesterActions = () => {
 
 Tất cả 12 subpage dưới đây đã được chuẩn hóa. Khi thêm subpage mới, **phải** tuân thủ cùng chuẩn này.
 
-| # | Phân hệ | File | Tiêu đề |
-|---|---------|------|---------|
-| 1 | Điểm Danh | `MobileAttendanceView.tsx` | Phiên điểm danh |
+| # | Phân hệ | File | Tiêu đề (Title Case) |
+|---|---------|------|----------------------|
+| 1 | Điểm Danh | `MobileAttendanceView.tsx` | Phiên Điểm Danh |
 | 2 | Điểm Danh | `MobileAttendanceSummaryView.tsx` | Tổng Hợp Chuyên Cần |
 | 3 | Điểm Danh | `MobileLeaveRequests.tsx` | Đơn Xin Nghỉ Phép |
-| 4 | Sổ Điểm | `MobileGradeBoard.tsx` | Bảng điểm |
+| 4 | Sổ Điểm | `MobileGradeBoard.tsx` | Bảng Điểm |
 | 5 | Sổ Điểm | `MobileDailyGradeEntry.tsx` | Nhập Điểm Hằng Ngày |
 | 6 | Sổ Điểm | `MobileGradeComparison.tsx` | So Sánh Học Kỳ I vs II |
-| 7 | Sổ Điểm | `MobileGradeMatrix.tsx` | Ma trận điểm |
+| 7 | Sổ Điểm | `MobileGradeMatrix.tsx` | Ma Trận Điểm |
 | 8 | Báo Cáo | `MobileReportsView.tsx` | In Phiếu Điểm & Sổ Điểm |
 | 9 | Báo Cáo | `MobileReportsView.tsx` | Thống Kê Học Lực Phân Ngành |
 | 10 | Báo Cáo | `MobileReportsView.tsx` | Xuất Báo Cáo & Dữ Liệu |

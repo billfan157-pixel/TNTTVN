@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { sendTelegramMessageToChat } from '../services/telegram.js'
-import { ACADEMIC_NOTIFICATION_MESSAGE } from '../services/notificationQueue.js'
-vi.mock('../services/telegram.js', () => ({ sendTelegramMessageToChat: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../services/notificationQueue.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/notificationQueue.js')>()),
+  enqueueNotification: vi.fn().mockResolvedValue('NOT-LEAVE-TEST'),
+}))
+import { ACADEMIC_NOTIFICATION_MESSAGE, enqueueNotification } from '../services/notificationQueue.js'
 import leaveRequestsRouter from '../routes/leaveRequests.js'
 import { generateTokens } from '../middleware/auth.js'
 import { db } from '../db/index.js'
-import { users, students, classes, branches, academicYears, catechistAssignments, leaveRequests, attendance, auditLogs, telegramLinks } from '../db/schema.js'
+import { users, students, classes, branches, academicYears, catechistAssignments, leaveRequests, attendance, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 
 const PREFIX = Date.now()
@@ -75,21 +77,24 @@ describe('Leave Requests Route & Attendance Auto-Sync Integration Tests', () => 
     const created = await leaveRequestsRouter.request('/', { method: 'POST', headers: parentHeaders(), body: JSON.stringify({ studentId, date: `2026-11-${20 + index}`, sessionTypes: ['SundayMass'], reason: 'Synthetic privacy check' }) })
     expect(created.status).toBe(201)
     const requestId = ((await created.json()) as any).data.id
-    const linkId = `tg-xd-${PREFIX}-${index}`
-    await db.insert(telegramLinks).values({ id: linkId, parishId, userId: parentId, chatId: `synthetic-${index}`, status: 'ACTIVE', notificationsEnabled: 1 })
     try {
       if (scenario === 'relinked') await db.update(students).set({ parentPhone: '0999999999' }).where(and(eq(students.id, studentId), eq(students.parishId, parishId)))
       if (scenario === 'locked') await db.update(users).set({ status: 'LOCKED' }).where(and(eq(users.id, parentId), eq(users.parishId, parishId)))
       if (scenario === 'deleted-parent') await db.update(users).set({ deletedAt: new Date().toISOString() }).where(and(eq(users.id, parentId), eq(users.parishId, parishId)))
       if (scenario === 'deleted-child') await db.update(students).set({ deletedAt: new Date().toISOString() }).where(and(eq(students.id, studentId), eq(students.parishId, parishId)))
-      vi.mocked(sendTelegramMessageToChat).mockClear()
+      vi.mocked(enqueueNotification).mockClear()
       const reviewed = await leaveRequestsRouter.request(`/${requestId}/review`, { method: 'PATCH', headers: teacherHeaders(), body: JSON.stringify({ status: 'REJECTED', reviewNote: 'Private note must remain inside app' }) })
       expect(reviewed.status).toBe(scenario === 'deleted-child' ? 404 : 200)
-      if (scenario === 'current') expect(sendTelegramMessageToChat).toHaveBeenCalledWith(`synthetic-${index}`, ACADEMIC_NOTIFICATION_MESSAGE)
-      else expect(sendTelegramMessageToChat).not.toHaveBeenCalled()
+      if (scenario === 'current') {
+        expect(enqueueNotification).toHaveBeenCalledWith(
+          'webpush', 'absence', ACADEMIC_NOTIFICATION_MESSAGE, {}, parishId, undefined,
+          { webpushUserIds: [parentId], studentId },
+        )
+      } else {
+        expect(enqueueNotification).not.toHaveBeenCalled()
+      }
     } finally {
       await db.delete(leaveRequests).where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.parishId, parishId)))
-      await db.delete(telegramLinks).where(and(eq(telegramLinks.id, linkId), eq(telegramLinks.parishId, parishId)))
       await db.update(users).set({ status: 'ACTIVE', deletedAt: null }).where(and(eq(users.id, parentId), eq(users.parishId, parishId)))
       await db.update(students).set({ parentPhone: '0912345678', deletedAt: null }).where(and(eq(students.id, studentId), eq(students.parishId, parishId)))
     }

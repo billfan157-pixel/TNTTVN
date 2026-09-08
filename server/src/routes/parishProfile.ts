@@ -31,6 +31,7 @@ import type { MutationContext, ParishProfileRole } from '../types/parishProfile.
 import { getClientIp } from '../utils/ip.js'
 import { errorResponse, successResponse } from '../utils/response.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { OPERATIONS_POSITION_CODES } from '../utils/organizationalPosition.js'
 
 const parishProfileRouter = new Hono()
 parishProfileRouter.use('*', authMiddleware)
@@ -76,6 +77,7 @@ const termSchema = z.object({
   personId: z.string().trim().min(1).max(80),
   unitId: nullableText(80),
   positionTitle: z.string().trim().min(1).max(200),
+  positionCode: z.enum(OPERATIONS_POSITION_CODES).nullable().optional(),
   rankTitle: nullableText(150),
   startDate: dateField,
   endDate: nullableDateField,

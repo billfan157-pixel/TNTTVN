@@ -65,10 +65,6 @@ CLIENT_ORIGIN=https://tnttvn.vercel.app
 # Mật khẩu khởi tạo admin khi DB trống (chỉ dùng lần đầu tiên)
 SEED_ADMIN_PASSWORD=${seedAdminPassword}
 
-# ─── TÍCH HỢP TELEGRAM (TÙY CHỌN) ───
-# TELEGRAM_BOT_TOKEN=your_bot_token_here
-# TELEGRAM_BOT_USERNAME=your_bot_username_here
-# TELEGRAM_ADMIN_CHAT_ID=your_chat_id_here
 `
 
 const targetPath = path.join(rootDir, '.env.production')

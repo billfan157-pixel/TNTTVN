@@ -249,8 +249,9 @@ export const MobileAttendanceView: React.FC = () => {
   const renderAttendanceWorkspace = () => (
     <div className="product-view flex flex-col gap-3 pb-8">
       <SubpageHeader
-        icon={<CheckSquare size={15} />}
-        title={<span id="attendance-session-title">Phiên điểm danh</span>}
+        icon={<CheckSquare size={16} />}
+        title="Phiên Điểm Danh"
+        titleId="attendance-session-title"
         badge={
           isLocked ? (
             <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">

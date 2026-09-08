@@ -74,19 +74,44 @@ export function applyPdfTitle(html: string, rawFilename: string): string {
   return html.replace('<head>', `<head><title>${pdfTitle}</title>`)
 }
 
+/**
+ * B5 (2026-09-08): download file HTML xem trước/báo cáo dùng chung.
+ * Đường duy nhất sống sót trên production có CSP khít: popup top-level (render)
+ * hoặc download (không bị CSP hạn chế). Iframe blob chết do frame-src, srcdoc
+ * kế thừa CSP cha nên mất style — xem CSP-FRAME 2026-09-08.
+ */
+function triggerHtmlDownload(html: string, filename: string): void {
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename.endsWith('.html') ? filename : `${filename}.html`
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => {
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, 100)
+}
 export class ReportExportService {
   /**
-   * Opens print preview window in a new tab
+   * Opens print preview window in a new tab.
+   * B5 (2026-09-08): popup bị chặn (mobile/PWA rất hay gặp) không còn là dead-end —
+   * fallback tải file HTML xem trước (download không bị CSP hạn chế; iframe blob
+   * đã chết theo CSP-FRAME, srcdoc kế thừa CSP cha nên mất style).
    */
-  public static preview(htmlContent: string): boolean {
+  public static preview(htmlContent: string, filename?: string): boolean {
     try {
+      const prepared = prepareOutput(htmlContent)
       const previewWindow = window.open('', '_blank')
       if (!previewWindow) {
-        useToastStore.getState().addToast('Cửa sổ Xem trước bị trình duyệt chặn (Popup Blocked). Vui lòng cho phép Popup cho trang web này!', 'info', 6000)
+        const safeName = sanitizeFilename(filename || '') || 'xem-truoc-bao-cao'
+        triggerHtmlDownload(prepared, safeName)
+        useToastStore.getState().addToast('Trình duyệt chặn pop-up — đã tải bản xem trước (.html). Mở file để xem trước khi in.', 'info', 7000)
         return false
       }
       try { previewWindow.opener = null } catch {}
-      const url = htmlBlobUrl(prepareOutput(htmlContent))
+      const url = htmlBlobUrl(prepared)
       previewWindow.location.href = url
       try {
         previewWindow.focus()
@@ -144,17 +169,7 @@ export class ReportExportService {
    */
   public static downloadHTML(htmlContent: string, filename: string): void {
     try {
-      const blob = new Blob([prepareOutput(htmlContent)], { type: 'text/html;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename.endsWith('.html') ? filename : `${filename}.html`
-      document.body.appendChild(a)
-      a.click()
-      setTimeout(() => {
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }, 100)
+      triggerHtmlDownload(prepareOutput(htmlContent), sanitizeFilename(filename) || 'bao-cao')
     } catch (err) {
       Sentry.captureException(err)
       const message = err instanceof Error ? err.message : 'Lỗi khi tải file HTML!'

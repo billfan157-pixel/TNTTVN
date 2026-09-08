@@ -15,9 +15,9 @@ describe('renderTemplate', () => {
     expect(result).toBe('A - ')
   })
 
-  it('escapes Telegram markdown characters', () => {
+  it('preserves plain-text characters for Web/Native Push', () => {
     const result = renderTemplate('{studentName}', { studentName: 'Test *bold* _italic_' })
-    expect(result).toBe('Test \\*bold\\* \\_italic\\_')
+    expect(result).toBe('Test *bold* _italic_')
   })
 
   it('renders absenceUnexcused template', () => {
@@ -46,7 +46,7 @@ describe('renderTemplate', () => {
     })
     expect(result).toContain('Phiếu Điểm')
     expect(result).toContain('Nguyễn Văn A')
-    expect(result).toContain('8\\.5')
+    expect(result).toContain('8.5')
   })
 
   it('sundayMassReminder dùng giờ từ {sundayMassTime} (không còn hardcode 8h00)', () => {

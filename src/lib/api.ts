@@ -47,6 +47,7 @@ import { parishEventsApi } from './api/parishEvents'
 import { financesApi } from './api/finances'
 import { parishProfileApi } from './api/parishProfile'
 import { syncApi } from './api/sync'
+import { operationsApi } from './api/operations'
 
 export const api = {
   ...authApi,
@@ -74,4 +75,5 @@ export const api = {
   finances: financesApi,
   parishProfile: parishProfileApi,
   ...syncApi,
+  ...operationsApi,
 }
