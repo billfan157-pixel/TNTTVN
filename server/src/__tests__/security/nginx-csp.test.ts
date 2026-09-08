@@ -33,6 +33,10 @@ describe('nginx.conf CSP alignment (A-NEW-22)', () => {
     expect(directive('style-src')).not.toContain('unsafe-inline')
   })
 
+  it("connect-src cho phép Google Fonts (SW CacheFirst fetch chịu CSP của chính sw.js)", () => {
+    expect(directive('connect-src')).toContain('https://fonts.googleapis.com')
+  })
+
   it('base-uri + object-src hardening có mặt (đồng bộ app)', () => {
     expect(directive('base-uri')).toBe("'self'")
     expect(directive('object-src')).toBe("'none'")

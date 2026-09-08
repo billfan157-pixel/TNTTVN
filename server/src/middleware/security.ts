@@ -15,7 +15,9 @@ const CSP = [
   // popup print/export dùng Blob URL (document riêng, không kế thừa server CSP).
   `style-src ${SELF}; style-src-attr 'unsafe-inline'`,
   `img-src ${SELF} data:`,
-  `connect-src ${SELF} https://o0.ingest.sentry.io`,
+  // CSP-FONTS (2026-09-08): SW fetch Google Fonts (CacheFirst trong sw.ts) chịu
+  // CSP của chính response sw.js — thiếu host này Inter fail trên production.
+  `connect-src ${SELF} https://o0.ingest.sentry.io https://fonts.googleapis.com`,
   `font-src ${SELF} https://fonts.gstatic.com`,
   `base-uri ${SELF}`,
   `form-action ${SELF}`,

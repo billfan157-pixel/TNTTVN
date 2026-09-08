@@ -15,6 +15,9 @@ describe('Security Middleware Tests', () => {
     // style-attribute vẫn 'unsafe-inline' (React style={} 100+ chỗ) qua style-src-attr riêng.
     expect(csp).toContain("style-src 'self'; style-src-attr 'unsafe-inline'")
     expect(csp).not.toContain("style-src 'self' 'unsafe-inline'")
+    // CSP-FONTS (2026-09-08): SW fetch Google Fonts chịu CSP của chính response
+    // sw.js — connect-src thiếu host này thì Inter fail trên production.
+    expect(csp).toMatch(/connect-src[^;]*https:\/\/fonts\.googleapis\.com/)
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
     expect(res.headers.get('X-Frame-Options')).toBe('DENY')
     expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin')

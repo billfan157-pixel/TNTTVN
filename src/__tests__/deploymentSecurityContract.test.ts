@@ -29,6 +29,10 @@ describe('deployment and native privacy contracts', () => {
     expect(csp).toContain("style-src 'self' https://fonts.googleapis.com")
     expect(csp).toContain("style-src-attr 'unsafe-inline'")
     expect(csp).not.toContain("style-src 'self' 'unsafe-inline'")
+    // CSP-FONTS (2026-09-08): SW fetch Google Fonts (CacheFirst trong sw.ts) chịu
+    // CSP của chính response sw.js — connect-src thiếu host này thì Inter fail
+    // hoàn toàn trên production (chỉ còn fallback system-ui).
+    expect(csp).toMatch(/connect-src[^;]*https:\/\/fonts\.googleapis\.com/)
     expect(csp).toContain("frame-ancestors 'none'")
     expect(csp).toContain('report-uri /api/csp-report')
     expect(csp).not.toContain("'unsafe-eval'")
