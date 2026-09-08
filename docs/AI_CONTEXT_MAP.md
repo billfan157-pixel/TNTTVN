@@ -345,8 +345,8 @@ When starting a task, AI Agents MUST read documents in the following order:
 | :--- | :--- | :--- |
 | **System Architecture** | [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md) | `src/router.tsx`, `server/src/index.ts` |
 | **Architecture Decisions** | [`docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`](./ADR_ARCHITECTURE_DECISION_RECORDS.md) | `server/src/services/*.ts` |
-| **Decision Governance (framework)** | `.agents/skills/decision-matrix/SKILL.md` v4.1.2 — Decision Levels D0–D3, Evidence Model E1–E5, Dynamic Profiles, Hard Gates (§13), ADR Gate (§14), Business Rule Gate (§17), Priority Order (§29) | `AGENTS.md`, `server/src/__tests__/security/*` |
-| **Execution Workflow** | `.gemini/skills/prompt-execution-workflow/SKILL.md` v1.0 — Standardized 6-step lifecycle for prompt processing (Context Analysis -> Planning -> Inspection -> Execution -> Sync -> Delivery) | `AGENTS.md` |
+| **Decision Governance (framework)** | `.agents/skills/quantitative-targets/SKILL.md` v5.1 (Decision Matrix Final Reference) — Decision Levels D0–D3, quantitative evidence lifecycle DEFINE→AUTHORIZE→MEASURE→COMPARE→DECIDE→REVERIFY, invariant vs SLO separation, hard gates | `AGENTS.md`, `server/src/__tests__/security/*` |
+| **Execution Workflow** | (legacy — `prompt-execution-workflow` v1.0 đã ngừng sử dụng, file đã xóa khỏi repo; execution workflow quy định tại `AGENTS.md` §1) | `AGENTS.md` |
 | **Database Schema** | [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md) | `server/src/db/schema.ts` (51 tables) |
 | **API Contract** | [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md) | `server/src/routes/*.ts` (28 routes) |
 | **Security & Auth** | [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md) (Security Envelope §3) | `server/src/middleware/auth.ts`, `security.ts`, `services/refreshSessionService.ts`, `services/webPushService.ts` |
