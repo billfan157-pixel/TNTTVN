@@ -185,13 +185,14 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
   async function handleUpdatePhone(e: React.FormEvent) {
     e.preventDefault()
     if (!phoneUser) return
-    if (!isValidVnPhone(ppPhone)) { setPpError('Số điện thoại phải là 10 chữ số bắt đầu bằng 0 (vd: 0901234567)'); return }
+    const normalizedPhone = parentUsername(ppPhone)
+    if (!isValidVnPhone(normalizedPhone)) { setPpError('Số điện thoại phải là 10 chữ số bắt đầu bằng 0 (vd: 0901234567)'); return }
     if (!ppAdminPass.trim()) { setPpError('Vui lòng nhập mật khẩu xác nhận Admin'); return }
     setPpLoading(true)
     setPpError(null)
     setPpSuccess(null)
     try {
-      const res = await api.updateUserPhone(phoneUser.id, ppPhone, ppAdminPass)
+      const res = await api.updateUserPhone(phoneUser.id, normalizedPhone, ppAdminPass)
       setPpPhone('')
       setPpAdminPass('')
       fetchUsers()
