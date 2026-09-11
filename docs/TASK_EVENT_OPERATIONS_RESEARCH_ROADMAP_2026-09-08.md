@@ -1,6 +1,6 @@
 # Catevia — Nghiên cứu và lộ trình phát triển vận hành xứ đoàn
 
-Ngày nghiên cứu: 2026-09-08. Trạng thái: **kế hoạch đề xuất cho vòng phát triển tiếp theo, chưa phải tính năng đã triển khai**.
+Ngày nghiên cứu: 2026-09-08; đối chiếu implementation gần nhất: 2026-09-09. Trạng thái: **roadmap có checkpoint triển khai local; các gate production/pilot được ghi riêng, không suy từ kế hoạch**.
 
 Tài liệu thực thi hiện hành: [Task & Event Operations Implementation Plan](TASK_EVENT_OPERATIONS_IMPLEMENTATION_PLAN_2026-09-07.md). Tài liệu này bổ sung cơ sở nghiên cứu, ưu tiên và đặc tả các lát cắt tiếp theo; không thay thế ADR-110/111 hoặc tự phê duyệt thay đổi nghiệp vụ.
 
@@ -16,7 +16,7 @@ Hướng phát triển đề xuất:
 2. Hoàn thiện công việc cá nhân và phối hợp nhóm: chi tiết nhiệm vụ độc lập, nhận/từ chối, báo vướng, duyệt, bình luận, bàn giao.
 3. Tách chuẩn bị, thực hiện và hậu kiểm sự kiện; không buộc công việc trong/sau sự kiện phải hoàn thành trước giờ bắt đầu.
 4. Hoàn thiện nhắc việc có thể quản lý, lịch phục vụ/báo bận, thời hạn vai trò.
-5. Sau pilot mới thêm mẫu sự kiện và view tổng hợp. Chưa làm hệ thống tự động hóa, Gantt, chấm năng suất cá nhân hoặc ghi ngoại tuyến riêng.
+5. Hạ tầng mẫu có phiên bản/preview/instantiate được phép triển khai và test trước pilot; chỉ nội dung mẫu curated cần người vận hành duyệt. Chưa làm recurrence tự động, Gantt, chấm năng suất cá nhân hoặc ghi ngoại tuyến riêng.
 
 Đây là kế hoạch phát triển tiếp từ code hiện hữu. Không dựng lại bảng task mới dưới `parish_events`; không đưa chức danh tổ chức vào `users.role`; không đưa Telegram trở lại.
 
@@ -230,9 +230,9 @@ Checkpoint implementation 2026-09-08: đã tái hiện 5 lỗi bằng store test
 
 **Docs:** API, Business Rules/ADR nếu thay policy; không đổi `users.role`.
 
-### P2 — Lifecycle trước/trong/sau sự kiện (D3, cần duyệt nghiệp vụ)
+### P2 — Lifecycle trước/trong/sau sự kiện (D3)
 
-**Phụ thuộc:** P0/P1. **Đề xuất cụ thể để quyết định:** giữ `isRequired`; thêm `phase = PREPARATION | EXECUTION | FOLLOW_UP` trên task. Đây là proposal, chưa tồn tại trong schema.
+**Phụ thuộc:** P0/P1. **Checkpoint kiểm tra lại 2026-09-09:** schema/migration 236, API create và frontend đã có `phase = PREPARATION | EXECUTION | FOLLOW_UP`, giữ `isRequired`; danh sách/detail ghi rõ giai đoạn và readiness đổi nhãn thành tiến độ chuẩn bị. Backend start/closure đã dùng phase. E2E P2 đạt trên Chromium/WebKit với sandbox thật cho ba phase, OWNER acknowledgement, start và closure gate. Chính sách khôi phục/thay thế required task đã CANCELLED và production migration vẫn mở.
 
 - Backfill task hiện có thành PREPARATION để giữ nghĩa readiness đang dùng; không suy phase từ deadline hoặc title. Event đã COMPLETED/CANCELLED không bị mở lại.
 - READY/LIVE: required PREPARATION phải hoàn tất; required EXECUTION/FOLLOW_UP chưa phải DONE, nhưng phải có người chịu trách nhiệm đã nhận và không có blocker chuẩn bị rõ ràng. Chỉ checklist chuẩn bị được tính ở cổng bắt đầu.
@@ -248,7 +248,7 @@ Checkpoint implementation 2026-09-08: đã tái hiện 5 lỗi bằng store test
 
 ### P3 — Nhắc việc đáng tin và quản lý được (D3)
 
-**Phụ thuộc:** P0; approval/assignment trigger tích hợp sau P1. Nhắc event/task thủ công và hủy PENDING đã có, không làm lại.
+**Phụ thuộc:** P0; approval/assignment trigger tích hợp sau P1. **Checkpoint 2026-09-09:** migration 237 thêm reminder version; resource list, reschedule/cancel OCC, due-time recheck trong worker và UI quản lý đã triển khai. Regression backend dùng interleaving xác định chứng minh candidate lịch cũ không enqueue sau reschedule; E2E create→reschedule→reload→recipient cancel đạt Chromium/WebKit. Physical push, production migration và multi-instance/remote recovery vẫn là gate môi trường.
 
 **Read model:** thêm resource reminder list cho actor có task.assign/event.manage; trả trạng thái, thời gian, recipient label tối thiểu, version, khả năng sửa/hủy. Inbox cá nhân hiện tại vẫn tối thiểu. Không trả provider error, queue IDs hoặc lý do bận ra client.
 
@@ -267,7 +267,7 @@ Checkpoint implementation 2026-09-08: đã tái hiện 5 lỗi bằng store test
 
 ### P4 — Nhóm độc lập, nhiệm kỳ và lịch phục vụ (D3)
 
-**Phụ thuộc:** P0/P1; phối hợp P2 cho thay người khi LIVE.
+**Phụ thuộc:** P0/P1; phối hợp P2 cho thay người khi LIVE. **Checkpoint hoàn tất local 2026-09-09:** `GET /tasks?workstreamId=...`, contact-free `GET /candidates`, scoped `GET /units`, membership validity edit, self blockout lifecycle, atomic LIVE lead replacement và panel nhóm độc lập đã có. Candidate/unit route authorize trước read; Trưởng ngành/Trưởng ban chỉ thấy và ghi trong active service-term unit/descendants; assign/handover/member/lead command revalidate cùng policy trong transaction. Nhóm không event bắt buộc organizational `sourceUnitId`, UI đi hết create group → member → task → assignment. Blockout reason vẫn riêng tư. E2E real backend/DB chứng minh nhóm độc lập → task → blockout warning tối thiểu → giao/nhận trên Chromium và WebKit.
 
 - Expose `GET /workstreams` đã có cho lối vào nhóm độc lập. Typed create hỗ trợ eventId nullable và sourceUnitId theo backend; giữ authority organizational create cho nhóm không có event.
 - Dùng cùng panel/detail, không tạo group engine khác. Cần danh sách task theo workstream có auth/pagination server, không lấy toàn parish rồi lọc client.
@@ -281,6 +281,8 @@ Checkpoint implementation 2026-09-08: đã tái hiện 5 lỗi bằng store test
 ### P5 — Tổng kết và mẫu tái sử dụng có giới hạn (D2/D3)
 
 **Phụ thuộc:** P2 và pilot luồng thủ công ổn định.
+
+**Checkpoint 2026-09-09:** phần tổng kết/action item và hạ tầng template đã hoàn tất local. `operation_event_retrospectives` giữ lessons/improvements 1:1 với OCC; follow-up command bắt buộc hạn + actionable OWNER đúng organizational scope và đã có E2E Chromium/WebKit. Template family/version lưu snapshot bất biến, preview deadline tương đối và instantiate exact version nguyên tử; provenance trên event được DB trigger bảo vệ. Không copy assignee/acceptance/approval result/comment/reminder và không tạo calendar source thứ hai. Archive/restore là lifecycle metadata có reason, current scope authority, monotonic family version + expected latest content version, status CAS, receipt/audit và không xóa snapshot/provenance. Family version tăng qua mọi lifecycle/content-version mutation để chống ABA. E2E template lifecycle UI→API→DB đã đạt Chromium/WebKit; các mẫu curated vẫn deferred tới pilot.
 
 - Hoàn thiện tổng kết theo cấu trúc nhẹ: kết quả, điều cần cải thiện, follow-up có OWNER/hạn. Parish Memory là lịch sử; task follow-up là công việc thật liên kết lại nguồn, không copy nội dung cá nhân ra bản công khai.
 - Mẫu đầu tiên do người vận hành duyệt: sinh hoạt định kỳ, lễ bổn mạng, trại/sa mạc. Đây là tập mẫu đề xuất, không mặc định lịch phụng vụ hoặc nghi thức.

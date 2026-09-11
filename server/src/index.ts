@@ -18,11 +18,14 @@ import { client } from './db/index.js'
 import { assertDatabaseReady } from './db/schemaHealth.js'
 import { assertSingleParishDeploymentData } from './db/deploymentParishHealth.js'
 import { assertDeploymentParishConfiguration, getEnforcedDeploymentParishId } from './utils/deploymentParish.js'
+import { getParishTimeZone } from './utils/parishTimeZone.js'
 import { seedIfEmpty } from './seed.js'
 import { ALLOWED_CORS_HEADERS, isOriginAllowed, resolveAllowedOrigins } from './utils/originPolicy.js'
 import { initNotificationQueue, stopNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler, stopSundayReminderScheduler } from './services/sundayReminderScheduler.js'
 import { initOperationsReminderScheduler, stopOperationsReminderScheduler } from './services/operationsReminderService.js'
+import { initOperationsEventLifecycleScheduler, stopOperationsEventLifecycleScheduler } from './services/operationsEventLifecycleService.js'
+import { initOperationsTaskDispatchScheduler, stopOperationsTaskDispatchScheduler } from './services/operationsTaskDispatchService.js'
 import { initOperationsReceiptMaintenance, stopOperationsReceiptMaintenance } from './services/operationsReceiptMaintenance.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
 import { runImportMaintenanceCycle, startImportRollbackSnapshotCleanup } from './services/importService.js'
@@ -164,12 +167,13 @@ const enforcedDeploymentParishId = getEnforcedDeploymentParishId() ? deploymentP
 // malformed tenant index, missing latest column, composite-PK drift, or FK
 // violation must abort startup rather than serving traffic on an unsafe schema.
 try {
+  getParishTimeZone()
   await assertDatabaseReady(client)
   if (enforcedDeploymentParishId) {
     await assertSingleParishDeploymentData(client, enforcedDeploymentParishId)
   }
 } catch (err) {
-  console.error('[startup] Database/deployment parish readiness check failed:', err)
+  console.error('[startup] Configuration/database/deployment parish readiness check failed:', err)
   throw err
 }
 
@@ -237,6 +241,8 @@ const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
       const backupStopped = stopBackupScheduler()
       const sundayStopped = stopSundayReminderScheduler()
       stopOperationsReminderScheduler()
+      stopOperationsEventLifecycleScheduler()
+      stopOperationsTaskDispatchScheduler()
       stopOperationsReceiptMaintenance()
       const httpClosed = new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve())
@@ -301,4 +307,6 @@ if (process.env.NODE_ENV !== 'test') {
 await initNotificationQueue()
 initSundayReminderScheduler()
 initOperationsReminderScheduler()
+initOperationsEventLifecycleScheduler()
+initOperationsTaskDispatchScheduler()
 initBackupScheduler()

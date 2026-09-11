@@ -1,10 +1,11 @@
 // @vitest-environment node
 
 import { Hono } from 'hono'
+import bcrypt from 'bcryptjs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { auditLogs, parishEvents, parishPeople, parishRecords, parishServiceTerms, users } from '../db/schema.js'
+import { auditLogs, parishEvents, parishOrganizationUnits, parishPeople, parishRecords, parishServiceTerms, users } from '../db/schema.js'
 import { generateTokens } from '../middleware/auth.js'
 import parishProfileRouter from '../routes/parishProfile.js'
 import {
@@ -30,24 +31,34 @@ const ctx = (parishId: string, userId = `admin-${parishId}`): MutationContext =>
   ip: '127.0.0.1',
   userAgent: 'vitest',
 })
+const termCtx = (parishId: string, userId = `admin-${parishId}`): MutationContext => ({
+  ...ctx(parishId, userId),
+  authorityReason: 'Thiết lập cơ cấu tổ chức đã được phê duyệt',
+  authorityReauthEntityId: 'test-authority-change',
+  authorityReauthOperation: 'PARISH_TERM_AUTHORITY_REAUTH_FAILED',
+  authorityReauthProof: async () => undefined,
+})
 
 const adminId = `profile-admin-${Date.now()}`
 const staffId = `profile-staff-${Date.now()}`
 const parentId = `profile-parent-${Date.now()}`
+const adminPassword = 'Profile@Test#2026'
 let adminToken = ''
 let staffToken = ''
 let parentToken = ''
+let sharedBoard: Awaited<ReturnType<typeof createParishUnit>>
 
 beforeAll(async () => {
   const now = new Date().toISOString()
   await db.insert(users).values([
-    { id: adminId, username: adminId, passwordHash: 'hash', fullName: 'Profile Admin', role: 'admin', status: 'ACTIVE', mustChangePassword: 0, tokenVersion: 1, parishId: PARISH_A, createdAt: now },
+    { id: adminId, username: adminId, passwordHash: await bcrypt.hash(adminPassword, 4), fullName: 'Profile Admin', role: 'admin', status: 'ACTIVE', mustChangePassword: 0, tokenVersion: 1, parishId: PARISH_A, createdAt: now },
     { id: staffId, username: staffId, passwordHash: 'hash', fullName: 'Profile Staff', role: 'chunhiem', status: 'ACTIVE', mustChangePassword: 0, tokenVersion: 1, parishId: PARISH_A, createdAt: now },
     { id: parentId, username: parentId, passwordHash: 'hash', fullName: 'Profile Parent', role: 'phuhuynh', status: 'ACTIVE', mustChangePassword: 0, tokenVersion: 1, parishId: PARISH_A, createdAt: now },
   ]).onConflictDoNothing()
   adminToken = generateTokens({ userId: adminId, username: adminId, role: 'admin', parishId: PARISH_A, tokenVersion: 1 }).accessToken
   staffToken = generateTokens({ userId: staffId, username: staffId, role: 'chunhiem', parishId: PARISH_A, tokenVersion: 1 }).accessToken
   parentToken = generateTokens({ userId: parentId, username: parentId, role: 'phuhuynh', parishId: PARISH_A, tokenVersion: 1 }).accessToken
+  sharedBoard = await createParishUnit({ name: 'Ban Điều hành', unitType: 'BOARD', sortOrder: 0, isActive: true }, ctx(PARISH_A))
 })
 
 describe('ADR-081 parish profile domain boundary', () => {
@@ -133,7 +144,7 @@ describe('ADR-081 parish profile domain boundary', () => {
   })
 
   it('rejects organization cycles and keeps audit payloads free of biography values', async () => {
-    const root = await createParishUnit({ name: 'Ban Trị Sự', unitType: 'BOARD', sortOrder: 0, isActive: true }, ctx(PARISH_A))
+    const root = sharedBoard
     const child = await createParishUnit({ parentId: root.id, name: 'Ban Nghiên Huấn', unitType: 'COMMITTEE', sortOrder: 1, isActive: true }, ctx(PARISH_A))
     await expect(updateParishUnit(root.id, {
       parentId: child.id, name: root.name, unitType: root.unitType, sortOrder: 0, isActive: true,
@@ -150,7 +161,8 @@ describe('ADR-081 parish profile domain boundary', () => {
   })
 
   it('stores an explicit Operations position code and rejects a code/unit mismatch', async () => {
-    const branch = await createParishUnit({ name: `Ngành quyền ${Date.now()}`, unitType: 'BRANCH', sortOrder: 2, isActive: true }, ctx(PARISH_A))
+    const board = sharedBoard
+    const branch = await createParishUnit({ parentId: board.id, name: `Ngành quyền ${Date.now()}`, unitType: 'BRANCH', sortOrder: 2, isActive: true }, ctx(PARISH_A))
     const person = await createParishPerson({ fullName: `Trưởng ngành ${Date.now()}`, serviceStatus: 'ACTIVE', visibility: 'STAFF' }, ctx(PARISH_A))
 
     await expect(createParishTerm({
@@ -159,7 +171,7 @@ describe('ADR-081 parish profile domain boundary', () => {
       positionTitle: 'Trưởng ban ghi nhầm phạm vi',
       positionCode: 'COMMITTEE_LEADER',
       startDate: '2026-01-01',
-    }, ctx(PARISH_A))).rejects.toMatchObject({ status: 400, code: 'PARISH_POSITION_SCOPE_MISMATCH' })
+    }, termCtx(PARISH_A))).rejects.toMatchObject({ status: 400, code: 'PARISH_POSITION_SCOPE_MISMATCH' })
 
     let databaseError: unknown
     try {
@@ -191,7 +203,7 @@ describe('ADR-081 parish profile domain boundary', () => {
       positionTitle: 'Phụ trách Ngành Thiếu',
       positionCode: 'BRANCH_LEADER',
       startDate: '2026-01-01',
-    }, ctx(PARISH_A))
+    }, termCtx(PARISH_A))
     expect(term.positionCode).toBe('BRANCH_LEADER')
 
     const updated = await updateParishTerm(term.id, {
@@ -199,8 +211,80 @@ describe('ADR-081 parish profile domain boundary', () => {
       unitId: branch.id,
       positionTitle: 'Phụ trách Ngành Thiếu — cập nhật tên hiển thị',
       startDate: '2026-01-01',
-    }, ctx(PARISH_A))
+    }, termCtx(PARISH_A))
     expect(updated.positionCode).toBe('BRANCH_LEADER')
+
+    await expect(updateParishUnit(branch.id, { ...branch, unitType: 'COMMITTEE' }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 409, code: 'PARISH_POSITION_SCOPE_MISMATCH' })
+    const [unchangedUnit] = await db.select().from(parishOrganizationUnits).where(and(
+      eq(parishOrganizationUnits.parishId, PARISH_A), eq(parishOrganizationUnits.id, branch.id),
+    ))
+    expect(unchangedUnit.unitType).toBe('BRANCH')
+    await expect(updateParishUnit(branch.id, { ...branch, name: 'Ngành đổi tên hợp lệ' }, ctx(PARISH_A)))
+      .resolves.toMatchObject({ unitType: 'BRANCH', name: 'Ngành đổi tên hợp lệ' })
+  })
+
+  it('enforces Board as root and Branch/Committee as parallel direct children on managed writes', async () => {
+    const board = sharedBoard
+    await expect(createParishUnit({ name: 'Ngành không có Ban Điều hành', unitType: 'BRANCH', sortOrder: 1, isActive: true }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 400, code: 'PARISH_UNIT_PARENT_REQUIRED' })
+    const branch = await createParishUnit({ parentId: board.id, name: `Ngành song song ${Date.now()}`, unitType: 'BRANCH', sortOrder: 1, isActive: true }, ctx(PARISH_A))
+    const committee = await createParishUnit({ parentId: board.id, name: `Ban chuyên môn song song ${Date.now()}`, unitType: 'COMMITTEE', sortOrder: 2, isActive: true }, ctx(PARISH_A))
+    expect(branch.parentId).toBe(board.id)
+    expect(committee.parentId).toBe(board.id)
+    await expect(updateParishUnit(committee.id, { ...committee, parentId: branch.id, unitType: 'COMMITTEE' }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 400, code: 'PARISH_UNIT_PARENT_TYPE_MISMATCH' })
+    await expect(updateParishUnit(board.id, { ...board, isActive: false }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 409, code: 'PARISH_BOARD_HAS_CHILD_UNITS' })
+    await expect(updateParishUnit(board.id, { ...board, unitType: 'OTHER' }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 409, code: 'PARISH_BOARD_HAS_CHILD_UNITS' })
+  })
+
+  it('allows inactive historical Boards but rejects a second active Board', async () => {
+    await expect(createParishUnit({ name: 'Ban Điều hành thứ hai', unitType: 'BOARD', sortOrder: 10, isActive: true }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 409, code: 'PARISH_ACTIVE_BOARD_ALREADY_EXISTS' })
+    const historical = await createParishUnit({ name: 'Ban Điều hành tiền nhiệm', unitType: 'BOARD', sortOrder: 11, isActive: false }, ctx(PARISH_A))
+    await expect(updateParishUnit(historical.id, { ...historical, isActive: true }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ status: 409, code: 'PARISH_ACTIVE_BOARD_ALREADY_EXISTS' })
+  })
+
+  it('requires a Chapter to belong to an active Branch, not the Board', async () => {
+    const input = { name: 'Chi đoàn từ lớp', unitType: 'CHAPTER' as const, sortOrder: 0, isActive: true }
+    await expect(createParishUnit(input, ctx(PARISH_A)))
+      .rejects.toMatchObject({ code: 'PARISH_CHAPTER_PARENT_REQUIRED' })
+    await expect(createParishUnit({ ...input, parentId: sharedBoard.id }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ code: 'PARISH_CHAPTER_PARENT_TYPE_MISMATCH' })
+    const branch = await createParishUnit({ name: 'Ngành cho Chi đoàn', unitType: 'BRANCH', parentId: sharedBoard.id, sortOrder: 0, isActive: true }, ctx(PARISH_A))
+    await expect(createParishUnit({ ...input, parentId: branch.id }, ctx(PARISH_A)))
+      .resolves.toMatchObject({ parentId: branch.id, unitType: 'CHAPTER' })
+    await expect(updateParishUnit(branch.id, { ...branch, isActive: false }, ctx(PARISH_A)))
+      .rejects.toMatchObject({ code: 'PARISH_BRANCH_HAS_CHAPTERS' })
+  })
+
+  it('allows dual Branch/Committee leadership but rejects overlapping leaders in the same scope', async () => {
+    const board = sharedBoard
+    const branch = await createParishUnit({ parentId: board.id, name: `Ngành nhiệm kỳ ${Date.now()}`, unitType: 'BRANCH', sortOrder: 1, isActive: true }, ctx(PARISH_A))
+    const committee = await createParishUnit({ parentId: board.id, name: `Ban nhiệm kỳ ${Date.now()}`, unitType: 'COMMITTEE', sortOrder: 2, isActive: true }, ctx(PARISH_A))
+    const leader = await createParishPerson({ fullName: `Người kiêm nhiệm ${Date.now()}`, serviceStatus: 'ACTIVE', visibility: 'STAFF' }, ctx(PARISH_A))
+    const challenger = await createParishPerson({ fullName: `Người trùng nhiệm kỳ ${Date.now()}`, serviceStatus: 'ACTIVE', visibility: 'STAFF' }, ctx(PARISH_A))
+
+    await createParishTerm({ personId: leader.id, unitId: branch.id, positionTitle: 'Trưởng ngành', positionCode: 'BRANCH_LEADER', startDate: '2026-01-01', endDate: '2026-12-31' }, termCtx(PARISH_A))
+    await createParishTerm({ personId: leader.id, unitId: committee.id, positionTitle: 'Trưởng ban', positionCode: 'COMMITTEE_LEADER', startDate: '2026-01-01', endDate: '2026-12-31' }, termCtx(PARISH_A))
+    await expect(createParishTerm({ personId: challenger.id, unitId: committee.id, positionTitle: 'Trưởng ban thứ hai', positionCode: 'COMMITTEE_LEADER', startDate: '2026-06-01', endDate: '2027-05-31' }, termCtx(PARISH_A)))
+      .rejects.toMatchObject({ status: 409, code: 'PARISH_POSITION_TERM_OVERLAP' })
+    await expect(createParishTerm({ personId: challenger.id, unitId: committee.id, positionTitle: 'Trưởng ban kế nhiệm', positionCode: 'COMMITTEE_LEADER', startDate: '2027-01-01' }, termCtx(PARISH_A)))
+      .resolves.toMatchObject({ positionCode: 'COMMITTEE_LEADER', startDate: '2027-01-01' })
+  })
+
+  it('allows admin self-appointment but requires transaction-bound confirmation', async () => {
+    const person = await createParishPerson({ linkedUserId: adminId, fullName: 'Admin kỹ thuật', serviceStatus: 'ACTIVE', visibility: 'ADMIN' }, ctx(PARISH_A))
+    const input = { personId: person.id, positionTitle: 'Ủy viên', startDate: '2026-01-01' }
+
+    await expect(createParishTerm(input, ctx(PARISH_A, adminId)))
+      .rejects.toMatchObject({ status: 403, code: 'AUTHORITY_REAUTH_REQUIRED' })
+    const term = await createParishTerm(input, termCtx(PARISH_A, adminId))
+    await expect(updateParishTerm(term.id, { ...input, positionTitle: 'Thư ký' }, termCtx(PARISH_A, adminId)))
+      .resolves.toMatchObject({ personId: person.id, positionTitle: 'Thư ký' })
   })
 })
 
@@ -214,6 +298,41 @@ describe('ADR-081 parish profile HTTP RBAC and upload guards', () => {
       body: JSON.stringify({ fullName: 'Không được tạo', serviceStatus: 'ACTIVE', visibility: 'STAFF' }),
     })).status).toBe(403)
     expect((await app.request('/api/parish-profile', { headers: auth(parentToken) })).status).toBe(403)
+  })
+
+  it('reauthenticates and audits service-term authority changes', async () => {
+    const person = await createParishPerson({ fullName: `Nhân sự route ${Date.now()}`, serviceStatus: 'ACTIVE', visibility: 'STAFF' }, ctx(PARISH_A))
+    const base = {
+      personId: person.id,
+      unitId: null,
+      positionTitle: 'Ủy viên',
+      positionCode: null,
+      startDate: '2026-01-01',
+      endDate: null,
+      authorityReason: 'Bổ sung nhiệm kỳ theo biên bản Ban Điều hành',
+    }
+    expect((await app.request('/api/parish-profile/terms', {
+      method: 'POST', headers: { ...auth(adminToken), 'Content-Type': 'application/json' }, body: JSON.stringify(base),
+    })).status).toBe(400)
+    expect((await app.request('/api/parish-profile/terms', {
+      method: 'POST', headers: { ...auth(adminToken), 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, adminPassword: 'wrong-password' }),
+    })).status).toBe(401)
+
+    const createdResponse = await app.request('/api/parish-profile/terms', {
+      method: 'POST', headers: { ...auth(adminToken), 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, adminPassword }),
+    })
+    expect(createdResponse.status, await createdResponse.clone().text()).toBe(201)
+    const created = (await createdResponse.json() as any).data
+    const [audit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, PARISH_A), eq(auditLogs.action, 'PARISH_TERM_CREATE'), eq(auditLogs.entityId, created.id),
+    )).limit(1)
+    expect(audit.newValue).toContain(base.authorityReason)
+
+    const deleted = await app.request(`/api/parish-profile/terms/${created.id}`, {
+      method: 'DELETE', headers: { ...auth(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword, authorityReason: 'Kết thúc nhiệm kỳ theo biên bản' }),
+    })
+    expect(deleted.status).toBe(200)
   })
 
   it('rejects an image whose bytes do not match the declared MIME before storage', async () => {

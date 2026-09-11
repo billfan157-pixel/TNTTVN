@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAcademicYearStore } from '../stores/academicYearStore'
+import { useNavigate } from '@tanstack/react-router'
 import {
   Archive,
   ArrowUpDown,
   Award,
   Building2,
-  CalendarDays,
+  ChevronLeft,
   Download,
   ExternalLink,
   Eye,
   FileClock,
   FileText,
+  GraduationCap,
   History,
   Image as ImageIcon,
   Landmark,
@@ -24,9 +27,14 @@ import {
 } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
+import { ModalShell } from '../components/common/ModalShell'
 import { EmptyState, ErrorState, SkeletonCardGrid } from '../components/common/StateFeedback'
-import { Button, Surface, TabPanel, Tabs } from '../components/common/ui'
+import { Button, Surface, TabPanel, Tabs, TextArea, TextInput } from '../components/common/ui'
 import { ParishProfileEditorModal, type ParishEditorRequest } from '../components/parish/ParishProfileEditorModal'
+import { ParishServiceTermModal } from '../components/parish/ParishServiceTermModal'
+import { ParishPersonModal } from '../components/parish/ParishPersonModal'
+import { ParishRecordModal } from '../components/parish/ParishRecordModal'
+import { ParishAssetModal } from '../components/parish/ParishAssetModal'
 import { ParishAssetLightboxModal } from '../components/parish/ParishAssetLightboxModal'
 import { ParishPersonDetailModal } from '../components/parish/ParishPersonDetailModal'
 import { ParishOrgChart } from '../components/parish/ParishOrgChart'
@@ -38,6 +46,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog'
 import { api } from '../lib/api'
 import { useParishProfileStore } from '../stores/parishProfileStore'
 import { useToastStore } from '../stores/toastStore'
+import { hasCoordinationRole, sortTermsByAuthority } from '../utils/parishTerms'
 import type {
   ParishArchiveAsset,
   ParishOrganizationUnit,
@@ -47,14 +56,27 @@ import type {
   ParishTimelineItem,
 } from '../types/parishProfile'
 
-type ProfileTab = 'history' | 'organization' | 'people' | 'activities' | 'archive' | 'achievements' | 'timeline'
+type ProfileTab = 'history' | 'organization' | 'people' | 'archive' | 'achievements' | 'timeline'
+const VALID_TABS: ProfileTab[] = ['history', 'organization', 'people', 'archive', 'achievements', 'timeline']
+
+function parseTabFromUrl(): ProfileTab {
+  if (typeof window === 'undefined') return 'history'
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const tabParam = params.get('tab') as ProfileTab | null
+    if (tabParam && VALID_TABS.includes(tabParam)) return tabParam
+  } catch {
+    // fallback for SSR/tests
+  }
+  return 'history'
+}
+
 type AssetSortOption = 'newest' | 'oldest' | 'title_asc' | 'title_desc'
 
 const tabs = [
   { value: 'history', label: 'Lịch Sử', icon: <History aria-hidden="true" className="h-4 w-4" /> },
   { value: 'organization', label: 'Cơ Cấu', icon: <Building2 aria-hidden="true" className="h-4 w-4" /> },
   { value: 'people', label: 'Huynh Trưởng / GLV', icon: <UserRound aria-hidden="true" className="h-4 w-4" /> },
-  { value: 'activities', label: 'Hoạt Động', icon: <CalendarDays aria-hidden="true" className="h-4 w-4" /> },
   { value: 'archive', label: 'Kho Tư Liệu', icon: <Archive aria-hidden="true" className="h-4 w-4" /> },
   { value: 'achievements', label: 'Thành Tích', icon: <Award aria-hidden="true" className="h-4 w-4" /> },
   { value: 'timeline', label: 'Timeline', icon: <FileClock aria-hidden="true" className="h-4 w-4" /> },
@@ -67,7 +89,7 @@ const statusLabels: Record<ParishRecord['status'], string> = {
   DRAFT: 'Bản nháp', PUBLISHED: 'Đã xuất bản', ARCHIVED: 'Lưu trữ',
 }
 const unitLabels: Record<ParishOrganizationUnit['unitType'], string> = {
-  BOARD: 'Ban Trị Sự', COMMITTEE: 'Ban chuyên môn', BRANCH: 'Ngành', CHAPTER: 'Chi đoàn', OTHER: 'Khác',
+  BOARD: 'Ban Điều Hành', COMMITTEE: 'Ban chuyên môn', BRANCH: 'Ngành', CHAPTER: 'Chi đoàn', OTHER: 'Khác',
 }
 const assetLabels: Record<ParishArchiveAsset['assetType'], string> = {
   IMAGE: 'Ảnh', VIDEO: 'Video', POSTER: 'Poster', DOCUMENT: 'Tài liệu', MINUTES: 'Biên bản', CERTIFICATE: 'Giấy khen', OTHER: 'Khác',
@@ -103,7 +125,10 @@ function ActionButtons({ onEdit, onDelete, label }: { onEdit: () => void; onDele
 }
 
 export default function ParishProfilePage() {
-  const snapshot = useParishProfileStore(state => state.snapshot)
+  const navigate = useNavigate()
+  const rawSnapshot = useParishProfileStore(state => state.snapshot)
+  const currentYear = useAcademicYearStore(state => state.currentYear)
+  const snapshot = useMemo(() => rawSnapshot ? { ...rawSnapshot, units: rawSnapshot.units.filter(unit => !unit.academicYearId || unit.academicYearId === currentYear) } : null, [rawSnapshot, currentYear])
   const isLoading = useParishProfileStore(state => state.isLoading)
   const error = useParishProfileStore(state => state.error)
   const isStale = useParishProfileStore(state => state.isStale)
@@ -111,8 +136,27 @@ export default function ParishProfilePage() {
   const store = useParishProfileStore()
   const addToast = useToastStore(state => state.addToast)
   const { askConfirm, dialog } = useConfirmDialog()
-  const [activeTab, setActiveTab] = useState<ProfileTab>('history')
   const [editor, setEditor] = useState<ParishEditorRequest | null>(null)
+  const [termDeletion, setTermDeletion] = useState<{ id: string; label: string } | null>(null)
+  const [termDeleteReason, setTermDeleteReason] = useState('')
+  const [termDeletePassword, setTermDeletePassword] = useState('')
+  const [activeTab, setActiveTabState] = useState<ProfileTab>(parseTabFromUrl)
+
+  const setActiveTab = (tab: ProfileTab) => {
+    setActiveTabState(tab)
+    navigate({ to: '/parish-profile', search: { tab }, replace: true })
+  }
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const tabFromUrl = parseTabFromUrl()
+      if (tabFromUrl !== activeTab) {
+        setActiveTabState(tabFromUrl)
+      }
+    }
+    window.addEventListener('popstate', handleUrlChange)
+    return () => window.removeEventListener('popstate', handleUrlChange)
+  }, [activeTab])
 
   // Modals mở rộng nâng cao
   const [selectedPerson, setSelectedPerson] = useState<ParishPerson | null>(null)
@@ -139,6 +183,12 @@ export default function ParishProfilePage() {
   const unitsById = useMemo(() => new Map(snapshot?.units.map(item => [item.id, item]) ?? []), [snapshot?.units])
 
   const remove = async (kind: 'person' | 'unit' | 'term' | 'record' | 'asset', id: string, label: string) => {
+    if (kind === 'term') {
+      setTermDeleteReason('')
+      setTermDeletePassword('')
+      setTermDeletion({ id, label })
+      return
+    }
     const accepted = await askConfirm({
       title: `Xóa ${label}`,
       message: `Bản ghi “${label}” sẽ được ẩn khỏi Hồ sơ Xứ đoàn. Thao tác bị chặn nếu dữ liệu vẫn đang được liên kết.`,
@@ -147,10 +197,20 @@ export default function ParishProfilePage() {
     if (!accepted) return
     const ok = kind === 'person' ? await store.deletePerson(id)
       : kind === 'unit' ? await store.deleteUnit(id)
-        : kind === 'term' ? await store.deleteTerm(id)
-          : kind === 'record' ? await store.deleteRecord(id)
-            : await store.deleteAsset(id)
+        : kind === 'record' ? await store.deleteRecord(id)
+          : await store.deleteAsset(id)
     addToast(ok ? 'Đã xóa bản ghi khỏi Hồ sơ Xứ đoàn' : useParishProfileStore.getState().error || 'Không thể xóa bản ghi', ok ? 'success' : 'error')
+  }
+
+  const confirmTermDeletion = async () => {
+    if (!termDeletion || termDeleteReason.trim().length < 3 || !termDeletePassword) return
+    const ok = await store.deleteTerm(termDeletion.id, {
+      authorityReason: termDeleteReason.trim(),
+      adminPassword: termDeletePassword,
+    })
+    setTermDeletePassword('')
+    addToast(ok ? 'Đã kết thúc bản ghi nhiệm kỳ' : useParishProfileStore.getState().error || 'Không thể xóa nhiệm kỳ', ok ? 'success' : 'error')
+    if (ok) setTermDeletion(null)
   }
 
   const downloadAsset = async (asset: ParishArchiveAsset) => {
@@ -216,7 +276,6 @@ export default function ParishProfilePage() {
 
   // Dữ liệu lọc cho các tab bản ghi
   const milestones = useMemo(() => snapshot?.records.filter(item => item.recordType === 'MILESTONE') ?? [], [snapshot?.records])
-  const activities = useMemo(() => snapshot?.records.filter(item => item.recordType === 'ACTIVITY') ?? [], [snapshot?.records])
   const achievements = useMemo(() => snapshot?.records.filter(item => item.recordType === 'ACHIEVEMENT') ?? [], [snapshot?.records])
 
   const filteredMilestones = useMemo(() => {
@@ -226,14 +285,6 @@ export default function ParishProfilePage() {
       return item.title.toLowerCase().includes(q) || (item.summary || '').toLowerCase().includes(q)
     })
   }, [milestones, recordQuery])
-
-  const filteredActivities = useMemo(() => {
-    return activities.filter(item => {
-      if (!recordQuery.trim()) return true
-      const q = recordQuery.toLowerCase().trim()
-      return item.title.toLowerCase().includes(q) || (item.summary || '').toLowerCase().includes(q)
-    })
-  }, [activities, recordQuery])
 
   const filteredAchievements = useMemo(() => {
     return achievements.filter(item => {
@@ -289,12 +340,35 @@ export default function ParishProfilePage() {
 
   return (
     <DesktopAppShell width="wide" className="space-y-4">
+      {/* Breadcrumb điều hướng về Tổng Quan Xứ Đoàn */}
+      <div className="flex items-center gap-2 text-xs font-semibold text-text-muted">
+        <button
+          type="button"
+          onClick={() => navigate({ to: '/parish' })}
+          className="inline-flex items-center gap-1.5 text-text-secondary hover:text-parish-primary transition-colors cursor-pointer py-1 px-2 -ml-2 rounded-lg hover:bg-surface-app"
+          title="Quay về trang Tổng Quan Xứ Đoàn"
+        >
+          <ChevronLeft size={14} />
+          <span>Tổng Quan Xứ Đoàn</span>
+        </button>
+        <span className="text-surface-border">/</span>
+        <span className="text-text-main font-bold">Hồ Sơ Xứ Đoàn</span>
+      </div>
+
       <PageHeader
         title={snapshot.profile.displayName}
         description={snapshot.profile.patronName ? `Bổn mạng ${snapshot.profile.patronName}` : 'Hồ sơ lịch sử và đời sống Xứ đoàn'}
         icon={<Landmark aria-hidden="true" className="h-5 w-5" />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              leadingIcon={<ChevronLeft aria-hidden="true" className="h-4 w-4" />}
+              onClick={() => navigate({ to: '/parish' })}
+            >
+              Về Tổng Quan
+            </Button>
             <Button
               size="sm"
               variant="secondary"
@@ -380,7 +454,7 @@ export default function ParishProfilePage() {
           </div>
         </Surface>
 
-        <SectionHeading title="Lịch Sử Xứ Đoàn" description="Ngày thành lập, các đời Ban Trị Sự, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
+        <SectionHeading title="Lịch Sử Xứ Đoàn" description="Ngày thành lập, các đời Ban Điều Hành, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
         {milestones.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="relative">
@@ -407,7 +481,7 @@ export default function ParishProfilePage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <SectionHeading
             title="Cơ Cấu Tổ Chức"
-            description="Ban Trị Sự, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách."
+            description="Ban Điều Hành, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách."
             action={canManage ? () => setEditor({ kind: 'unit' }) : undefined}
             actionLabel="Thêm đơn vị"
             secondaryAction={canManage && snapshot.people.length ? () => setEditor({ kind: 'term' }) : undefined}
@@ -443,7 +517,7 @@ export default function ParishProfilePage() {
         </div>
 
         {snapshot.units.length === 0 ? (
-          <EmptyState icon={Building2} title="Chưa có cơ cấu tổ chức" description="Tạo Ban Trị Sự hoặc một đơn vị đầu tiên để bắt đầu." />
+          <EmptyState icon={Building2} title="Chưa có cơ cấu tổ chức" description="Tạo Ban Điều Hành hoặc một đơn vị đầu tiên để bắt đầu." />
         ) : orgViewMode === 'tree' ? (
           <ParishOrgChart
             units={snapshot.units}
@@ -455,6 +529,9 @@ export default function ParishProfilePage() {
             onDelete={unit => void remove('unit', unit.id, unit.name)}
             onEditTerm={term => setEditor({ kind: 'term', value: term })}
             onDeleteTerm={term => void remove('term', term.id, term.positionTitle)}
+            onSelectPerson={setSelectedPerson}
+            onAddSubUnit={parentId => setEditor({ kind: 'unit', parentId })}
+            onAddTerm={unitId => setEditor({ kind: 'term', unitId })}
           />
         ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -484,6 +561,16 @@ export default function ParishProfilePage() {
           actionLabel="Thêm hồ sơ"
           secondaryAction={canManage ? () => setShowBulkImport(true) : undefined}
           secondaryLabel="Nhập từ Excel"
+          extraActions={
+            <Button
+              size="sm"
+              variant="secondary"
+              leadingIcon={<GraduationCap aria-hidden="true" className="h-4 w-4 text-parish-primary" />}
+              onClick={() => navigate({ to: '/catechists' })}
+            >
+              Danh bạ giảng dạy
+            </Button>
+          }
         />
 
         {unlinkedAccounts.length > 0 && canManage && (
@@ -562,30 +649,6 @@ export default function ParishProfilePage() {
             ))}
           </div>
         )}
-      </TabPanel>
-
-      <TabPanel tabsId="parish-profile-tabs" value="activities" activeValue={activeTab}>
-        <SectionHeading title="Nhật Ký Hoạt Động" description="Trại, lễ bổn mạng, khai giảng, tổng kết, diễn nguyện và chương trình lớn." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACTIVITY' }) : undefined} />
-        {activities.length > 0 && (
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-              <input
-                type="search"
-                value={recordQuery}
-                onChange={e => setRecordQuery(e.target.value)}
-                placeholder="Tìm kiếm hoạt động..."
-                className="h-9 pl-8 pr-3 text-xs bg-surface-card border border-surface-border rounded-lg text-text-main focus:outline-none focus:border-parish-primary"
-              />
-            </div>
-            {recordQuery && (
-              <Button variant="ghost" size="sm" onClick={() => setRecordQuery('')} className="text-xs text-text-muted">
-                Xóa tìm kiếm
-              </Button>
-            )}
-          </div>
-        )}
-        <RecordList records={filteredActivities} empty="Chưa có hoạt động được ghi nhận" canManage={canManage} onEdit={value => setEditor({ kind: 'record', value })} onDelete={value => void remove('record', value.id, value.title)} peopleById={peopleById} />
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="archive" activeValue={activeTab}>
@@ -696,7 +759,58 @@ export default function ParishProfilePage() {
         <Timeline items={snapshot.timeline} />
       </TabPanel>
 
-      {editor && <ParishProfileEditorModal editor={editor} snapshot={snapshot} onClose={() => setEditor(null)} />}
+      {editor && (
+        editor.kind === 'person' ? (
+          <ParishPersonModal
+            person={editor.value}
+            snapshot={snapshot}
+            onClose={() => setEditor(null)}
+          />
+        ) : editor.kind === 'term' ? (
+          <ParishServiceTermModal
+            term={editor.value}
+            initialPersonId={editor.personId}
+            initialUnitId={editor.unitId}
+            snapshot={snapshot}
+            onClose={() => setEditor(null)}
+          />
+        ) : editor.kind === 'asset' ? (
+          <ParishAssetModal
+            asset={editor.value}
+            initialStorageMode={editor.initialStorageMode}
+            initialAssetType={editor.initialAssetType}
+            snapshot={snapshot}
+            onClose={() => setEditor(null)}
+          />
+        ) : editor.kind === 'record' ? (
+          <ParishRecordModal
+            record={editor.value}
+            initialRecordType={editor.recordType}
+            snapshot={snapshot}
+            onClose={() => setEditor(null)}
+          />
+        ) : (
+          <ParishProfileEditorModal editor={editor} snapshot={snapshot} onClose={() => setEditor(null)} />
+        )
+      )}
+      <ModalShell
+        isOpen={Boolean(termDeletion)}
+        onClose={() => { if (!store.isSaving) { setTermDeletion(null); setTermDeletePassword('') } }}
+        title="Xác nhận thu hồi nhiệm kỳ"
+        subtitle={termDeletion ? `Nhiệm kỳ “${termDeletion.label}” sẽ bị ẩn và quyền Operations liên quan sẽ ngừng phát sinh.` : undefined}
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="secondary" disabled={store.isSaving} onClick={() => { setTermDeletion(null); setTermDeletePassword('') }}>Hủy</Button>
+            <Button variant="danger" loading={store.isSaving} disabled={termDeleteReason.trim().length < 3 || !termDeletePassword} onClick={() => void confirmTermDeletion()}>Thu hồi nhiệm kỳ</Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="form-group"><span className="form-label">Lý do thu hồi *</span><TextArea required rows={3} minLength={3} maxLength={500} value={termDeleteReason} onChange={event => setTermDeleteReason(event.target.value)} /></label>
+          <label className="form-group"><span className="form-label">Mật khẩu Admin hiện tại *</span><TextInput required type="password" autoComplete="current-password" maxLength={128} value={termDeletePassword} onChange={event => setTermDeletePassword(event.target.value)} /></label>
+          <p className="m-0 text-xs text-text-muted">Máy chủ xác thực lại tài khoản và ghi lý do vào audit. Admin không thể dùng luồng này để tự cấp chức vụ cho chính mình.</p>
+        </div>
+      </ModalShell>
       {viewingAsset && <ParishAssetLightboxModal asset={viewingAsset} onClose={() => setViewingAsset(null)} />}
       {selectedPerson && (
         <ParishPersonDetailModal
@@ -704,8 +818,14 @@ export default function ParishProfilePage() {
           terms={snapshot.terms.filter(t => t.personId === selectedPerson.id)}
           records={snapshot.records}
           unitsById={unitsById}
+          accounts={snapshot.accounts}
+          assets={snapshot.assets}
+          canManage={canManage}
           onClose={() => setSelectedPerson(null)}
           onEdit={canManage ? () => { setEditor({ kind: 'person', value: selectedPerson }); setSelectedPerson(null); } : undefined}
+          onAddTerm={canManage ? () => { setEditor({ kind: 'term', personId: selectedPerson.id }); setSelectedPerson(null); } : undefined}
+          onEditTerm={canManage ? term => { setEditor({ kind: 'term', value: term }); setSelectedPerson(null); } : undefined}
+          onViewAsset={asset => setViewingAsset(asset)}
         />
       )}
       {showBulkImport && <ParishBulkImportModal onClose={() => setShowBulkImport(false)} />}
@@ -719,8 +839,8 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return <Surface variant="card" className="p-3 sm:p-4"><div className="text-xs font-bold uppercase tracking-wide text-text-muted">{label}</div><div className="mt-1 text-sm font-extrabold text-text-main sm:text-base">{value}</div></Surface>
 }
 
-function SectionHeading({ title, description, action, actionLabel = 'Thêm bản ghi', secondaryAction, secondaryLabel }: { title: string; description: string; action?: () => void; actionLabel?: string; secondaryAction?: (() => void) | false; secondaryLabel?: string }) {
-  return <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="typography-section-title">{title}</h2><p className="mt-1 typography-body-sm text-text-muted">{description}</p></div>{(action || secondaryAction) && <div className="flex flex-wrap gap-2">{secondaryAction && <Button size="sm" variant="secondary" leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />} onClick={secondaryAction}>{secondaryLabel}</Button>}{action && <Button size="sm" leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />} onClick={action}>{actionLabel}</Button>}</div>}</div>
+function SectionHeading({ title, description, action, actionLabel = 'Thêm bản ghi', secondaryAction, secondaryLabel, extraActions }: { title: string; description: string; action?: () => void; actionLabel?: string; secondaryAction?: (() => void) | false; secondaryLabel?: string; extraActions?: React.ReactNode }) {
+  return <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="typography-section-title">{title}</h2><p className="mt-1 typography-body-sm text-text-muted">{description}</p></div>{(action || secondaryAction || extraActions) && <div className="flex flex-wrap gap-2">{extraActions}{secondaryAction && <Button size="sm" variant="secondary" leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />} onClick={secondaryAction}>{secondaryLabel}</Button>}{action && <Button size="sm" leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />} onClick={action}>{actionLabel}</Button>}</div>}</div>
 }
 
 function RecordList({ records, empty, canManage, onEdit, onDelete, peopleById }: { records: ParishRecord[]; empty: string; canManage: boolean; onEdit: (item: ParishRecord) => void; onDelete: (item: ParishRecord) => void; peopleById: Map<string, ParishPerson> }) {
@@ -767,9 +887,10 @@ function UnitCard({ unit, terms, peopleById, unitsById, canManage, onEdit, onDel
         <div>
           <span className="badge badge-info">{unitLabels[unit.unitType]}</span>
           <h3 className="mt-2 typography-card-title">{unit.name}</h3>
+          {unit.sourceClassId && <p className="mt-1 typography-caption text-text-muted">Trưởng Chi đoàn: {unit.chapterLeaderName || 'Chưa phân công chủ nhiệm'}</p>}
           {unit.parentId && <p className="mt-1 typography-caption text-text-muted">Trực thuộc {unitsById.get(unit.parentId)?.name || 'đơn vị cấp trên'}</p>}
         </div>
-        {canManage && <ActionButtons label={unit.name} onEdit={onEdit} onDelete={onDelete} />}
+        {canManage && !unit.managedByAcademic && <ActionButtons label={unit.name} onEdit={onEdit} onDelete={onDelete} />}
       </div>
       {unit.description && <p className="mt-3 typography-body-sm text-text-secondary">{unit.description}</p>}
       <div className="mt-3 border-t border-surface-border pt-3">
@@ -778,11 +899,14 @@ function UnitCard({ unit, terms, peopleById, unitsById, canManage, onEdit, onDel
           <p className="mt-2 typography-body-sm text-text-muted">Chưa có người giữ chức vụ.</p>
         ) : (
           <div className="mt-2 space-y-2">
-            {terms.map(term => (
+            {sortTermsByAuthority(terms).map(term => (
               <div key={term.id} className="flex items-start justify-between gap-2 rounded-lg bg-surface-sunken p-3">
                 <div>
                   <div className="text-sm font-bold text-text-main"><PersonName person={peopleById.get(term.personId)} /></div>
-                  <div className="mt-0.5 text-xs text-text-muted">{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</div>
+                  <div className="mt-0.5 text-xs text-text-muted flex items-center gap-1.5 flex-wrap">
+                    <span>{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</span>
+                    {hasCoordinationRole(term) && <span className="badge badge-primary">Điều phối</span>}
+                  </div>
                 </div>
                 {canManage && <ActionButtons label={term.positionTitle} onEdit={() => onEditTerm(term)} onDelete={() => onDeleteTerm(term)} />}
               </div>
@@ -795,16 +919,27 @@ function UnitCard({ unit, terms, peopleById, unitsById, canManage, onEdit, onDel
 }
 
 function PersonCard({ person, terms, unitsById, canManage, onSelect, onEdit, onDelete, onAddTerm, onEditTerm: _onEditTerm }: { person: ParishPerson; terms: ParishServiceTerm[]; unitsById: Map<string, ParishOrganizationUnit>; canManage: boolean; onSelect?: () => void; onEdit: () => void; onDelete: () => void; onAddTerm: () => void; onEditTerm: (term: ParishServiceTerm) => void }) {
+  const navigate = useNavigate()
   return (
     <Surface as="article" variant="entity" className="p-4 flex flex-col justify-between gap-3">
       <div>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className={`badge ${person.serviceStatus === 'ACTIVE' ? 'badge-success' : 'badge-neutral'}`}>
                 {person.serviceStatus === 'ACTIVE' ? 'Đang phục vụ' : person.serviceStatus === 'FORMER' ? 'Đã mãn nhiệm' : 'Đã qua đời'}
               </span>
               {person.visibility === 'ADMIN' && <span className="badge badge-warning">Chỉ Admin</span>}
+              {person.linkedUserId && (
+                <button
+                  type="button"
+                  onClick={() => navigate({ to: '/catechists' })}
+                  className="badge badge-primary cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1"
+                  title="Xem phân công lớp giảng dạy của nhân sự này trong Danh bạ Giáo Lý Viên"
+                >
+                  <GraduationCap size={11} /> Xem lớp phụ trách
+                </button>
+              )}
             </div>
             <h3
               className="mt-2 typography-card-title hover:text-parish-primary transition-colors cursor-pointer"
@@ -834,9 +969,12 @@ function PersonCard({ person, terms, unitsById, canManage, onSelect, onEdit, onD
         </div>
         {terms.length === 0 ? <p className="typography-body-sm text-text-muted m-0">Chưa có nhiệm kỳ.</p> : (
           <div className="space-y-1.5">
-            {terms.slice(0, 2).map(term => (
+            {sortTermsByAuthority(terms).slice(0, 2).map(term => (
               <div key={term.id} className="block rounded-lg bg-surface-sunken p-2 text-left">
-                <span className="block text-xs font-bold text-text-main">{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''}</span>
+                <span className="text-xs font-bold text-text-main flex items-center gap-1.5 flex-wrap">
+                  <span>{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''}</span>
+                  {hasCoordinationRole(term) && <span className="badge badge-primary">Điều phối</span>}
+                </span>
                 <span className="block text-xs text-text-muted">{term.unitId ? unitsById.get(term.unitId)?.name : 'Toàn Xứ đoàn'} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</span>
               </div>
             ))}

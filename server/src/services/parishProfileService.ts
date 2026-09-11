@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or } from 'drizzle-orm'
 import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
 import {
   auditLogs,
@@ -14,6 +14,7 @@ import {
   users,
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
+import { academicOrganizationMetadata, academicUnitId, isAcademicUnit } from './academicOrganizationService.js'
 import {
   isOperationsPositionValidForUnit,
 } from '../utils/organizationalPosition.js'
@@ -60,7 +61,10 @@ function audit(
     entityId,
     oldValue: null,
     // ADR-081 privacy: audit structure, not biography/content/file/link payload.
-    newValue: JSON.stringify({ changedFields }),
+    newValue: JSON.stringify({
+      changedFields,
+      ...(context.authorityReason ? { reason: context.authorityReason } : {}),
+    }),
     ip: context.ip,
     userAgent: context.userAgent,
     parishId: context.parishId,
@@ -69,12 +73,27 @@ function audit(
 }
 
 async function requirePerson(tx: DbTransaction, parishId: string, id: string) {
-  const [row] = await tx.select({ id: parishPeople.id }).from(parishPeople).where(and(
+  const [row] = await tx.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(
     eq(parishPeople.parishId, parishId),
     eq(parishPeople.id, id),
     isNull(parishPeople.deletedAt),
   )).limit(1)
   if (!row) parishError(404, 'PARISH_PERSON_NOT_FOUND', 'Không tìm thấy hồ sơ nhân sự trong Xứ đoàn hiện tại')
+  return row
+}
+
+async function requireAuthorityChangeConfirmation(tx: DbTransaction, context: MutationContext) {
+  const reason = context.authorityReason?.trim()
+  if (!reason || !context.authorityReauthProof || !context.authorityReauthEntityId || !context.authorityReauthOperation) {
+    parishError(403, 'AUTHORITY_REAUTH_REQUIRED', 'Thay đổi nhiệm kỳ/chức vụ yêu cầu xác nhận lại mật khẩu Admin và lý do.')
+  }
+  await context.authorityReauthProof(
+    tx,
+    context.userId,
+    context.parishId,
+    context.authorityReauthEntityId,
+    context.authorityReauthOperation,
+  )
 }
 
 async function requireLinkedUser(tx: DbTransaction, parishId: string, id?: string | null) {
@@ -99,7 +118,7 @@ async function assertLinkedUserAvailable(tx: DbTransaction, parishId: string, li
 }
 
 async function requireUnit(tx: DbTransaction, parishId: string, id: string) {
-  const [row] = await tx.select({ id: parishOrganizationUnits.id, unitType: parishOrganizationUnits.unitType }).from(parishOrganizationUnits).where(and(
+  const [row] = await tx.select({ id: parishOrganizationUnits.id, parentId: parishOrganizationUnits.parentId, unitType: parishOrganizationUnits.unitType, isActive: parishOrganizationUnits.isActive }).from(parishOrganizationUnits).where(and(
     eq(parishOrganizationUnits.parishId, parishId),
     eq(parishOrganizationUnits.id, id),
     isNull(parishOrganizationUnits.deletedAt),
@@ -108,12 +127,112 @@ async function requireUnit(tx: DbTransaction, parishId: string, id: string) {
   return row
 }
 
+async function assertUnitHierarchy(
+  tx: DbTransaction,
+  parishId: string,
+  unitType: ParishUnitInput['unitType'],
+  parentId?: string | null,
+) {
+  if (unitType === 'BOARD') {
+    if (parentId) parishError(400, 'PARISH_BOARD_MUST_BE_ROOT', 'Ban Điều hành phải là đơn vị cấp cao nhất, không có đơn vị cấp trên')
+    return
+  }
+  if (unitType === 'CHAPTER') {
+    if (!parentId) parishError(400, 'PARISH_CHAPTER_PARENT_REQUIRED', 'Chi đoàn phải trực thuộc một Ngành')
+    const parent = await requireUnit(tx, parishId, parentId!)
+    if (!parent.isActive || parent.unitType !== 'BRANCH') {
+      parishError(400, 'PARISH_CHAPTER_PARENT_TYPE_MISMATCH', 'Chi đoàn phải trực thuộc một Ngành đang hoạt động')
+    }
+    return
+  }
+  if (unitType !== 'BRANCH' && unitType !== 'COMMITTEE') return
+  if (!parentId) parishError(400, 'PARISH_UNIT_PARENT_REQUIRED', 'Ngành và Ban chuyên môn phải trực thuộc Ban Điều hành')
+  const parent = await requireUnit(tx, parishId, parentId!)
+  if (!parent.isActive || parent.unitType !== 'BOARD') {
+    parishError(400, 'PARISH_UNIT_PARENT_TYPE_MISMATCH', 'Ngành và Ban chuyên môn chỉ được trực thuộc một Ban Điều hành đang hoạt động')
+  }
+}
+
+async function assertSingleActiveBoard(
+  tx: DbTransaction,
+  parishId: string,
+  unitType: ParishUnitInput['unitType'],
+  isActive: boolean,
+  excludeUnitId?: string,
+) {
+  if (unitType !== 'BOARD' || !isActive) return
+  const [existing] = await tx.select({ id: parishOrganizationUnits.id }).from(parishOrganizationUnits).where(and(
+    eq(parishOrganizationUnits.parishId, parishId),
+    eq(parishOrganizationUnits.unitType, 'BOARD'),
+    eq(parishOrganizationUnits.isActive, true),
+    isNull(parishOrganizationUnits.deletedAt),
+    ...(excludeUnitId ? [ne(parishOrganizationUnits.id, excludeUnitId)] : []),
+  )).limit(1)
+  if (existing) parishError(409, 'PARISH_ACTIVE_BOARD_ALREADY_EXISTS', 'Mỗi Xứ đoàn chỉ có một Ban Điều hành đang hoạt động')
+}
+
+async function assertUnitCanRemainParent(
+  tx: DbTransaction,
+  parishId: string,
+  unitId: string,
+  nextUnitType: ParishUnitInput['unitType'],
+  nextIsActive: boolean,
+) {
+  if (nextUnitType !== 'BRANCH' || !nextIsActive) {
+    const [chapter] = await tx.select({ id: parishOrganizationUnits.id }).from(parishOrganizationUnits).where(and(
+      eq(parishOrganizationUnits.parishId, parishId), eq(parishOrganizationUnits.parentId, unitId),
+      eq(parishOrganizationUnits.unitType, 'CHAPTER'), isNull(parishOrganizationUnits.deletedAt),
+    )).limit(1)
+    if (chapter) parishError(409, 'PARISH_BRANCH_HAS_CHAPTERS', 'Phải xử lý các Chi đoàn trực thuộc trước khi đổi loại hoặc ngừng hoạt động Ngành')
+  }
+  if (nextUnitType === 'BOARD' && nextIsActive) return
+  const [child] = await tx.select({ id: parishOrganizationUnits.id }).from(parishOrganizationUnits).where(and(
+    eq(parishOrganizationUnits.parishId, parishId),
+    eq(parishOrganizationUnits.parentId, unitId),
+    inArray(parishOrganizationUnits.unitType, ['BRANCH', 'COMMITTEE']),
+    isNull(parishOrganizationUnits.deletedAt),
+  )).limit(1)
+  if (child) {
+    parishError(
+      409,
+      'PARISH_BOARD_HAS_CHILD_UNITS',
+      'Phải chuyển hoặc xóa các Ngành và Ban chuyên môn trực thuộc trước khi đổi loại hoặc ngừng hoạt động Ban Điều hành',
+    )
+  }
+}
+
 function resolveTermPositionCode(input: ParishTermInput, unitType: 'BOARD' | 'COMMITTEE' | 'BRANCH' | 'CHAPTER' | 'OTHER' | null) {
   const positionCode = input.positionCode ?? null
   if (positionCode && !isOperationsPositionValidForUnit(positionCode, unitType)) {
     parishError(400, 'PARISH_POSITION_SCOPE_MISMATCH', 'Quyền Operations của chức vụ không phù hợp với loại đơn vị đã chọn')
   }
   return positionCode
+}
+
+async function assertLeaderTermAvailability(
+  tx: DbTransaction,
+  parishId: string,
+  input: Pick<ParishTermInput, 'unitId' | 'startDate' | 'endDate'>,
+  positionCode: NonNullable<ParishTermInput['positionCode']> | null,
+  excludeTermId?: string,
+) {
+  if (!positionCode) return
+  const [overlap] = await tx.select({ id: parishServiceTerms.id }).from(parishServiceTerms).where(and(
+    eq(parishServiceTerms.parishId, parishId),
+    eq(parishServiceTerms.positionCode, positionCode),
+    isNull(parishServiceTerms.deletedAt),
+    ...(excludeTermId ? [ne(parishServiceTerms.id, excludeTermId)] : []),
+    ...(positionCode === 'PARISH_LEADER' ? [] : [eq(parishServiceTerms.unitId, input.unitId!)]),
+    lte(parishServiceTerms.startDate, input.endDate || '9999-12-31'),
+    or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, input.startDate)),
+  )).limit(1)
+  if (overlap) {
+    parishError(
+      409,
+      'PARISH_POSITION_TERM_OVERLAP',
+      'Đã có nhiệm kỳ chức vụ đứng đầu trùng thời gian trong phạm vi này',
+    )
+  }
 }
 
 async function requireRecord(tx: DbTransaction, parishId: string, id: string) {
@@ -201,6 +320,7 @@ async function assertUnitParent(tx: DbTransaction, parishId: string, unitId: str
 }
 
 export async function getParishProfileSnapshot(parishId: string, role: ParishProfileRole) {
+  const academicClasses = await academicOrganizationMetadata(parishId)
   const isAdmin = role === 'admin'
   const [profile] = await db.select().from(parishProfiles).where(eq(parishProfiles.parishId, parishId)).limit(1)
   const accounts = isAdmin ? await db.select({
@@ -310,7 +430,10 @@ export async function getParishProfileSnapshot(parishId: string, role: ParishPro
       updatedAt: null,
     },
     people,
-    units,
+    units: units.map(unit => {
+      const classroom = academicClasses.find(row => academicUnitId('class', row.classId) === unit.id)
+      return { ...unit, managedByAcademic: isAcademicUnit(unit.id), sourceClassId: classroom?.classId ?? null, academicYearId: classroom?.academicYearId ?? null, chapterLeaderName: classroom?.leaderName ?? null }
+    }),
     terms,
     records: enrichedRecords,
     assets,
@@ -430,6 +553,8 @@ export async function createParishUnit(input: ParishUnitInput, context: Mutation
   return runDbTransaction(async tx => {
     const id = generateId('POU')
     await assertUnitParent(tx, context.parishId, id, input.parentId)
+    await assertUnitHierarchy(tx, context.parishId, input.unitType, input.parentId)
+    await assertSingleActiveBoard(tx, context.parishId, input.unitType, input.isActive)
     const now = new Date().toISOString()
     const row = {
       id,
@@ -453,9 +578,25 @@ export async function createParishUnit(input: ParishUnitInput, context: Mutation
 }
 
 export async function updateParishUnit(id: string, input: ParishUnitInput, context: MutationContext) {
+  if (isAcademicUnit(id)) parishError(409, 'PARISH_UNIT_SOURCE_MANAGED', 'Đơn vị mặc định được đồng bộ từ dữ liệu Ngành/lớp; không chỉnh riêng tại đây')
   return runDbTransaction(async tx => {
-    await requireUnit(tx, context.parishId, id)
+    const existing = await requireUnit(tx, context.parishId, id)
     await assertUnitParent(tx, context.parishId, id, input.parentId)
+    await assertUnitCanRemainParent(tx, context.parishId, id, input.unitType, input.isActive)
+    await assertSingleActiveBoard(tx, context.parishId, input.unitType, input.isActive, id)
+    if ((input.parentId || null) !== existing.parentId || input.unitType !== existing.unitType) {
+      await assertUnitHierarchy(tx, context.parishId, input.unitType, input.parentId)
+    }
+    if (input.unitType !== existing.unitType) {
+      const terms = await tx.select({ positionCode: parishServiceTerms.positionCode }).from(parishServiceTerms).where(and(
+        eq(parishServiceTerms.parishId, context.parishId),
+        eq(parishServiceTerms.unitId, id),
+        isNull(parishServiceTerms.deletedAt),
+      ))
+      if (terms.some(term => term.positionCode && !isOperationsPositionValidForUnit(term.positionCode, input.unitType))) {
+        parishError(409, 'PARISH_POSITION_SCOPE_MISMATCH', 'Loại đơn vị mới không phù hợp với chức vụ hiện có; hãy điều chỉnh nhiệm kỳ trước khi đổi loại đơn vị')
+      }
+    }
     const row = {
       parentId: input.parentId || null,
       name: input.name.trim(),
@@ -475,6 +616,7 @@ export async function updateParishUnit(id: string, input: ParishUnitInput, conte
 }
 
 export async function deleteParishUnit(id: string, context: MutationContext) {
+  if (isAcademicUnit(id)) parishError(409, 'PARISH_UNIT_SOURCE_MANAGED', 'Không xóa đơn vị mặc định; hãy quản lý lớp tại nguồn')
   return runDbTransaction(async tx => {
     await requireUnit(tx, context.parishId, id)
     const [child] = await tx.select({ id: parishOrganizationUnits.id }).from(parishOrganizationUnits).where(and(
@@ -495,9 +637,11 @@ export async function deleteParishUnit(id: string, context: MutationContext) {
 
 export async function createParishTerm(input: ParishTermInput, context: MutationContext) {
   return runDbTransaction(async tx => {
+    await requireAuthorityChangeConfirmation(tx, context)
     await requirePerson(tx, context.parishId, input.personId)
     const unit = input.unitId ? await requireUnit(tx, context.parishId, input.unitId) : null
     const positionCode = resolveTermPositionCode(input, unit?.unitType ?? null)
+    await assertLeaderTermAvailability(tx, context.parishId, input, positionCode)
     const id = generateId('PST')
     const now = new Date().toISOString()
     const row = {
@@ -525,6 +669,7 @@ export async function createParishTerm(input: ParishTermInput, context: Mutation
 
 export async function updateParishTerm(id: string, input: ParishTermInput, context: MutationContext) {
   return runDbTransaction(async tx => {
+    await requireAuthorityChangeConfirmation(tx, context)
     const [existing] = await tx.select({ id: parishServiceTerms.id, positionCode: parishServiceTerms.positionCode }).from(parishServiceTerms).where(and(
       eq(parishServiceTerms.parishId, context.parishId), eq(parishServiceTerms.id, id), isNull(parishServiceTerms.deletedAt),
     )).limit(1)
@@ -535,6 +680,7 @@ export async function updateParishTerm(id: string, input: ParishTermInput, conte
       ...input,
       positionCode: input.positionCode === undefined ? existing.positionCode : input.positionCode,
     }, unit?.unitType ?? null)
+    await assertLeaderTermAvailability(tx, context.parishId, input, positionCode, id)
     const row = {
       personId: input.personId,
       unitId: input.unitId || null,
@@ -555,6 +701,7 @@ export async function updateParishTerm(id: string, input: ParishTermInput, conte
 
 export async function deleteParishTerm(id: string, context: MutationContext) {
   return runDbTransaction(async tx => {
+    await requireAuthorityChangeConfirmation(tx, context)
     const [existing] = await tx.select({ id: parishServiceTerms.id }).from(parishServiceTerms).where(and(
       eq(parishServiceTerms.parishId, context.parishId), eq(parishServiceTerms.id, id), isNull(parishServiceTerms.deletedAt),
     )).limit(1)

@@ -7,7 +7,7 @@ import { setTenantScope } from '../../lib/tenantScope'
 beforeEach(() => { vi.restoreAllMocks(); setTenantScope({ parishId: 'P', userId: 'U' }) })
 afterEach(() => setTenantScope(null))
 it('loads the server queue and opens the exact task', async () => {
-  vi.spyOn(operationsApi, 'getApprovalQueue').mockResolvedValue({ success: true, error: null, data: [{ id: 'T', parishId: 'P', title: 'Review task', status: 'TODO', priority: 'NORMAL', isRequired: true, approvalStatus: 'PENDING', version: 1 }], meta: { page: 1, limit: 50, total: 1, totalPages: 1 } })
+  vi.spyOn(operationsApi, 'getApprovalQueue').mockResolvedValue({ success: true, error: null, data: [{ id: 'T', parishId: 'P', title: 'Review task', status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: true, approvalStatus: 'PENDING', version: 1 }], meta: { page: 1, limit: 50, total: 1, totalPages: 1 } })
   const open = vi.fn().mockResolvedValue(undefined)
   render(<TaskApprovalQueue enabled openTask={open} />)
   fireEvent.click(screen.getByRole('button', { name: 'Tải việc chờ duyệt' }))
@@ -27,7 +27,7 @@ it('clears queue data and disables loading when offline', async () => {
 
 it('discards stale review rows when refreshing fails', async () => {
   vi.spyOn(operationsApi, 'getApprovalQueue')
-    .mockResolvedValueOnce({ success: true, error: null, data: [{ id: 'T', parishId: 'P', title: 'Old review', status: 'TODO', priority: 'NORMAL', isRequired: true, approvalStatus: 'PENDING', version: 1 }], meta: { page: 1, limit: 50, total: 1, totalPages: 1 } })
+    .mockResolvedValueOnce({ success: true, error: null, data: [{ id: 'T', parishId: 'P', title: 'Old review', status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: true, approvalStatus: 'PENDING', version: 1 }], meta: { page: 1, limit: 50, total: 1, totalPages: 1 } })
     .mockRejectedValueOnce(new Error('Access changed'))
   render(<TaskApprovalQueue enabled openTask={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Tải việc chờ duyệt' }))

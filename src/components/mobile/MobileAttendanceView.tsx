@@ -24,7 +24,7 @@ import { getDefaultDate } from '../../utils/getDefaultDate'
 import { getLiturgicalDay } from '../../utils/liturgicalEngine'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import { StudentName } from '../common/StudentName'
-import { ModalPortal } from '../common/ModalPortal'
+import { ModalShell } from '../common/ModalShell'
 import { MobileLeaveRequests } from './MobileLeaveRequests'
 import { MobileAttendanceSummaryView } from './MobileAttendanceSummaryView'
 import type { AttendanceType, Student } from '../../types'
@@ -637,97 +637,74 @@ export const MobileAttendanceView: React.FC = () => {
       </TabPanel>
 
       {/* Note Modal / Bottom Sheet */}
-      {editingNoteStudent && (
-        <ModalPortal>
-          <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="note-dialog-title"
-            onClick={() => setEditingNoteStudent(null)}
-          >
-            <div
-              className="w-full max-w-md bg-surface-card border-t sm:border border-surface-border rounded-t-2xl sm:rounded-2xl p-4 shadow-xl space-y-3 animate-in slide-in-from-bottom-4 duration-200"
-              onClick={e => e.stopPropagation()}
+      <ModalShell
+        isOpen={!!editingNoteStudent}
+        onClose={() => setEditingNoteStudent(null)}
+        title={editingNoteStudent ? (
+          <StudentName holyName={editingNoteStudent.holyName} fullName={editingNoteStudent.fullName} size="sm" />
+        ) : ''}
+        subtitle="Ghi chú chuyên cần"
+        maxWidth="448px"
+        footer={
+          <div className="flex gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => {
+                setNoteInputText('')
+                if (editingNoteStudent) {
+                  setAttendanceMap(prev => ({
+                    ...prev,
+                    [editingNoteStudent.id]: { ...prev[editingNoteStudent.id], note: '' }
+                  }))
+                }
+                setEditingNoteStudent(null)
+              }}
+              className="btn btn-secondary flex-1 sm:flex-initial w-full sm:w-auto"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-extrabold uppercase tracking-wider text-text-muted">Ghi chú chuyên cần</p>
-                  <h3 id="note-dialog-title" className="text-sm font-extrabold text-text-main mt-0.5">
-                    <StudentName holyName={editingNoteStudent.holyName} fullName={editingNoteStudent.fullName} size="sm" />
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingNoteStudent(null)}
-                  className="p-1.5 rounded-full text-text-muted hover:text-text-main"
-                  aria-label="Đóng"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Quick suggestions */}
-              <div>
-                <span className="text-xs font-semibold text-text-muted block mb-1.5">Lý do nhanh:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {QUICK_NOTE_SUGGESTIONS.map(sug => (
-                    <button
-                      key={sug}
-                      type="button"
-                      onClick={() => setNoteInputText(sug)}
-                      className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${noteInputText === sug ? 'bg-parish-primary text-white border-parish-primary' : 'bg-surface-hover border-surface-border text-text-secondary hover:text-text-main'}`}
-                    >
-                      {sug}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="note-input" className="text-xs font-semibold text-text-muted block mb-1">
-                  Nội dung ghi chú:
-                </label>
-                <input
-                  id="note-input"
-                  type="text"
-                  value={noteInputText}
-                  onChange={e => setNoteInputText(e.target.value)}
-                  placeholder="Nhập lý do vắng / phép / ghi chú..."
-                  className="form-input w-full min-h-[44px] text-sm rounded-xl"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNoteInputText('')
-                    if (editingNoteStudent) {
-                      setAttendanceMap(prev => ({
-                        ...prev,
-                        [editingNoteStudent.id]: { ...prev[editingNoteStudent.id], note: '' }
-                      }))
-                    }
-                    setEditingNoteStudent(null)
-                  }}
-                  className="btn btn-secondary flex-1 min-h-[44px] text-xs font-bold"
-                >
-                  Xóa ghi chú
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveNote}
-                  className="btn btn-primary flex-1 min-h-[44px] text-xs font-bold shadow-xs"
-                >
-                  Lưu ghi chú
-                </button>
-              </div>
-            </div>
+              Xóa ghi chú
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveNote}
+              className="btn btn-primary flex-1 sm:flex-initial w-full sm:w-auto shadow-xs"
+            >
+              Lưu ghi chú
+            </button>
           </div>
-        </ModalPortal>
-      )}
+        }
+      >
+        {/* Quick suggestions */}
+        <div>
+          <span className="text-xs font-semibold text-text-muted block mb-1.5">Lý do nhanh:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_NOTE_SUGGESTIONS.map(sug => (
+              <button
+                key={sug}
+                type="button"
+                onClick={() => setNoteInputText(sug)}
+                className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${noteInputText === sug ? 'bg-parish-primary text-white border-parish-primary' : 'bg-surface-hover border-surface-border text-text-secondary hover:text-text-main'}`}
+              >
+                {sug}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <label htmlFor="note-input" className="text-xs font-semibold text-text-muted block mb-1">
+            Nội dung ghi chú:
+          </label>
+          <input
+            id="note-input"
+            type="text"
+            value={noteInputText}
+            onChange={e => setNoteInputText(e.target.value)}
+            placeholder="Nhập lý do vắng / phép / ghi chú..."
+            className="form-input w-full text-sm"
+            autoFocus
+          />
+        </div>
+      </ModalShell>
     </div>
   )
 }

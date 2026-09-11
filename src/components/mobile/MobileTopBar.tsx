@@ -17,6 +17,7 @@ import {
   Download,
   Landmark,
   MessageSquareText,
+  ClipboardList,
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -198,6 +199,23 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold uppercase tracking-wider text-white/60 px-1">Công cụ & Tiện ích</span>
                 <div className="mobile-control-tiles">
+                  {currentUser?.role !== 'phuhuynh' && (
+                    <button
+                      type="button"
+                      className="mobile-control-tile"
+                      onClick={() => { navigate({ to: '/operations' }); closeMenu() }}
+                      aria-label="Mở trang Công Việc"
+                    >
+                      <span className="mobile-control-tile__icon">
+                        <ClipboardList size={17} className="text-emerald-300" />
+                      </span>
+                      <span className="mobile-control-tile__content">
+                        <strong className="mobile-control-tile__title">Công Việc</strong>
+                        <span className="mobile-control-tile__desc">Phân công & điều phối</span>
+                      </span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="mobile-control-tile"

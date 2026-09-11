@@ -2,7 +2,7 @@ import { request } from './core'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const parishProfileApi = {
-    getSnapshot: () => request<import('../../types/parishProfile').ParishProfileSnapshot>('GET', '/parish-profile'),
+    getSnapshot: () => request<import('../../types/parishProfile').ParishProfileSnapshot>('POST', '/parish-profile/organization/refresh'),
     updateProfile: (data: import('../../types/parishProfile').ParishProfileInput) => request('PUT', '/parish-profile/profile', data),
     createPerson: (data: import('../../types/parishProfile').ParishPersonInput) => request('POST', '/parish-profile/people', data),
     createPeople: (people: import('../../types/parishProfile').ParishPersonInput[]) => request<{ people: import('../../types/parishProfile').ParishPerson[] }>('POST', '/parish-profile/people/import', { people }),
@@ -11,9 +11,9 @@ export const parishProfileApi = {
     createUnit: (data: import('../../types/parishProfile').ParishUnitInput) => request('POST', '/parish-profile/units', data),
     updateUnit: (id: string, data: import('../../types/parishProfile').ParishUnitInput) => request('PUT', `/parish-profile/units/${encodeURIComponent(id)}`, data),
     deleteUnit: (id: string) => request('DELETE', `/parish-profile/units/${encodeURIComponent(id)}`),
-    createTerm: (data: import('../../types/parishProfile').ParishTermInput) => request('POST', '/parish-profile/terms', data),
-    updateTerm: (id: string, data: import('../../types/parishProfile').ParishTermInput) => request('PUT', `/parish-profile/terms/${encodeURIComponent(id)}`, data),
-    deleteTerm: (id: string) => request('DELETE', `/parish-profile/terms/${encodeURIComponent(id)}`),
+    createTerm: (data: import('../../types/parishProfile').ParishTermMutationInput) => request('POST', '/parish-profile/terms', data),
+    updateTerm: (id: string, data: import('../../types/parishProfile').ParishTermMutationInput) => request('PUT', `/parish-profile/terms/${encodeURIComponent(id)}`, data),
+    deleteTerm: (id: string, confirmation: import('../../types/parishProfile').ParishAuthorityConfirmation) => request('DELETE', `/parish-profile/terms/${encodeURIComponent(id)}`, confirmation),
     createRecord: (data: import('../../types/parishProfile').ParishRecordInput) => request('POST', '/parish-profile/records', data),
     updateRecord: (id: string, data: import('../../types/parishProfile').ParishRecordInput) => request('PUT', `/parish-profile/records/${encodeURIComponent(id)}`, data),
     deleteRecord: (id: string) => request('DELETE', `/parish-profile/records/${encodeURIComponent(id)}`),

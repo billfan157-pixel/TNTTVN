@@ -1,5 +1,133 @@
 import { expect, test } from '@playwright/test'
-import { apiLogin, authHeaders, getAdminSession, injectSession, testKey } from './helpers'
+import { apiLogin, authHeaders, getAdminSession, getRoleSession, injectSession, testKey } from './helpers'
+
+test('@critical public Operations event is projected to the parent read-only calendar', async ({ page }, testInfo) => {
+  test.setTimeout(90_000)
+  const admin = await getAdminSession(page.request)
+  const parishLeader = await getRoleSession(page.request, 'phuta')
+  const key = testKey(testInfo, 'OPS-PUBLIC-CALENDAR')
+  const now = new Date()
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+  await injectSession(page, parishLeader)
+  await page.goto('/operations')
+  const createButton = page.getByRole('button', { name: 'Tạo sự kiện mới' })
+  await expect(createButton).toBeEnabled()
+  await createButton.click()
+  await page.getByRole('button', { name: 'Công khai', exact: true }).click()
+  await page.getByLabel('Tên sự kiện').fill(key)
+  await page.getByLabel('Loại sự kiện').selectOption('CAMP')
+  await page.getByLabel('Địa điểm').fill('Sân giáo xứ E2E')
+  await page.getByLabel('Bắt đầu').fill(`${date}T08:00`)
+  await page.getByLabel('Kết thúc').fill(`${date}T17:00`)
+  const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/events') && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Lưu bản nháp' }).click()
+  const createResponse = await createResponsePromise
+  expect(createResponse.status()).toBe(201)
+  const operationEvent = (await createResponse.json()).data as { id: string; sourceParishEventId: string | null; visibility: string }
+  expect(operationEvent).toMatchObject({ visibility: 'PUBLIC_SUMMARY' })
+  expect(operationEvent.sourceParishEventId).toBeNull()
+
+  const draftProjectionResponse = await page.request.get(`/api/parish-events?from=${date}&to=${date}`, { headers: authHeaders(parishLeader) })
+  expect(draftProjectionResponse.status()).toBe(200)
+  expect((await draftProjectionResponse.json()).data.some((event: { title: string }) => event.title === key)).toBe(false)
+
+  await page.getByRole('article').filter({ hasText: key }).getByRole('button', { name: 'Xem chi tiết' }).click()
+  const planningResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }).click()
+  const planningResponse = await planningResponsePromise
+  expect(planningResponse.status()).toBe(200)
+  const plannedEvent = (await planningResponse.json()).data as { sourceParishEventId: string }
+  expect(plannedEvent.sourceParishEventId).toBeTruthy()
+
+  const projectionResponse = await page.request.get(`/api/parish-events?from=${date}&to=${date}`, { headers: authHeaders(parishLeader) })
+  expect(projectionResponse.status()).toBe(200)
+  const projection = (await projectionResponse.json()).data.find((event: { id: string }) => event.id === plannedEvent.sourceParishEventId)
+  expect(projection).toMatchObject({ title: key, date, time: '08:00', location: 'Sân giáo xứ E2E' })
+  expect(projection).not.toHaveProperty('tasks')
+  expect(projection).not.toHaveProperty('assignees')
+
+  const directWrite = await page.request.post('/api/parish-events', {
+    headers: authHeaders(admin),
+    data: { date, title: 'Không được ghi trực tiếp', category: 'OTHER' },
+  })
+  expect(directWrite.status()).toBe(405)
+  expect((await directWrite.json()).error.code).toBe('CALENDAR_READ_ONLY')
+
+  const parent = await getRoleSession(page.request, 'phuhuynh')
+  await injectSession(page, parent)
+  await page.goto('/calendar')
+  await expect(page.getByText(key, { exact: true })).toBeVisible()
+  await expect(page.getByText('Sân giáo xứ E2E', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Tạo sự kiện|Sửa sự kiện|Xóa sự kiện/ })).toHaveCount(0)
+})
+
+test('@critical Operations primary dispatch appears only after planning and first acceptance becomes OWNER', async ({ page, browser }, testInfo) => {
+  test.setTimeout(90_000)
+  const admin = await getAdminSession(page.request)
+  const key = testKey(testInfo, 'OPS-DISPATCH')
+  const createPerson = async (linkedUserId: string, fullName: string, suffix: string) => {
+    const snapshot = await page.request.get('/api/parish-profile', { headers: authHeaders(admin) })
+    const existing = ((await snapshot.json()).data.people as Array<{ id: string; linkedUserId: string | null }>).find(person => person.linkedUserId === linkedUserId)
+    if (existing) return existing.id
+    const response = await page.request.post('/api/parish-profile/people', {
+      headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-${suffix}` },
+      data: { linkedUserId, fullName, serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+    })
+    expect(response.status()).toBe(201)
+    return (await response.json()).data.id as string
+  }
+  const primaryPersonId = await createPerson('usr-e2e-chunhiem', 'E2E primary', 'primary-person')
+  const reservePersonId = await createPerson('usr-e2e-phuta', 'E2E reserve', 'reserve-person')
+  const post = async (path: string, body: unknown, suffix: string) => {
+    const response = await page.request.post(`/api${path}`, { headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-${suffix}` }, data: body })
+    expect(response.status()).toBe(201)
+    return (await response.json()).data
+  }
+  const operationEvent = await post('/operations/events', {
+    title: key, eventType: 'CAMP', startsAt: '2035-06-01T08:00:00Z', endsAt: '2035-06-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh', visibility: 'INTERNAL',
+  }, 'event')
+  const task = await post('/operations/tasks', { title: `Trực cổng ${key}`, eventId: operationEvent.id }, 'task')
+
+  const recipientContext = await browser.newContext()
+  const recipientPage = await recipientContext.newPage()
+  try {
+    const recipient = await apiLogin(recipientPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
+    await injectSession(recipientPage, recipient)
+    expect((await (await recipientPage.request.get('/api/operations/dispatches/inbox', { headers: authHeaders(recipient) })).json()).data).toEqual([])
+
+    await injectSession(page, admin)
+    await page.goto('/operations')
+    await page.getByRole('article').filter({ hasText: key }).getByRole('button', { name: 'Xem chi tiết' }).click()
+    await page.getByLabel('Task cần phân công').selectOption(task.id)
+    await page.getByLabel('Vai trò phân công').selectOption('OWNER')
+    await page.getByLabel('Người thực hiện chính').selectOption(`person:${primaryPersonId}`)
+    await page.getByLabel('Người dự bị').selectOption(`person:${reservePersonId}`)
+    await page.getByLabel('Hạn nhận nhiệm vụ').fill('2034-01-01T12:00')
+    const dispatchResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/dispatch`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Gửi lời mời phụ trách' }).click()
+    const dispatchResponse = await dispatchResponsePromise
+    expect(dispatchResponse.status()).toBe(201)
+    expect((await dispatchResponse.json()).data.dispatch).toMatchObject({ status: 'SCHEDULED', primaryInvitedAt: null })
+
+    const planningResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }).click()
+    expect((await planningResponsePromise).status()).toBe(200)
+
+    await recipientPage.goto('/operations')
+    const invitationPanel = recipientPage.locator('[aria-label="Lời mời nhận nhiệm vụ"]')
+    await expect(invitationPanel).toContainText(`Trực cổng ${key}`)
+    const acceptanceResponsePromise = recipientPage.waitForResponse(response => response.url().includes(`/api/operations/tasks/${task.id}/dispatches/`) && response.url().endsWith('/accept') && response.request().method() === 'POST')
+    await invitationPanel.getByRole('button', { name: 'Nhận nhiệm vụ' }).click()
+    expect((await acceptanceResponsePromise).status()).toBe(200)
+
+    const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
+    const owners = (await readBack.json()).data.assignees.filter((assignment: { assignmentRole: string }) => assignment.assignmentRole === 'OWNER')
+    expect(owners).toEqual([expect.objectContaining({ userId: 'usr-e2e-chunhiem', acknowledgementStatus: 'ACCEPTED' })])
+  } finally {
+    await recipientContext.close()
+  }
+})
 
 test('@critical Operations owner handover persists one pending owner and blockout warning', async ({ page }, testInfo) => {
   test.setTimeout(90_000)
@@ -76,12 +204,383 @@ test('@critical Operations standalone approval and evidence persist through UI',
   await expect(queue.getByRole('button', { name: 'Mở để duyệt' })).toHaveCount(0)
 })
 
-test('@critical Operations UI persists create → assign → acknowledge → complete and event lifecycle', async ({ page, browser }, testInfo) => {
+test('@critical Operations P4 standalone group assignment respects private blockout and acceptance', async ({ page, browser }, testInfo) => {
+  test.setTimeout(90_000)
+  const admin = await getAdminSession(page.request)
+  const key = testKey(testInfo, 'OPS-P4')
+  const groupName = `Nhóm độc lập ${key}`
+  const taskTitle = `Kiểm kê ${key}`
+  const snapshotResponse = await page.request.get('/api/parish-profile', { headers: authHeaders(admin) })
+  expect(snapshotResponse.status()).toBe(200)
+  const people = (await snapshotResponse.json()).data.people as Array<{ id: string; linkedUserId: string | null }>
+  let personId = people.find(person => person.linkedUserId === 'usr-e2e-chunhiem')?.id
+  if (!personId) {
+    const personResponse = await page.request.post('/api/parish-profile/people', {
+      headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-person` },
+      data: { linkedUserId: 'usr-e2e-chunhiem', fullName: 'E2E Chunhiem', serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+    })
+    expect(personResponse.status()).toBe(201)
+    personId = (await personResponse.json()).data.id
+  }
+  const unitsResponse = await page.request.get('/api/operations/units?limit=500', { headers: authHeaders(admin) })
+  expect(unitsResponse.status()).toBe(200)
+  let unit = (await unitsResponse.json()).data[0] as { id: string } | undefined
+  if (!unit) {
+    const createUnitResponse = await page.request.post('/api/parish-profile/units', {
+      headers: authHeaders(admin),
+      data: { parentId: null, name: `Ngành E2E ${key}`, unitType: 'BRANCH', description: null, sortOrder: 0, isActive: true },
+    })
+    expect(createUnitResponse.status()).toBe(201)
+    unit = (await createUnitResponse.json()).data as { id: string }
+  }
+
+  const recipientContext = await browser.newContext()
+  const recipientPage = await recipientContext.newPage()
+  const recipient = await apiLogin(recipientPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
+  await injectSession(recipientPage, recipient)
+  await recipientPage.goto('/operations')
+  await recipientPage.getByLabel('Bận từ').fill('2027-06-01T08:00')
+  await recipientPage.getByLabel('Bận đến').fill('2027-06-01T10:00')
+  await recipientPage.getByLabel('Lý do bận riêng tư').fill('Lý do riêng P4 không được lộ')
+  const blockoutResponsePromise = recipientPage.waitForResponse(response => response.url().endsWith('/api/operations/blockouts') && response.request().method() === 'POST')
+  await recipientPage.getByRole('button', { name: 'Báo bận' }).click()
+  expect((await blockoutResponsePromise).status()).toBe(201)
+  await expect(recipientPage.getByText('Đã lưu lịch bận.')).toBeVisible()
+
+  await injectSession(page, admin)
+  await page.goto('/operations')
+  const panel = page.getByRole('region', { name: 'Nhóm công việc độc lập' })
+  await panel.getByLabel('Đơn vị phụ trách nhóm độc lập').selectOption(unit!.id)
+  await panel.getByLabel('Tên nhóm độc lập').fill(groupName)
+  const groupResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/workstreams') && response.request().method() === 'POST')
+  await panel.getByRole('button', { name: 'Tạo nhóm' }).click()
+  const groupResponse = await groupResponsePromise
+  expect(groupResponse.status()).toBe(201)
+  const group = (await groupResponse.json()).data as { id: string; sourceUnitId: string | null; operationEventId: string | null }
+  expect(group).toMatchObject({ sourceUnitId: unit!.id, operationEventId: null })
+  await expect(panel.getByRole('heading', { name: groupName })).toBeVisible()
+
+  await panel.getByLabel('Thành viên nhóm độc lập').selectOption(`person:${personId}`)
+  await panel.getByLabel('Vai trò nhóm độc lập').selectOption('WORKSTREAM_LEAD')
+  const memberResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/workstreams/${group.id}/members`) && response.request().method() === 'POST')
+  await panel.getByRole('button', { name: 'Thêm vào nhóm' }).click()
+  expect((await memberResponsePromise).status()).toBe(201)
+
+  await panel.getByLabel('Tên việc của nhóm độc lập').fill(taskTitle)
+  await panel.getByLabel('Hạn việc của nhóm độc lập').fill('2027-06-01T09:00')
+  const taskResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/tasks') && response.request().method() === 'POST')
+  await panel.getByRole('button', { name: 'Tạo việc' }).click()
+  const taskResponse = await taskResponsePromise
+  expect(taskResponse.status()).toBe(201)
+  const task = (await taskResponse.json()).data as { id: string }
+
+  await panel.getByLabel('Người nhận việc nhóm độc lập').selectOption(`person:${personId}`)
+  const assignmentResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/assign`) && response.request().method() === 'POST')
+  await panel.getByRole('button', { name: 'Giao việc' }).click()
+  const assignmentResponse = await assignmentResponsePromise
+  expect(assignmentResponse.status()).toBe(201)
+  expect((await assignmentResponse.json()).data.conflictWarnings).toHaveLength(1)
+  await expect(panel.getByText('Đã lưu phân công, nhưng người nhận có lịch bận tại hạn công việc.')).toBeVisible()
+  await expect(page.getByText('Lý do riêng P4 không được lộ')).toHaveCount(0)
+
+  await recipientPage.reload()
+  const myTask = recipientPage.getByRole('article').filter({ hasText: taskTitle })
+  await expect(myTask).toBeVisible()
+  const acknowledgementResponsePromise = recipientPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/acknowledge`) && response.request().method() === 'POST')
+  await myTask.getByRole('button', { name: 'Nhận việc' }).click()
+  expect((await acknowledgementResponsePromise).status()).toBe(200)
+
+  const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
+  expect(readBack.status()).toBe(200)
+  const persisted = (await readBack.json()).data
+  expect(persisted.task).toMatchObject({ id: task.id, operationEventId: null, workstreamId: group.id })
+  expect(persisted.assignees).toEqual(expect.arrayContaining([expect.objectContaining({ personId, assignmentRole: 'OWNER', acknowledgementStatus: 'ACCEPTED' })]))
+  await recipientContext.close()
+})
+
+test('@critical Operations P5 turns a completed-event retrospective into an owned follow-up', async ({ page, browser }, testInfo) => {
+  test.setTimeout(90_000)
+  const admin = await getAdminSession(page.request)
+  const key = testKey(testInfo, 'OPS-P5')
+  const eventTitle = `Hậu kiểm ${key}`
+  const followUpTitle = `Chuẩn hóa checklist ${key}`
+  const snapshotResponse = await page.request.get('/api/parish-profile', { headers: authHeaders(admin) })
+  expect(snapshotResponse.status()).toBe(200)
+  const people = (await snapshotResponse.json()).data.people as Array<{ id: string; linkedUserId: string | null }>
+  let personId = people.find(person => person.linkedUserId === 'usr-e2e-chunhiem')?.id
+  if (!personId) {
+    const personResponse = await page.request.post('/api/parish-profile/people', {
+      headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-person` },
+      data: { linkedUserId: 'usr-e2e-chunhiem', fullName: 'E2E Chunhiem', serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+    })
+    expect(personResponse.status()).toBe(201)
+    personId = (await personResponse.json()).data.id
+  }
+
+  const createResponse = await page.request.post('/api/operations/events', {
+    headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-event` },
+    data: { title: eventTitle, eventType: 'MEETING', startsAt: '2027-07-01T08:00:00Z', endsAt: '2027-07-01T10:00:00Z', timezone: 'Asia/Ho_Chi_Minh' },
+  })
+  expect(createResponse.status()).toBe(201)
+  let operationEvent = (await createResponse.json()).data as { id: string; version: number; status: string }
+  for (const status of ['PLANNING', 'PREPARING', 'READY', 'LIVE', 'COMPLETED'] as const) {
+    const transitionResponse = await page.request.post(`/api/operations/events/${operationEvent.id}/transition`, {
+      headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-${status}` },
+      data: { version: operationEvent.version, status, ...(status === 'COMPLETED' ? { outcomeSummary: 'Hoàn tất an toàn theo kế hoạch E2E.' } : {}) },
+    })
+    expect(transitionResponse.status()).toBe(200)
+    operationEvent = (await transitionResponse.json()).data
+  }
+
+  await injectSession(page, admin)
+  await page.goto('/operations')
+  await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
+  await page.getByRole('tab', { name: 'Đúc kết sau sự kiện' }).click()
+  const panel = page.getByRole('region', { name: 'Hậu kiểm và công việc tiếp nối' })
+  await expect(panel.getByText('Hoàn tất an toàn theo kế hoạch E2E.')).toBeVisible()
+  await panel.getByLabel('Bài học rút ra').fill('Xác nhận người phụ trách trước khi chốt kế hoạch.')
+  await panel.getByLabel('Điểm cần cải thiện').fill('Chuẩn hóa checklist dùng lại.')
+  const retrospectiveResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${operationEvent.id}/retrospective`) && response.request().method() === 'PUT')
+  await panel.getByRole('button', { name: 'Lưu hậu kiểm' }).click()
+  expect((await retrospectiveResponsePromise).status()).toBe(200)
+  await expect(panel.getByText('Đã lưu hậu kiểm.')).toBeVisible()
+
+  await panel.getByLabel('Tên follow-up').fill(followUpTitle)
+  await panel.getByLabel('Mô tả follow-up').fill('Biến bài học thành đầu việc có thể xác nhận hoàn thành.')
+  await panel.getByLabel('Hạn follow-up').fill('2027-07-08T20:00')
+  await panel.getByLabel('Người phụ trách follow-up').selectOption(`person:${personId}`)
+  await panel.getByLabel('Mức ưu tiên follow-up').selectOption('HIGH')
+  const followUpResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${operationEvent.id}/follow-ups`) && response.request().method() === 'POST')
+  await panel.getByRole('button', { name: 'Tạo và giao follow-up' }).click()
+  const followUpResponse = await followUpResponsePromise
+  expect(followUpResponse.status()).toBe(201)
+  const followUp = (await followUpResponse.json()).data as { task: { id: string }; assignment: { assignmentRole: string; acknowledgementStatus: string } }
+  expect(followUp.assignment).toMatchObject({ assignmentRole: 'OWNER', acknowledgementStatus: 'PENDING' })
+
+  const recipientContext = await browser.newContext()
+  const recipientPage = await recipientContext.newPage()
+  try {
+    const recipient = await apiLogin(recipientPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
+    await injectSession(recipientPage, recipient)
+    await recipientPage.goto('/operations')
+    const taskCard = recipientPage.getByRole('article').filter({ hasText: followUpTitle })
+    await expect(taskCard).toBeVisible()
+    const acknowledgementResponsePromise = recipientPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${followUp.task.id}/acknowledge`) && response.request().method() === 'POST')
+    await taskCard.getByRole('button', { name: 'Nhận việc' }).click()
+    expect((await acknowledgementResponsePromise).status()).toBe(200)
+  } finally {
+    await recipientContext.close()
+  }
+
+  const readBack = await page.request.get(`/api/operations/events/${operationEvent.id}`, { headers: authHeaders(admin) })
+  expect(readBack.status()).toBe(200)
+  const persisted = (await readBack.json()).data
+  expect(persisted.retrospective).toMatchObject({ lessonsLearned: 'Xác nhận người phụ trách trước khi chốt kế hoạch.', improvementNotes: 'Chuẩn hóa checklist dùng lại.', version: 1 })
+  expect(persisted.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ id: followUp.task.id, phase: 'FOLLOW_UP', status: 'TODO', priority: 'HIGH' })]))
+  expect(persisted.assignees).toEqual(expect.arrayContaining([expect.objectContaining({ taskId: followUp.task.id, personId, assignmentRole: 'OWNER', acknowledgementStatus: 'ACCEPTED' })]))
+})
+
+test('@critical Operations P5 previews and instantiates an immutable event template without inherited assignees', async ({ page }, testInfo) => {
+  test.setTimeout(90_000)
+  const admin = await getAdminSession(page.request)
+  const key = testKey(testInfo, 'OPS-TEMPLATE')
+  const eventTitle = `Nguồn mẫu ${key}`
+  const taskTitle = `Chuẩn bị từ mẫu ${key}`
+  const templateName = `Mẫu E2E ${key}`
+  const headers = (suffix: string) => ({ ...authHeaders(admin), 'Idempotency-Key': `${key}-${suffix}` })
+
+  const eventResponse = await page.request.post('/api/operations/events', {
+    headers: headers('event'),
+    data: {
+      title: eventTitle,
+      description: 'Nội dung dùng lại có kiểm soát.',
+      eventType: 'MEETING',
+      startsAt: '2027-08-01T08:00:00Z',
+      endsAt: '2027-08-01T10:00:00Z',
+      timezone: 'Asia/Ho_Chi_Minh',
+    },
+  })
+  expect(eventResponse.status()).toBe(201)
+  const sourceEvent = (await eventResponse.json()).data as { id: string }
+
+  const taskResponse = await page.request.post('/api/operations/tasks', {
+    headers: headers('task'),
+    data: {
+      eventId: sourceEvent.id,
+      title: taskTitle,
+      phase: 'PREPARATION',
+      priority: 'HIGH',
+      dueAt: '2027-08-01T07:00:00Z',
+      isRequired: true,
+      requiresApproval: true,
+    },
+  })
+  expect(taskResponse.status()).toBe(201)
+  const sourceTask = (await taskResponse.json()).data as { id: string; version: number }
+
+  const checklistResponse = await page.request.post(`/api/operations/tasks/${sourceTask.id}/checklist`, {
+    headers: headers('checklist'),
+    data: { version: sourceTask.version, label: 'Kiểm tra dụng cụ', isRequired: true, sortOrder: 10 },
+  })
+  expect(checklistResponse.status()).toBe(201)
+  const taskVersion = (await checklistResponse.json()).data.taskVersion as number
+
+  const assignmentResponse = await page.request.post(`/api/operations/tasks/${sourceTask.id}/assign`, {
+    headers: headers('assign'),
+    data: { version: taskVersion, userId: 'usr-e2e-chunhiem', assignmentRole: 'OWNER' },
+  })
+  expect(assignmentResponse.status()).toBe(201)
+
+  await injectSession(page, admin)
+  await page.goto('/operations')
+  await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
+
+  const sourceDialog = page.getByRole('dialog', { name: eventTitle })
+  await sourceDialog.getByRole('tab', { name: 'Mẫu' }).click()
+  const sourceTemplates = sourceDialog.getByRole('region', { name: 'Quản lý mẫu từ sự kiện' })
+  await sourceTemplates.getByLabel('Tên mẫu sự kiện').fill(templateName)
+  const saveResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${sourceEvent.id}/templates`) && response.request().method() === 'POST')
+  await sourceTemplates.getByRole('button', { name: 'Lưu mẫu v1' }).click()
+  const saveResponse = await saveResponsePromise
+  expect(saveResponse.status()).toBe(201)
+  const template = (await saveResponse.json()).data as { id: string; latestVersion: number }
+  await expect(sourceTemplates.getByLabel('Mẫu sự kiện cần tạo phiên bản')).toHaveValue(template.id)
+
+  await sourceDialog.getByRole('button', { name: 'Đóng chi tiết' }).click()
+  await page.getByRole('region', { name: 'Tiện ích điều hành' }).getByRole('tab', { name: 'Mẫu' }).click()
+  const templates = page.getByRole('region', { name: 'Mẫu sự kiện' })
+  await expect(templates.getByLabel('Mẫu sự kiện cần dùng')).toHaveValue(template.id)
+
+  await templates.getByLabel('Thời gian bắt đầu từ mẫu').fill('2027-09-01T08:00')
+  const previewResponsePromise = page.waitForResponse(response => response.url().includes(`/api/operations/templates/${template.id}/preview`) && response.request().method() === 'GET')
+  await templates.getByRole('button', { name: 'Xem trước' }).click()
+  const previewResponse = await previewResponsePromise
+  expect(previewResponse.status()).toBe(200)
+  const previewPayload = (await previewResponse.json()).data as { preview: { tasks: Array<{ title: string; dueAt: string | null }> } }
+  const expectedDueAt = previewPayload.preview.tasks.find(task => task.title === taskTitle)?.dueAt
+  expect(expectedDueAt).toBeTruthy()
+  const preview = templates.getByRole('region', { name: 'Bản xem trước mẫu sự kiện' })
+  await expect(preview.getByText(taskTitle, { exact: false })).toBeVisible()
+  await expect(preview).toContainText('Bản xem trước không chứa assignee')
+
+  const instantiateResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/templates/${template.id}/instantiate`) && response.request().method() === 'POST')
+  await templates.getByRole('button', { name: 'Tạo bản nháp từ mẫu' }).click()
+  const instantiateResponse = await instantiateResponsePromise
+  expect(instantiateResponse.status()).toBe(201)
+  const instantiated = (await instantiateResponse.json()).data as { event: { id: string; sourceTemplateId: string; sourceTemplateVersion: number }; tasks: Array<{ id: string; title: string; phase: string; status: string; dueAt: string | null }>; checklist: Array<{ taskId: string; label: string; isDone: boolean }> }
+  expect(instantiated.event).toMatchObject({ sourceTemplateId: template.id, sourceTemplateVersion: 1 })
+  expect(instantiated.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ title: taskTitle, phase: 'PREPARATION', status: 'TODO', dueAt: expectedDueAt })]))
+  expect(instantiated.checklist).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Kiểm tra dụng cụ', isDone: false })]))
+
+  const readBack = await page.request.get(`/api/operations/events/${instantiated.event.id}`, { headers: authHeaders(admin) })
+  expect(readBack.status()).toBe(200)
+  const persisted = (await readBack.json()).data
+  expect(persisted.event).toMatchObject({ status: 'DRAFT', sourceTemplateId: template.id, sourceTemplateVersion: 1 })
+  expect(persisted.assignees).toEqual([])
+  expect(persisted.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ title: taskTitle, approvalStatus: 'PENDING' })]))
+
+  const instantiatedDialog = page.getByRole('dialog', { name: eventTitle })
+  await expect(instantiatedDialog.getByRole('tab', { name: 'Mẫu' })).toBeVisible()
+  await instantiatedDialog.getByRole('tab', { name: 'Mẫu' }).click()
+  const lifecycle = instantiatedDialog.getByRole('region', { name: 'Quản lý mẫu từ sự kiện' })
+  await expect(lifecycle.getByLabel('Mẫu sự kiện cần tạo phiên bản')).toHaveValue(template.id)
+  await lifecycle.getByLabel('Lý do lưu trữ mẫu sự kiện').fill('Tạm ẩn để kiểm tra quy trình E2E')
+  const archiveResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/templates/${template.id}/archive`) && response.request().method() === 'POST')
+  await lifecycle.getByRole('button', { name: 'Lưu trữ mẫu' }).click()
+  const archiveResponse = await archiveResponsePromise
+  expect(archiveResponse.status()).toBe(200)
+  expect((await archiveResponse.json()).data).toMatchObject({ id: template.id, latestVersion: 1, isActive: false })
+  await expect(lifecycle.getByLabel('Mẫu sự kiện cần khôi phục')).toHaveValue(template.id)
+
+  await lifecycle.getByLabel('Lý do khôi phục mẫu sự kiện').fill('Đã kiểm tra xong quy trình E2E')
+  const restoreResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/templates/${template.id}/restore`) && response.request().method() === 'POST')
+  await lifecycle.getByRole('button', { name: 'Khôi phục mẫu' }).click()
+  const restoreResponse = await restoreResponsePromise
+  expect(restoreResponse.status()).toBe(200)
+  expect((await restoreResponse.json()).data).toMatchObject({ id: template.id, latestVersion: 1, isActive: true })
+  await expect(lifecycle.getByLabel('Mẫu sự kiện cần tạo phiên bản')).toHaveValue(template.id)
+})
+
+test('@critical Operations P3 reschedules with OCC and recipient cancellation persists', async ({ page, browser }, testInfo) => {
+  test.setTimeout(90_000)
+  const admin = await getAdminSession(page.request)
+  const key = testKey(testInfo, 'OPS-REMINDER')
+  const eventTitle = `Nhắc việc ${key}`
+  const snapshotResponse = await page.request.get('/api/parish-profile', { headers: authHeaders(admin) })
+  const people = (await snapshotResponse.json()).data.people as Array<{ id: string; linkedUserId: string | null }>
+  if (!people.some(person => person.linkedUserId === 'usr-e2e-chunhiem')) {
+    const person = await page.request.post('/api/parish-profile/people', {
+      headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-person` },
+      data: { linkedUserId: 'usr-e2e-chunhiem', fullName: 'E2E Chunhiem', serviceStatus: 'ACTIVE', visibility: 'STAFF' },
+    })
+    expect(person.status()).toBe(201)
+  }
+  const eventResponse = await page.request.post('/api/operations/events', {
+    headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-event` },
+    data: { title: eventTitle, eventType: 'MEETING', startsAt: '2027-05-01T08:00:00Z', endsAt: '2027-05-01T10:00:00Z', timezone: 'Asia/Ho_Chi_Minh', organizerUserId: 'usr-e2e-chunhiem' },
+  })
+  expect(eventResponse.status()).toBe(201)
+  const operationEvent = (await eventResponse.json()).data as { id: string }
+
+  await injectSession(page, admin)
+  await page.goto('/operations')
+  const eventCard = page.getByRole('article').filter({ hasText: eventTitle })
+  await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
+  const manager = page.getByRole('region', { name: 'Quản lý nhắc sự kiện' })
+  await manager.getByLabel('Người nhận nhắc sự kiện').selectOption('usr-e2e-chunhiem')
+  await manager.getByLabel('Thời điểm nhắc sự kiện').fill('2027-04-30T20:00')
+  const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/reminders') && response.request().method() === 'POST')
+  await manager.getByRole('button', { name: 'Lưu lịch nhắc' }).click()
+  const createResponse = await createResponsePromise
+  expect(createResponse.status()).toBe(201)
+  const reminder = (await createResponse.json()).data as { id: string; version: number }
+  expect(reminder.version).toBe(1)
+
+  const managerRow = manager.locator(`[data-reminder-id="${reminder.id}"]`)
+  await managerRow.getByRole('button', { name: 'Đổi hoặc hủy lịch' }).click()
+  await managerRow.getByLabel('Giờ nhắc mới sự kiện').fill('2027-04-30T21:00')
+  await managerRow.getByLabel('Lý do đổi hoặc hủy nhắc sự kiện').fill('Dời giờ tập trung')
+  const rescheduleResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/reminders/${reminder.id}/reschedule`) && response.request().method() === 'POST')
+  await managerRow.getByRole('button', { name: 'Lưu giờ mới' }).click()
+  const rescheduleResponse = await rescheduleResponsePromise
+  expect(rescheduleResponse.status()).toBe(200)
+  expect((await rescheduleResponse.json()).data).toMatchObject({ id: reminder.id, status: 'PENDING', version: 2 })
+
+  await page.reload()
+  await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
+  await expect(page.getByRole('region', { name: 'Quản lý nhắc sự kiện' }).locator(`[data-reminder-id="${reminder.id}"]`)).toBeVisible()
+
+  const recipientContext = await browser.newContext()
+  const recipientPage = await recipientContext.newPage()
+  try {
+    const recipient = await apiLogin(recipientPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
+    await injectSession(recipientPage, recipient)
+    await recipientPage.goto('/operations')
+    const inboxRow = recipientPage.locator(`[data-reminder-id="${reminder.id}"]`)
+    await expect(inboxRow).toBeVisible()
+    const cancelResponsePromise = recipientPage.waitForResponse(response => response.url().endsWith(`/api/operations/reminders/${reminder.id}/cancel`) && response.request().method() === 'POST')
+    await inboxRow.getByRole('button', { name: 'Hủy lịch nhắc' }).click()
+    const cancelResponse = await cancelResponsePromise
+    expect(cancelResponse.status()).toBe(200)
+    expect((await cancelResponse.json()).data).toMatchObject({ id: reminder.id, status: 'CANCELLED', version: 3 })
+  } finally {
+    await recipientContext.close()
+  }
+
+  const readBack = await page.request.get(`/api/operations/reminders?eventId=${operationEvent.id}`, { headers: authHeaders(admin) })
+  expect(readBack.status()).toBe(200)
+  expect((await readBack.json()).data).toEqual(expect.arrayContaining([expect.objectContaining({ id: reminder.id, status: 'CANCELLED', version: 3 })]))
+})
+
+test('@critical Operations P2 persists three task phases and enforces start/closure gates', async ({ page, browser }, testInfo) => {
   // This journey includes group creation/membership and two authenticated users.
   test.setTimeout(90_000)
   const admin = await getAdminSession(page.request)
   const key = testKey(testInfo, 'OPS')
   const eventTitle = `Vận hành ${key}`
+  const preparationTitle = `Chuẩn bị nghi thức ${key}`
+  const executionTitle = `Phục vụ nghi thức ${key}`
+  const followUpTitle = `Đúc kết sau sự kiện ${key}`
 
   const snapshotResponse = await page.request.get('/api/parish-profile', { headers: authHeaders(admin) })
   expect(snapshotResponse.status()).toBe(200)
@@ -128,17 +627,19 @@ test('@critical Operations UI persists create → assign → acknowledge → com
   await page.getByRole('button', { name: 'Nhóm đã sẵn sàng' }).click()
   expect((await readyResponse).status()).toBe(200)
   await page.getByLabel('Nhóm của công việc').selectOption(group.id)
-  await page.getByLabel('Tên task').fill('Chuẩn bị nghi thức')
+  await page.getByLabel('Tên task').fill(preparationTitle)
+  await page.getByLabel('Giai đoạn nhiệm vụ').selectOption('PREPARATION')
   await page.getByLabel('Hạn task').fill('2026-10-11T20:00')
-  await page.getByText('Bắt buộc cho readiness').click()
+  await page.getByText('Nhiệm vụ bắt buộc').click()
   const taskResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/tasks') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Tạo task' }).click()
   const taskResponse = await taskResponsePromise
   expect(taskResponse.status()).toBe(201)
-  const task = (await taskResponse.json()).data as { id: string; version: number }
+  const task = (await taskResponse.json()).data as { id: string; version: number; phase: string }
+  expect(task.phase).toBe('PREPARATION')
 
   const eventDetail = page.getByRole('region', { name: 'Chi tiết sự kiện vận hành' })
-  const taskRow = eventDetail.getByText('Chuẩn bị nghi thức', { exact: true }).locator('..').locator('..')
+  const taskRow = eventDetail.getByText(preparationTitle, { exact: true }).locator('..').locator('..')
   await taskRow.getByRole('button', { name: 'Checklist' }).click()
   await page.getByLabel('Mục checklist mới').fill('Kiểm tra dụng cụ')
   await page.getByText('Bắt buộc', { exact: true }).last().click()
@@ -159,38 +660,86 @@ test('@critical Operations UI persists create → assign → acknowledge → com
   const assignmentResponse = await assignmentResponsePromise
   expect(assignmentResponse.status()).toBe(201)
 
+  const createFutureTask = async (title: string, phase: 'EXECUTION' | 'FOLLOW_UP') => {
+    await page.getByLabel('Tên task').fill(title)
+    await page.getByLabel('Giai đoạn nhiệm vụ').selectOption(phase)
+    await page.getByText('Nhiệm vụ bắt buộc').click()
+    const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/tasks') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Tạo task' }).click()
+    const createResponse = await createResponsePromise
+    expect(createResponse.status()).toBe(201)
+    const created = (await createResponse.json()).data as { id: string; phase: string }
+    expect(created.phase).toBe(phase)
+    await page.getByLabel('Task cần phân công').selectOption(created.id)
+    await page.getByLabel('Người được phân công').selectOption(assigneePersonId)
+    await page.getByLabel('Vai trò phân công').selectOption('OWNER')
+    const assignResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${created.id}/assign`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Giao việc' }).click()
+    expect((await assignResponsePromise).status()).toBe(201)
+    return created
+  }
+  const executionTask = await createFutureTask(executionTitle, 'EXECUTION')
+  const followUpTask = await createFutureTask(followUpTitle, 'FOLLOW_UP')
+
   const staffContext = await browser.newContext()
   const staffPage = await staffContext.newPage()
   try {
     const staff = await apiLogin(staffPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
     await injectSession(staffPage, staff)
     await staffPage.goto('/operations')
-    const myTask = staffPage.getByRole('article').filter({ hasText: 'Chuẩn bị nghi thức' })
-    await expect(myTask).toBeVisible()
-    const acknowledgeResponse = staffPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/acknowledge`) && response.request().method() === 'POST')
-    await myTask.getByRole('button', { name: 'Nhận việc' }).click()
-    expect((await acknowledgeResponse).status()).toBe(200)
+    const acknowledge = async (taskId: string, title: string) => {
+      const row = staffPage.getByRole('article').filter({ hasText: title })
+      await expect(row).toBeVisible()
+      const response = staffPage.waitForResponse(value => value.url().endsWith(`/api/operations/tasks/${taskId}/acknowledge`) && value.request().method() === 'POST')
+      await row.getByRole('button', { name: 'Nhận việc' }).click()
+      expect((await response).status()).toBe(200)
+      return row
+    }
+    const myTask = await acknowledge(task.id, preparationTitle)
     const completeResponse = staffPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/transition`) && response.request().method() === 'POST')
     await myTask.getByRole('button', { name: 'Hoàn tất' }).click()
     expect((await completeResponse).status()).toBe(200)
+    await acknowledge(executionTask.id, executionTitle)
+    await acknowledge(followUpTask.id, followUpTitle)
+
+    const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
+    expect(readBack.status()).toBe(200)
+    expect((await readBack.json()).data.task).toMatchObject({ id: task.id, workstreamId: group.id, phase: 'PREPARATION', status: 'DONE', parishId: 'gia-ton' })
+
+    // Refresh the event projection after the other authenticated actor accepted/completed work.
+    await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
+    const transitionFromUi = async (label: string) => {
+      const response = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
+      await page.getByRole('button', { name: label }).click()
+      expect((await response).status()).toBe(200)
+    }
+    await transitionFromUi('Bắt đầu lập kế hoạch')
+    await transitionFromUi('Đánh dấu sẵn sàng')
+    await transitionFromUi('Bắt đầu sự kiện')
+    await page.getByRole('textbox', { name: 'Tổng kết kết quả' }).fill('Hoàn tất đúng kế hoạch E2E.')
+    expect(page.getByRole('button', { name: 'Hoàn tất sự kiện' })).toBeDisabled()
+    await expect(eventDetail).toContainText(executionTitle)
+    await expect(eventDetail).toContainText(followUpTitle)
+
+    const completeFutureTask = async (taskId: string, title: string) => {
+      const row = staffPage.getByRole('article').filter({ hasText: title })
+      const response = staffPage.waitForResponse(value => value.url().endsWith(`/api/operations/tasks/${taskId}/transition`) && value.request().method() === 'POST')
+      await row.getByRole('button', { name: 'Hoàn tất' }).click()
+      expect((await response).status()).toBe(200)
+    }
+    await completeFutureTask(executionTask.id, executionTitle)
+    await completeFutureTask(followUpTask.id, followUpTitle)
+
+    await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
+    await expect(page.getByRole('button', { name: 'Hoàn tất sự kiện' })).toBeEnabled()
+    await transitionFromUi('Hoàn tất sự kiện')
+    const eventReadBack = await page.request.get(`/api/operations/events/${operationEvent.id}`, { headers: authHeaders(admin) })
+    expect((await eventReadBack.json()).data).toMatchObject({ event: { status: 'COMPLETED' }, readiness: { percent: 100, blockers: [] } })
+    for (const expected of [executionTask, followUpTask]) {
+      const taskReadBack = await page.request.get(`/api/operations/tasks/${expected.id}`, { headers: authHeaders(admin) })
+      expect((await taskReadBack.json()).data.task).toMatchObject({ id: expected.id, phase: expected.phase, status: 'DONE' })
+    }
   } finally {
     await staffContext.close()
   }
-
-  const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
-  expect(readBack.status()).toBe(200)
-  expect((await readBack.json()).data.task).toMatchObject({ id: task.id, workstreamId: group.id, status: 'DONE', parishId: 'gia-ton' })
-
-  const transitionFromUi = async (label: string) => {
-    const response = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
-    await page.getByRole('button', { name: label }).click()
-    expect((await response).status()).toBe(200)
-  }
-  await transitionFromUi('Bắt đầu lập kế hoạch')
-  await transitionFromUi('Đánh dấu sẵn sàng')
-  await transitionFromUi('Bắt đầu sự kiện')
-  await page.getByRole('textbox', { name: 'Tổng kết kết quả' }).fill('Hoàn tất đúng kế hoạch E2E.')
-  await transitionFromUi('Hoàn tất sự kiện')
-  const eventReadBack = await page.request.get(`/api/operations/events/${operationEvent.id}`, { headers: authHeaders(admin) })
-  expect((await eventReadBack.json()).data).toMatchObject({ event: { status: 'COMPLETED' }, readiness: { percent: 100, blockers: [] } })
 })

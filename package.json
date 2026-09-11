@@ -38,6 +38,7 @@
     "audit:deployment-parish": "npm --prefix server run db:audit:deployment-parish",
     "audit:roster-integrity": "npm --prefix server run db:audit:roster-integrity",
     "audit:cross-domain-reconciliation": "npm --prefix server run db:audit:cross-domain-reconciliation",
+    "audit:operations-authority": "npm --prefix server run db:audit:operations-authority",
     "audit:sunday-readiness": "npm --prefix server run notifications:audit:sunday-readiness",
     "lint:architecture-inventory": "node scripts/check-architecture-inventory.mjs",
     "lint:ds": "node scripts/design-system-lint.mjs",

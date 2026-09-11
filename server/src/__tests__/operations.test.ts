@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
   auditLogs,
@@ -8,10 +8,14 @@ import {
   operationBlockouts,
   operationChecklistItems,
   operationEventParticipants,
+  operationEventRetrospectives,
+  operationEventTemplates,
+  operationEventTemplateVersions,
   operationEvents,
   operationMutationReceipts,
   operationReminders,
   operationTaskAssignees,
+  operationTaskDispatches,
   operationTaskComments,
   operationTaskDependencies,
   operationTasks,
@@ -27,7 +31,11 @@ import {
 import { generateTokens } from '../middleware/auth.js'
 import operationsRouter from '../routes/operations.js'
 import { processDueOperationReminders } from '../services/operationsReminderService.js'
+import { processDueOperationEventTransitions } from '../services/operationsEventLifecycleService.js'
+import { processDueOperationTaskDispatches } from '../services/operationsTaskDispatchService.js'
 import { compactOperationsMutationReceiptResponses } from '../services/operationsIdempotency.js'
+import { resolveOperationsAuthorization, resolveOperationsUserAuthorization } from '../services/operationsAuthorization.js'
+import { isOperationsAdminMutationOverrideEnabled } from '../utils/operationsAdminOverride.js'
 
 const suffix = Date.now()
 const parishA = `ops-a-${suffix}`
@@ -39,6 +47,7 @@ const leaderId = `ops-leader-${suffix}`
 const expiredLeaderId = `ops-expired-${suffix}`
 const parishLeaderId = `ops-parish-leader-${suffix}`
 const committeeLeaderId = `ops-committee-leader-${suffix}`
+const boardMemberId = `ops-board-member-${suffix}`
 const parentId = `ops-parent-${suffix}`
 const parentPersonId = `ops-parent-person-${suffix}`
 const unlinkedPersonId = `ops-unlinked-person-${suffix}`
@@ -47,6 +56,7 @@ const branchId = `ops-branch-${suffix}`
 const otherBranchId = `ops-other-branch-${suffix}`
 const boardId = `ops-board-${suffix}`
 const committeeId = `ops-committee-${suffix}`
+const dualCommitteeId = `ops-dual-committee-${suffix}`
 const sourceEventId = `ops-source-${suffix}`
 let keySequence = 0
 
@@ -58,6 +68,7 @@ const leaderToken = accessToken(leaderId, 'chunhiem', parishA)
 const expiredLeaderToken = accessToken(expiredLeaderId, 'chunhiem', parishA)
 const parishLeaderToken = accessToken(parishLeaderId, 'phuta', parishA)
 const committeeLeaderToken = accessToken(committeeLeaderId, 'phuta', parishA)
+const boardMemberToken = accessToken(boardMemberId, 'phuta', parishA)
 const foreignToken = accessToken(foreignAdminId, 'admin', parishB)
 
 async function request(path: string, token: string, method = 'GET', body?: unknown, idempotencyKey?: string | null) {
@@ -97,14 +108,16 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       { id: expiredLeaderId, username: expiredLeaderId, passwordHash: 'hash', fullName: 'Expired Leader', role: 'chunhiem', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: parishLeaderId, username: parishLeaderId, passwordHash: 'hash', fullName: 'Parish Leader', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: committeeLeaderId, username: committeeLeaderId, passwordHash: 'hash', fullName: 'Committee Leader', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
+      { id: boardMemberId, username: boardMemberId, passwordHash: 'hash', fullName: 'Board Secretary', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: parentId, username: parentId, passwordHash: 'hash', fullName: 'Parent Without Operations Access', role: 'phuhuynh', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: foreignAdminId, username: foreignAdminId, passwordHash: 'hash', fullName: 'Foreign Admin', role: 'admin', parishId: parishB, status: 'ACTIVE', tokenVersion: 1 },
     ])
     await db.insert(parishOrganizationUnits).values([
-      { id: branchId, parishId: parishA, parentId: null, name: 'Ngành Thiếu', unitType: 'BRANCH', createdBy: adminId, updatedBy: adminId },
-      { id: otherBranchId, parishId: parishA, parentId: null, name: 'Ngành Nghĩa', unitType: 'BRANCH', createdBy: adminId, updatedBy: adminId },
       { id: boardId, parishId: parishA, parentId: null, name: 'Ban điều hành', unitType: 'BOARD', createdBy: adminId, updatedBy: adminId },
+      { id: branchId, parishId: parishA, parentId: boardId, name: 'Ngành Thiếu', unitType: 'BRANCH', createdBy: adminId, updatedBy: adminId },
+      { id: otherBranchId, parishId: parishA, parentId: boardId, name: 'Ngành Nghĩa', unitType: 'BRANCH', createdBy: adminId, updatedBy: adminId },
       { id: committeeId, parishId: parishA, parentId: boardId, name: 'Ban Phụng vụ', unitType: 'COMMITTEE', createdBy: adminId, updatedBy: adminId },
+      { id: dualCommitteeId, parishId: parishA, parentId: boardId, name: 'Ban Truyền thông', unitType: 'COMMITTEE', createdBy: adminId, updatedBy: adminId },
     ])
     await db.insert(parishPeople).values([
       { id: `person-leader-${suffix}`, parishId: parishA, linkedUserId: leaderId, fullName: 'Branch Leader', createdBy: adminId, updatedBy: adminId },
@@ -112,6 +125,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       { id: `person-expired-${suffix}`, parishId: parishA, linkedUserId: expiredLeaderId, fullName: 'Expired Leader', createdBy: adminId, updatedBy: adminId },
       { id: `person-parish-leader-${suffix}`, parishId: parishA, linkedUserId: parishLeaderId, fullName: 'Parish Leader', createdBy: adminId, updatedBy: adminId },
       { id: `person-committee-leader-${suffix}`, parishId: parishA, linkedUserId: committeeLeaderId, fullName: 'Committee Leader', createdBy: adminId, updatedBy: adminId },
+      { id: `person-board-member-${suffix}`, parishId: parishA, linkedUserId: boardMemberId, fullName: 'Board Secretary', createdBy: adminId, updatedBy: adminId },
       { id: parentPersonId, parishId: parishA, linkedUserId: parentId, fullName: 'Parent-linked Person', createdBy: adminId, updatedBy: adminId },
       { id: unlinkedPersonId, parishId: parishA, linkedUserId: null, fullName: 'Unlinked Operations Person', createdBy: adminId, updatedBy: adminId },
     ])
@@ -121,6 +135,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       { id: `term-expired-${suffix}`, parishId: parishA, personId: `person-expired-${suffix}`, unitId: branchId, positionTitle: 'Trưởng ngành', positionCode: 'BRANCH_LEADER', startDate: '2025-01-01', endDate: '2025-12-31', createdBy: adminId, updatedBy: adminId },
       { id: `term-parish-leader-${suffix}`, parishId: parishA, personId: `person-parish-leader-${suffix}`, unitId: boardId, positionTitle: 'Trưởng Xứ đoàn', positionCode: 'PARISH_LEADER', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
       { id: `term-committee-leader-${suffix}`, parishId: parishA, personId: `person-committee-leader-${suffix}`, unitId: committeeId, positionTitle: 'Trưởng ban', positionCode: 'COMMITTEE_LEADER', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
+      { id: `term-board-member-${suffix}`, parishId: parishA, personId: `person-board-member-${suffix}`, unitId: boardId, positionTitle: 'Thư ký', positionCode: null, startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
     ])
     await db.insert(parishEvents).values({ id: sourceEventId, parishId: parishA, date: '2026-10-01', title: 'Lịch Trại hè', category: 'CAMP', createdBy: adminId })
   })
@@ -132,14 +147,19 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     await db.delete(operationReminders).where(eq(operationReminders.parishId, parishA))
     await db.delete(operationBlockouts).where(eq(operationBlockouts.parishId, parishA))
     await db.delete(operationEventParticipants).where(eq(operationEventParticipants.parishId, parishA))
+    await db.delete(operationEventRetrospectives).where(eq(operationEventRetrospectives.parishId, parishA))
     await db.delete(operationTaskComments).where(eq(operationTaskComments.parishId, parishA))
     await db.delete(operationChecklistItems).where(eq(operationChecklistItems.parishId, parishA))
     await db.delete(operationTaskDependencies).where(eq(operationTaskDependencies.parishId, parishA))
+    await db.delete(operationTaskDispatches).where(eq(operationTaskDispatches.parishId, parishA))
     await db.delete(operationTaskAssignees).where(eq(operationTaskAssignees.parishId, parishA))
     await db.delete(operationTasks).where(eq(operationTasks.parishId, parishA))
     await db.delete(operationWorkstreamMembers).where(eq(operationWorkstreamMembers.parishId, parishA))
     await db.delete(operationWorkstreams).where(eq(operationWorkstreams.parishId, parishA))
     await db.delete(parishRecords).where(eq(parishRecords.parishId, parishA))
+    await db.delete(operationEvents).where(and(eq(operationEvents.parishId, parishA), sql`${operationEvents.sourceTemplateId} IS NOT NULL`))
+    await db.delete(operationEventTemplateVersions).where(eq(operationEventTemplateVersions.parishId, parishA))
+    await db.delete(operationEventTemplates).where(eq(operationEventTemplates.parishId, parishA))
     await db.delete(operationEvents).where(eq(operationEvents.parishId, parishA))
     await db.delete(parishServiceTerms).where(eq(parishServiceTerms.parishId, parishA))
     await db.delete(parishPeople).where(eq(parishPeople.parishId, parishA))
@@ -155,14 +175,14 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await missing.json() as any).error.code).toBe('IDEMPOTENCY_KEY_REQUIRED')
 
     const stableKey = `stable-workstream-${suffix}`
-    const created = await request('/workstreams', adminToken, 'POST', { name: 'Ban Phụng vụ', isRequired: true }, stableKey)
+    const created = await request('/workstreams', adminToken, 'POST', { name: 'Ban Phụng vụ', sourceUnitId: branchId, isRequired: true }, stableKey)
     expect(created.status).toBe(201)
     workstreamId = (await data(created)).id
-    const replay = await request('/workstreams', adminToken, 'POST', { name: 'Ban Phụng vụ', isRequired: true }, stableKey)
+    const replay = await request('/workstreams', adminToken, 'POST', { name: 'Ban Phụng vụ', sourceUnitId: branchId, isRequired: true }, stableKey)
     expect(replay.status).toBe(200)
     expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
     expect((await data(replay)).id).toBe(workstreamId)
-    const conflict = await request('/workstreams', adminToken, 'POST', { name: 'Payload khác' }, stableKey)
+    const conflict = await request('/workstreams', adminToken, 'POST', { name: 'Payload khác', sourceUnitId: branchId }, stableKey)
     expect(conflict.status).toBe(409)
 
     await db.update(operationMutationReceipts).set({ createdAt: '2020-01-01T00:00:00.000Z' }).where(and(
@@ -171,7 +191,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       eq(operationMutationReceipts.idempotencyKey, stableKey),
     ))
     expect(await compactOperationsMutationReceiptResponses(new Date('2021-01-01T00:00:00.000Z'), 10)).toBe(1)
-    const expiredReplay = await request('/workstreams', adminToken, 'POST', { name: 'Ban Phụng vụ', isRequired: true }, stableKey)
+    const expiredReplay = await request('/workstreams', adminToken, 'POST', { name: 'Ban Phụng vụ', sourceUnitId: branchId, isRequired: true }, stableKey)
     expect(expiredReplay.status).toBe(409)
     expect((await expiredReplay.json() as any).error.code).toBe('IDEMPOTENCY_REPLAY_EXPIRED')
     const [receiptTombstone] = await db.select().from(operationMutationReceipts).where(and(
@@ -197,6 +217,17 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const secondPageBody = await (await request('/tasks?page=2&limit=1', adminToken)).json() as any
     expect(secondPageBody.data).toHaveLength(1)
     expect(secondPageBody.data[0].id).not.toBe(pageBody.data[0].id)
+    const otherWorkstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'Nhóm khác', sourceUnitId: branchId }))
+    const otherTask = await data(await request('/tasks', adminToken, 'POST', { title: 'Task nhóm khác', workstreamId: otherWorkstream.id }))
+    const filtered = await request(`/tasks?workstreamId=${workstreamId}&page=1&limit=1`, adminToken)
+    const filteredBody = await filtered.json() as any
+    expect(filteredBody.meta).toMatchObject({ page: 1, limit: 1, total: 2, totalPages: 2 })
+    expect(filteredBody.data).toHaveLength(1)
+    expect(filteredBody.data[0].workstreamId).toBe(workstreamId)
+    const otherFiltered = await data(await request(`/tasks?workstreamId=${otherWorkstream.id}`, adminToken))
+    expect(otherFiltered).toEqual([expect.objectContaining({ id: otherTask.id, workstreamId: otherWorkstream.id })])
+    const foreignFiltered = await request(`/tasks?workstreamId=${workstreamId}`, foreignToken)
+    expect((await foreignFiltered.json() as any).meta.total).toBe(0)
     expect((await request('/tasks?limit=501', adminToken)).status).toBe(400)
   })
 
@@ -250,6 +281,9 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     if (managementRole === 'WORKSTREAM_LEAD') {
       expect((await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 1, userId: ownerId, operationRole: managementRole })).status).toBe(201)
     }
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const workstreamPermissions = (await data(await request(`/workstreams/${workstream.id}`, ownerToken))).permissions
+    expect(workstreamPermissions['operations.workstream.assign_lead']).toBe(managementRole === 'EVENT_ORGANIZER')
     const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Combined role task', requiresApproval: true }))
     const permissions = async () => (await data(await request(`/tasks/${task.id}`, ownerToken))).permissions
     expect(await permissions()).toMatchObject({ 'operations.task.execute': false, 'operations.task.approve': false })
@@ -257,14 +291,88 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await permissions())['operations.task.execute']).toBe(false)
     expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: assigned.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
     expect((await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: assigned.taskVersion, status: 'IN_PROGRESS' })).status).toBe(200)
-    const approver = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: assigned.taskVersion + 1, userId: ownerId, assignmentRole: 'APPROVER' }))
+    const selfApprover = await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: assigned.taskVersion + 1, userId: ownerId, assignmentRole: 'APPROVER' })
+    expect(selfApprover.status).toBe(409)
+    expect((await selfApprover.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
+    const approver = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: assigned.taskVersion + 1, userId: contributorId, assignmentRole: 'APPROVER' }))
     expect((await permissions())['operations.task.approve']).toBe(false)
-    expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
-    expect((await request(`/tasks/${task.id}/approve`, ownerToken, 'POST', { version: approver.taskVersion, decision: 'APPROVED' })).status).toBe(200)
+    expect((await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
+    expect((await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', { version: approver.taskVersion, decision: 'APPROVED' })).status).toBe(200)
+  })
+
+  it('enforces independent approval across task and workstream role aliases', async () => {
+    const event = await createEvent({ title: 'Independent approval' })
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { eventId: event.id, name: 'Kiểm soát chéo' }))
+    const firstTask = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Task đã có owner', requiresApproval: true }))
+    expect((await request(`/tasks/${firstTask.id}/assign`, adminToken, 'POST', {
+      version: 1, personId: `person-contributor-${suffix}`, assignmentRole: 'OWNER',
+    })).status).toBe(201)
+
+    const conflictingWorkstreamApprover = await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
+      version: 1, userId: contributorId, operationRole: 'APPROVER',
+    })
+    expect(conflictingWorkstreamApprover.status).toBe(409)
+    expect((await conflictingWorkstreamApprover.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
+
+    const approverMember = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
+      version: 1, userId: ownerId, operationRole: 'APPROVER',
+    }))
+    expect(approverMember.workstreamVersion).toBe(2)
+    const secondTask = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Task mới', requiresApproval: true }))
+    const conflictingOwner = await request(`/tasks/${secondTask.id}/assign`, adminToken, 'POST', {
+      version: 1, userId: ownerId, assignmentRole: 'CONTRIBUTOR',
+    })
+    expect(conflictingOwner.status).toBe(409)
+    expect((await conflictingOwner.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
+
+    const expiredApprover = await request(`/workstreams/${workstream.id}/members/${approverMember.id}/validity`, adminToken, 'PUT', {
+      version: 2, memberVersion: 1, startsAt: '2025-01-01T00:00:00Z', endsAt: '2025-12-31T23:59:59Z', reason: 'Nhiệm kỳ duyệt đã kết thúc',
+    })
+    expect(expiredApprover.status).toBe(200)
+    expect((await request(`/tasks/${secondTask.id}/assign`, adminToken, 'POST', {
+      version: 1, userId: ownerId, assignmentRole: 'CONTRIBUTOR',
+    })).status).toBe(201)
+
+    const reactivatedApprover = await request(`/workstreams/${workstream.id}/members/${approverMember.id}/validity`, adminToken, 'PUT', {
+      version: 3, memberVersion: 2, startsAt: null, endsAt: null, reason: 'Tái kích hoạt người duyệt',
+    })
+    expect(reactivatedApprover.status).toBe(409)
+    expect((await reactivatedApprover.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
+  })
+
+  it('rechecks separation of duty at approval time for legacy or out-of-band rows', async () => {
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Legacy self approval', requiresApproval: true }))
+    const approver = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', {
+      version: 1, userId: contributorId, assignmentRole: 'APPROVER',
+    }))
+    expect((await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', {
+      assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED',
+    })).status).toBe(200)
+    await db.insert(operationTaskAssignees).values({
+      id: `legacy-self-review-${suffix}`,
+      parishId: parishA,
+      taskId: task.id,
+      userId: contributorId,
+      personId: null,
+      assignmentRole: 'CONTRIBUTOR',
+      acknowledgementStatus: 'ACCEPTED',
+      assignedBy: adminId,
+      assignedAt: new Date().toISOString(),
+      respondedAt: new Date().toISOString(),
+      completedAt: null,
+      note: 'Legacy fixture',
+      version: 1,
+      removedAt: null,
+    })
+    const response = await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', {
+      version: approver.taskVersion, decision: 'APPROVED',
+    })
+    expect(response.status).toBe(409)
+    expect((await response.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
   })
 
   it('reads workstream membership in resource scope and excludes revoked memberships', async () => {
-    const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'Private workstream' }))
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'Private workstream', sourceUnitId: branchId }))
     expect((await request(`/workstreams/${workstream.id}`, foreignToken)).status).toBe(403)
     expect((await request(`/workstreams/${workstream.id}`, ownerToken)).status).toBe(403)
     const member = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 1, userId: ownerId, operationRole: 'WORKSTREAM_LEAD' }))
@@ -311,11 +419,32 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(unscoped.status).toBe(403)
   })
 
+  it.each(['EXECUTION', 'FOLLOW_UP'])('allows accepted %s work at start but requires completion at closure', async phase => {
+    const event = await createEvent({ title: `Phase ${phase}` })
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'During or after', eventId: event.id, phase, isRequired: true }))
+    expect(task.phase).toBe(phase)
+    const assignment = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
+    let current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 1, status: 'PLANNING' }))
+    expect((await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'READY' })).status).toBe(409)
+    const pendingAcceptance = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'PREPARING' })
+    expect(pendingAcceptance.status).toBe(409)
+    expect((await pendingAcceptance.json() as any).error.code).toBe('TASK_ACCEPTANCE_PENDING')
+    await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: assignment.assignment.id, version: 1, status: 'ACCEPTED' })
+    for (const status of ['PREPARING', 'READY', 'LIVE']) {
+      const result = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status })
+      expect(result.status).toBe(200); current = await data(result)
+    }
+    expect((await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'COMPLETED', outcomeSummary: 'Not finished' })).status).toBe(409)
+    expect((await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: assignment.taskVersion, status: 'DONE' })).status).toBe(200)
+    expect((await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'COMPLETED', outcomeSummary: 'Finished' })).status).toBe(200)
+    expect((await request(`/events/${event.id}/retrospective`, adminToken, 'PUT', { expectedVersion: null, lessonsLearned: `Hậu kiểm ${phase}` })).status).toBe(200)
+  })
+
   it('blocks event closure on required unfinished tasks even with readiness override', async () => {
     const event = await createEvent({ title: 'Closure guard' })
     const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Required follow-through', eventId: event.id, isRequired: true }))
     let current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 1, status: 'PLANNING' }))
-    for (const status of ['READY', 'LIVE']) current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status, override: true, reason: 'Start with managed exception' }))
+    for (const status of ['PREPARING', 'READY', 'LIVE']) current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status, override: true, reason: 'Start with managed exception' }))
     const response = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'COMPLETED', outcomeSummary: 'Summary cannot replace required work', override: true, reason: 'Not a closure permission' })
     expect(response.status).toBe(409)
     expect((await response.json() as any).error.code).toBe('COMPLETION_BLOCKED')
@@ -339,7 +468,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
   })
 
   it('includes scoped workstream approvers without direct task assignment and removes revoked authority', async () => {
-    const group = await data(await request('/workstreams', adminToken, 'POST', { name: 'Queue review group' }))
+    const group = await data(await request('/workstreams', adminToken, 'POST', { name: 'Queue review group', sourceUnitId: branchId }))
     const membership = await data(await request(`/workstreams/${group.id}/members`, adminToken, 'POST', { version: 1, userId: ownerId, operationRole: 'APPROVER' }))
     const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Group review only', workstreamId: group.id, requiresApproval: true }))
     const queue = await data(await request('/tasks?queue=approval', ownerToken))
@@ -381,7 +510,52 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(afterAlias.assignees[0].id).toBe(changed.assignment.id)
   })
 
+  it('keeps blockout reasons private and supports self edit/revoke with OCC', async () => {
+    const created = await data(await request('/blockouts', contributorToken, 'POST', {
+      userId: contributorId, startsAt: '2027-03-01T08:00:00Z', endsAt: '2027-03-01T10:00:00Z', reason: 'Việc gia đình riêng tư',
+    }))
+    expect(created.version).toBe(1)
+    const mine = await data(await request('/blockouts/mine?limit=500', contributorToken))
+    expect(mine.find((row: any) => row.id === created.id)).toMatchObject({ reason: 'Việc gia đình riêng tư', version: 1 })
+    expect((await data(await request('/blockouts/mine?limit=500', adminToken))).some((row: any) => row.id === created.id)).toBe(false)
+    expect((await request(`/blockouts/${created.id}`, adminToken, 'PUT', {
+      version: 1, startsAt: '2027-03-01T09:00:00Z', endsAt: '2027-03-01T11:00:00Z', reason: 'Admin không được đọc/sửa lý do',
+    })).status).toBe(404)
+
+    const changed = await data(await request(`/blockouts/${created.id}`, contributorToken, 'PUT', {
+      version: 1, startsAt: '2027-03-01T09:00:00Z', endsAt: '2027-03-01T11:00:00Z', reason: 'Lịch riêng đã đổi',
+    }))
+    expect(changed).toMatchObject({ id: created.id, startsAt: '2027-03-01T09:00:00.000Z', endsAt: '2027-03-01T11:00:00.000Z', reason: 'Lịch riêng đã đổi', version: 2 })
+    expect((await request(`/blockouts/${created.id}`, contributorToken, 'PUT', {
+      version: 1, startsAt: '2027-03-01T10:00:00Z', endsAt: '2027-03-01T12:00:00Z', reason: null,
+    })).status).toBe(409)
+    const revoked = await data(await request(`/blockouts/${created.id}/revoke`, contributorToken, 'POST', { version: 2 }))
+    expect(revoked).toMatchObject({ id: created.id, version: 3 })
+    expect(revoked.deletedAt).toBeTruthy()
+    expect((await data(await request('/blockouts/mine?limit=500', contributorToken))).some((row: any) => row.id === created.id)).toBe(false)
+    expect((await request(`/blockouts/${created.id}/revoke`, contributorToken, 'POST', { version: 2 })).status).toBe(404)
+
+    const auditRows = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, created.id)))
+    expect(JSON.stringify(auditRows)).not.toContain('Việc gia đình riêng tư')
+    expect(JSON.stringify(auditRows)).not.toContain('Lịch riêng đã đổi')
+  })
+
   it('derives Trưởng ngành authority from active service-term unit scope only', async () => {
+    const leaderUnits = await data(await request('/units?limit=500', leaderToken))
+    expect(leaderUnits.map((unit: any) => unit.id)).toEqual([branchId])
+    expect(Object.keys(leaderUnits[0]).sort()).toEqual(['id', 'name', 'parentId', 'parishId', 'unitType'].sort())
+    expect((await data(await request('/units?limit=500', committeeLeaderToken))).map((unit: any) => unit.id)).toEqual([committeeId])
+    expect((await data(await request('/units?limit=500', parishLeaderToken))).map((unit: any) => unit.id)).toEqual(expect.arrayContaining([branchId, otherBranchId, boardId, committeeId]))
+    const missingStandaloneScope = await request('/workstreams', adminToken, 'POST', { name: 'Nhóm không có đơn vị' })
+    expect(missingStandaloneScope.status).toBe(400)
+    expect((await missingStandaloneScope.json() as any).error.code).toBe('STANDALONE_WORKSTREAM_SCOPE_REQUIRED')
+    const standalone = await data(await request('/workstreams', leaderToken, 'POST', { sourceUnitId: branchId, name: 'Nhóm thường trực Ngành Thiếu' }))
+    expect(standalone).toMatchObject({ operationEventId: null, sourceUnitId: branchId })
+    expect((await request('/workstreams', leaderToken, 'POST', { sourceUnitId: otherBranchId, name: 'Nhóm ngoài ngành' })).status).toBe(403)
+    const standaloneList = await data(await request('/workstreams?standalone=true&limit=500', leaderToken))
+    expect(standaloneList).toEqual(expect.arrayContaining([expect.objectContaining({ id: standalone.id, operationEventId: null, sourceUnitId: branchId })]))
+    expect(standaloneList.every((group: any) => group.operationEventId === null)).toBe(true)
+
     const inScope = await request('/events', leaderToken, 'POST', {
       scopeUnitId: branchId,
       title: 'Sinh hoạt Ngành Thiếu', eventType: 'MEETING', startsAt: '2026-10-03T08:00:00+07:00', endsAt: '2026-10-03T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
@@ -401,6 +575,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     }))
     expect((await request(`/workstreams/${scopedWorkstream.id}`, leaderToken, 'PUT', { version: 1, sourceUnitId: otherBranchId })).status).toBe(403)
     const organizerEvent = await createEvent({ title: 'Event organizer scope', scopeUnitId: branchId, organizerUserId: ownerId })
+    await data(await request(`/events/${organizerEvent.id}/transition`, adminToken, 'POST', { version: organizerEvent.version, status: 'PLANNING' }))
     expect((await request('/workstreams', ownerToken, 'POST', { eventId: organizerEvent.id, sourceUnitId: branchId, name: 'Trong scope event' })).status).toBe(201)
     expect((await request('/workstreams', ownerToken, 'POST', { eventId: organizerEvent.id, sourceUnitId: otherBranchId, name: 'Không được mở rộng scope' })).status).toBe(403)
     const expired = await request('/events', expiredLeaderToken, 'POST', {
@@ -413,6 +588,320 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       title: 'Phó trưởng không mặc nhiên có quyền trưởng ngành', eventType: 'MEETING', startsAt: '2026-10-05T08:00:00+07:00', endsAt: '2026-10-05T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
     })
     expect(deputy.status).toBe(403)
+    const boardMember = await request('/events', boardMemberToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Thành viên Ban Điều hành không phải Trưởng Xứ đoàn', eventType: 'MEETING', startsAt: '2026-10-05T08:00:00+07:00', endsAt: '2026-10-05T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(boardMember.status).toBe(403)
+    expect((await request(`/events/${inScopeRow.id}`, boardMemberToken)).status).toBe(403)
+    expect((await data(await request('/events', boardMemberToken))).map((event: any) => event.id)).not.toContain(inScopeRow.id)
+  })
+
+  it('keeps another creator draft private across event, task and list reads until planning', async () => {
+    const createdResponse = await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId,
+      organizerUserId: contributorId,
+      title: 'Bản nháp riêng của Trưởng ngành',
+      eventType: 'MEETING',
+      startsAt: '2026-10-08T08:00:00+07:00',
+      endsAt: '2026-10-08T10:00:00+07:00',
+      timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(createdResponse.status).toBe(201)
+    const event = await data(createdResponse)
+    const task = await data(await request('/tasks', leaderToken, 'POST', { eventId: event.id, title: 'Phân công kín trong nháp' }))
+    await data(await request(`/tasks/${task.id}/assign`, leaderToken, 'POST', { version: task.version, userId: contributorId, assignmentRole: 'OWNER' }))
+
+    expect((await request(`/events/${event.id}`, leaderToken)).status).toBe(200)
+    expect((await request(`/events/${event.id}`, adminToken)).status).toBe(200)
+    for (const token of [ownerToken, parishLeaderToken, contributorToken, committeeLeaderToken]) {
+      expect((await request(`/events/${event.id}`, token)).status).toBe(403)
+      expect((await request(`/tasks/${task.id}`, token)).status).toBe(403)
+      expect((await data(await request('/events?limit=500', token))).map((row: any) => row.id)).not.toContain(event.id)
+      expect((await data(await request('/tasks?limit=500', token))).map((row: any) => row.id)).not.toContain(task.id)
+    }
+
+    const planning = await data(await request(`/events/${event.id}/transition`, leaderToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    expect(planning.status).toBe('PLANNING')
+    for (const token of [parishLeaderToken, contributorToken]) {
+      expect((await request(`/events/${event.id}`, token)).status).toBe(200)
+      expect((await request(`/tasks/${task.id}`, token)).status).toBe(200)
+    }
+    expect((await request(`/events/${event.id}`, ownerToken)).status).toBe(403)
+    expect((await request(`/tasks/${task.id}`, ownerToken)).status).toBe(403)
+    expect((await request(`/events/${event.id}`, committeeLeaderToken)).status).toBe(403)
+    expect((await request(`/tasks/${task.id}`, committeeLeaderToken)).status).toBe(403)
+  })
+
+  it('allows one person to hold parallel Branch Leader and Committee Leader scopes without hierarchy leakage', async () => {
+    const dualTermId = `term-dual-leader-${suffix}`
+    await db.insert(parishServiceTerms).values({
+      id: dualTermId,
+      parishId: parishA,
+      personId: `person-leader-${suffix}`,
+      unitId: dualCommitteeId,
+      positionTitle: 'Trưởng ban kiêm nhiệm',
+      positionCode: 'COMMITTEE_LEADER',
+      startDate: '2026-01-01',
+      endDate: '2026-12-31',
+      createdBy: adminId,
+      updatedBy: adminId,
+    })
+    try {
+      const units = await data(await request('/units?limit=500', leaderToken))
+      expect(units.map((unit: any) => unit.id)).toEqual(expect.arrayContaining([branchId, dualCommitteeId]))
+      expect(units.map((unit: any) => unit.id)).not.toContain(otherBranchId)
+
+      const branchDecision = await resolveOperationsUserAuthorization(parishA, leaderId, 'operations.event.create', { resourceUnitId: branchId })
+      const committeeDecision = await resolveOperationsUserAuthorization(parishA, leaderId, 'operations.event.create', { resourceUnitId: dualCommitteeId })
+      const siblingBranchDecision = await resolveOperationsUserAuthorization(parishA, leaderId, 'operations.event.create', { resourceUnitId: otherBranchId })
+      expect(branchDecision).toMatchObject({ allowed: true, reason: 'POSITION_SCOPE' })
+      expect(committeeDecision).toMatchObject({ allowed: true, reason: 'POSITION_SCOPE' })
+      expect(siblingBranchDecision).toMatchObject({ allowed: false, reason: 'POSITION_SCOPE' })
+    } finally {
+      await db.delete(parishServiceTerms).where(and(eq(parishServiceTerms.parishId, parishA), eq(parishServiceTerms.id, dualTermId)))
+    }
+  })
+
+  it('evaluates service-term authority using the server parish date instead of UTC', async () => {
+    const previousTimeZone = process.env.PARISH_TIME_ZONE
+    await db.insert(parishServiceTerms).values({
+      id: `term-leader-next-${suffix}`,
+      parishId: parishA,
+      personId: `person-leader-${suffix}`,
+      unitId: otherBranchId,
+      positionTitle: 'Trưởng ngành nhiệm kỳ mới',
+      positionCode: 'BRANCH_LEADER',
+      startDate: '2027-01-01',
+      endDate: '2027-12-31',
+      createdBy: adminId,
+      updatedBy: adminId,
+    })
+    try {
+      process.env.PARISH_TIME_ZONE = 'Asia/Ho_Chi_Minh'
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-12-31T17:30:00.000Z'))
+
+      const newTerm = await resolveOperationsUserAuthorization(
+        parishA,
+        leaderId,
+        'operations.event.create',
+        { resourceUnitId: otherBranchId },
+      )
+      const endedTerm = await resolveOperationsUserAuthorization(
+        parishA,
+        leaderId,
+        'operations.event.create',
+        { resourceUnitId: branchId },
+      )
+
+      expect(newTerm).toMatchObject({ allowed: true, reason: 'POSITION_SCOPE', unitIds: [otherBranchId] })
+      expect(endedTerm).toMatchObject({ allowed: false, reason: 'POSITION_SCOPE', unitIds: [otherBranchId] })
+    } finally {
+      vi.useRealTimers()
+      if (previousTimeZone === undefined) delete process.env.PARISH_TIME_ZONE
+      else process.env.PARISH_TIME_ZONE = previousTimeZone
+      await db.delete(parishServiceTerms).where(and(
+        eq(parishServiceTerms.parishId, parishA),
+        eq(parishServiceTerms.id, `term-leader-next-${suffix}`),
+      ))
+    }
+  })
+
+  it('limits unit leaders to candidates and assignments inside their organization unit', async () => {
+    const event = await data(await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Điều phối nội bộ Ngành Thiếu', eventType: 'MEETING', startsAt: '2026-11-03T08:00:00+07:00', endsAt: '2026-11-03T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const task = await data(await request('/tasks', leaderToken, 'POST', { eventId: event.id, title: 'Phân công trong ngành' }))
+    const candidatesResponse = await request(`/candidates?taskId=${task.id}&limit=500`, leaderToken)
+    expect(candidatesResponse.status).toBe(200)
+    const candidates = await data(candidatesResponse)
+    expect(candidates.map((candidate: any) => candidate.personId)).toEqual(expect.arrayContaining([
+      `person-leader-${suffix}`,
+      `person-contributor-${suffix}`,
+    ]))
+    expect(candidates.map((candidate: any) => candidate.personId)).not.toEqual(expect.arrayContaining([
+      `person-committee-leader-${suffix}`,
+      `person-parish-leader-${suffix}`,
+      parentPersonId,
+    ]))
+    expect(candidates.find((candidate: any) => candidate.personId === `person-contributor-${suffix}`)).toEqual({
+      parishId: parishA,
+      personId: `person-contributor-${suffix}`,
+      userId: contributorId,
+      displayName: 'Deputy Branch Leader',
+      eligibility: 'ACTIONABLE',
+      inResourceScope: true,
+    })
+    expect(Object.keys(candidates[0]).sort()).toEqual(['displayName', 'eligibility', 'inResourceScope', 'parishId', 'personId', 'userId'].sort())
+
+    const outsideAssignment = await request(`/tasks/${task.id}/assign`, leaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, assignmentRole: 'CONTRIBUTOR' })
+    expect(outsideAssignment.status).toBe(403)
+    expect((await outsideAssignment.json() as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
+    const insideAssignment = await request(`/tasks/${task.id}/assign`, leaderToken, 'POST', { version: 1, personId: `person-contributor-${suffix}`, assignmentRole: 'CONTRIBUTOR' })
+    expect(insideAssignment.status).toBe(201)
+
+    const workstream = await data(await request('/workstreams', leaderToken, 'POST', { eventId: event.id, sourceUnitId: branchId, name: 'Nhóm trong ngành' }))
+    const outsideMember = await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, operationRole: 'CONTRIBUTOR' })
+    expect(outsideMember.status).toBe(403)
+    expect((await outsideMember.json() as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
+    expect((await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', { version: 1, personId: `person-contributor-${suffix}`, operationRole: 'CONTRIBUTOR' })).status).toBe(201)
+
+    expect((await request(`/candidates?taskId=${task.id}&eventId=${event.id}`, leaderToken)).status).toBe(400)
+    expect((await request(`/candidates?taskId=${task.id}`, foreignToken)).status).toBe(403)
+  })
+
+  it('keeps Trưởng Xứ đoàn assignment scope parish-wide', async () => {
+    const event = await data(await request('/events', parishLeaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Điều phối toàn Xứ đoàn trong sự kiện ngành', eventType: 'MEETING', startsAt: '2026-11-04T08:00:00+07:00', endsAt: '2026-11-04T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const task = await data(await request('/tasks', parishLeaderToken, 'POST', { eventId: event.id, title: 'Điều động liên ban' }))
+    const candidates = await data(await request(`/candidates?taskId=${task.id}&limit=500`, parishLeaderToken))
+    expect(candidates.map((candidate: any) => candidate.personId)).toContain(`person-committee-leader-${suffix}`)
+    expect(candidates.find((candidate: any) => candidate.personId === `person-committee-leader-${suffix}`)?.inResourceScope).toBe(false)
+    expect((await request(`/tasks/${task.id}/assign`, parishLeaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, assignmentRole: 'CONTRIBUTOR' })).status).toBe(201)
+  })
+
+  it('updates only membership validity with aggregate and member OCC', async () => {
+    const event = await createEvent({ title: 'Validity event', scopeUnitId: branchId })
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { eventId: event.id, sourceUnitId: branchId, name: 'Validity group' }))
+    const added = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
+      version: 1, personId: `person-contributor-${suffix}`, operationRole: 'CONTRIBUTOR',
+    }))
+
+    expect((await request(`/workstreams/${workstream.id}/members/${added.id}/validity`, adminToken, 'PUT', {
+      version: 2, memberVersion: 1, startsAt: '2026-12-02T09:00:00+07:00', endsAt: '2026-12-02T08:00:00+07:00', reason: 'Khoảng sai',
+    })).status).toBe(400)
+
+    const changed = await data(await request(`/workstreams/${workstream.id}/members/${added.id}/validity`, adminToken, 'PUT', {
+      version: 2, memberVersion: 1, startsAt: '2026-12-01T08:00:00+07:00', endsAt: '2026-12-31T17:00:00+07:00', reason: 'Phân công tháng 12',
+    }))
+    expect(changed.workstreamVersion).toBe(3)
+    expect(changed.member).toMatchObject({
+      id: added.id,
+      operationRole: 'CONTRIBUTOR',
+      personId: `person-contributor-${suffix}`,
+      startsAt: '2026-12-01T01:00:00.000Z',
+      endsAt: '2026-12-31T10:00:00.000Z',
+      version: 2,
+    })
+    expect((await request(`/workstreams/${workstream.id}/members/${added.id}/validity`, adminToken, 'PUT', {
+      version: 2, memberVersion: 1, startsAt: null, endsAt: null, reason: 'Stale edit',
+    })).status).toBe(409)
+    expect((await request(`/workstreams/${workstream.id}/members/${added.id}/validity`, foreignToken, 'PUT', {
+      version: 3, memberVersion: 2, startsAt: null, endsAt: null, reason: 'Cross parish',
+    })).status).toBe(404)
+    const auditRows = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, workstream.id), eq(auditLogs.action, 'UPDATE_MEMBER_VALIDITY')))
+    expect(auditRows).toHaveLength(1)
+    expect(auditRows[0]?.newValue).toContain('Phân công tháng 12')
+  })
+
+  it('replaces a LIVE workstream lead atomically and closes split-command bypasses', async () => {
+    const event = await createEvent({ title: 'LIVE lead replacement', scopeUnitId: branchId })
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', {
+      eventId: event.id, sourceUnitId: branchId, name: 'Điều phối hiện trường',
+    }))
+    const currentLead = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
+      version: 1, userId: ownerId, operationRole: 'WORKSTREAM_LEAD',
+    }))
+    let eventState = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 1, status: 'PLANNING' }))
+    eventState = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: eventState.version, status: 'PREPARING' }))
+    eventState = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: eventState.version, status: 'READY' }))
+    eventState = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: eventState.version, status: 'LIVE' }))
+    expect(eventState.status).toBe('LIVE')
+
+    for (const response of [
+      await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 2, userId: contributorId, operationRole: 'WORKSTREAM_LEAD' }),
+      await request(`/workstreams/${workstream.id}/members/${currentLead.id}/remove`, adminToken, 'POST', { version: 2, memberVersion: 1, reason: 'Đường vòng gỡ' }),
+      await request(`/workstreams/${workstream.id}/members/${currentLead.id}/validity`, adminToken, 'PUT', { version: 2, memberVersion: 1, startsAt: null, endsAt: '2026-09-01T00:00:00Z', reason: 'Đường vòng hết hạn' }),
+    ]) {
+      expect(response.status).toBe(409)
+      expect((await response.json() as any).error.code).toBe('USE_LEAD_REPLACEMENT')
+    }
+
+    expect((await request(`/workstreams/${workstream.id}/lead/replace`, adminToken, 'POST', {
+      version: 1, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
+      userId: contributorId, reason: 'Stale aggregate',
+    })).status).toBe(409)
+    const planningOnly = await request(`/workstreams/${workstream.id}/lead/replace`, adminToken, 'POST', {
+      version: 2, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
+      personId: unlinkedPersonId, reason: 'Không có tài khoản trực ca',
+    })
+    expect(planningOnly.status).toBe(400)
+    expect((await planningOnly.json() as any).error.code).toBe('INVALID_OPERATIONS_TARGET')
+    const outsideScope = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
+      version: 2, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
+      personId: `person-committee-leader-${suffix}`, reason: 'Điều động ngoài ngành',
+    })
+    expect(outsideScope.status).toBe(403)
+    expect((await outsideScope.json() as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
+
+    const replacementKey = `replace-live-lead-${suffix}`
+    const replacedResponse = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
+      version: 2, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
+      userId: contributorId, reason: 'Bàn giao ca trực',
+    }, replacementKey)
+    expect(replacedResponse.status).toBe(201)
+    const replaced = await data(replacedResponse)
+    expect(replaced).toMatchObject({
+      previousLead: { id: currentLead.id, version: 2 },
+      newLead: { userId: contributorId, personId: null, operationRole: 'WORKSTREAM_LEAD', version: 1 },
+      workstreamVersion: 3,
+    })
+    expect(replaced.previousLead.removedAt).toBeTruthy()
+    expect(replaced.newLead.startsAt).toBeTruthy()
+
+    const replay = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
+      version: 2, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
+      userId: contributorId, reason: 'Bàn giao ca trực',
+    }, replacementKey)
+    expect(replay.status).toBe(200)
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await data(replay)).newLead.id).toBe(replaced.newLead.id)
+
+    const missingCurrent = await request(`/workstreams/${workstream.id}/lead/replace`, adminToken, 'POST', {
+      version: 3, userId: ownerId, reason: 'Bỏ qua người đang trực',
+    })
+    expect(missingCurrent.status).toBe(409)
+    expect((await missingCurrent.json() as any).error.code).toBe('CURRENT_LEAD_REQUIRED')
+    const linkedAlias = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
+      version: 3, currentLeadMemberId: replaced.newLead.id, currentLeadMemberVersion: 1,
+      personId: `person-contributor-${suffix}`, reason: 'Cùng một người qua person id',
+    })
+    expect(linkedAlias.status).toBe(409)
+    expect((await linkedAlias.json() as any).error.code).toBe('LEAD_TARGET_ALREADY_ACTIVE')
+
+    const activeLeads = await db.select().from(operationWorkstreamMembers).where(and(
+      eq(operationWorkstreamMembers.parishId, parishA), eq(operationWorkstreamMembers.workstreamId, workstream.id),
+      eq(operationWorkstreamMembers.operationRole, 'WORKSTREAM_LEAD'),
+    ))
+    expect(activeLeads.filter(member => !member.removedAt)).toEqual([expect.objectContaining({ id: replaced.newLead.id, userId: contributorId })])
+    expect(activeLeads.find(member => member.id === currentLead.id)?.removedAt).toBeTruthy()
+    const auditRows = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, workstream.id), eq(auditLogs.action, 'REPLACE_LEAD'),
+    ))
+    expect(auditRows).toHaveLength(1)
+    expect(auditRows[0]?.newValue).toContain('Bàn giao ca trực')
+
+    const liveWorkstreamWithoutLead = await data(await request('/workstreams', adminToken, 'POST', {
+      eventId: event.id, sourceUnitId: branchId, name: 'Nhóm phát sinh tại hiện trường',
+    }))
+    const genericAppointment = await request(`/workstreams/${liveWorkstreamWithoutLead.id}/members`, adminToken, 'POST', {
+      version: 1, userId: ownerId, operationRole: 'WORKSTREAM_LEAD',
+    })
+    expect(genericAppointment.status).toBe(409)
+    expect((await genericAppointment.json() as any).error.code).toBe('USE_LEAD_REPLACEMENT')
+    const appointed = await request(`/workstreams/${liveWorkstreamWithoutLead.id}/lead/replace`, adminToken, 'POST', {
+      version: 1, userId: ownerId, reason: 'Bổ nhiệm cho nhóm phát sinh',
+    })
+    expect(appointed.status).toBe(201)
+    expect(await data(appointed)).toMatchObject({
+      previousLead: null,
+      newLead: { userId: ownerId, operationRole: 'WORKSTREAM_LEAD' },
+      workstreamVersion: 2,
+    })
   })
 
   it('keeps Trưởng Xứ đoàn and Trưởng ban as scoped positions, not account roles', async () => {
@@ -430,16 +919,73 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(outsideCommittee.status).toBe(403)
   })
 
-  it('keeps parish_events authoritative for public calendar summaries', async () => {
-    const noSource = await request('/events', adminToken, 'POST', {
-      title: 'Không có lịch nguồn', eventType: 'CAMP', startsAt: '2026-10-06T08:00:00+07:00', endsAt: '2026-10-06T17:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
+  it('rejects invalid IANA event timezones at the API boundary', async () => {
+    const response = await request('/events', adminToken, 'POST', {
+      title: 'Timezone không hợp lệ',
+      eventType: 'MEETING',
+      startsAt: '2026-10-01T08:00:00+07:00',
+      endsAt: '2026-10-01T10:00:00+07:00',
+      timezone: 'Not/A_Real_Time_Zone',
     })
-    expect(noSource.status).toBe(400)
-    const event = await createEvent({ title: 'Trại hè', eventType: 'CAMP', visibility: 'PUBLIC_SUMMARY', sourceParishEventId: sourceEventId, expectedHeadcount: 80 })
-    const duplicate = await request('/events', adminToken, 'POST', {
-      sourceParishEventId: sourceEventId, title: 'Bản Operations trùng', eventType: 'CAMP', startsAt: '2026-10-01T08:00:00+07:00', endsAt: '2026-10-01T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
+    expect(response.status).toBe(400)
+  })
+
+  it('owns public calendar projection and durable parent notification without exposing operations data', async () => {
+    const internal = await createEvent({
+      title: 'Họp nội bộ', eventType: 'MEETING', startsAt: '2026-10-06T08:00:00+07:00', endsAt: '2026-10-06T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh', visibility: 'INTERNAL',
     })
-    expect(duplicate.status).toBe(409)
+    expect(internal.sourceParishEventId).toBeNull()
+    const event = await createEvent({
+      title: 'Trại hè',
+      eventType: 'CAMP',
+      startsAt: '2026-10-01T00:30:00+07:00',
+      endsAt: '2026-10-01T02:30:00+07:00',
+      timezone: 'Asia/Ho_Chi_Minh',
+      visibility: 'PUBLIC_SUMMARY',
+      location: 'Sân giáo xứ',
+      expectedHeadcount: 80,
+    })
+    expect(event.sourceParishEventId).toBeNull()
+    expect((await db.select().from(parishEvents).where(and(eq(parishEvents.parishId, parishA), eq(parishEvents.title, 'Trại hè'))))).toHaveLength(0)
+    expect((await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-OPS-PUBLIC-${event.id}-1`))))).toHaveLength(0)
+    expect((await db.select().from(parishEvents).where(and(eq(parishEvents.parishId, parishA), eq(parishEvents.title, 'Họp nội bộ'))))).toHaveLength(0)
+    const clientManagedLink = await request('/events', adminToken, 'POST', {
+      sourceParishEventId: sourceEventId, title: 'Client tự chọn nguồn', eventType: 'CAMP', startsAt: '2026-10-01T08:00:00+07:00', endsAt: '2026-10-01T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
+    })
+    expect(clientManagedLink.status).toBe(400)
+    expect((await clientManagedLink.json() as any).error.code).toBe('CALENDAR_LINK_SERVER_MANAGED')
+
+    const changed = await data(await request(`/events/${event.id}`, adminToken, 'PUT', {
+      version: event.version, title: 'Trại hè cập nhật', startsAt: '2026-10-01T01:15:00+07:00', endsAt: '2026-10-01T03:15:00+07:00', location: 'Sân lớn', visibility: 'PUBLIC_SUMMARY',
+    }))
+    expect(changed.sourceParishEventId).toBeNull()
+    const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: changed.version, status: 'PLANNING' }))
+    const generatedSourceEventId = planning.sourceParishEventId
+    expect(generatedSourceEventId).toMatch(/^EVT-/)
+    const projected = (await db.select().from(parishEvents).where(and(eq(parishEvents.parishId, parishA), eq(parishEvents.id, generatedSourceEventId))))[0]
+    expect(projected).toMatchObject({ date: '2026-10-01', title: 'Trại hè cập nhật', category: 'CAMP', time: '01:15', location: 'Sân lớn', deletedAt: null })
+    expect((await db.select().from(parishEvents).where(and(eq(parishEvents.parishId, parishA), eq(parishEvents.id, generatedSourceEventId))))[0]).toMatchObject({ title: 'Trại hè cập nhật', time: '01:15', location: 'Sân lớn' })
+    const [parentNotice] = await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-OPS-PUBLIC-${event.id}-${planning.version}`)))
+    expect(JSON.parse(parentNotice.targetUserIds!)).toEqual([parentId])
+    expect(parentNotice.message).toContain('2026-10-01 lúc 01:15, tại Sân lớn')
+    expect(parentNotice.message).not.toContain('task')
+
+    const temporaryPublic = await createEvent({ title: 'Sự kiện chuyển nội bộ', visibility: 'PUBLIC_SUMMARY' })
+    const temporaryPlanning = await data(await request(`/events/${temporaryPublic.id}/transition`, adminToken, 'POST', { version: temporaryPublic.version, status: 'PLANNING' }))
+    const temporarySourceId = temporaryPlanning.sourceParishEventId
+    const hidden = await data(await request(`/events/${temporaryPublic.id}`, adminToken, 'PUT', { version: temporaryPlanning.version, visibility: 'INTERNAL' }))
+    expect(hidden).toMatchObject({ visibility: 'INTERNAL', sourceParishEventId: null })
+    expect((await db.select().from(parishEvents).where(and(eq(parishEvents.parishId, parishA), eq(parishEvents.id, temporarySourceId))))[0].deletedAt).not.toBeNull()
+
+    const rewindPublic = await createEvent({ title: 'Sự kiện công khai lùi về nháp', visibility: 'PUBLIC_SUMMARY' })
+    const rewindPlanning = await data(await request(`/events/${rewindPublic.id}/transition`, adminToken, 'POST', { version: rewindPublic.version, status: 'PLANNING' }))
+    const rewindSourceId = rewindPlanning.sourceParishEventId
+    const draftAgain = await data(await request(`/events/${rewindPublic.id}/transition`, adminToken, 'POST', {
+      version: rewindPlanning.version, status: 'DRAFT', reason: 'Rà soát lại nội dung trước khi công bố',
+    }))
+    expect(draftAgain).toMatchObject({ status: 'DRAFT', sourceParishEventId: null, automationPaused: true })
+    expect((await db.select().from(parishEvents).where(and(eq(parishEvents.parishId, parishA), eq(parishEvents.id, rewindSourceId))))[0].deletedAt).not.toBeNull()
+    expect(await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-OPS-PUBLIC-${rewindPublic.id}-${rewindPlanning.version}`)))).toHaveLength(1)
 
     const participant = await request(`/events/${event.id}/participants`, adminToken, 'POST', { userId: ownerId, participantRole: 'ATTENDEE' })
     expect(participant.status).toBe(201)
@@ -453,19 +999,19 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(headcount).toMatchObject({ expected: 80, total: 1 })
     const summary = await data(await request('/events/public-summary', adminToken))
     const item = summary.find((candidate: any) => candidate.operationEventId === event.id)
-    expect(item).toMatchObject({ id: sourceEventId, operationEventId: event.id, title: 'Lịch Trại hè' })
+    expect(item).toMatchObject({ id: generatedSourceEventId, operationEventId: event.id, title: 'Trại hè cập nhật', time: '01:15', location: 'Sân lớn' })
     expect(item).not.toHaveProperty('description')
 
     const existingMemoryId = `memory-existing-${suffix}`
     await db.insert(parishRecords).values({
       id: existingMemoryId, parishId: parishA, recordType: 'MILESTONE', title: 'Mốc lịch sử do người dùng quản lý', summary: 'Không thuộc Operations', content: null,
       occurredOn: '2026-10-01', endedOn: null, location: null, status: 'DRAFT', visibility: 'STAFF', showOnTimeline: true,
-      sourceEventId, createdBy: adminId, updatedBy: adminId, publishedBy: null, publishedAt: null,
+      sourceEventId: generatedSourceEventId, createdBy: adminId, updatedBy: adminId, publishedBy: null, publishedAt: null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null,
     })
 
-    const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 1, status: 'PLANNING' }))
-    const ready = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'READY' }))
+    const preparing = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'PREPARING' }))
+    const ready = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: preparing.version, status: 'READY' }))
     const live = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: ready.version, status: 'LIVE' }))
     const editLive = await request(`/events/${event.id}`, adminToken, 'PUT', { version: live.version, title: 'Không được sửa lịch sử LIVE' })
     expect(editLive.status).toBe(409)
@@ -483,7 +1029,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(completionReplay.headers.get('Idempotency-Replayed')).toBe('true')
     const records = await db.select().from(parishRecords).where(and(
       eq(parishRecords.parishId, parishA),
-      eq(parishRecords.sourceEventId, sourceEventId),
+      eq(parishRecords.sourceEventId, generatedSourceEventId),
     ))
     expect(records).toHaveLength(2)
     expect(records.find(record => record.id === existingMemoryId)).toMatchObject({
@@ -491,14 +1037,208 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       title: 'Mốc lịch sử do người dùng quản lý',
       summary: 'Không thuộc Operations',
     })
-    expect(records.find(record => record.id !== existingMemoryId)).toMatchObject({
+    const ownedCompletionRecord = records.find(record => record.id !== existingMemoryId)
+    expect(ownedCompletionRecord).toMatchObject({
       recordType: 'ACTIVITY',
-      sourceEventId,
+      sourceEventId: generatedSourceEventId,
       summary: '80 em tham dự, chương trình hoàn tất an toàn.',
+      occurredOn: '2026-10-01',
+      endedOn: '2026-10-01',
     })
+    expect(completed.completionRecordId).toBe(ownedCompletionRecord?.id)
+
+    const missingRewindReason = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: completed.version, status: 'LIVE' })
+    expect(missingRewindReason.status).toBe(400)
+    expect((await missingRewindReason.json() as any).error.code).toBe('EVENT_REWIND_REASON_REQUIRED')
+    const rewound = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', {
+      version: completed.version, status: 'LIVE', reason: 'Mở lại để bổ sung biên bản hiện trường',
+    }))
+    expect(rewound).toMatchObject({ status: 'LIVE', automationPaused: true, completionRecordId: ownedCompletionRecord?.id })
+    expect((await request(`/events/${event.id}/automation/resume`, adminToken, 'POST', { version: completed.version, reason: 'Phiên bản cũ' })).status).toBe(409)
+    const resumed = await data(await request(`/events/${event.id}/automation/resume`, adminToken, 'POST', {
+      version: rewound.version, reason: 'Đã xác nhận tiếp tục lịch tự động',
+    }))
+    expect(resumed).toMatchObject({ status: 'LIVE', automationPaused: false, automationPausedAt: null, automationPausedBy: null, automationPauseReason: null })
+    const recompleted = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', {
+      version: resumed.version, status: 'COMPLETED', outcomeSummary: 'Đã bổ sung biên bản; 80 em tham dự an toàn.',
+    }))
+    expect(recompleted).toMatchObject({ status: 'COMPLETED', completionRecordId: ownedCompletionRecord?.id })
+    const recordsAfterRecompletion = await db.select().from(parishRecords).where(and(eq(parishRecords.parishId, parishA), eq(parishRecords.sourceEventId, generatedSourceEventId)))
+    expect(recordsAfterRecompletion).toHaveLength(2)
+    expect(recordsAfterRecompletion.find(record => record.id === existingMemoryId)?.summary).toBe('Không thuộc Operations')
+    expect(recordsAfterRecompletion.find(record => record.id === ownedCompletionRecord?.id)?.summary).toBe('Đã bổ sung biên bản; 80 em tham dự an toàn.')
+    const lifecycleAudit = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, event.id)))
+    expect(lifecycleAudit).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'REWIND', newValue: expect.stringContaining('Mở lại để bổ sung biên bản hiện trường') }),
+      expect.objectContaining({ action: 'RESUME_AUTOMATION', newValue: expect.stringContaining('Đã xác nhận tiếp tục lịch tự động') }),
+    ]))
     expect((await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Không thêm task sau completed' })).status).toBe(409)
     expect((await request('/workstreams', adminToken, 'POST', { eventId: event.id, name: 'Không thêm workstream sau completed' })).status).toBe(409)
     expect((await request(`/events/${event.id}/participants`, adminToken, 'POST', { userId: contributorId, participantRole: 'ATTENDEE' })).status).toBe(409)
+  })
+
+  it('reserves public event projection for Trưởng Xứ đoàn while unit leaders remain internal-only', async () => {
+    const denied = await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Thông báo ngành chưa được duyệt', eventType: 'MEETING',
+      startsAt: '2026-10-20T08:00:00+07:00', endsAt: '2026-10-20T10:00:00+07:00',
+      timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
+    })
+    expect(denied.status).toBe(403)
+
+    const internal = await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Họp nội bộ ngành', eventType: 'MEETING',
+      startsAt: '2026-10-20T08:00:00+07:00', endsAt: '2026-10-20T10:00:00+07:00',
+      timezone: 'Asia/Ho_Chi_Minh', visibility: 'INTERNAL',
+    })
+    expect(internal.status).toBe(201)
+
+    const published = await request('/events', parishLeaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Thông báo ngành đã duyệt', eventType: 'MEETING',
+      startsAt: '2026-10-21T08:00:00+07:00', endsAt: '2026-10-21T10:00:00+07:00',
+      timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
+    })
+    expect(published.status).toBe(201)
+    let publishedEvent = await data(published)
+    expect(publishedEvent.sourceParishEventId).toBeNull()
+    publishedEvent = await data(await request(`/events/${publishedEvent.id}/transition`, parishLeaderToken, 'POST', { version: publishedEvent.version, status: 'PLANNING' }))
+    expect(publishedEvent.sourceParishEventId).toMatch(/^EVT-/)
+
+    const organizerCancel = await request(`/events/${publishedEvent.id}/transition`, leaderToken, 'POST', {
+      version: publishedEvent.version, status: 'CANCELLED', reason: 'Organizer thử tắt lịch công khai',
+    })
+    expect(organizerCancel.status).toBe(403)
+    expect((await db.select().from(parishEvents).where(and(
+      eq(parishEvents.parishId, parishA), eq(parishEvents.id, publishedEvent.sourceParishEventId), isNull(parishEvents.deletedAt),
+    )))).toHaveLength(1)
+
+    const parishLeaderCancel = await request(`/events/${publishedEvent.id}/transition`, parishLeaderToken, 'POST', {
+      version: publishedEvent.version, status: 'CANCELLED', reason: 'Trưởng Xứ đoàn duyệt hủy',
+    })
+    expect(parishLeaderCancel.status).toBe(200)
+    expect((await db.select().from(parishEvents).where(and(
+      eq(parishEvents.parishId, parishA), eq(parishEvents.id, publishedEvent.sourceParishEventId), isNull(parishEvents.deletedAt),
+    )))).toHaveLength(0)
+  })
+
+  it('grants admin parish-scoped authority in production regardless of legacy flags', async () => {
+    expect(isOperationsAdminMutationOverrideEnabled({})).toBe(true)
+    expect(isOperationsAdminMutationOverrideEnabled({ NODE_ENV: 'development' })).toBe(true)
+    expect(isOperationsAdminMutationOverrideEnabled({ OPERATIONS_ADMIN_MUTATION_OVERRIDE: 'false' })).toBe(true)
+    expect(isOperationsAdminMutationOverrideEnabled({ NODE_ENV: 'production', OPERATIONS_ADMIN_MUTATION_OVERRIDE: 'true' })).toBe(true)
+    const previousNodeEnv = process.env.NODE_ENV
+    const previousOverride = process.env.OPERATIONS_ADMIN_MUTATION_OVERRIDE
+    try {
+      process.env.NODE_ENV = 'production'
+      process.env.OPERATIONS_ADMIN_MUTATION_OVERRIDE = 'true'
+      expect((await resolveOperationsAuthorization(
+        { userId: adminId, role: 'admin', parishId: parishA },
+        'operations.event.view',
+        { parishId: parishA },
+      )).allowed).toBe(true)
+      expect((await resolveOperationsAuthorization(
+        { userId: adminId, role: 'admin', parishId: parishA },
+        'operations.event.create',
+        { parishId: parishA },
+      )).allowed).toBe(true)
+      expect((await resolveOperationsAuthorization(
+        { userId: adminId, role: 'admin', parishId: parishA },
+        'operations.event.create', { parishId: parishB },
+      )).allowed).toBe(false)
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = previousNodeEnv
+      if (previousOverride === undefined) delete process.env.OPERATIONS_ADMIN_MUTATION_OVERRIDE
+      else process.env.OPERATIONS_ADMIN_MUTATION_OVERRIDE = previousOverride
+    }
+  })
+
+  it('rejects new tasks during LIVE even for admin, including tasks reached through a workstream', async () => {
+    const event = await createEvent({ title: 'Giới hạn tạo task' })
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { eventId: event.id, name: 'Nhóm thực hiện' }))
+    await db.update(operationEvents).set({ status: 'LIVE' }).where(and(eq(operationEvents.parishId, parishA), eq(operationEvents.id, event.id)))
+    for (const target of [{ eventId: event.id }, { workstreamId: workstream.id }]) {
+      const response = await request('/tasks', adminToken, 'POST', { ...target, title: 'Không được tạo khi đang diễn ra' })
+      expect(response.status).toBe(409)
+      expect((await response.json() as any).error.code).toBe('EVENT_IMMUTABLE')
+    }
+  })
+
+  it('stores a tenant-scoped OCC retrospective without copying its content into audit history', async () => {
+    const event = await createEvent({ title: 'Hậu kiểm trại', scopeUnitId: branchId })
+    const beforeLive = await request(`/events/${event.id}/retrospective`, adminToken, 'PUT', { expectedVersion: null, lessonsLearned: 'Chưa được ghi sớm.' })
+    expect(beforeLive.status).toBe(409)
+    expect((await beforeLive.json() as any).error.code).toBe('RETROSPECTIVE_REQUIRES_COMPLETED')
+
+    let current = event
+    for (const status of ['PLANNING', 'PREPARING', 'READY', 'LIVE'] as const) current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status }))
+
+    const whileLive = await request(`/events/${event.id}/retrospective`, leaderToken, 'PUT', { expectedVersion: null, lessonsLearned: 'Chưa được ghi khi đang diễn ra.' })
+    expect(whileLive.status).toBe(409)
+    expect((await whileLive.json() as any).error.code).toBe('RETROSPECTIVE_REQUIRES_COMPLETED')
+    const liveDetail = await data(await request(`/events/${event.id}`, leaderToken))
+    expect(liveDetail.closure.blockers).toEqual([])
+    current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'COMPLETED', outcomeSummary: 'Chương trình hoàn thành an toàn.' }))
+
+    const stableKey = `retrospective-${suffix}`
+    const createdResponse = await request(`/events/${event.id}/retrospective`, leaderToken, 'PUT', { expectedVersion: null, lessonsLearned: 'Phân công sớm giúp giảm chờ đợi.', improvementNotes: 'Chốt vật dụng trước ba ngày.' }, stableKey)
+    expect(createdResponse.status).toBe(200)
+    expect(await data(createdResponse)).toMatchObject({ parishId: parishA, eventId: event.id, version: 1 })
+    const replay = await request(`/events/${event.id}/retrospective`, leaderToken, 'PUT', { expectedVersion: null, lessonsLearned: 'Phân công sớm giúp giảm chờ đợi.', improvementNotes: 'Chốt vật dụng trước ba ngày.' }, stableKey)
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
+
+    const stale = await request(`/events/${event.id}/retrospective`, leaderToken, 'PUT', { expectedVersion: null, lessonsLearned: 'Ghi đè lỗi.' })
+    expect(stale.status).toBe(409)
+    expect((await stale.json() as any).error.code).toBe('VERSION_CONFLICT')
+    const changed = await data(await request(`/events/${event.id}/retrospective`, leaderToken, 'PUT', { expectedVersion: 1, lessonsLearned: 'Phân công sớm và xác nhận rõ.', improvementNotes: null }))
+    expect(changed).toMatchObject({ version: 2, improvementNotes: null })
+
+    const detail = await data(await request(`/events/${event.id}`, leaderToken))
+    expect(detail.retrospective).toMatchObject({ eventId: event.id, lessonsLearned: 'Phân công sớm và xác nhận rõ.', version: 2 })
+    const audits = await db.select({ oldValue: auditLogs.oldValue, newValue: auditLogs.newValue }).from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, event.id), eq(auditLogs.action, 'UPDATE_RETROSPECTIVE')))
+    expect(JSON.stringify(audits)).not.toContain('Phân công sớm')
+    expect(JSON.stringify(audits)).not.toContain('Chốt vật dụng')
+    expect(current.status).toBe('COMPLETED')
+  })
+
+  it('creates a completed-event follow-up and its actionable OWNER atomically within organization scope', async () => {
+    const event = await createEvent({ title: 'Follow-up hậu kiểm', scopeUnitId: branchId })
+    let current = event
+    for (const status of ['PLANNING', 'PREPARING', 'READY', 'LIVE'] as const) current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status }))
+    current = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: current.version, status: 'COMPLETED', outcomeSummary: 'Đã hoàn tất.' }))
+    expect((await request(`/events/${event.id}/retrospective`, leaderToken, 'PUT', { expectedVersion: null, lessonsLearned: 'Đã rà soát sau khi đóng.' })).status).toBe(200)
+
+    const outside = await request(`/events/${event.id}/follow-ups`, leaderToken, 'POST', { eventVersion: current.version, title: 'Ngoài phạm vi', dueAt: '2026-10-20T08:00:00+07:00', userId: committeeLeaderId })
+    expect(outside.status).toBe(403)
+    expect((await outside.json() as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
+    const planningOnly = await request(`/events/${event.id}/follow-ups`, leaderToken, 'POST', { eventVersion: current.version, title: 'Không có đường nhận việc', dueAt: '2026-10-20T08:00:00+07:00', personId: unlinkedPersonId })
+    expect(planningOnly.status).toBe(400)
+    expect((await planningOnly.json() as any).error.code).toBe('INVALID_OPERATIONS_TARGET')
+
+    await request('/blockouts', contributorToken, 'POST', { userId: contributorId, startsAt: '2026-10-20T07:00:00+07:00', endsAt: '2026-10-20T09:00:00+07:00', reason: 'Lịch riêng không được lộ' })
+    const stableKey = `follow-up-${suffix}`
+    const payload = { eventVersion: current.version, title: 'Chốt bộ checklist dùng lại', description: 'Rút kinh nghiệm thành hành động.', dueAt: '2026-10-20T08:00:00+07:00', userId: contributorId, priority: 'HIGH' }
+    const createdResponse = await request(`/events/${event.id}/follow-ups`, leaderToken, 'POST', payload, stableKey)
+    expect(createdResponse.status).toBe(201)
+    const created = await data(createdResponse)
+    expect(created.task).toMatchObject({ parishId: parishA, operationEventId: event.id, phase: 'FOLLOW_UP', status: 'TODO', priority: 'HIGH', isRequired: false, version: 1 })
+    expect(created.assignment).toMatchObject({ taskId: created.task.id, userId: contributorId, assignmentRole: 'OWNER', acknowledgementStatus: 'PENDING', version: 1 })
+    expect(created.eventVersion).toBe(current.version + 1)
+    expect(created.conflictWarnings).toEqual([expect.objectContaining({ startsAt: '2026-10-20T00:00:00.000Z', endsAt: '2026-10-20T02:00:00.000Z' })])
+    expect(JSON.stringify(created.conflictWarnings)).not.toContain('Lịch riêng')
+
+    const replay = await request(`/events/${event.id}/follow-ups`, leaderToken, 'POST', payload, stableKey)
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await data(replay)).task.id).toBe(created.task.id)
+    const stale = await request(`/events/${event.id}/follow-ups`, leaderToken, 'POST', { ...payload, title: 'Stale child' })
+    expect(stale.status).toBe(409)
+    const persistedTasks = await db.select().from(operationTasks).where(and(eq(operationTasks.parishId, parishA), eq(operationTasks.operationEventId, event.id)))
+    const persistedOwners = await db.select().from(operationTaskAssignees).where(and(eq(operationTaskAssignees.parishId, parishA), eq(operationTaskAssignees.taskId, created.task.id), eq(operationTaskAssignees.assignmentRole, 'OWNER')))
+    expect(persistedTasks.filter(task => task.title === payload.title)).toHaveLength(1)
+    expect(persistedTasks.some(task => task.title === 'Stale child')).toBe(false)
+    expect(persistedOwners).toHaveLength(1)
   })
 
   it('enforces dependency cycles, checklist completion and approval roles', async () => {
@@ -513,6 +1253,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const gated = await data(await request('/tasks', adminToken, 'POST', { title: 'Task cần duyệt', eventId: event.id, requiresApproval: true }))
     const owner = await data(await request(`/tasks/${gated.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
     const approver = await data(await request(`/tasks/${gated.id}/assign`, adminToken, 'POST', { version: owner.taskVersion, userId: contributorId, assignmentRole: 'APPROVER' }))
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
     expect((await request(`/tasks/${gated.id}/acknowledge`, ownerToken, 'POST', { assignmentId: owner.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
     expect((await request(`/tasks/${gated.id}/acknowledge`, contributorToken, 'POST', { assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
     const checklist = await data(await request(`/tasks/${gated.id}/checklist`, adminToken, 'POST', { version: approver.taskVersion, label: 'Đã kiểm tra', isRequired: true }))
@@ -592,7 +1333,8 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const overdueAfterCancellation = await data(await request(`/tasks?eventId=${event.id}&overdue=true`, adminToken))
     expect(overdueAfterCancellation.map((task: any) => task.id)).toContain(required.id)
     expect(overdueAfterCancellation.map((task: any) => task.id)).not.toContain(cancelledRequired.id)
-    const ready = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 2, status: 'READY' })
+    const preparing = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 2, status: 'PREPARING', override: true }))
+    const ready = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: preparing.version, status: 'READY' })
     expect(ready.status).toBe(409)
     expect((await ready.json() as any).error.code).toBe('READINESS_BLOCKED')
   })
@@ -600,11 +1342,168 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
   it('revalidates readiness when READY transitions to LIVE', async () => {
     const event = await createEvent({ title: 'Event readiness revalidation' })
     const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: 1, status: 'PLANNING' }))
-    const ready = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'READY' }))
+    const preparing = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'PREPARING' }))
+    const ready = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: preparing.version, status: 'READY' }))
     expect((await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Required task added after READY', isRequired: true })).status).toBe(201)
     const live = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: ready.version, status: 'LIVE' })
     expect(live.status).toBe(409)
     expect((await live.json() as any).error.code).toBe('READINESS_BLOCKED')
+  })
+
+  it('restores a cancelled task with manager authority, OCC, receipt replay and audit history', async () => {
+    const event = await createEvent({ title: 'Event khôi phục task' })
+    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Việc bắt buộc cần khôi phục', isRequired: true }))
+    const assigned = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: task.version, userId: ownerId, assignmentRole: 'OWNER' }))
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: assigned.assignment.id, version: assigned.assignment.version, status: 'ACCEPTED' })).status).toBe(200)
+    const started = await data(await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: assigned.taskVersion, status: 'IN_PROGRESS' }))
+    const cancelled = await data(await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: started.version, status: 'CANCELLED', cancellationReason: 'Tạm thời không còn nhân lực', completionNote: 'Ghi chú cũ không được giữ khi mở lại' }))
+
+    expect((await request(`/tasks/${task.id}/restore`, adminToken, 'POST', { version: cancelled.version })).status).toBe(400)
+    expect((await request(`/tasks/${task.id}/restore`, ownerToken, 'POST', { version: cancelled.version, reason: 'Owner không có quyền quản lý' })).status).toBe(403)
+    expect((await request(`/tasks/${task.id}/restore`, foreignToken, 'POST', { version: cancelled.version, reason: 'Sai giáo xứ' })).status).toBe(404)
+
+    const receipt = `restore-task-${suffix}`
+    const restoredResponse = await request(`/tasks/${task.id}/restore`, adminToken, 'POST', { version: cancelled.version, reason: 'Đây vẫn là điều kiện bắt buộc để đóng sự kiện' }, receipt)
+    expect(restoredResponse.status).toBe(200)
+    const restored = await data(restoredResponse)
+    expect(restored).toMatchObject({ id: task.id, status: 'TODO', cancellationReason: null, blockedReason: null, startedAt: null, completedAt: null, completedBy: null, completionNote: null, version: cancelled.version + 1 })
+    const replay = await request(`/tasks/${task.id}/restore`, adminToken, 'POST', { version: cancelled.version, reason: 'Đây vẫn là điều kiện bắt buộc để đóng sự kiện' }, receipt)
+    expect(replay.status).toBe(200)
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await data(replay)).version).toBe(restored.version)
+    const stale = await request(`/tasks/${task.id}/restore`, adminToken, 'POST', { version: cancelled.version, reason: 'Request cũ' })
+    expect(stale.status).toBe(409)
+
+    const [restoreAudit] = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.action, 'RESTORE'), eq(auditLogs.entityId, task.id)))
+    expect(restoreAudit.oldValue).toContain('Tạm thời không còn nhân lực')
+    expect(restoreAudit.newValue).toContain('Đây vẫn là điều kiện bắt buộc để đóng sự kiện')
+
+    const closedEvent = await createEvent({ title: 'Event đã hủy' })
+    const closedTask = await data(await request('/tasks', adminToken, 'POST', { eventId: closedEvent.id, title: 'Task trong event đóng' }))
+    const closedAssignment = await data(await request(`/tasks/${closedTask.id}/assign`, adminToken, 'POST', { version: closedTask.version, userId: ownerId, assignmentRole: 'OWNER' }))
+    const closedPlanning = await data(await request(`/events/${closedEvent.id}/transition`, adminToken, 'POST', { version: closedEvent.version, status: 'PLANNING' }))
+    expect((await request(`/tasks/${closedTask.id}/acknowledge`, ownerToken, 'POST', { assignmentId: closedAssignment.assignment.id, version: closedAssignment.assignment.version, status: 'ACCEPTED' })).status).toBe(200)
+    const closedCancelledTask = await data(await request(`/tasks/${closedTask.id}/transition`, ownerToken, 'POST', { version: closedAssignment.taskVersion, status: 'CANCELLED', cancellationReason: 'Hủy cùng event' }))
+    expect((await request(`/events/${closedEvent.id}/transition`, adminToken, 'POST', { version: closedPlanning.version, status: 'CANCELLED', reason: 'Không tổ chức' })).status).toBe(200)
+    const rejected = await request(`/tasks/${closedTask.id}/restore`, adminToken, 'POST', { version: closedCancelledTask.version, reason: 'Không được mở lại child của event đóng' })
+    expect(rejected.status).toBe(409)
+    expect((await rejected.json() as any).error.code).toBe('EVENT_IMMUTABLE')
+  })
+
+  it('snapshots, previews, versions and atomically instantiates scoped event templates without copying authority state', async () => {
+    const source = await createEvent({
+      title: 'Trại nguồn v1', description: 'Nội dung riêng chỉ nằm trong snapshot mẫu', scopeUnitId: branchId,
+      startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T04:00:00Z', location: 'Sân xứ đoàn', expectedHeadcount: 80,
+    })
+    const sourceTask = await data(await request('/tasks', adminToken, 'POST', {
+      eventId: source.id, title: 'Chuẩn bị cổng trại', description: 'Dựng cổng chính', phase: 'PREPARATION', priority: 'HIGH',
+      isRequired: true, requiresApproval: true, dueAt: '2026-10-01T00:00:00Z', scheduledStartAt: '2026-10-01T01:30:00Z', scheduledEndAt: '2026-10-01T02:30:00Z',
+    }))
+    const checklistResult = await data(await request(`/tasks/${sourceTask.id}/checklist`, adminToken, 'POST', { version: sourceTask.version, label: 'Kiểm tra độ chắc chắn', isRequired: true, sortOrder: 2 }))
+    const assignment = await data(await request(`/tasks/${sourceTask.id}/assign`, adminToken, 'POST', { version: checklistResult.taskVersion, userId: ownerId, assignmentRole: 'OWNER' }))
+    expect(assignment.assignment.acknowledgementStatus).toBe('PENDING')
+    const publishedSource = await data(await request(`/events/${source.id}/transition`, adminToken, 'POST', { version: source.version, status: 'PLANNING' }))
+
+    const createKey = `template-create-${suffix}`
+    const createdResponse = await request(`/events/${source.id}/templates`, leaderToken, 'POST', { eventVersion: publishedSource.version, name: 'Mẫu trại Ngành Thiếu', description: 'Mẫu nội bộ của ngành' }, createKey)
+    expect(createdResponse.status).toBe(201)
+    const template = await data(createdResponse)
+    expect(template).toMatchObject({ parishId: parishA, scopeUnitId: branchId, latestVersion: 1, version: 1, isActive: true })
+    const replay = await request(`/events/${source.id}/templates`, leaderToken, 'POST', { eventVersion: publishedSource.version, name: 'Mẫu trại Ngành Thiếu', description: 'Mẫu nội bộ của ngành' }, createKey)
+    expect(replay.status).toBe(200)
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await data(replay)).id).toBe(template.id)
+
+    const leaderTemplates = await data(await request('/templates', leaderToken))
+    expect(leaderTemplates).toEqual(expect.arrayContaining([expect.objectContaining({ id: template.id })]))
+    const committeeTemplates = await data(await request('/templates', committeeLeaderToken))
+    expect(committeeTemplates.map((item: any) => item.id)).not.toContain(template.id)
+    expect((await request(`/templates/${template.id}/preview?startsAt=${encodeURIComponent('2027-02-01T01:00:00Z')}`, foreignToken)).status).toBe(404)
+
+    const previewV1 = await data(await request(`/templates/${template.id}/preview?version=1&startsAt=${encodeURIComponent('2027-02-01T01:00:00Z')}`, leaderToken))
+    expect(previewV1.preview.event).toMatchObject({ title: 'Trại nguồn v1', startsAt: '2027-02-01T01:00:00.000Z', endsAt: '2027-02-01T04:00:00.000Z' })
+    expect(previewV1.preview.tasks).toEqual([
+      expect.objectContaining({ title: 'Chuẩn bị cổng trại', phase: 'PREPARATION', dueAt: '2027-02-01T00:00:00.000Z', scheduledStartAt: '2027-02-01T01:30:00.000Z', scheduledEndAt: '2027-02-01T02:30:00.000Z', requiresApproval: true, checklist: [expect.objectContaining({ label: 'Kiểm tra độ chắc chắn', isRequired: true, sortOrder: 2 })] }),
+    ])
+    expect(previewV1.preview.tasks[0]).not.toHaveProperty('status')
+
+    const organizerCandidatesResponse = await request(`/candidates?eventId=${source.id}&limit=500`, leaderToken)
+    expect(organizerCandidatesResponse.status, await organizerCandidatesResponse.clone().text()).toBe(200)
+    expect((await data(organizerCandidatesResponse)).map((candidate: any) => candidate.userId)).toContain(leaderId)
+
+    const instantiateKey = `template-instantiate-${suffix}`
+    const instantiatedResponse = await request(`/templates/${template.id}/instantiate`, leaderToken, 'POST', {
+      templateVersion: 1, startsAt: '2027-02-01T08:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh', visibility: 'INTERNAL', organizerUserId: leaderId,
+    }, instantiateKey)
+    expect(instantiatedResponse.status, await instantiatedResponse.clone().text()).toBe(201)
+    const instantiated = await data(instantiatedResponse)
+    expect(instantiated.event).toMatchObject({ parishId: parishA, scopeUnitId: branchId, sourceTemplateId: template.id, sourceTemplateVersion: 1, status: 'DRAFT', startsAt: '2027-02-01T01:00:00.000Z' })
+    expect(instantiated.tasks).toEqual([expect.objectContaining({ operationEventId: instantiated.event.id, status: 'TODO', approvalStatus: 'PENDING', dueAt: '2027-02-01T00:00:00.000Z', scheduledStartAt: '2027-02-01T01:30:00.000Z', scheduledEndAt: '2027-02-01T02:30:00.000Z' })])
+    expect(instantiated.checklist).toEqual([expect.objectContaining({ taskId: instantiated.tasks[0].id, label: 'Kiểm tra độ chắc chắn', isDone: false })])
+    expect(await db.select().from(operationTaskAssignees).where(and(eq(operationTaskAssignees.parishId, parishA), eq(operationTaskAssignees.taskId, instantiated.tasks[0].id)))).toHaveLength(0)
+    const instantiateReplay = await request(`/templates/${template.id}/instantiate`, leaderToken, 'POST', {
+      templateVersion: 1, startsAt: '2027-02-01T08:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh', visibility: 'INTERNAL', organizerUserId: leaderId,
+    }, instantiateKey)
+    expect(instantiateReplay.status).toBe(200)
+    expect((await data(instantiateReplay)).event.id).toBe(instantiated.event.id)
+
+    const updatedSource = await data(await request(`/events/${source.id}`, leaderToken, 'PUT', { version: publishedSource.version, title: 'Trại nguồn v2' }))
+    const version2Response = await request(`/templates/${template.id}/versions`, leaderToken, 'POST', {
+      expectedVersion: 1, expectedLatestVersion: 1, sourceEventId: source.id, sourceEventVersion: updatedSource.version, reason: 'Chuẩn hóa tên chương trình',
+    })
+    expect(version2Response.status).toBe(201)
+    expect(await data(version2Response)).toMatchObject({ id: template.id, latestVersion: 2, version: 2 })
+    const staleVersion = await request(`/templates/${template.id}/versions`, leaderToken, 'POST', {
+      expectedVersion: 1, expectedLatestVersion: 1, sourceEventId: source.id, sourceEventVersion: updatedSource.version, reason: 'Request cũ',
+    })
+    expect(staleVersion.status).toBe(409)
+    const oldPreview = await data(await request(`/templates/${template.id}/preview?version=1&startsAt=${encodeURIComponent('2027-03-01T01:00:00Z')}`, leaderToken))
+    const latestPreview = await data(await request(`/templates/${template.id}/preview?startsAt=${encodeURIComponent('2027-03-01T01:00:00Z')}`, leaderToken))
+    expect(oldPreview.preview.event.title).toBe('Trại nguồn v1')
+    expect(latestPreview.preview.event.title).toBe('Trại nguồn v2')
+
+    expect((await request(`/templates/${template.id}/archive`, leaderToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 2 })).status).toBe(400)
+    expect((await request(`/templates/${template.id}/archive`, committeeLeaderToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 2, reason: 'Ngoài phạm vi' })).status).toBe(403)
+    expect((await request(`/templates/${template.id}/archive`, foreignToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 2, reason: 'Sai giáo xứ' })).status).toBe(404)
+    expect((await request(`/templates/${template.id}/archive`, leaderToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 1, reason: 'Phiên bản cũ' })).status).toBe(409)
+    const archiveKey = `template-archive-${suffix}`
+    const archivedResponse = await request(`/templates/${template.id}/archive`, leaderToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 2, reason: 'Tạm ẩn mẫu để rà soát' }, archiveKey)
+    expect(archivedResponse.status).toBe(200)
+    expect(await data(archivedResponse)).toMatchObject({ id: template.id, latestVersion: 2, version: 3, isActive: false })
+    const archivedReplay = await request(`/templates/${template.id}/archive`, leaderToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 2, reason: 'Tạm ẩn mẫu để rà soát' }, archiveKey)
+    expect(archivedReplay.status).toBe(200)
+    expect(archivedReplay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await data(await request('/templates', leaderToken))).map((item: any) => item.id)).not.toContain(template.id)
+    expect(await data(await request('/templates?archived=true', leaderToken))).toEqual(expect.arrayContaining([expect.objectContaining({ id: template.id, isActive: false })]))
+    expect((await request(`/templates/${template.id}/preview?startsAt=${encodeURIComponent('2027-03-01T01:00:00Z')}`, leaderToken)).status).toBe(404)
+    expect((await request(`/templates/${template.id}/versions`, leaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, sourceEventId: source.id, sourceEventVersion: updatedSource.version, reason: 'Không sửa mẫu đã archive' })).status).toBe(404)
+    expect((await request(`/templates/${template.id}/instantiate`, leaderToken, 'POST', { templateVersion: 2, startsAt: '2027-04-01T01:00:00Z', timezone: 'Asia/Ho_Chi_Minh' })).status).toBe(404)
+    expect((await request(`/templates/${template.id}/archive`, leaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, reason: 'Không archive hai lần' })).status).toBe(409)
+    expect((await request(`/templates/${template.id}/restore`, leaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2 })).status).toBe(400)
+    expect((await request(`/templates/${template.id}/restore`, committeeLeaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, reason: 'Ngoài phạm vi' })).status).toBe(403)
+    expect((await request(`/templates/${template.id}/restore`, foreignToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, reason: 'Sai giáo xứ' })).status).toBe(404)
+    expect((await request(`/templates/${template.id}/restore`, leaderToken, 'POST', { expectedVersion: 2, expectedLatestVersion: 2, reason: 'Command cũ' })).status).toBe(409)
+
+    const restoreKey = `template-restore-${suffix}`
+    const restoredResponse = await request(`/templates/${template.id}/restore`, leaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, reason: 'Đã rà soát xong' }, restoreKey)
+    expect(restoredResponse.status).toBe(200)
+    expect(await data(restoredResponse)).toMatchObject({ id: template.id, latestVersion: 2, version: 4, isActive: true })
+    const restoredReplay = await request(`/templates/${template.id}/restore`, leaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, reason: 'Đã rà soát xong' }, restoreKey)
+    expect(restoredReplay.status).toBe(200)
+    expect(restoredReplay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await request(`/templates/${template.id}/restore`, leaderToken, 'POST', { expectedVersion: 4, expectedLatestVersion: 2, reason: 'Không restore hai lần' })).status).toBe(409)
+    expect((await request(`/templates/${template.id}/archive`, leaderToken, 'POST', { expectedVersion: 3, expectedLatestVersion: 2, reason: 'Command lifecycle cũ sau vòng archive/restore' })).status).toBe(409)
+    expect((await data(await request('/templates', leaderToken))).map((item: any) => item.id)).toContain(template.id)
+    expect((await data(await request('/templates?archived=true', leaderToken))).map((item: any) => item.id)).not.toContain(template.id)
+
+    const [templateAudit] = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityType, 'operation_event_template'), eq(auditLogs.entityId, template.id), eq(auditLogs.action, 'CREATE')))
+    expect(templateAudit.newValue).not.toContain('Nội dung riêng chỉ nằm trong snapshot mẫu')
+    const lifecycleAudits = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityType, 'operation_event_template'), eq(auditLogs.entityId, template.id)))
+    expect(lifecycleAudits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'ARCHIVE', newValue: expect.stringContaining('Tạm ẩn mẫu để rà soát') }),
+      expect.objectContaining({ action: 'RESTORE', newValue: expect.stringContaining('Đã rà soát xong') }),
+    ]))
   })
 
   it('rejects mixed resource identifiers instead of combining unrelated operational roles', async () => {
@@ -623,9 +1522,10 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const member = await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 1, userId: ownerId, operationRole: 'WORKSTREAM_LEAD' })
     expect(member.status).toBe(201)
     const memberRow = await data(member)
+    const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
     const leadTask = await request('/tasks', ownerToken, 'POST', { workstreamId: workstream.id, title: 'Mua nước' })
     expect(leadTask.status).toBe(201)
-    const eventTransition = await request(`/events/${event.id}/transition`, ownerToken, 'POST', { version: 1, status: 'PLANNING' })
+    const eventTransition = await request(`/events/${event.id}/transition`, ownerToken, 'POST', { version: planning.version, status: 'PREPARING' })
     expect(eventTransition.status).toBe(403)
 
     const removed = await request(`/workstreams/${workstream.id}/members/${memberRow.id}/remove`, adminToken, 'POST', { version: 2, memberVersion: 1, reason: 'Đổi trưởng nhóm' })
@@ -676,20 +1576,101 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     }
   })
 
+  it('validates task shift windows and warns only for true interval overlap', async () => {
+    expect((await request('/tasks', adminToken, 'POST', {
+      title: 'Ca thiếu giờ kết thúc', scheduledStartAt: '2031-04-01T09:00:00Z',
+    })).status).toBe(400)
+    expect((await request('/tasks', adminToken, 'POST', {
+      title: 'Ca đảo thời gian', scheduledStartAt: '2031-04-01T10:00:00Z', scheduledEndAt: '2031-04-01T09:00:00Z',
+    })).status).toBe(400)
+
+    const before = await data(await request('/blockouts', contributorToken, 'POST', {
+      userId: contributorId, startsAt: '2031-04-01T08:00:00Z', endsAt: '2031-04-01T09:00:00Z', reason: 'Chạm biên trước',
+    }))
+    const overlap = await data(await request('/blockouts', contributorToken, 'POST', {
+      userId: contributorId, startsAt: '2031-04-01T09:30:00Z', endsAt: '2031-04-01T10:30:00Z', reason: 'Giao ca riêng tư',
+    }))
+    const after = await data(await request('/blockouts', contributorToken, 'POST', {
+      userId: contributorId, startsAt: '2031-04-01T10:00:00Z', endsAt: '2031-04-01T11:00:00Z', reason: 'Chạm biên sau',
+    }))
+    const task = await data(await request('/tasks', adminToken, 'POST', {
+      title: 'Ca phục vụ chính', dueAt: '2031-04-01T18:00:00Z', scheduledStartAt: '2031-04-01T09:00:00Z', scheduledEndAt: '2031-04-01T10:00:00Z',
+    }))
+    expect(task).toMatchObject({ scheduledStartAt: '2031-04-01T09:00:00.000Z', scheduledEndAt: '2031-04-01T10:00:00.000Z' })
+    const assigned = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: task.version, userId: contributorId, assignmentRole: 'CONTRIBUTOR' }))
+    expect(assigned.conflictWarnings).toEqual([{ id: overlap.id, startsAt: '2031-04-01T09:30:00.000Z', endsAt: '2031-04-01T10:30:00.000Z' }])
+    expect(assigned.conflictWarnings.map((warning: any) => warning.id)).not.toEqual(expect.arrayContaining([before.id, after.id]))
+    expect(JSON.stringify(assigned.conflictWarnings)).not.toContain('Giao ca riêng tư')
+
+    const invalidUpdate = await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: assigned.taskVersion, scheduledStartAt: '2031-04-01T11:30:00Z' })
+    expect(invalidUpdate.status).toBe(400)
+    expect((await invalidUpdate.json() as any).error.code).toBe('INVALID_TASK_SCHEDULE')
+    const cleared = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: assigned.taskVersion, scheduledStartAt: null, scheduledEndAt: null }))
+    expect(cleared).toMatchObject({ scheduledStartAt: null, scheduledEndAt: null, version: assigned.taskVersion + 1 })
+  })
+
   it('cancels pending reminders atomically with receipts and refuses already queued delivery', async () => {
     const event = await createEvent({ organizerUserId: ownerId })
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
     const reminder = await data(await request('/reminders', adminToken, 'POST', { eventId: event.id, recipientUserId: ownerId, triggerAt: '2099-01-01T00:00:00Z', kind: 'EVENT_START' }))
-    expect((await request(`/reminders/${reminder.id}/cancel`, foreignToken, 'POST', { reason: 'Foreign' })).status).toBe(404)
-    expect((await request(`/reminders/${reminder.id}/cancel`, contributorToken, 'POST', { reason: 'Unscoped' })).status).toBe(403)
+    expect((await request(`/reminders/${reminder.id}/cancel`, foreignToken, 'POST', { expectedVersion: reminder.version, reason: 'Foreign' })).status).toBe(404)
+    expect((await request(`/reminders/${reminder.id}/cancel`, contributorToken, 'POST', { expectedVersion: reminder.version, reason: 'Unscoped' })).status).toBe(403)
+    expect((await request(`/reminders/${reminder.id}/cancel`, ownerToken, 'POST', { reason: 'Legacy client' })).status).toBe(400)
     const receipt = `cancel-${suffix}`
-    expect((await request(`/reminders/${reminder.id}/cancel`, ownerToken, 'POST', { reason: 'Không cần' }, receipt)).status).toBe(200)
-    expect((await request(`/reminders/${reminder.id}/cancel`, ownerToken, 'POST', { reason: 'Không cần' }, receipt)).status).toBe(200)
+    expect((await request(`/reminders/${reminder.id}/cancel`, ownerToken, 'POST', { expectedVersion: reminder.version, reason: 'Không cần' }, receipt)).status).toBe(200)
+    expect((await request(`/reminders/${reminder.id}/cancel`, ownerToken, 'POST', { expectedVersion: reminder.version, reason: 'Không cần' }, receipt)).status).toBe(200)
     const [stored] = await db.select().from(operationReminders).where(eq(operationReminders.id, reminder.id))
-    expect(stored.status).toBe('CANCELLED')
+    expect(stored).toMatchObject({ status: 'CANCELLED', version: reminder.version + 1 })
     expect(stored.notificationId).toBeNull()
     const queued = await data(await request('/reminders', adminToken, 'POST', { eventId: event.id, recipientUserId: ownerId, triggerAt: '2099-01-02T00:00:00Z', kind: 'EVENT_START' }))
     await db.update(operationReminders).set({ status: 'ENQUEUED' }).where(eq(operationReminders.id, queued.id))
-    expect((await request(`/reminders/${queued.id}/cancel`, ownerToken, 'POST', { reason: 'Quá muộn' })).status).toBe(409)
+    expect((await request(`/reminders/${queued.id}/cancel`, ownerToken, 'POST', { expectedVersion: queued.version, reason: 'Quá muộn' })).status).toBe(409)
+  })
+
+  it('reschedules with OCC and prevents a worker candidate from enqueueing the old due time', async () => {
+    const event = await createEvent({ organizerUserId: ownerId })
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const original = await data(await request('/reminders', adminToken, 'POST', { eventId: event.id, recipientUserId: ownerId, triggerAt: '2020-01-01T00:00:00Z', kind: 'EVENT_START' }))
+    expect(original.version).toBe(1)
+
+    let interleaved = false
+    const run = await processDueOperationReminders(new Date('2026-10-01T00:00:00Z'), {
+      beforeClaim: async candidate => {
+        if (candidate.id !== original.id || interleaved) return
+        interleaved = true
+        const changed = await request(`/reminders/${original.id}/reschedule`, adminToken, 'POST', {
+          expectedVersion: original.version,
+          triggerAt: '2099-03-01T00:00:00Z',
+          reason: 'Dời giờ sự kiện',
+        }, `reschedule-race-${suffix}`)
+        expect(changed.status).toBe(200)
+        expect(await data(changed)).toMatchObject({ id: original.id, status: 'PENDING', version: 2, triggerAt: '2099-03-01T00:00:00.000Z' })
+      },
+    })
+    expect(interleaved).toBe(true)
+    expect(run.enqueued).toBe(0)
+    expect(await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-${original.id}`)))).toHaveLength(0)
+    const [stored] = await db.select().from(operationReminders).where(and(eq(operationReminders.parishId, parishA), eq(operationReminders.id, original.id)))
+    expect(stored).toMatchObject({ status: 'PENDING', version: 2, triggerAt: '2099-03-01T00:00:00.000Z', nextAttemptAt: null, error: null })
+
+    const resourceList = await request(`/reminders?eventId=${event.id}`, ownerToken)
+    expect(resourceList.status).toBe(200)
+    const visible = await data(resourceList)
+    expect(visible).toEqual(expect.arrayContaining([expect.objectContaining({ id: original.id, recipientUserId: ownerId, version: 2 })]))
+    expect(visible[0]).not.toHaveProperty('dedupeKey')
+    expect(visible[0]).not.toHaveProperty('notificationId')
+    expect((await request(`/reminders?eventId=${event.id}`, foreignToken)).status).not.toBe(200)
+
+    const stale = await request(`/reminders/${original.id}/reschedule`, adminToken, 'POST', { expectedVersion: 1, triggerAt: '2099-04-01T00:00:00Z', reason: 'Stale edit' })
+    expect(stale.status).toBe(409)
+    expect((await stale.json() as any).error.code).toBe('VERSION_CONFLICT')
+
+    const collision = await data(await request('/reminders', adminToken, 'POST', { eventId: event.id, recipientUserId: ownerId, triggerAt: '2099-04-01T00:00:00Z', kind: 'EVENT_START' }))
+    expect(collision.id).not.toBe(original.id)
+    const collisionEdit = await request(`/reminders/${original.id}/reschedule`, adminToken, 'POST', { expectedVersion: 2, triggerAt: collision.triggerAt, reason: 'Trùng lịch hiện tại' })
+    expect(collisionEdit.status).toBe(409)
+    const [unchanged] = await db.select().from(operationReminders).where(and(eq(operationReminders.parishId, parishA), eq(operationReminders.id, original.id)))
+    expect(unchanged).toMatchObject({ version: 2, triggerAt: '2099-03-01T00:00:00.000Z' })
   })
 
   it('persists reminder delivery through the shared queue and reconciles provider outcome', async () => {
@@ -789,5 +1770,160 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(auditRow.newValue).not.toContain('Đã liên hệ ban hậu cần')
     expect(auditRow.newValue).toContain(comment.id)
     expect((await request(`/tasks/${taskId}/comments`, ownerToken, 'POST', { content: 'Bad URL', evidenceUrl: 'http://example.test' })).status).toBe(400)
+  })
+
+  it('invites a reserve at 70 percent and atomically assigns the first valid acceptance', async () => {
+    const event = await createEvent({ title: 'Phân công chính và dự bị', scopeUnitId: branchId, startsAt: '2035-01-01T08:00:00Z', endsAt: '2035-01-01T12:00:00Z' })
+    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Trực cổng chính' }))
+    const dispatchResponse = await request(`/tasks/${task.id}/dispatch`, adminToken, 'POST', {
+      version: task.version, primaryUserId: ownerId, reserveUserId: contributorId, acknowledgeBy: '2034-01-01T00:00:00Z',
+    })
+    expect(dispatchResponse.status).toBe(201)
+    const scheduled = await data(dispatchResponse)
+    expect(scheduled.dispatch).toMatchObject({ status: 'SCHEDULED', primaryInvitedAt: null, reserveInviteAt: null, version: 1 })
+    expect(await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-OPS-DISPATCH-${scheduled.dispatch.id}-PRIMARY`)))).toHaveLength(0)
+    const ownerBypass = await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: scheduled.taskVersion, userId: ownerId, assignmentRole: 'OWNER' })
+    expect(ownerBypass.status).toBe(409)
+    expect((await ownerBypass.json() as any).error.code).toBe('TASK_DISPATCH_ACTIVE')
+
+    const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    expect(planning.status).toBe('PLANNING')
+    const [pending] = await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, scheduled.dispatch.id)))
+    expect(pending).toMatchObject({ status: 'PENDING', version: 2 })
+    expect(pending.primaryInvitedAt).toBeTruthy()
+    expect(pending.reserveInviteAt).toBeTruthy()
+    expect(await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-OPS-DISPATCH-${pending.id}-PRIMARY`)))).toHaveLength(1)
+    expect(await data(await request('/dispatches/inbox', ownerToken))).toEqual([
+      expect.objectContaining({ id: pending.id, taskId: task.id, target: 'PRIMARY', taskTitle: 'Trực cổng chính', eventTitle: 'Phân công chính và dự bị' }),
+    ])
+    expect(await data(await request('/dispatches/inbox', contributorToken))).toEqual([])
+
+    const hiddenAgain = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'DRAFT', reason: 'Điều chỉnh lại nội dung nháp' }))
+    expect(await data(await request('/dispatches/inbox', ownerToken))).toEqual([])
+    const hiddenAcceptance = await request(`/tasks/${task.id}/dispatches/${pending.id}/accept`, ownerToken, 'POST', { version: pending.version, target: 'PRIMARY' })
+    expect(hiddenAcceptance.status).toBe(409)
+    expect((await hiddenAcceptance.json() as any).error.code).toBe('DISPATCH_EVENT_NOT_OPEN')
+    expect((await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: hiddenAgain.version, status: 'PLANNING' })).status).toBe(200)
+
+    await processDueOperationTaskDispatches(new Date(new Date(pending.reserveInviteAt!).getTime() - 1))
+    expect((await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, pending.id))))[0].reserveInvitedAt).toBeNull()
+    const reserveRun = await processDueOperationTaskDispatches(new Date(pending.reserveInviteAt!))
+    expect(reserveRun.invited).toBeGreaterThanOrEqual(1)
+    const [reserveInvited] = await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, pending.id)))
+    expect(reserveInvited).toMatchObject({ status: 'PENDING', version: 3, reserveInvitedAt: pending.reserveInviteAt })
+    expect(await db.select().from(notifications).where(and(eq(notifications.parishId, parishA), eq(notifications.id, `NOT-OPS-DISPATCH-${pending.id}-RESERVE`)))).toHaveLength(1)
+    expect(await data(await request('/dispatches/inbox', contributorToken))).toEqual([
+      expect.objectContaining({ id: pending.id, target: 'RESERVE' }),
+    ])
+
+    const primaryWin = await request(`/tasks/${task.id}/dispatches/${pending.id}/accept`, ownerToken, 'POST', { version: reserveInvited.version, target: 'PRIMARY' })
+    expect(primaryWin.status).toBe(200)
+    const accepted = await data(primaryWin)
+    expect(accepted).toMatchObject({ dispatch: { status: 'ACCEPTED', acceptedTarget: 'PRIMARY' }, assignment: { userId: ownerId, assignmentRole: 'OWNER', acknowledgementStatus: 'ACCEPTED' } })
+    const reserveLost = await request(`/tasks/${task.id}/dispatches/${pending.id}/accept`, contributorToken, 'POST', { version: reserveInvited.version, target: 'RESERVE' })
+    expect(reserveLost.status).toBe(409)
+    expect((await reserveLost.json() as any).error.code).toBe('VERSION_CONFLICT')
+    expect(await db.select().from(operationTaskAssignees).where(and(eq(operationTaskAssignees.parishId, parishA), eq(operationTaskAssignees.taskId, task.id), eq(operationTaskAssignees.assignmentRole, 'OWNER'), isNull(operationTaskAssignees.removedAt)))).toHaveLength(1)
+
+    const reserveTask = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Trực cổng dự phòng' }))
+    const immediate = await data(await request(`/tasks/${reserveTask.id}/dispatch`, adminToken, 'POST', {
+      version: reserveTask.version, primaryUserId: ownerId, reserveUserId: contributorId, acknowledgeBy: '2034-02-01T00:00:00Z',
+    }))
+    expect(immediate.dispatch).toMatchObject({ status: 'PENDING', version: 1 })
+    await processDueOperationTaskDispatches(new Date(immediate.dispatch.reserveInviteAt))
+    const [secondInvited] = await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, immediate.dispatch.id)))
+    const reserveWin = await request(`/tasks/${reserveTask.id}/dispatches/${secondInvited.id}/accept`, contributorToken, 'POST', { version: secondInvited.version, target: 'RESERVE' })
+    expect(reserveWin.status).toBe(200)
+    expect(await data(reserveWin)).toMatchObject({ dispatch: { acceptedTarget: 'RESERVE' }, assignment: { userId: contributorId, acknowledgementStatus: 'ACCEPTED' } })
+    expect((await request(`/tasks/${reserveTask.id}/dispatches/${secondInvited.id}/accept`, ownerToken, 'POST', { version: secondInvited.version, target: 'PRIMARY' })).status).toBe(409)
+  })
+
+  it('cancels open dispatches when their task or event is closed', async () => {
+    const event = await createEvent({ title: 'Đóng lời mời', scopeUnitId: branchId, startsAt: '2035-01-01T08:00:00Z', endsAt: '2035-01-01T12:00:00Z' })
+    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Task bị hủy' }))
+    const dispatch = await data(await request(`/tasks/${task.id}/dispatch`, adminToken, 'POST', {
+      version: task.version, primaryUserId: ownerId, reserveUserId: contributorId, acknowledgeBy: '2034-01-01T00:00:00Z',
+    }))
+    const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const executor = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: dispatch.taskVersion, userId: ownerId, assignmentRole: 'CONTRIBUTOR' }))
+    expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: executor.assignment.id, version: executor.assignment.version, status: 'ACCEPTED' })).status).toBe(200)
+    expect((await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: executor.taskVersion, status: 'CANCELLED', cancellationReason: 'Không còn cần công việc' })).status).toBe(200)
+    expect((await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, dispatch.dispatch.id))))[0].status).toBe('CANCELLED')
+
+    const eventTask = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Task đóng cùng sự kiện' }))
+    const eventDispatch = await data(await request(`/tasks/${eventTask.id}/dispatch`, adminToken, 'POST', {
+      version: eventTask.version, primaryUserId: ownerId, acknowledgeBy: '2034-01-01T00:00:00Z',
+    }))
+    expect((await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'CANCELLED', reason: 'Hủy sự kiện thử nghiệm' })).status).toBe(200)
+    expect((await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, eventDispatch.dispatch.id))))[0].status).toBe('CANCELLED')
+  })
+
+  it('converges due event phases with multi-instance CAS while preserving unfinished work', async () => {
+    const starting = await createEvent({
+      title: 'Tự động bắt đầu', startsAt: '2032-01-01T08:00:00Z', endsAt: '2032-01-01T12:00:00Z',
+    })
+    const startingPlanning = await data(await request(`/events/${starting.id}/transition`, adminToken, 'POST', { version: starting.version, status: 'PLANNING' }))
+
+    const ending = await createEvent({
+      title: 'Tự động hoàn thành', visibility: 'PUBLIC_SUMMARY', startsAt: '2032-01-01T08:00:00Z', endsAt: '2032-01-01T10:00:00Z',
+    })
+    const unfinishedTask = await data(await request('/tasks', adminToken, 'POST', { eventId: ending.id, title: 'Task còn dang dở', isRequired: true }))
+    const unfinishedChecklist = await data(await request(`/tasks/${unfinishedTask.id}/checklist`, adminToken, 'POST', { version: unfinishedTask.version, label: 'Mục chưa đánh dấu', isRequired: true }))
+    const unfinishedDispatch = await data(await request(`/tasks/${unfinishedTask.id}/dispatch`, adminToken, 'POST', {
+      version: unfinishedChecklist.taskVersion, primaryUserId: ownerId, reserveUserId: contributorId, acknowledgeBy: '2033-01-01T00:00:00Z',
+    }))
+    const endingPlanning = await data(await request(`/events/${ending.id}/transition`, adminToken, 'POST', { version: ending.version, status: 'PLANNING' }))
+
+    const paused = await createEvent({
+      title: 'Tạm dừng tự động', startsAt: '2032-01-01T08:00:00Z', endsAt: '2032-01-01T12:00:00Z',
+    })
+    const pausedPlanning = await data(await request(`/events/${paused.id}/transition`, adminToken, 'POST', { version: paused.version, status: 'PLANNING' }))
+    const pausedPreparing = await data(await request(`/events/${paused.id}/transition`, adminToken, 'POST', { version: pausedPlanning.version, status: 'PREPARING' }))
+    const pausedAgain = await data(await request(`/events/${paused.id}/transition`, adminToken, 'POST', {
+      version: pausedPreparing.version, status: 'PLANNING', reason: 'Tạm dừng kiểm tra tại hiện trường',
+    }))
+
+    const raced = await createEvent({
+      title: 'Ứng viên bị instance khác cập nhật', startsAt: '2032-01-01T08:00:00Z', endsAt: '2032-01-01T12:00:00Z',
+    })
+    const racedPlanning = await data(await request(`/events/${raced.id}/transition`, adminToken, 'POST', { version: raced.version, status: 'PLANNING' }))
+    let interleaved = false
+    const run = await processDueOperationEventTransitions(new Date('2032-01-01T11:00:00Z'), {
+      beforeClaim: async candidate => {
+        if (candidate.id !== raced.id || interleaved) return
+        interleaved = true
+        await db.update(operationEvents).set({ version: racedPlanning.version + 1, updatedAt: '2032-01-01T10:59:59Z' }).where(and(
+          eq(operationEvents.parishId, parishA), eq(operationEvents.id, raced.id), eq(operationEvents.version, racedPlanning.version),
+        ))
+      },
+    })
+    expect(interleaved).toBe(true)
+    expect(run.started).toBeGreaterThanOrEqual(1)
+    expect(run.completed).toBeGreaterThanOrEqual(1)
+    expect(run.skipped).toBeGreaterThanOrEqual(1)
+
+    const [startedRow] = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, parishA), eq(operationEvents.id, starting.id)))
+    expect(startedRow).toMatchObject({ status: 'LIVE', version: startingPlanning.version + 1, updatedBy: 'SYSTEM_OPERATIONS_LIFECYCLE' })
+    const [endingRow] = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, parishA), eq(operationEvents.id, ending.id)))
+    expect(endingRow).toMatchObject({ status: 'COMPLETED', version: endingPlanning.version + 1 })
+    expect(endingRow.outcomeSummary).toContain('còn 1 task và 1 mục checklist chưa hoàn tất')
+    expect(endingRow.completionRecordId).toBeTruthy()
+    const [completionRecord] = await db.select().from(parishRecords).where(and(eq(parishRecords.parishId, parishA), eq(parishRecords.id, endingRow.completionRecordId!)))
+    expect(completionRecord).toMatchObject({ recordType: 'ACTIVITY', sourceEventId: endingPlanning.sourceParishEventId, summary: endingRow.outcomeSummary })
+    const [unchangedTask] = await db.select().from(operationTasks).where(and(eq(operationTasks.parishId, parishA), eq(operationTasks.id, unfinishedTask.id)))
+    const [unchangedChecklist] = await db.select().from(operationChecklistItems).where(and(eq(operationChecklistItems.parishId, parishA), eq(operationChecklistItems.id, unfinishedChecklist.item.id)))
+    expect(unchangedTask.status).toBe('TODO')
+    expect(unchangedChecklist.isDone).toBe(false)
+    expect((await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, unfinishedDispatch.dispatch.id))))[0].status).toBe('CANCELLED')
+
+    const [pausedRow] = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, parishA), eq(operationEvents.id, paused.id)))
+    expect(pausedRow).toMatchObject({ status: 'PLANNING', version: pausedAgain.version, automationPaused: true })
+    const [racedRow] = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, parishA), eq(operationEvents.id, raced.id)))
+    expect(racedRow).toMatchObject({ status: 'PLANNING', version: racedPlanning.version + 1 })
+    const [autoStartAudit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, starting.id), eq(auditLogs.action, 'AUTO_TRANSITION'),
+    ))
+    expect(autoStartAudit.newValue).toContain('"missedReady":true')
+    expect(autoStartAudit.newValue).toContain('chưa ở trạng thái Sẵn sàng')
   })
 })

@@ -80,8 +80,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <div
           ref={modalRef}
           onClick={(e) => e.stopPropagation()}
-          className="modal-content w-[90%] max-w-[400px]"
-          style={{ padding: '24px' }}
+          className="modal-content w-full max-w-[420px] p-5 sm:p-6"
         >
           <div className="flex items-center gap-3 mb-4">
             <div
@@ -99,12 +98,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {message}
           </p>
 
-          <div className="flex gap-2.5 justify-end">
+          <div className="flex flex-col-reverse sm:flex-row gap-2.5 justify-end">
             {showCancel && (
               <Button
                 ref={cancelRef}
                 onClick={onCancel}
                 variant="secondary"
+                className="w-full sm:w-auto min-h-11"
               >
                 {cancelText}
               </Button>
@@ -116,7 +116,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               loading={isBusy}
               loadingLabel="Đang xử lý..."
               variant="plain"
-              className="text-white disabled:opacity-50"
+              className="w-full sm:w-auto min-h-11 text-white disabled:opacity-50"
               style={{ background: config.btnBg }}
               onMouseEnter={(e) => { if (!isBusy) e.currentTarget.style.background = config.btnHoverBg }}
               onMouseLeave={(e) => (e.currentTarget.style.background = config.btnBg)}

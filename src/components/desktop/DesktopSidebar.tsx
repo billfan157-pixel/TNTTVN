@@ -2,14 +2,15 @@ import React from 'react';
 import {
   LayoutDashboard, Users, FileSpreadsheet, CheckSquare,
   Printer, Bell, ShieldCheck, Settings,
-  UserCheck, FileText, HeartHandshake, CalendarClock, Wallet, Landmark, MessageSquareText
+  UserCheck, FileText, HeartHandshake, CalendarClock, Wallet, Landmark, MessageSquareText,
+  ClipboardList
 } from 'lucide-react';
 import type { ClassInfo, BranchInfo } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
-import { WORKSPACE_DEFINITIONS, canRoleAccessRoute, getAccessibleWorkspaces, type WorkspaceId } from '../../constants/routePolicy';
+import { WORKSPACE_DEFINITIONS, canRoleAccessRoute, getAccessibleWorkspaces, type WorkspaceId, type DesktopRouteTab } from '../../constants/routePolicy';
 
-export type DesktopTab = 'dashboard' | 'parish-home' | 'students' | 'grades' | 'attendance' | 'reports' | 'calendar' | 'parish-profile' | 'notices' | 'users' | 'classes' | 'academic-years' | 'catechists' | 'audit-logs' | 'settings' | 'management' | 'parent' | 'finances' | 'feedback';
+export type DesktopTab = DesktopRouteTab;
 
 interface DesktopSidebarProps {
   activeTab: DesktopTab;
@@ -81,6 +82,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     const organization: SidebarItem[] = [
       { id: 'parish-home', label: 'Tổng Quan Xứ Đoàn', icon: LayoutDashboard },
       { id: 'parish-profile', label: 'Hồ Sơ Xứ Đoàn', icon: Landmark },
+      ...(canRoleAccessRoute('/operations', role) ? [{ id: 'operations' as const, label: 'Công Việc', icon: ClipboardList } as SidebarItem] : []),
       { id: 'catechists', label: 'Giáo Lý Viên', icon: UserCheck },
       { id: 'calendar', label: 'Lịch Phụng Vụ', icon: CalendarClock },
       { id: 'notices', label: 'Thông Báo', icon: Bell },
@@ -103,7 +105,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     if (activeWorkspace === 'organization') {
       return [
         { items: organization },
-        ...(organizationGovernance.length ? [{ label: 'VẬN HÀNH XỨ ĐOÀN', items: organizationGovernance }] : []),
+        ...(organizationGovernance.length ? [{ label: 'TÀI CHÍNH XỨ ĐOÀN', items: organizationGovernance }] : []),
         ...(platformGovernance.length ? [{ label: 'QUẢN TRỊ NỀN TẢNG', items: platformGovernance }] : []),
       ];
     }

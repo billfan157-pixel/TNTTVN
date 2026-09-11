@@ -20,15 +20,6 @@ export interface ParishEvent {
   deletedAt?: string | null
 }
 
-export interface ParishEventMutationInput {
-  date: string
-  title: string
-  category: ParishEvent['category']
-  categoryName?: string
-  time?: string
-  location?: string
-}
-
 type ParishEventSource = 'server' | 'cache' | 'none'
 
 interface ParishEventState {
@@ -37,9 +28,6 @@ interface ParishEventState {
   error: string | null
   source: ParishEventSource
   fetchEvents: (params?: { from?: string; to?: string }) => Promise<void>
-  createEvent: (data: ParishEventMutationInput) => Promise<ParishEvent>
-  updateEvent: (id: string, data: Partial<Pick<ParishEvent, 'date' | 'title' | 'category' | 'categoryName' | 'time' | 'location'>>) => Promise<ParishEvent>
-  deleteEvent: (id: string) => Promise<boolean>
   getEventsByDate: (date: string) => ParishEvent[]
   clear: () => void
 }
@@ -105,13 +93,6 @@ async function loadCache(parishId: string, scopeId: string): Promise<ParishEvent
   }
 }
 
-function requireActiveScope(): { parishId: string; scopeId: string } {
-  const parishId = activeParishId()
-  const scopeId = activeScopeId()
-  if (!parishId || !scopeId) throw new Error('Phiên giáo xứ chưa sẵn sàng. Vui lòng đăng nhập lại.')
-  return { parishId, scopeId }
-}
-
 export const useParishEventStore = create<ParishEventState>((set, get) => ({
   events: [],
   loading: false,
@@ -147,62 +128,6 @@ export const useParishEventStore = create<ParishEventState>((set, get) => ({
         error: errorMessage(error, 'Không tải được lịch Xứ đoàn'),
         source: cached.length > 0 ? 'cache' : 'none',
       })
-    }
-  },
-
-  createEvent: async (data) => {
-    const { parishId, scopeId } = requireActiveScope()
-    try {
-      const created = await api.createParishEvent(data)
-      if (activeScopeId() !== scopeId || created.parishId !== parishId) {
-        throw new Error('Không thể xác nhận sự kiện trong giáo xứ hiện tại')
-      }
-      const events = [...get().events.filter(event => event.parishId === parishId), created]
-      set({ events, error: null, source: 'server' })
-      await saveCache(events, parishId, scopeId).catch(() => undefined)
-      return created
-    } catch (error) {
-      const message = errorMessage(error, 'Không thể lưu sự kiện khi chưa kết nối máy chủ')
-      if (activeScopeId() === scopeId) set({ error: message })
-      throw error instanceof Error ? error : new Error(message)
-    }
-  },
-
-  updateEvent: async (id, data) => {
-    const { parishId, scopeId } = requireActiveScope()
-    const existing = get().events.find(event => event.id === id && event.parishId === parishId)
-    if (!existing) throw new Error('Không tìm thấy sự kiện trong giáo xứ hiện tại')
-    try {
-      const updated = await api.updateParishEvent(id, data)
-      if (activeScopeId() !== scopeId || updated.parishId !== parishId) {
-        throw new Error('Không thể xác nhận sự kiện trong giáo xứ hiện tại')
-      }
-      const events = get().events.map(event => event.id === id && event.parishId === parishId ? updated : event)
-      set({ events, error: null, source: 'server' })
-      await saveCache(events, parishId, scopeId).catch(() => undefined)
-      return updated
-    } catch (error) {
-      const message = errorMessage(error, 'Không thể cập nhật sự kiện khi chưa kết nối máy chủ')
-      if (activeScopeId() === scopeId) set({ error: message })
-      throw error instanceof Error ? error : new Error(message)
-    }
-  },
-
-  deleteEvent: async (id) => {
-    const { parishId, scopeId } = requireActiveScope()
-    const existing = get().events.find(event => event.id === id && event.parishId === parishId)
-    if (!existing) throw new Error('Không tìm thấy sự kiện trong giáo xứ hiện tại')
-    try {
-      await api.deleteParishEvent(id)
-      if (activeScopeId() !== scopeId) throw new Error('Phiên giáo xứ đã thay đổi')
-      const events = get().events.filter(event => !(event.id === id && event.parishId === parishId))
-      set({ events, error: null, source: 'server' })
-      await saveCache(events, parishId, scopeId).catch(() => undefined)
-      return true
-    } catch (error) {
-      const message = errorMessage(error, 'Không thể xóa sự kiện khi chưa kết nối máy chủ')
-      if (activeScopeId() === scopeId) set({ error: message })
-      throw error instanceof Error ? error : new Error(message)
     }
   },
 

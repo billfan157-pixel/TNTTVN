@@ -20,6 +20,7 @@ export type DesktopRouteTab =
   | 'parent'
   | 'finances'
   | 'feedback'
+  | 'operations'
 
 export type MobileRouteTab =
   | 'home'
@@ -76,7 +77,7 @@ export const ROUTE_POLICIES = {
   '/parish': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Tổng Quan Xứ Đoàn', workspace: 'organization', desktopTab: 'parish-home', mobileTab: 'parish-home' },
   '/notices': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thông Báo', workspace: 'organization', desktopTab: 'notices', mobileTab: 'notices' },
   '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch Phụng Vụ', workspace: 'organization', desktopTab: 'calendar', mobileTab: 'calendar' },
-  '/operations': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Vận Hành', workspace: 'organization', desktopTab: 'parish-home' },
+  '/operations': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Công Việc', workspace: 'organization', desktopTab: 'operations' },
   '/parish-profile': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Hồ Sơ Xứ Đoàn', workspace: 'organization', desktopTab: 'parish-profile', mobileTab: 'parish-profile' },
   '/settings': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Cài Đặt', workspace: 'shared', desktopTab: 'settings', mobileTab: 'settings' },
   '/feedback': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thư Góp Ý', workspace: 'shared', desktopTab: 'feedback' },
@@ -117,6 +118,7 @@ export const DESKTOP_TAB_PATHS = {
   parent: '/parent',
   finances: '/finances',
   feedback: '/feedback',
+  operations: '/operations',
 } as const satisfies Record<DesktopRouteTab, ProtectedRoutePath>
 
 export const WORKSPACE_DEFINITIONS = {

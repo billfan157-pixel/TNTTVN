@@ -33,6 +33,10 @@ export interface ParishPerson {
 }
 
 export interface ParishOrganizationUnit {
+  managedByAcademic?: boolean
+  sourceClassId?: string | null
+  academicYearId?: string | null
+  chapterLeaderName?: string | null
   id: string
   parishId: string
   parentId: string | null
@@ -132,6 +136,8 @@ export type ParishProfileInput = Pick<ParishProfile, 'displayName' | 'patronName
 export type ParishPersonInput = Pick<ParishPerson, 'linkedUserId' | 'holyName' | 'fullName' | 'birthYear' | 'biography' | 'serviceStatus' | 'visibility'>
 export type ParishUnitInput = Pick<ParishOrganizationUnit, 'parentId' | 'name' | 'unitType' | 'description' | 'sortOrder' | 'isActive'>
 export type ParishTermInput = Pick<ParishServiceTerm, 'personId' | 'unitId' | 'positionTitle' | 'positionCode' | 'rankTitle' | 'startDate' | 'endDate' | 'notes'>
+export type ParishAuthorityConfirmation = { adminPassword: string; authorityReason: string }
+export type ParishTermMutationInput = ParishTermInput & ParishAuthorityConfirmation
 export type ParishRecordInput = Pick<ParishRecord, 'recordType' | 'title' | 'summary' | 'content' | 'occurredOn' | 'endedOn' | 'location' | 'status' | 'visibility' | 'showOnTimeline' | 'sourceEventId' | 'personIds' | 'assetIds'>
 export type ParishAssetInput = Pick<ParishArchiveAsset, 'assetType' | 'title' | 'description' | 'capturedOn' | 'visibility'> & { recordIds: string[] }
 export type ParishExternalAssetInput = ParishAssetInput & { externalUrl: string }

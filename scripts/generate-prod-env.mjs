@@ -26,6 +26,8 @@ const envContent = `# ==========================================================
 
 NODE_ENV=production
 DEPLOYMENT_PARISH_ID=gia-ton
+# Múi giờ dân sự do server dùng cho quy tắc date-only như nhiệm kỳ Operations.
+PARISH_TIME_ZONE=Asia/Ho_Chi_Minh
 PORT=3001
 HOST=0.0.0.0
 

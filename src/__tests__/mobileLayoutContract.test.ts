@@ -39,7 +39,6 @@ describe('App-wide mobile layout contract', () => {
 
   it('portals each route-owned fixed dialog above the route-transition stacking context', () => {
     const dialogs = [
-      'components/mobile/MobileCalendarView.tsx',
       'components/mobile/MobileLeaveRequests.tsx',
       'components/exam/ExamSessionView.tsx',
       'components/exam/ExamResultsTable.tsx',

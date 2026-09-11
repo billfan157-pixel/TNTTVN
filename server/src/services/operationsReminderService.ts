@@ -4,13 +4,17 @@ import { notifications, operationEvents, operationReminders, operationTasks } fr
 import { resolveOperationsUserAuthorization } from './operationsAuthorization.js'
 
 export type OperationReminderRun = { claimed: number; enqueued: number; delivered: number; failed: number }
+export type OperationReminderRunOptions = {
+  /** Deterministic interleaving seam for concurrency tests; production omits it. */
+  beforeClaim?: (candidate: typeof operationReminders.$inferSelect) => Promise<void> | void
+}
 
 /**
  * Persist due reminders into the shared durable notification queue atomically.
  * A reminder is SENT only after the notification worker records provider success;
  * inserting a retrying notification is an enqueue acknowledgement, not delivery.
  */
-export async function processDueOperationReminders(now = new Date()): Promise<OperationReminderRun> {
+export async function processDueOperationReminders(now = new Date(), options: OperationReminderRunOptions = {}): Promise<OperationReminderRun> {
   const nowIso = now.toISOString()
   const summary: OperationReminderRun = { claimed: 0, enqueued: 0, delivered: 0, failed: 0 }
 
@@ -23,13 +27,13 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
         eq(notifications.id, deterministicNotificationId),
       )).limit(1)
       if (deterministicNotification) {
-        await db.update(operationReminders).set({ notificationId: deterministicNotificationId, leaseExpiresAt: null })
-          .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), isNull(operationReminders.notificationId)))
+        await db.update(operationReminders).set({ notificationId: deterministicNotificationId, version: reminder.version + 1, leaseExpiresAt: null })
+          .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), eq(operationReminders.version, reminder.version), isNull(operationReminders.notificationId)))
       } else {
         // The queue ownership is ambiguous once ENQUEUED has been persisted.
         // Never manufacture another provider delivery without its deterministic row.
-        await db.update(operationReminders).set({ status: 'FAILED', leaseExpiresAt: null, error: 'MISSING_NOTIFICATION_ROW' })
-          .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), isNull(operationReminders.notificationId)))
+        await db.update(operationReminders).set({ status: 'FAILED', version: reminder.version + 1, leaseExpiresAt: null, error: 'MISSING_NOTIFICATION_ROW' })
+          .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), eq(operationReminders.version, reminder.version), isNull(operationReminders.notificationId)))
         summary.failed++
       }
       continue
@@ -40,16 +44,16 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
     if (!notification) {
       // Provider success may have happened before an external purge/damage removed
       // the queue row. Never auto-re-enqueue an ambiguous delivery.
-      await db.update(operationReminders).set({ status: 'FAILED', leaseExpiresAt: null, error: 'MISSING_NOTIFICATION_ROW' })
-        .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED')))
+      await db.update(operationReminders).set({ status: 'FAILED', version: reminder.version + 1, leaseExpiresAt: null, error: 'MISSING_NOTIFICATION_ROW' })
+        .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), eq(operationReminders.version, reminder.version)))
       summary.failed++
     } else if (notification.status === 'sent') {
-      await db.update(operationReminders).set({ status: 'SENT', sentAt: notification.sentAt ?? nowIso, leaseExpiresAt: null, error: null })
-        .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED')))
+      await db.update(operationReminders).set({ status: 'SENT', version: reminder.version + 1, sentAt: notification.sentAt ?? nowIso, leaseExpiresAt: null, error: null })
+        .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), eq(operationReminders.version, reminder.version)))
       summary.delivered++
     } else if (notification.status === 'failed') {
-      await db.update(operationReminders).set({ status: 'FAILED', leaseExpiresAt: null, error: notification.error ?? 'NOTIFICATION_DELIVERY_FAILED' })
-        .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED')))
+      await db.update(operationReminders).set({ status: 'FAILED', version: reminder.version + 1, leaseExpiresAt: null, error: notification.error ?? 'NOTIFICATION_DELIVERY_FAILED' })
+        .where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'ENQUEUED'), eq(operationReminders.version, reminder.version)))
       summary.failed++
     }
   }
@@ -62,11 +66,14 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
 
   for (const reminder of pending) {
     try {
+      await options.beforeClaim?.(reminder)
       const enqueued = await runDbTransaction(async tx => {
         const [current] = await tx.select().from(operationReminders).where(and(
           eq(operationReminders.parishId, reminder.parishId),
           eq(operationReminders.id, reminder.id),
           eq(operationReminders.status, 'PENDING'),
+          lte(operationReminders.triggerAt, nowIso),
+          or(isNull(operationReminders.nextAttemptAt), lte(operationReminders.nextAttemptAt, nowIso)),
         )).limit(1)
         if (!current) return null
 
@@ -75,11 +82,12 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
         if (!task && !event) {
           await tx.update(operationReminders).set({
             status: 'FAILED',
+            version: current.version + 1,
             attemptCount: current.attemptCount + 1,
             leaseExpiresAt: null,
             nextAttemptAt: null,
             error: 'RESOURCE_NOT_FOUND',
-          }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING')))
+          }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, current.version)))
           return { outcome: 'FAILED' as const }
         }
         const resourceTerminal = Boolean(
@@ -89,11 +97,12 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
         if (resourceTerminal) {
           await tx.update(operationReminders).set({
             status: 'FAILED',
+            version: current.version + 1,
             attemptCount: current.attemptCount + 1,
             leaseExpiresAt: null,
             nextAttemptAt: null,
             error: 'RESOURCE_TERMINAL',
-          }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING')))
+          }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, current.version)))
           return { outcome: 'FAILED' as const }
         }
         const recipientDecision = await resolveOperationsUserAuthorization(
@@ -106,11 +115,12 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
         if (!recipientDecision.allowed) {
           await tx.update(operationReminders).set({
             status: 'FAILED',
+            version: current.version + 1,
             attemptCount: current.attemptCount + 1,
             leaseExpiresAt: null,
             nextAttemptAt: null,
             error: 'RECIPIENT_NOT_AUTHORIZED',
-          }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING')))
+          }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, current.version)))
           return { outcome: 'FAILED' as const }
         }
         const notificationId = `NOT-${current.id}`
@@ -140,13 +150,14 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
         }
         const [updated] = await tx.update(operationReminders).set({
           status: 'ENQUEUED',
+          version: current.version + 1,
           notificationId,
           attemptCount: current.attemptCount + 1,
           enqueuedAt: nowIso,
           leaseExpiresAt: null,
           nextAttemptAt: null,
           error: null,
-        }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING'))).returning()
+        }).where(and(eq(operationReminders.parishId, current.parishId), eq(operationReminders.id, current.id), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, current.version))).returning()
         return updated ? { outcome: 'ENQUEUED' as const } : null
       })
       if (!enqueued) continue
@@ -159,7 +170,7 @@ export async function processDueOperationReminders(now = new Date()): Promise<Op
       await db.update(operationReminders).set({
         nextAttemptAt: new Date(now.getTime() + 60_000).toISOString(),
         error: error instanceof Error ? error.message : 'REMINDER_ENQUEUE_FAILED',
-      }).where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'PENDING')))
+      }).where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, reminder.version), eq(operationReminders.triggerAt, reminder.triggerAt)))
       summary.failed++
     }
   }

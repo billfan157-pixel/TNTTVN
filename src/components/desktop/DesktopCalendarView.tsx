@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { ModalShell } from '../common/ModalShell'
 import {
   Calendar as CalendarIcon,
@@ -6,12 +7,11 @@ import {
   ChevronRight,
   Sparkles,
   Church,
-  Plus,
   Clock,
   MapPin,
   Download,
   ExternalLink,
-  Pencil,
+  ClipboardList,
 } from 'lucide-react'
 import {
   getLiturgicalDay,
@@ -25,32 +25,19 @@ import {
 } from '../../utils/icalGenerator'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import type { LiturgicalDay } from '../../types/liturgical'
-import type { ParishEvent } from '../../stores/parishEventStore'
 import { PageHeader } from '../common/PageHeader'
 import { DesktopAppShell } from './DesktopAppShell'
 import { useParishEventStore } from '../../stores/parishEventStore'
 import { useAuthStore } from '../../stores/authStore'
-import { useToastStore } from '../../stores/toastStore'
-import { Trash2 } from 'lucide-react'
-import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { canManageParishEvents } from '../../utils/parishPortal'
 
 export const DesktopCalendarView: React.FC = () => {
+  const navigate = useNavigate()
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [selectedDay, setSelectedDay] = useState<LiturgicalDay>(getLiturgicalDay(new Date()))
-  const { events: parishEvents, fetchEvents, createEvent, updateEvent, deleteEvent } = useParishEventStore()
+  const { events: parishEvents, fetchEvents } = useParishEventStore()
   const role = useAuthStore(state => state.user?.role)
-  const canManageEvents = canManageParishEvents(role)
-  const [showAddEventModal, setShowAddEventModal] = useState(false)
-  const [editingEvent, setEditingEvent] = useState<ParishEvent | null>(null)
-  const [newEventDate, setNewEventDate] = useState(() => getLiturgicalDay(new Date()).date)
-  const [newEventTitle, setNewEventTitle] = useState('')
-  const [newEventCategory, setNewEventCategory] = useState<ParishEvent['category']>('FEAST_DAY')
-  const [newEventTime, setNewEventTime] = useState('')
-  const [newEventLocation, setNewEventLocation] = useState('')
   const [showExportModal, setShowExportModal] = useState(false)
   const [exportScope, setExportScope] = useState<'year' | 'month' | 'solemnity_only'>('year')
-  const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     fetchEvents()
@@ -129,105 +116,10 @@ export const DesktopCalendarView: React.FC = () => {
     return parishEvents.filter((e) => e.date === selectedDay.date)
   }, [parishEvents, selectedDay.date])
 
-  const handleAddEvent = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newEventTitle.trim() || !newEventDate) return
-
-    const categoryNames: Record<ParishEvent['category'], string> = {
-      FEAST_DAY: 'Lễ Bổn Mạng',
-      CAMP: 'Trại Hè / Sa Mạc',
-      TRAINING: 'Huấn Luyện',
-      SACRAMENT: 'Bí Tích',
-      RETREAT: 'Tĩnh Tâm',
-      MEETING: 'Họp Xứ Đoàn',
-      OTHER: 'Sự Kiện Khác',
-    }
-
-    const payload = {
-      date: newEventDate,
-      title: newEventTitle.trim(),
-      category: newEventCategory,
-      categoryName: categoryNames[newEventCategory],
-      time: newEventTime.trim() || undefined,
-      location: newEventLocation.trim() || undefined,
-    }
-
-    try {
-      if (editingEvent) {
-        await updateEvent(editingEvent.id, payload)
-        useToastStore.getState().addToast('Đã cập nhật sự kiện', 'success')
-      } else {
-        await createEvent(payload as any)
-        useToastStore.getState().addToast('Đã thêm sự kiện xứ đoàn', 'success')
-      }
-    } catch (err: any) {
-      useToastStore.getState().addToast(err?.message || 'Không thể lưu sự kiện', 'error')
-      return
-    }
-
-    // Chuyển đến ngày của sự kiện vừa lưu để người dùng thấy kết quả
-    if (newEventDate !== selectedDay.date) {
-      setSelectedDay(getLiturgicalDay(new Date(`${newEventDate}T00:00:00`)))
-      setCurrentDate(new Date(`${newEventDate}T00:00:00`))
-    }
-
-    setNewEventDate(selectedDay.date)
-    setNewEventTitle('')
-    setNewEventTime('')
-    setNewEventLocation('')
-    setEditingEvent(null)
-    setShowAddEventModal(false)
-  }
-
-  const handleDeleteEvent = async (ev: ParishEvent) => {
-    const confirmed = await askConfirm({
-      title: 'Xóa sự kiện',
-      message: `Xóa sự kiện “${ev.title}” ngày ${ev.date}? Thao tác này không thể hoàn tác.`,
-      confirmText: 'Xóa sự kiện',
-      variant: 'danger',
-    })
-    if (!confirmed) return
-    try {
-      await deleteEvent(ev.id)
-      useToastStore.getState().addToast('Đã xóa sự kiện', 'success')
-    } catch (error) {
-      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Không thể xóa sự kiện', 'error')
-    }
-  }
-
-  const handleOpenAddEventModal = () => {
-    setEditingEvent(null)
-    setNewEventDate(selectedDay.date)
-    setNewEventTitle('')
-    setNewEventTime('')
-    setNewEventLocation('')
-    setShowAddEventModal(true)
-  }
-
-  const handleOpenEditEventModal = (ev: ParishEvent) => {
-    setEditingEvent(ev)
-    setNewEventDate(ev.date)
-    setNewEventTitle(ev.title)
-    setNewEventCategory(ev.category)
-    setNewEventTime(ev.time || '')
-    setNewEventLocation(ev.location || '')
-    setShowAddEventModal(true)
-  }
-
-  const handleCloseEventModal = () => {
-    setEditingEvent(null)
-    setNewEventDate(selectedDay.date)
-    setNewEventTitle('')
-    setNewEventTime('')
-    setNewEventLocation('')
-    setShowAddEventModal(false)
-  }
-
   const dayHeaders = ['Chúa Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy']
 
   return (
     <DesktopAppShell width="full">
-      {confirmDialog}
       {/* Header Bar */}
       <PageHeader
         icon={<CalendarIcon size={24} />}
@@ -470,14 +362,6 @@ export const DesktopCalendarView: React.FC = () => {
                 <span className="text-xs font-extrabold text-text-secondary uppercase tracking-wider">
                   Sự Kiện Xứ Đoàn ({selectedDayParishEvents.length})
                 </span>
-                {canManageEvents && (
-                  <button
-                    onClick={handleOpenAddEventModal}
-                    className="px-2 py-1 rounded-lg text-xs font-bold bg-parish-primary text-white hover:bg-parish-primary-hover flex items-center gap-1 transition-colors"
-                  >
-                    <Plus size={12} /> Thêm
-                  </button>
-                )}
               </div>
 
               {selectedDayParishEvents.length === 0 ? (
@@ -497,24 +381,14 @@ export const DesktopCalendarView: React.FC = () => {
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">
                             {ev.categoryName}
                           </span>
-                          {canManageEvents && (
+                          {role !== 'phuhuynh' && (
                             <button
                               type="button"
-                              onClick={() => handleOpenEditEventModal(ev)}
+                              onClick={() => navigate({ to: '/operations' })}
                               className="p-1 rounded-md text-text-muted hover:text-parish-primary hover:bg-surface-card transition-colors border border-transparent hover:border-surface-border cursor-pointer"
-                              title="Chỉnh sửa sự kiện"
+                              title="Tổ chức & điều phối công việc cho sự kiện này"
                             >
-                              <Pencil size={12} />
-                            </button>
-                          )}
-                          {canManageEvents && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteEvent(ev)}
-                              className="p-1 rounded-md text-text-muted hover:text-parish-danger hover:bg-parish-danger-bg transition-colors border border-transparent hover:border-parish-danger/30 cursor-pointer"
-                              title="Xóa sự kiện"
-                            >
-                              <Trash2 size={12} />
+                              <ClipboardList size={12} />
                             </button>
                           )}
                         </span>
@@ -685,96 +559,6 @@ export const DesktopCalendarView: React.FC = () => {
         </ModalShell>
       )}
 
-      {/* Add Parish Event Modal */}
-      {showAddEventModal && (
-        <ModalShell
-          isOpen={showAddEventModal}
-          onClose={handleCloseEventModal}
-          title={
-            editingEvent
-              ? `Chỉnh Sửa Sự Kiện Xứ Đoàn (${newEventDate})`
-              : `Thêm Sự Kiện Xứ Đoàn (${newEventDate})`
-          }
-          maxWidth="448px"
-        >
-          <form onSubmit={handleAddEvent} className="flex flex-col gap-3">
-              <div>
-                <label className="text-xs font-bold text-text-muted block mb-1">Ngày Sự Kiện</label>
-                <input
-                  type="date"
-                  required
-                  value={newEventDate}
-                  onChange={(e) => setNewEventDate(e.target.value)}
-                  className="form-input w-full text-xs font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-text-muted block mb-1">Tên Sự Kiện</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ví dụ: Lễ Bổn Mạng Xứ Đoàn, Sa Mạc Huấn Luyện..."
-                  value={newEventTitle}
-                  onChange={(e) => setNewEventTitle(e.target.value)}
-                  className="form-input w-full text-xs font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-text-muted block mb-1">Loại Sự Kiện</label>
-                <select
-                  value={newEventCategory}
-                  onChange={(e) => setNewEventCategory(e.target.value as ParishEvent['category'])}
-                  className="form-select w-full text-xs font-medium"
-                >
-                  <option value="FEAST_DAY">Lễ Bổn Mạng / Thánh Lễ</option>
-                  <option value="CAMP">Hội Trại / Dã Ngoại</option>
-                  <option value="TRAINING">Sa Mạc / Huấn Luyện</option>
-                  <option value="SACRAMENT">Bí Tích (Rước Lễ / Thêm Sức)</option>
-                  <option value="RETREAT">Tĩnh Tâm / Chầu Lượt</option>
-                  <option value="MEETING">Họp Huynh Trưởng / GLV</option>
-                  <option value="OTHER">Sự Kiện Khác</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-text-muted block mb-1">Thời Gian</label>
-                  <input
-                    type="time"
-                    value={newEventTime}
-                    onChange={(e) => setNewEventTime(e.target.value)}
-                    className="form-input w-full text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-text-muted block mb-1">Địa Điểm</label>
-                  <input
-                    type="text"
-                    placeholder="Nhà Thờ, Hội Trường..."
-                    value={newEventLocation}
-                    onChange={(e) => setNewEventLocation(e.target.value)}
-                    className="form-input w-full text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 mt-3 pt-3 border-t border-surface-border">
-                <button
-                  type="button"
-                  onClick={handleCloseEventModal}
-                  className="btn btn-secondary text-xs font-bold"
-                >
-                  Hủy
-                </button>
-                <button type="submit" className="btn btn-primary text-xs font-bold">
-                  {editingEvent ? 'Cập Nhật Sự Kiện' : 'Lưu Sự Kiện'}
-                </button>
-              </div>
-            </form>
-        </ModalShell>
-      )}
     </DesktopAppShell>
   )
 }

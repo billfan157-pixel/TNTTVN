@@ -1,8 +1,16 @@
 # DEPLOYMENT & INFRASTRUCTURE OPERATIONS GUIDE - PARISH LMS v2.0
 
+> **Policy supersession — 2026-09-10, được chủ sản phẩm phê duyệt:** Admin có
+> quyền quản trị toàn giáo xứ trong mọi môi trường, kể cả production; được tạo/sửa
+> nhiệm kỳ cho chính mình. Các mô tả admin production read-only, cấm self-grant
+> hoặc override chỉ dev/test bên dưới đã bị thay thế. Biến legacy
+> `OPERATIONS_ADMIN_MUTATION_OVERRIDE` không còn giới hạn quyền. Vẫn bắt buộc
+> reauth + lý do + audit cho nhiệm kỳ; không bỏ tenant isolation, OCC, idempotency,
+> kiểm tra phạm vi dữ liệu, trạng thái đóng việc hoặc separation of duty.
+
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-09-06 (ADR-108: read-only roster integrity inventory); 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
+Last Updated: 2026-09-09 (ADR-110: server-authoritative parish civil date for Operations service terms); 2026-09-06 (ADR-108: read-only roster integrity inventory); 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
 
 ---
 
@@ -55,6 +63,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 | Variable | Required | Default / Format | Description |
 | :--- | :---: | :--- | :--- |
 | `DEPLOYMENT_PARISH_ID` | ✅ Yes (production) | Parish slug 1–64 ký tự, ví dụ `gia-ton` | Identity bất biến của installation. Login/recovery/token/seed/backup/workers bị khóa vào scope này. Startup fail nếu thiếu/sai format, legacy parish env mâu thuẫn, hoặc DB có bất kỳ `parish_id` null/khác giá trị này. Dev/test không set vẫn giữ multi-parish fixtures. |
+| `PARISH_TIME_ZONE` | ❌ No | `Asia/Ho_Chi_Minh`; IANA timezone | Múi giờ dân sự do server dùng cho quy tắc chỉ có ngày, hiện gồm ngày hiệu lực `parish_service_terms` trong Operations. Không lấy timezone trình duyệt và không dùng UTC để quyết định ngày bắt đầu/kết thúc quyền. Giá trị cấu hình không hợp lệ làm startup fail trước HTTP/workers. Một deployment hiện chỉ phục vụ một giáo xứ nên đây là cấu hình deployment, không phải preference người dùng. |
 | `JWT_SECRET` | ✅ Yes | String (min 32 chars) | Secret key for JWT access token signing. **BẮT BUỘC** set trong `.env` (root) — docker-compose dùng `${JWT_SECRET:?}` fail-fast nếu thiếu |
 | `JWT_REFRESH_SECRET` | ✅ Yes (production) | String (min 32 chars), **không** fallback về `JWT_SECRET` | Secret key for refresh token signing. Production startup sẽ throw nếu thiếu |
 | `REPORT_HMAC_SECRET` | ✅ Yes (production) — **SEC-HMAC-1 (2026-08-24)** | String (min 32 chars, random riêng, KHÔNG tái dùng JWT_SECRET) | Secret key ký HMAC-SHA256 cho QR phiếu điểm/chứng nhận (`/api/verification/sign`). Production **fail-closed lúc startup** nếu thiếu (`hmacSigner.ts`). Verify giữ chuỗi fallback legacy (JWT_SECRET-derived) nên QR đã phát hành cũ vẫn xác thực được sau khi set secret mới. QR phát hành trước 2026-08-24 trên prod thiếu biến này đã bị ký bằng key suy dẫn từ JWT_SECRET/literal public → **bắt buộc rotate: set REPORT_HMAC_SECRET ngay khi nâng cấp**; QR cũ ký bằng literal public sẽ trở thành KHÔNG hợp lệ (đúng ý — chúng vốn có thể giả mạo bởi bất kỳ ai đọc repo) |
@@ -158,7 +167,7 @@ Browser/PWA (https://tnttvn.vercel.app)
 
 1. **Turso**: đăng ký platform.turso.io → tạo DB (vd `tnttvn`) → lấy `TURSO_URL` (`libsql://...`) + tạo token (`TURSO_AUTH_TOKEN`).
 2. **Render**: New → Blueprint → connect repo → sau sync đầu, nhập tay các env đánh dấu `sync:false` trong render.yaml:
-   - Bắt buộc: `DEPLOYMENT_PARISH_ID=gia-ton` (hoặc exact inventory scope), `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt), `BACKUP_ENCRYPTION_KEY` (64 hex/base64 32 byte) và đủ 4 biến `R2_*`.
+   - Bắt buộc: `DEPLOYMENT_PARISH_ID=gia-ton` (hoặc exact inventory scope), `TURSO_URL`, `TURSO_AUTH_TOKEN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `REPORT_HMAC_SECRET` (SEC-HMAC-1 fail-closed), `SEED_ADMIN_PASSWORD` (8–128 ký tự, có hoa + số + đặc biệt), `BACKUP_ENCRYPTION_KEY` (64 hex/base64 32 byte) và đủ 4 biến `R2_*`. Blueprint đặt `PARISH_TIME_ZONE=Asia/Ho_Chi_Minh`; phải kiểm tra lại giá trị này khi giáo xứ không ở múi giờ đó.
    - Tuỳ chọn: `OPS_TOKEN`, `SENTRY_DSN`.
    - Sinh secret cục bộ (PowerShell): `-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 64 | % {[char]$_})`; với `BACKUP_ENCRYPTION_KEY` dùng `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 3. **GitHub Environment `production`**: set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID`, `RENDER_API_KEY`, `RENDER_SERVICE_ID`; có thể bật required reviewers. Vercel Git auto-deploy và Render auto-deploy đều tắt; repo khóa thêm `git.deploymentEnabled.main=false`. Chỉ `deploy-production.yml` sau toàn bộ CI xanh mới deploy đúng SHA, đợi ready và smoke-check.
@@ -290,6 +299,49 @@ Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction
 6. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts và nội dung từng dòng khớp (không phụ thuộc thứ tự SELECT), `foreignKeyViolations=0` và `assertDatabaseReady` pass. Manifest ghi riêng `phaseDurationMs.download/decrypt/restore/readiness`; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu. Test full-schema local giữ policy/cohort/report/receipt qua finalize→promote→archive→encrypt→restore không thay thế drill R2→Turso thật, key recovery hoặc approval cutover.
 
 CLI có hard guard từ chối target URL trùng production. Post-commit validation failure không tự rollback toàn target, vì vậy luôn discard target lỗi và tạo target mới; tuyệt đối không sửa chữa/cutover target đó. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.
+
+### 9.3.1 Operations migration rehearsal trên backup SQLite
+
+Trước khi rollout migrations Operations mới cho deployment dùng SQLite hoặc khi có một backup SQLite hợp lệ từ môi trường cần mô phỏng, chạy:
+
+```bash
+npm --prefix server run db:audit:operations-migration -- <finalized-backup.sqlite>
+```
+
+Trước migration rehearsal, chạy preflight thẩm quyền tổ chức ở chế độ read-only
+trên chính bản sao đã chọn (không chạy writer và không tự sửa dữ liệu):
+
+```bash
+npm run audit:operations-authority
+```
+
+Đặt `AUDIT_DATABASE_URL`/`AUDIT_DATABASE_AUTH_TOKEN` để chỉ định bản sao audit.
+Manifest mặc định băm parish/entity identifiers; chỉ đặt
+`OPERATIONS_AUTHORITY_INVENTORY_INCLUDE_PARISH_ID=true` trong phiên kiểm soát nếu
+cần ID giáo xứ rõ. Exit code khác 0 khi toàn giáo xứ không có đúng một BOARD active
+và BOARD đó ở root, Ngành/Ban không
+trực thuộc BOARD, leader term sai unit, thiếu staff account hợp lệ, chồng nhiệm kỳ
+leader hoặc không có đúng một Trưởng Xứ đoàn đang hiệu lực. Công cụ không chọn
+người thắng và không sửa production.
+
+Manifest ghi `evaluatedOn` và `parishCount` để gắn kết quả với ngày đánh giá và
+phạm vi inventory. Database không có giáo xứ trả finding `NO_PARISH_DATA` và
+exit code khác 0; không dùng schema rỗng làm bằng chứng rollout đạt.
+
+Phải xử lý mọi finding BOARD trước khi áp dụng migration `20260910-251`. Partial
+unique index của migration này cố ý làm deployment fail nếu còn nhiều BOARD active;
+không xóa, merge hoặc vô hiệu hóa BOARD tự động chỉ để migration chạy qua.
+
+Thứ tự triển khai: chọn backup đã hoàn tất → audit thẩm quyền → quản trị viên
+duyệt và xử lý finding trên dữ liệu nguồn bằng quy trình được phép → lấy backup
+mới → audit lại → migration rehearsal → triển khai được phê duyệt → audit và
+smoke test sau triển khai. Rehearsal kiểm tra duplicate BOARD trước khi chạy bất
+kỳ migration nào, chỉ báo số giáo xứ bị ảnh hưởng, không xuất danh tính. Thiếu
+BOARD hoặc leader vẫn là blocker triển khai nghiệp vụ dù rehearsal schema pass.
+
+Command chỉ nhận artifact backup đã hoàn tất và từ chối chính `DB_PATH` hoặc `server/data/parish.db`. Nó không mở HTTP, không chạy worker nghiệp vụ và không sửa source: parent tạo thư mục tạm, worker riêng copy artifact rồi chạy full migration + defensive sync + indices. Gate bắt buộc gồm pre/post `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, `assertDatabaseReady`, bảo toàn count + SHA-256 của toàn bộ giá trị thuộc các cột `operation_*` có trước migration, và một recovery snapshot `VACUUM INTO` phải khớp bản đã migrate. Manifest chỉ xuất tên artifact, counts, hashes và phase durations; không xuất row data.
+
+`status=verified` chỉ là LAB evidence cho exact artifact được hash trong manifest. Không dùng command này thay cho Turso/R2 drill ở §9.3, không suy ra RTO/RPO và không chạy trực tiếp vào database live. Với backup cũ hơn schema hiện tại, failure phải được xử lý bằng forward fix trên một bản sao mới; không xóa migration marker hoặc down-migrate artifact để ép pass.
 
 ### 9.4 Read-only preflight trước production operations
 

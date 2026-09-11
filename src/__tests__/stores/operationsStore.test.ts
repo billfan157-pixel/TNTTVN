@@ -14,7 +14,7 @@ function event(id: string, parishId = parishA): OperationEvent {
 
 function task(id: string, parishId = parishA): OperationTask {
   return {
-    id, parishId, title: `Task ${id}`, status: 'TODO', priority: 'NORMAL', isRequired: false,
+    id, parishId, title: `Task ${id}`, status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: false,
     approvalStatus: 'NOT_REQUIRED', version: 1,
     myAssignments: [{ id: `assignment-${id}`, parishId, taskId: id, userId: 'user-a', assignmentRole: 'OWNER', acknowledgementStatus: 'PENDING', version: 1 }],
   }
@@ -23,7 +23,7 @@ function task(id: string, parishId = parishA): OperationTask {
 function reminder(id: string, parishId = parishA): OperationReminder {
   return {
     id, parishId, triggerAt: '2026-10-01T00:30:00Z',
-    kind: 'TASK_DUE', status: 'SENT', readAt: null, sentAt: '2026-10-01T00:30:01Z', createdAt: '2026-09-30T01:00:00Z',
+    kind: 'TASK_DUE', status: 'SENT', version: 2, readAt: null, sentAt: '2026-10-01T00:30:01Z', createdAt: '2026-09-30T01:00:00Z',
   }
 }
 
@@ -65,6 +65,7 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
     vi.spyOn(dexieStorage, 'getItem').mockResolvedValue(null)
     vi.spyOn(dexieStorage, 'setItem').mockResolvedValue(undefined)
     vi.spyOn(api, 'getReminders').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getDispatchInbox').mockResolvedValue(page([]))
   })
 
   afterEach(() => setTenantScope(null))
@@ -150,10 +151,47 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
     vi.spyOn(api, 'assignTask').mockReturnValue(old.promise)
     const assignedTask = { ...task('A'), operationEventId: 'event-A' }
     useOperationsStore.setState({ selectedEvent: { ...eventDetail('event-A'), tasks: [assignedTask] } })
-    const pending = useOperationsStore.getState().assignTask(assignedTask, 'person', 'OWNER')
+    const pending = useOperationsStore.getState().assignTask(assignedTask, { personId: 'person' }, 'OWNER')
     useOperationsStore.setState({ selectedEvent: eventDetail('event-B') })
     old.resolve({ assignment: assignedTask.myAssignments![0], taskVersion: 2, conflictWarnings: [] }); await pending
     expect(useOperationsStore.getState().selectedEvent?.assignees).toEqual([])
+  })
+
+  it('creates a server-acknowledged primary/reserve dispatch and advances the task version', async () => {
+    const current = { ...task('A'), operationEventId: 'event-A' }
+    useOperationsStore.setState({ selectedEvent: { ...eventDetail('event-A'), tasks: [current] } })
+    const createDispatch = vi.spyOn(api, 'createTaskDispatch').mockResolvedValue({
+      dispatch: { id: 'OPD-1', parishId: parishA, taskId: current.id, acknowledgeBy: '2027-01-01T05:00:00Z', status: 'SCHEDULED', version: 1 },
+      taskVersion: 2,
+    })
+
+    await useOperationsStore.getState().dispatchTask(current, { userId: 'primary' }, { personId: 'reserve-person' }, '2027-01-01T05:00:00Z')
+
+    expect(createDispatch).toHaveBeenCalledWith('A', {
+      version: 1, acknowledgeBy: '2027-01-01T05:00:00Z', primaryUserId: 'primary', reservePersonId: 'reserve-person',
+    })
+    expect(useOperationsStore.getState().selectedEvent?.tasks[0].version).toBe(2)
+  })
+
+  it('removes an accepted dispatch invitation only after server acknowledgement', async () => {
+    const invitation = {
+      id: 'OPD-1', parishId: parishA, taskId: 'A', version: 3, target: 'RESERVE' as const,
+      acknowledgeBy: '2027-01-01T05:00:00Z', invitedAt: '2027-01-01T04:00:00Z', taskTitle: 'Task A', eventId: 'event-A', eventTitle: 'Event A',
+    }
+    useOperationsStore.setState({ dispatchInvitations: [invitation] })
+    vi.spyOn(api, 'acceptTaskDispatch').mockResolvedValue({
+      dispatch: { id: invitation.id, parishId: parishA, taskId: invitation.taskId, acknowledgeBy: invitation.acknowledgeBy, status: 'ACCEPTED', acceptedTarget: 'RESERVE', version: 4 },
+      assignment: { id: 'OPA-new', parishId: parishA, taskId: invitation.taskId, userId: 'user-a', assignmentRole: 'OWNER', acknowledgementStatus: 'ACCEPTED', version: 1 },
+      taskVersion: 2,
+    })
+    vi.spyOn(api, 'getEvents').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getTasks').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getPermissions').mockResolvedValue({ parishId: parishA, permissions: {} })
+
+    await useOperationsStore.getState().acceptTaskDispatch(invitation)
+
+    expect(api.acceptTaskDispatch).toHaveBeenCalledWith('A', 'OPD-1', { version: 3, target: 'RESERVE' })
+    expect(useOperationsStore.getState().dispatchInvitations).toEqual([])
   })
 
   it('does not apply a create response to another account in the same parish', async () => {

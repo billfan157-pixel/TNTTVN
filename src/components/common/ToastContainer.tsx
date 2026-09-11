@@ -33,7 +33,7 @@ export function ToastContainer() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-[var(--z-toast)] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+      className="fixed bottom-[calc(var(--mobile-nav-total-height,0px)+16px)] sm:bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-[var(--z-toast)] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
       role="status"
       aria-live="polite"
       aria-label="Thông báo từ hệ thống"

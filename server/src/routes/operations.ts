@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
+import { canCreateEventTask, manualEventTransition, preparationAcceptanceReadiness, reserveInvitationAt } from '../domain/OperationsEventLifecycle.js'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { and, asc, desc, eq, gte, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import type { DbTransaction } from '../db/transactions.js'
@@ -9,27 +10,34 @@ import {
   auditLogs,
   operationBlockouts,
   operationChecklistItems,
+  operationEventRetrospectives,
+  operationEventTemplates,
+  operationEventTemplateVersions,
   operationEventParticipants,
   operationEvents,
   operationReminders,
   operationTaskAssignees,
+  operationTaskDispatches,
   operationTaskComments,
   operationTaskDependencies,
   operationTasks,
   operationWorkstreamMembers,
   operationWorkstreams,
+  notifications,
   parishEvents,
   parishPeople,
   parishRecords,
   parishOrganizationUnits,
   users,
 } from '../db/schema.js'
-import { assertOperationsCapability, getOperationsCallerPermissions, resolveOperationsAuthorization, resolveOperationsAuthorizationBatch, resolveOperationsUserAuthorization } from '../services/operationsAuthorization.js'
+import { assertOperationsCapability, assertOperationsTargetWithinAuthority, getOperationsCallerPermissions, listOperationsCandidates, resolveOperationsAuthorization, resolveOperationsAuthorizationBatch, resolveOperationsUserAuthorization } from '../services/operationsAuthorization.js'
+import { assertTaskApproverIsIndependent, assertTaskAssignmentSeparationOfDuty, assertWorkstreamMemberSeparationOfDuty } from '../services/operationsSeparationOfDuty.js'
 import { OperationsIdempotencyError, requireOperationsIdempotencyKey, runIdempotentOperationsCommand } from '../services/operationsIdempotency.js'
 import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
 import { errorResponse, paginatedResponse, sendError, successResponse } from '../utils/response.js'
 import { VersionConflictError } from '../domain/errors.js'
+import { getParishTimeZone, parishCalendarDate } from '../utils/parishTimeZone.js'
 
 const operationsRouter = new Hono()
 operationsRouter.use('*', authMiddleware)
@@ -38,6 +46,14 @@ operationsRouter.use('*', roleMiddleware('admin', 'chunhiem', 'phuta'))
 const id = z.string().trim().min(1).max(100)
 const nullableId = id.nullable().optional()
 const instant = z.string().datetime({ offset: true }).transform(value => new Date(value).toISOString())
+const ianaTimeZone = z.string().trim().min(1).max(80).refine(value => {
+  try {
+    getParishTimeZone(value)
+    return true
+  } catch {
+    return false
+  }
+}, 'Múi giờ IANA không hợp lệ.')
 const exactTarget = <T extends z.ZodRawShape>(shape: T) => z.object(shape).superRefine((value: any, ctx) => {
   if ((value.userId ? 1 : 0) + (value.personId ? 1 : 0) !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'Phải có đúng một userId hoặc personId.' })
 })
@@ -57,7 +73,19 @@ const workstreamMemberSchema = exactTarget({
   startsAt: instant.nullable().optional(),
   endsAt: instant.nullable().optional(),
 })
+function taskScheduleError(value: { scheduledStartAt?: string | null; scheduledEndAt?: string | null }): string | null {
+  const start = value.scheduledStartAt ?? null
+  const end = value.scheduledEndAt ?? null
+  if (Boolean(start) !== Boolean(end)) return 'Ca công việc phải có đủ giờ bắt đầu và kết thúc.'
+  if (start && end && end <= start) return 'Giờ kết thúc ca phải sau giờ bắt đầu.'
+  return null
+}
+function validateTaskSchedule(value: { scheduledStartAt?: string | null; scheduledEndAt?: string | null }, ctx: z.RefinementCtx) {
+  const message = taskScheduleError(value)
+  if (message) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledEndAt'], message })
+}
 const taskCreateSchema = z.object({
+  phase: z.enum(['PREPARATION', 'EXECUTION', 'FOLLOW_UP']).optional().default('PREPARATION'),
   title: z.string().trim().min(1).max(300),
   description: z.string().trim().max(5000).nullable().optional(),
   eventId: nullableId,
@@ -65,15 +93,19 @@ const taskCreateSchema = z.object({
   parentTaskId: nullableId,
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional().default('NORMAL'),
   dueAt: instant.nullable().optional(),
+  scheduledStartAt: instant.nullable().optional(),
+  scheduledEndAt: instant.nullable().optional(),
   isRequired: z.boolean().optional().default(false),
   requiresApproval: z.boolean().optional().default(false),
-})
+}).superRefine(validateTaskSchedule)
 const taskUpdateSchema = z.object({
   version: z.number().int().min(1),
   title: z.string().trim().min(1).max(300).optional(),
   description: z.string().trim().max(5000).nullable().optional(),
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
   dueAt: instant.nullable().optional(),
+  scheduledStartAt: instant.nullable().optional(),
+  scheduledEndAt: instant.nullable().optional(),
   isRequired: z.boolean().optional(),
 })
 const assignmentSchema = exactTarget({
@@ -84,6 +116,18 @@ const assignmentSchema = exactTarget({
   note: z.string().trim().max(2000).nullable().optional(),
 })
 const acknowledgementSchema = z.object({ assignmentId: id, version: z.number().int().min(1), status: z.enum(['ACCEPTED', 'DECLINED']), note: z.string().trim().max(2000).nullable().optional() })
+const dispatchCreateSchema = z.object({
+  version: z.number().int().min(1),
+  primaryUserId: nullableId,
+  primaryPersonId: nullableId,
+  reserveUserId: nullableId,
+  reservePersonId: nullableId,
+  acknowledgeBy: instant,
+}).superRefine((value, ctx) => {
+  if ((value.primaryUserId ? 1 : 0) + (value.primaryPersonId ? 1 : 0) !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['primaryUserId'], message: 'Phải chọn đúng một người thực hiện chính.' })
+  if ((value.reserveUserId ? 1 : 0) + (value.reservePersonId ? 1 : 0) > 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reserveUserId'], message: 'Người dự bị chỉ dùng user hoặc person.' })
+})
+const dispatchAcceptSchema = z.object({ version: z.number().int().min(1), target: z.enum(['PRIMARY', 'RESERVE']) })
 const eventCreateSchema = z.object({
   sourceParishEventId: nullableId,
   scopeUnitId: nullableId,
@@ -94,13 +138,12 @@ const eventCreateSchema = z.object({
   eventType: z.string().trim().min(1).max(80),
   startsAt: instant,
   endsAt: instant,
-  timezone: z.string().trim().min(1).max(80),
+  timezone: ianaTimeZone,
   location: z.string().trim().max(300).nullable().optional(),
   visibility: z.enum(['INTERNAL', 'PUBLIC_SUMMARY']).optional().default('INTERNAL'),
   expectedHeadcount: z.number().int().min(0).nullable().optional(),
 }).superRefine((value, ctx) => {
   if (value.endsAt <= value.startsAt) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endsAt'], message: 'Thời gian kết thúc phải sau thời gian bắt đầu.' })
-  if (value.visibility === 'PUBLIC_SUMMARY' && !value.sourceParishEventId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sourceParishEventId'], message: 'PUBLIC_SUMMARY phải liên kết một parish event.' })
   if (value.organizerUserId && value.organizerPersonId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['organizerUserId'], message: 'Organizer chỉ dùng user hoặc person, không dùng cả hai.' })
 })
 const eventUpdateSchema = z.object({
@@ -114,7 +157,7 @@ const eventUpdateSchema = z.object({
   eventType: z.string().trim().min(1).max(80).optional(),
   startsAt: instant.optional(),
   endsAt: instant.optional(),
-  timezone: z.string().trim().min(1).max(80).optional(),
+  timezone: ianaTimeZone.optional(),
   location: z.string().trim().max(300).nullable().optional(),
   visibility: z.enum(['INTERNAL', 'PUBLIC_SUMMARY']).optional(),
   expectedHeadcount: z.number().int().min(0).nullable().optional(),
@@ -126,11 +169,85 @@ const participantStatusSchema = z.object({ version: z.number().int().min(1), sta
 const blockoutSchema = exactTarget({ userId: nullableId, personId: nullableId, startsAt: instant, endsAt: instant, reason: z.string().trim().max(500).nullable().optional() }).superRefine((value, ctx) => {
   if (value.endsAt <= value.startsAt) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endsAt'], message: 'Khoảng thời gian không hợp lệ.' })
 })
+const blockoutUpdateSchema = z.object({ version: z.number().int().min(1), startsAt: instant, endsAt: instant, reason: z.string().trim().max(500).nullable() }).superRefine((value, ctx) => {
+  if (value.endsAt <= value.startsAt) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endsAt'], message: 'Khoảng thời gian không hợp lệ.' })
+})
+const blockoutRevokeSchema = z.object({ version: z.number().int().min(1) })
 const reminderSchema = z.object({ taskId: nullableId, eventId: nullableId, recipientUserId: id, triggerAt: instant, kind: z.enum(['TASK_DUE', 'EVENT_START', 'OVERDUE']) }).superRefine((value, ctx) => {
   if ((value.taskId ? 1 : 0) + (value.eventId ? 1 : 0) !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['taskId'], message: 'Reminder phải thuộc đúng một task hoặc event.' })
 })
-const eventTransitionSchema = z.object({ version: z.number().int().min(1), status: z.enum(['PLANNING', 'READY', 'LIVE', 'COMPLETED', 'CANCELLED']), reason: z.string().trim().max(2000).nullable().optional(), outcomeSummary: z.string().trim().max(5000).nullable().optional(), override: z.boolean().optional().default(false) })
+const reminderRescheduleSchema = z.object({ expectedVersion: z.number().int().min(1), triggerAt: instant, reason: z.string().trim().min(1).max(2000) })
+const reminderCancelSchema = z.object({ expectedVersion: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
+const eventTransitionSchema = z.object({ version: z.number().int().min(1), status: z.enum(['DRAFT', 'PLANNING', 'PREPARING', 'READY', 'LIVE', 'COMPLETED', 'CANCELLED']), reason: z.string().trim().max(2000).nullable().optional(), outcomeSummary: z.string().trim().max(5000).nullable().optional(), override: z.boolean().optional().default(false) })
+const eventAutomationResumeSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
+const eventRetrospectiveSchema = z.object({
+  expectedVersion: z.number().int().min(1).nullable(),
+  lessonsLearned: z.string().trim().min(1).max(5000),
+  improvementNotes: z.string().trim().max(5000).nullable().optional(),
+})
+const eventFollowUpSchema = exactTarget({
+  eventVersion: z.number().int().min(1),
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(5000).nullable().optional(),
+  dueAt: instant,
+  priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional().default('NORMAL'),
+  userId: nullableId,
+  personId: nullableId,
+})
+const templateSnapshotSchema = z.object({
+  event: z.object({
+    title: z.string().trim().min(1).max(300),
+    description: z.string().trim().max(5000).nullable(),
+    eventType: z.string().trim().min(1).max(80),
+    durationMinutes: z.number().int().min(1),
+    location: z.string().trim().max(300).nullable(),
+    expectedHeadcount: z.number().int().min(0).nullable(),
+  }),
+  tasks: z.array(z.object({
+    title: z.string().trim().min(1).max(300),
+    description: z.string().trim().max(5000).nullable(),
+    phase: z.enum(['PREPARATION', 'EXECUTION', 'FOLLOW_UP']),
+    priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']),
+    isRequired: z.boolean(),
+    requiresApproval: z.boolean(),
+    dueOffsetMinutes: z.number().int().nullable(),
+    scheduledStartOffsetMinutes: z.number().int().nullable().optional().default(null),
+    scheduledEndOffsetMinutes: z.number().int().nullable().optional().default(null),
+    checklist: z.array(z.object({ label: z.string().trim().min(1).max(300), isRequired: z.boolean(), sortOrder: z.number().int().min(0) })),
+  })),
+})
+type OperationTemplateSnapshot = z.infer<typeof templateSnapshotSchema>
+const templateCreateSchema = z.object({
+  eventVersion: z.number().int().min(1),
+  name: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(3000).nullable().optional(),
+})
+const templateVersionCreateSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  expectedLatestVersion: z.number().int().min(1),
+  sourceEventId: id,
+  sourceEventVersion: z.number().int().min(1),
+  reason: z.string().trim().min(1).max(2000),
+})
+const templateStatusChangeSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  expectedLatestVersion: z.number().int().min(1),
+  reason: z.string().trim().min(1).max(2000),
+})
+const templateListQuerySchema = z.object({ archived: z.enum(['true', 'false']).optional().default('false') })
+const templatePreviewQuerySchema = z.object({ version: z.coerce.number().int().min(1).optional(), startsAt: instant })
+const templateInstantiateSchema = z.object({
+  templateVersion: z.number().int().min(1),
+  startsAt: instant,
+  timezone: ianaTimeZone,
+  visibility: z.enum(['INTERNAL', 'PUBLIC_SUMMARY']).optional().default('INTERNAL'),
+  organizerUserId: nullableId,
+  organizerPersonId: nullableId,
+}).superRefine((value, ctx) => {
+  if (value.organizerUserId && value.organizerPersonId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['organizerUserId'], message: 'Organizer chỉ dùng user hoặc person, không dùng cả hai.' })
+})
 const taskTransitionSchema = z.object({ version: z.number().int().min(1), status: z.enum(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED']), completionNote: z.string().trim().max(3000).nullable().optional(), blockedReason: z.string().trim().max(2000).nullable().optional(), cancellationReason: z.string().trim().max(2000).nullable().optional() })
+const taskRestoreSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const dependencySchema = z.object({ version: z.number().int().min(1), dependsOnTaskId: id })
 const checklistCreateSchema = z.object({ version: z.number().int().min(1), label: z.string().trim().min(1).max(300), isRequired: z.boolean().optional().default(false), sortOrder: z.number().int().min(0).max(10000).optional().default(0) })
 const checklistUpdateSchema = z.object({ version: z.number().int().min(1), isDone: z.boolean() })
@@ -139,6 +256,28 @@ const approvalSchema = z.object({ version: z.number().int().min(1), decision: z.
   if (value.decision === 'REJECTED' && !value.reason) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reason'], message: 'Từ chối duyệt bắt buộc có lý do.' })
 })
 const memberRemoveSchema = z.object({ version: z.number().int().min(1), memberVersion: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
+const memberValiditySchema = z.object({
+  version: z.number().int().min(1),
+  memberVersion: z.number().int().min(1),
+  startsAt: instant.nullable(),
+  endsAt: instant.nullable(),
+  reason: z.string().trim().min(1).max(2000),
+}).superRefine((value, ctx) => {
+  if (value.startsAt && value.endsAt && value.endsAt <= value.startsAt) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endsAt'], message: 'Thời hạn role không hợp lệ.' })
+})
+const leadReplacementSchema = exactTarget({
+  version: z.number().int().min(1),
+  currentLeadMemberId: nullableId,
+  currentLeadMemberVersion: z.number().int().min(1).nullable().optional(),
+  userId: nullableId,
+  personId: nullableId,
+  endsAt: instant.nullable().optional(),
+  reason: z.string().trim().min(1).max(2000),
+}).superRefine((value, ctx) => {
+  if (Boolean(value.currentLeadMemberId) !== Boolean(value.currentLeadMemberVersion)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['currentLeadMemberId'], message: 'Phải gửi cả id và version của Trưởng nhóm hiện tại, hoặc bỏ trống cả hai.' })
+  }
+})
 const assignmentRemoveSchema = z.object({ version: z.number().int().min(1), assignmentVersion: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 
 const OPERATIONS_LIST_DEFAULT_LIMIT = 50
@@ -172,6 +311,95 @@ function commandResponse(c: any, result: { value: unknown; replayed: boolean }, 
 }
 async function audit(tx: DbTransaction, user: JwtPayload, c: any, action: string, entityType: string, entityId: string, oldValue?: unknown, newValue?: unknown) {
   await tx.insert(auditLogs).values({ id: generateId('AUD'), userId: user.userId, action, entityType, entityId, oldValue: oldValue === undefined ? null : JSON.stringify(oldValue), newValue: newValue === undefined ? null : JSON.stringify(newValue), ip: getClientIp(c), userAgent: c.req.header('user-agent') || '', parishId: user.parishId })
+}
+async function actionableTargetUserId(tx: DbTransaction, parishId: string, target: { userId?: string | null; personId?: string | null }) {
+  if (target.userId) return target.userId
+  if (!target.personId) return null
+  const [person] = await tx.select({ linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(
+    eq(parishPeople.parishId, parishId), eq(parishPeople.id, target.personId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt),
+  )).limit(1)
+  return person?.linkedUserId ?? null
+}
+async function enqueueDispatchInvitation(tx: DbTransaction, parishId: string, dispatchId: string, targetKind: 'PRIMARY' | 'RESERVE', recipientUserId: string, now: string) {
+  const notificationId = `NOT-OPS-DISPATCH-${dispatchId}-${targetKind}`
+  const [existing] = await tx.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.parishId, parishId), eq(notifications.id, notificationId))).limit(1)
+  if (!existing) await tx.insert(notifications).values({
+    id: notificationId, type: 'web_push', channel: 'reminder', deliveryKind: 'reminder', status: 'retrying', recipient: 'Operations assignee',
+    message: 'Bạn có lời mời nhận nhiệm vụ mới trong Catevia. Vui lòng đăng nhập để phản hồi.', triggeredByType: 'system',
+    targetUserIds: JSON.stringify([recipientUserId]), attemptCount: 0, maxAttempts: 3, parishId, createdAt: now,
+  })
+}
+async function activateScheduledDispatchesForEvent(tx: DbTransaction, parishId: string, eventId: string, now: string) {
+  const rows = await tx.select({ dispatch: operationTaskDispatches }).from(operationTaskDispatches).innerJoin(operationTasks, and(
+    eq(operationTasks.parishId, operationTaskDispatches.parishId), eq(operationTasks.id, operationTaskDispatches.taskId),
+  )).where(and(
+    eq(operationTaskDispatches.parishId, parishId), eq(operationTaskDispatches.status, 'SCHEDULED'),
+    eq(operationTasks.operationEventId, eventId), isNull(operationTasks.deletedAt),
+  ))
+  for (const { dispatch } of rows) {
+    if (dispatch.acknowledgeBy <= now) throw Object.assign(new Error('Hạn nhận nhiệm vụ phải sau thời điểm chuyển sang Kế hoạch.'), { status: 409, code: 'DISPATCH_ACKNOWLEDGEMENT_DEADLINE_PASSED' })
+    const hasReserve = Boolean(dispatch.reserveUserId || dispatch.reservePersonId)
+    const [changed] = await tx.update(operationTaskDispatches).set({
+      status: 'PENDING', primaryInvitedAt: now, reserveInviteAt: hasReserve ? reserveInvitationAt(now, dispatch.acknowledgeBy) : null,
+      version: dispatch.version + 1, updatedAt: now,
+    }).where(and(eq(operationTaskDispatches.parishId, parishId), eq(operationTaskDispatches.id, dispatch.id), eq(operationTaskDispatches.status, 'SCHEDULED'), eq(operationTaskDispatches.version, dispatch.version))).returning()
+    if (!changed) throw new VersionConflictError('Lời mời nhận nhiệm vụ đã bị thay đổi.', dispatch)
+    const primaryUserId = await actionableTargetUserId(tx, parishId, { userId: changed.primaryUserId, personId: changed.primaryPersonId })
+    if (!primaryUserId) throw Object.assign(new Error('Người thực hiện chính không còn tài khoản hoạt động.'), { status: 409, code: 'DISPATCH_PRIMARY_NOT_ACTIONABLE' })
+    await enqueueDispatchInvitation(tx, parishId, changed.id, 'PRIMARY', primaryUserId, now)
+  }
+}
+async function cancelOpenDispatchesForEvent(tx: DbTransaction, parishId: string, eventId: string, now: string) {
+  const taskRows = await tx.select({ id: operationTasks.id }).from(operationTasks).where(and(
+    eq(operationTasks.parishId, parishId), eq(operationTasks.operationEventId, eventId), isNull(operationTasks.deletedAt),
+  ))
+  if (!taskRows.length) return
+  await tx.update(operationTaskDispatches).set({ status: 'CANCELLED', version: sql`${operationTaskDispatches.version} + 1`, updatedAt: now }).where(and(
+    eq(operationTaskDispatches.parishId, parishId),
+    inArray(operationTaskDispatches.taskId, taskRows.map(item => item.id)),
+    inArray(operationTaskDispatches.status, ['SCHEDULED', 'PENDING']),
+  ))
+}
+const PUBLIC_EVENT_CATEGORY_NAMES = {
+  FEAST_DAY: 'Lễ Bổn Mạng', CAMP: 'Trại Hè / Sa Mạc', TRAINING: 'Huấn Luyện', SACRAMENT: 'Bí Tích', RETREAT: 'Tĩnh Tâm', MEETING: 'Họp Xứ Đoàn', OTHER: 'Sự Kiện Khác',
+} as const
+function publicCalendarProjection(event: { title: string; eventType: string; startsAt: string; timezone: string; location: string | null }) {
+  const category: keyof typeof PUBLIC_EVENT_CATEGORY_NAMES = Object.hasOwn(PUBLIC_EVENT_CATEGORY_NAMES, event.eventType) ? event.eventType as keyof typeof PUBLIC_EVENT_CATEGORY_NAMES : 'OTHER'
+  const startsAt = new Date(event.startsAt)
+  const time = new Intl.DateTimeFormat('en-GB', { timeZone: event.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(startsAt)
+  return { date: parishCalendarDate(startsAt, event.timezone), title: event.title, category, categoryName: PUBLIC_EVENT_CATEGORY_NAMES[category], time, location: event.location }
+}
+function assertPublicCalendarFields(event: { visibility: string; title: string; location: string | null }) {
+  if (event.visibility !== 'PUBLIC_SUMMARY') return
+  if (event.title.length > 200) throw Object.assign(new Error('Tên sự kiện công khai tối đa 200 ký tự.'), { status: 400, code: 'PUBLIC_EVENT_TITLE_TOO_LONG' })
+  if ((event.location?.length ?? 0) > 200) throw Object.assign(new Error('Địa điểm sự kiện công khai tối đa 200 ký tự.'), { status: 400, code: 'PUBLIC_EVENT_LOCATION_TOO_LONG' })
+}
+async function upsertPublicCalendarEvent(tx: DbTransaction, parishId: string, actorUserId: string, sourceId: string | null, event: { title: string; eventType: string; startsAt: string; timezone: string; location: string | null }, now: string) {
+  const projection = publicCalendarProjection(event)
+  if (sourceId) {
+    const [existing] = await tx.select({ id: parishEvents.id }).from(parishEvents).where(and(eq(parishEvents.parishId, parishId), eq(parishEvents.id, sourceId))).limit(1)
+    if (existing) {
+      await tx.update(parishEvents).set({ ...projection, updatedAt: now, deletedAt: null }).where(and(eq(parishEvents.parishId, parishId), eq(parishEvents.id, sourceId)))
+      return sourceId
+    }
+  }
+  const id = generateId('EVT')
+  await tx.insert(parishEvents).values({ id, parishId, ...projection, createdBy: actorUserId, createdAt: now, updatedAt: now, deletedAt: null })
+  return id
+}
+async function enqueuePublicEventParentNotification(tx: DbTransaction, parishId: string, eventId: string, eventVersion: number, event: { title: string; startsAt: string; timezone: string; location: string | null }, now: string) {
+  const parents = await tx.select({ id: users.id }).from(users).where(and(
+    eq(users.parishId, parishId), eq(users.role, 'phuhuynh'), eq(users.status, 'ACTIVE'), isNull(users.deletedAt),
+  ))
+  if (parents.length === 0) return
+  const projection = publicCalendarProjection({ ...event, eventType: 'OTHER' })
+  const location = projection.location ? `, tại ${projection.location}` : ''
+  await tx.insert(notifications).values({
+    id: `NOT-OPS-PUBLIC-${eventId}-${eventVersion}`, parishId, studentId: null, type: 'web_push', channel: 'reminder', deliveryKind: 'info', status: 'retrying',
+    recipient: 'Phụ huynh', message: `Sự kiện ${projection.title}: ${projection.date} lúc ${projection.time}${location}.`, error: null,
+    triggeredByType: 'system', triggeredByUserId: null, sentAt: null, targetUserIds: JSON.stringify(parents.map(parent => parent.id)), attemptCount: 0, maxAttempts: 3,
+    leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: null, createdAt: now,
+  })
 }
 async function assertTarget(tx: DbTransaction, parishId: string, userId?: string | null, personId?: string | null, requireOperationsAccount = false) {
   if (userId) {
@@ -214,6 +442,35 @@ async function assertEventAcceptsPlanningMutation(tx: DbTransaction, parishId: s
 async function assertWorkstreamEventAcceptsMutation(tx: DbTransaction, parishId: string, eventId: string | null, action: string) {
   if (eventId) await assertEventAcceptsPlanningMutation(tx, parishId, eventId, action)
 }
+async function workstreamEventStatus(tx: DbTransaction, parishId: string, eventId: string | null) {
+  if (!eventId) return null
+  const [event] = await tx.select({ status: operationEvents.status }).from(operationEvents).where(and(
+    eq(operationEvents.parishId, parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt),
+  )).limit(1)
+  if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
+  return event.status
+}
+async function assertWorkstreamMembershipMutationAllowed(
+  tx: DbTransaction,
+  parishId: string,
+  eventId: string | null,
+  operationRole: string,
+  action: string,
+) {
+  const status = await workstreamEventStatus(tx, parishId, eventId)
+  if (status === 'COMPLETED' || status === 'CANCELLED') {
+    throw Object.assign(new Error(`Event đã kết thúc; không thể ${action}.`), { status: 409, code: 'EVENT_IMMUTABLE' })
+  }
+  if (status === 'LIVE' && operationRole === 'WORKSTREAM_LEAD') {
+    throw Object.assign(new Error('Sự kiện đang LIVE; phải dùng thao tác thay Trưởng nhóm để không tạo khoảng trống điều hành.'), { status: 409, code: 'USE_LEAD_REPLACEMENT' })
+  }
+}
+async function assertLiveWorkstreamLeadReplacement(tx: DbTransaction, parishId: string, eventId: string | null) {
+  const status = await workstreamEventStatus(tx, parishId, eventId)
+  if (status !== 'LIVE') {
+    throw Object.assign(new Error('Thao tác thay Trưởng nhóm nguyên tử chỉ dùng khi sự kiện đang LIVE.'), { status: 409, code: 'LEAD_REPLACEMENT_REQUIRES_LIVE' })
+  }
+}
 async function assertReminderRecipientCanView(tx: DbTransaction, parishId: string, recipientUserId: string, taskId?: string | null, eventId?: string | null) {
   const capability = taskId ? 'operations.task.view' as const : 'operations.event.view' as const
   const decision = await resolveOperationsUserAuthorization(parishId, recipientUserId, capability, { taskId: taskId ?? null, eventId: eventId ?? null }, tx)
@@ -223,6 +480,79 @@ async function assertScopeUnit(tx: DbTransaction, parishId: string, unitId?: str
   if (!unitId) return
   const [unit] = await tx.select({ id: parishOrganizationUnits.id }).from(parishOrganizationUnits).where(and(eq(parishOrganizationUnits.parishId, parishId), eq(parishOrganizationUnits.id, unitId), eq(parishOrganizationUnits.isActive, true), isNull(parishOrganizationUnits.deletedAt))).limit(1)
   if (!unit) throw Object.assign(new Error('Không tìm thấy đơn vị tổ chức đang hoạt động.'), { status: 404 })
+}
+
+async function buildOperationTemplateSnapshot(tx: DbTransaction, parishId: string, event: typeof operationEvents.$inferSelect): Promise<OperationTemplateSnapshot> {
+  const tasks = await tx.select({
+    id: operationTasks.id,
+    title: operationTasks.title,
+    description: operationTasks.description,
+    phase: operationTasks.phase,
+    priority: operationTasks.priority,
+    isRequired: operationTasks.isRequired,
+    approvalStatus: operationTasks.approvalStatus,
+    dueAt: operationTasks.dueAt,
+    scheduledStartAt: operationTasks.scheduledStartAt,
+    scheduledEndAt: operationTasks.scheduledEndAt,
+    createdAt: operationTasks.createdAt,
+  }).from(operationTasks).where(and(
+    eq(operationTasks.parishId, parishId), eq(operationTasks.operationEventId, event.id),
+    isNull(operationTasks.deletedAt), notInArray(operationTasks.status, ['CANCELLED']),
+  )).orderBy(asc(operationTasks.createdAt), asc(operationTasks.id))
+  const taskIds = tasks.map(task => task.id)
+  const checklist = taskIds.length === 0 ? [] : await tx.select({
+    taskId: operationChecklistItems.taskId,
+    label: operationChecklistItems.label,
+    isRequired: operationChecklistItems.isRequired,
+    sortOrder: operationChecklistItems.sortOrder,
+  }).from(operationChecklistItems).where(and(
+    eq(operationChecklistItems.parishId, parishId), inArray(operationChecklistItems.taskId, taskIds),
+  )).orderBy(asc(operationChecklistItems.taskId), asc(operationChecklistItems.sortOrder), asc(operationChecklistItems.id))
+  const checklistByTask = new Map<string, Array<{ label: string; isRequired: boolean; sortOrder: number }>>()
+  for (const item of checklist) checklistByTask.set(item.taskId, [...(checklistByTask.get(item.taskId) ?? []), { label: item.label, isRequired: item.isRequired, sortOrder: item.sortOrder }])
+  return templateSnapshotSchema.parse({
+    event: {
+      title: event.title,
+      description: event.description,
+      eventType: event.eventType,
+      durationMinutes: Math.max(1, Math.round((Date.parse(event.endsAt) - Date.parse(event.startsAt)) / 60_000)),
+      location: event.location,
+      expectedHeadcount: event.expectedHeadcount,
+    },
+    tasks: tasks.map(task => ({
+      title: task.title,
+      description: task.description,
+      phase: task.phase,
+      priority: task.priority,
+      isRequired: task.isRequired,
+      requiresApproval: task.approvalStatus !== 'NOT_REQUIRED',
+      dueOffsetMinutes: task.dueAt ? Math.round((Date.parse(task.dueAt) - Date.parse(event.startsAt)) / 60_000) : null,
+      scheduledStartOffsetMinutes: task.scheduledStartAt ? Math.round((Date.parse(task.scheduledStartAt) - Date.parse(event.startsAt)) / 60_000) : null,
+      scheduledEndOffsetMinutes: task.scheduledEndAt ? Math.round((Date.parse(task.scheduledEndAt) - Date.parse(event.startsAt)) / 60_000) : null,
+      checklist: checklistByTask.get(task.id) ?? [],
+    })),
+  })
+}
+
+function parseOperationTemplateSnapshot(raw: string): OperationTemplateSnapshot {
+  try { return templateSnapshotSchema.parse(JSON.parse(raw)) } catch {
+    throw Object.assign(new Error('Snapshot mẫu sự kiện không hợp lệ; không thể xem trước hoặc khởi tạo.'), { status: 409, code: 'TEMPLATE_SNAPSHOT_INVALID' })
+  }
+}
+
+function previewOperationTemplate(snapshot: OperationTemplateSnapshot, startsAt: string) {
+  const startMs = Date.parse(startsAt)
+  const endsAt = new Date(startMs + snapshot.event.durationMinutes * 60_000).toISOString()
+  return {
+    event: { ...snapshot.event, startsAt, endsAt },
+    tasks: snapshot.tasks.map((task, index) => ({
+      index,
+      ...task,
+      dueAt: task.dueOffsetMinutes === null ? null : new Date(startMs + task.dueOffsetMinutes * 60_000).toISOString(),
+      scheduledStartAt: task.scheduledStartOffsetMinutes === null ? null : new Date(startMs + task.scheduledStartOffsetMinutes * 60_000).toISOString(),
+      scheduledEndAt: task.scheduledEndOffsetMinutes === null ? null : new Date(startMs + task.scheduledEndOffsetMinutes * 60_000).toISOString(),
+    })),
+  }
 }
 type OperationsTarget = { userId: string | null; personId: string | null }
 async function actionableOperationsTargets(tx: DbTransaction, parishId: string, targets: OperationsTarget[]): Promise<Set<string>> {
@@ -251,9 +581,41 @@ async function actionableOperationsTargets(tx: DbTransaction, parishId: string, 
 function targetKey(target: OperationsTarget): string {
   return target.userId ? `user:${target.userId}` : `person:${target.personId}`
 }
+async function canonicalOperationsUserId(tx: DbTransaction, parishId: string, target: OperationsTarget): Promise<string | null> {
+  if (target.userId) return target.userId
+  if (!target.personId) return null
+  const [person] = await tx.select({ linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(
+    eq(parishPeople.parishId, parishId), eq(parishPeople.id, target.personId), isNull(parishPeople.deletedAt),
+  )).limit(1)
+  return person?.linkedUserId ?? null
+}
+async function assertActionableOperationsTarget(tx: DbTransaction, parishId: string, target: OperationsTarget, message = 'Trưởng nhóm mới phải có tài khoản Operations đang hoạt động.') {
+  const actionable = await actionableOperationsTargets(tx, parishId, [target])
+  if (!actionable.has(targetKey(target))) {
+    throw Object.assign(new Error(message), { status: 400, code: 'INVALID_OPERATIONS_TARGET' })
+  }
+}
+async function assignmentConflictWarnings(tx: DbTransaction, parishId: string, target: OperationsTarget, schedule: { dueAt: string | null; scheduledStartAt: string | null; scheduledEndAt: string | null }) {
+  if (!schedule.dueAt && (!schedule.scheduledStartAt || !schedule.scheduledEndAt)) return []
+  const linkedPeople = await tx.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(
+    eq(parishPeople.parishId, parishId), isNull(parishPeople.deletedAt),
+    target.personId ? eq(parishPeople.id, target.personId) : eq(parishPeople.linkedUserId, target.userId!),
+  ))
+  const targetUserId = target.userId ?? linkedPeople[0]?.linkedUserId
+  const targetPersonIds = linkedPeople.map(person => person.id)
+  if (!targetUserId && targetPersonIds.length === 0) return []
+  const timePredicate = schedule.scheduledStartAt && schedule.scheduledEndAt
+    ? and(lt(operationBlockouts.startsAt, schedule.scheduledEndAt), gt(operationBlockouts.endsAt, schedule.scheduledStartAt))
+    : and(lte(operationBlockouts.startsAt, schedule.dueAt!), gt(operationBlockouts.endsAt, schedule.dueAt!))
+  return tx.select({ id: operationBlockouts.id, startsAt: operationBlockouts.startsAt, endsAt: operationBlockouts.endsAt }).from(operationBlockouts).where(and(
+    eq(operationBlockouts.parishId, parishId),
+    or(targetUserId ? eq(operationBlockouts.userId, targetUserId) : undefined, targetPersonIds.length ? inArray(operationBlockouts.personId, targetPersonIds) : undefined),
+    isNull(operationBlockouts.deletedAt), timePredicate,
+  ))
+}
 async function readiness(tx: DbTransaction, parishId: string, eventId: string) {
   const workstreams = await tx.select({ id: operationWorkstreams.id, name: operationWorkstreams.name, status: operationWorkstreams.status, isRequired: operationWorkstreams.isRequired }).from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, parishId), eq(operationWorkstreams.operationEventId, eventId), isNull(operationWorkstreams.deletedAt)))
-  const tasks = await tx.select({ id: operationTasks.id, title: operationTasks.title, status: operationTasks.status, isRequired: operationTasks.isRequired, dueAt: operationTasks.dueAt }).from(operationTasks).where(and(eq(operationTasks.parishId, parishId), eq(operationTasks.operationEventId, eventId), isNull(operationTasks.deletedAt)))
+  const tasks = await tx.select({ id: operationTasks.id, title: operationTasks.title, phase: operationTasks.phase, status: operationTasks.status, isRequired: operationTasks.isRequired, dueAt: operationTasks.dueAt }).from(operationTasks).where(and(eq(operationTasks.parishId, parishId), eq(operationTasks.operationEventId, eventId), isNull(operationTasks.deletedAt)))
   const blockers: Array<{ type: string; id: string; label: string }> = []
   const now = new Date().toISOString()
   const requiredWorkstreams = workstreams.filter(item => item.isRequired)
@@ -297,22 +659,316 @@ async function readiness(tx: DbTransaction, parishId: string, eventId: string) {
     if (item.status !== 'READY') blockers.push({ type: 'WORKSTREAM_NOT_READY', id: item.id, label: item.name })
     if (!leadWorkstreamIds.has(item.id)) blockers.push({ type: 'WORKSTREAM_LEAD_MISSING', id: item.id, label: item.name })
   }
-  for (const task of requiredTasks.filter(item => item.status !== 'DONE')) blockers.push({ type: 'TASK_NOT_DONE', id: task.id, label: task.title })
+  for (const task of requiredTasks.filter(item => item.phase === 'PREPARATION' && item.status !== 'DONE')) blockers.push({ type: 'TASK_NOT_DONE', id: task.id, label: task.title })
   for (const task of requiredTasks) {
     if (!ownerTaskIds.has(task.id)) blockers.push({ type: 'TASK_OWNER_MISSING', id: task.id, label: task.title })
+    if (task.phase !== 'PREPARATION') {
+      if (task.status === 'BLOCKED' || task.status === 'CANCELLED') blockers.push({ type: 'TASK_NOT_READY', id: task.id, label: task.title })
+      continue
+    }
     if (task.dueAt && task.dueAt < now && task.status !== 'DONE' && task.status !== 'CANCELLED') blockers.push({ type: 'TASK_OVERDUE', id: task.id, label: task.title })
     if (blockedDependencyTaskIds.has(task.id)) blockers.push({ type: 'TASK_DEPENDENCY_BLOCKED', id: task.id, label: task.title })
     blockers.push(...(incompleteByTask.get(task.id) ?? []).map(item => ({ type: 'CHECKLIST_NOT_DONE', id: item.id, label: item.label })))
   }
-  const required = workstreams.filter(item => item.isRequired).length + tasks.filter(item => item.isRequired).length
-  const done = workstreams.filter(item => item.isRequired && item.status === 'READY').length + tasks.filter(item => item.isRequired && item.status === 'DONE').length
+  const required = requiredWorkstreams.length + requiredTasks.filter(item => item.phase === 'PREPARATION').length
+  const done = requiredWorkstreams.filter(item => item.status === 'READY').length + requiredTasks.filter(item => item.phase === 'PREPARATION' && item.status === 'DONE').length
   return { percent: required === 0 ? 100 : Math.round((done / required) * 100), blockers }
+}
+
+async function closureReadiness(tx: DbTransaction, parishId: string, eventId: string) {
+  const requiredTasks = await tx.select({ id: operationTasks.id, title: operationTasks.title, status: operationTasks.status })
+      .from(operationTasks)
+      .where(and(
+        eq(operationTasks.parishId, parishId),
+        eq(operationTasks.operationEventId, eventId),
+        eq(operationTasks.isRequired, true),
+        isNull(operationTasks.deletedAt),
+      ))
+  const blockers = requiredTasks
+    .filter(task => task.status !== 'DONE')
+    .map(task => ({ type: 'TASK_INCOMPLETE', id: task.id, label: task.title }))
+  return { blockers }
+}
+
+async function preparationAcknowledgementState(tx: DbTransaction, parishId: string, eventId: string) {
+  const tasks = await tx.select({ id: operationTasks.id, title: operationTasks.title, status: operationTasks.status })
+    .from(operationTasks)
+    .where(and(eq(operationTasks.parishId, parishId), eq(operationTasks.operationEventId, eventId), isNull(operationTasks.deletedAt)))
+  const activeTasks = tasks.filter(task => task.status !== 'CANCELLED')
+  if (activeTasks.length === 0) return { eligible: false, pendingTaskIds: [] as string[], blockers: [] as Array<{ type: string; id: string; label: string }> }
+  const taskIds = activeTasks.map(task => task.id)
+  const assignments = await tx.select({
+    taskId: operationTaskAssignees.taskId,
+    userId: operationTaskAssignees.userId,
+    personId: operationTaskAssignees.personId,
+    role: operationTaskAssignees.assignmentRole,
+    acknowledgementStatus: operationTaskAssignees.acknowledgementStatus,
+  }).from(operationTaskAssignees).where(and(
+    eq(operationTaskAssignees.parishId, parishId),
+    inArray(operationTaskAssignees.taskId, taskIds),
+    inArray(operationTaskAssignees.assignmentRole, ['OWNER', 'CONTRIBUTOR']),
+    isNull(operationTaskAssignees.removedAt),
+  ))
+  const actionable = await actionableOperationsTargets(tx, parishId, assignments.map(row => ({ userId: row.userId, personId: row.personId })))
+  const state = preparationAcceptanceReadiness(activeTasks.map(task => {
+    const performers = assignments.filter(row => row.taskId === task.id)
+    return {
+      id: task.id,
+      cancelled: false,
+      hasOwner: performers.some(row => row.role === 'OWNER'),
+      performers: performers.map(row => ({ valid: actionable.has(targetKey(row)), accepted: row.acknowledgementStatus === 'ACCEPTED' })),
+    }
+  }))
+  return {
+    ...state,
+    blockers: state.pendingTaskIds.map(id => ({ type: 'TASK_ACCEPTANCE_PENDING', id, label: activeTasks.find(task => task.id === id)?.title ?? id })),
+  }
 }
 
 operationsRouter.get('/permissions', async c => {
   const user = actor(c)
   const scope = { parishId: user.parishId, resourceUnitId: c.req.query('unitId') || null, eventId: c.req.query('eventId') || null, workstreamId: c.req.query('workstreamId') || null, taskId: c.req.query('taskId') || null }
   return successResponse(c, { parishId: user.parishId, permissions: await getOperationsCallerPermissions(user, scope) })
+})
+
+operationsRouter.get('/units', async c => {
+  const user = actor(c)
+  try {
+    const { page, limit, offset } = listPagination(c)
+    const rows = await db.select({
+      id: parishOrganizationUnits.id,
+      parishId: parishOrganizationUnits.parishId,
+      parentId: parishOrganizationUnits.parentId,
+      name: parishOrganizationUnits.name,
+      unitType: parishOrganizationUnits.unitType,
+    }).from(parishOrganizationUnits).where(and(
+      eq(parishOrganizationUnits.parishId, user.parishId), eq(parishOrganizationUnits.isActive, true), isNull(parishOrganizationUnits.deletedAt),
+    )).orderBy(parishOrganizationUnits.sortOrder, parishOrganizationUnits.name)
+    const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.workstream.create', rows.map(row => ({
+      parishId: row.parishId,
+      resourceUnitId: row.id,
+    })))
+    const visible = rows.filter((_, index) => decisions[index]?.allowed)
+    return paginatedResponse(c, visible.slice(offset, offset + limit), { page, limit, total: visible.length })
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.get('/templates', zValidator('query', templateListQuerySchema), async c => {
+  const user = actor(c); const archived = c.req.valid('query').archived === 'true'
+  try {
+    const { page, limit, offset } = listPagination(c)
+    const rows = await db.select().from(operationEventTemplates).where(and(
+      eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.isActive, !archived),
+    )).orderBy(desc(operationEventTemplates.updatedAt), asc(operationEventTemplates.name))
+    const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.event.create', rows.map(row => ({
+      parishId: row.parishId,
+      resourceUnitId: row.scopeUnitId,
+    })))
+    const visible = rows.filter((_, index) => decisions[index]?.allowed)
+    return paginatedResponse(c, visible.slice(offset, offset + limit), { page, limit, total: visible.length })
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.get('/templates/:id/preview', zValidator('query', templatePreviewQuerySchema), async c => {
+  const user = actor(c); const templateId = c.req.param('id'); const query = c.req.valid('query')
+  try {
+    const result = await db.transaction(async tx => {
+      const [template] = await tx.select().from(operationEventTemplates).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId), eq(operationEventTemplates.isActive, true),
+      )).limit(1)
+      if (!template) throw Object.assign(new Error('Không tìm thấy mẫu sự kiện.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, tx)
+      const version = query.version ?? template.latestVersion
+      const [snapshotRow] = await tx.select().from(operationEventTemplateVersions).where(and(
+        eq(operationEventTemplateVersions.parishId, user.parishId), eq(operationEventTemplateVersions.templateId, templateId), eq(operationEventTemplateVersions.version, version),
+      )).limit(1)
+      if (!snapshotRow) throw Object.assign(new Error('Không tìm thấy phiên bản mẫu sự kiện.'), { status: 404 })
+      return { template, version, preview: previewOperationTemplate(parseOperationTemplateSnapshot(snapshotRow.snapshotJson), query.startsAt) }
+    })
+    return successResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/events/:id/templates', zValidator('json', templateCreateSchema), async c => {
+  const user = actor(c); const eventId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.template.create_from_event', { eventId, ...body }, async tx => {
+      const [event] = await tx.select().from(operationEvents).where(and(
+        eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt),
+      )).limit(1)
+      if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
+      if (event.version !== body.eventVersion) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: event.scopeUnitId }, tx)
+      const snapshot = await buildOperationTemplateSnapshot(tx, user.parishId, event)
+      const now = new Date().toISOString()
+      const template = {
+        id: generateId('OPT'), parishId: user.parishId, scopeUnitId: event.scopeUnitId,
+        name: body.name, description: body.description ?? null, latestVersion: 1, version: 1, isActive: true,
+        createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now,
+      }
+      const version = { parishId: user.parishId, templateId: template.id, version: 1, sourceEventId: event.id, snapshotJson: JSON.stringify(snapshot), createdBy: user.userId, createdAt: now }
+      await tx.insert(operationEventTemplates).values(template)
+      await tx.insert(operationEventTemplateVersions).values(version)
+      await audit(tx, user, c, 'CREATE', 'operation_event_template', template.id, undefined, { version: 1, sourceEventId: event.id, scopeUnitId: event.scopeUnitId, taskCount: snapshot.tasks.length, checklistCount: snapshot.tasks.reduce((total, task) => total + task.checklist.length, 0) })
+      return template
+    })
+    return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/templates/:id/versions', zValidator('json', templateVersionCreateSchema), async c => {
+  const user = actor(c); const templateId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.template.version.create', { templateId, ...body }, async tx => {
+      const [template] = await tx.select().from(operationEventTemplates).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId), eq(operationEventTemplates.isActive, true),
+      )).limit(1)
+      if (!template) throw Object.assign(new Error('Không tìm thấy mẫu sự kiện.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, tx)
+      if (template.version !== body.expectedVersion) throw new VersionConflictError('Mẫu sự kiện đã bị thay đổi bởi người khác.', template)
+      if (template.latestVersion !== body.expectedLatestVersion) throw new VersionConflictError('Mẫu sự kiện đã có phiên bản mới hơn.', template)
+      const [sourceEvent] = await tx.select().from(operationEvents).where(and(
+        eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, body.sourceEventId), isNull(operationEvents.deletedAt),
+      )).limit(1)
+      if (!sourceEvent) throw Object.assign(new Error('Không tìm thấy operation event nguồn.'), { status: 404 })
+      if (sourceEvent.version !== body.sourceEventVersion) throw new VersionConflictError('Operation event nguồn đã bị thay đổi bởi người khác.', sourceEvent)
+      if (sourceEvent.scopeUnitId !== template.scopeUnitId) throw Object.assign(new Error('Event nguồn phải có cùng phạm vi tổ chức với mẫu.'), { status: 409, code: 'TEMPLATE_SCOPE_MISMATCH' })
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: sourceEvent.scopeUnitId }, tx)
+      const snapshot = await buildOperationTemplateSnapshot(tx, user.parishId, sourceEvent)
+      const now = new Date().toISOString(); const nextVersion = template.latestVersion + 1
+      await tx.insert(operationEventTemplateVersions).values({ parishId: user.parishId, templateId, version: nextVersion, sourceEventId: sourceEvent.id, snapshotJson: JSON.stringify(snapshot), createdBy: user.userId, createdAt: now })
+      const [changed] = await tx.update(operationEventTemplates).set({ latestVersion: nextVersion, version: template.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId), eq(operationEventTemplates.version, body.expectedVersion), eq(operationEventTemplates.latestVersion, body.expectedLatestVersion), eq(operationEventTemplates.isActive, true),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Mẫu sự kiện đã có phiên bản mới hơn.', template)
+      await audit(tx, user, c, 'CREATE_VERSION', 'operation_event_template', templateId, { contentVersion: template.latestVersion, familyVersion: template.version }, { contentVersion: nextVersion, familyVersion: changed.version, sourceEventId: sourceEvent.id, reason: body.reason, taskCount: snapshot.tasks.length, checklistCount: snapshot.tasks.reduce((total, task) => total + task.checklist.length, 0) })
+      return changed
+    })
+    return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/templates/:id/archive', zValidator('json', templateStatusChangeSchema), async c => {
+  const user = actor(c); const templateId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.template.archive', { templateId, ...body }, async tx => {
+      const [template] = await tx.select().from(operationEventTemplates).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId),
+      )).limit(1)
+      if (!template) throw Object.assign(new Error('Không tìm thấy mẫu sự kiện.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, tx)
+      if (template.version !== body.expectedVersion) throw new VersionConflictError('Mẫu sự kiện đã bị thay đổi bởi người khác.', template)
+      if (template.latestVersion !== body.expectedLatestVersion) throw new VersionConflictError('Mẫu sự kiện đã có phiên bản mới hơn.', template)
+      if (!template.isActive) throw Object.assign(new Error('Mẫu sự kiện đã được lưu trữ.'), { status: 409, code: 'TEMPLATE_ALREADY_ARCHIVED' })
+      const now = new Date().toISOString()
+      const [changed] = await tx.update(operationEventTemplates).set({ isActive: false, version: template.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId),
+        eq(operationEventTemplates.version, body.expectedVersion), eq(operationEventTemplates.latestVersion, body.expectedLatestVersion), eq(operationEventTemplates.isActive, true),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Trạng thái mẫu sự kiện đã bị thay đổi bởi người khác.', template)
+      await audit(tx, user, c, 'ARCHIVE', 'operation_event_template', templateId, { isActive: true, version: template.version, latestVersion: template.latestVersion }, { isActive: false, version: changed.version, latestVersion: changed.latestVersion, reason: body.reason })
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/templates/:id/restore', zValidator('json', templateStatusChangeSchema), async c => {
+  const user = actor(c); const templateId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.template.restore', { templateId, ...body }, async tx => {
+      const [template] = await tx.select().from(operationEventTemplates).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId),
+      )).limit(1)
+      if (!template) throw Object.assign(new Error('Không tìm thấy mẫu sự kiện.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, tx)
+      if (template.version !== body.expectedVersion) throw new VersionConflictError('Mẫu sự kiện đã bị thay đổi bởi người khác.', template)
+      if (template.latestVersion !== body.expectedLatestVersion) throw new VersionConflictError('Mẫu sự kiện đã có phiên bản mới hơn.', template)
+      if (template.isActive) throw Object.assign(new Error('Mẫu sự kiện đang hoạt động.'), { status: 409, code: 'TEMPLATE_ALREADY_ACTIVE' })
+      const now = new Date().toISOString()
+      const [changed] = await tx.update(operationEventTemplates).set({ isActive: true, version: template.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId),
+        eq(operationEventTemplates.version, body.expectedVersion), eq(operationEventTemplates.latestVersion, body.expectedLatestVersion), eq(operationEventTemplates.isActive, false),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Trạng thái mẫu sự kiện đã bị thay đổi bởi người khác.', template)
+      await audit(tx, user, c, 'RESTORE', 'operation_event_template', templateId, { isActive: false, version: template.version, latestVersion: template.latestVersion }, { isActive: true, version: changed.version, latestVersion: changed.latestVersion, reason: body.reason })
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/templates/:id/instantiate', zValidator('json', templateInstantiateSchema), async c => {
+  const user = actor(c); const templateId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.template.instantiate', { templateId, ...body }, async tx => {
+      const [template] = await tx.select().from(operationEventTemplates).where(and(
+        eq(operationEventTemplates.parishId, user.parishId), eq(operationEventTemplates.id, templateId), eq(operationEventTemplates.isActive, true),
+      )).limit(1)
+      if (!template) throw Object.assign(new Error('Không tìm thấy mẫu sự kiện.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, tx)
+      if (body.visibility === 'PUBLIC_SUMMARY') {
+        await assertOperationsCapability(user, 'operations.event.publish_public', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, tx)
+      }
+      const [snapshotRow] = await tx.select().from(operationEventTemplateVersions).where(and(
+        eq(operationEventTemplateVersions.parishId, user.parishId), eq(operationEventTemplateVersions.templateId, templateId), eq(operationEventTemplateVersions.version, body.templateVersion),
+      )).limit(1)
+      if (!snapshotRow) throw Object.assign(new Error('Không tìm thấy phiên bản mẫu sự kiện.'), { status: 404 })
+      await assertScopeUnit(tx, user.parishId, template.scopeUnitId)
+      await assertTarget(tx, user.parishId, body.organizerUserId, body.organizerPersonId, true)
+      if (body.organizerUserId || body.organizerPersonId) {
+        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, { userId: body.organizerUserId, personId: body.organizerPersonId }, tx)
+      }
+      const snapshot = parseOperationTemplateSnapshot(snapshotRow.snapshotJson)
+      const materialized = previewOperationTemplate(snapshot, body.startsAt)
+      const now = new Date().toISOString()
+      const event = {
+        id: generateId('OPS'), parishId: user.parishId, sourceParishEventId: null as string | null,
+        sourceTemplateId: template.id, sourceTemplateVersion: body.templateVersion, scopeUnitId: template.scopeUnitId,
+        title: materialized.event.title, description: materialized.event.description, eventType: materialized.event.eventType,
+        startsAt: materialized.event.startsAt, endsAt: materialized.event.endsAt, timezone: body.timezone,
+        location: materialized.event.location, status: 'DRAFT' as const, visibility: body.visibility,
+        organizerPersonId: body.organizerPersonId ?? null, organizerUserId: body.organizerUserId ?? null,
+        expectedHeadcount: materialized.event.expectedHeadcount, outcomeSummary: null, version: 1,
+        createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null,
+      }
+      assertPublicCalendarFields(event)
+      const tasks = materialized.tasks.map(task => ({
+        id: generateId('TSK'), parishId: user.parishId, operationEventId: event.id, workstreamId: null, parentTaskId: null,
+        phase: task.phase, title: task.title, description: task.description, status: 'TODO' as const, priority: task.priority,
+        isRequired: task.isRequired, dueAt: task.dueAt, scheduledStartAt: task.scheduledStartAt, scheduledEndAt: task.scheduledEndAt, startedAt: null, completedAt: null, completionNote: null,
+        blockedReason: null, cancellationReason: null, approvalStatus: task.requiresApproval ? 'PENDING' as const : 'NOT_REQUIRED' as const,
+        approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId,
+        completedBy: null, createdAt: now, updatedAt: now, deletedAt: null,
+      }))
+      const checklist = materialized.tasks.flatMap((task, taskIndex) => task.checklist.map(item => ({
+        parishId: user.parishId, taskId: tasks[taskIndex].id, id: generateId('OPC'), label: item.label,
+        isRequired: item.isRequired, isDone: false, completedBy: null, completedAt: null, sortOrder: item.sortOrder, createdAt: now,
+      })))
+      await tx.insert(operationEvents).values(event)
+      if (tasks.length > 0) await tx.insert(operationTasks).values(tasks)
+      if (checklist.length > 0) await tx.insert(operationChecklistItems).values(checklist)
+      await audit(tx, user, c, 'INSTANTIATE', 'operation_event_template', template.id, undefined, { eventId: event.id, templateVersion: body.templateVersion, scopeUnitId: template.scopeUnitId, taskCount: tasks.length, checklistCount: checklist.length, sourceParishEventId: event.sourceParishEventId })
+      return { event, tasks, checklist, template: { id: template.id, name: template.name, version: body.templateVersion } }
+    })
+    return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.get('/candidates', async c => {
+  const user = actor(c)
+  try {
+    const taskId = c.req.query('taskId') || null
+    const workstreamId = c.req.query('workstreamId') || null
+    const eventId = c.req.query('eventId') || null
+    if ([taskId, workstreamId, eventId].filter(Boolean).length !== 1) {
+      throw Object.assign(new Error('Phải chọn đúng một task, workstream hoặc event.'), { status: 400 })
+    }
+    const { page, limit, offset } = listPagination(c)
+    const capability = taskId ? 'operations.task.assign' as const : workstreamId ? 'operations.workstream.manage' as const : 'operations.event.manage' as const
+    const candidates = await db.transaction(tx => listOperationsCandidates(user, capability, { parishId: user.parishId, taskId, workstreamId, eventId }, tx))
+    return paginatedResponse(c, candidates.slice(offset, offset + limit), { page, limit, total: candidates.length })
+  } catch (error) { return handleError(c, error) }
 })
 
 operationsRouter.get('/events/public-summary', async c => {
@@ -333,7 +989,7 @@ operationsRouter.get('/events', async c => {
     const rows = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))).orderBy(desc(operationEvents.startsAt))
     const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.event.view', rows.map(row => ({
       parishId: row.parishId,
-      event: { id: row.id, scopeUnitId: row.scopeUnitId, organizerUserId: row.organizerUserId, organizerPersonId: row.organizerPersonId },
+      event: { id: row.id, scopeUnitId: row.scopeUnitId, organizerUserId: row.organizerUserId, organizerPersonId: row.organizerPersonId, status: row.status, createdBy: row.createdBy },
       resourceUnitId: row.scopeUnitId,
     })))
     const visible = rows.filter((_, index) => decisions[index]?.allowed)
@@ -346,15 +1002,20 @@ operationsRouter.post('/events', zValidator('json', eventCreateSchema), async c 
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.create', body, async tx => {
       await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, tx)
-      await assertScopeUnit(tx, user.parishId, body.scopeUnitId)
-      if (body.sourceParishEventId) {
-        const [source] = await tx.select({ id: parishEvents.id }).from(parishEvents).where(and(eq(parishEvents.parishId, user.parishId), eq(parishEvents.id, body.sourceParishEventId), isNull(parishEvents.deletedAt))).limit(1)
-        if (!source) throw Object.assign(new Error('Không tìm thấy parish event nguồn.'), { status: 404 })
+      if (body.visibility === 'PUBLIC_SUMMARY') {
+        await assertOperationsCapability(user, 'operations.event.publish_public', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, tx)
       }
+      await assertScopeUnit(tx, user.parishId, body.scopeUnitId)
+      if (body.sourceParishEventId) throw Object.assign(new Error('Liên kết Lịch do Operations tự quản lý; client không được chọn parish event nguồn.'), { status: 400, code: 'CALENDAR_LINK_SERVER_MANAGED' })
       await assertTarget(tx, user.parishId, body.organizerUserId, body.organizerPersonId, true)
+      if (body.organizerUserId || body.organizerPersonId) {
+        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, { userId: body.organizerUserId, personId: body.organizerPersonId }, tx)
+      }
       const now = new Date().toISOString()
-      const row = { id: generateId('OPS'), parishId: user.parishId, sourceParishEventId: body.sourceParishEventId ?? null, scopeUnitId: body.scopeUnitId ?? null, title: body.title, description: body.description ?? null, eventType: body.eventType, startsAt: body.startsAt, endsAt: body.endsAt, timezone: body.timezone, location: body.location ?? null, status: 'DRAFT' as const, visibility: body.visibility, organizerPersonId: body.organizerPersonId ?? null, organizerUserId: body.organizerUserId ?? null, expectedHeadcount: body.expectedHeadcount ?? null, outcomeSummary: null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null }
-      await tx.insert(operationEvents).values(row); await audit(tx, user, c, 'CREATE', 'operation_event', row.id, undefined, row); return row
+      const row = { id: generateId('OPS'), parishId: user.parishId, sourceParishEventId: null as string | null, scopeUnitId: body.scopeUnitId ?? null, title: body.title, description: body.description ?? null, eventType: body.eventType, startsAt: body.startsAt, endsAt: body.endsAt, timezone: body.timezone, location: body.location ?? null, status: 'DRAFT' as const, visibility: body.visibility, organizerPersonId: body.organizerPersonId ?? null, organizerUserId: body.organizerUserId ?? null, expectedHeadcount: body.expectedHeadcount ?? null, outcomeSummary: null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null }
+      assertPublicCalendarFields(row)
+      await tx.insert(operationEvents).values(row)
+      await audit(tx, user, c, 'CREATE', 'operation_event', row.id, undefined, row); return row
     })
     return commandResponse(c, result, true)
   } catch (error) { return handleError(c, error) }
@@ -369,6 +1030,7 @@ operationsRouter.put('/events/:id', zValidator('json', eventUpdateSchema), async
       await assertOperationsCapability(user, 'operations.event.manage', { parishId: user.parishId, eventId }, tx)
       if (existing.version !== body.version) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', existing)
       assertEventFieldsMutable(existing)
+      if (body.sourceParishEventId !== undefined) throw Object.assign(new Error('Liên kết Lịch do Operations tự quản lý; client không được sửa sourceParishEventId.'), { status: 400, code: 'CALENDAR_LINK_SERVER_MANAGED' })
       const nextScopeUnitId = body.scopeUnitId === undefined ? existing.scopeUnitId : body.scopeUnitId
       const nextOrganizerUserId = body.organizerUserId === undefined ? existing.organizerUserId : body.organizerUserId
       const nextOrganizerPersonId = body.organizerPersonId === undefined ? existing.organizerPersonId : body.organizerPersonId
@@ -376,22 +1038,37 @@ operationsRouter.put('/events/:id', zValidator('json', eventUpdateSchema), async
         (body.scopeUnitId !== undefined && body.scopeUnitId !== existing.scopeUnitId)
         || (body.organizerUserId !== undefined && body.organizerUserId !== existing.organizerUserId)
         || (body.organizerPersonId !== undefined && body.organizerPersonId !== existing.organizerPersonId)
-        || (body.sourceParishEventId !== undefined && body.sourceParishEventId !== existing.sourceParishEventId)
         || (body.visibility !== undefined && body.visibility !== existing.visibility)
       if (changesAuthorityBoundary) {
         await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: nextScopeUnitId }, tx)
       }
       if (nextOrganizerUserId && nextOrganizerPersonId) throw Object.assign(new Error('Organizer chỉ dùng user hoặc person, không dùng cả hai.'), { status: 400 })
       const startsAt = body.startsAt ?? existing.startsAt; const endsAt = body.endsAt ?? existing.endsAt
-      const visibility = body.visibility ?? existing.visibility; const sourceId = body.sourceParishEventId === undefined ? existing.sourceParishEventId : body.sourceParishEventId
+      const visibility = body.visibility ?? existing.visibility
+      if (existing.visibility === 'PUBLIC_SUMMARY' || visibility === 'PUBLIC_SUMMARY') {
+        await assertOperationsCapability(user, 'operations.event.publish_public', { parishId: user.parishId, resourceUnitId: nextScopeUnitId }, tx)
+      }
       if (endsAt <= startsAt) throw Object.assign(new Error('Thời gian kết thúc phải sau thời gian bắt đầu.'), { status: 400 })
-      if (visibility === 'PUBLIC_SUMMARY' && !sourceId) throw Object.assign(new Error('PUBLIC_SUMMARY phải liên kết một parish event.'), { status: 400 })
       await assertScopeUnit(tx, user.parishId, body.scopeUnitId)
       await assertTarget(tx, user.parishId, body.organizerUserId, body.organizerPersonId, true)
-      const updates: any = { updatedAt: new Date().toISOString(), updatedBy: user.userId, version: existing.version + 1 }
-      for (const field of ['sourceParishEventId', 'scopeUnitId', 'organizerUserId', 'organizerPersonId', 'title', 'description', 'eventType', 'startsAt', 'endsAt', 'timezone', 'location', 'visibility', 'expectedHeadcount'] as const) if (body[field] !== undefined) updates[field] = body[field]
+      if (nextOrganizerUserId || nextOrganizerPersonId) {
+        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: nextScopeUnitId }, { userId: nextOrganizerUserId, personId: nextOrganizerPersonId }, tx)
+      }
+      const now = new Date().toISOString()
+      const nextEvent = { ...existing, ...body, startsAt, endsAt, visibility, title: body.title ?? existing.title, eventType: body.eventType ?? existing.eventType, timezone: body.timezone ?? existing.timezone, location: body.location === undefined ? existing.location : body.location }
+      assertPublicCalendarFields(nextEvent)
+      let sourceParishEventId = existing.sourceParishEventId
+      if (existing.status !== 'DRAFT' && visibility === 'PUBLIC_SUMMARY') {
+        sourceParishEventId = await upsertPublicCalendarEvent(tx, user.parishId, user.userId, sourceParishEventId, nextEvent, now)
+      } else if (sourceParishEventId) {
+        await tx.update(parishEvents).set({ deletedAt: now, updatedAt: now }).where(and(eq(parishEvents.parishId, user.parishId), eq(parishEvents.id, sourceParishEventId), isNull(parishEvents.deletedAt)))
+        sourceParishEventId = null
+      }
+      const updates: any = { sourceParishEventId, updatedAt: now, updatedBy: user.userId, version: existing.version + 1 }
+      for (const field of ['scopeUnitId', 'organizerUserId', 'organizerPersonId', 'title', 'description', 'eventType', 'startsAt', 'endsAt', 'timezone', 'location', 'visibility', 'expectedHeadcount'] as const) if (body[field] !== undefined) updates[field] = body[field]
       const [changed] = await tx.update(operationEvents).set(updates).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', existing)
+      if (existing.status !== 'DRAFT' && existing.visibility !== 'PUBLIC_SUMMARY' && changed.visibility === 'PUBLIC_SUMMARY') await enqueuePublicEventParentNotification(tx, user.parishId, eventId, changed.version, changed, now)
       await audit(tx, user, c, 'UPDATE', 'operation_event', eventId, existing, changed); return changed
     })
     return commandResponse(c, result)
@@ -409,13 +1086,74 @@ operationsRouter.get('/events/:id', async c => {
     await assertOperationsCapability(user, 'operations.event.view', { parishId: user.parishId, eventId })
     const [event] = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
     if (!event) return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy operation event.', 404)
-    const [workstreams, tasks, participants, assignees] = await Promise.all([
+    const [workstreams, tasks, participants, assignees, retrospectiveRows] = await Promise.all([
       db.select().from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.operationEventId, eventId), isNull(operationWorkstreams.deletedAt))).orderBy(asc(operationWorkstreams.name)),
       db.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.operationEventId, eventId), isNull(operationTasks.deletedAt))).orderBy(asc(operationTasks.dueAt)),
       db.select().from(operationEventParticipants).where(and(eq(operationEventParticipants.parishId, user.parishId), eq(operationEventParticipants.eventId, eventId))),
       db.select({ assignment: operationTaskAssignees }).from(operationTaskAssignees).innerJoin(operationTasks, and(eq(operationTasks.parishId, operationTaskAssignees.parishId), eq(operationTasks.id, operationTaskAssignees.taskId))).where(and(eq(operationTaskAssignees.parishId, user.parishId), eq(operationTasks.operationEventId, eventId), isNull(operationTaskAssignees.removedAt), isNull(operationTasks.deletedAt))),
+      db.select().from(operationEventRetrospectives).where(and(eq(operationEventRetrospectives.parishId, user.parishId), eq(operationEventRetrospectives.eventId, eventId))).limit(1),
     ])
-    return successResponse(c, { event, workstreams, tasks, participants, assignees: assignees.map(row => row.assignment), readiness: await db.transaction(tx => readiness(tx, user.parishId, eventId)), permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, eventId }) })
+    const [readinessState, closureState] = await db.transaction(async tx => Promise.all([
+      readiness(tx, user.parishId, eventId),
+      closureReadiness(tx, user.parishId, eventId),
+    ]))
+    return successResponse(c, { event, retrospective: retrospectiveRows[0] ?? null, workstreams, tasks, participants, assignees: assignees.map(row => row.assignment), readiness: readinessState, closure: closureState, permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, eventId }) })
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.put('/events/:id/retrospective', zValidator('json', eventRetrospectiveSchema), async c => {
+  const user = actor(c); const eventId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.retrospective.save', { eventId, ...body }, async tx => {
+      const [event] = await tx.select({ id: operationEvents.id, status: operationEvents.status }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
+      if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.manage', { parishId: user.parishId, eventId }, tx)
+      if (event.status !== 'COMPLETED') throw Object.assign(new Error('Chỉ ghi đánh giá sau khi sự kiện đã hoàn tất.'), { status: 409, code: 'RETROSPECTIVE_REQUIRES_COMPLETED' })
+      const [existing] = await tx.select().from(operationEventRetrospectives).where(and(eq(operationEventRetrospectives.parishId, user.parishId), eq(operationEventRetrospectives.eventId, eventId))).limit(1)
+      const now = new Date().toISOString()
+      if (!existing) {
+        if (body.expectedVersion !== null) throw new VersionConflictError('Hậu kiểm chưa tồn tại; hãy tải lại sự kiện.', null)
+        const created = { parishId: user.parishId, eventId, lessonsLearned: body.lessonsLearned, improvementNotes: body.improvementNotes ?? null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now }
+        await tx.insert(operationEventRetrospectives).values(created)
+        await audit(tx, user, c, 'CREATE_RETROSPECTIVE', 'operation_event', eventId, undefined, { version: 1, hasLessons: true, hasImprovements: Boolean(created.improvementNotes) })
+        return created
+      }
+      if (body.expectedVersion !== existing.version) throw new VersionConflictError('Hậu kiểm đã bị thay đổi bởi người khác.', existing)
+      const [changed] = await tx.update(operationEventRetrospectives).set({ lessonsLearned: body.lessonsLearned, improvementNotes: body.improvementNotes ?? null, version: existing.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationEventRetrospectives.parishId, user.parishId), eq(operationEventRetrospectives.eventId, eventId), eq(operationEventRetrospectives.version, existing.version))).returning()
+      if (!changed) throw new VersionConflictError('Hậu kiểm đã bị thay đổi bởi người khác.', existing)
+      await audit(tx, user, c, 'UPDATE_RETROSPECTIVE', 'operation_event', eventId, { version: existing.version }, { version: changed.version, hasLessons: true, hasImprovements: Boolean(changed.improvementNotes) })
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/events/:id/follow-ups', zValidator('json', eventFollowUpSchema), async c => {
+  const user = actor(c); const eventId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.follow_up.create', { eventId, ...body }, async tx => {
+      const [event] = await tx.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
+      if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.task.create', { parishId: user.parishId, eventId }, tx)
+      await assertOperationsCapability(user, 'operations.task.assign', { parishId: user.parishId, eventId }, tx)
+      if (event.status !== 'COMPLETED') throw Object.assign(new Error('Chỉ tạo follow-up hậu kiểm sau khi sự kiện đã hoàn tất.'), { status: 409, code: 'FOLLOW_UP_REQUIRES_COMPLETED' })
+      if (event.version !== body.eventVersion) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      const target = { userId: body.userId ?? null, personId: body.personId ?? null }
+      await assertTarget(tx, user.parishId, target.userId, target.personId, true)
+      await assertActionableOperationsTarget(tx, user.parishId, target, 'Người phụ trách follow-up phải có tài khoản Operations đang hoạt động.')
+      await assertOperationsTargetWithinAuthority(user, 'operations.task.assign', { parishId: user.parishId, eventId }, target, tx)
+      const now = new Date().toISOString()
+      const [changedEvent] = await tx.update(operationEvents).set({ version: event.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.eventVersion))).returning({ version: operationEvents.version })
+      if (!changedEvent) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      const task = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: null, parentTaskId: null, phase: 'FOLLOW_UP' as const, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: false, dueAt: body.dueAt, scheduledStartAt: null, scheduledEndAt: null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, cancellationReason: null, approvalStatus: 'NOT_REQUIRED' as const, approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
+      const assignment = { id: generateId('OPA'), parishId: user.parishId, taskId: task.id, userId: target.userId, personId: target.personId, assignmentRole: 'OWNER' as const, acknowledgementStatus: 'PENDING' as const, assignedBy: user.userId, assignedAt: now, respondedAt: null, completedAt: null, note: 'Follow-up từ hậu kiểm sự kiện', version: 1, removedAt: null }
+      await tx.insert(operationTasks).values(task)
+      await tx.insert(operationTaskAssignees).values(assignment)
+      const conflictWarnings = await assignmentConflictWarnings(tx, user.parishId, target, task)
+      await audit(tx, user, c, 'CREATE_FOLLOW_UP', 'operation_event', eventId, undefined, { taskId: task.id, assignmentId: assignment.id, ownerUserId: assignment.userId, ownerPersonId: assignment.personId, dueAt: task.dueAt, eventVersion: changedEvent.version })
+      return { task, assignment, eventVersion: changedEvent.version, conflictWarnings }
+    })
+    return commandResponse(c, result, true)
   } catch (error) { return handleError(c, error) }
 })
 
@@ -462,20 +1200,35 @@ operationsRouter.get('/events/:id/headcount', async c => {
 
 operationsRouter.post('/events/:id/transition', zValidator('json', eventTransitionSchema), async c => {
   const user = actor(c); const eventId = c.req.param('id'); const body = c.req.valid('json')
-  const allowed: Record<string, string[]> = { DRAFT: ['PLANNING', 'CANCELLED'], PLANNING: ['READY', 'CANCELLED'], READY: ['LIVE', 'CANCELLED'], LIVE: ['COMPLETED'], COMPLETED: [], CANCELLED: [] }
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.transition', { eventId, ...body }, async tx => {
       const [event] = await tx.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
       if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
       await assertOperationsCapability(user, body.status === 'CANCELLED' ? 'operations.event.cancel' : 'operations.event.transition', { parishId: user.parishId, eventId }, tx)
+      if (body.status === 'CANCELLED' && (event.visibility === 'PUBLIC_SUMMARY' || event.sourceParishEventId)) {
+        await assertOperationsCapability(user, 'operations.event.publish_public', { parishId: user.parishId, eventId }, tx)
+      }
       if (event.version !== body.version) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
-      if (!allowed[event.status]?.includes(body.status)) throw Object.assign(new Error(`Không thể chuyển event từ ${event.status} sang ${body.status}.`), { status: 409 })
-      if (body.status === 'CANCELLED' && !body.reason) throw Object.assign(new Error('Hủy event bắt buộc có lý do.'), { status: 400 })
+      let backwards = false
+      if (body.status === 'CANCELLED') {
+        if (!['DRAFT', 'PLANNING', 'PREPARING', 'READY'].includes(event.status)) throw Object.assign(new Error(`Không thể hủy event từ ${event.status}.`), { status: 409, code: 'EVENT_TRANSITION_INVALID' })
+        if (!body.reason) throw Object.assign(new Error('Hủy event bắt buộc có lý do.'), { status: 400 })
+      } else {
+        try {
+          backwards = manualEventTransition(event.status, body.status, body.reason).backwards
+        } catch (error) {
+          const code = error instanceof Error ? error.message : 'EVENT_TRANSITION_NOT_ADJACENT'
+          throw Object.assign(new Error(code === 'EVENT_REWIND_REASON_REQUIRED' ? 'Lùi giai đoạn bắt buộc nhập lý do.' : `Chỉ được chuyển từng giai đoạn liền kề từ ${event.status}.`), { status: code === 'EVENT_REWIND_REASON_REQUIRED' ? 400 : 409, code })
+        }
+      }
       if (body.status === 'COMPLETED' && !body.outcomeSummary) throw Object.assign(new Error('Hoàn tất event bắt buộc có tổng kết kết quả.'), { status: 400 })
       if (body.status === 'COMPLETED') {
-        const requiredTasks = await tx.select({ id: operationTasks.id, title: operationTasks.title, status: operationTasks.status }).from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.operationEventId, eventId), eq(operationTasks.isRequired, true), isNull(operationTasks.deletedAt)))
-        const unfinished = requiredTasks.filter(task => task.status !== 'DONE')
-        if (unfinished.length) throw Object.assign(new Error('Còn nhiệm vụ bắt buộc chưa hoàn tất; chưa thể đóng sự kiện.'), { status: 409, code: 'COMPLETION_BLOCKED', details: unfinished.map(task => ({ type: 'TASK_INCOMPLETE', id: task.id, label: task.title })) })
+        const closure = await closureReadiness(tx, user.parishId, eventId)
+        if (closure.blockers.length) throw Object.assign(new Error('Còn điều kiện đóng sự kiện chưa hoàn tất.'), { status: 409, code: 'COMPLETION_BLOCKED', details: closure.blockers })
+      }
+      if (event.status === 'PLANNING' && body.status === 'PREPARING') {
+        const acceptance = await preparationAcknowledgementState(tx, user.parishId, eventId)
+        if (acceptance.blockers.length > 0 && !body.override) throw Object.assign(new Error('Còn người thực hiện chưa nhận nhiệm vụ.'), { status: 409, code: 'TASK_ACCEPTANCE_PENDING', details: acceptance.blockers })
       }
       const state = await readiness(tx, user.parishId, eventId)
       const requiresReadiness = body.status === 'READY' || body.status === 'LIVE'
@@ -485,21 +1238,69 @@ operationsRouter.post('/events/:id/transition', zValidator('json', eventTransiti
         if (!body.reason) throw Object.assign(new Error('Override readiness bắt buộc có lý do.'), { status: 400 })
       }
       const now = new Date().toISOString()
-      const [changed] = await tx.update(operationEvents).set({ status: body.status, outcomeSummary: body.outcomeSummary ?? event.outcomeSummary, version: event.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.version))).returning()
-      if (!changed) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
-      if (body.status === 'COMPLETED' && event.sourceParishEventId) {
-        // `parish_records.source_event_id` is a soft, non-unique calendar link,
-        // not an Operations ownership key. Never overwrite an arbitrary Parish
-        // Memory record that happens to reference the same public event.
-        await tx.insert(parishRecords).values({ id: generateId('PRC'), parishId: user.parishId, recordType: 'ACTIVITY', title: event.title, summary: body.outcomeSummary, content: null, occurredOn: event.startsAt.slice(0, 10), endedOn: event.endsAt.slice(0, 10), location: event.location, status: 'DRAFT', visibility: 'STAFF', showOnTimeline: true, sourceEventId: event.sourceParishEventId, createdBy: user.userId, updatedBy: user.userId, publishedBy: null, publishedAt: null, createdAt: now, updatedAt: now, deletedAt: null })
+      if (event.status === 'DRAFT' && body.status === 'PLANNING') await activateScheduledDispatchesForEvent(tx, user.parishId, eventId, now)
+      if (body.status === 'CANCELLED') await cancelOpenDispatchesForEvent(tx, user.parishId, eventId, now)
+      let sourceParishEventId = event.sourceParishEventId
+      const publishesDraft = event.status === 'DRAFT' && body.status === 'PLANNING' && event.visibility === 'PUBLIC_SUMMARY'
+      if (publishesDraft) sourceParishEventId = await upsertPublicCalendarEvent(tx, user.parishId, user.userId, sourceParishEventId, event, now)
+      if ((body.status === 'CANCELLED' || body.status === 'DRAFT') && sourceParishEventId) {
+        await tx.update(parishEvents).set({ deletedAt: now, updatedAt: now }).where(and(
+          eq(parishEvents.parishId, user.parishId), eq(parishEvents.id, sourceParishEventId), isNull(parishEvents.deletedAt),
+        ))
+        sourceParishEventId = null
       }
-      await audit(tx, user, c, 'TRANSITION', 'operation_event', eventId, { status: event.status, version: event.version }, { status: body.status, version: changed.version, reason: body.reason, override: body.override }); return changed
+      let completionRecordId = event.completionRecordId
+      if (body.status === 'COMPLETED' && (completionRecordId || sourceParishEventId)) {
+        const recordValues = { title: event.title, summary: body.outcomeSummary!, occurredOn: parishCalendarDate(new Date(event.startsAt), event.timezone), endedOn: parishCalendarDate(new Date(event.endsAt), event.timezone), location: event.location, updatedBy: user.userId, updatedAt: now }
+        if (completionRecordId) {
+          const [owned] = await tx.update(parishRecords).set(recordValues).where(and(eq(parishRecords.parishId, user.parishId), eq(parishRecords.id, completionRecordId), isNull(parishRecords.deletedAt))).returning({ id: parishRecords.id })
+          if (!owned) throw Object.assign(new Error('Không tìm thấy hồ sơ hoàn thành do Operations sở hữu.'), { status: 409, code: 'COMPLETION_RECORD_MISSING' })
+        } else {
+          completionRecordId = generateId('PRC')
+          await tx.insert(parishRecords).values({ id: completionRecordId, parishId: user.parishId, recordType: 'ACTIVITY', ...recordValues, content: null, status: 'DRAFT', visibility: 'STAFF', showOnTimeline: true, sourceEventId: sourceParishEventId, createdBy: user.userId, publishedBy: null, publishedAt: null, createdAt: now, deletedAt: null })
+        }
+      }
+      const transitionValues: Partial<typeof operationEvents.$inferInsert> = {
+        status: body.status,
+        sourceParishEventId,
+        completionRecordId,
+        outcomeSummary: body.outcomeSummary ?? event.outcomeSummary,
+        version: event.version + 1,
+        updatedBy: user.userId,
+        updatedAt: now,
+      }
+      if (backwards) Object.assign(transitionValues, { automationPaused: true, automationPausedAt: now, automationPausedBy: user.userId, automationPauseReason: body.reason })
+      const [changed] = await tx.update(operationEvents).set(transitionValues).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.version))).returning()
+      if (!changed) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      if (publishesDraft) await enqueuePublicEventParentNotification(tx, user.parishId, eventId, changed.version, changed, now)
+      await audit(tx, user, c, backwards ? 'REWIND' : 'TRANSITION', 'operation_event', eventId, { status: event.status, version: event.version }, { status: body.status, version: changed.version, reason: body.reason, override: body.override, automationPaused: changed.automationPaused }); return changed
     })
     return commandResponse(c, result)
   } catch (error: any) {
     if (error?.code === 'READINESS_BLOCKED') return sendError(c, 'READINESS_BLOCKED', error.message, 409, error.details)
+    if (error?.code === 'COMPLETION_BLOCKED') return sendError(c, 'COMPLETION_BLOCKED', error.message, 409, error.details)
+    if (error?.code === 'TASK_ACCEPTANCE_PENDING') return sendError(c, 'TASK_ACCEPTANCE_PENDING', error.message, 409, error.details)
     return handleError(c, error)
   }
+})
+
+operationsRouter.post('/events/:id/automation/resume', zValidator('json', eventAutomationResumeSchema), async c => {
+  const user = actor(c); const eventId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.automation.resume', { eventId, ...body }, async tx => {
+      const [event] = await tx.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
+      if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.transition', { parishId: user.parishId, eventId }, tx)
+      if (event.version !== body.version) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      if (!event.automationPaused) throw Object.assign(new Error('Tự động chuyển giai đoạn hiện không bị tạm dừng.'), { status: 409, code: 'AUTOMATION_NOT_PAUSED' })
+      const now = new Date().toISOString()
+      const [changed] = await tx.update(operationEvents).set({ automationPaused: false, automationPausedAt: null, automationPausedBy: null, automationPauseReason: null, version: event.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.version), eq(operationEvents.automationPaused, true))).returning()
+      if (!changed) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      await audit(tx, user, c, 'RESUME_AUTOMATION', 'operation_event', eventId, { automationPaused: true, reason: event.automationPauseReason }, { automationPaused: false, reason: body.reason, version: changed.version })
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
 })
 
 operationsRouter.post('/blockouts', zValidator('json', blockoutSchema), async c => {
@@ -510,10 +1311,75 @@ operationsRouter.post('/blockouts', zValidator('json', blockoutSchema), async c 
       const targetsSelf = body.userId === user.userId || Boolean(body.personId && selfPerson && body.personId === selfPerson.id)
       if (user.role !== 'admin' && !targetsSelf) throw Object.assign(new Error('Chỉ được tạo blockout cho chính mình.'), { status: 403 })
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
-      const row = { parishId: user.parishId, id: generateId('OPS'), userId: body.userId ?? null, personId: body.personId ?? null, startsAt: body.startsAt, endsAt: body.endsAt, reason: body.reason ?? null, createdBy: user.userId, createdAt: new Date().toISOString(), deletedAt: null }
+      const row = { parishId: user.parishId, id: generateId('OPS'), userId: body.userId ?? null, personId: body.personId ?? null, startsAt: body.startsAt, endsAt: body.endsAt, reason: body.reason ?? null, version: 1, createdBy: user.userId, createdAt: new Date().toISOString(), deletedAt: null }
       await tx.insert(operationBlockouts).values(row); await audit(tx, user, c, 'CREATE', 'operation_blockout', row.id, undefined, { userId: row.userId, personId: row.personId, startsAt: row.startsAt, endsAt: row.endsAt }); return row
     })
     return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.get('/blockouts/mine', async c => {
+  const user = actor(c)
+  try {
+    const { page, limit, offset } = listPagination(c)
+    const [selfPerson] = await db.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), isNull(parishPeople.deletedAt))).limit(1)
+    const where = and(
+      eq(operationBlockouts.parishId, user.parishId),
+      or(eq(operationBlockouts.userId, user.userId), selfPerson ? eq(operationBlockouts.personId, selfPerson.id) : undefined),
+      isNull(operationBlockouts.deletedAt),
+    )
+    const [rows, countRows] = await Promise.all([
+      db.select({ parishId: operationBlockouts.parishId, id: operationBlockouts.id, userId: operationBlockouts.userId, personId: operationBlockouts.personId, startsAt: operationBlockouts.startsAt, endsAt: operationBlockouts.endsAt, reason: operationBlockouts.reason, version: operationBlockouts.version, createdAt: operationBlockouts.createdAt }).from(operationBlockouts).where(where).orderBy(asc(operationBlockouts.startsAt), asc(operationBlockouts.id)).limit(limit).offset(offset),
+      db.select({ total: sql<number>`count(*)`.mapWith(Number) }).from(operationBlockouts).where(where),
+    ])
+    return paginatedResponse(c, rows, { page, limit, total: countRows[0]?.total ?? 0 })
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.put('/blockouts/:id', zValidator('json', blockoutUpdateSchema), async c => {
+  const user = actor(c); const blockoutId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.blockout.update', { blockoutId, ...body }, async tx => {
+      const [[selfPerson], [existing]] = await Promise.all([
+        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), isNull(parishPeople.deletedAt))).limit(1),
+        tx.select().from(operationBlockouts).where(and(eq(operationBlockouts.parishId, user.parishId), eq(operationBlockouts.id, blockoutId), isNull(operationBlockouts.deletedAt))).limit(1),
+      ])
+      const targetsSelf = existing && (existing.userId === user.userId || Boolean(selfPerson && existing.personId === selfPerson.id))
+      if (!existing || !targetsSelf) throw Object.assign(new Error('Không tìm thấy lịch bận của bạn.'), { status: 404 })
+      if (existing.version !== body.version) throw new VersionConflictError('Lịch bận đã bị thay đổi bởi thao tác khác.', existing)
+      const [changed] = await tx.update(operationBlockouts).set({ startsAt: body.startsAt, endsAt: body.endsAt, reason: body.reason, version: existing.version + 1 }).where(and(
+        eq(operationBlockouts.parishId, user.parishId), eq(operationBlockouts.id, blockoutId), eq(operationBlockouts.version, body.version), isNull(operationBlockouts.deletedAt),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Lịch bận đã bị thay đổi bởi thao tác khác.', existing)
+      await audit(tx, user, c, 'UPDATE', 'operation_blockout', blockoutId,
+        { startsAt: existing.startsAt, endsAt: existing.endsAt, version: existing.version },
+        { startsAt: changed.startsAt, endsAt: changed.endsAt, version: changed.version, reasonChanged: existing.reason !== changed.reason })
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/blockouts/:id/revoke', zValidator('json', blockoutRevokeSchema), async c => {
+  const user = actor(c); const blockoutId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.blockout.revoke', { blockoutId, ...body }, async tx => {
+      const [[selfPerson], [existing]] = await Promise.all([
+        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), isNull(parishPeople.deletedAt))).limit(1),
+        tx.select().from(operationBlockouts).where(and(eq(operationBlockouts.parishId, user.parishId), eq(operationBlockouts.id, blockoutId), isNull(operationBlockouts.deletedAt))).limit(1),
+      ])
+      const targetsSelf = existing && (existing.userId === user.userId || Boolean(selfPerson && existing.personId === selfPerson.id))
+      if (!existing || !targetsSelf) throw Object.assign(new Error('Không tìm thấy lịch bận của bạn.'), { status: 404 })
+      if (existing.version !== body.version) throw new VersionConflictError('Lịch bận đã bị thay đổi bởi thao tác khác.', existing)
+      const revokedAt = new Date().toISOString()
+      const [changed] = await tx.update(operationBlockouts).set({ deletedAt: revokedAt, version: existing.version + 1 }).where(and(
+        eq(operationBlockouts.parishId, user.parishId), eq(operationBlockouts.id, blockoutId), eq(operationBlockouts.version, body.version), isNull(operationBlockouts.deletedAt),
+      )).returning({ id: operationBlockouts.id, parishId: operationBlockouts.parishId, version: operationBlockouts.version, deletedAt: operationBlockouts.deletedAt })
+      if (!changed) throw new VersionConflictError('Lịch bận đã bị thay đổi bởi thao tác khác.', existing)
+      await audit(tx, user, c, 'REVOKE', 'operation_blockout', blockoutId, { version: existing.version }, { version: changed.version, revokedAt })
+      return changed
+    })
+    return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
 })
 
@@ -529,6 +1395,36 @@ operationsRouter.get('/reminders/inbox', async c => {
         triggerAt: operationReminders.triggerAt,
         kind: operationReminders.kind,
         status: operationReminders.status,
+        version: operationReminders.version,
+        readAt: operationReminders.readAt,
+        sentAt: operationReminders.sentAt,
+        createdAt: operationReminders.createdAt,
+      }).from(operationReminders).where(where).orderBy(desc(operationReminders.triggerAt), desc(operationReminders.id)).limit(limit).offset(offset),
+      db.select({ total: sql<number>`count(*)`.mapWith(Number) }).from(operationReminders).where(where),
+    ])
+    return paginatedResponse(c, rows, { page, limit, total: countRows[0]?.total ?? 0 })
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.get('/reminders', async c => {
+  const user = actor(c); const taskId = c.req.query('taskId') || null; const eventId = c.req.query('eventId') || null
+  try {
+    if ((taskId ? 1 : 0) + (eventId ? 1 : 0) !== 1) throw Object.assign(new Error('Phải chọn đúng một taskId hoặc eventId.'), { status: 400 })
+    if (taskId) await assertOperationsCapability(user, 'operations.task.assign', { parishId: user.parishId, taskId })
+    else await assertOperationsCapability(user, 'operations.event.manage', { parishId: user.parishId, eventId })
+    const { page, limit, offset } = listPagination(c)
+    const where = and(eq(operationReminders.parishId, user.parishId), taskId ? eq(operationReminders.taskId, taskId) : eq(operationReminders.eventId, eventId!))
+    const [rows, countRows] = await Promise.all([
+      db.select({
+        id: operationReminders.id,
+        parishId: operationReminders.parishId,
+        taskId: operationReminders.taskId,
+        eventId: operationReminders.eventId,
+        recipientUserId: operationReminders.recipientUserId,
+        triggerAt: operationReminders.triggerAt,
+        kind: operationReminders.kind,
+        status: operationReminders.status,
+        version: operationReminders.version,
         readAt: operationReminders.readAt,
         sentAt: operationReminders.sentAt,
         createdAt: operationReminders.createdAt,
@@ -556,14 +1452,62 @@ operationsRouter.post('/reminders', zValidator('json', reminderSchema), async c 
       await assertReminderRecipientCanView(tx, user.parishId, body.recipientUserId, body.taskId, body.eventId)
       const target = body.taskId ? `task:${body.taskId}` : `event:${body.eventId}`
       const dedupeKey = `${body.kind}:${target}:recipient:${body.recipientUserId}:at:${body.triggerAt}`
-      const row = { parishId: user.parishId, id: generateId('OPR'), taskId: body.taskId ?? null, eventId: body.eventId ?? null, recipientUserId: body.recipientUserId, triggerAt: body.triggerAt, kind: body.kind, dedupeKey, status: 'PENDING' as const, readAt: null, attemptCount: 0, enqueuedAt: null, leaseExpiresAt: null, nextAttemptAt: null, notificationId: null, sentAt: null, error: null, createdAt: new Date().toISOString() }
+      const row = { parishId: user.parishId, id: generateId('OPR'), taskId: body.taskId ?? null, eventId: body.eventId ?? null, recipientUserId: body.recipientUserId, triggerAt: body.triggerAt, kind: body.kind, dedupeKey, status: 'PENDING' as const, version: 1, readAt: null, attemptCount: 0, enqueuedAt: null, leaseExpiresAt: null, nextAttemptAt: null, notificationId: null, sentAt: null, error: null, createdAt: new Date().toISOString() }
       await tx.insert(operationReminders).values(row); await audit(tx, user, c, 'CREATE', 'operation_reminder', row.id, undefined, { taskId: row.taskId, eventId: row.eventId, recipientUserId: row.recipientUserId, triggerAt: row.triggerAt, kind: row.kind }); return row
     })
     return commandResponse(c, result, true)
   } catch (error) { return handleError(c, error) }
 })
 
-operationsRouter.post('/reminders/:id/cancel', zValidator('json', z.object({ reason: z.string().trim().min(1).max(2000) })), async c => {
+operationsRouter.post('/reminders/:id/reschedule', zValidator('json', reminderRescheduleSchema), async c => {
+  const user = actor(c); const reminderId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.reminder.reschedule', { reminderId, ...body }, async tx => {
+      const [row] = await tx.select().from(operationReminders).where(and(eq(operationReminders.parishId, user.parishId), eq(operationReminders.id, reminderId))).limit(1)
+      if (!row) throw Object.assign(new Error('Không tìm thấy lịch nhắc.'), { status: 404 })
+      await assertOperationsCapability(user, row.taskId ? 'operations.task.assign' : 'operations.event.manage', { parishId: user.parishId, taskId: row.taskId, eventId: row.eventId }, tx)
+      if (row.status !== 'PENDING') throw Object.assign(new Error('Chỉ đổi giờ được lịch nhắc đang chờ.'), { status: 409 })
+      if (row.version !== body.expectedVersion) throw new VersionConflictError('Lịch nhắc đã bị thay đổi bởi người khác.', row)
+      if (row.taskId) {
+        const [task] = await tx.select({ status: operationTasks.status }).from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, row.taskId), isNull(operationTasks.deletedAt))).limit(1)
+        if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
+        assertTaskMutable(task)
+      } else if (row.eventId) await assertEventAcceptsPlanningMutation(tx, user.parishId, row.eventId, 'đổi lịch nhắc')
+      await assertReminderRecipientCanView(tx, user.parishId, row.recipientUserId, row.taskId, row.eventId)
+      const target = row.taskId ? `task:${row.taskId}` : `event:${row.eventId}`
+      const dedupeKey = `${row.kind}:${target}:recipient:${row.recipientUserId}:at:${body.triggerAt}`
+      const [changed] = await tx.update(operationReminders).set({
+        triggerAt: body.triggerAt,
+        dedupeKey,
+        version: row.version + 1,
+        nextAttemptAt: null,
+        error: null,
+      }).where(and(
+        eq(operationReminders.parishId, user.parishId), eq(operationReminders.id, reminderId),
+        eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, body.expectedVersion),
+      )).returning({
+        id: operationReminders.id,
+        parishId: operationReminders.parishId,
+        taskId: operationReminders.taskId,
+        eventId: operationReminders.eventId,
+        recipientUserId: operationReminders.recipientUserId,
+        triggerAt: operationReminders.triggerAt,
+        kind: operationReminders.kind,
+        status: operationReminders.status,
+        version: operationReminders.version,
+        readAt: operationReminders.readAt,
+        sentAt: operationReminders.sentAt,
+        createdAt: operationReminders.createdAt,
+      })
+      if (!changed) throw new VersionConflictError('Lịch nhắc đã bị thay đổi bởi người khác.', row)
+      await audit(tx, user, c, 'RESCHEDULE', 'operation_reminder', reminderId, { triggerAt: row.triggerAt, version: row.version }, { triggerAt: changed.triggerAt, version: changed.version, reason: body.reason })
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/reminders/:id/cancel', zValidator('json', reminderCancelSchema), async c => {
   const user = actor(c); const reminderId = c.req.param('id'); const body = c.req.valid('json')
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.reminder.cancel', { reminderId, ...body }, async tx => {
@@ -571,9 +1515,10 @@ operationsRouter.post('/reminders/:id/cancel', zValidator('json', z.object({ rea
       if (!row) throw Object.assign(new Error('Không tìm thấy lịch nhắc.'), { status: 404 })
       if (row.recipientUserId !== user.userId) await assertOperationsCapability(user, row.taskId ? 'operations.task.assign' : 'operations.event.manage', { parishId: user.parishId, taskId: row.taskId, eventId: row.eventId }, tx)
       if (row.status !== 'PENDING') throw Object.assign(new Error('Chỉ hủy được lịch đang chờ; lịch đã chuyển sang bộ gửi không thể thu hồi tại đây.'), { status: 409 })
-      const [changed] = await tx.update(operationReminders).set({ status: 'CANCELLED', nextAttemptAt: null, leaseExpiresAt: null }).where(and(eq(operationReminders.parishId, user.parishId), eq(operationReminders.id, reminderId), eq(operationReminders.status, 'PENDING'))).returning({ id: operationReminders.id, parishId: operationReminders.parishId, status: operationReminders.status })
-      if (!changed) throw Object.assign(new Error('Lịch nhắc đã thay đổi. Hãy tải lại.'), { status: 409 })
-      await audit(tx, user, c, 'CANCEL', 'operation_reminder', reminderId, { status: row.status }, { status: changed.status, reason: body.reason })
+      if (row.version !== body.expectedVersion) throw new VersionConflictError('Lịch nhắc đã bị thay đổi bởi người khác.', row)
+      const [changed] = await tx.update(operationReminders).set({ status: 'CANCELLED', version: row.version + 1, nextAttemptAt: null, leaseExpiresAt: null }).where(and(eq(operationReminders.parishId, user.parishId), eq(operationReminders.id, reminderId), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, body.expectedVersion))).returning({ id: operationReminders.id, parishId: operationReminders.parishId, status: operationReminders.status, version: operationReminders.version })
+      if (!changed) throw new VersionConflictError('Lịch nhắc đã bị thay đổi bởi người khác.', row)
+      await audit(tx, user, c, 'CANCEL', 'operation_reminder', reminderId, { status: row.status, version: row.version }, { status: changed.status, version: changed.version, reason: body.reason })
       return changed
     })
     return commandResponse(c, result)
@@ -593,12 +1538,17 @@ operationsRouter.post('/reminders/:id/read', async c => {
 })
 
 operationsRouter.get('/workstreams', async c => {
-  const user = actor(c); const eventId = c.req.query('eventId') || null
+  const user = actor(c); const eventId = c.req.query('eventId') || null; const standalone = c.req.query('standalone') === 'true'
   try {
+    if (eventId && standalone) throw Object.assign(new Error('Không thể lọc đồng thời eventId và standalone.'), { status: 400 })
     const { page, limit, offset } = listPagination(c)
     const [rows, eventRows] = await Promise.all([
-      db.select().from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), eventId ? eq(operationWorkstreams.operationEventId, eventId) : undefined, isNull(operationWorkstreams.deletedAt))).orderBy(operationWorkstreams.name),
-      db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))),
+      db.select().from(operationWorkstreams).where(and(
+        eq(operationWorkstreams.parishId, user.parishId),
+        eventId ? eq(operationWorkstreams.operationEventId, eventId) : standalone ? isNull(operationWorkstreams.operationEventId) : undefined,
+        isNull(operationWorkstreams.deletedAt),
+      )).orderBy(operationWorkstreams.name),
+      db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))),
     ])
     const eventsById = new Map(eventRows.map(row => [row.id, row]))
     const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.task.view', rows.map(row => {
@@ -637,6 +1587,9 @@ operationsRouter.post('/workstreams', zValidator('json', workstreamCreateSchema)
   const user = actor(c); const body = c.req.valid('json')
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.workstream.create', body, async tx => {
+      if (!body.eventId && !body.sourceUnitId) {
+        throw Object.assign(new Error('Nhóm độc lập phải có đơn vị tổ chức phụ trách.'), { status: 400, code: 'STANDALONE_WORKSTREAM_SCOPE_REQUIRED' })
+      }
       let event: { id: string; scopeUnitId: string | null; status: string } | undefined
       if (body.eventId) {
         ;[event] = await tx.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, status: operationEvents.status }).from(operationEvents).where(and(
@@ -690,9 +1643,11 @@ operationsRouter.post('/workstreams/:id/members', zValidator('json', workstreamM
       const [workstream] = await tx.select().from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), isNull(operationWorkstreams.deletedAt))).limit(1)
       if (!workstream) throw Object.assign(new Error('Không tìm thấy workstream.'), { status: 404 })
       if (workstream.version !== body.version) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
-      await assertWorkstreamEventAcceptsMutation(tx, user.parishId, workstream.operationEventId, 'thêm thành viên workstream')
+      await assertWorkstreamMembershipMutationAllowed(tx, user.parishId, workstream.operationEventId, body.operationRole, 'thêm thành viên workstream')
       if (body.startsAt && body.endsAt && body.endsAt <= body.startsAt) throw Object.assign(new Error('Thời hạn role không hợp lệ.'), { status: 400 })
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
+      await assertOperationsTargetWithinAuthority(user, body.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage', { parishId: user.parishId, workstreamId }, body, tx)
+      await assertWorkstreamMemberSeparationOfDuty(tx, user.parishId, workstreamId, body, body.operationRole, body)
       const row = { id: generateId('OWM'), parishId: user.parishId, workstreamId, userId: body.userId ?? null, personId: body.personId ?? null, operationRole: body.operationRole, assignedBy: user.userId, assignedAt: new Date().toISOString(), startsAt: body.startsAt ?? null, endsAt: body.endsAt ?? null, version: 1, removedAt: null }
       await tx.insert(operationWorkstreamMembers).values(row)
       const [changed] = await tx.update(operationWorkstreams).set({ version: workstream.version + 1, updatedBy: user.userId, updatedAt: row.assignedAt }).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), eq(operationWorkstreams.version, body.version))).returning({ version: operationWorkstreams.version })
@@ -707,21 +1662,138 @@ operationsRouter.post('/workstreams/:id/members/:memberId/remove', zValidator('j
   const user = actor(c); const workstreamId = c.req.param('id'); const memberId = c.req.param('memberId'); const body = c.req.valid('json')
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.workstream.member.remove', { workstreamId, memberId, ...body }, async tx => {
-      await assertOperationsCapability(user, 'operations.workstream.manage', { parishId: user.parishId, workstreamId }, tx)
       const [[workstream], [member]] = await Promise.all([
         tx.select().from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), isNull(operationWorkstreams.deletedAt))).limit(1),
         tx.select().from(operationWorkstreamMembers).where(and(eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId), eq(operationWorkstreamMembers.id, memberId), isNull(operationWorkstreamMembers.removedAt))).limit(1),
       ])
       if (!workstream || !member) throw Object.assign(new Error('Không tìm thấy workstream membership đang hoạt động.'), { status: 404 })
+      await assertOperationsCapability(user, member.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage', { parishId: user.parishId, workstreamId }, tx)
       if (workstream.version !== body.version) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
       if (member.version !== body.memberVersion) throw new VersionConflictError('Workstream membership đã bị thay đổi bởi người khác.', member)
-      await assertWorkstreamEventAcceptsMutation(tx, user.parishId, workstream.operationEventId, 'gỡ thành viên workstream')
+      await assertWorkstreamMembershipMutationAllowed(tx, user.parishId, workstream.operationEventId, member.operationRole, 'gỡ thành viên workstream')
       const now = new Date().toISOString()
       const [removed] = await tx.update(operationWorkstreamMembers).set({ removedAt: now, version: member.version + 1 }).where(and(eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.id, memberId), eq(operationWorkstreamMembers.version, body.memberVersion), isNull(operationWorkstreamMembers.removedAt))).returning()
       if (!removed) throw new VersionConflictError('Workstream membership đã bị thay đổi bởi người khác.', member)
       const [changed] = await tx.update(operationWorkstreams).set({ version: workstream.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), eq(operationWorkstreams.version, body.version))).returning({ version: operationWorkstreams.version })
       if (!changed) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
       await audit(tx, user, c, 'REMOVE_MEMBER', 'operation_workstream', workstreamId, { memberId, operationRole: member.operationRole }, { removedAt: now, reason: body.reason }); return { member: removed, workstreamVersion: changed.version }
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/workstreams/:id/lead/replace', zValidator('json', leadReplacementSchema), async c => {
+  const user = actor(c); const workstreamId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.workstream.lead.replace', { workstreamId, ...body }, async tx => {
+      const [workstream] = await tx.select().from(operationWorkstreams).where(and(
+        eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), isNull(operationWorkstreams.deletedAt),
+      )).limit(1)
+      if (!workstream) throw Object.assign(new Error('Không tìm thấy workstream.'), { status: 404 })
+      let currentLead: typeof operationWorkstreamMembers.$inferSelect | undefined
+      if (body.currentLeadMemberId) {
+        ;[currentLead] = await tx.select().from(operationWorkstreamMembers).where(and(
+          eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId),
+          eq(operationWorkstreamMembers.id, body.currentLeadMemberId), eq(operationWorkstreamMembers.operationRole, 'WORKSTREAM_LEAD'),
+          isNull(operationWorkstreamMembers.removedAt),
+        )).limit(1)
+        if (!currentLead) throw Object.assign(new Error('Không tìm thấy Trưởng nhóm hiện tại trong workstream.'), { status: 404 })
+      }
+      await assertOperationsCapability(user, 'operations.workstream.assign_lead', { parishId: user.parishId, workstreamId }, tx)
+      if (workstream.version !== body.version) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
+      if (currentLead && currentLead.version !== body.currentLeadMemberVersion) throw new VersionConflictError('Vai trò Trưởng nhóm đã bị thay đổi bởi người khác.', currentLead)
+      await assertLiveWorkstreamLeadReplacement(tx, user.parishId, workstream.operationEventId)
+
+      const target = { userId: body.userId ?? null, personId: body.personId ?? null }
+      await assertTarget(tx, user.parishId, target.userId, target.personId, true)
+      await assertActionableOperationsTarget(tx, user.parishId, target)
+      await assertOperationsTargetWithinAuthority(user, 'operations.workstream.assign_lead', { parishId: user.parishId, workstreamId }, target, tx)
+
+      const now = new Date().toISOString()
+      if (body.endsAt && body.endsAt <= now) {
+        throw Object.assign(new Error('Thời hạn Trưởng nhóm mới phải kết thúc sau thời điểm thay thế.'), { status: 400 })
+      }
+      const targetCanonicalUserId = await canonicalOperationsUserId(tx, user.parishId, target)
+      const activeLeads = await tx.select({
+        id: operationWorkstreamMembers.id,
+        userId: operationWorkstreamMembers.userId,
+        personId: operationWorkstreamMembers.personId,
+      }).from(operationWorkstreamMembers).where(and(
+        eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId),
+        eq(operationWorkstreamMembers.operationRole, 'WORKSTREAM_LEAD'), isNull(operationWorkstreamMembers.removedAt),
+      ))
+      if (activeLeads.length > 0 && !currentLead) {
+        throw Object.assign(new Error('Workstream đã có Trưởng nhóm; phải chọn đúng người hiện tại để thay thế.'), { status: 409, code: 'CURRENT_LEAD_REQUIRED' })
+      }
+      for (const lead of activeLeads) {
+        const sameRawTarget = (target.userId && lead.userId === target.userId) || (target.personId && lead.personId === target.personId)
+        const leadCanonicalUserId = await canonicalOperationsUserId(tx, user.parishId, lead)
+        if (sameRawTarget || (targetCanonicalUserId && leadCanonicalUserId === targetCanonicalUserId)) {
+          throw Object.assign(new Error(lead.id === currentLead?.id ? 'Người được chọn đang là Trưởng nhóm hiện tại.' : 'Người được chọn đã là Trưởng nhóm của workstream.'), { status: 409, code: 'LEAD_TARGET_ALREADY_ACTIVE' })
+        }
+      }
+
+      let removedLead: typeof operationWorkstreamMembers.$inferSelect | null = null
+      if (currentLead) {
+        ;[removedLead] = await tx.update(operationWorkstreamMembers).set({ removedAt: now, version: currentLead.version + 1 }).where(and(
+          eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId),
+          eq(operationWorkstreamMembers.id, currentLead.id), eq(operationWorkstreamMembers.version, body.currentLeadMemberVersion!),
+          isNull(operationWorkstreamMembers.removedAt),
+        )).returning()
+        if (!removedLead) throw new VersionConflictError('Vai trò Trưởng nhóm đã bị thay đổi bởi người khác.', currentLead)
+      }
+
+      const newLead = {
+        id: generateId('OWM'), parishId: user.parishId, workstreamId,
+        userId: target.userId, personId: target.personId, operationRole: 'WORKSTREAM_LEAD' as const,
+        assignedBy: user.userId, assignedAt: now, startsAt: now, endsAt: body.endsAt ?? null,
+        version: 1, removedAt: null,
+      }
+      await tx.insert(operationWorkstreamMembers).values(newLead)
+      const [changedWorkstream] = await tx.update(operationWorkstreams).set({
+        version: workstream.version + 1, updatedBy: user.userId, updatedAt: now,
+      }).where(and(
+        eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), eq(operationWorkstreams.version, body.version),
+      )).returning({ version: operationWorkstreams.version })
+      if (!changedWorkstream) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
+
+      await audit(tx, user, c, 'REPLACE_LEAD', 'operation_workstream', workstreamId,
+        currentLead ? { memberId: currentLead.id, userId: currentLead.userId, personId: currentLead.personId, version: currentLead.version } : null,
+        { memberId: newLead.id, userId: newLead.userId, personId: newLead.personId, version: newLead.version, reason: body.reason })
+      return { previousLead: removedLead, newLead, workstreamVersion: changedWorkstream.version }
+    })
+    return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.put('/workstreams/:id/members/:memberId/validity', zValidator('json', memberValiditySchema), async c => {
+  const user = actor(c); const workstreamId = c.req.param('id'); const memberId = c.req.param('memberId'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.workstream.member.validity', { workstreamId, memberId, ...body }, async tx => {
+      const [[workstream], [member]] = await Promise.all([
+        tx.select().from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), isNull(operationWorkstreams.deletedAt))).limit(1),
+        tx.select().from(operationWorkstreamMembers).where(and(eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId), eq(operationWorkstreamMembers.id, memberId), isNull(operationWorkstreamMembers.removedAt))).limit(1),
+      ])
+      if (!workstream || !member) throw Object.assign(new Error('Không tìm thấy workstream membership đang hoạt động.'), { status: 404 })
+      await assertOperationsCapability(user, member.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage', { parishId: user.parishId, workstreamId }, tx)
+      if (workstream.version !== body.version) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
+      if (member.version !== body.memberVersion) throw new VersionConflictError('Workstream membership đã bị thay đổi bởi người khác.', member)
+      await assertWorkstreamMembershipMutationAllowed(tx, user.parishId, workstream.operationEventId, member.operationRole, 'đổi thời hạn thành viên workstream')
+      await assertWorkstreamMemberSeparationOfDuty(tx, user.parishId, workstreamId, member, member.operationRole, body)
+      const now = new Date().toISOString()
+      const [changedMember] = await tx.update(operationWorkstreamMembers).set({ startsAt: body.startsAt, endsAt: body.endsAt, version: member.version + 1 }).where(and(
+        eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId), eq(operationWorkstreamMembers.id, memberId),
+        eq(operationWorkstreamMembers.version, body.memberVersion), isNull(operationWorkstreamMembers.removedAt),
+      )).returning()
+      if (!changedMember) throw new VersionConflictError('Workstream membership đã bị thay đổi bởi người khác.', member)
+      const [changedWorkstream] = await tx.update(operationWorkstreams).set({ version: workstream.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(
+        eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), eq(operationWorkstreams.version, body.version),
+      )).returning({ version: operationWorkstreams.version })
+      if (!changedWorkstream) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
+      await audit(tx, user, c, 'UPDATE_MEMBER_VALIDITY', 'operation_workstream', workstreamId,
+        { memberId, startsAt: member.startsAt, endsAt: member.endsAt, version: member.version },
+        { memberId, startsAt: changedMember.startsAt, endsAt: changedMember.endsAt, version: changedMember.version, reason: body.reason })
+      return { member: changedMember, workstreamVersion: changedWorkstream.version }
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
@@ -746,13 +1818,13 @@ operationsRouter.post('/workstreams/:id/ready', zValidator('json', z.object({ ve
 })
 
 operationsRouter.get('/tasks', async c => {
-  const user = actor(c); const mine = c.req.query('mine') === 'true'; const eventId = c.req.query('eventId'); const status = c.req.query('status'); const overdue = c.req.query('overdue') === 'true'
+  const user = actor(c); const mine = c.req.query('mine') === 'true'; const eventId = c.req.query('eventId'); const workstreamId = c.req.query('workstreamId'); const status = c.req.query('status'); const overdue = c.req.query('overdue') === 'true'
   try {
     const { page, limit, offset } = listPagination(c)
-    const rows = await db.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eventId ? eq(operationTasks.operationEventId, eventId) : undefined, status ? eq(operationTasks.status, status as any) : undefined, overdue ? and(lte(operationTasks.dueAt, new Date().toISOString()), notInArray(operationTasks.status, ['DONE', 'CANCELLED'])) : undefined, isNull(operationTasks.deletedAt))).orderBy(asc(operationTasks.dueAt), desc(operationTasks.createdAt))
+    const rows = await db.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eventId ? eq(operationTasks.operationEventId, eventId) : undefined, workstreamId ? eq(operationTasks.workstreamId, workstreamId) : undefined, status ? eq(operationTasks.status, status as any) : undefined, overdue ? and(lte(operationTasks.dueAt, new Date().toISOString()), notInArray(operationTasks.status, ['DONE', 'CANCELLED'])) : undefined, isNull(operationTasks.deletedAt))).orderBy(asc(operationTasks.dueAt), desc(operationTasks.createdAt))
     const [workstreamRows, eventRows, personRows] = await Promise.all([
       db.select({ id: operationWorkstreams.id, sourceUnitId: operationWorkstreams.sourceUnitId, operationEventId: operationWorkstreams.operationEventId }).from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), isNull(operationWorkstreams.deletedAt))),
-      db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))),
+      db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))),
       mine ? db.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1) : Promise.resolve([]),
     ])
     const workstreamsById = new Map(workstreamRows.map(row => [row.id, row]))
@@ -795,6 +1867,57 @@ operationsRouter.get('/tasks', async c => {
   } catch (error) { return handleError(c, error) }
 })
 
+operationsRouter.get('/dispatches/inbox', async c => {
+  const user = actor(c)
+  try {
+    const { page, limit, offset } = listPagination(c)
+    const [selfPerson] = await db.select({ id: parishPeople.id }).from(parishPeople).where(and(
+      eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt),
+    )).limit(1)
+    const primaryMatch = and(
+      isNotNull(operationTaskDispatches.primaryInvitedAt),
+      selfPerson ? or(eq(operationTaskDispatches.primaryUserId, user.userId), eq(operationTaskDispatches.primaryPersonId, selfPerson.id)) : eq(operationTaskDispatches.primaryUserId, user.userId),
+    )
+    const reserveMatch = and(
+      isNotNull(operationTaskDispatches.reserveInvitedAt),
+      selfPerson ? or(eq(operationTaskDispatches.reserveUserId, user.userId), eq(operationTaskDispatches.reservePersonId, selfPerson.id)) : eq(operationTaskDispatches.reserveUserId, user.userId),
+    )
+    const rows = await db.select({
+      id: operationTaskDispatches.id,
+      parishId: operationTaskDispatches.parishId,
+      taskId: operationTaskDispatches.taskId,
+      version: operationTaskDispatches.version,
+      acknowledgeBy: operationTaskDispatches.acknowledgeBy,
+      primaryInvitedAt: operationTaskDispatches.primaryInvitedAt,
+      reserveInvitedAt: operationTaskDispatches.reserveInvitedAt,
+      primaryUserId: operationTaskDispatches.primaryUserId,
+      primaryPersonId: operationTaskDispatches.primaryPersonId,
+      reserveUserId: operationTaskDispatches.reserveUserId,
+      reservePersonId: operationTaskDispatches.reservePersonId,
+      taskTitle: operationTasks.title,
+      eventId: operationEvents.id,
+      eventTitle: operationEvents.title,
+    }).from(operationTaskDispatches)
+      .innerJoin(operationTasks, and(eq(operationTasks.parishId, operationTaskDispatches.parishId), eq(operationTasks.id, operationTaskDispatches.taskId), isNull(operationTasks.deletedAt)))
+      .innerJoin(operationEvents, and(eq(operationEvents.parishId, operationTasks.parishId), eq(operationEvents.id, operationTasks.operationEventId), isNull(operationEvents.deletedAt)))
+      .where(and(
+        eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.status, 'PENDING'),
+        notInArray(operationEvents.status, ['DRAFT', 'COMPLETED', 'CANCELLED']), or(primaryMatch, reserveMatch),
+      )).orderBy(asc(operationTaskDispatches.acknowledgeBy))
+    const invitations = rows.map(row => {
+      const isPrimary = Boolean(row.primaryInvitedAt) && (row.primaryUserId === user.userId || Boolean(selfPerson && row.primaryPersonId === selfPerson.id))
+      return {
+        id: row.id, parishId: row.parishId, taskId: row.taskId, version: row.version,
+        target: isPrimary ? 'PRIMARY' as const : 'RESERVE' as const,
+        acknowledgeBy: row.acknowledgeBy,
+        invitedAt: isPrimary ? row.primaryInvitedAt! : row.reserveInvitedAt!,
+        taskTitle: row.taskTitle, eventId: row.eventId, eventTitle: row.eventTitle,
+      }
+    })
+    return paginatedResponse(c, invitations.slice(offset, offset + limit), { page, limit, total: invitations.length })
+  } catch (error) { return handleError(c, error) }
+})
+
 operationsRouter.post('/tasks', zValidator('json', taskCreateSchema), async c => {
   const user = actor(c); const body = c.req.valid('json')
   try {
@@ -810,14 +1933,15 @@ operationsRouter.post('/tasks', zValidator('json', taskCreateSchema), async c =>
       if (eventId) {
         const [event] = await tx.select({ id: operationEvents.id, status: operationEvents.status }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
         if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
-        if (event.status === 'COMPLETED' || event.status === 'CANCELLED') throw Object.assign(new Error('Event đã kết thúc; không thể thêm task.'), { status: 409, code: 'EVENT_IMMUTABLE' })
+        if (!canCreateEventTask(event.status)) throw Object.assign(new Error('Chỉ tạo task khi sự kiện ở Nháp, Kế hoạch, Chuẩn bị hoặc Sẵn sàng.'), { status: 409, code: 'EVENT_IMMUTABLE' })
       }
       if (body.parentTaskId) {
         const [parent] = await tx.select({ operationEventId: operationTasks.operationEventId, workstreamId: operationTasks.workstreamId }).from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, body.parentTaskId), isNull(operationTasks.deletedAt))).limit(1)
         if (!parent || parent.operationEventId !== eventId || parent.workstreamId !== (body.workstreamId ?? null)) throw Object.assign(new Error('Task cha phải thuộc cùng event và workstream.'), { status: 400 })
       }
-      const now = new Date().toISOString(); const row = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: body.workstreamId ?? null, parentTaskId: body.parentTaskId ?? null, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: body.isRequired, dueAt: body.dueAt ?? null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, approvalStatus: body.requiresApproval ? 'PENDING' as const : 'NOT_REQUIRED' as const, approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
-      await tx.insert(operationTasks).values(row); await audit(tx, user, c, 'CREATE', 'operation_task', row.id, undefined, row); return row
+      const now = new Date().toISOString(); const row = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: body.workstreamId ?? null, parentTaskId: body.parentTaskId ?? null, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: body.isRequired, dueAt: body.dueAt ?? null, scheduledStartAt: body.scheduledStartAt ?? null, scheduledEndAt: body.scheduledEndAt ?? null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, approvalStatus: body.requiresApproval ? 'PENDING' as const : 'NOT_REQUIRED' as const, approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
+      const phasedRow = { ...row, phase: body.phase }
+      await tx.insert(operationTasks).values(phasedRow); await audit(tx, user, c, 'CREATE', 'operation_task', row.id, undefined, phasedRow); return phasedRow
     })
     return commandResponse(c, result, true)
   } catch (error) { return handleError(c, error) }
@@ -852,12 +1976,131 @@ operationsRouter.put('/tasks/:id', zValidator('json', taskUpdateSchema), async c
       await assertOperationsCapability(user, 'operations.task.manage', { parishId: user.parishId, taskId }, tx)
       if (existing.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', existing)
       assertTaskMutable(existing)
+      const scheduleError = taskScheduleError({
+        scheduledStartAt: body.scheduledStartAt === undefined ? existing.scheduledStartAt : body.scheduledStartAt,
+        scheduledEndAt: body.scheduledEndAt === undefined ? existing.scheduledEndAt : body.scheduledEndAt,
+      })
+      if (scheduleError) throw Object.assign(new Error(scheduleError), { status: 400, code: 'INVALID_TASK_SCHEDULE' })
       const updates: any = { version: existing.version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }
-      for (const field of ['title', 'description', 'priority', 'dueAt', 'isRequired'] as const) if (body[field] !== undefined) updates[field] = body[field]
+      for (const field of ['title', 'description', 'priority', 'dueAt', 'scheduledStartAt', 'scheduledEndAt', 'isRequired'] as const) if (body[field] !== undefined) updates[field] = body[field]
       if ((['title', 'description', 'isRequired'] as const).some(field => body[field] !== undefined && body[field] !== existing[field])) Object.assign(updates, invalidateTaskApproval(existing))
       const [changed] = await tx.update(operationTasks).set(updates).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', existing)
       await audit(tx, user, c, 'UPDATE', 'operation_task', taskId, existing, changed); return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/tasks/:id/dispatch', zValidator('json', dispatchCreateSchema), async c => {
+  const user = actor(c); const taskId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.task.dispatch.create', { taskId, ...body }, async tx => {
+      const [task] = await tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1)
+      if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.task.assign', { parishId: user.parishId, taskId }, tx)
+      if (task.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      assertTaskMutable(task)
+      if (!task.operationEventId) throw Object.assign(new Error('Cơ chế người chính/dự bị chỉ áp dụng cho task thuộc sự kiện.'), { status: 400, code: 'EVENT_TASK_REQUIRED' })
+      const [event] = await tx.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, task.operationEventId), isNull(operationEvents.deletedAt))).limit(1)
+      if (!event || !canCreateEventTask(event.status)) throw Object.assign(new Error('Giai đoạn sự kiện không cho phép phân công mới.'), { status: 409, code: 'EVENT_IMMUTABLE' })
+      const now = new Date().toISOString()
+      if (body.acknowledgeBy <= now) throw Object.assign(new Error('Hạn nhận nhiệm vụ phải ở tương lai.'), { status: 400, code: 'INVALID_ACKNOWLEDGEMENT_DEADLINE' })
+      const primary = { userId: body.primaryUserId ?? null, personId: body.primaryPersonId ?? null }
+      const reserve = { userId: body.reserveUserId ?? null, personId: body.reservePersonId ?? null }
+      await assertTarget(tx, user.parishId, primary.userId, primary.personId, true)
+      await assertOperationsTargetWithinAuthority(user, 'operations.task.assign', { parishId: user.parishId, taskId }, primary, tx)
+      if (reserve.userId || reserve.personId) {
+        await assertTarget(tx, user.parishId, reserve.userId, reserve.personId, true)
+        await assertOperationsTargetWithinAuthority(user, 'operations.task.assign', { parishId: user.parishId, taskId }, reserve, tx)
+        const [primaryUserId, reserveUserId] = await Promise.all([
+          actionableTargetUserId(tx, user.parishId, primary), actionableTargetUserId(tx, user.parishId, reserve),
+        ])
+        if (primaryUserId === reserveUserId) throw Object.assign(new Error('Người thực hiện chính và dự bị phải khác nhau.'), { status: 409, code: 'DISPATCH_TARGETS_MUST_DIFFER' })
+      }
+      const [existingOwner] = await tx.select({ id: operationTaskAssignees.id }).from(operationTaskAssignees).where(and(
+        eq(operationTaskAssignees.parishId, user.parishId), eq(operationTaskAssignees.taskId, taskId), eq(operationTaskAssignees.assignmentRole, 'OWNER'), isNull(operationTaskAssignees.removedAt),
+      )).limit(1)
+      if (existingOwner) throw Object.assign(new Error('Task đã có người thực hiện chính.'), { status: 409, code: 'TASK_OWNER_EXISTS' })
+      const scheduled = event.status === 'DRAFT'
+      const row = {
+        id: generateId('OPD'), parishId: user.parishId, taskId,
+        primaryUserId: primary.userId, primaryPersonId: primary.personId,
+        reserveUserId: reserve.userId, reservePersonId: reserve.personId,
+        acknowledgeBy: body.acknowledgeBy,
+        primaryInvitedAt: scheduled ? null : now,
+        reserveInviteAt: !scheduled && (reserve.userId || reserve.personId) ? reserveInvitationAt(now, body.acknowledgeBy) : null,
+        reserveInvitedAt: null, acceptedTarget: null, acceptedAssignmentId: null,
+        status: scheduled ? 'SCHEDULED' as const : 'PENDING' as const,
+        version: 1, createdBy: user.userId, createdAt: now, updatedAt: now,
+      }
+      await tx.insert(operationTaskDispatches).values(row)
+      const [changedTask] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(
+        eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version),
+      )).returning({ version: operationTasks.version })
+      if (!changedTask) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      if (!scheduled) {
+        const primaryUserId = await actionableTargetUserId(tx, user.parishId, primary)
+        if (!primaryUserId) throw Object.assign(new Error('Người thực hiện chính không còn tài khoản hoạt động.'), { status: 409, code: 'DISPATCH_PRIMARY_NOT_ACTIONABLE' })
+        await enqueueDispatchInvitation(tx, user.parishId, row.id, 'PRIMARY', primaryUserId, now)
+      }
+      await audit(tx, user, c, 'CREATE_DISPATCH', 'operation_task', taskId, undefined, { dispatchId: row.id, status: row.status, acknowledgeBy: row.acknowledgeBy, hasReserve: Boolean(row.reserveUserId || row.reservePersonId) })
+      return { dispatch: row, taskVersion: changedTask.version }
+    })
+    return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.get('/tasks/:id/dispatches', async c => {
+  const user = actor(c); const taskId = c.req.param('id')
+  try {
+    await assertOperationsCapability(user, 'operations.task.view', { parishId: user.parishId, taskId })
+    const rows = await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.taskId, taskId))).orderBy(desc(operationTaskDispatches.createdAt))
+    return successResponse(c, rows)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/tasks/:id/dispatches/:dispatchId/accept', zValidator('json', dispatchAcceptSchema), async c => {
+  const user = actor(c); const taskId = c.req.param('id'); const dispatchId = c.req.param('dispatchId'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.task.dispatch.accept', { taskId, dispatchId, ...body }, async tx => {
+      const [[person], [task], [dispatch]] = await Promise.all([
+        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1),
+        tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1),
+        tx.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.id, dispatchId), eq(operationTaskDispatches.taskId, taskId))).limit(1),
+      ])
+      if (!task || !dispatch) throw Object.assign(new Error('Không tìm thấy lời mời nhận nhiệm vụ.'), { status: 404 })
+      assertTaskMutable(task)
+      if (!task.operationEventId) throw Object.assign(new Error('Lời mời không còn thuộc sự kiện hợp lệ.'), { status: 409, code: 'DISPATCH_EVENT_REQUIRED' })
+      const [event] = await tx.select({ status: operationEvents.status }).from(operationEvents).where(and(
+        eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, task.operationEventId), isNull(operationEvents.deletedAt),
+      )).limit(1)
+      if (!event || ['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event.status)) {
+        throw Object.assign(new Error('Sự kiện hiện không cho phép nhận nhiệm vụ.'), { status: 409, code: 'DISPATCH_EVENT_NOT_OPEN' })
+      }
+      if (dispatch.version !== body.version) throw new VersionConflictError('Lời mời nhận nhiệm vụ đã thay đổi.', dispatch)
+      if (dispatch.status !== 'PENDING') throw Object.assign(new Error('Lời mời này không còn mở.'), { status: 409, code: 'DISPATCH_ALREADY_RESOLVED' })
+      const targetMatches = body.target === 'PRIMARY'
+        ? dispatch.primaryUserId === user.userId || Boolean(person && dispatch.primaryPersonId === person.id)
+        : dispatch.reserveUserId === user.userId || Boolean(person && dispatch.reservePersonId === person.id)
+      if (!targetMatches) throw Object.assign(new Error('Lời mời không thuộc người dùng.'), { status: 404 })
+      if (body.target === 'PRIMARY' && !dispatch.primaryInvitedAt) throw Object.assign(new Error('Lời mời chính chưa được gửi.'), { status: 409, code: 'DISPATCH_NOT_INVITED' })
+      if (body.target === 'RESERVE' && !dispatch.reserveInvitedAt) throw Object.assign(new Error('Lời mời dự bị chưa được gửi.'), { status: 409, code: 'DISPATCH_NOT_INVITED' })
+      const now = new Date().toISOString()
+      const assignment = { id: generateId('OPA'), parishId: user.parishId, taskId, userId: user.userId, personId: null, assignmentRole: 'OWNER' as const, acknowledgementStatus: 'ACCEPTED' as const, assignedBy: dispatch.createdBy, assignedAt: now, respondedAt: now, completedAt: null, note: `Nhận lời mời ${body.target === 'PRIMARY' ? 'chính' : 'dự bị'}`, version: 1, removedAt: null }
+      const [changedDispatch] = await tx.update(operationTaskDispatches).set({ status: 'ACCEPTED', acceptedTarget: body.target, acceptedAssignmentId: assignment.id, version: dispatch.version + 1, updatedAt: now }).where(and(
+        eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.id, dispatchId), eq(operationTaskDispatches.status, 'PENDING'), eq(operationTaskDispatches.version, body.version),
+      )).returning()
+      if (!changedDispatch) throw new VersionConflictError('Người khác đã nhận nhiệm vụ trước.', dispatch)
+      const [existingOwner] = await tx.select({ id: operationTaskAssignees.id }).from(operationTaskAssignees).where(and(
+        eq(operationTaskAssignees.parishId, user.parishId), eq(operationTaskAssignees.taskId, taskId), eq(operationTaskAssignees.assignmentRole, 'OWNER'), isNull(operationTaskAssignees.removedAt),
+      )).limit(1)
+      if (existingOwner) throw Object.assign(new Error('Task đã có người thực hiện chính.'), { status: 409, code: 'TASK_OWNER_EXISTS' })
+      await tx.insert(operationTaskAssignees).values(assignment)
+      const [changedTask] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, task.version))).returning({ version: operationTasks.version })
+      if (!changedTask) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      await audit(tx, user, c, 'ACCEPT_DISPATCH', 'operation_task', taskId, { dispatchId, status: dispatch.status }, { dispatchId, status: 'ACCEPTED', acceptedTarget: body.target, assignmentId: assignment.id })
+      return { dispatch: changedDispatch, assignment, taskVersion: changedTask.version }
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
@@ -873,17 +2116,15 @@ operationsRouter.post('/tasks/:id/assign', zValidator('json', assignmentSchema),
       if (task.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
       assertTaskMutable(task)
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
-      const linkedPeople = await tx.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(
-        eq(parishPeople.parishId, user.parishId), isNull(parishPeople.deletedAt),
-        body.personId ? eq(parishPeople.id, body.personId) : eq(parishPeople.linkedUserId, body.userId!),
-      ))
-      const targetUserId = body.userId ?? linkedPeople[0]?.linkedUserId
-      const targetPersonIds = linkedPeople.map(person => person.id)
-      const conflictWarnings = task.dueAt && (targetUserId || targetPersonIds.length > 0) ? await tx.select({ id: operationBlockouts.id, startsAt: operationBlockouts.startsAt, endsAt: operationBlockouts.endsAt }).from(operationBlockouts).where(and(
-        eq(operationBlockouts.parishId, user.parishId),
-        or(targetUserId ? eq(operationBlockouts.userId, targetUserId) : undefined, targetPersonIds.length ? inArray(operationBlockouts.personId, targetPersonIds) : undefined),
-        isNull(operationBlockouts.deletedAt), lte(operationBlockouts.startsAt, task.dueAt), gte(operationBlockouts.endsAt, task.dueAt),
-      )) : []
+      await assertOperationsTargetWithinAuthority(user, 'operations.task.assign', { parishId: user.parishId, taskId }, body, tx)
+      await assertTaskAssignmentSeparationOfDuty(tx, user.parishId, taskId, body, body.assignmentRole)
+      if (body.assignmentRole === 'OWNER') {
+        const [activeDispatch] = await tx.select({ id: operationTaskDispatches.id }).from(operationTaskDispatches).where(and(
+          eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.taskId, taskId), inArray(operationTaskDispatches.status, ['SCHEDULED', 'PENDING']),
+        )).limit(1)
+        if (activeDispatch) throw Object.assign(new Error('Task đang chờ người chính hoặc dự bị nhận việc.'), { status: 409, code: 'TASK_DISPATCH_ACTIVE' })
+      }
+      const conflictWarnings = await assignmentConflictWarnings(tx, user.parishId, { userId: body.userId ?? null, personId: body.personId ?? null }, task)
       const assignedAt = new Date().toISOString(); const row = { id: generateId('OPA'), parishId: user.parishId, taskId, userId: body.userId ?? null, personId: body.personId ?? null, assignmentRole: body.assignmentRole, acknowledgementStatus: 'PENDING' as const, assignedBy: user.userId, assignedAt, respondedAt: null, completedAt: null, note: body.note ?? null, version: 1, removedAt: null }
       await tx.insert(operationTaskAssignees).values(row)
       const [changed] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: assignedAt }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version })
@@ -931,6 +2172,8 @@ operationsRouter.post('/tasks/:id/handover', zValidator('json', ownerHandoverSch
       if (previous.version !== body.assignmentVersion) throw new VersionConflictError('Assignment đã bị thay đổi bởi người khác.', previous)
       assertTaskMutable(task)
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
+      await assertOperationsTargetWithinAuthority(user, 'operations.task.reassign', { parishId: user.parishId, taskId }, body, tx)
+      await assertTaskAssignmentSeparationOfDuty(tx, user.parishId, taskId, body, 'OWNER')
       if ((body.userId && body.userId === previous.userId) || (body.personId && body.personId === previous.personId)) throw Object.assign(new Error('Hãy chọn người phụ trách khác.'), { status: 409 })
       const personIds = [body.personId, previous.personId].filter((value): value is string => Boolean(value))
       const people = personIds.length ? await tx.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), inArray(parishPeople.id, personIds))) : []
@@ -945,13 +2188,7 @@ operationsRouter.post('/tasks/:id/handover', zValidator('json', ownerHandoverSch
       const [changed] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
       await audit(tx, user, c, 'HANDOVER', 'operation_task', taskId, { assignmentId: previous.id }, { assignmentId: assignment.id, reason: body.reason })
-      const targetPeople = nextUserId ? await tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, nextUserId), isNull(parishPeople.deletedAt))) : []
-      const targetIds = [...new Set([...targetPeople.map(person => person.id), ...(body.personId ? [body.personId] : [])])]
-      const conflictWarnings = task.dueAt && (nextUserId || targetIds.length) ? await tx.select({ id: operationBlockouts.id, startsAt: operationBlockouts.startsAt, endsAt: operationBlockouts.endsAt }).from(operationBlockouts).where(and(
-        eq(operationBlockouts.parishId, user.parishId), isNull(operationBlockouts.deletedAt),
-        or(nextUserId ? eq(operationBlockouts.userId, nextUserId) : undefined, targetIds.length ? inArray(operationBlockouts.personId, targetIds) : undefined),
-        lte(operationBlockouts.startsAt, task.dueAt), gte(operationBlockouts.endsAt, task.dueAt),
-      )) : []
+      const conflictWarnings = await assignmentConflictWarnings(tx, user.parishId, { userId: body.userId ?? null, personId: body.personId ?? null }, task)
       return { assignment, taskVersion: changed.version, conflictWarnings }
     })
     return commandResponse(c, result, true)
@@ -1080,7 +2317,56 @@ operationsRouter.post('/tasks/:id/transition', zValidator('json', taskTransition
       }
       const now = new Date().toISOString(); const [changed] = await tx.update(operationTasks).set({ status: body.status, completionNote: body.completionNote ?? task.completionNote, blockedReason: body.status === 'BLOCKED' ? body.blockedReason : null, cancellationReason: body.status === 'CANCELLED' ? body.cancellationReason : null, startedAt: body.status === 'IN_PROGRESS' ? (task.startedAt ?? now) : task.startedAt, completedAt: body.status === 'DONE' ? now : null, completedBy: body.status === 'DONE' ? user.userId : null, version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      if (body.status === 'DONE' || body.status === 'CANCELLED') {
+        await tx.update(operationTaskDispatches).set({ status: 'CANCELLED', version: sql`${operationTaskDispatches.version} + 1`, updatedAt: now }).where(and(
+          eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.taskId, taskId), inArray(operationTaskDispatches.status, ['SCHEDULED', 'PENDING']),
+        ))
+      }
       await audit(tx, user, c, 'TRANSITION', 'operation_task', taskId, { status: task.status, version: task.version }, { status: body.status, version: changed.version, blockedReason: body.blockedReason, cancellationReason: body.cancellationReason }); return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
+operationsRouter.post('/tasks/:id/restore', zValidator('json', taskRestoreSchema), async c => {
+  const user = actor(c); const taskId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.task.restore', { taskId, ...body }, async tx => {
+      const [task] = await tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1)
+      if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.task.manage', { parishId: user.parishId, taskId }, tx)
+      if (task.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      if (task.status !== 'CANCELLED') throw Object.assign(new Error('Chỉ có thể khôi phục task đã hủy.'), { status: 409, code: 'TASK_NOT_CANCELLED' })
+      if (task.operationEventId) {
+        const [event] = await tx.select({ status: operationEvents.status }).from(operationEvents).where(and(
+          eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, task.operationEventId), isNull(operationEvents.deletedAt),
+        )).limit(1)
+        if (!event) throw Object.assign(new Error('Không tìm thấy operation event của task.'), { status: 404 })
+        if (event.status === 'COMPLETED' || event.status === 'CANCELLED') {
+          throw Object.assign(new Error('Không thể khôi phục task trong sự kiện đã đóng.'), { status: 409, code: 'EVENT_IMMUTABLE' })
+        }
+      }
+      const now = new Date().toISOString()
+      const [changed] = await tx.update(operationTasks).set({
+        status: 'TODO',
+        cancellationReason: null,
+        blockedReason: null,
+        startedAt: null,
+        completedAt: null,
+        completedBy: null,
+        completionNote: null,
+        version: task.version + 1,
+        updatedBy: user.userId,
+        updatedAt: now,
+      }).where(and(
+        eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId),
+        eq(operationTasks.version, body.version), eq(operationTasks.status, 'CANCELLED'),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      await audit(tx, user, c, 'RESTORE', 'operation_task', taskId,
+        { status: task.status, version: task.version, cancellationReason: task.cancellationReason },
+        { status: changed.status, version: changed.version, reason: body.reason })
+      return changed
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
@@ -1093,6 +2379,7 @@ operationsRouter.post('/tasks/:id/approve', zValidator('json', approvalSchema), 
       const [task] = await tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1)
       if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
       await assertOperationsCapability(user, 'operations.task.approve', { parishId: user.parishId, taskId }, tx)
+      await assertTaskApproverIsIndependent(tx, user.parishId, taskId, user.userId)
       if (task.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
       assertTaskMutable(task)
       if (task.approvalStatus === 'NOT_REQUIRED') throw Object.assign(new Error('Task không yêu cầu approval.'), { status: 409 })

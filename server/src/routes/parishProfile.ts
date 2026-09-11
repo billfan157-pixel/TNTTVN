@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { refreshAcademicOrganization } from '../services/academicOrganizationService.js'
 import path from 'node:path'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
+import { adminReauthRateLimiter } from '../middleware/security.js'
 import { deleteObject, getObject, isR2Enabled, putObject } from '../services/blobStorage.js'
 import {
   createExternalParishAsset,
@@ -32,6 +34,7 @@ import { getClientIp } from '../utils/ip.js'
 import { errorResponse, successResponse } from '../utils/response.js'
 import { isValidIsoDate } from '../utils/date.js'
 import { OPERATIONS_POSITION_CODES } from '../utils/organizationalPosition.js'
+import { AdminAuthorizationChangedError, captureAdminReauth } from '../services/userService.js'
 
 const parishProfileRouter = new Hono()
 parishProfileRouter.use('*', authMiddleware)
@@ -88,6 +91,14 @@ const termSchema = z.object({
   }
 })
 
+const authorityConfirmationSchema = z.object({
+  adminPassword: z.string().min(1, 'Mật khẩu xác nhận Admin không được để trống').max(128),
+  authorityReason: z.string().trim().min(3, 'Cần ghi lý do thay đổi quyền hạn').max(500),
+})
+const termMutationSchema = z.intersection(termSchema, authorityConfirmationSchema)
+const termDeleteSchema = authorityConfirmationSchema
+const TERM_AUTHORITY_REAUTH_OPERATION = 'PARISH_TERM_AUTHORITY_REAUTH_FAILED'
+
 const recordSchema = z.object({
   recordType: z.enum(['MILESTONE', 'ACTIVITY', 'ACHIEVEMENT']),
   title: z.string().trim().min(1).max(250),
@@ -143,10 +154,36 @@ function mutationContext(c: any): MutationContext {
 }
 
 function serviceFailure(c: any, error: unknown) {
+  if (error instanceof AdminAuthorizationChangedError) {
+    return errorResponse(c, 'SESSION_INVALID', error.message, 401)
+  }
   const err = error as Error & { status?: number; code?: string }
   const status = [400, 403, 404, 409, 500].includes(err.status ?? 0) ? err.status! : 500
   const message = status === 500 ? 'Không thể xử lý Hồ sơ Xứ đoàn' : err.message
   return errorResponse(c, err.code || 'PARISH_PROFILE_ERROR', message, status)
+}
+
+async function authorityMutationContext(c: any, adminPassword: string, entityId: string, authorityReason: string) {
+  const user = c.get('user') as JwtPayload
+  const context = mutationContext(c)
+  const proof = await captureAdminReauth(
+    user.userId,
+    adminPassword,
+    user.parishId,
+    context.ip,
+    context.userAgent,
+    entityId,
+    TERM_AUTHORITY_REAUTH_OPERATION,
+    user.tokenVersion,
+  )
+  if (!proof) return null
+  return {
+    ...context,
+    authorityReason: authorityReason.trim(),
+    authorityReauthEntityId: entityId,
+    authorityReauthOperation: TERM_AUTHORITY_REAUTH_OPERATION,
+    authorityReauthProof: proof,
+  } satisfies MutationContext
 }
 
 function parseRecordIds(raw: unknown): string[] {
@@ -175,6 +212,15 @@ parishProfileRouter.get('/', async c => {
   }
 })
 
+// No client-supplied structure or authority: reconcile only canonical parish data.
+parishProfileRouter.post('/organization/refresh', async c => {
+  try {
+    const user = c.get('user') as JwtPayload
+    await refreshAcademicOrganization(user.parishId, user.userId)
+    return successResponse(c, await getParishProfileSnapshot(user.parishId, user.role as ParishProfileRole))
+  } catch (error) { return serviceFailure(c, error) }
+})
+
 parishProfileRouter.put('/profile', roleMiddleware('admin'), zValidator('json', profileSchema), async c => {
   try { return successResponse(c, await updateParishProfile(c.req.valid('json'), mutationContext(c))) }
   catch (error) { return serviceFailure(c, error) }
@@ -198,6 +244,7 @@ parishProfileRouter.delete('/people/:id', roleMiddleware('admin'), async c => {
 })
 
 parishProfileRouter.post('/units', roleMiddleware('admin'), zValidator('json', unitSchema), async c => {
+  if (!['COMMITTEE', 'OTHER'].includes(c.req.valid('json').unitType)) return errorResponse(c, 'PARISH_UNIT_SOURCE_MANAGED', 'Ban Điều hành, Ngành và Chi đoàn được tạo tự động', 400)
   try { return successResponse(c, await createParishUnit(c.req.valid('json'), mutationContext(c)), 201) }
   catch (error) { return serviceFailure(c, error) }
 })
@@ -210,16 +257,33 @@ parishProfileRouter.delete('/units/:id', roleMiddleware('admin'), async c => {
   catch (error) { return serviceFailure(c, error) }
 })
 
-parishProfileRouter.post('/terms', roleMiddleware('admin'), zValidator('json', termSchema), async c => {
-  try { return successResponse(c, await createParishTerm(c.req.valid('json'), mutationContext(c)), 201) }
+parishProfileRouter.post('/terms', roleMiddleware('admin'), adminReauthRateLimiter, zValidator('json', termMutationSchema), async c => {
+  try {
+    const { adminPassword, authorityReason, ...input } = c.req.valid('json')
+    const context = await authorityMutationContext(c, adminPassword, 'new-parish-service-term', authorityReason)
+    if (!context) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
+    return successResponse(c, await createParishTerm(input, context), 201)
+  }
   catch (error) { return serviceFailure(c, error) }
 })
-parishProfileRouter.put('/terms/:id', roleMiddleware('admin'), zValidator('json', termSchema), async c => {
-  try { return successResponse(c, await updateParishTerm(c.req.param('id'), c.req.valid('json'), mutationContext(c))) }
+parishProfileRouter.put('/terms/:id', roleMiddleware('admin'), adminReauthRateLimiter, zValidator('json', termMutationSchema), async c => {
+  try {
+    const termId = c.req.param('id')
+    const { adminPassword, authorityReason, ...input } = c.req.valid('json')
+    const context = await authorityMutationContext(c, adminPassword, termId, authorityReason)
+    if (!context) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
+    return successResponse(c, await updateParishTerm(termId, input, context))
+  }
   catch (error) { return serviceFailure(c, error) }
 })
-parishProfileRouter.delete('/terms/:id', roleMiddleware('admin'), async c => {
-  try { return successResponse(c, { deleted: await deleteParishTerm(c.req.param('id'), mutationContext(c)) }) }
+parishProfileRouter.delete('/terms/:id', roleMiddleware('admin'), adminReauthRateLimiter, zValidator('json', termDeleteSchema), async c => {
+  try {
+    const termId = c.req.param('id')
+    const { adminPassword, authorityReason } = c.req.valid('json')
+    const context = await authorityMutationContext(c, adminPassword, termId, authorityReason)
+    if (!context) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
+    return successResponse(c, { deleted: await deleteParishTerm(termId, context) })
+  }
   catch (error) { return serviceFailure(c, error) }
 })
 

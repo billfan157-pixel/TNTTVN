@@ -70,29 +70,10 @@ describe('parishEventStore tenant and acknowledgement boundary', () => {
     expect(useParishEventStore.getState().events).toEqual([])
   })
 
-  it('keeps local state unchanged when create is not acknowledged by the server', async () => {
-    vi.spyOn(api, 'createParishEvent').mockRejectedValue(new Error('Network offline'))
-
-    await expect(useParishEventStore.getState().createEvent({
-      date: '2026-09-02',
-      title: 'Không được giả thành công',
-      category: 'MEETING',
-      categoryName: 'Họp Xứ đoàn',
-    })).rejects.toThrow('Network offline')
-
-    expect(useParishEventStore.getState().events).toEqual([])
-    expect(useParishEventStore.getState().error).toBe('Network offline')
-  })
-
-  it('keeps the acknowledged row when update or delete fails', async () => {
-    useParishEventStore.setState({ events: [event('A')], source: 'server', error: null })
-    vi.spyOn(api, 'updateParishEvent').mockRejectedValue(new Error('Update offline'))
-    vi.spyOn(api, 'deleteParishEvent').mockRejectedValue(new Error('Delete offline'))
-
-    await expect(useParishEventStore.getState().updateEvent('A', { title: 'Tên chưa lưu' })).rejects.toThrow('Update offline')
-    expect(useParishEventStore.getState().events[0].title).toBe('Sự kiện A')
-
-    await expect(useParishEventStore.getState().deleteEvent('A')).rejects.toThrow('Delete offline')
-    expect(useParishEventStore.getState().events.map(item => item.id)).toEqual(['A'])
+  it('exposes a read-only calendar store without mutation commands', () => {
+    const state = useParishEventStore.getState() as unknown as Record<string, unknown>
+    expect(state.createEvent).toBeUndefined()
+    expect(state.updateEvent).toBeUndefined()
+    expect(state.deleteEvent).toBeUndefined()
   })
 })

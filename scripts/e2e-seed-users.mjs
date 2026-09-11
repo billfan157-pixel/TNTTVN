@@ -62,6 +62,45 @@ export async function seedE2EUsers({
       )
     }
 
+    // 2b. Gate B Operations: organizational authority fixtures are explicit;
+    // account roles and class assignments do not stand in for these terms.
+    await c.execute(
+      `INSERT OR IGNORE INTO parish_organization_units
+       (parish_id, id, parent_id, name, unit_type, description, sort_order, is_active, created_by, updated_by, created_at, updated_at)
+       VALUES ('gia-ton', 'unit-e2e-board', NULL, 'Ban Điều hành E2E', 'BOARD', 'E2E authority root', 0, 1, 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
+      [now, now],
+    )
+    await c.execute(
+      `INSERT OR IGNORE INTO parish_organization_units
+       (parish_id, id, parent_id, name, unit_type, description, sort_order, is_active, created_by, updated_by, created_at, updated_at)
+       VALUES ('gia-ton', 'unit-e2e-branch', 'unit-e2e-board', 'Ngành E2E', 'BRANCH', 'E2E branch scope', 1, 1, 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
+      [now, now],
+    )
+    const operationsPeople = [
+      ['person-e2e-parish-leader', 'usr-e2e-phuta', 'E2E Trưởng Xứ đoàn'],
+      ['person-e2e-branch-leader', 'usr-e2e-chunhiem', 'E2E Trưởng ngành'],
+    ]
+    for (const [id, linkedUserId, fullName] of operationsPeople) {
+      await c.execute(
+        `INSERT OR IGNORE INTO parish_people
+         (parish_id, id, linked_user_id, full_name, service_status, visibility, created_by, updated_by, created_at, updated_at)
+         VALUES ('gia-ton', ?, ?, ?, 'ACTIVE', 'STAFF', 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
+        [id, linkedUserId, fullName, now, now],
+      )
+    }
+    await c.execute(
+      `INSERT OR IGNORE INTO parish_service_terms
+       (parish_id, id, person_id, unit_id, position_title, position_code, start_date, end_date, created_by, updated_by, created_at, updated_at)
+       VALUES ('gia-ton', 'term-e2e-parish-leader', 'person-e2e-parish-leader', 'unit-e2e-board', 'Trưởng Xứ đoàn', 'PARISH_LEADER', '2020-01-01', '2099-12-31', 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
+      [now, now],
+    )
+    await c.execute(
+      `INSERT OR IGNORE INTO parish_service_terms
+       (parish_id, id, person_id, unit_id, position_title, position_code, start_date, end_date, created_by, updated_by, created_at, updated_at)
+       VALUES ('gia-ton', 'term-e2e-branch-leader', 'person-e2e-branch-leader', 'unit-e2e-branch', 'Trưởng ngành', 'BRANCH_LEADER', '2020-01-01', '2099-12-31', 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
+      [now, now],
+    )
+
     // 3. Fixture nghiệp vụ tối thiểu, deterministic: một thiếu nhi thuộc lớp
     // Thiếu Nhi 1 và hai phân công giúp các role staff đọc đúng phạm vi lớp.
     // Đây chỉ là dữ liệu của DB sandbox; production schema/policy không đổi.
@@ -98,7 +137,7 @@ export async function seedE2EUsers({
       )
     }
 
-    console.log('[e2e-seed-users] OK — role users + 2 parent-scoped students + 2 class assignments sẵn sàng.')
+    console.log('[e2e-seed-users] OK — role users + Operations authority fixtures + 2 parent-scoped students + 2 class assignments sẵn sàng.')
   } finally {
     c.close()
   }

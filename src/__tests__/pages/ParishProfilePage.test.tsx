@@ -1,9 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ParishProfilePage from '../../pages/ParishProfilePage'
 import { api } from '../../lib/api'
 import { useParishProfileStore } from '../../stores/parishProfileStore'
+import { setTenantScope } from '../../lib/tenantScope'
 import type { ParishProfileSnapshot } from '../../types/parishProfile'
+
+const mockNavigate = vi.fn()
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => mockNavigate,
+}))
 
 const snapshot: ParishProfileSnapshot = {
   profile: {
@@ -16,7 +22,7 @@ const snapshot: ParishProfileSnapshot = {
     biography: 'Phục vụ từ năm 2010.', serviceStatus: 'ACTIVE', visibility: 'STAFF', createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
   }],
   units: [{
-    id: 'POU-1', parishId: 'gia-ton', parentId: null, name: 'Ban Trị Sự', unitType: 'BOARD', description: null,
+    id: 'POU-1', parishId: 'gia-ton', parentId: null, name: 'Ban Điều Hành', unitType: 'BOARD', description: null,
     sortOrder: 0, isActive: true, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
   }],
   terms: [{
@@ -36,21 +42,86 @@ const snapshot: ParishProfileSnapshot = {
 describe('ParishProfilePage', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    setTenantScope({ parishId: 'gia-ton', userId: 'USR-1' })
     useParishProfileStore.getState().clear()
     vi.spyOn(api.parishProfile, 'getSnapshot').mockResolvedValue(snapshot)
   })
 
-  it('hiển thị hồ sơ cấp Xứ đoàn và bảy phân khu nghiệp vụ', async () => {
+  afterEach(() => {
+    setTenantScope(null)
+  })
+
+  it('hiển thị hồ sơ cấp Xứ đoàn và sáu phân khu nghiệp vụ', async () => {
     render(<ParishProfilePage />)
     expect(await screen.findByRole('heading', { name: 'Xứ Đoàn Đức Mẹ Fatima' })).toBeTruthy()
-    expect(screen.getAllByRole('tab')).toHaveLength(7)
+    expect(screen.getAllByRole('tab')).toHaveLength(6)
     expect(screen.getByText('Cột mốc khai sinh Xứ đoàn.')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('tab', { name: /Hoạt động/i }))
+    fireEvent.click(screen.getByRole('tab', { name: /Timeline/i }))
     expect(screen.getByText('Trại hè 2026')).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: /Cơ cấu/i }))
-    expect(screen.getAllByText('Ban Trị Sự')).toHaveLength(2)
+    expect(screen.getAllByText('Ban Điều Hành')).toHaveLength(2)
     expect(screen.getByText(/Xứ đoàn trưởng/)).toBeTruthy()
+    expect(screen.getAllByText('Điều phối').length).toBeGreaterThan(0)
+  })
+
+  it('xếp nhiệm kỳ có quyền điều phối trước nhiệm kỳ không quyền', async () => {
+    vi.mocked(api.parishProfile.getSnapshot).mockResolvedValue({
+      ...snapshot,
+      terms: [
+        {
+          id: 'PST-0', parishId: 'gia-ton', personId: 'PPE-1', unitId: 'POU-1', positionTitle: 'Thủ quỹ', positionCode: null, rankTitle: null,
+          startDate: '2024-01-01', endDate: null, notes: null, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
+        },
+        ...snapshot.terms,
+      ],
+    })
+    render(<ParishProfilePage />)
+    await screen.findByText('Xứ Đoàn Đức Mẹ Fatima')
+    fireEvent.click(screen.getByRole('tab', { name: /Cơ cấu/i }))
+    const titles = await screen.findAllByText(/Xứ đoàn trưởng|Thủ quỹ/)
+    expect(titles[0].textContent).toMatch(/Xứ đoàn trưởng/)
+  })
+
+  it('hiển thị Ngành và Ban chuyên môn ngang cấp và cho một người kiêm hai nhiệm kỳ', async () => {
+    vi.mocked(api.parishProfile.getSnapshot).mockResolvedValue({
+      ...snapshot,
+      units: [
+        ...snapshot.units,
+        {
+          id: 'POU-BRANCH', parishId: 'gia-ton', parentId: 'POU-1', name: 'Ngành Thiếu', unitType: 'BRANCH', description: null,
+          sortOrder: 1, isActive: true, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
+        },
+        {
+          id: 'POU-COMMITTEE', parishId: 'gia-ton', parentId: 'POU-1', name: 'Ban Truyền thông', unitType: 'COMMITTEE', description: null,
+          sortOrder: 2, isActive: true, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
+        },
+      ],
+      terms: [
+        ...snapshot.terms,
+        {
+          id: 'PST-BRANCH', parishId: 'gia-ton', personId: 'PPE-1', unitId: 'POU-BRANCH', positionTitle: 'Trưởng ngành', positionCode: 'BRANCH_LEADER', rankTitle: null,
+          startDate: '2026-01-01', endDate: null, notes: null, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
+        },
+        {
+          id: 'PST-COMMITTEE', parishId: 'gia-ton', personId: 'PPE-1', unitId: 'POU-COMMITTEE', positionTitle: 'Trưởng ban', positionCode: 'COMMITTEE_LEADER', rankTitle: null,
+          startDate: '2026-01-01', endDate: null, notes: null, createdAt: '2026-08-31T00:00:00Z', updatedAt: '2026-08-31T00:00:00Z',
+        },
+      ],
+    })
+
+    render(<ParishProfilePage />)
+    await screen.findByText('Xứ Đoàn Đức Mẹ Fatima')
+    fireEvent.click(screen.getByRole('tab', { name: /Cơ cấu/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sơ đồ phân cấp' }))
+
+    expect(screen.getByRole('heading', { name: /Ngành & Ban chuyên môn — song song \(2\)/i })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Các Ngành' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Các Ban chuyên môn' })).toBeTruthy()
+    expect(screen.getByText(/Trưởng ngành phụ trách công tác giáo lý/)).toBeTruthy()
+    expect(screen.getAllByText(/Nguyễn Văn A/)).toHaveLength(3)
+    expect(screen.getByText('Trưởng ngành')).toBeTruthy()
+    expect(screen.getByText('Trưởng ban')).toBeTruthy()
   })
 
   it('không hiện thao tác quản trị khi snapshot chỉ cho phép đọc', async () => {
@@ -179,5 +250,29 @@ describe('ParishProfilePage', () => {
       title: 'Trại hè 2026 (2)',
       file: file2,
     }))
+  })
+
+  it('chuyển hướng về Tổng Quan Xứ Đoàn khi bấm breadcrumb hoặc nút Về Tổng Quan', async () => {
+    render(<ParishProfilePage />)
+    await screen.findByText('Xứ Đoàn Đức Mẹ Fatima')
+
+    // Click breadcrumb
+    const breadcrumbBtn = screen.getByTitle('Quay về trang Tổng Quan Xứ Đoàn')
+    fireEvent.click(breadcrumbBtn)
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/parish' })
+
+    // Click Về Tổng Quan header button
+    const backHeaderBtn = screen.getByRole('button', { name: /Về Tổng Quan/i })
+    fireEvent.click(backHeaderBtn)
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/parish' })
+  })
+
+  it('tự động kích hoạt đúng tab khi URL có query parameter tab=organization', async () => {
+    window.history.pushState({}, '', '/parish-profile?tab=organization')
+    render(<ParishProfilePage />)
+    await screen.findByText('Xứ Đoàn Đức Mẹ Fatima')
+
+    const orgTab = screen.getByRole('tab', { name: /Cơ Cấu/i })
+    expect(orgTab).toHaveAttribute('aria-selected', 'true')
   })
 })

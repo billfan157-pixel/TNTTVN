@@ -290,7 +290,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
           {/* Tên Thánh & Họ Tên */}
-          <div className="grid grid-cols-[1fr_2fr_1fr] gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_1fr] gap-3.5">
             <div className="form-group">
               <label htmlFor="student-holyName" className="form-label">Tên Thánh *</label>
               <input
@@ -362,7 +362,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
           </div>
 
           {/* Ngành & Lớp */}
-          <div className="grid grid-cols-3 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             <div className="form-group">
               <label className="form-label">Phân Ngành TNTT</label>
               <select
@@ -439,7 +439,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
           )}
 
           {/* Ngày sinh & Các Bí Tích */}
-          <div className="grid grid-cols-3 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             <div className="form-group">
               <label htmlFor="student-dateOfBirth" className="form-label">Ngày sinh *</label>
               <input
@@ -502,7 +502,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               <input
                 id="student-parentPhone"
                 className={`form-input ${errors.parentPhone ? 'border-parish-danger focus:ring-parish-danger' : ''}`}
-                type="text"
+                type="tel"
+                inputMode="tel"
                 placeholder="VD: 0903123456"
                 value={formData.parentPhone}
                 onBlur={() => handleBlur('parentPhone')}
@@ -602,11 +603,11 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
             />
           </div>
 
-          <div className="flex justify-end gap-3 mt-2 pt-3 border-t border-surface-border">
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 mt-2 pt-3 border-t border-surface-border">
+            <button type="button" className="btn btn-secondary w-full sm:w-auto" onClick={onClose}>
               Hủy
             </button>
-            <button type="submit" className="btn btn-primary" disabled={isSubmitting} aria-busy={isSubmitting}>
+            <button type="submit" className="btn btn-primary w-full sm:w-auto" disabled={isSubmitting} aria-busy={isSubmitting}>
               {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
               {isSubmitting ? 'Đang lưu...' : studentToEdit ? 'Lưu Thay Đổi' : 'Thêm Thiếu Nhi'}
             </button>

@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import type { DbExecutor } from '../db/transactions.js'
 import {
@@ -13,6 +13,8 @@ import {
   users,
 } from '../db/schema.js'
 import type { ActorContext } from '../types/actor.js'
+import { isOperationsAdminMutationOverrideEnabled } from '../utils/operationsAdminOverride.js'
+import { parishCalendarDate } from '../utils/parishTimeZone.js'
 
 export type OperationsCapability =
   | 'operations.event.view'
@@ -21,6 +23,7 @@ export type OperationsCapability =
   | 'operations.event.transition'
   | 'operations.event.cancel'
   | 'operations.event.override_readiness'
+  | 'operations.event.publish_public'
   | 'operations.task.view'
   | 'operations.task.create'
   | 'operations.task.manage'
@@ -55,8 +58,17 @@ export type OperationsAuthorizationResource = {
   parishId: string
   task?: { id: string; workstreamId: string | null; operationEventId: string | null }
   workstream?: { id: string; sourceUnitId: string | null; operationEventId: string | null }
-  event?: { id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null }
+  event?: { id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string }
   resourceUnitId: string | null
+}
+
+export type OperationsCandidate = {
+  parishId: string
+  personId: string | null
+  userId: string | null
+  displayName: string
+  eligibility: 'ACTIONABLE' | 'PLANNING_ONLY' | 'INELIGIBLE'
+  inResourceScope: boolean | null
 }
 
 type OperationsAuthorizationSnapshot = {
@@ -69,14 +81,18 @@ type OperationsAuthorizationSnapshot = {
 
 const STAFF_ROLES = new Set(['admin', 'chunhiem', 'phuta'])
 
-const ADMIN_DOMAIN_CAPABILITIES = new Set<OperationsCapability>([
+const ADMIN_READ_CAPABILITIES = new Set<OperationsCapability>([
+  'operations.event.view', 'operations.task.view', 'operations.audit.view',
+])
+const ADMIN_OVERRIDE_CAPABILITIES = new Set<OperationsCapability>([
   'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.event.transition',
-  'operations.event.cancel', 'operations.event.override_readiness', 'operations.task.view', 'operations.task.create',
+  'operations.event.cancel', 'operations.event.override_readiness', 'operations.event.publish_public',
+  'operations.task.view', 'operations.task.create',
   'operations.task.manage', 'operations.task.assign', 'operations.task.reassign', 'operations.task.comment',
   'operations.workstream.create', 'operations.workstream.manage', 'operations.workstream.assign_lead',
   'operations.workstream.mark_ready', 'operations.audit.view',
 ])
-const PARISH_LEADER_CAPABILITIES = new Set(ADMIN_DOMAIN_CAPABILITIES)
+const PARISH_LEADER_CAPABILITIES = new Set(ADMIN_OVERRIDE_CAPABILITIES)
 const UNIT_LEADER_CAPABILITIES = new Set<OperationsCapability>([
   'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.task.view',
   'operations.task.create', 'operations.task.manage', 'operations.task.assign', 'operations.task.reassign',
@@ -112,9 +128,9 @@ async function loadResource(executor: DbExecutor, parishId: string, scope: Opera
   if (scope.eventId && resourceEventId && scope.eventId !== resourceEventId) return null
   if (scope.eventId && (task || workstream) && !resourceEventId) return null
   const eventId = scope.eventId ?? resourceEventId
-  let event: { id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null } | undefined
+  let event: { id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string } | undefined
   if (eventId) {
-    ;[event] = await executor.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId })
+    ;[event] = await executor.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy })
       .from(operationEvents)
       .where(and(eq(operationEvents.parishId, parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
     if (!event) return null
@@ -126,7 +142,7 @@ async function loadResource(executor: DbExecutor, parishId: string, scope: Opera
 async function loadAuthorizationSnapshot(executor: DbExecutor, actor: ActorContext): Promise<OperationsAuthorizationSnapshot> {
   const [person] = await executor.select({ id: parishPeople.id }).from(parishPeople)
     .where(and(eq(parishPeople.parishId, actor.parishId), eq(parishPeople.linkedUserId, actor.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = parishCalendarDate()
   const now = new Date().toISOString()
 
   const terms = person
@@ -145,11 +161,9 @@ async function loadAuthorizationSnapshot(executor: DbExecutor, actor: ActorConte
   const currentTerms = terms
     .filter(term => term.startDate <= today && (!term.endDate || term.endDate >= today))
     .map(({ positionTitle, positionCode, unitId }) => ({ positionTitle, positionCode, unitId }))
-  const units = person
-    ? await executor.select({ id: parishOrganizationUnits.id, parentId: parishOrganizationUnits.parentId, unitType: parishOrganizationUnits.unitType })
-      .from(parishOrganizationUnits)
-      .where(and(eq(parishOrganizationUnits.parishId, actor.parishId), eq(parishOrganizationUnits.isActive, true), isNull(parishOrganizationUnits.deletedAt)))
-    : []
+  const units = await executor.select({ id: parishOrganizationUnits.id, parentId: parishOrganizationUnits.parentId, unitType: parishOrganizationUnits.unitType })
+    .from(parishOrganizationUnits)
+    .where(and(eq(parishOrganizationUnits.parishId, actor.parishId), eq(parishOrganizationUnits.isActive, true), isNull(parishOrganizationUnits.deletedAt)))
   const workstreamMemberships = await executor.select({
     workstreamId: operationWorkstreamMembers.workstreamId,
     role: operationWorkstreamMembers.operationRole,
@@ -200,13 +214,135 @@ function descendantIds(units: Array<{ id: string; parentId: string | null }>, ro
   return result
 }
 
+async function resolveTargetAuthority(
+  actor: ActorContext,
+  capability: OperationsCapability,
+  scope: OperationsScope,
+  executor: DbExecutor,
+) {
+  if (actor.parishId !== scope.parishId || !STAFF_ROLES.has(actor.role)) {
+    throw Object.assign(new Error('Bạn không có quyền Operations trong phạm vi này.'), { status: 403, code: 'FORBIDDEN' })
+  }
+  const resource = await loadResource(executor, actor.parishId, scope)
+  if (!resource) throw Object.assign(new Error('Bạn không có quyền Operations trong phạm vi này.'), { status: 403, code: 'FORBIDDEN' })
+  const snapshot = await loadAuthorizationSnapshot(executor, actor)
+  const decision = decideOperationsAuthorization(actor, capability, resource, snapshot)
+  if (!decision.allowed) {
+    throw Object.assign(new Error('Bạn không có quyền Operations trong phạm vi này.'), { status: 403, code: 'FORBIDDEN', decision })
+  }
+  const parishWide = (actor.role === 'admin' && isOperationsAdminMutationOverrideEnabled())
+    || snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER')
+  return { resource, snapshot, parishWide }
+}
+
+function personIsInResourceScope(
+  personId: string,
+  resourceUnitId: string,
+  snapshot: OperationsAuthorizationSnapshot,
+  termUnitIdsByPerson: Map<string, string[]>,
+): boolean {
+  const resourceUnitIds = new Set(descendantIds(snapshot.units, resourceUnitId))
+  return (termUnitIdsByPerson.get(personId) ?? []).some(unitId => resourceUnitIds.has(unitId))
+}
+
+async function currentTermUnitIdsByPerson(executor: DbExecutor, parishId: string, personIds: string[]) {
+  const result = new Map<string, string[]>()
+  if (personIds.length === 0) return result
+  const today = parishCalendarDate()
+  const terms = await executor.select({ personId: parishServiceTerms.personId, unitId: parishServiceTerms.unitId })
+    .from(parishServiceTerms).where(and(
+      eq(parishServiceTerms.parishId, parishId),
+      inArray(parishServiceTerms.personId, personIds),
+      lte(parishServiceTerms.startDate, today),
+      or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+      isNull(parishServiceTerms.deletedAt),
+    ))
+  for (const term of terms) {
+    if (!term.unitId) continue
+    result.set(term.personId, [...(result.get(term.personId) ?? []), term.unitId])
+  }
+  return result
+}
+
+/**
+ * A scoped organizational leader or resource lead may only assign people whose
+ * current service term belongs to the resource unit tree. Admin and the active
+ * parish leader retain parish-wide authority. This is a write-side guard; a UI
+ * candidate picker is never an authorization boundary.
+ */
+export async function assertOperationsTargetWithinAuthority(
+  actor: ActorContext,
+  capability: OperationsCapability,
+  scope: OperationsScope,
+  target: { userId?: string | null; personId?: string | null },
+  executor: DbExecutor = db,
+): Promise<void> {
+  const { resource, snapshot, parishWide } = await resolveTargetAuthority(actor, capability, scope, executor)
+  if (parishWide || !resource.resourceUnitId) return
+  const people = target.personId
+    ? await executor.select({ id: parishPeople.id }).from(parishPeople).where(and(
+      eq(parishPeople.parishId, actor.parishId), eq(parishPeople.id, target.personId),
+      eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt),
+    )).limit(1)
+    : target.userId
+      ? await executor.select({ id: parishPeople.id }).from(parishPeople).where(and(
+        eq(parishPeople.parishId, actor.parishId), eq(parishPeople.linkedUserId, target.userId),
+        eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt),
+      )).limit(1)
+      : []
+  const personIds = people.map(person => person.id)
+  const termUnitIds = await currentTermUnitIdsByPerson(executor, actor.parishId, personIds)
+  if (!personIds.some(personId => personIsInResourceScope(personId, resource.resourceUnitId!, snapshot, termUnitIds))) {
+    throw Object.assign(new Error('Chỉ được phân công thành viên thuộc đơn vị phụ trách.'), { status: 403, code: 'TARGET_OUTSIDE_ORGANIZATION_SCOPE' })
+  }
+}
+
+/** Minimal, contact-free directory for a resource-scoped assignment control. */
+export async function listOperationsCandidates(
+  actor: ActorContext,
+  capability: OperationsCapability,
+  scope: OperationsScope,
+  executor: DbExecutor = db,
+): Promise<OperationsCandidate[]> {
+  const { resource, snapshot, parishWide } = await resolveTargetAuthority(actor, capability, scope, executor)
+  const [people, staffAccounts] = await Promise.all([
+    executor.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId, fullName: parishPeople.fullName })
+      .from(parishPeople).where(and(eq(parishPeople.parishId, actor.parishId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).orderBy(asc(parishPeople.fullName)),
+    executor.select({ id: users.id, fullName: users.fullName }).from(users).where(and(
+      eq(users.parishId, actor.parishId), inArray(users.role, ['admin', 'chunhiem', 'phuta']), eq(users.status, 'ACTIVE'), isNull(users.deletedAt),
+    )),
+  ])
+  const staffById = new Map(staffAccounts.map(account => [account.id, account]))
+  const termUnitIds = await currentTermUnitIdsByPerson(executor, actor.parishId, people.map(person => person.id))
+  const linkedUserIds = new Set(people.flatMap(person => person.linkedUserId ? [person.linkedUserId] : []))
+  const resourceUnitId = resource.resourceUnitId
+  const personCandidates: OperationsCandidate[] = people.map(person => {
+    const activeStaff = person.linkedUserId ? staffById.get(person.linkedUserId) : undefined
+    const inResourceScope = resourceUnitId ? personIsInResourceScope(person.id, resourceUnitId, snapshot, termUnitIds) : null
+    return {
+      parishId: actor.parishId,
+      personId: person.id,
+      userId: activeStaff?.id ?? null,
+      displayName: person.fullName,
+      eligibility: !person.linkedUserId ? 'PLANNING_ONLY' : activeStaff ? 'ACTIONABLE' : 'INELIGIBLE',
+      inResourceScope,
+    }
+  })
+  const accountOnlyCandidates: OperationsCandidate[] = staffAccounts
+    .filter(account => !linkedUserIds.has(account.id))
+    .map(account => ({ parishId: actor.parishId, personId: null, userId: account.id, displayName: account.fullName, eligibility: 'ACTIONABLE', inResourceScope: resourceUnitId ? false : null }))
+  return [...personCandidates, ...accountOnlyCandidates]
+    .filter(candidate => parishWide || !resourceUnitId || candidate.inResourceScope)
+    .sort((left, right) => left.displayName.localeCompare(right.displayName, 'vi'))
+}
+
 function operationRoleAllows(capability: OperationsCapability, roles: string[]): boolean {
   if (capability === 'operations.event.view') return roles.length > 0
   // Personal task authority is additive: being a manager must neither grant
   // it implicitly nor mask an independently accepted task assignment.
   if (capability === 'operations.task.execute') return roles.includes('TASK_OWNER') || roles.includes('TASK_CONTRIBUTOR')
   if (capability === 'operations.task.approve') return roles.includes('TASK_APPROVER') || roles.includes('APPROVER')
-  if (roles.includes('EVENT_ORGANIZER')) {
+  if (roles.includes('EVENT_ORGANIZER') || roles.includes('EVENT_CREATOR')) {
     return new Set<OperationsCapability>([
       'operations.event.view', 'operations.event.manage', 'operations.event.transition', 'operations.event.cancel',
       'operations.event.override_readiness', 'operations.task.view', 'operations.task.create', 'operations.task.manage',
@@ -219,7 +355,7 @@ function operationRoleAllows(capability: OperationsCapability, roles: string[]):
     return new Set<OperationsCapability>([
       'operations.event.view', 'operations.task.view', 'operations.task.create', 'operations.task.manage',
       'operations.task.assign', 'operations.task.reassign', 'operations.task.comment', 'operations.workstream.manage',
-      'operations.workstream.assign_lead', 'operations.workstream.mark_ready', 'operations.audit.view',
+      'operations.workstream.mark_ready', 'operations.audit.view',
     ]).has(capability)
   }
   if (capability === 'operations.task.comment' || capability === 'operations.task.view') return roles.length > 0
@@ -233,7 +369,11 @@ function decideOperationsAuthorization(
   snapshot: OperationsAuthorizationSnapshot,
 ): OperationsDecision {
   if (resource.parishId !== actor.parishId) return deny('ACCOUNT_ROLE')
+  if (resource.event?.status === 'DRAFT' && actor.role !== 'admin' && resource.event.createdBy !== actor.userId) {
+    return deny('OPERATION_ROLE')
+  }
   const operationRoles: string[] = []
+  if (resource.event?.createdBy === actor.userId) operationRoles.push('EVENT_CREATOR')
   if (resource.event && (
     resource.event.organizerUserId === actor.userId
     || Boolean(snapshot.personId && resource.event.organizerPersonId === snapshot.personId)
@@ -251,28 +391,32 @@ function decideOperationsAuthorization(
   if (operationRoleAllows(capability, operationRoles)) {
     return { allowed: true, reason: 'OPERATION_ROLE', positionTitles: [], unitIds: [], operationRoles }
   }
-  if (actor.role === 'admin' && ADMIN_DOMAIN_CAPABILITIES.has(capability)) {
+  if (actor.role === 'admin' && ADMIN_READ_CAPABILITIES.has(capability)) {
     return { allowed: true, reason: 'ALLOWED', positionTitles: [], unitIds: [], operationRoles }
   }
+  if (actor.role === 'admin' && isOperationsAdminMutationOverrideEnabled() && ADMIN_OVERRIDE_CAPABILITIES.has(capability)) {
+    return { allowed: true, reason: 'ALLOWED', positionTitles: [], unitIds: [], operationRoles }
+  }
+  // Unknown capabilities still fail closed; admin grants are explicit above.
+  if (actor.role === 'admin') return deny('ACCOUNT_ROLE', [], [], operationRoles)
   if (!snapshot.personId) return deny('POSITION_SCOPE', [], [], operationRoles)
 
   const unitsById = new Map(snapshot.units.map(unit => [unit.id, unit]))
   const positionTitles = snapshot.currentTerms.map(term => term.positionTitle)
   const unitIds = [...new Set(snapshot.currentTerms.flatMap(term => term.unitId ? descendantIds(snapshot.units, term.unitId) : []))]
   const requestedUnitId = resource.resourceUnitId
+  const scopeMember = Boolean(resource.event && resource.event.status !== 'DRAFT' && requestedUnitId && snapshot.currentTerms.some(term =>
+    Boolean(term.unitId && descendantIds(snapshot.units, requestedUnitId).includes(term.unitId))
+  ))
   const parishLeader = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
   const unitLeader = requestedUnitId !== null && snapshot.currentTerms.some(term => {
     if (!term.unitId || !descendantIds(snapshot.units, term.unitId).includes(requestedUnitId)) return false
     const unitType = unitsById.get(term.unitId)?.unitType
     return (unitType === 'BRANCH' && term.positionCode === 'BRANCH_LEADER') || (unitType === 'COMMITTEE' && term.positionCode === 'COMMITTEE_LEADER')
   })
-  const memberInScope = requestedUnitId !== null && snapshot.currentTerms.some(term => term.unitId && descendantIds(snapshot.units, term.unitId).includes(requestedUnitId))
-
   if (parishLeader && PARISH_LEADER_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
   if (unitLeader && UNIT_LEADER_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  if (memberInScope && (capability === 'operations.event.view' || capability === 'operations.task.view' || capability === 'operations.task.comment')) {
-    return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  }
+  if (scopeMember && (capability === 'operations.event.view' || capability === 'operations.task.view')) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles: [...operationRoles, 'SCOPE_MEMBER'] }
   return deny('POSITION_SCOPE', positionTitles, unitIds, operationRoles)
 }
 
@@ -336,7 +480,8 @@ export async function assertOperationsCapability(actor: ActorContext, capability
 export async function getOperationsCallerPermissions(actor: ActorContext, scope: OperationsScope, executor: DbExecutor = db) {
   const capabilities: OperationsCapability[] = [
     'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.event.transition',
-    'operations.event.cancel', 'operations.event.override_readiness', 'operations.task.view', 'operations.task.create',
+    'operations.event.cancel', 'operations.event.override_readiness', 'operations.event.publish_public',
+    'operations.task.view', 'operations.task.create',
     'operations.task.manage', 'operations.task.assign', 'operations.task.execute', 'operations.task.reassign',
     'operations.task.approve', 'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
     'operations.workstream.assign_lead', 'operations.workstream.mark_ready', 'operations.audit.view',

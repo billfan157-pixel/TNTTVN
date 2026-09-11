@@ -66,4 +66,36 @@ describe('ParishLogoModal', () => {
     fireEvent.click(closeButtons[closeButtons.length - 1])
     expect(handleClose).toHaveBeenCalledTimes(1)
   })
+
+  it('supports thumb-friendly prev and next journey navigation on mobile', () => {
+    render(<ParishLogoModal isOpen={true} onClose={vi.fn()} />)
+
+    const prevBtn = screen.getByRole('button', { name: 'Biểu tượng trước' })
+    const nextBtn = screen.getByRole('button', { name: 'Biểu tượng tiếp theo' })
+
+    // Ban đầu ở chặng 1: Nút trước bị vô hiệu
+    expect(prevBtn).toHaveProperty('disabled', true)
+    expect(nextBtn).toHaveProperty('disabled', false)
+    expect(screen.getByText('Con Thuyền Đức Tin & Thánh Giá')).toBeDefined()
+
+    // Bấm Tiếp theo -> Chuyển sang chặng 2 (Năm Sắc Màu)
+    fireEvent.click(nextBtn)
+    expect(screen.getByText('Năm Sắc Màu Ngành')).toBeDefined()
+    expect(prevBtn).toHaveProperty('disabled', false)
+
+    // Bấm Tiếp theo -> Chuyển sang chặng 3 (Đức Mẹ Fatima)
+    fireEvent.click(nextBtn)
+    expect(screen.getByText('Đức Mẹ Fatima — Đấng Bổn Mạng')).toBeDefined()
+
+    // Bấm Tiếp theo -> Chuyển sang chặng 4 (Nhà Thờ Gia Tôn)
+    fireEvent.click(nextBtn)
+    expect(screen.getByText('Tòa Nhà Giáo Đường Gia Tôn')).toBeDefined()
+    expect(nextBtn).toHaveProperty('disabled', true)
+
+    // Bấm Chặng trước -> Quay lại chặng 3 (Đức Mẹ Fatima)
+    fireEvent.click(prevBtn)
+    expect(screen.getByText('Đức Mẹ Fatima — Đấng Bổn Mạng')).toBeDefined()
+    expect(nextBtn).toHaveProperty('disabled', false)
+  })
 })
+

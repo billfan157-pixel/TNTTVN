@@ -331,6 +331,9 @@ const calendarRoute = createRoute({
 const operationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/operations',
+  validateSearch: z.object({
+    sourceParishEventId: z.string().optional(),
+  }),
   beforeLoad: requireRouteAccess('/operations'),
   component: () => (
     <PageSuspense>
@@ -342,6 +345,9 @@ const operationsRoute = createRoute({
 const parishProfileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/parish-profile',
+  validateSearch: z.object({
+    tab: z.enum(['history', 'organization', 'people', 'archive', 'achievements', 'timeline']).optional(),
+  }),
   beforeLoad: requireRouteAccess('/parish-profile'),
   component: () => (
     <PageSuspense>

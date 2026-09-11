@@ -1,3 +1,5 @@
+import type { DbExecutor } from '../db/transactions.js'
+
 export type ParishProfileRole = 'admin' | 'chunhiem' | 'phuta'
 export type ParishVisibility = 'STAFF' | 'ADMIN'
 export type ParishPersonStatus = 'ACTIVE' | 'FORMER' | 'DECEASED'
@@ -87,4 +89,14 @@ export interface MutationContext {
   parishId: string
   ip: string
   userAgent: string
+  authorityReason?: string
+  authorityReauthEntityId?: string
+  authorityReauthOperation?: string
+  authorityReauthProof?: (
+    executor: DbExecutor,
+    actorId: string,
+    parishId: string,
+    entityId: string,
+    operation: string,
+  ) => Promise<void>
 }

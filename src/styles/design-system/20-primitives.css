@@ -96,6 +96,14 @@
   background: var(--color-surface-card);
 }
 
+.modal-content--shell {
+  padding: 0 !important;
+}
+
+.modal-content--shell .modal-content__footer {
+  margin: 0 !important;
+}
+
 .modal-content.modal-report {
   max-width: 750px;
 }

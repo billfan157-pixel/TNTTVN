@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -9,14 +10,10 @@ import {
   MapPin,
   Download,
   ExternalLink,
-  Plus,
-  Pencil,
-  Trash2,
-  X,
+  ClipboardList,
 } from 'lucide-react'
 import { useParishEventStore } from '../../stores/parishEventStore'
 import { useAuthStore } from '../../stores/authStore'
-import { useToastStore } from '../../stores/toastStore'
 import {
   getLiturgicalDay,
   getLiturgicalMonthDays,
@@ -29,28 +26,13 @@ import {
 } from '../../utils/icalGenerator'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import type { LiturgicalDay } from '../../types/liturgical'
-import type { ParishEvent } from '../../stores/parishEventStore'
-import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
-import { useConfirmDialog } from '../../hooks/useConfirmDialog'
-import { ModalPortal } from '../common/ModalPortal'
-import { canManageParishEvents } from '../../utils/parishPortal'
 
 export const MobileCalendarView: React.FC = () => {
+  const navigate = useNavigate()
   const [currentDate, setCurrentDate] = useState<Date>(new Date())
   const [selectedDay, setSelectedDay] = useState<LiturgicalDay>(getLiturgicalDay(new Date()))
-  const { events: parishEvents, fetchEvents, createEvent, updateEvent, deleteEvent } = useParishEventStore()
+  const { events: parishEvents, fetchEvents } = useParishEventStore()
   const role = useAuthStore(state => state.user?.role)
-  const canManageEvents = canManageParishEvents(role)
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [editingEvent, setEditingEvent] = useState<ParishEvent | null>(null)
-  const [formDate, setFormDate] = useState(() => getLiturgicalDay(new Date()).date)
-  const [formTitle, setFormTitle] = useState('')
-  const [formCategory, setFormCategory] = useState<ParishEvent['category']>('FEAST_DAY')
-  const [formTime, setFormTime] = useState('')
-  const [formLocation, setFormLocation] = useState('')
-  const closeEventModal = useCallback(() => setShowAddModal(false), [])
-  const { dialogRef, titleId } = useAccessibleDialog(showAddModal, closeEventModal)
-  const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     fetchEvents()
@@ -91,65 +73,6 @@ export const MobileCalendarView: React.FC = () => {
   const selectedDayParishEvents = useMemo(() => {
     return parishEvents.filter((e) => e.date === selectedDay.date)
   }, [parishEvents, selectedDay.date])
-
-  const handleOpenAdd = () => {
-    setEditingEvent(null)
-    setFormDate(selectedDay.date)
-    setFormTitle('')
-    setFormTime('')
-    setFormLocation('')
-    setFormCategory('FEAST_DAY')
-    setShowAddModal(true)
-  }
-
-  const handleOpenEdit = (ev: ParishEvent) => {
-    setEditingEvent(ev)
-    setFormDate(ev.date)
-    setFormTitle(ev.title)
-    setFormCategory(ev.category)
-    setFormTime(ev.time || '')
-    setFormLocation(ev.location || '')
-    setShowAddModal(true)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!formTitle.trim() || !formDate) return
-    const payload = { date: formDate, title: formTitle.trim(), category: formCategory, time: formTime.trim() || undefined, location: formLocation.trim() || undefined }
-    try {
-      if (editingEvent) {
-        await updateEvent(editingEvent.id, payload)
-        useToastStore.getState().addToast('Đã cập nhật sự kiện', 'success')
-      } else {
-        await createEvent(payload as any)
-        useToastStore.getState().addToast('Đã thêm sự kiện', 'success')
-      }
-      if (formDate !== selectedDay.date) {
-        setSelectedDay(getLiturgicalDay(new Date(`${formDate}T00:00:00`)))
-        setCurrentDate(new Date(`${formDate}T00:00:00`))
-      }
-      setShowAddModal(false)
-      setEditingEvent(null)
-    } catch (err: any) {
-      useToastStore.getState().addToast(err?.message || 'Không thể lưu', 'error')
-    }
-  }
-
-  const handleDelete = async (ev: ParishEvent) => {
-    const confirmed = await askConfirm({
-      title: 'Xóa sự kiện',
-      message: `Xóa “${ev.title}”? Thao tác này không thể hoàn tác.`,
-      confirmText: 'Xóa sự kiện',
-      variant: 'danger',
-    })
-    if (!confirmed) return
-    try {
-      await deleteEvent(ev.id)
-      useToastStore.getState().addToast('Đã xóa', 'success')
-    } catch (error) {
-      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Không thể xóa sự kiện', 'error')
-    }
-  }
 
   const dayHeaders = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7']
 
@@ -361,15 +284,10 @@ export const MobileCalendarView: React.FC = () => {
           <h5 className="text-xs font-extrabold text-text-secondary uppercase tracking-wider m-0 flex items-center gap-1.5">
             <CalendarIcon size={13} className="text-parish-primary" /> Sự Kiện Xứ Đoàn ({selectedDayParishEvents.length})
           </h5>
-          {canManageEvents && (
-            <button onClick={handleOpenAdd} className="px-2.5 py-1 rounded-full bg-parish-primary text-white text-xs font-bold flex items-center gap-1 min-h-[44px]">
-              <Plus size={12} /> Thêm
-            </button>
-          )}
         </div>
         {selectedDayParishEvents.length === 0 ? (
           <div className="py-3 px-3 text-center rounded-xl bg-surface-app border border-surface-border text-xs text-text-muted">
-            {canManageEvents ? 'Chưa có sự kiện — bấm Thêm để tạo.' : 'Chưa có sự kiện Xứ đoàn trong ngày này.'}
+            Chưa có sự kiện Xứ đoàn trong ngày này.
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -379,8 +297,16 @@ export const MobileCalendarView: React.FC = () => {
                   <span className="font-bold text-text-main flex-1 truncate">{ev.title}</span>
                   <span className="flex items-center gap-1 shrink-0">
                     <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">{ev.categoryName || ev.category}</span>
-                    {canManageEvents && <button onClick={() => handleOpenEdit(ev)} className="p-1 rounded-md hover:bg-surface-card" aria-label="Sửa"><Pencil size={12} /></button>}
-                    {canManageEvents && <button onClick={() => handleDelete(ev)} className="p-1 rounded-md hover:bg-parish-danger-bg text-text-muted hover:text-parish-danger" aria-label="Xóa"><Trash2 size={12} /></button>}
+                    {role !== 'phuhuynh' && (
+                      <button
+                        onClick={() => navigate({ to: '/operations' })}
+                        className="p-1 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md hover:bg-surface-card text-text-muted hover:text-parish-primary"
+                        aria-label="Tổ chức công việc"
+                        title="Tổ chức & điều phối công việc cho sự kiện này"
+                      >
+                        <ClipboardList size={14} />
+                      </button>
+                    )}
                   </span>
                 </div>
                 {(ev.time || ev.location) && (
@@ -430,64 +356,6 @@ export const MobileCalendarView: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom-sheet thêm/sửa sự kiện — mobile Calm */}
-      {showAddModal && (
-        <ModalPortal>
-        <div className="app-modal-layer fixed inset-0 flex items-end justify-center p-0" onClick={closeEventModal}>
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-          <form
-            ref={dialogRef as React.Ref<HTMLFormElement>}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            onSubmit={handleSubmit}
-            onClick={e => e.stopPropagation()}
-            className="relative w-full max-w-lg bg-surface-card rounded-t-3xl shadow-xl max-h-[92dvh] overflow-y-auto flex flex-col pt-3"
-          >
-            <div className="sheet-grabber" aria-hidden="true" />
-            <div className="sticky top-0 bg-surface-card border-b border-surface-border px-4 pt-1 pb-3 flex items-center justify-between">
-              <div>
-                <h4 id={titleId} className="font-extrabold text-parish-primary m-0 text-sm">{editingEvent ? 'Sửa Sự Kiện' : 'Thêm Sự Kiện'} — {formDate}</h4>
-                <p className="text-xs text-text-muted m-0">Lưu server + offline, đồng bộ lịch</p>
-              </div>
-              <button type="button" onClick={closeEventModal} className="w-11 h-11 rounded-xl bg-surface-hover flex items-center justify-center" aria-label="Đóng"><X size={16} /></button>
-            </div>
-            <div className="p-4 flex flex-col gap-3">
-              <label className="text-xs font-bold text-text-secondary">Ngày <span className="text-red-500">*</span>
-                <input type="date" required value={formDate} onChange={e => setFormDate(e.target.value)} className="form-input w-full mt-1 min-h-[44px]" />
-              </label>
-              <label className="text-xs font-bold text-text-secondary">Tiêu đề <span className="text-red-500">*</span>
-                <input type="text" required value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="VD: Lễ Bổn Mạng" className="form-input w-full mt-1 min-h-[44px]" />
-              </label>
-              <label className="text-xs font-bold text-text-secondary">Loại
-                <select value={formCategory} onChange={e => setFormCategory(e.target.value as any)} className="form-select w-full mt-1 min-h-[44px]">
-                  <option value="FEAST_DAY">Lễ Bổn Mạng / Thánh Lễ</option>
-                  <option value="CAMP">Hội Trại / Dã Ngoại</option>
-                  <option value="TRAINING">Sa Mạc / Huấn Luyện</option>
-                  <option value="SACRAMENT">Bí Tích</option>
-                  <option value="RETREAT">Tĩnh Tâm</option>
-                  <option value="MEETING">Họp Xứ Đoàn</option>
-                  <option value="OTHER">Khác</option>
-                </select>
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-xs font-bold text-text-secondary">Giờ
-                  <input type="time" value={formTime} onChange={e => setFormTime(e.target.value)} className="form-input w-full mt-1 min-h-[44px]" />
-                </label>
-                <label className="text-xs font-bold text-text-secondary">Địa điểm
-                  <input type="text" value={formLocation} onChange={e => setFormLocation(e.target.value)} placeholder="Nhà thờ..." className="form-input w-full mt-1 min-h-[44px]" />
-                </label>
-              </div>
-            </div>
-            <div className="sticky bottom-0 bg-surface-card border-t border-surface-border p-3 flex gap-2 pb-[max(12px,env(safe-area-inset-bottom))]">
-              <button type="button" onClick={closeEventModal} className="btn btn-secondary flex-1 min-h-[44px]">Hủy</button>
-              <button type="submit" className="btn btn-primary flex-1 min-h-[44px]">{editingEvent ? 'Cập nhật' : 'Lưu'}</button>
-            </div>
-          </form>
-        </div>
-        </ModalPortal>
-      )}
-      {confirmDialog}
     </div>
   )
 }

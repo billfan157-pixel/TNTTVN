@@ -5,7 +5,7 @@ import { operationsApi, type OperationTaskDetail } from '../../lib/api/operation
 import { setTenantScope } from '../../lib/tenantScope'
 
 const detail: OperationTaskDetail = {
-  task: { id: 'T1', parishId: 'P1', title: 'Review', status: 'TODO', priority: 'NORMAL', isRequired: true, approvalStatus: 'PENDING', version: 7 },
+  task: { id: 'T1', parishId: 'P1', title: 'Review', status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: true, approvalStatus: 'PENDING', version: 7 },
   comments: [], checklist: [], assignees: [], dependencies: [], permissions: { 'operations.task.approve': true, 'operations.task.comment': true },
 }
 describe('TaskReviewPanel', () => {
