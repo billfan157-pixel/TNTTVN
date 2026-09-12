@@ -28,8 +28,12 @@ export const PARISH_RANK_TITLE_SUGGESTIONS: readonly string[] = [
 
 const CODE_RANK: Record<string, number> = {
   PARISH_LEADER: 0,
+  PARISH_SECRETARY: 1,
+  PARISH_DEPUTY: 2,
   BRANCH_LEADER: 10,
+  BRANCH_DEPUTY: 11,
   COMMITTEE_LEADER: 10,
+  COMMITTEE_DEPUTY: 11,
 }
 
 const TITLE_RANK: Record<string, number> = {

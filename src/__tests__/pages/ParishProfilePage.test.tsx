@@ -61,7 +61,8 @@ describe('ParishProfilePage', () => {
     expect(screen.getByText('Trại hè 2026')).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: /Cơ cấu/i }))
     expect(screen.getAllByText('Ban Điều Hành')).toHaveLength(2)
-    expect(screen.getByText(/Xứ đoàn trưởng/)).toBeTruthy()
+    expect(screen.getByText(/Xứ đoàn trưởng · Huynh trưởng cấp III/)).toBeTruthy()
+    expect(screen.getByText('Xứ đoàn trưởng')).toBeTruthy()
     expect(screen.getAllByText('Điều phối').length).toBeGreaterThan(0)
   })
 

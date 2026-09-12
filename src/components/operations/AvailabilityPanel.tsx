@@ -4,6 +4,7 @@ import { EmptyState } from '../common/StateFeedback'
 import { Button, TextInput } from '../common/ui'
 import { operationsApi, type OperationBlockout } from '../../lib/api/operations'
 import { getTenantScope } from '../../lib/tenantScope'
+import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 
 function localDateTime(iso: string) {
   const value = new Date(iso)
@@ -19,6 +20,7 @@ export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
   const [editing, setEditing] = useState<{ id: string; startsAt: string; endsAt: string; reason: string } | null>(null)
   const alive = useRef(true)
   const inFlight = useRef(false)
+  const { stableKey, releaseKey } = useStableCommandKey()
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
   const load = useCallback(async (preserveMessage = false) => {
@@ -64,7 +66,13 @@ export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
       event.preventDefault()
       const scope = getTenantScope()
       if (!scope || !validWindow(draft.startsAt, draft.endsAt)) return
-      void mutate(() => operationsApi.createBlockout({ userId: scope.userId, startsAt: new Date(draft.startsAt).toISOString(), endsAt: new Date(draft.endsAt).toISOString(), reason: draft.reason.trim() || null }), 'Đã lưu lịch bận.').then(saved => {
+      const payload = { userId: scope.userId, startsAt: new Date(draft.startsAt).toISOString(), endsAt: new Date(draft.endsAt).toISOString(), reason: draft.reason.trim() || null }
+      const key = stableKey('blockout-create', payload)
+      void mutate(async () => {
+        const result = await operationsApi.createBlockout(payload, key)
+        releaseKey('blockout-create')
+        return result
+      }, 'Đã lưu lịch bận.').then(saved => {
         if (saved && alive.current) setDraft({ startsAt: '', endsAt: '', reason: '' })
       })
     }}>
@@ -76,12 +84,27 @@ export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
     {loaded && rows.length === 0 && <EmptyState icon={CalendarClock} title="Bạn chưa có lịch bận." description="Thêm khoảng thời gian để người giao việc nhận cảnh báo phù hợp." className="py-5" />}
     <div className="divide-y divide-surface-border">
       {rows.map(row => <div key={row.id} data-blockout-id={row.id} className="py-3 text-sm text-text-main">
-        <div className="flex flex-wrap items-center justify-between gap-2"><span>{new Date(row.startsAt).toLocaleString('vi-VN')} – {new Date(row.endsAt).toLocaleString('vi-VN')}{row.reason ? ` · ${row.reason}` : ''}</span><div className="flex gap-2"><Button variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => setEditing({ id: row.id, startsAt: localDateTime(row.startsAt), endsAt: localDateTime(row.endsAt), reason: row.reason ?? '' })}>Sửa</Button><Button variant="danger" size="sm" disabled={!enabled || busy} onClick={() => void mutate(() => operationsApi.revokeBlockout(row.id, row.version), 'Đã thu hồi lịch bận.')}>Thu hồi</Button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><span>{new Date(row.startsAt).toLocaleString('vi-VN')} – {new Date(row.endsAt).toLocaleString('vi-VN')}{row.reason ? ` · ${row.reason}` : ''}</span><div className="flex gap-2"><Button variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => setEditing({ id: row.id, startsAt: localDateTime(row.startsAt), endsAt: localDateTime(row.endsAt), reason: row.reason ?? '' })}>Sửa</Button><Button variant="danger" size="sm" disabled={!enabled || busy} onClick={() => {
+          const key = stableKey('blockout-revoke', { id: row.id, version: row.version })
+          return void mutate(async () => {
+            const result = await operationsApi.revokeBlockout(row.id, row.version, key)
+            releaseKey('blockout-revoke')
+            return result
+          }, 'Đã thu hồi lịch bận.')
+        }}>Thu hồi</Button></div></div>
         {editing?.id === row.id && <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
           <TextInput aria-label={`Sửa bận từ ${row.id}`} type="datetime-local" value={editing.startsAt} disabled={busy} onChange={event => setEditing(value => value ? { ...value, startsAt: event.target.value } : value)} />
           <TextInput aria-label={`Sửa bận đến ${row.id}`} type="datetime-local" value={editing.endsAt} disabled={busy} onChange={event => setEditing(value => value ? { ...value, endsAt: event.target.value } : value)} />
           <TextInput aria-label={`Sửa lý do bận ${row.id}`} value={editing.reason} maxLength={500} disabled={busy} onChange={event => setEditing(value => value ? { ...value, reason: event.target.value } : value)} />
-          <Button size="sm" disabled={busy || !validWindow(editing.startsAt, editing.endsAt)} onClick={() => void mutate(() => operationsApi.updateBlockout(row.id, { version: row.version, startsAt: new Date(editing.startsAt).toISOString(), endsAt: new Date(editing.endsAt).toISOString(), reason: editing.reason.trim() || null }), 'Đã cập nhật lịch bận.')}>Lưu</Button>
+          <Button size="sm" disabled={busy || !validWindow(editing.startsAt, editing.endsAt)} onClick={() => {
+            const payload = { version: row.version, startsAt: new Date(editing.startsAt).toISOString(), endsAt: new Date(editing.endsAt).toISOString(), reason: editing.reason.trim() || null }
+            const key = stableKey('blockout-update', { id: row.id, ...payload })
+            return void mutate(async () => {
+              const result = await operationsApi.updateBlockout(row.id, payload, key)
+              releaseKey('blockout-update')
+              return result
+            }, 'Đã cập nhật lịch bận.')
+          }}>Lưu</Button>
         </div>}
       </div>)}
     </div>

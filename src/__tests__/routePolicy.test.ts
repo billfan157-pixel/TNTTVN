@@ -60,13 +60,23 @@ describe('frontend route policy SSOT (ADR-072)', () => {
   })
 
   it('prefetches only role-visible mobile destinations', () => {
-    expect(getMobilePreloadPaths('phuhuynh')).toEqual(['/dashboard', '/parent'])
+    expect(getMobilePreloadPaths('phuhuynh')).toEqual([
+      '/dashboard',
+      '/parent',
+      '/calendar',
+      '/notices',
+    ])
     expect(getMobilePreloadPaths('phuta')).toEqual([
       '/dashboard',
       '/attendance',
       '/grades',
       '/students',
       '/reports',
+      '/parish',
+      '/calendar',
+      '/operations',
+      '/notices',
+      '/parish-profile',
     ])
     expect(getMobilePreloadPaths(null)).toEqual([])
   })

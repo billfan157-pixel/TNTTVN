@@ -51,6 +51,7 @@ export async function seedE2EUsers({
     const roleUsers = [
       ['usr-e2e-chunhiem', 'e2e_chunhiem', 'chunhiem', 'E2E Chunhiem', null],
       ['usr-e2e-phuta', 'e2e_phuta', 'phuta', 'E2E Phuta', null],
+      ['usr-e2e-pho-nganh', 'e2e_pho_nganh', 'chunhiem', 'E2E Pho Nganh', null],
       ['usr-e2e-phuhuynh', '0900000000', 'phuhuynh', 'E2E Phuhuynh A', '0900000000'],
       ['usr-e2e-phuhuynh-b', '0900000001', 'phuhuynh', 'E2E Phuhuynh B', '0900000001'],
     ]
@@ -79,6 +80,7 @@ export async function seedE2EUsers({
     const operationsPeople = [
       ['person-e2e-parish-leader', 'usr-e2e-phuta', 'E2E Trưởng Xứ đoàn'],
       ['person-e2e-branch-leader', 'usr-e2e-chunhiem', 'E2E Trưởng ngành'],
+      ['person-e2e-branch-deputy', 'usr-e2e-pho-nganh', 'E2E Phó ngành'],
     ]
     for (const [id, linkedUserId, fullName] of operationsPeople) {
       await c.execute(
@@ -98,6 +100,13 @@ export async function seedE2EUsers({
       `INSERT OR IGNORE INTO parish_service_terms
        (parish_id, id, person_id, unit_id, position_title, position_code, start_date, end_date, created_by, updated_by, created_at, updated_at)
        VALUES ('gia-ton', 'term-e2e-branch-leader', 'person-e2e-branch-leader', 'unit-e2e-branch', 'Trưởng ngành', 'BRANCH_LEADER', '2020-01-01', '2099-12-31', 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
+      [now, now],
+    )
+    // ADR-112 O3/O8: deputy fixture for deputy-create and deputy-lead-ban flows.
+    await c.execute(
+      `INSERT OR IGNORE INTO parish_service_terms
+       (parish_id, id, person_id, unit_id, position_title, position_code, start_date, end_date, created_by, updated_by, created_at, updated_at)
+       VALUES ('gia-ton', 'term-e2e-branch-deputy', 'person-e2e-branch-deputy', 'unit-e2e-branch', 'Phó ngành', 'BRANCH_DEPUTY', '2020-01-01', '2099-12-31', 'usr-e2e-admin', 'usr-e2e-admin', ?, ?)`,
       [now, now],
     )
 

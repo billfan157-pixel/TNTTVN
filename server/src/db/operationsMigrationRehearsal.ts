@@ -89,7 +89,39 @@ async function assertBoardMigrationReady(client: Client): Promise<void> {
   `)
   const count = Number(rowField(duplicates.rows[0], 'total', 0) ?? 0)
   if (count > 0) {
-    throw new Error(`Pre-migration authority check: ${count} parish(es) have duplicate active BOARD units. Run audit:operations-authority on the selected backup and resolve reviewed findings before migration 20260910-251; no automatic repair was performed.`)
+    throw new Error(`Pre-migration authority check: ${count} parish(es) have duplicate active BOARD units. Run audit:operations-authority on the selected backup and resolve reviewed findings before migration; no automatic repair was performed.`)
+  }
+}
+
+const OPERATIONS_POSITION_CODES = ['PARISH_LEADER', 'PARISH_SECRETARY', 'PARISH_DEPUTY', 'BRANCH_LEADER', 'BRANCH_DEPUTY', 'COMMITTEE_LEADER', 'COMMITTEE_DEPUTY'] as const
+
+async function assertOperationsScopeColumns(client: Client): Promise<void> {
+  const required: Array<[table: string, column: string]> = [
+    ['operation_events', 'event_scope_type'],
+    ['operation_tasks', 'scope_unit_id'],
+    ['parish_service_terms', 'position_code'],
+  ]
+  for (const [table, column] of required) {
+    const info = await client.execute(`PRAGMA table_info(${quoteIdentifier(table)})`)
+    const columns = new Set(info.rows.map(entry => String(rowField(entry, 'name', 1) ?? '')))
+    if (!columns.has(column)) throw new Error(`Post-migration check: ${table} is missing required column ${column}`)
+  }
+  const codes = await client.execute(`SELECT DISTINCT position_code AS code FROM parish_service_terms WHERE position_code IS NOT NULL`)
+  for (const row of codes.rows) {
+    const code = String(rowField(row, 'code', 0) ?? '')
+    if (!(OPERATIONS_POSITION_CODES as readonly string[]).includes(code)) {
+      throw new Error(`Post-migration check: unexpected parish_service_terms.position_code '${code}'`)
+    }
+  }
+  const scopeMismatch = await client.execute(`
+    SELECT COUNT(*) AS total FROM operation_events
+    WHERE deleted_at IS NULL AND event_scope_type IS NOT NULL AND (
+      (event_scope_type = 'XU_DOAN' AND scope_unit_id IS NOT NULL)
+      OR (event_scope_type = 'UNIT' AND scope_unit_id IS NULL)
+    )
+  `)
+  if (Number(rowField(scopeMismatch.rows[0], 'total', 0) ?? 0) > 0) {
+    throw new Error('Post-migration check: operation_events has event_scope_type/scope_unit_id mismatches')
   }
 }
 
@@ -180,6 +212,7 @@ export async function rehearseOperationsMigrationsInWorker(options: {
 
     await assertDatabaseReady(rehearsalClient)
     await assertSqliteIntegrity(rehearsalClient, 'Post-migration copy')
+    await assertOperationsScopeColumns(rehearsalClient)
     const afterMarkers = await migrationMarkerCount(rehearsalClient)
     const afterTables = await snapshotOperationTables(rehearsalClient)
     for (const snapshot of beforeTables.values()) {

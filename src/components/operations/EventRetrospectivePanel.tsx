@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ClipboardCheck } from 'lucide-react'
 import { Button, Select, TextArea, TextInput } from '../common/ui'
 import { operationsApi, type OperationEventDetail } from '../../lib/api/operations'
+import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
+import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
 
 export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: OperationEventDetail; enabled: boolean; refresh: () => Promise<unknown> | unknown }) {
@@ -18,6 +20,7 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
   const [busy, setBusy] = useState(false)
   const alive = useRef(true)
   const inFlight = useRef(false)
+  const { stableKey, releaseKey } = useStableCommandKey()
   const canManageRetrospective = Boolean(detail.permissions['operations.event.manage'] && detail.event.status === 'COMPLETED')
   const canCreateFollowUp = Boolean(detail.event.status === 'COMPLETED' && detail.permissions['operations.task.create'] && detail.permissions['operations.task.assign'])
   const directory = useOperationCandidates({ eventId: detail.event.id }, enabled && canCreateFollowUp)
@@ -39,7 +42,7 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
     const current = () => alive.current && getTenantScopeKey() === scope
     inFlight.current = true; setBusy(true); setMessage('')
     try { await action(current) } catch (error) {
-      if (current()) setMessage(error instanceof Error ? error.message : 'Không cập nhật được hậu kiểm sự kiện.')
+      if (current()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không cập nhật được hậu kiểm sự kiện.'))
     } finally {
       inFlight.current = false
       if (current()) setBusy(false)
@@ -64,7 +67,9 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
       event.preventDefault()
       if (!lessonsLearned.trim()) return
       void run(async current => {
-        await operationsApi.saveEventRetrospective(detail.event.id, { expectedVersion: detail.retrospective?.version ?? null, lessonsLearned: lessonsLearned.trim(), improvementNotes: improvementNotes.trim() || null })
+        const payload = { expectedVersion: detail.retrospective?.version ?? null, lessonsLearned: lessonsLearned.trim(), improvementNotes: improvementNotes.trim() || null }
+        await operationsApi.saveEventRetrospective(detail.event.id, payload, stableKey('event-retrospective', { id: detail.event.id, ...payload }))
+        releaseKey('event-retrospective')
         if (!current()) return
         setMessage('Đã lưu hậu kiểm.')
         await refresh()
@@ -87,7 +92,9 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
       const target = parseOperationCandidateValue(targetValue)
       if (!title.trim() || !dueAt || !target) return
       void run(async current => {
-        const result = await operationsApi.createEventFollowUp(detail.event.id, { eventVersion: detail.event.version, title: title.trim(), description: description.trim() || null, dueAt: new Date(dueAt).toISOString(), priority, ...target })
+        const payload = { eventVersion: detail.event.version, title: title.trim(), description: description.trim() || null, dueAt: new Date(dueAt).toISOString(), priority, ...target }
+        const result = await operationsApi.createEventFollowUp(detail.event.id, payload, stableKey('event-follow-up', { id: detail.event.id, ...payload }))
+        releaseKey('event-follow-up')
         if (!current()) return
         setTitle(''); setDescription(''); setDueAt(''); setTargetValue(''); setPriority('NORMAL'); setWarnings(result.conflictWarnings)
         setMessage('Đã tạo follow-up và giao cho người phụ trách.')

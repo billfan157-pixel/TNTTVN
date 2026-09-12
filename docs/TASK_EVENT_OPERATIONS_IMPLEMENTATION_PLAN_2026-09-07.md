@@ -1,5 +1,7 @@
 # Catevia Task & Event Operations Implementation Plan
 
+> **Superseded in part by ADR-112 (2026-09-11):** 7 position codes, `eventScopeType`, creator≠organizer enforcement, Field-lead scope rules, task `scopeUnitId`, migrations `20260912-256..259` and the `creation-options` menu. Historical checkpoints below are preserved as-is; normative truth lives in `BUSINESS_RULES.md`, `FRONTEND_API_CONTRACT.md` §25 and ADR-112.
+
 Checkpoint vòng đời + primary/reserve 2026-09-11: migration `20260910-253..254` đã thêm `PREPARING`, ownership hồ sơ hoàn thành, trạng thái tạm dừng automation và bảng `operation_task_dispatches`. Runtime hiện enforce DRAFT chỉ creator/admin; chỉ publish calendar + thông báo phụ huynh khi vào PLANNING; chuyển tiến/lùi liền kề có OCC/receipt/audit; worker đa instance dùng transaction + CAS để tự LIVE/COMPLETED và giữ nguyên task/checklist chưa xong. Phân công OWNER mới hỗ trợ một người chính, tối đa một dự bị, hạn nhận việc và mốc mời dự bị tại 70% thời gian chờ; inbox chỉ trả lời mời đã thực sự gửi, first-accept-wins tạo đúng một OWNER. Direct OWNER bị chặn khi dispatch còn mở; DRAFT/terminal không nhận được lời mời; task/event terminal hủy dispatch mở. UI đã có form người chính/dự bị/hạn nhận và inbox nhận việc. Targeted backend 52/52, client/store 49/49, server build và frontend `tsc -b` đạt; broader migration/schema/lifecycle gate sẽ được rerun sau khi đồng bộ tài liệu. Push máy thật, remote multi-instance và production migration/recovery vẫn là gate môi trường, không phải claim local.
 
 Checkpoint mới nhất Gate B 2026-09-10: focused suite 7 files / 119 tests đạt, bao gồm quyền, UI, schema và migration rehearsal. Preflight sau đó được sửa để không chứng nhận leader dùng technical admin trên production; migration test bổ sung chặn activate/restore BOARD thứ hai và giữ nguyên dữ liệu khi duplicate làm migration thất bại. Hai file delta đã rerun 20 tests đạt (có trùng test lượt trước). Server build/full lint đạt. Các ghi chú runner pending ở checkpoint cũ bên dưới đã được thay thế; gate dữ liệu thật/production vẫn mở.
@@ -511,8 +513,6 @@ Position scope mặc định:
 - `operations.task.assign`
 - `operations.task.execute`
 - `operations.task.reassign`
-- `operations.task.approve`
-- `operations.audit.view`
 
 ### Resource-specific operational authority
 

@@ -17,7 +17,8 @@ import {
   Download,
   Landmark,
   MessageSquareText,
-  ClipboardList,
+  Users,
+  Wallet,
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -32,7 +33,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalPortal } from '../common/ModalPortal'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import logo from '../../assets/logo-gia-ton.png'
-import { WORKSPACE_DEFINITIONS, getAccessibleWorkspaces, getRoutePolicy, type WorkspaceId } from '../../constants/routePolicy'
+import { WORKSPACE_DEFINITIONS, getAccessibleWorkspaces, getRoutePolicy, canRoleAccessRoute, type WorkspaceId } from '../../constants/routePolicy'
 
 interface MobileTopBarProps {
   activeWorkspace?: WorkspaceId
@@ -199,19 +200,37 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold uppercase tracking-wider text-white/60 px-1">Công cụ & Tiện ích</span>
                 <div className="mobile-control-tiles">
-                  {currentUser?.role !== 'phuhuynh' && (
+                  {/* Wave 0/1: Công Việc is org bottom-nav primary; overflow holds demoted org surfaces + utilities */}
+                  {canRoleAccessRoute('/catechists', currentUser?.role) && (
                     <button
                       type="button"
                       className="mobile-control-tile"
-                      onClick={() => { navigate({ to: '/operations' }); closeMenu() }}
-                      aria-label="Mở trang Công Việc"
+                      onClick={() => { navigate({ to: '/catechists' }); closeMenu() }}
+                      aria-label="Mở trang Huynh Trưởng"
                     >
                       <span className="mobile-control-tile__icon">
-                        <ClipboardList size={17} className="text-emerald-300" />
+                        <Users size={17} className="text-sky-300" />
                       </span>
                       <span className="mobile-control-tile__content">
-                        <strong className="mobile-control-tile__title">Công Việc</strong>
-                        <span className="mobile-control-tile__desc">Phân công & điều phối</span>
+                        <strong className="mobile-control-tile__title">Huynh Trưởng</strong>
+                        <span className="mobile-control-tile__desc">Giáo lý viên & phân công</span>
+                      </span>
+                    </button>
+                  )}
+
+                  {canRoleAccessRoute('/finances', currentUser?.role) && (
+                    <button
+                      type="button"
+                      className="mobile-control-tile"
+                      onClick={() => { navigate({ to: '/finances' }); closeMenu() }}
+                      aria-label="Mở trang Sổ Quỹ"
+                    >
+                      <span className="mobile-control-tile__icon">
+                        <Wallet size={17} className="text-emerald-300" />
+                      </span>
+                      <span className="mobile-control-tile__content">
+                        <strong className="mobile-control-tile__title">Sổ Quỹ</strong>
+                        <span className="mobile-control-tile__desc">Quỹ & thu chi</span>
                       </span>
                     </button>
                   )}

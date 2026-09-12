@@ -10,6 +10,15 @@ export type OperationReminderRunOptions = {
 }
 
 /**
+ * Consecutive failed enqueue attempts after which a reminder is terminalized
+ * as FAILED instead of retrying forever. Attempts are counted, not versioned,
+ * so an operator reschedule (which bumps version) starts a fresh budget.
+ * At the default worker cadence this bounds a persistently failing row to
+ * roughly a quarter hour of retries before it surfaces with its error text.
+ */
+export const MAX_REMINDER_ENQUEUE_ATTEMPTS = 25
+
+/**
  * Persist due reminders into the shared durable notification queue atomically.
  * A reminder is SENT only after the notification worker records provider success;
  * inserting a retrying notification is an enqueue acknowledgement, not delivery.
@@ -166,8 +175,19 @@ export async function processDueOperationReminders(now = new Date(), options: Op
       else summary.enqueued++
     } catch (error) {
       // Persistence is atomic, so a failed attempt remains retryable instead of
-      // becoming a false terminal delivery result.
-      await db.update(operationReminders).set({
+      // becoming a false terminal delivery result — but only up to a ceiling.
+      // Without one, a persistently failing row (e.g. a broken notification
+      // insert) would retry every 60s forever while attemptCount stayed frozen.
+      const attempts = reminder.attemptCount + 1
+      const exhausted = attempts >= MAX_REMINDER_ENQUEUE_ATTEMPTS
+      await db.update(operationReminders).set(exhausted ? {
+        status: 'FAILED',
+        attemptCount: attempts,
+        leaseExpiresAt: null,
+        nextAttemptAt: null,
+        error: error instanceof Error ? error.message : 'REMINDER_ENQUEUE_FAILED',
+      } : {
+        attemptCount: attempts,
         nextAttemptAt: new Date(now.getTime() + 60_000).toISOString(),
         error: error instanceof Error ? error.message : 'REMINDER_ENQUEUE_FAILED',
       }).where(and(eq(operationReminders.parishId, reminder.parishId), eq(operationReminders.id, reminder.id), eq(operationReminders.status, 'PENDING'), eq(operationReminders.version, reminder.version), eq(operationReminders.triggerAt, reminder.triggerAt)))

@@ -217,12 +217,13 @@ async function assertLeaderTermAvailability(
   excludeTermId?: string,
 ) {
   if (!positionCode) return
+  const parishWide = positionCode === 'PARISH_LEADER' || positionCode === 'PARISH_SECRETARY' || positionCode === 'PARISH_DEPUTY'
   const [overlap] = await tx.select({ id: parishServiceTerms.id }).from(parishServiceTerms).where(and(
     eq(parishServiceTerms.parishId, parishId),
     eq(parishServiceTerms.positionCode, positionCode),
     isNull(parishServiceTerms.deletedAt),
     ...(excludeTermId ? [ne(parishServiceTerms.id, excludeTermId)] : []),
-    ...(positionCode === 'PARISH_LEADER' ? [] : [eq(parishServiceTerms.unitId, input.unitId!)]),
+    ...(parishWide ? [] : [eq(parishServiceTerms.unitId, input.unitId!)]),
     lte(parishServiceTerms.startDate, input.endDate || '9999-12-31'),
     or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, input.startDate)),
   )).limit(1)

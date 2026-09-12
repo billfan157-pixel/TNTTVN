@@ -6,6 +6,8 @@
 
 **Cập nhật 2026-09-10:** `GATE B IMPLEMENTED IN REPOSITORY — chủ sản phẩm đã duyệt mô hình tối giản; capability/scope/public publish/admin transition/service-term reauth/separation-of-duty đã được đồng bộ vào code, tests và contract. Production reconciliation/smoke vẫn là rollout gate.` Các finding dưới đây được giữ lại làm bằng chứng giải thích vì sao bản cũ bị chặn và vì sao proposal hiện tại đã được viết lại.
 
+**Cập nhật 2026-09-11 (ADR-112):** vocabulary nay là 7 codes (thêm `PARISH_SECRETARY/PARISH_DEPUTY/BRANCH_DEPUTY/COMMITTEE_DEPUTY`), event có `eventScopeType`, creator≠organizer enforce server-side. Mọi câu "chỉ ba authority code" bên dưới đã được supersede; normative truth ở `BUSINESS_RULES.md`, `FRONTEND_API_CONTRACT.md` §25 và ADR-112.
+
 Bản đề xuất có một nền tảng đúng và nên giữ: `Account Role ≠ Organizational Position ≠ Operational Role`. Tuy nhiên, nội dung hiện tại đã vượt khỏi yêu cầu đã chốt và khỏi kiến trúc Catevia ở nhiều điểm quan trọng. Nó đồng thời:
 
 - mô tả một cơ cấu TNTTVN như thể đã được xác minh tuyệt đối, trong khi có phần là chính sách địa phương của Xứ đoàn và có phần khác văn bản TNTTVN đang công bố;

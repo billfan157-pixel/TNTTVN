@@ -1,5 +1,7 @@
 # Nghiên cứu và triển khai Gate B — Thẩm quyền tổ chức Operations
 
+> **Superseded in part by ADR-112 (2026-09-11):** position-code vocabulary is now 7 codes (`PARISH_SECRETARY/PARISH_DEPUTY/BRANCH_DEPUTY/COMMITTEE_DEPUTY` added), events carry `eventScopeType`, creator≠organizer is server-enforced, and deputy Field leads are rejected. Historical analysis below is preserved as-is; normative truth lives in `BUSINESS_RULES.md`, `FRONTEND_API_CONTRACT.md` §25 and ADR-112.
+
 > **Policy supersession — 2026-09-10, được chủ sản phẩm phê duyệt:** Admin có
 > quyền quản trị toàn giáo xứ trong mọi môi trường, kể cả production; được tạo/sửa
 > nhiệm kỳ cho chính mình. Các mô tả admin production read-only, cấm self-grant

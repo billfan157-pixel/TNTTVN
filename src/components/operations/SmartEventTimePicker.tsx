@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Calendar,
   Clock,
@@ -70,6 +70,18 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
     return defaultHasEndDate
   })
 
+  // Parent resets both values after a successful create — follow it back to
+  // the default toggles so the next creation doesn't inherit stale switches.
+  const datesCleared = !startsAt && !endsAt
+  useEffect(() => {
+    if (datesCleared) {
+      if (defaultHasTime === false) setHasTime(false)
+      else setHasTime(true)
+      setHasEndDate(defaultHasEndDate)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datesCleared])
+
   const durationInfo = useMemo(() => calculateEventDuration(startsAt, endsAt), [startsAt, endsAt])
 
   const startDateObj = useMemo(() => parseDateInput(startsAt), [startsAt])
@@ -134,6 +146,13 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
       if (startsAt && endsAt && isSameCalendarDay(startsAt, endsAt)) {
         const nextDay = addMinutesToDateTime(startsAt, 24 * 60)
         onChange({ startsAt, endsAt: nextDay })
+      } else if (!startsAt || !endsAt) {
+        // No dates yet: seed a same-day default first so the toggle has an
+        // effect instead of silently doing nothing.
+        const start = extractDatePart(startsAt) || extractDatePart(getTodayPreset('08:00'))
+        const startTime = hasTime ? extractTimePart(startsAt, '08:00') : '07:00'
+        const seededStart = combineDateTime(start, startTime)
+        onChange({ startsAt: seededStart, endsAt: addMinutesToDateTime(seededStart, 24 * 60) })
       }
     }
   }

@@ -39,7 +39,7 @@ describe('Operations migration and recovery rehearsal', () => {
     expect(manifest.status).toBe('verified')
     expect(manifest.sourceBackup).toBe('finalized-backup.sqlite')
     expect(manifest.sourceUnchanged).toBe(true)
-    expect(manifest.migrationMarkers.latest).toBe('20260910-254')
+    expect(manifest.migrationMarkers.latest).toBe('20260912-260')
     expect(manifest.migrationMarkers.after).toBeGreaterThanOrEqual(manifest.migrationMarkers.before)
     const eventTable = manifest.operationTables.find(table => table.table === 'operation_events')
     expect(eventTable?.rowsBefore).toBeGreaterThanOrEqual(1)

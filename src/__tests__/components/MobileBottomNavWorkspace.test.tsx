@@ -30,10 +30,13 @@ describe('MobileBottomNav Workspace Navigation', () => {
         activeWorkspace="organization"
       />
     )
+    // Wave 0 DECIDED: Tổng Quan · Lịch · Công Việc · Thông Báo · Hồ Sơ
     expect(screen.getByText(/Tổng quan/i)).toBeDefined()
-    expect(screen.getByText(/Huynh trưởng/i)).toBeDefined()
     expect(screen.getByText(/Lịch xứ/i)).toBeDefined()
-    expect(screen.getByText(/Sổ quỹ/i)).toBeDefined()
+    expect(screen.getByText(/Công việc/i)).toBeDefined()
+    expect(screen.getByText(/Thông báo/i)).toBeDefined()
     expect(screen.getByText(/Hồ sơ xứ/i)).toBeDefined()
+    expect(screen.queryByText(/Huynh trưởng/i)).toBeNull()
+    expect(screen.queryByText(/Sổ quỹ/i)).toBeNull()
   })
 })

@@ -29,10 +29,10 @@
 │  Auth: JWT (access 15m, refresh 7d), bcrypt, RBAC enforced       │
 │  Routes: 32 route modules under server/src/routes/                │
 │  Repositories: 6 (2 projection read models + 4 Drizzle write)    │
-│  Services: 55 under server/src/services/                          │
-│  Domain: 12 under server/src/domain/                              │
+│  Services: 58 under server/src/services/                          │
+│  Domain: 13 under server/src/domain/                              │
 │  Middleware: 4 (auth, security, logger, metrics)                  │
-│  DB: SQLite/Turso via @libsql/client, Drizzle ORM (72 tables)    │
+│  DB: SQLite/Turso via @libsql/client, Drizzle ORM (73 tables)    │
 │     (WAL mode local; TURSO_URL → managed libSQL, ADR-041)        │
 └──────────────────────────────────────────────────────────────────┘
 ```

@@ -3,6 +3,7 @@ export const EVENT_PHASES = ['DRAFT', 'PLANNING', 'PREPARING', 'READY', 'LIVE', 
 export type EventPhase = typeof EVENT_PHASES[number] | 'CANCELLED'
 
 export function manualEventTransition(from: EventPhase, to: EventPhase, reason?: string | null) {
+  if (from === 'COMPLETED') throw new Error('EVENT_COMPLETED_TERMINAL')
   const previous = EVENT_PHASES.indexOf(from as typeof EVENT_PHASES[number])
   const next = EVENT_PHASES.indexOf(to as typeof EVENT_PHASES[number])
   if (previous < 0 || next < 0 || Math.abs(next - previous) !== 1) {

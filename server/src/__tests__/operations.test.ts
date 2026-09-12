@@ -31,9 +31,11 @@ import {
 import { generateTokens } from '../middleware/auth.js'
 import operationsRouter from '../routes/operations.js'
 import { processDueOperationReminders } from '../services/operationsReminderService.js'
+import { processDueManagerPrepReminders } from '../services/operationsManagerReminderService.js'
 import { processDueOperationEventTransitions } from '../services/operationsEventLifecycleService.js'
 import { processDueOperationTaskDispatches } from '../services/operationsTaskDispatchService.js'
-import { compactOperationsMutationReceiptResponses } from '../services/operationsIdempotency.js'
+import { compactOperationsMutationReceiptResponses, runIdempotentOperationsCommand } from '../services/operationsIdempotency.js'
+import { runOperationsReceiptMaintenance } from '../services/operationsReceiptMaintenance.js'
 import { resolveOperationsAuthorization, resolveOperationsUserAuthorization } from '../services/operationsAuthorization.js'
 import { isOperationsAdminMutationOverrideEnabled } from '../utils/operationsAdminOverride.js'
 
@@ -46,6 +48,8 @@ const contributorId = `ops-contributor-${suffix}`
 const leaderId = `ops-leader-${suffix}`
 const expiredLeaderId = `ops-expired-${suffix}`
 const parishLeaderId = `ops-parish-leader-${suffix}`
+const parishSecretaryId = `ops-secretary-${suffix}`
+const parishDeputyId = `ops-parish-deputy-${suffix}`
 const committeeLeaderId = `ops-committee-leader-${suffix}`
 const boardMemberId = `ops-board-member-${suffix}`
 const parentId = `ops-parent-${suffix}`
@@ -67,6 +71,8 @@ const contributorToken = accessToken(contributorId, 'chunhiem', parishA)
 const leaderToken = accessToken(leaderId, 'chunhiem', parishA)
 const expiredLeaderToken = accessToken(expiredLeaderId, 'chunhiem', parishA)
 const parishLeaderToken = accessToken(parishLeaderId, 'phuta', parishA)
+const secretaryToken = accessToken(parishSecretaryId, 'phuta', parishA)
+const parishDeputyToken = accessToken(parishDeputyId, 'phuta', parishA)
 const committeeLeaderToken = accessToken(committeeLeaderId, 'phuta', parishA)
 const boardMemberToken = accessToken(boardMemberId, 'phuta', parishA)
 const foreignToken = accessToken(foreignAdminId, 'admin', parishB)
@@ -107,6 +113,8 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       { id: leaderId, username: leaderId, passwordHash: 'hash', fullName: 'Branch Leader', role: 'chunhiem', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: expiredLeaderId, username: expiredLeaderId, passwordHash: 'hash', fullName: 'Expired Leader', role: 'chunhiem', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: parishLeaderId, username: parishLeaderId, passwordHash: 'hash', fullName: 'Parish Leader', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
+      { id: parishSecretaryId, username: parishSecretaryId, passwordHash: 'hash', fullName: 'Parish Secretary', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
+      { id: parishDeputyId, username: parishDeputyId, passwordHash: 'hash', fullName: 'Parish Deputy', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: committeeLeaderId, username: committeeLeaderId, passwordHash: 'hash', fullName: 'Committee Leader', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: boardMemberId, username: boardMemberId, passwordHash: 'hash', fullName: 'Board Secretary', role: 'phuta', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
       { id: parentId, username: parentId, passwordHash: 'hash', fullName: 'Parent Without Operations Access', role: 'phuhuynh', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
@@ -124,6 +132,8 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       { id: `person-contributor-${suffix}`, parishId: parishA, linkedUserId: contributorId, fullName: 'Deputy Branch Leader', createdBy: adminId, updatedBy: adminId },
       { id: `person-expired-${suffix}`, parishId: parishA, linkedUserId: expiredLeaderId, fullName: 'Expired Leader', createdBy: adminId, updatedBy: adminId },
       { id: `person-parish-leader-${suffix}`, parishId: parishA, linkedUserId: parishLeaderId, fullName: 'Parish Leader', createdBy: adminId, updatedBy: adminId },
+      { id: `person-secretary-${suffix}`, parishId: parishA, linkedUserId: parishSecretaryId, fullName: 'Parish Secretary', createdBy: adminId, updatedBy: adminId },
+      { id: `person-parish-deputy-${suffix}`, parishId: parishA, linkedUserId: parishDeputyId, fullName: 'Parish Deputy', createdBy: adminId, updatedBy: adminId },
       { id: `person-committee-leader-${suffix}`, parishId: parishA, linkedUserId: committeeLeaderId, fullName: 'Committee Leader', createdBy: adminId, updatedBy: adminId },
       { id: `person-board-member-${suffix}`, parishId: parishA, linkedUserId: boardMemberId, fullName: 'Board Secretary', createdBy: adminId, updatedBy: adminId },
       { id: parentPersonId, parishId: parishA, linkedUserId: parentId, fullName: 'Parent-linked Person', createdBy: adminId, updatedBy: adminId },
@@ -134,6 +144,8 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       { id: `term-contributor-${suffix}`, parishId: parishA, personId: `person-contributor-${suffix}`, unitId: branchId, positionTitle: 'Phó trưởng ngành', positionCode: null, startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
       { id: `term-expired-${suffix}`, parishId: parishA, personId: `person-expired-${suffix}`, unitId: branchId, positionTitle: 'Trưởng ngành', positionCode: 'BRANCH_LEADER', startDate: '2025-01-01', endDate: '2025-12-31', createdBy: adminId, updatedBy: adminId },
       { id: `term-parish-leader-${suffix}`, parishId: parishA, personId: `person-parish-leader-${suffix}`, unitId: boardId, positionTitle: 'Trưởng Xứ đoàn', positionCode: 'PARISH_LEADER', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
+      { id: `term-secretary-${suffix}`, parishId: parishA, personId: `person-secretary-${suffix}`, unitId: boardId, positionTitle: 'Thư ký', positionCode: 'PARISH_SECRETARY', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
+      { id: `term-parish-deputy-${suffix}`, parishId: parishA, personId: `person-parish-deputy-${suffix}`, unitId: boardId, positionTitle: 'Phó Xứ đoàn', positionCode: 'PARISH_DEPUTY', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
       { id: `term-committee-leader-${suffix}`, parishId: parishA, personId: `person-committee-leader-${suffix}`, unitId: committeeId, positionTitle: 'Trưởng ban', positionCode: 'COMMITTEE_LEADER', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
       { id: `term-board-member-${suffix}`, parishId: parishA, personId: `person-board-member-${suffix}`, unitId: boardId, positionTitle: 'Thư ký', positionCode: null, startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
     ])
@@ -250,16 +262,16 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const contributorResult = await data(contributor)
     expect(contributorResult.taskVersion).toBe(3)
 
-    const observer = await request(`/tasks/${taskId}/assign`, adminToken, 'POST', { version: 3, userId: leaderId, assignmentRole: 'OBSERVER' })
-    expect(observer.status).toBe(201)
-    expect((await data(observer)).taskVersion).toBe(4)
+    const watcher = await request(`/tasks/${taskId}/assign`, adminToken, 'POST', { version: 3, userId: committeeLeaderId, assignmentRole: 'CONTRIBUTOR' })
+    expect(watcher.status).toBe(201)
+    expect((await data(watcher)).taskVersion).toBe(4)
 
     const duplicateOwner = await request(`/tasks/${taskId}/assign`, adminToken, 'POST', { version: 4, userId: leaderId, assignmentRole: 'OWNER' })
     expect(duplicateOwner.status).toBe(409)
     const adminExecute = await request(`/tasks/${taskId}/transition`, adminToken, 'POST', { version: 4, status: 'IN_PROGRESS' })
     expect(adminExecute.status).toBe(403)
-    const observerExecute = await request(`/tasks/${taskId}/transition`, leaderToken, 'POST', { version: 4, status: 'IN_PROGRESS' })
-    expect(observerExecute.status).toBe(403)
+    const watcherExecute = await request(`/tasks/${taskId}/transition`, committeeLeaderToken, 'POST', { version: 4, status: 'IN_PROGRESS' })
+    expect(watcherExecute.status).toBe(403)
     const pendingContributorExecute = await request(`/tasks/${taskId}/transition`, contributorToken, 'POST', { version: 4, status: 'IN_PROGRESS' })
     expect(pendingContributorExecute.status).toBe(403)
 
@@ -284,131 +296,125 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
     const workstreamPermissions = (await data(await request(`/workstreams/${workstream.id}`, ownerToken))).permissions
     expect(workstreamPermissions['operations.workstream.assign_lead']).toBe(managementRole === 'EVENT_ORGANIZER')
-    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Combined role task', requiresApproval: true }))
+    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Combined role task' }))
     const permissions = async () => (await data(await request(`/tasks/${task.id}`, ownerToken))).permissions
-    expect(await permissions()).toMatchObject({ 'operations.task.execute': false, 'operations.task.approve': false })
+    expect(await permissions()).toMatchObject({ 'operations.task.execute': false })
     const assigned = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
     expect((await permissions())['operations.task.execute']).toBe(false)
     expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: assigned.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
     expect((await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: assigned.taskVersion, status: 'IN_PROGRESS' })).status).toBe(200)
-    const selfApprover = await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: assigned.taskVersion + 1, userId: ownerId, assignmentRole: 'APPROVER' })
-    expect(selfApprover.status).toBe(409)
-    expect((await selfApprover.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
-    const approver = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: assigned.taskVersion + 1, userId: contributorId, assignmentRole: 'APPROVER' }))
-    expect((await permissions())['operations.task.approve']).toBe(false)
-    expect((await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
-    expect((await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', { version: approver.taskVersion, decision: 'APPROVED' })).status).toBe(200)
-  })
-
-  it('enforces independent approval across task and workstream role aliases', async () => {
-    const event = await createEvent({ title: 'Independent approval' })
-    const workstream = await data(await request('/workstreams', adminToken, 'POST', { eventId: event.id, name: 'Kiểm soát chéo' }))
-    const firstTask = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Task đã có owner', requiresApproval: true }))
-    expect((await request(`/tasks/${firstTask.id}/assign`, adminToken, 'POST', {
-      version: 1, personId: `person-contributor-${suffix}`, assignmentRole: 'OWNER',
-    })).status).toBe(201)
-
-    const conflictingWorkstreamApprover = await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
-      version: 1, userId: contributorId, operationRole: 'APPROVER',
-    })
-    expect(conflictingWorkstreamApprover.status).toBe(409)
-    expect((await conflictingWorkstreamApprover.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
-
-    const approverMember = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
-      version: 1, userId: ownerId, operationRole: 'APPROVER',
-    }))
-    expect(approverMember.workstreamVersion).toBe(2)
-    const secondTask = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Task mới', requiresApproval: true }))
-    const conflictingOwner = await request(`/tasks/${secondTask.id}/assign`, adminToken, 'POST', {
-      version: 1, userId: ownerId, assignmentRole: 'CONTRIBUTOR',
-    })
-    expect(conflictingOwner.status).toBe(409)
-    expect((await conflictingOwner.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
-
-    const expiredApprover = await request(`/workstreams/${workstream.id}/members/${approverMember.id}/validity`, adminToken, 'PUT', {
-      version: 2, memberVersion: 1, startsAt: '2025-01-01T00:00:00Z', endsAt: '2025-12-31T23:59:59Z', reason: 'Nhiệm kỳ duyệt đã kết thúc',
-    })
-    expect(expiredApprover.status).toBe(200)
-    expect((await request(`/tasks/${secondTask.id}/assign`, adminToken, 'POST', {
-      version: 1, userId: ownerId, assignmentRole: 'CONTRIBUTOR',
-    })).status).toBe(201)
-
-    const reactivatedApprover = await request(`/workstreams/${workstream.id}/members/${approverMember.id}/validity`, adminToken, 'PUT', {
-      version: 3, memberVersion: 2, startsAt: null, endsAt: null, reason: 'Tái kích hoạt người duyệt',
-    })
-    expect(reactivatedApprover.status).toBe(409)
-    expect((await reactivatedApprover.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
-  })
-
-  it('rechecks separation of duty at approval time for legacy or out-of-band rows', async () => {
-    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Legacy self approval', requiresApproval: true }))
-    const approver = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', {
-      version: 1, userId: contributorId, assignmentRole: 'APPROVER',
-    }))
-    expect((await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', {
-      assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED',
-    })).status).toBe(200)
-    await db.insert(operationTaskAssignees).values({
-      id: `legacy-self-review-${suffix}`,
-      parishId: parishA,
-      taskId: task.id,
-      userId: contributorId,
-      personId: null,
-      assignmentRole: 'CONTRIBUTOR',
-      acknowledgementStatus: 'ACCEPTED',
-      assignedBy: adminId,
-      assignedAt: new Date().toISOString(),
-      respondedAt: new Date().toISOString(),
-      completedAt: null,
-      note: 'Legacy fixture',
-      version: 1,
-      removedAt: null,
-    })
-    const response = await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', {
-      version: approver.taskVersion, decision: 'APPROVED',
-    })
-    expect(response.status).toBe(409)
-    expect((await response.json() as any).error.code).toBe('SELF_APPROVAL_FORBIDDEN')
   })
 
   it('reads workstream membership in resource scope and excludes revoked memberships', async () => {
     const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'Private workstream', sourceUnitId: branchId }))
     expect((await request(`/workstreams/${workstream.id}`, foreignToken)).status).toBe(403)
     expect((await request(`/workstreams/${workstream.id}`, ownerToken)).status).toBe(403)
-    const member = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 1, userId: ownerId, operationRole: 'WORKSTREAM_LEAD' }))
-    const detail = await data(await request(`/workstreams/${workstream.id}`, ownerToken))
+    // Field lead must be the unit leader; the lead sees the workstream through
+    // the membership (and their position), and revoking removes the membership.
+    const member = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 1, userId: leaderId, operationRole: 'WORKSTREAM_LEAD' }))
+    const detail = await data(await request(`/workstreams/${workstream.id}`, leaderToken))
     expect(detail.workstream.id).toBe(workstream.id)
     expect(detail.members.map((row: { id: string }) => row.id)).toEqual([member.id])
     expect(detail.permissions['operations.workstream.manage']).toBe(true)
     expect(detail.permissions['operations.task.execute']).toBe(false)
     expect((await request(`/workstreams/${workstream.id}/members/${member.id}/remove`, adminToken, 'POST', { version: 2, memberVersion: 1, reason: 'Kết thúc phân công' })).status).toBe(200)
-    expect((await request(`/workstreams/${workstream.id}`, ownerToken)).status).toBe(403)
     expect((await data(await request(`/workstreams/${workstream.id}`, adminToken))).members).toEqual([])
   })
 
-  it('invalidates approval when approved task content changes, but not for scheduling metadata', async () => {
-    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Review content', requiresApproval: true }))
+  it('reopens acknowledgement when task content changes, but not for scheduling metadata', async () => {
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Review content' }))
     const owner = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
-    const approver = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: owner.taskVersion, userId: contributorId, assignmentRole: 'APPROVER' }))
+    const contributor = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: owner.taskVersion, userId: contributorId, assignmentRole: 'CONTRIBUTOR' }))
     await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: owner.assignment.id, version: 1, status: 'ACCEPTED' })
-    await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED' })
-    const approved = await data(await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', { version: approver.taskVersion, decision: 'APPROVED' }))
-    const rescheduled = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: approved.version, priority: 'HIGH' }))
-    expect(rescheduled.approvalStatus).toBe('APPROVED')
-    const changed = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: rescheduled.version, description: 'Different deliverable' }))
-    expect(changed).toMatchObject({ approvalStatus: 'PENDING', approvedBy: null, approvedAt: null })
-    expect((await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: changed.version, status: 'DONE' })).status).toBe(409)
-    const reapproved = await data(await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', { version: changed.version, decision: 'APPROVED' }))
-    const checklist = await data(await request(`/tasks/${task.id}/checklist`, adminToken, 'POST', { version: reapproved.version, label: 'New required evidence', isRequired: true }))
-    expect(checklist.taskVersion).toBe(reapproved.version + 1)
-    expect(checklist.approvalStatus).toBe('PENDING')
-    expect((await data(await request(`/tasks/${task.id}`, adminToken))).task.approvalStatus).toBe('PENDING')
-    const approvedAgain = await data(await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', { version: checklist.taskVersion, decision: 'APPROVED' }))
-    const unchanged = await data(await request(`/tasks/${task.id}/checklist/${checklist.item.id}`, ownerToken, 'POST', { version: approvedAgain.version, isDone: false }))
-    expect(unchanged.approvalStatus).toBe('APPROVED')
-    const toggled = await data(await request(`/tasks/${task.id}/checklist/${checklist.item.id}`, ownerToken, 'POST', { version: unchanged.taskVersion, isDone: true }))
-    expect(toggled.approvalStatus).toBe('PENDING')
-    expect((await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: toggled.taskVersion, status: 'DONE' })).status).toBe(409)
+    await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: contributor.assignment.id, version: 1, status: 'ACCEPTED' })
+    const rescheduled = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: contributor.taskVersion, priority: 'HIGH' }))
+    expect(rescheduled).toMatchObject({ acknowledgementReset: false, resetAssignments: [] })
+    const changed = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: rescheduled.task.version, description: 'Different deliverable' }))
+    expect(changed.acknowledgementReset).toBe(true)
+    expect(changed.resetAssignments.map((row: { id: string }) => row.id).sort()).toEqual([owner.assignment.id, contributor.assignment.id].sort())
+    expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: owner.assignment.id, version: 3, status: 'ACCEPTED' })).status).toBe(200)
+    expect((await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: contributor.assignment.id, version: 3, status: 'ACCEPTED' })).status).toBe(200)
+    const checklist = await data(await request(`/tasks/${task.id}/checklist`, adminToken, 'POST', { version: changed.task.version, label: 'New required evidence', isRequired: true }))
+    expect(checklist.taskVersion).toBe(changed.task.version + 1)
+    const toggled = await data(await request(`/tasks/${task.id}/checklist/${checklist.item.id}`, ownerToken, 'POST', { version: checklist.taskVersion, isDone: true }))
+    // No approval gate remains: a fully evidenced task completes.
+    const done = await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: toggled.taskVersion, status: 'DONE' })
+    expect(done.status).toBe(200)
+    expect((await data(done)).status).toBe('DONE')
+  })
+
+  it('serializes overlapping required-checklist toggles through task OCC', async () => {
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Concurrent checklist' }))
+    const owner = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
+    await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: owner.assignment.id, version: 1, status: 'ACCEPTED' })
+    const checklist = await data(await request(`/tasks/${task.id}/checklist`, adminToken, 'POST', { version: owner.taskVersion, label: 'Bằng chứng', isRequired: true }))
+    // Two overlapping toggles off the same base version: exactly one commits.
+    const first = await request(`/tasks/${task.id}/checklist/${checklist.item.id}`, ownerToken, 'POST', { version: checklist.taskVersion, isDone: true })
+    const second = await request(`/tasks/${task.id}/checklist/${checklist.item.id}`, ownerToken, 'POST', { version: checklist.taskVersion, isDone: true })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(409)
+    expect(((await second.json()) as any).error.code).toBe('VERSION_CONFLICT')
+    const final = await data(await request(`/tasks/${task.id}`, adminToken))
+    expect(final.task).toMatchObject({ version: checklist.taskVersion + 1 })
+    expect(final.checklist).toEqual(expect.arrayContaining([expect.objectContaining({ id: checklist.item.id, isDone: true })]))
+  })
+
+  it('classifies task updates server-side: deadline/shift changes reopen acknowledgement, priority and no-ops do not', async () => {
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Báo cáo hậu cần', dueAt: '2026-10-01T00:00:00Z' }))
+    const assigned = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
+    const assignmentId = assigned.assignment.id
+    expect((await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId, version: 1, status: 'ACCEPTED' })).status).toBe(200)
+    // Priority is explicitly not important: the acceptance survives.
+    const priorityOnly = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: assigned.taskVersion, priority: 'HIGH' }))
+    expect(priorityOnly).toMatchObject({ acknowledgementReset: false, resetAssignments: [] })
+    // A deadline change reopens the acknowledgement obligation server-side.
+    const rescheduled = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: priorityOnly.task.version, dueAt: '2026-10-02T00:00:00Z' }))
+    expect(rescheduled).toMatchObject({ acknowledgementReset: true, resetAssignments: [{ id: assignmentId }] })
+    const [resetRow] = await db.select().from(operationTaskAssignees).where(eq(operationTaskAssignees.id, assignmentId))
+    expect(resetRow).toMatchObject({ acknowledgementStatus: 'PENDING', respondedAt: null, version: 3 })
+    // Repeating the same values is a no-op and never resets again.
+    const same = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: rescheduled.task.version, dueAt: '2026-10-02T00:00:00Z' }))
+    expect(same).toMatchObject({ acknowledgementReset: false, resetAssignments: [] })
+    // The audit trail records the server verdict.
+    const updateAudits = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.action, 'UPDATE'), eq(auditLogs.entityId, task.id)))
+    expect(updateAudits.some(row => row.newValue?.includes('"acknowledgementReset":true'))).toBe(true)
+    expect(updateAudits.some(row => row.newValue?.includes('"acknowledgementReset":false'))).toBe(true)
+  })
+
+  it('nudges event managers once per parish day only when preparation acceptance is complete', async () => {
+    const event = await createEvent({ title: 'Nhắc chuyển chuẩn bị' })
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Chuẩn bị sân khấu', eventId: event.id, isRequired: true }))
+    const assigned = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: contributorId, assignmentRole: 'OWNER' }))
+    // Isolation: earlier tests in this file may leave their own eligible PLANNING events;
+    // assert deltas scoped to this event instead of global parish counts.
+    const managerReminders = () => db.select().from(operationReminders).where(and(eq(operationReminders.parishId, parishA), eq(operationReminders.kind, 'MANAGER_PREP'), eq(operationReminders.eventId, event.id)))
+    const knownIds = new Set((await managerReminders()).map(row => row.id))
+    const newForEvent = async () => (await managerReminders()).filter(row => !knownIds.has(row.id))
+    // Owner has not accepted yet: not eligible, nothing is created for this event.
+    await processDueManagerPrepReminders(new Date('2026-10-01T09:00:00+07:00'))
+    expect(await newForEvent()).toHaveLength(0)
+    // Owner accepts: eligible, managers (creator + auto-assigned Xứ đoàn trưởng organizer) each get exactly one daily reminder.
+    expect((await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: assigned.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
+    await processDueManagerPrepReminders(new Date('2026-10-01T09:05:00+07:00'))
+    const first = await newForEvent()
+    expect(first).toHaveLength(2)
+    expect(first.map(row => row.recipientUserId).sort()).toEqual([adminId, parishLeaderId].sort())
+    expect(first[0]).toMatchObject({ eventId: event.id, status: 'ENQUEUED' })
+    expect(await db.select().from(notifications).where(eq(notifications.parishId, parishA))).toContainEqual(expect.objectContaining({ id: `NOT-${first[0].id}`, status: 'retrying' }))
+    for (const row of first) knownIds.add(row.id)
+    // Same parish day: the dedupe key holds and nothing new is created.
+    await processDueManagerPrepReminders(new Date('2026-10-01T15:00:00+07:00'))
+    expect(await newForEvent()).toHaveLength(0)
+    // Next parish day: the daily cadence produces fresh reminders (one per manager).
+    await processDueManagerPrepReminders(new Date('2026-10-02T09:00:00+07:00'))
+    expect(await newForEvent()).toHaveLength(2)
+    for (const row of await newForEvent()) knownIds.add(row.id)
+    // Leaving PLANNING stops the nudges entirely.
+    const detail = await data(await request(`/events/${event.id}`, adminToken))
+    await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: detail.event.version, status: 'PREPARING' })
+    await processDueManagerPrepReminders(new Date('2026-10-03T09:00:00+07:00'))
+    expect(await newForEvent()).toHaveLength(0)
   })
 
   it('fails closed across parishes and for unscoped staff', async () => {
@@ -451,33 +457,6 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const latest = await data(await request(`/events/${event.id}`, adminToken))
     expect(latest.event.status).toBe('LIVE')
     expect(latest.tasks.some((row: any) => row.id === task.id && row.status === 'TODO')).toBe(true)
-  })
-
-  it('filters the approval queue by effective authority before pagination', async () => {
-    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Approval queue fixture', requiresApproval: true }))
-    const assignment = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: contributorId, assignmentRole: 'APPROVER' }))
-    const before = await data(await request('/tasks?queue=approval', contributorToken))
-    expect(before.some((row: any) => row.id === task.id)).toBe(false)
-    await request(`/tasks/${task.id}/acknowledge`, contributorToken, 'POST', { assignmentId: assignment.assignment.id, version: 1, status: 'ACCEPTED' })
-    const after = await data(await request('/tasks?queue=approval', contributorToken))
-    expect(after.some((row: any) => row.id === task.id)).toBe(true)
-    expect((await data(await request('/tasks?queue=approval', foreignToken))).some((row: any) => row.id === task.id)).toBe(false)
-    expect((await data(await request('/tasks?queue=approval', adminToken))).some((row: any) => row.id === task.id)).toBe(false)
-    await request(`/tasks/${task.id}/approve`, contributorToken, 'POST', { version: assignment.taskVersion, decision: 'APPROVED' })
-    expect((await data(await request('/tasks?queue=approval', contributorToken))).some((row: any) => row.id === task.id)).toBe(false)
-  })
-
-  it('includes scoped workstream approvers without direct task assignment and removes revoked authority', async () => {
-    const group = await data(await request('/workstreams', adminToken, 'POST', { name: 'Queue review group', sourceUnitId: branchId }))
-    const membership = await data(await request(`/workstreams/${group.id}/members`, adminToken, 'POST', { version: 1, userId: ownerId, operationRole: 'APPROVER' }))
-    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Group review only', workstreamId: group.id, requiresApproval: true }))
-    const queue = await data(await request('/tasks?queue=approval', ownerToken))
-    expect(queue.some((row: any) => row.id === task.id)).toBe(true)
-    const mine = await data(await request('/tasks?mine=true', ownerToken))
-    expect(mine.some((row: any) => row.id === task.id)).toBe(false)
-    const removed = await request(`/workstreams/${group.id}/members/${membership.id}/remove`, adminToken, 'POST', { version: 2, memberVersion: 1, reason: 'End review assignment' })
-    expect(removed.status).toBe(200)
-    expect((await data(await request('/tasks?queue=approval', ownerToken))).some((row: any) => row.id === task.id)).toBe(false)
   })
 
   it('hands over OWNER atomically with OCC, authority and replay protection', async () => {
@@ -600,7 +579,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
   it('keeps another creator draft private across event, task and list reads until planning', async () => {
     const createdResponse = await request('/events', leaderToken, 'POST', {
       scopeUnitId: branchId,
-      organizerUserId: contributorId,
+      organizerUserId: leaderId,
       title: 'Bản nháp riêng của Trưởng ngành',
       eventType: 'MEETING',
       startsAt: '2026-10-08T08:00:00+07:00',
@@ -631,6 +610,66 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await request(`/tasks/${task.id}`, ownerToken)).status).toBe(403)
     expect((await request(`/events/${event.id}`, committeeLeaderToken)).status).toBe(403)
     expect((await request(`/tasks/${task.id}`, committeeLeaderToken)).status).toBe(403)
+  })
+
+  it('exposes business creation options and enforces Xu Doan versus unit scope', async () => {
+    const parishOptions = await data(await request('/creation-options', parishLeaderToken))
+    expect(parishOptions.canCreateXuDoanEvent).toBe(true)
+    expect(parishOptions.xuDoanOrganizers.map((person: { userId: string }) => person.userId)).toContain(parishLeaderId)
+    const branchOptions = await data(await request('/creation-options', leaderToken))
+    expect(branchOptions.canCreateXuDoanEvent).toBe(false)
+    expect(branchOptions.units.map((unit: { id: string }) => unit.id)).toContain(branchId)
+    expect(branchOptions.units.map((unit: { id: string }) => unit.id)).not.toContain(otherBranchId)
+    const memberOptions = await data(await request('/creation-options', ownerToken))
+    expect(memberOptions.canCreateXuDoanEvent).toBe(false)
+    expect(memberOptions.units).toEqual([])
+
+    // Xứ đoàn event without organizer auto-assigns the active parish leader.
+    const xuDoan = await data(await request('/events', parishLeaderToken, 'POST', {
+      eventScopeType: 'XU_DOAN',
+      title: 'Sa mạc hè', eventType: 'CAMP', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-12T17:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    expect(xuDoan).toMatchObject({ eventScopeType: 'XU_DOAN', scopeUnitId: null, organizerUserId: parishLeaderId, createdBy: parishLeaderId })
+    // Scope/type mismatch fails closed.
+    expect((await request('/events', parishLeaderToken, 'POST', {
+      eventScopeType: 'XU_DOAN', scopeUnitId: branchId,
+      title: 'Sai phạm vi', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })).status).toBe(400)
+    // Non-leader organizer for a unit event is rejected for business actors.
+    expect((await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId, organizerUserId: contributorId,
+      title: 'Organizer không phải trưởng', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })).status).toBe(400)
+    // Trưởng Xứ đoàn chỉ đứng tên event Xứ đoàn: tự đứng tên event chuyên môn bị chặn…
+    const parishLeaderUnit = await request('/events', parishLeaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Trưởng xứ đứng tên event ngành', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(parishLeaderUnit.status).toBe(400)
+    expect((await parishLeaderUnit.json() as any).error.code).toBe('ORGANIZER_MUST_BE_UNIT_LEADER')
+    // …nhưng vẫn được tạo event chuyên môn khi chỉ định đúng Trưởng unit.
+    const parishCreatedUnit = await data(await request('/events', parishLeaderToken, 'POST', {
+      scopeUnitId: branchId, organizerUserId: leaderId,
+      title: 'Trưởng xứ tạo event ngành cho Trưởng ngành', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    expect(parishCreatedUnit).toMatchObject({ scopeUnitId: branchId, organizerUserId: leaderId })
+    // …và đổi organizer event chuyên môn sang Trưởng xứ cũng bị chặn.
+    const organizerSwap = await request(`/events/${parishCreatedUnit.id}`, parishLeaderToken, 'PUT', { version: parishCreatedUnit.version, organizerUserId: parishLeaderId })
+    expect(organizerSwap.status).toBe(400)
+    expect((await organizerSwap.json() as any).error.code).toBe('ORGANIZER_MUST_BE_UNIT_LEADER')
+    // Field without a unit in a Xu Doan event is rejected; deputy lead is rejected.
+    const field = await data(await request('/workstreams', parishLeaderToken, 'POST', { eventId: xuDoan.id, sourceUnitId: branchId, name: 'Field Phụng vụ' }))
+    expect((await request('/workstreams', parishLeaderToken, 'POST', { eventId: xuDoan.id, name: 'Field thiếu unit' })).status).toBe(400)
+    await db.insert(users).values([{ id: `deputy-${suffix}`, username: `deputy-${suffix}`, passwordHash: 'hash', fullName: 'Phó Ngành', role: 'chunhiem', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 }])
+    await db.insert(parishPeople).values([{ id: `person-deputy-${suffix}`, parishId: parishA, linkedUserId: `deputy-${suffix}`, fullName: 'Phó Ngành', createdBy: adminId, updatedBy: adminId }])
+    await db.insert(parishServiceTerms).values([{
+      id: `term-deputy-${suffix}`, parishId: parishA, personId: `person-deputy-${suffix}`, unitId: branchId,
+      positionTitle: 'Phó Ngành', positionCode: 'BRANCH_DEPUTY', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId,
+    }])
+    const deputyLead = await request(`/workstreams/${field.id}/members`, parishLeaderToken, 'POST', { version: 1, userId: `deputy-${suffix}`, operationRole: 'WORKSTREAM_LEAD' })
+    expect(deputyLead.status).toBe(403)
+    expect((await deputyLead.json() as { error: { code: string } }).error.code).toBe('WORKSTREAM_LEAD_OUTSIDE_UNIT')
+    expect((await request(`/workstreams/${field.id}/members`, parishLeaderToken, 'POST', { version: 1, userId: leaderId, operationRole: 'WORKSTREAM_LEAD' })).status).toBe(201)
   })
 
   it('allows one person to hold parallel Branch Leader and Committee Leader scopes without hierarchy leakage', async () => {
@@ -743,10 +782,10 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(insideAssignment.status).toBe(201)
 
     const workstream = await data(await request('/workstreams', leaderToken, 'POST', { eventId: event.id, sourceUnitId: branchId, name: 'Nhóm trong ngành' }))
-    const outsideMember = await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, operationRole: 'CONTRIBUTOR' })
+    const outsideMember = await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, operationRole: 'OBSERVER' })
     expect(outsideMember.status).toBe(403)
     expect((await outsideMember.json() as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
-    expect((await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', { version: 1, personId: `person-contributor-${suffix}`, operationRole: 'CONTRIBUTOR' })).status).toBe(201)
+    expect((await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', { version: 1, personId: `person-contributor-${suffix}`, operationRole: 'OBSERVER' })).status).toBe(201)
 
     expect((await request(`/candidates?taskId=${task.id}&eventId=${event.id}`, leaderToken)).status).toBe(400)
     expect((await request(`/candidates?taskId=${task.id}`, foreignToken)).status).toBe(403)
@@ -754,7 +793,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
 
   it('keeps Trưởng Xứ đoàn assignment scope parish-wide', async () => {
     const event = await data(await request('/events', parishLeaderToken, 'POST', {
-      scopeUnitId: branchId,
+      scopeUnitId: branchId, organizerUserId: leaderId,
       title: 'Điều phối toàn Xứ đoàn trong sự kiện ngành', eventType: 'MEETING', startsAt: '2026-11-04T08:00:00+07:00', endsAt: '2026-11-04T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
     }))
     const task = await data(await request('/tasks', parishLeaderToken, 'POST', { eventId: event.id, title: 'Điều động liên ban' }))
@@ -768,7 +807,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const event = await createEvent({ title: 'Validity event', scopeUnitId: branchId })
     const workstream = await data(await request('/workstreams', adminToken, 'POST', { eventId: event.id, sourceUnitId: branchId, name: 'Validity group' }))
     const added = await data(await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
-      version: 1, personId: `person-contributor-${suffix}`, operationRole: 'CONTRIBUTOR',
+      version: 1, personId: `person-contributor-${suffix}`, operationRole: 'OBSERVER',
     }))
 
     expect((await request(`/workstreams/${workstream.id}/members/${added.id}/validity`, adminToken, 'PUT', {
@@ -781,7 +820,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(changed.workstreamVersion).toBe(3)
     expect(changed.member).toMatchObject({
       id: added.id,
-      operationRole: 'CONTRIBUTOR',
+      operationRole: 'OBSERVER',
       personId: `person-contributor-${suffix}`,
       startsAt: '2026-12-01T01:00:00.000Z',
       endsAt: '2026-12-31T10:00:00.000Z',
@@ -841,13 +880,13 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const replacementKey = `replace-live-lead-${suffix}`
     const replacedResponse = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
       version: 2, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
-      userId: contributorId, reason: 'Bàn giao ca trực',
+      userId: leaderId, reason: 'Bàn giao ca trực',
     }, replacementKey)
     expect(replacedResponse.status).toBe(201)
     const replaced = await data(replacedResponse)
     expect(replaced).toMatchObject({
       previousLead: { id: currentLead.id, version: 2 },
-      newLead: { userId: contributorId, personId: null, operationRole: 'WORKSTREAM_LEAD', version: 1 },
+      newLead: { userId: leaderId, personId: null, operationRole: 'WORKSTREAM_LEAD', version: 1 },
       workstreamVersion: 3,
     })
     expect(replaced.previousLead.removedAt).toBeTruthy()
@@ -855,7 +894,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
 
     const replay = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
       version: 2, currentLeadMemberId: currentLead.id, currentLeadMemberVersion: 1,
-      userId: contributorId, reason: 'Bàn giao ca trực',
+      userId: leaderId, reason: 'Bàn giao ca trực',
     }, replacementKey)
     expect(replay.status).toBe(200)
     expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
@@ -868,7 +907,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await missingCurrent.json() as any).error.code).toBe('CURRENT_LEAD_REQUIRED')
     const linkedAlias = await request(`/workstreams/${workstream.id}/lead/replace`, leaderToken, 'POST', {
       version: 3, currentLeadMemberId: replaced.newLead.id, currentLeadMemberVersion: 1,
-      personId: `person-contributor-${suffix}`, reason: 'Cùng một người qua person id',
+      personId: `person-leader-${suffix}`, reason: 'Cùng một người qua person id',
     })
     expect(linkedAlias.status).toBe(409)
     expect((await linkedAlias.json() as any).error.code).toBe('LEAD_TARGET_ALREADY_ACTIVE')
@@ -877,7 +916,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       eq(operationWorkstreamMembers.parishId, parishA), eq(operationWorkstreamMembers.workstreamId, workstream.id),
       eq(operationWorkstreamMembers.operationRole, 'WORKSTREAM_LEAD'),
     ))
-    expect(activeLeads.filter(member => !member.removedAt)).toEqual([expect.objectContaining({ id: replaced.newLead.id, userId: contributorId })])
+    expect(activeLeads.filter(member => !member.removedAt)).toEqual([expect.objectContaining({ id: replaced.newLead.id, userId: leaderId })])
     expect(activeLeads.find(member => member.id === currentLead.id)?.removedAt).toBeTruthy()
     const auditRows = await db.select().from(auditLogs).where(and(
       eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, workstream.id), eq(auditLogs.action, 'REPLACE_LEAD'),
@@ -1047,31 +1086,19 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     })
     expect(completed.completionRecordId).toBe(ownedCompletionRecord?.id)
 
-    const missingRewindReason = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: completed.version, status: 'LIVE' })
-    expect(missingRewindReason.status).toBe(400)
-    expect((await missingRewindReason.json() as any).error.code).toBe('EVENT_REWIND_REASON_REQUIRED')
-    const rewound = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', {
+    const rewindTerminal = await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: completed.version, status: 'LIVE' })
+    expect(rewindTerminal.status).toBe(409)
+    expect((await rewindTerminal.json() as any).error.code).toBe('EVENT_COMPLETED_TERMINAL')
+    const rewindTerminalReason = await request(`/events/${event.id}/transition`, adminToken, 'POST', {
       version: completed.version, status: 'LIVE', reason: 'Mở lại để bổ sung biên bản hiện trường',
-    }))
-    expect(rewound).toMatchObject({ status: 'LIVE', automationPaused: true, completionRecordId: ownedCompletionRecord?.id })
-    expect((await request(`/events/${event.id}/automation/resume`, adminToken, 'POST', { version: completed.version, reason: 'Phiên bản cũ' })).status).toBe(409)
-    const resumed = await data(await request(`/events/${event.id}/automation/resume`, adminToken, 'POST', {
-      version: rewound.version, reason: 'Đã xác nhận tiếp tục lịch tự động',
-    }))
-    expect(resumed).toMatchObject({ status: 'LIVE', automationPaused: false, automationPausedAt: null, automationPausedBy: null, automationPauseReason: null })
-    const recompleted = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', {
-      version: resumed.version, status: 'COMPLETED', outcomeSummary: 'Đã bổ sung biên bản; 80 em tham dự an toàn.',
-    }))
-    expect(recompleted).toMatchObject({ status: 'COMPLETED', completionRecordId: ownedCompletionRecord?.id })
-    const recordsAfterRecompletion = await db.select().from(parishRecords).where(and(eq(parishRecords.parishId, parishA), eq(parishRecords.sourceEventId, generatedSourceEventId)))
-    expect(recordsAfterRecompletion).toHaveLength(2)
-    expect(recordsAfterRecompletion.find(record => record.id === existingMemoryId)?.summary).toBe('Không thuộc Operations')
-    expect(recordsAfterRecompletion.find(record => record.id === ownedCompletionRecord?.id)?.summary).toBe('Đã bổ sung biên bản; 80 em tham dự an toàn.')
+    })
+    expect(rewindTerminalReason.status).toBe(409)
+    expect((await rewindTerminalReason.json() as any).error.code).toBe('EVENT_COMPLETED_TERMINAL')
+    const resumeCompleted = await request(`/events/${event.id}/automation/resume`, adminToken, 'POST', { version: completed.version, reason: 'Phiên bản cũ' })
+    expect(resumeCompleted.status).toBe(409)
+    expect((await resumeCompleted.json() as any).error.code).toBe('AUTOMATION_NOT_PAUSED')
     const lifecycleAudit = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, event.id)))
-    expect(lifecycleAudit).toEqual(expect.arrayContaining([
-      expect.objectContaining({ action: 'REWIND', newValue: expect.stringContaining('Mở lại để bổ sung biên bản hiện trường') }),
-      expect.objectContaining({ action: 'RESUME_AUTOMATION', newValue: expect.stringContaining('Đã xác nhận tiếp tục lịch tự động') }),
-    ]))
+    expect(lifecycleAudit.filter(entry => entry.action === 'REWIND')).toHaveLength(0)
     expect((await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Không thêm task sau completed' })).status).toBe(409)
     expect((await request('/workstreams', adminToken, 'POST', { eventId: event.id, name: 'Không thêm workstream sau completed' })).status).toBe(409)
     expect((await request(`/events/${event.id}/participants`, adminToken, 'POST', { userId: contributorId, participantRole: 'ATTENDEE' })).status).toBe(409)
@@ -1095,7 +1122,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(internal.status).toBe(201)
 
     const published = await request('/events', parishLeaderToken, 'POST', {
-      scopeUnitId: branchId,
+      scopeUnitId: branchId, organizerUserId: leaderId,
       title: 'Thông báo ngành đã duyệt', eventType: 'MEETING',
       startsAt: '2026-10-21T08:00:00+07:00', endsAt: '2026-10-21T10:00:00+07:00',
       timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
@@ -1241,7 +1268,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(persistedOwners).toHaveLength(1)
   })
 
-  it('enforces dependency cycles, checklist completion and approval roles', async () => {
+  it('enforces dependency cycles and checklist completion before DONE', async () => {
     const event = await createEvent({ title: 'Huấn luyện' })
     const first = await data(await request('/tasks', adminToken, 'POST', { title: 'Chuẩn bị tài liệu', eventId: event.id }))
     const second = await data(await request('/tasks', adminToken, 'POST', { title: 'Gửi tài liệu', eventId: event.id }))
@@ -1250,38 +1277,25 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const cycle = await request(`/tasks/${first.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: second.id })
     expect(cycle.status).toBe(409)
 
-    const gated = await data(await request('/tasks', adminToken, 'POST', { title: 'Task cần duyệt', eventId: event.id, requiresApproval: true }))
+    const gated = await data(await request('/tasks', adminToken, 'POST', { title: 'Task có checklist', eventId: event.id }))
     const owner = await data(await request(`/tasks/${gated.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
-    const approver = await data(await request(`/tasks/${gated.id}/assign`, adminToken, 'POST', { version: owner.taskVersion, userId: contributorId, assignmentRole: 'APPROVER' }))
     await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
     expect((await request(`/tasks/${gated.id}/acknowledge`, ownerToken, 'POST', { assignmentId: owner.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
-    expect((await request(`/tasks/${gated.id}/acknowledge`, contributorToken, 'POST', { assignmentId: approver.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
-    const checklist = await data(await request(`/tasks/${gated.id}/checklist`, adminToken, 'POST', { version: approver.taskVersion, label: 'Đã kiểm tra', isRequired: true }))
+    const checklist = await data(await request(`/tasks/${gated.id}/checklist`, adminToken, 'POST', { version: owner.taskVersion, label: 'Đã kiểm tra', isRequired: true }))
     expect((await request(`/tasks/${gated.id}/transition`, ownerToken, 'POST', { version: checklist.taskVersion, status: 'DONE' })).status).toBe(409)
     const checked = await data(await request(`/tasks/${gated.id}/checklist/${checklist.item.id}`, ownerToken, 'POST', { version: checklist.taskVersion, isDone: true }))
-    expect((await request(`/tasks/${gated.id}/transition`, ownerToken, 'POST', { version: checked.taskVersion, status: 'DONE' })).status).toBe(409)
-    const approved = await data(await request(`/tasks/${gated.id}/approve`, contributorToken, 'POST', { version: checked.taskVersion, decision: 'APPROVED' }))
-    const done = await request(`/tasks/${gated.id}/transition`, ownerToken, 'POST', { version: approved.version, status: 'DONE', completionNote: 'Hoàn tất' })
+    const done = await request(`/tasks/${gated.id}/transition`, ownerToken, 'POST', { version: checked.taskVersion, status: 'DONE', completionNote: 'Hoàn tất' })
     expect(done.status).toBe(200)
     const doneTask = await data(done)
     for (const mutation of [
       () => request(`/tasks/${gated.id}`, adminToken, 'PUT', { version: doneTask.version, title: 'Không sửa task đã xong' }),
       () => request(`/tasks/${gated.id}/checklist`, adminToken, 'POST', { version: doneTask.version, label: 'Không thêm checklist', isRequired: true }),
       () => request(`/tasks/${gated.id}/dependencies`, adminToken, 'POST', { version: doneTask.version, dependsOnTaskId: first.id }),
-      () => request(`/tasks/${gated.id}/approve`, contributorToken, 'POST', { version: doneTask.version, decision: 'REJECTED', reason: 'Không đảo approval sau DONE' }),
     ]) {
       const response = await mutation()
       expect(response.status).toBe(409)
       expect((await response.json() as any).error.code).toBe('TASK_IMMUTABLE')
     }
-
-    const rejectedTask = await data(await request('/tasks', adminToken, 'POST', { title: 'Task bị từ chối', eventId: event.id, requiresApproval: true }))
-    const rejectedOwner = await data(await request(`/tasks/${rejectedTask.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
-    const rejectedApprover = await data(await request(`/tasks/${rejectedTask.id}/assign`, adminToken, 'POST', { version: rejectedOwner.taskVersion, userId: contributorId, assignmentRole: 'APPROVER' }))
-    expect((await request(`/tasks/${rejectedTask.id}/acknowledge`, ownerToken, 'POST', { assignmentId: rejectedOwner.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
-    expect((await request(`/tasks/${rejectedTask.id}/acknowledge`, contributorToken, 'POST', { assignmentId: rejectedApprover.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
-    const rejected = await data(await request(`/tasks/${rejectedTask.id}/approve`, contributorToken, 'POST', { version: rejectedApprover.taskVersion, decision: 'REJECTED', reason: 'Cần làm lại' }))
-    expect((await request(`/tasks/${rejectedTask.id}/transition`, ownerToken, 'POST', { version: rejected.version, status: 'DONE' })).status).toBe(409)
   })
 
   it('derives readiness blockers for missing lead, owner, overdue work and dependencies', async () => {
@@ -1398,7 +1412,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     })
     const sourceTask = await data(await request('/tasks', adminToken, 'POST', {
       eventId: source.id, title: 'Chuẩn bị cổng trại', description: 'Dựng cổng chính', phase: 'PREPARATION', priority: 'HIGH',
-      isRequired: true, requiresApproval: true, dueAt: '2026-10-01T00:00:00Z', scheduledStartAt: '2026-10-01T01:30:00Z', scheduledEndAt: '2026-10-01T02:30:00Z',
+      isRequired: true, dueAt: '2026-10-01T00:00:00Z', scheduledStartAt: '2026-10-01T01:30:00Z', scheduledEndAt: '2026-10-01T02:30:00Z',
     }))
     const checklistResult = await data(await request(`/tasks/${sourceTask.id}/checklist`, adminToken, 'POST', { version: sourceTask.version, label: 'Kiểm tra độ chắc chắn', isRequired: true, sortOrder: 2 }))
     const assignment = await data(await request(`/tasks/${sourceTask.id}/assign`, adminToken, 'POST', { version: checklistResult.taskVersion, userId: ownerId, assignmentRole: 'OWNER' }))
@@ -1424,7 +1438,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const previewV1 = await data(await request(`/templates/${template.id}/preview?version=1&startsAt=${encodeURIComponent('2027-02-01T01:00:00Z')}`, leaderToken))
     expect(previewV1.preview.event).toMatchObject({ title: 'Trại nguồn v1', startsAt: '2027-02-01T01:00:00.000Z', endsAt: '2027-02-01T04:00:00.000Z' })
     expect(previewV1.preview.tasks).toEqual([
-      expect.objectContaining({ title: 'Chuẩn bị cổng trại', phase: 'PREPARATION', dueAt: '2027-02-01T00:00:00.000Z', scheduledStartAt: '2027-02-01T01:30:00.000Z', scheduledEndAt: '2027-02-01T02:30:00.000Z', requiresApproval: true, checklist: [expect.objectContaining({ label: 'Kiểm tra độ chắc chắn', isRequired: true, sortOrder: 2 })] }),
+      expect.objectContaining({ title: 'Chuẩn bị cổng trại', phase: 'PREPARATION', dueAt: '2027-02-01T00:00:00.000Z', scheduledStartAt: '2027-02-01T01:30:00.000Z', scheduledEndAt: '2027-02-01T02:30:00.000Z', checklist: [expect.objectContaining({ label: 'Kiểm tra độ chắc chắn', isRequired: true, sortOrder: 2 })] }),
     ])
     expect(previewV1.preview.tasks[0]).not.toHaveProperty('status')
 
@@ -1439,7 +1453,8 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(instantiatedResponse.status, await instantiatedResponse.clone().text()).toBe(201)
     const instantiated = await data(instantiatedResponse)
     expect(instantiated.event).toMatchObject({ parishId: parishA, scopeUnitId: branchId, sourceTemplateId: template.id, sourceTemplateVersion: 1, status: 'DRAFT', startsAt: '2027-02-01T01:00:00.000Z' })
-    expect(instantiated.tasks).toEqual([expect.objectContaining({ operationEventId: instantiated.event.id, status: 'TODO', approvalStatus: 'PENDING', dueAt: '2027-02-01T00:00:00.000Z', scheduledStartAt: '2027-02-01T01:30:00.000Z', scheduledEndAt: '2027-02-01T02:30:00.000Z' })])
+    expect(instantiated.tasks).toEqual([expect.objectContaining({ operationEventId: instantiated.event.id, status: 'TODO', dueAt: '2027-02-01T00:00:00.000Z', scheduledStartAt: '2027-02-01T01:30:00.000Z', scheduledEndAt: '2027-02-01T02:30:00.000Z' })])
+    expect(instantiated.tasks[0]).not.toHaveProperty('approvalStatus')
     expect(instantiated.checklist).toEqual([expect.objectContaining({ taskId: instantiated.tasks[0].id, label: 'Kiểm tra độ chắc chắn', isDone: false })])
     expect(await db.select().from(operationTaskAssignees).where(and(eq(operationTaskAssignees.parishId, parishA), eq(operationTaskAssignees.taskId, instantiated.tasks[0].id)))).toHaveLength(0)
     const instantiateReplay = await request(`/templates/${template.id}/instantiate`, leaderToken, 'POST', {
@@ -1533,7 +1548,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const ownerPermissions = await data(await request(`/permissions?workstreamId=${workstream.id}`, ownerToken))
     expect(ownerPermissions.permissions['operations.task.manage']).toBe(false)
 
-    const expiredMember = await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 3, userId: expiredLeaderId, operationRole: 'CONTRIBUTOR', startsAt: '2025-01-01T00:00:00Z', endsAt: '2025-12-31T23:59:59Z' })
+    const expiredMember = await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', { version: 3, userId: expiredLeaderId, operationRole: 'OBSERVER', startsAt: '2025-01-01T00:00:00Z', endsAt: '2025-12-31T23:59:59Z' })
     expect(expiredMember.status).toBe(201)
     const permissions = await data(await request(`/permissions?workstreamId=${workstream.id}`, expiredLeaderToken))
     expect(permissions.permissions['operations.task.view']).toBe(false)
@@ -1606,7 +1621,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(invalidUpdate.status).toBe(400)
     expect((await invalidUpdate.json() as any).error.code).toBe('INVALID_TASK_SCHEDULE')
     const cleared = await data(await request(`/tasks/${task.id}`, adminToken, 'PUT', { version: assigned.taskVersion, scheduledStartAt: null, scheduledEndAt: null }))
-    expect(cleared).toMatchObject({ scheduledStartAt: null, scheduledEndAt: null, version: assigned.taskVersion + 1 })
+    expect(cleared.task).toMatchObject({ scheduledStartAt: null, scheduledEndAt: null, version: assigned.taskVersion + 1 })
   })
 
   it('cancels pending reminders atomically with receipts and refuses already queued delivery', async () => {
@@ -1659,7 +1674,7 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(visible).toEqual(expect.arrayContaining([expect.objectContaining({ id: original.id, recipientUserId: ownerId, version: 2 })]))
     expect(visible[0]).not.toHaveProperty('dedupeKey')
     expect(visible[0]).not.toHaveProperty('notificationId')
-    expect((await request(`/reminders?eventId=${event.id}`, foreignToken)).status).not.toBe(200)
+    expect((await request(`/reminders?eventId=${event.id}`, foreignToken)).status).toBe(403)
 
     const stale = await request(`/reminders/${original.id}/reschedule`, adminToken, 'POST', { expectedVersion: 1, triggerAt: '2099-04-01T00:00:00Z', reason: 'Stale edit' })
     expect(stale.status).toBe(409)
@@ -1925,5 +1940,264 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     ))
     expect(autoStartAudit.newValue).toContain('"missedReady":true')
     expect(autoStartAudit.newValue).toContain('chưa ở trạng thái Sẵn sàng')
+  })
+
+  it('P1-1/P1-3: event-scoped dependency cycles and admin audit authorizationReason', async () => {
+    const eventA = await createEvent({ title: 'P1 event A' })
+    const eventB = await createEvent({ title: 'P1 event B' })
+    const a1 = await data(await request('/tasks', adminToken, 'POST', { title: 'A1', eventId: eventA.id }))
+    const a2 = await data(await request('/tasks', adminToken, 'POST', { title: 'A2', eventId: eventA.id }))
+    const b1 = await data(await request('/tasks', adminToken, 'POST', { title: 'B1', eventId: eventB.id }))
+    const b2 = await data(await request('/tasks', adminToken, 'POST', { title: 'B2', eventId: eventB.id }))
+
+    expect((await request(`/tasks/${a2.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: a1.id })).status).toBe(201)
+    expect((await request(`/tasks/${b2.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: b1.id })).status).toBe(201)
+    // Cross-event dependency still rejected by same-event guard.
+    expect((await request(`/tasks/${a1.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: b1.id })).status).toBe(400)
+    // Cycle detection remains correct inside event A even when event B also has edges.
+    const cycle = await request(`/tasks/${a1.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: a2.id })
+    expect(cycle.status).toBe(409)
+
+    const [createAudit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishA),
+      eq(auditLogs.entityType, 'operation_event'),
+      eq(auditLogs.entityId, eventA.id),
+      eq(auditLogs.action, 'CREATE'),
+    ))
+    expect(createAudit?.newValue).toContain('"authorizationReason":"ADMIN_OVERRIDE"')
+
+    // Prefer a scope with no EVENT_CREATOR/OPERATION_ROLE so ADMIN_OVERRIDE is visible.
+    const decision = await resolveOperationsAuthorization(
+      { userId: adminId, role: 'admin', parishId: parishA },
+      'operations.event.create',
+      { parishId: parishA, resourceUnitId: otherBranchId },
+    )
+    expect(decision).toMatchObject({ allowed: true, reason: 'ADMIN_OVERRIDE' })
+  })
+
+  it('P1-3: admin target-scope bypass is also stamped ADMIN_OVERRIDE in audit', async () => {
+    // Standalone workstream rooted in branchId; the committee-leader person has
+    // no service term in that unit tree, so a scoped actor would fail with
+    // TARGET_OUTSIDE_ORGANIZATION_SCOPE while admin bypasses via parishWide.
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'P1-3 scope probe', sourceUnitId: branchId, isRequired: false }))
+    const added = await request(`/workstreams/${workstream.id}/members`, adminToken, 'POST', {
+      version: 1,
+      personId: `person-committee-leader-${suffix}`,
+      operationRole: 'OBSERVER',
+    })
+    expect(added.status).toBe(201)
+    const [assignAudit] = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishA),
+      eq(auditLogs.entityType, 'operation_workstream'),
+      eq(auditLogs.entityId, workstream.id),
+      eq(auditLogs.action, 'ASSIGN_MEMBER'),
+    ))
+    expect(assignAudit?.newValue).toContain('"authorizationReason":"ADMIN_OVERRIDE"')
+
+    // Control: the same cross-unit assignment is rejected for a scoped leader.
+    const leaderWorkstream = await data(await request('/workstreams', leaderToken, 'POST', { name: 'P1-3 leader scope', sourceUnitId: branchId, isRequired: false }))
+    const outside = await request(`/workstreams/${leaderWorkstream.id}/members`, leaderToken, 'POST', {
+      version: 1,
+      personId: `person-committee-leader-${suffix}`,
+      operationRole: 'OBSERVER',
+    })
+    expect(outside.status).toBe(403)
+    expect(((await outside.json()) as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
+  })
+
+  it('P1-12: marks workstreams READY/BLOCKED with OCC and a mandatory block reason', async () => {
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'P1-12 readiness', sourceUnitId: branchId, isRequired: false }))
+    // BLOCKED without a reason fails closed and does not bump the version.
+    expect((await request(`/workstreams/${workstream.id}/ready`, adminToken, 'POST', { version: 1, status: 'BLOCKED' })).status).toBe(400)
+    const ready = await data(await request(`/workstreams/${workstream.id}/ready`, adminToken, 'POST', { version: 1, status: 'READY' }))
+    expect(ready).toMatchObject({ status: 'READY', version: 2 })
+    // Stale OCC base is rejected.
+    expect((await request(`/workstreams/${workstream.id}/ready`, adminToken, 'POST', { version: 1, status: 'READY' })).status).toBe(409)
+    const blocked = await data(await request(`/workstreams/${workstream.id}/ready`, adminToken, 'POST', { version: 2, status: 'BLOCKED', reason: 'Thiếu người trực' }))
+    expect(blocked).toMatchObject({ status: 'BLOCKED', version: 3, blockedReason: 'Thiếu người trực' })
+    const audits = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishA), eq(auditLogs.entityId, workstream.id), eq(auditLogs.action, 'MARK_READY'),
+    ))
+    expect(audits.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('P1-12: tracks reminder read state with OCC and per-recipient isolation', async () => {
+    const event = await createEvent({ title: 'P1-12 reminder read', organizerUserId: ownerId })
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const reminder = await data(await request('/reminders', adminToken, 'POST', { eventId: event.id, recipientUserId: ownerId, triggerAt: '2099-05-01T00:00:00Z', kind: 'EVENT_START' }))
+    const first = await data(await request(`/reminders/${reminder.id}/read`, ownerToken, 'POST', {}))
+    expect(first).toMatchObject({ id: reminder.id, version: reminder.version + 1 })
+    expect(first.readAt).toBeTruthy()
+    // A second read keeps the original readAt; the row stays recipient-owned.
+    const second = await data(await request(`/reminders/${reminder.id}/read`, ownerToken, 'POST', {}))
+    expect(second.readAt).toBe(first.readAt)
+    expect(second.version).toBe(first.version + 1)
+    // Stale OCC base and foreign identities fail closed.
+    expect((await request(`/reminders/${reminder.id}/read`, ownerToken, 'POST', { expectedVersion: reminder.version })).status).toBe(409)
+    expect((await request(`/reminders/${reminder.id}/read`, contributorToken, 'POST', {})).status).toBe(404)
+    expect((await request(`/reminders/${reminder.id}/read`, foreignToken, 'POST', {})).status).toBe(404)
+  })
+
+  it('P1-12: lists task dispatches for viewers without leaking other tasks', async () => {
+    const event = await createEvent({ title: 'P1-12 dispatch history', scopeUnitId: branchId, startsAt: '2035-03-01T08:00:00Z', endsAt: '2035-03-01T12:00:00Z' })
+    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Nhiệm vụ có lịch sử phân công' }))
+    const dispatch = await data(await request(`/tasks/${task.id}/dispatch`, adminToken, 'POST', {
+      version: task.version, primaryUserId: ownerId, acknowledgeBy: '2034-03-01T00:00:00Z',
+    }))
+    const listed = await data(await request(`/tasks/${task.id}/dispatches`, adminToken))
+    expect(listed.map((row: { id: string }) => row.id)).toContain(dispatch.dispatch.id)
+    expect(listed.every((row: { parishId: string; taskId: string }) => row.parishId === parishA && row.taskId === task.id)).toBe(true)
+    // Unknown task IDs fail closed instead of leaking an empty oracle.
+    expect((await request('/tasks/does-not-exist/dispatches', adminToken)).status).toBe(403)
+    expect((await request(`/tasks/${task.id}/dispatches`, foreignToken)).status).toBe(403)
+  })
+
+  it('P1-12: dispatch worker skips a candidate mutated by a concurrent instance', async () => {
+    const event = await createEvent({ title: 'P1-12 dispatch race', scopeUnitId: branchId, startsAt: '2035-04-01T08:00:00Z', endsAt: '2035-04-01T12:00:00Z' })
+    const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, title: 'Trực cổng đua' }))
+    const created = await data(await request(`/tasks/${task.id}/dispatch`, adminToken, 'POST', {
+      version: task.version, primaryUserId: ownerId, reserveUserId: contributorId, acknowledgeBy: '2034-04-01T00:00:00Z',
+    }))
+    await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const [pending] = await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, created.dispatch.id)))
+    expect(pending.reserveInviteAt).toBeTruthy()
+    // A concurrent instance claims the row first: the worker must skip, not double-invite.
+    let interleaved = false
+    const run = await processDueOperationTaskDispatches(new Date(pending.reserveInviteAt!), {
+      beforeClaim: async candidate => {
+        if (candidate.id !== pending.id || interleaved) return
+        interleaved = true
+        await db.update(operationTaskDispatches).set({ version: pending.version + 1 }).where(and(
+          eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, pending.id), eq(operationTaskDispatches.version, pending.version),
+        ))
+      },
+    })
+    expect(interleaved).toBe(true)
+    expect(run.invited).toBe(0)
+    const [stored] = await db.select().from(operationTaskDispatches).where(and(eq(operationTaskDispatches.parishId, parishA), eq(operationTaskDispatches.id, pending.id)))
+    expect(stored.reserveInvitedAt).toBeNull()
+    expect(stored.version).toBe(pending.version + 1)
+  })
+
+  it('P1-12: receipt maintenance compacts old batches and expires their replays', async () => {
+    const actor = { userId: adminId, role: 'admin' as const, parishId: parishA }
+    const expiring = await runIdempotentOperationsCommand(actor, `p1-12-expiry-${suffix}`, 'operations.test.probe', { n: 1 }, async () => ({ ok: 1 }))
+    expect(expiring.replayed).toBe(false)
+    const bulkKeys = Array.from({ length: 501 }, (_, index) => `p1-12-bulk-${suffix}-${index}`)
+    // Chunked inserts stay under the SQLite bound-variable limit on every driver.
+    for (let index = 0; index < bulkKeys.length; index += 100) {
+      await db.insert(operationMutationReceipts).values(bulkKeys.slice(index, index + 100).map(key => ({
+        parishId: parishA, actorUserId: adminId, idempotencyKey: key, command: 'operations.test.bulk',
+        requestHash: 'hash', responseJson: '{"ok":true}', createdAt: '2020-01-01T00:00:00.000Z',
+      })))
+    }
+    await db.update(operationMutationReceipts).set({ createdAt: '2020-01-01T00:00:00.000Z' }).where(and(
+      eq(operationMutationReceipts.parishId, parishA), eq(operationMutationReceipts.actorUserId, adminId),
+      eq(operationMutationReceipts.idempotencyKey, `p1-12-expiry-${suffix}`),
+    ))
+    const previous = process.env.OPERATIONS_RECEIPT_RESPONSE_RETENTION_DAYS
+    process.env.OPERATIONS_RECEIPT_RESPONSE_RETENTION_DAYS = '30'
+    try {
+      // 502 stale rows prove the 500-row batch loop iterates instead of stopping early.
+      expect(await runOperationsReceiptMaintenance()).toBe(502)
+    } finally {
+      if (previous === undefined) delete process.env.OPERATIONS_RECEIPT_RESPONSE_RETENTION_DAYS
+      else process.env.OPERATIONS_RECEIPT_RESPONSE_RETENTION_DAYS = previous
+    }
+    const [pruned] = await db.select().from(operationMutationReceipts).where(and(
+      eq(operationMutationReceipts.parishId, parishA), eq(operationMutationReceipts.actorUserId, adminId),
+      eq(operationMutationReceipts.idempotencyKey, bulkKeys[0]),
+    ))
+    expect(pruned.responsePrunedAt).toBeTruthy()
+    // Same key/payload after compaction is rejected, never re-executed.
+    await expect(runIdempotentOperationsCommand(actor, `p1-12-expiry-${suffix}`, 'operations.test.probe', { n: 1 }, async () => ({ ok: 2 })))
+      .rejects.toMatchObject({ code: 'IDEMPOTENCY_REPLAY_EXPIRED' })
+  })
+
+  it('P1-12: same-key different-payload replays are rejected without executing', async () => {
+    const actor = { userId: adminId, role: 'admin' as const, parishId: parishA }
+    const key = `p1-12-conflict-${suffix}`
+    const first = await runIdempotentOperationsCommand(actor, key, 'operations.test.race', { n: 1 }, async () => ({ ok: 1 }))
+    expect(first.replayed).toBe(false)
+    // The UNIQUE-violation recovery inside the transaction (a true concurrent
+    // committer) cannot be scheduled deterministically in-process — SQLite
+    // reports BUSY instead — so it is pinned by a dedicated mocked unit test
+    // (operationsIdempotencyRace.test.ts); here the pre-transaction check path.
+    await expect(runIdempotentOperationsCommand(actor, key, 'operations.test.race', { n: 2 }, async () => ({ ok: 2 })))
+      .rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
+  })
+
+  it('requires field leads to be the active leader of the responsible unit', async () => {
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'Lead scope probe', sourceUnitId: branchId, isRequired: false }))
+    // An ordinary in-unit member cannot lead, even when appointed by a leader.
+    const memberLead = await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', {
+      version: 1, userId: contributorId, operationRole: 'WORKSTREAM_LEAD',
+    })
+    expect(memberLead.status).toBe(403)
+    expect(((await memberLead.json()) as any).error.code).toBe('WORKSTREAM_LEAD_OUTSIDE_UNIT')
+    // Even the parish leader cannot lead a unit field: the rule is strictly the
+    // responsible unit's own leader (scope checks would already pass for them).
+    const parishLeadLead = await request(`/workstreams/${workstream.id}/members`, parishLeaderToken, 'POST', {
+      version: 1, userId: parishLeaderId, operationRole: 'WORKSTREAM_LEAD',
+    })
+    expect(parishLeadLead.status).toBe(403)
+    expect(((await parishLeadLead.json()) as any).error.code).toBe('WORKSTREAM_LEAD_OUTSIDE_UNIT')
+    // The responsible unit leader can.
+    expect((await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', {
+      version: 1, userId: leaderId, operationRole: 'WORKSTREAM_LEAD',
+    })).status).toBe(201)
+  })
+
+  it('lets a parish deputy create Xu-Doan events as creator with the parish leader as organizer', async () => {
+    const created = await request('/events', parishDeputyToken, 'POST', {
+      eventScopeType: 'XU_DOAN',
+      title: 'Sa mạc do Phó xứ tạo', eventType: 'CAMP', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-12T17:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(created.status).toBe(201)
+    expect(await data(created)).toMatchObject({
+      eventScopeType: 'XU_DOAN', scopeUnitId: null, createdBy: parishDeputyId, organizerUserId: parishLeaderId,
+    })
+  })
+
+  it('hides unit creation from parish deputies: no menu options and no unit events', async () => {
+    // Phó Xứ đoàn chỉ tạo Event Xứ đoàn — option chuyên môn/Task độc lập ẩn hẳn.
+    const options = await data(await request('/creation-options', parishDeputyToken))
+    expect(options.canCreateXuDoanEvent).toBe(true)
+    expect(options.units).toEqual([])
+    // Gọi trực tiếp cũng fail closed ở organizer scope rule.
+    const unitEvent = await request('/events', parishDeputyToken, 'POST', {
+      scopeUnitId: branchId, organizerUserId: leaderId,
+      title: 'Event chuyên môn của Phó xứ', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(unitEvent.status).toBe(403)
+    expect(((await unitEvent.json()) as any).error.code).toBe('UNIT_SCOPE_MISMATCH')
+  })
+
+  it('scopes the parish secretary to Xu-Doan creation, own events and parish-wide read', async () => {
+    // Secretary creates Xu-Doan events like a deputy: creator self, organizer leader.
+    const created = await request('/events', secretaryToken, 'POST', {
+      eventScopeType: 'XU_DOAN',
+      title: 'Họp do Thư ký tạo', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(created.status).toBe(201)
+    const ownEvent = await data(created)
+    expect(ownEvent).toMatchObject({ createdBy: parishSecretaryId, organizerUserId: parishLeaderId })
+    // ...but cannot create unit-scoped events.
+    expect((await request('/events', secretaryToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Event chuyên môn của Thư ký', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })).status).toBe(403)
+    // Full rights on own events through the creator role.
+    expect((await request(`/events/${ownEvent.id}/transition`, secretaryToken, 'POST', { version: ownEvent.version, status: 'PLANNING' })).status).toBe(200)
+    // Read-only on other events: view works once published past DRAFT
+    // (drafts stay creator-private), management does not.
+    const other = await createEvent({ title: 'Event của admin' })
+    const otherPlanning = await data(await request(`/events/${other.id}/transition`, adminToken, 'POST', { version: other.version, status: 'PLANNING' }))
+    expect((await request(`/events/${other.id}`, secretaryToken)).status).toBe(200)
+    expect((await request(`/events/${other.id}/transition`, secretaryToken, 'POST', { version: otherPlanning.version, status: 'PREPARING' })).status).toBe(403)
+    // Creation menu offers Xu-Doan but no unit scopes.
+    const options = await data(await request('/creation-options', secretaryToken))
+    expect(options.canCreateXuDoanEvent).toBe(true)
+    expect(options.units).toEqual([])
   })
 })

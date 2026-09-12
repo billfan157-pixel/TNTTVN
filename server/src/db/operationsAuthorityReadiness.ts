@@ -73,11 +73,11 @@ export function analyzeOperationsAuthoritySnapshot(
     const unitId = nullable(term, 'unit_id')
     const unit = unitId ? unitsByKey.get(`${parishId}\u0000${unitId}`) : undefined
     const activeUnitType = unit && nullable(unit, 'deleted_at') === null && activeFlag(unit, 'is_active') ? value(unit, 'unit_type') : null
-    const valid = code === 'PARISH_LEADER'
+    const valid = code === 'PARISH_LEADER' || code === 'PARISH_SECRETARY' || code === 'PARISH_DEPUTY'
       ? unitId === null || activeUnitType === 'BOARD'
-      : code === 'BRANCH_LEADER'
+      : code === 'BRANCH_LEADER' || code === 'BRANCH_DEPUTY'
         ? activeUnitType === 'BRANCH'
-        : code === 'COMMITTEE_LEADER' && activeUnitType === 'COMMITTEE'
+        : (code === 'COMMITTEE_LEADER' || code === 'COMMITTEE_DEPUTY') && activeUnitType === 'COMMITTEE'
     return valid ? [] : [{ parishRef: parishRef(parishId), termRef: entityRef('term', parishId, value(term, 'id')), positionCode: code, unitRef: unitId ? entityRef('unit', parishId, unitId) : null }]
   })
 
@@ -101,15 +101,16 @@ export function analyzeOperationsAuthoritySnapshot(
       const parishId = value(first, 'parish_id')
       const code = value(first, 'position_code')
       if (parishId !== value(second, 'parish_id') || code !== value(second, 'position_code')) continue
-      const firstScope = code === 'PARISH_LEADER' ? parishId : nullable(first, 'unit_id')
-      const secondScope = code === 'PARISH_LEADER' ? parishId : nullable(second, 'unit_id')
+      const parishWide = code === 'PARISH_LEADER' || code === 'PARISH_SECRETARY' || code === 'PARISH_DEPUTY'
+      const firstScope = parishWide ? parishId : nullable(first, 'unit_id')
+      const secondScope = parishWide ? parishId : nullable(second, 'unit_id')
       if (!firstScope || firstScope !== secondScope || !overlaps(first, second)) continue
       leaderTermOverlap.push({
         parishRef: parishRef(parishId),
         firstTermRef: entityRef('term', parishId, value(first, 'id')),
         secondTermRef: entityRef('term', parishId, value(second, 'id')),
         positionCode: code,
-        scopeRef: code === 'PARISH_LEADER' ? parishRef(parishId) : entityRef('unit', parishId, firstScope),
+        scopeRef: parishWide ? parishRef(parishId) : entityRef('unit', parishId, firstScope),
       })
     }
   }

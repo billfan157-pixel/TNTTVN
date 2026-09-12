@@ -26,12 +26,14 @@ import { initSundayReminderScheduler, stopSundayReminderScheduler } from './serv
 import { initOperationsReminderScheduler, stopOperationsReminderScheduler } from './services/operationsReminderService.js'
 import { initOperationsEventLifecycleScheduler, stopOperationsEventLifecycleScheduler } from './services/operationsEventLifecycleService.js'
 import { initOperationsTaskDispatchScheduler, stopOperationsTaskDispatchScheduler } from './services/operationsTaskDispatchService.js'
+import { initOperationsManagerReminderScheduler, stopOperationsManagerReminderScheduler } from './services/operationsManagerReminderService.js'
 import { initOperationsReceiptMaintenance, stopOperationsReceiptMaintenance } from './services/operationsReceiptMaintenance.js'
 import { initBackupScheduler, stopBackupScheduler } from './services/backupScheduler.js'
 import { runImportMaintenanceCycle, startImportRollbackSnapshotCleanup } from './services/importService.js'
 import { closeBrowser } from './services/pdfService.js'
 import cspReportRouter from './routes/cspReport.js'
 import { initSentryNode, captureServerException } from './utils/observability.js'
+import { classifyOnError } from './utils/onErrorClassification.js'
 
 // OBS-2 (2026-08-24): Sentry node opt-in qua SENTRY_DSN — phải init TRƯỚC mọi
 // error path khác để stack trace từ startup/onError đều được ghi nhận khi bật.
@@ -40,13 +42,30 @@ initSentryNode()
 const app = new Hono()
 
 app.onError((err, c) => {
-  if (err.message && (err.message.includes('không hợp lệ') || err.message.includes('không đúng định dạng') || err.message.includes('required'))) {
-    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: err.message } }, 400)
-  }
+  // P1-2: classification lives in utils/onErrorClassification so it is
+  // unit-testable without booting the server. Explicit 4xx statuses are
+  // authoritative; only curated Vietnamese validation phrases map to 400.
+  // English substrings like "required" are never sniffed — Drizzle/libSQL
+  // messages stay on the 500 + UNHANDLED_ERROR + Sentry path.
+  const classification = classifyOnError(err)
   // OBS-1 (2026-08-24): gắn requestId (từ loggerMiddleware) vào log lỗi để đối
   // chiếu 1-1 với structured request log — trước đây log onError tách rời,
   // không truy vết được về đúng request.
   const requestId = c.res.headers.get('x-request-id') || undefined
+  if (classification.kind === 'client') {
+    console.error(JSON.stringify({
+      level: 'WARN',
+      type: 'CLIENT_ERROR',
+      timestamp: new Date().toISOString(),
+      requestId,
+      method: c.req.method,
+      path: c.req.path,
+      status: classification.status,
+      code: classification.code,
+      error: classification.clientMessage,
+    }))
+    return c.json({ success: false, error: { code: classification.code, message: classification.clientMessage } }, classification.status as 400)
+  }
   console.error(JSON.stringify({
     level: 'ERROR',
     type: 'UNHANDLED_ERROR',
@@ -243,6 +262,7 @@ const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
       stopOperationsReminderScheduler()
       stopOperationsEventLifecycleScheduler()
       stopOperationsTaskDispatchScheduler()
+      stopOperationsManagerReminderScheduler()
       stopOperationsReceiptMaintenance()
       const httpClosed = new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve())
@@ -309,4 +329,5 @@ initSundayReminderScheduler()
 initOperationsReminderScheduler()
 initOperationsEventLifecycleScheduler()
 initOperationsTaskDispatchScheduler()
+initOperationsManagerReminderScheduler()
 initBackupScheduler()

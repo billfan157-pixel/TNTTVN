@@ -27,7 +27,7 @@ const preview: OperationEventTemplatePreview = {
   template, version: 2,
   preview: {
     event: { title: 'Trại hè', description: null, eventType: 'CAMP', durationMinutes: 180, location: null, expectedHeadcount: null, startsAt: '2027-02-01T01:00:00.000Z', endsAt: '2027-02-01T04:00:00.000Z' },
-    tasks: [{ index: 0, title: 'Dựng cổng', description: null, phase: 'PREPARATION', priority: 'HIGH', isRequired: true, requiresApproval: false, dueOffsetMinutes: -60, dueAt: '2027-02-01T00:00:00.000Z', checklist: [{ label: 'Kiểm tra', isRequired: true, sortOrder: 0 }] }],
+    tasks: [{ index: 0, title: 'Dựng cổng', description: null, phase: 'PREPARATION', priority: 'HIGH', isRequired: true, dueOffsetMinutes: -60, dueAt: '2027-02-01T00:00:00.000Z', checklist: [{ label: 'Kiểm tra', isRequired: true, sortOrder: 0 }] }],
   },
 }
 
@@ -58,8 +58,34 @@ describe('EventTemplatesPanel', () => {
     expect(screen.getByText(/chưa có người được phân công/i)).toBeInTheDocument()
   })
 
-  it('creates a public template instance through Operations without a client calendar source', async () => {
-    render(<EventTemplatesPanel enabled sourceEvent={null} canPublishPublic onEventCreated={vi.fn()} />)
+  it('offers an organizer picker from creation options so a deputy can instantiate under a leader', async () => {
+    const creationOptions = {
+      canCreateXuDoanEvent: false,
+      xuDoanOrganizers: [],
+      units: [{
+        id: 'branch-1', name: 'Ngành Thiếu', unitType: 'BRANCH' as const, canCreateEvent: true, canCreateTask: true,
+        organizers: [
+          { userId: 'user-leader', displayName: 'Trưởng Ngành', positionCode: 'BRANCH_LEADER' },
+          { userId: 'user-deputy', displayName: 'Phó Ngành', positionCode: 'BRANCH_DEPUTY' },
+        ],
+        myRole: 'BRANCH_DEPUTY',
+      }],
+    }
+    render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn()} creationOptions={creationOptions} />)
+    await screen.findByRole('option', { name: 'Mẫu trại · v2' })
+    expect(screen.getByText(/Phạm vi mẫu: Chuyên môn · Ngành Thiếu/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Thời gian bắt đầu từ mẫu'), { target: { value: '2027-02-01T08:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }))
+    await screen.findByLabelText('Bản xem trước mẫu sự kiện')
+    fireEvent.change(screen.getByLabelText('Organizer sự kiện từ mẫu'), { target: { value: 'user-leader' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo bản nháp từ mẫu' }))
+
+    await waitFor(() => expect(mocks.instantiateEventTemplate).toHaveBeenCalledWith('tpl-1', expect.objectContaining({
+      templateVersion: 2, organizerUserId: 'user-leader',
+    }), expect.any(String)))
+  })
+
+  it('creates a public template instance through Operations without a client calendar source', async () => {    render(<EventTemplatesPanel enabled sourceEvent={null} canPublishPublic onEventCreated={vi.fn()} />)
     await screen.findByRole('option', { name: 'Mẫu trại · v2' })
     fireEvent.change(screen.getByLabelText('Thời gian bắt đầu từ mẫu'), { target: { value: '2027-02-01T08:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }))

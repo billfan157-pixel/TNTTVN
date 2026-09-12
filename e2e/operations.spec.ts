@@ -11,15 +11,20 @@ test('@critical public Operations event is projected to the parent read-only cal
 
   await injectSession(page, parishLeader)
   await page.goto('/operations')
-  const createButton = page.getByRole('button', { name: 'Tạo sự kiện mới' })
-  await expect(createButton).toBeEnabled()
-  await createButton.click()
+  await page.getByRole('button', { name: 'Tạo mới' }).click()
+  await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByRole('button', { name: 'Công khai', exact: true }).click()
   await page.getByLabel('Tên sự kiện').fill(key)
   await page.getByLabel('Loại sự kiện').selectOption('CAMP')
   await page.getByLabel('Địa điểm').fill('Sân giáo xứ E2E')
   await page.getByLabel('Bắt đầu').fill(`${date}T08:00`)
   await page.getByLabel('Kết thúc').fill(`${date}T17:00`)
+  // Organizer is auto-selected when a single Xứ đoàn trưởng exists; otherwise pick the first option.
+  const organizerSelect = page.getByLabel('Người chịu trách nhiệm (Organizer)')
+  if (await organizerSelect.isEnabled() && !(await organizerSelect.inputValue())) {
+    const firstOption = organizerSelect.locator('option[value]:not([value=""])').first()
+    if (await firstOption.count()) await organizerSelect.selectOption(await firstOption.getAttribute('value') as string)
+  }
   const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/events') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Lưu bản nháp' }).click()
   const createResponse = await createResponsePromise
@@ -168,14 +173,14 @@ test('@critical Operations owner handover persists one pending owner and blockou
   expect((await mine.json()).data.some((row: { id: string }) => row.id === task.id)).toBe(false)
 })
 
-test('@critical Operations standalone approval and evidence persist through UI', async ({ page }, testInfo) => {
+test('@critical Operations standalone evidence persists through UI', async ({ page }, testInfo) => {
   test.setTimeout(90_000)
   const admin = await getAdminSession(page.request)
   const key = testKey(testInfo, 'OPS-REVIEW')
-  const create = await page.request.post('/api/operations/tasks', { headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-create` }, data: { title: key, requiresApproval: true } })
+  const create = await page.request.post('/api/operations/tasks', { headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-create` }, data: { title: key } })
   expect(create.status()).toBe(201)
   const task = (await create.json()).data
-  const assign = await page.request.post(`/api/operations/tasks/${task.id}/assign`, { headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-assign` }, data: { version: task.version, userId: 'usr-e2e-chunhiem', assignmentRole: 'APPROVER' } })
+  const assign = await page.request.post(`/api/operations/tasks/${task.id}/assign`, { headers: { ...authHeaders(admin), 'Idempotency-Key': `${key}-assign` }, data: { version: task.version, userId: 'usr-e2e-chunhiem', assignmentRole: 'OWNER' } })
   expect(assign.status()).toBe(201)
   const staff = await apiLogin(page.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
   await injectSession(page, staff)
@@ -183,25 +188,18 @@ test('@critical Operations standalone approval and evidence persist through UI',
   const row = page.getByRole('article').filter({ hasText: key })
   await row.getByRole('button', { name: 'Nhận việc' }).click()
   await expect(row.getByRole('button', { name: 'Nhận việc' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Tải việc chờ duyệt' }).click()
-  const queue = page.getByRole('region', { name: 'Việc chờ tôi duyệt' })
-  await queue.getByRole('button', { name: 'Mở để duyệt' }).click()
+  await row.getByRole('button', { name: 'Chi tiết nhiệm vụ' }).click()
   await page.getByLabel('Bình luận nhiệm vụ').fill('Minh chứng kiểm tra E2E')
   await page.getByLabel('Liên kết minh chứng').fill('https://example.com/operations-evidence')
   const comment = page.waitForResponse(response => response.url().endsWith(`/tasks/${task.id}/comments`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Gửi bình luận' }).click()
   expect((await comment).status()).toBe(201)
   await expect(page.getByText('Minh chứng kiểm tra E2E', { exact: true })).toBeVisible()
-  const approval = page.waitForResponse(response => response.url().endsWith(`/tasks/${task.id}/approve`) && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Duyệt nhiệm vụ' }).click()
-  expect((await approval).status()).toBe(200)
-  await expect(page.getByText('Đã duyệt', { exact: true })).toBeVisible()
   const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
   const persisted = (await readBack.json()).data
-  expect(persisted.task).toMatchObject({ id: task.id, operationEventId: null, approvalStatus: 'APPROVED' })
+  expect(persisted.task).toMatchObject({ id: task.id, operationEventId: null })
+  expect(persisted.task).not.toHaveProperty('approvalStatus')
   expect(persisted.comments).toEqual(expect.arrayContaining([expect.objectContaining({ content: 'Minh chứng kiểm tra E2E', evidenceUrl: 'https://example.com/operations-evidence' })]))
-  await page.getByRole('button', { name: 'Tải việc chờ duyệt' }).click()
-  await expect(queue.getByRole('button', { name: 'Mở để duyệt' })).toHaveCount(0)
 })
 
 test('@critical Operations P4 standalone group assignment respects private blockout and acceptance', async ({ page, browser }, testInfo) => {
@@ -412,7 +410,6 @@ test('@critical Operations P5 previews and instantiates an immutable event templ
       priority: 'HIGH',
       dueAt: '2027-08-01T07:00:00Z',
       isRequired: true,
-      requiresApproval: true,
     },
   })
   expect(taskResponse.status()).toBe(201)
@@ -477,7 +474,8 @@ test('@critical Operations P5 previews and instantiates an immutable event templ
   const persisted = (await readBack.json()).data
   expect(persisted.event).toMatchObject({ status: 'DRAFT', sourceTemplateId: template.id, sourceTemplateVersion: 1 })
   expect(persisted.assignees).toEqual([])
-  expect(persisted.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ title: taskTitle, approvalStatus: 'PENDING' })]))
+  expect(persisted.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ title: taskTitle })]))
+  expect(persisted.tasks[0]).not.toHaveProperty('approvalStatus')
 
   const instantiatedDialog = page.getByRole('dialog', { name: eventTitle })
   await expect(instantiatedDialog.getByRole('tab', { name: 'Mẫu' })).toBeVisible()
@@ -597,7 +595,8 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
 
   await injectSession(page, admin)
   await page.goto('/operations')
-  await page.getByRole('button', { name: 'Tạo sự kiện vận hành' }).click()
+  await page.getByRole('button', { name: 'Tạo mới' }).click()
+  await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByLabel('Tên sự kiện').fill(eventTitle)
   await page.getByLabel('Bắt đầu').fill('2026-10-12T08:00')
   await page.getByLabel('Kết thúc').fill('2026-10-12T12:00')

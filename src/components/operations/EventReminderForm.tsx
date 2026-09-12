@@ -3,7 +3,9 @@ import { Bell } from 'lucide-react'
 import { Button, Select, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
 import { operationsApi, type OperationEventDetail, type OperationReminder, type OperationTaskDetail } from '../../lib/api/operations'
+import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
+import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { useOperationCandidates } from '../../hooks/useOperationCandidates'
 
 type Props = {
@@ -30,11 +32,21 @@ export function EventReminderForm({ event, task, enabled }: Props) {
   const [reason, setReason] = useState('')
   const alive = useRef(true)
   const submitting = useRef(false)
+  const { stableKey, releaseKey } = useStableCommandKey()
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
+  // D3': dedupe stays exact-instant server-side (B6' decision), so warn locally
+  // when the draft lands within an hour of another PENDING reminder for the
+  // same recipient. Advisory only — saving stays allowed.
+  const draftAt = at ? new Date(at).getTime() : NaN
+  const nearDuplicate = Number.isFinite(draftAt) && recipient
+    ? reminders.find(item => item.id !== editingId && item.status === 'PENDING'
+      && item.recipientUserId === recipient
+      && Math.abs(new Date(item.triggerAt).getTime() - draftAt) < 3_600_000)
+    : undefined
   const allowed = enabled && (task
     ? task.task.parishId === event.event.parishId && task.task.operationEventId === event.event.id && task.permissions['operations.task.assign'] && !['DONE', 'CANCELLED'].includes(task.task.status)
-    : event.permissions['operations.event.manage'] && ['DRAFT', 'PLANNING', 'READY'].includes(event.event.status))
+    : event.permissions['operations.event.manage'] && ['DRAFT', 'PLANNING', 'PREPARING', 'READY'].includes(event.event.status))
   const subject = task ? 'công việc' : 'sự kiện'
   const resourceId = task?.task.id ?? event.event.id
   const candidateDirectory = useOperationCandidates(task ? { taskId: resourceId } : { eventId: resourceId }, allowed)
@@ -54,7 +66,7 @@ export function EventReminderForm({ event, task, enabled }: Props) {
       if (alive.current && scope === getTenantScopeKey()) {
         setReminders([])
         setLoaded(false)
-        setMessage(error instanceof Error ? error.message : 'Không tải được lịch nhắc.')
+        setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không tải được lịch nhắc.'))
       }
     }
   }, [allowed, event.event.parishId, resourceId, task])
@@ -73,7 +85,7 @@ export function EventReminderForm({ event, task, enabled }: Props) {
       setMessage(success); setEditingId(null); setEditAt(''); setReason('')
       await loadReminders()
     } catch (error) {
-      if (alive.current && scope === getTenantScopeKey()) setMessage(error instanceof Error ? error.message : 'Không cập nhật được lịch nhắc.')
+      if (alive.current && scope === getTenantScopeKey()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không cập nhật được lịch nhắc.'))
     } finally {
       submitting.current = false
       if (alive.current && scope === getTenantScopeKey()) setBusy(false)
@@ -87,16 +99,23 @@ export function EventReminderForm({ event, task, enabled }: Props) {
       const trigger = new Date(at)
       if (!Number.isFinite(trigger.getTime()) || trigger.getTime() <= Date.now()) { setMessage('Chọn thời điểm nhắc trong tương lai.'); return }
       const target = task ? { taskId: task.task.id, kind: 'TASK_DUE' as const } : { eventId: event.event.id, kind: 'EVENT_START' as const }
+      const payload = { ...target, recipientUserId: recipient, triggerAt: trigger.toISOString() }
+      const key = stableKey('reminder-create', payload)
       void finishMutation(
-        () => operationsApi.createReminder({ ...target, recipientUserId: recipient, triggerAt: trigger.toISOString() }),
+        async () => {
+          const result = await operationsApi.createReminder(payload, key)
+          releaseKey('reminder-create')
+          return result
+        },
         'Đã lưu lịch nhắc. Việc gửi còn phụ thuộc quyền truy cập và thiết bị của người nhận.',
-        () => setAt(''),
+        () => { setAt('') },
       )
     }}>
       <h3 className="m-0 text-sm font-extrabold text-text-main">Đặt nhắc {subject}</h3>
       <p className="text-sm text-text-muted">Người nhận cần có tài khoản và quyền xem {subject}. Máy chủ sẽ kiểm tra lại trước khi gửi.</p>
       <Select aria-label={`Người nhận nhắc ${subject}`} value={recipient} required disabled={busy || candidateDirectory.loading} onChange={e => setRecipient(e.target.value)}><option value="">{candidateDirectory.loading ? 'Đang tải người nhận…' : 'Chọn người nhận'}</option>{candidates.map(candidate => <option key={candidate.userId!} value={candidate.userId!}>{candidate.displayName}</option>)}</Select>
       <TextInput aria-label={`Thời điểm nhắc ${subject}`} type="datetime-local" value={at} required disabled={busy} onChange={e => setAt(e.target.value)} />
+      {nearDuplicate && <p className="m-0 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/30 p-2 text-xs text-parish-warning">Đã có lịch nhắc đang chờ cho người này lúc {new Date(nearDuplicate.triggerAt).toLocaleString('vi-VN')} — kiểm tra trùng trước khi lưu.</p>}
       <Button type="submit" disabled={busy || !recipient || !at}>Lưu lịch nhắc</Button>
     </form>
     {candidateDirectory.error && <p role="alert" className="text-sm text-text-main">{candidateDirectory.error}</p>}
@@ -116,14 +135,29 @@ export function EventReminderForm({ event, task, enabled }: Props) {
           {editingId === reminder.id && <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
             <TextInput aria-label={`Giờ nhắc mới ${subject}`} type="datetime-local" value={editAt} disabled={busy} onChange={e => setEditAt(e.target.value)} />
             <TextInput aria-label={`Lý do đổi hoặc hủy nhắc ${subject}`} value={reason} maxLength={2000} required disabled={busy} placeholder="Lý do bắt buộc" onChange={e => setReason(e.target.value)} />
-            <Button size="sm" disabled={busy || !reason.trim() || !editAt || new Date(editAt).getTime() <= Date.now()} onClick={() => void finishMutation(
-              () => operationsApi.rescheduleReminder(reminder.id, { expectedVersion: reminder.version, triggerAt: new Date(editAt).toISOString(), reason: reason.trim() }),
-              'Đã đổi thời điểm nhắc.',
-            )}>Lưu giờ mới</Button>
-            <Button variant="danger" size="sm" disabled={busy || !reason.trim()} onClick={() => void finishMutation(
-              () => operationsApi.cancelReminder(reminder.id, reminder.version, reason.trim()),
-              'Đã hủy lịch nhắc.',
-            )}>Hủy lịch này</Button>
+            <Button size="sm" disabled={busy || !reason.trim() || !editAt || new Date(editAt).getTime() <= Date.now()} onClick={() => {
+              const payload = { expectedVersion: reminder.version, triggerAt: new Date(editAt).toISOString(), reason: reason.trim() }
+              const key = stableKey('reminder-reschedule', { id: reminder.id, ...payload })
+              return void finishMutation(
+                async () => {
+                  const result = await operationsApi.rescheduleReminder(reminder.id, payload, key)
+                  releaseKey('reminder-reschedule')
+                  return result
+                },
+                'Đã đổi thời điểm nhắc.',
+              )
+            }}>Lưu giờ mới</Button>
+            <Button variant="danger" size="sm" disabled={busy || !reason.trim()} onClick={() => {
+              const key = stableKey('reminder-cancel', { id: reminder.id, version: reminder.version })
+              return void finishMutation(
+                async () => {
+                  const result = await operationsApi.cancelReminder(reminder.id, reminder.version, reason.trim(), key)
+                  releaseKey('reminder-cancel')
+                  return result
+                },
+                'Đã hủy lịch nhắc.',
+              )
+            }}>Hủy lịch này</Button>
           </div>}
         </div>)}
       </div>

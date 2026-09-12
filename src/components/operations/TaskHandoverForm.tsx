@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, Select, TextArea } from '../common/ui'
 import { operationsApi, type OperationTaskDetail } from '../../lib/api/operations'
 import { getTenantScopeKey } from '../../lib/tenantScope'
+import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
 
 export function TaskHandoverForm({ detail, enabled, refresh, onWarnings }: {
@@ -14,6 +15,7 @@ export function TaskHandoverForm({ detail, enabled, refresh, onWarnings }: {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const { stableKey, releaseKey } = useStableCommandKey()
   const active = useRef(true)
   const inFlight = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
@@ -29,7 +31,9 @@ export function TaskHandoverForm({ detail, enabled, refresh, onWarnings }: {
     inFlight.current = true; setBusy(true); setError('')
     const current = () => active.current && scope === getTenantScopeKey()
     try {
-      const result = await operationsApi.handoverTask(detail.task.id, { version: detail.task.version, assignmentId: owner.id, assignmentVersion: owner.version, ...target, reason: reason.trim() })
+      const payload = { version: detail.task.version, assignmentId: owner.id, assignmentVersion: owner.version, ...target, reason: reason.trim() }
+      const result = await operationsApi.handoverTask(detail.task.id, payload, stableKey('task-handover', { id: detail.task.id, ...payload }))
+      releaseKey('task-handover')
       if (!current()) return
       onWarnings?.(detail.task.id, result.conflictWarnings)
       setCandidateValue(''); setReason('')

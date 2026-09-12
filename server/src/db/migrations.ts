@@ -2125,4 +2125,397 @@ CREATE TABLE operation_task_dispatches (
 CREATE UNIQUE INDEX idx_operation_task_dispatch_active ON operation_task_dispatches(parish_id,task_id) WHERE status IN ('SCHEDULED','PENDING');
 CREATE INDEX idx_operation_task_dispatch_reserve_due ON operation_task_dispatches(status,reserve_invite_at,reserve_invited_at);
 ` },
+  { version: '20260911-255', sql: `
+PRAGMA legacy_alter_table = ON;
+ALTER TABLE operation_reminders RENAME TO operation_reminders_legacy;
+CREATE TABLE operation_reminders (
+  parish_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  task_id TEXT,
+  event_id TEXT,
+  recipient_user_id TEXT NOT NULL,
+  trigger_at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('TASK_DUE','EVENT_START','OVERDUE','MANAGER_PREP')),
+  dedupe_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','ENQUEUED','SENT','FAILED','CANCELLED')),
+  read_at TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  sent_at TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+  enqueued_at TEXT,
+  lease_expires_at TEXT,
+  next_attempt_at TEXT,
+  notification_id TEXT,
+  PRIMARY KEY (parish_id, id)
+);
+INSERT INTO operation_reminders (
+  parish_id, id, task_id, event_id, recipient_user_id, trigger_at, kind, dedupe_key, status,
+  read_at, attempt_count, sent_at, error, created_at, version, enqueued_at, lease_expires_at, next_attempt_at, notification_id
+)
+SELECT
+  parish_id, id, task_id, event_id, recipient_user_id, trigger_at, kind, dedupe_key, status,
+  read_at, attempt_count, sent_at, error, created_at, version, enqueued_at, lease_expires_at, next_attempt_at, notification_id
+FROM operation_reminders_legacy;
+DROP TABLE operation_reminders_legacy;
+CREATE UNIQUE INDEX idx_operation_reminders_dedupe ON operation_reminders(parish_id, dedupe_key);
+CREATE INDEX idx_operation_reminders_due ON operation_reminders(parish_id, status, trigger_at);
+CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation_reminders BEGIN
+  SELECT CASE WHEN (NEW.task_id IS NULL) = (NEW.event_id IS NULL) THEN RAISE(ABORT, 'OPERATION_REMINDER_EXACTLY_ONE_TARGET') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.recipient_user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_RECIPIENT') END;
+  SELECT CASE WHEN NEW.task_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_tasks t WHERE t.parish_id = NEW.parish_id AND t.id = NEW.task_id AND t.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_TASK') END;
+  SELECT CASE WHEN NEW.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_EVENT') END;
+END;
+` },
+  { version: '20260912-256', sql: `
+PRAGMA legacy_alter_table = ON;
+DROP TRIGGER IF EXISTS check_parish_term_position_scope_insert;
+DROP TRIGGER IF EXISTS check_parish_term_position_scope_update;
+DROP TRIGGER IF EXISTS check_parish_leader_term_overlap_insert;
+DROP TRIGGER IF EXISTS check_parish_leader_term_overlap_update;
+DROP TRIGGER IF EXISTS check_parish_unit_position_scope_update;
+ALTER TABLE parish_service_terms RENAME TO parish_service_terms_legacy;
+CREATE TABLE parish_service_terms (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  person_id TEXT NOT NULL,
+  unit_id TEXT,
+  position_title TEXT NOT NULL,
+  position_code TEXT CHECK(position_code IN ('PARISH_LEADER','PARISH_SECRETARY','PARISH_DEPUTY','BRANCH_LEADER','BRANCH_DEPUTY','COMMITTEE_LEADER','COMMITTEE_DEPUTY')),
+  rank_title TEXT,
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  notes TEXT,
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id),
+  FOREIGN KEY (parish_id, person_id) REFERENCES parish_people(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, unit_id) REFERENCES parish_organization_units(parish_id, id) ON DELETE RESTRICT,
+  CHECK(end_date IS NULL OR end_date >= start_date)
+);
+INSERT INTO parish_service_terms (
+  id, parish_id, person_id, unit_id, position_title, position_code, rank_title,
+  start_date, end_date, notes, created_by, updated_by, created_at, updated_at, deleted_at
+)
+SELECT
+  id, parish_id, person_id, unit_id, position_title, position_code, rank_title,
+  start_date, end_date, notes, created_by, updated_by, created_at, updated_at, deleted_at
+FROM parish_service_terms_legacy;
+DROP TABLE parish_service_terms_legacy;
+CREATE INDEX IF NOT EXISTS idx_parish_terms_person ON parish_service_terms(parish_id, person_id, start_date);
+CREATE INDEX IF NOT EXISTS idx_parish_terms_unit ON parish_service_terms(parish_id, unit_id, start_date);
+CREATE TRIGGER check_parish_term_position_scope_insert
+BEFORE INSERT ON parish_service_terms
+WHEN NEW.position_code IS NOT NULL
+BEGIN
+  SELECT CASE
+    WHEN NEW.position_code IN ('PARISH_LEADER','PARISH_SECRETARY','PARISH_DEPUTY') AND NOT (
+      NEW.unit_id IS NULL OR EXISTS (
+        SELECT 1 FROM parish_organization_units u
+        WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+          AND u.unit_type = 'BOARD' AND u.is_active = 1 AND u.deleted_at IS NULL
+      )
+    ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+    WHEN NEW.position_code IN ('BRANCH_LEADER','BRANCH_DEPUTY') AND NOT EXISTS (
+      SELECT 1 FROM parish_organization_units u
+      WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+        AND u.unit_type = 'BRANCH' AND u.is_active = 1 AND u.deleted_at IS NULL
+    ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+    WHEN NEW.position_code IN ('COMMITTEE_LEADER','COMMITTEE_DEPUTY') AND NOT EXISTS (
+      SELECT 1 FROM parish_organization_units u
+      WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+        AND u.unit_type = 'COMMITTEE' AND u.is_active = 1 AND u.deleted_at IS NULL
+    ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+  END;
+END;
+CREATE TRIGGER check_parish_term_position_scope_update
+BEFORE UPDATE OF parish_id, unit_id, position_code ON parish_service_terms
+WHEN NEW.position_code IS NOT NULL
+BEGIN
+  SELECT CASE
+    WHEN NEW.position_code IN ('PARISH_LEADER','PARISH_SECRETARY','PARISH_DEPUTY') AND NOT (
+      NEW.unit_id IS NULL OR EXISTS (
+        SELECT 1 FROM parish_organization_units u
+        WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+          AND u.unit_type = 'BOARD' AND u.is_active = 1 AND u.deleted_at IS NULL
+      )
+    ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+    WHEN NEW.position_code IN ('BRANCH_LEADER','BRANCH_DEPUTY') AND NOT EXISTS (
+      SELECT 1 FROM parish_organization_units u
+      WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+        AND u.unit_type = 'BRANCH' AND u.is_active = 1 AND u.deleted_at IS NULL
+    ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+    WHEN NEW.position_code IN ('COMMITTEE_LEADER','COMMITTEE_DEPUTY') AND NOT EXISTS (
+      SELECT 1 FROM parish_organization_units u
+      WHERE u.parish_id = NEW.parish_id AND u.id = NEW.unit_id
+        AND u.unit_type = 'COMMITTEE' AND u.is_active = 1 AND u.deleted_at IS NULL
+    ) THEN RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH')
+  END;
+END;
+CREATE TRIGGER check_parish_leader_term_overlap_insert
+BEFORE INSERT ON parish_service_terms
+WHEN NEW.position_code IS NOT NULL AND EXISTS (
+  SELECT 1 FROM parish_service_terms existing
+  WHERE existing.parish_id = NEW.parish_id
+    AND existing.position_code = NEW.position_code
+    AND existing.deleted_at IS NULL
+    AND (NEW.position_code IN ('PARISH_LEADER','PARISH_SECRETARY','PARISH_DEPUTY') OR existing.unit_id = NEW.unit_id)
+    AND existing.start_date <= coalesce(NEW.end_date, '9999-12-31')
+    AND coalesce(existing.end_date, '9999-12-31') >= NEW.start_date
+)
+BEGIN SELECT RAISE(ABORT, 'PARISH_POSITION_TERM_OVERLAP'); END;
+CREATE TRIGGER check_parish_leader_term_overlap_update
+BEFORE UPDATE OF parish_id,unit_id,position_code,start_date,end_date,deleted_at ON parish_service_terms
+WHEN NEW.position_code IS NOT NULL AND NEW.deleted_at IS NULL AND EXISTS (
+  SELECT 1 FROM parish_service_terms existing
+  WHERE existing.parish_id = NEW.parish_id
+    AND existing.id <> NEW.id
+    AND existing.position_code = NEW.position_code
+    AND existing.deleted_at IS NULL
+    AND (NEW.position_code IN ('PARISH_LEADER','PARISH_SECRETARY','PARISH_DEPUTY') OR existing.unit_id = NEW.unit_id)
+    AND existing.start_date <= coalesce(NEW.end_date, '9999-12-31')
+    AND coalesce(existing.end_date, '9999-12-31') >= NEW.start_date
+)
+BEGIN SELECT RAISE(ABORT, 'PARISH_POSITION_TERM_OVERLAP'); END;
+CREATE TRIGGER check_parish_unit_position_scope_update
+BEFORE UPDATE OF unit_type ON parish_organization_units
+WHEN NEW.unit_type <> OLD.unit_type AND EXISTS (
+  SELECT 1 FROM parish_service_terms term
+  WHERE term.parish_id = OLD.parish_id AND term.unit_id = OLD.id
+    AND term.deleted_at IS NULL AND (
+      (term.position_code IN ('PARISH_LEADER','PARISH_SECRETARY','PARISH_DEPUTY') AND NEW.unit_type <> 'BOARD') OR
+      (term.position_code IN ('BRANCH_LEADER','BRANCH_DEPUTY') AND NEW.unit_type <> 'BRANCH') OR
+      (term.position_code IN ('COMMITTEE_LEADER','COMMITTEE_DEPUTY') AND NEW.unit_type <> 'COMMITTEE')
+    )
+)
+BEGIN SELECT RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH'); END;
+PRAGMA legacy_alter_table = OFF;
+` },
+  { version: '20260912-257', sql: `
+ALTER TABLE operation_events ADD COLUMN event_scope_type TEXT CHECK(event_scope_type IN ('XU_DOAN','UNIT'));
+UPDATE operation_events SET event_scope_type = CASE WHEN scope_unit_id IS NULL THEN 'XU_DOAN' ELSE 'UNIT' END WHERE event_scope_type IS NULL;
+CREATE INDEX IF NOT EXISTS idx_operation_events_scope_type ON operation_events(parish_id, event_scope_type, status);
+CREATE TRIGGER check_operation_event_scope_type_insert BEFORE INSERT ON operation_events
+WHEN NEW.event_scope_type IS NOT NULL
+BEGIN
+  SELECT CASE
+    WHEN NEW.event_scope_type = 'XU_DOAN' AND NEW.scope_unit_id IS NOT NULL THEN RAISE(ABORT, 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH')
+    WHEN NEW.event_scope_type = 'UNIT' AND NEW.scope_unit_id IS NULL THEN RAISE(ABORT, 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH')
+  END;
+END;
+CREATE TRIGGER check_operation_event_scope_type_update BEFORE UPDATE OF event_scope_type, scope_unit_id ON operation_events
+WHEN NEW.event_scope_type IS NOT NULL
+BEGIN
+  SELECT CASE
+    WHEN NEW.event_scope_type = 'XU_DOAN' AND NEW.scope_unit_id IS NOT NULL THEN RAISE(ABORT, 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH')
+    WHEN NEW.event_scope_type = 'UNIT' AND NEW.scope_unit_id IS NULL THEN RAISE(ABORT, 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH')
+  END;
+END;
+` },
+  { version: '20260912-258', sql: `
+ALTER TABLE operation_tasks ADD COLUMN scope_unit_id TEXT;
+UPDATE operation_tasks SET scope_unit_id = (
+  SELECT w.source_unit_id FROM operation_workstreams w
+  WHERE w.parish_id = operation_tasks.parish_id AND w.id = operation_tasks.workstream_id
+) WHERE scope_unit_id IS NULL AND workstream_id IS NOT NULL;
+UPDATE operation_tasks SET scope_unit_id = (
+  SELECT e.scope_unit_id FROM operation_events e
+  WHERE e.parish_id = operation_tasks.parish_id AND e.id = operation_tasks.operation_event_id
+) WHERE scope_unit_id IS NULL AND operation_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_operation_tasks_scope ON operation_tasks(parish_id, scope_unit_id, deleted_at);
+CREATE TRIGGER check_operation_task_scope_unit_insert BEFORE INSERT ON operation_tasks
+WHEN NEW.scope_unit_id IS NOT NULL
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM parish_organization_units u
+    WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1
+  ) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_SCOPE') END;
+END;
+CREATE TRIGGER check_operation_task_scope_unit_update BEFORE UPDATE OF scope_unit_id ON operation_tasks
+WHEN NEW.scope_unit_id IS NOT NULL
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM parish_organization_units u
+    WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1
+  ) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_SCOPE') END;
+END;
+` },
+  { version: '20260912-259', sql: `
+-- O3 activation on legacy data: exact-match backfill for deputy/secretary titles
+-- that migration 20260908-230 left as position_code NULL. Same precedent and
+-- fail-closed semantics as 230: overlapping same-code terms abort the migration
+-- via check_parish_leader_term_overlap_* so the operator fixes data first
+-- (run db:audit:operations-authority preflight before upgrading production).
+-- Standalone-task scope stays route-enforced (no DB trigger) because the ADMIN
+-- compatibility path (O2) is actor-aware and invisible at the trigger layer.
+UPDATE parish_service_terms SET position_code = CASE
+  WHEN lower(trim(position_title)) IN ('thư ký', 'thư ký xứ đoàn')
+    AND (unit_id IS NULL OR EXISTS (
+      SELECT 1 FROM parish_organization_units u
+      WHERE u.parish_id = parish_service_terms.parish_id
+        AND u.id = parish_service_terms.unit_id
+        AND u.unit_type = 'BOARD'
+        AND u.is_active = 1
+        AND u.deleted_at IS NULL
+    )) THEN 'PARISH_SECRETARY'
+  WHEN lower(trim(position_title)) IN ('phó xứ đoàn', 'phó xứ')
+    AND (unit_id IS NULL OR EXISTS (
+      SELECT 1 FROM parish_organization_units u
+      WHERE u.parish_id = parish_service_terms.parish_id
+        AND u.id = parish_service_terms.unit_id
+        AND u.unit_type = 'BOARD'
+        AND u.is_active = 1
+        AND u.deleted_at IS NULL
+    )) THEN 'PARISH_DEPUTY'
+  WHEN lower(trim(position_title)) IN ('phó ngành', 'phó trưởng ngành') AND EXISTS (
+    SELECT 1 FROM parish_organization_units u
+    WHERE u.parish_id = parish_service_terms.parish_id
+      AND u.id = parish_service_terms.unit_id
+      AND u.unit_type = 'BRANCH'
+      AND u.is_active = 1
+      AND u.deleted_at IS NULL
+  ) THEN 'BRANCH_DEPUTY'
+  WHEN lower(trim(position_title)) IN ('phó ban', 'phó trưởng ban') AND EXISTS (
+    SELECT 1 FROM parish_organization_units u
+    WHERE u.parish_id = parish_service_terms.parish_id
+      AND u.id = parish_service_terms.unit_id
+      AND u.unit_type = 'COMMITTEE'
+      AND u.is_active = 1
+      AND u.deleted_at IS NULL
+  ) THEN 'COMMITTEE_DEPUTY'
+  ELSE position_code
+END
+WHERE position_code IS NULL;
+` },
+  { version: '20260912-260', sql: `
+PRAGMA legacy_alter_table = ON;
+-- Fail closed when live approval/observer state exists. There is no safe
+-- automatic mapping (approving/rejecting/revoking on the operator's behalf
+-- would fabricate decisions), so the operator resolves it first: finish or
+-- remove pending reviews, revoke legacy assignments/memberships. Revoked
+-- history rows are inert and stay; approval history stays in audit_logs.
+-- (RAISE() cannot be used outside triggers, so each guard inserts the same
+-- marker twice into a fresh PRIMARY KEY table: zero bad rows insert nothing,
+-- one or more bad rows die on the second insert with a self-naming
+-- UNIQUE violation that rolls the whole migration back.)
+CREATE TABLE operations_approval_removal_guard_task_assignees(marker TEXT PRIMARY KEY);
+INSERT INTO operations_approval_removal_guard_task_assignees(marker)
+  SELECT 'legacy-active-assignment' FROM operation_task_assignees WHERE removed_at IS NULL AND assignment_role NOT IN ('OWNER','CONTRIBUTOR')
+  UNION ALL
+  SELECT 'legacy-active-assignment' FROM operation_task_assignees WHERE removed_at IS NULL AND assignment_role NOT IN ('OWNER','CONTRIBUTOR');
+DROP TABLE operations_approval_removal_guard_task_assignees;
+CREATE TABLE operations_approval_removal_guard_workstream_members(marker TEXT PRIMARY KEY);
+INSERT INTO operations_approval_removal_guard_workstream_members(marker)
+  SELECT 'legacy-active-membership' FROM operation_workstream_members WHERE removed_at IS NULL AND operation_role NOT IN ('WORKSTREAM_LEAD','OBSERVER')
+  UNION ALL
+  SELECT 'legacy-active-membership' FROM operation_workstream_members WHERE removed_at IS NULL AND operation_role NOT IN ('WORKSTREAM_LEAD','OBSERVER');
+DROP TABLE operations_approval_removal_guard_workstream_members;
+CREATE TABLE operations_approval_removal_guard_tasks(marker TEXT PRIMARY KEY);
+INSERT INTO operations_approval_removal_guard_tasks(marker)
+  SELECT 'legacy-pending-review' FROM operation_tasks WHERE deleted_at IS NULL AND approval_status = 'PENDING'
+  UNION ALL
+  SELECT 'legacy-pending-review' FROM operation_tasks WHERE deleted_at IS NULL AND approval_status = 'PENDING';
+DROP TABLE operations_approval_removal_guard_tasks;
+ALTER TABLE operation_tasks RENAME TO operation_tasks_legacy;
+CREATE TABLE operation_tasks (
+  id TEXT NOT NULL,
+  parish_id TEXT NOT NULL,
+  operation_event_id TEXT,
+  workstream_id TEXT,
+  scope_unit_id TEXT,
+  parent_task_id TEXT,
+  phase TEXT NOT NULL DEFAULT 'PREPARATION' CHECK(phase IN ('PREPARATION','EXECUTION','FOLLOW_UP')),
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT NOT NULL DEFAULT 'TODO' CHECK(status IN ('BACKLOG','TODO','IN_PROGRESS','BLOCKED','DONE','CANCELLED')),
+  priority TEXT NOT NULL DEFAULT 'NORMAL' CHECK(priority IN ('LOW','NORMAL','HIGH','URGENT')),
+  is_required INTEGER NOT NULL DEFAULT 0 CHECK(is_required IN (0,1)),
+  due_at TEXT,
+  scheduled_start_at TEXT,
+  scheduled_end_at TEXT,
+  started_at TEXT,
+  completed_at TEXT,
+  completion_note TEXT,
+  blocked_reason TEXT,
+  cancellation_reason TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  completed_by TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TEXT,
+  PRIMARY KEY (parish_id, id),
+  FOREIGN KEY (parish_id, operation_event_id) REFERENCES operation_events(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, workstream_id) REFERENCES operation_workstreams(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, scope_unit_id) REFERENCES parish_organization_units(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, parent_task_id) REFERENCES operation_tasks(parish_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (parish_id, completed_by) REFERENCES users(parish_id, id) ON DELETE RESTRICT,
+  CHECK((scheduled_start_at IS NULL AND scheduled_end_at IS NULL) OR (scheduled_start_at IS NOT NULL AND scheduled_end_at IS NOT NULL AND scheduled_end_at > scheduled_start_at))
+);
+INSERT INTO operation_tasks (id, parish_id, operation_event_id, workstream_id, scope_unit_id, parent_task_id, phase, title, description, status, priority, is_required, due_at, scheduled_start_at, scheduled_end_at, started_at, completed_at, completion_note, blocked_reason, cancellation_reason, version, created_by, updated_by, completed_by, created_at, updated_at, deleted_at)
+  SELECT id, parish_id, operation_event_id, workstream_id, scope_unit_id, parent_task_id, phase, title, description, status, priority, is_required, due_at, scheduled_start_at, scheduled_end_at, started_at, completed_at, completion_note, blocked_reason, cancellation_reason, version, created_by, updated_by, completed_by, created_at, updated_at, deleted_at
+  FROM operation_tasks_legacy;
+DROP TABLE operation_tasks_legacy;
+CREATE INDEX IF NOT EXISTS idx_operation_tasks_list ON operation_tasks(parish_id, status, due_at, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_operation_tasks_workstream ON operation_tasks(parish_id, workstream_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_operation_tasks_schedule ON operation_tasks(parish_id, scheduled_start_at, scheduled_end_at, status, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_operation_tasks_scope ON operation_tasks(parish_id, scope_unit_id, deleted_at);
+CREATE TRIGGER check_operation_task_scope_insert BEFORE INSERT ON operation_tasks BEGIN
+  SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_EVENT') END;
+  SELECT CASE WHEN NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_WORKSTREAM') END;
+  SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.operation_event_id = NEW.operation_event_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'OPERATION_TASK_EVENT_WORKSTREAM_MISMATCH') END;
+END;
+CREATE TRIGGER check_operation_task_scope_update BEFORE UPDATE OF operation_event_id, workstream_id ON operation_tasks BEGIN
+  SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_EVENT') END;
+  SELECT CASE WHEN NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_WORKSTREAM') END;
+  SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.operation_event_id = NEW.operation_event_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'OPERATION_TASK_EVENT_WORKSTREAM_MISMATCH') END;
+END;
+CREATE TRIGGER check_operation_task_cancellation_insert
+BEFORE INSERT ON operation_tasks
+WHEN NEW.status = 'CANCELLED' AND trim(coalesce(NEW.cancellation_reason, '')) = ''
+BEGIN
+  SELECT RAISE(ABORT, 'OPERATION_TASK_CANCELLATION_REASON_REQUIRED');
+END;
+CREATE TRIGGER check_operation_task_cancellation_update
+BEFORE UPDATE OF status, cancellation_reason ON operation_tasks
+WHEN NEW.status = 'CANCELLED' AND trim(coalesce(NEW.cancellation_reason, '')) = ''
+BEGIN
+  SELECT RAISE(ABORT, 'OPERATION_TASK_CANCELLATION_REASON_REQUIRED');
+END;
+CREATE TRIGGER check_operation_task_schedule_insert
+BEFORE INSERT ON operation_tasks
+WHEN NOT (
+  (NEW.scheduled_start_at IS NULL AND NEW.scheduled_end_at IS NULL)
+  OR (NEW.scheduled_start_at IS NOT NULL AND NEW.scheduled_end_at IS NOT NULL AND NEW.scheduled_end_at > NEW.scheduled_start_at)
+)
+BEGIN SELECT RAISE(ABORT, 'operation task schedule requires a valid start/end pair'); END;
+CREATE TRIGGER check_operation_task_schedule_update
+BEFORE UPDATE OF scheduled_start_at,scheduled_end_at ON operation_tasks
+WHEN NOT (
+  (NEW.scheduled_start_at IS NULL AND NEW.scheduled_end_at IS NULL)
+  OR (NEW.scheduled_start_at IS NOT NULL AND NEW.scheduled_end_at IS NOT NULL AND NEW.scheduled_end_at > NEW.scheduled_start_at)
+)
+BEGIN SELECT RAISE(ABORT, 'operation task schedule requires a valid start/end pair'); END;
+CREATE TRIGGER check_operation_task_scope_unit_insert BEFORE INSERT ON operation_tasks
+WHEN NEW.scope_unit_id IS NOT NULL
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM parish_organization_units u
+    WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1
+  ) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_SCOPE') END;
+END;
+CREATE TRIGGER check_operation_task_scope_unit_update BEFORE UPDATE OF scope_unit_id ON operation_tasks
+WHEN NEW.scope_unit_id IS NOT NULL
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM parish_organization_units u
+    WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1
+  ) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_SCOPE') END;
+END;
+` },
 ]

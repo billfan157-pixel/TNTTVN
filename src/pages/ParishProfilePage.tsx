@@ -44,6 +44,7 @@ import { PARISH_LOGO_MEANING } from '../constants/parishLogoMeaning'
 import parishLogo from '../assets/logo-gia-ton.png'
 import { useConfirmDialog } from '../hooks/useConfirmDialog'
 import { api } from '../lib/api'
+import { OPERATIONS_POSITION_LABELS_VI } from '../lib/api/operations'
 import { useParishProfileStore } from '../stores/parishProfileStore'
 import { useToastStore } from '../stores/toastStore'
 import { hasCoordinationRole, sortTermsByAuthority } from '../utils/parishTerms'
@@ -906,6 +907,9 @@ function UnitCard({ unit, terms, peopleById, unitsById, canManage, onEdit, onDel
                   <div className="mt-0.5 text-xs text-text-muted flex items-center gap-1.5 flex-wrap">
                     <span>{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</span>
                     {hasCoordinationRole(term) && <span className="badge badge-primary">Điều phối</span>}
+                    {term.positionCode && OPERATIONS_POSITION_LABELS_VI[term.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI] && (
+                      <span className="badge">{OPERATIONS_POSITION_LABELS_VI[term.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI]}</span>
+                    )}
                   </div>
                 </div>
                 {canManage && <ActionButtons label={term.positionTitle} onEdit={() => onEditTerm(term)} onDelete={() => onDeleteTerm(term)} />}
@@ -974,6 +978,9 @@ function PersonCard({ person, terms, unitsById, canManage, onSelect, onEdit, onD
                 <span className="text-xs font-bold text-text-main flex items-center gap-1.5 flex-wrap">
                   <span>{term.positionTitle}{term.rankTitle ? ` · ${term.rankTitle}` : ''}</span>
                   {hasCoordinationRole(term) && <span className="badge badge-primary">Điều phối</span>}
+                  {term.positionCode && OPERATIONS_POSITION_LABELS_VI[term.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI] && (
+                    <span className="badge">{OPERATIONS_POSITION_LABELS_VI[term.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI]}</span>
+                  )}
                 </span>
                 <span className="block text-xs text-text-muted">{term.unitId ? unitsById.get(term.unitId)?.name : 'Toàn Xứ đoàn'} · {formatDate(term.startDate)} – {term.endDate ? formatDate(term.endDate) : 'nay'}</span>
               </div>

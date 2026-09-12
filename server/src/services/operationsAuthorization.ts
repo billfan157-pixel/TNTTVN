@@ -30,13 +30,11 @@ export type OperationsCapability =
   | 'operations.task.assign'
   | 'operations.task.execute'
   | 'operations.task.reassign'
-  | 'operations.task.approve'
   | 'operations.task.comment'
   | 'operations.workstream.create'
   | 'operations.workstream.manage'
   | 'operations.workstream.assign_lead'
   | 'operations.workstream.mark_ready'
-  | 'operations.audit.view'
 
 export type OperationsScope = {
   parishId: string
@@ -48,7 +46,7 @@ export type OperationsScope = {
 
 export type OperationsDecision = {
   allowed: boolean
-  reason: 'ALLOWED' | 'ACCOUNT_ROLE' | 'POSITION_SCOPE' | 'OPERATION_ROLE' | 'RESOURCE_NOT_FOUND'
+  reason: 'ALLOWED' | 'ADMIN_OVERRIDE' | 'ACCOUNT_ROLE' | 'POSITION_SCOPE' | 'OPERATION_ROLE' | 'RESOURCE_NOT_FOUND'
   positionTitles: string[]
   unitIds: string[]
   operationRoles: string[]
@@ -56,9 +54,9 @@ export type OperationsDecision = {
 
 export type OperationsAuthorizationResource = {
   parishId: string
-  task?: { id: string; workstreamId: string | null; operationEventId: string | null }
+  task?: { id: string; workstreamId: string | null; operationEventId: string | null; scopeUnitId?: string | null }
   workstream?: { id: string; sourceUnitId: string | null; operationEventId: string | null }
-  event?: { id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string }
+  event?: { id: string; scopeUnitId: string | null; eventScopeType?: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string }
   resourceUnitId: string | null
 }
 
@@ -82,7 +80,7 @@ type OperationsAuthorizationSnapshot = {
 const STAFF_ROLES = new Set(['admin', 'chunhiem', 'phuta'])
 
 const ADMIN_READ_CAPABILITIES = new Set<OperationsCapability>([
-  'operations.event.view', 'operations.task.view', 'operations.audit.view',
+  'operations.event.view', 'operations.task.view',
 ])
 const ADMIN_OVERRIDE_CAPABILITIES = new Set<OperationsCapability>([
   'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.event.transition',
@@ -90,14 +88,27 @@ const ADMIN_OVERRIDE_CAPABILITIES = new Set<OperationsCapability>([
   'operations.task.view', 'operations.task.create',
   'operations.task.manage', 'operations.task.assign', 'operations.task.reassign', 'operations.task.comment',
   'operations.workstream.create', 'operations.workstream.manage', 'operations.workstream.assign_lead',
-  'operations.workstream.mark_ready', 'operations.audit.view',
+  'operations.workstream.mark_ready',
 ])
 const PARISH_LEADER_CAPABILITIES = new Set(ADMIN_OVERRIDE_CAPABILITIES)
-const UNIT_LEADER_CAPABILITIES = new Set<OperationsCapability>([
+const PARISH_OFFICE_CAPABILITIES = new Set<OperationsCapability>([
+  'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.event.transition',
+  'operations.event.cancel', 'operations.task.view',
+  'operations.task.create', 'operations.task.manage', 'operations.task.assign', 'operations.task.reassign',
+  'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
+  'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
+])
+/** Thư ký: đọc toàn xứ + tạo Event Xứ đoàn; mọi quyền khác trên event/task của
+ * người khác đều không có — quyền trên event/task mình tạo đi qua role
+ * EVENT_CREATOR (operationRoleAllows), không qua position scope. */
+const PARISH_SECRETARY_CAPABILITIES = new Set<OperationsCapability>([
+  'operations.event.view', 'operations.task.view', 'operations.event.create',
+])
+const UNIT_LEADER_OR_DEPUTY_CAPABILITIES = new Set<OperationsCapability>([
   'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.task.view',
   'operations.task.create', 'operations.task.manage', 'operations.task.assign', 'operations.task.reassign',
   'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
-  'operations.workstream.assign_lead', 'operations.workstream.mark_ready', 'operations.audit.view',
+  'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
 ])
 
 function deny(reason: OperationsDecision['reason'], positionTitles: string[] = [], unitIds: string[] = [], operationRoles: string[] = []): OperationsDecision {
@@ -105,9 +116,9 @@ function deny(reason: OperationsDecision['reason'], positionTitles: string[] = [
 }
 
 async function loadResource(executor: DbExecutor, parishId: string, scope: OperationsScope): Promise<OperationsAuthorizationResource | null> {
-  let task: { id: string; workstreamId: string | null; operationEventId: string | null } | undefined
+  let task: { id: string; workstreamId: string | null; operationEventId: string | null; scopeUnitId?: string | null } | undefined
   if (scope.taskId) {
-    ;[task] = await executor.select({ id: operationTasks.id, workstreamId: operationTasks.workstreamId, operationEventId: operationTasks.operationEventId })
+    ;[task] = await executor.select({ id: operationTasks.id, workstreamId: operationTasks.workstreamId, operationEventId: operationTasks.operationEventId, scopeUnitId: operationTasks.scopeUnitId })
       .from(operationTasks)
       .where(and(eq(operationTasks.parishId, parishId), eq(operationTasks.id, scope.taskId), isNull(operationTasks.deletedAt))).limit(1)
     if (!task) return null
@@ -128,15 +139,15 @@ async function loadResource(executor: DbExecutor, parishId: string, scope: Opera
   if (scope.eventId && resourceEventId && scope.eventId !== resourceEventId) return null
   if (scope.eventId && (task || workstream) && !resourceEventId) return null
   const eventId = scope.eventId ?? resourceEventId
-  let event: { id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string } | undefined
+  let event: { id: string; scopeUnitId: string | null; eventScopeType?: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string } | undefined
   if (eventId) {
-    ;[event] = await executor.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy })
+    ;[event] = await executor.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, eventScopeType: operationEvents.eventScopeType, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy })
       .from(operationEvents)
       .where(and(eq(operationEvents.parishId, parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
     if (!event) return null
   }
 
-  return { parishId, task, workstream, event, resourceUnitId: scope.resourceUnitId ?? workstream?.sourceUnitId ?? event?.scopeUnitId ?? null }
+  return { parishId, task, workstream, event, resourceUnitId: scope.resourceUnitId ?? task?.scopeUnitId ?? workstream?.sourceUnitId ?? event?.scopeUnitId ?? null }
 }
 
 async function loadAuthorizationSnapshot(executor: DbExecutor, actor: ActorContext): Promise<OperationsAuthorizationSnapshot> {
@@ -230,9 +241,12 @@ async function resolveTargetAuthority(
   if (!decision.allowed) {
     throw Object.assign(new Error('Bạn không có quyền Operations trong phạm vi này.'), { status: 403, code: 'FORBIDDEN', decision })
   }
+  // Thư ký không còn parish-wide: đọc toàn xứ đi qua capability view,
+  // còn target-scope (phân công/lead) phải thỏa unit như mọi actor khác.
   const parishWide = (actor.role === 'admin' && isOperationsAdminMutationOverrideEnabled())
     || snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER')
-  return { resource, snapshot, parishWide }
+    || snapshot.currentTerms.some(term => term.positionCode === 'PARISH_DEPUTY')
+  return { resource, snapshot, parishWide, decision }
 }
 
 function personIsInResourceScope(
@@ -245,18 +259,28 @@ function personIsInResourceScope(
   return (termUnitIdsByPerson.get(personId) ?? []).some(unitId => resourceUnitIds.has(unitId))
 }
 
+const IN_ARRAY_CHUNK_SIZE = 400
+
+async function selectInChunks<T>(ids: string[], load: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const out: T[] = []
+  for (let index = 0; index < ids.length; index += IN_ARRAY_CHUNK_SIZE) {
+    out.push(...await load(ids.slice(index, index + IN_ARRAY_CHUNK_SIZE)))
+  }
+  return out
+}
+
 async function currentTermUnitIdsByPerson(executor: DbExecutor, parishId: string, personIds: string[]) {
   const result = new Map<string, string[]>()
   if (personIds.length === 0) return result
   const today = parishCalendarDate()
-  const terms = await executor.select({ personId: parishServiceTerms.personId, unitId: parishServiceTerms.unitId })
+  const terms = await selectInChunks(personIds, chunk => executor.select({ personId: parishServiceTerms.personId, unitId: parishServiceTerms.unitId })
     .from(parishServiceTerms).where(and(
       eq(parishServiceTerms.parishId, parishId),
-      inArray(parishServiceTerms.personId, personIds),
+      inArray(parishServiceTerms.personId, chunk),
       lte(parishServiceTerms.startDate, today),
       or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
       isNull(parishServiceTerms.deletedAt),
-    ))
+    )))
   for (const term of terms) {
     if (!term.unitId) continue
     result.set(term.personId, [...(result.get(term.personId) ?? []), term.unitId])
@@ -277,7 +301,11 @@ export async function assertOperationsTargetWithinAuthority(
   target: { userId?: string | null; personId?: string | null },
   executor: DbExecutor = db,
 ): Promise<void> {
-  const { resource, snapshot, parishWide } = await resolveTargetAuthority(actor, capability, scope, executor)
+  const { resource, snapshot, parishWide, decision } = await resolveTargetAuthority(actor, capability, scope, executor)
+  // Record the capability decision so D3 audit trails can distinguish a
+  // business-authority assignment from a parish-wide override, including the
+  // organizer/lead/scope target bypasses that return early below.
+  if (executor && typeof executor === 'object') rememberOperationsAuthorization(executor, decision)
   if (parishWide || !resource.resourceUnitId) return
   const people = target.personId
     ? await executor.select({ id: parishPeople.id }).from(parishPeople).where(and(
@@ -305,17 +333,60 @@ export async function listOperationsCandidates(
   executor: DbExecutor = db,
 ): Promise<OperationsCandidate[]> {
   const { resource, snapshot, parishWide } = await resolveTargetAuthority(actor, capability, scope, executor)
-  const [people, staffAccounts] = await Promise.all([
-    executor.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId, fullName: parishPeople.fullName })
-      .from(parishPeople).where(and(eq(parishPeople.parishId, actor.parishId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).orderBy(asc(parishPeople.fullName)),
-    executor.select({ id: users.id, fullName: users.fullName }).from(users).where(and(
+  const resourceUnitId = resource.resourceUnitId
+  // Unit-scoped pickers only need people in the resource unit tree. Parish-wide
+  // actors (admin override / Xứ đoàn office) keep the previous full directory.
+  const scopeUnitIds = (!parishWide && resourceUnitId)
+    ? descendantIds(snapshot.units, resourceUnitId)
+    : null
+
+  let people: Array<{ id: string; linkedUserId: string | null; fullName: string }>
+  if (scopeUnitIds) {
+    const today = parishCalendarDate()
+    const scopedPersonRows = scopeUnitIds.length === 0
+      ? []
+      : await selectInChunks(scopeUnitIds, chunk => executor.select({ personId: parishServiceTerms.personId }).from(parishServiceTerms).where(and(
+        eq(parishServiceTerms.parishId, actor.parishId),
+        inArray(parishServiceTerms.unitId, chunk),
+        lte(parishServiceTerms.startDate, today),
+        or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+        isNull(parishServiceTerms.deletedAt),
+      )))
+    const scopedPersonIds = [...new Set(scopedPersonRows.map(row => row.personId))]
+    const scopedPeople = scopedPersonIds.length === 0
+      ? []
+      : await selectInChunks(scopedPersonIds, chunk => executor.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId, fullName: parishPeople.fullName })
+        .from(parishPeople).where(and(
+          eq(parishPeople.parishId, actor.parishId),
+          inArray(parishPeople.id, chunk),
+          eq(parishPeople.serviceStatus, 'ACTIVE'),
+          isNull(parishPeople.deletedAt),
+        )))
+    // Chunked loads lose ORDER BY; the final directory sort below restores it.
+    people = scopedPeople.sort((left, right) => left.fullName.localeCompare(right.fullName, 'vi'))
+  } else {
+    people = await executor.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId, fullName: parishPeople.fullName })
+      .from(parishPeople).where(and(eq(parishPeople.parishId, actor.parishId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).orderBy(asc(parishPeople.fullName))
+  }
+
+  const linkedUserIds = new Set(people.flatMap(person => person.linkedUserId ? [person.linkedUserId] : []))
+  // Account-only staff are always out of unit scope; skip the full staff table there.
+  const staffAccounts = scopeUnitIds
+    ? (linkedUserIds.size === 0
+      ? []
+      : await selectInChunks([...linkedUserIds], chunk => executor.select({ id: users.id, fullName: users.fullName }).from(users).where(and(
+        eq(users.parishId, actor.parishId),
+        inArray(users.id, chunk),
+        inArray(users.role, ['admin', 'chunhiem', 'phuta']),
+        eq(users.status, 'ACTIVE'),
+        isNull(users.deletedAt),
+      ))))
+    : await executor.select({ id: users.id, fullName: users.fullName }).from(users).where(and(
       eq(users.parishId, actor.parishId), inArray(users.role, ['admin', 'chunhiem', 'phuta']), eq(users.status, 'ACTIVE'), isNull(users.deletedAt),
-    )),
-  ])
+    ))
+
   const staffById = new Map(staffAccounts.map(account => [account.id, account]))
   const termUnitIds = await currentTermUnitIdsByPerson(executor, actor.parishId, people.map(person => person.id))
-  const linkedUserIds = new Set(people.flatMap(person => person.linkedUserId ? [person.linkedUserId] : []))
-  const resourceUnitId = resource.resourceUnitId
   const personCandidates: OperationsCandidate[] = people.map(person => {
     const activeStaff = person.linkedUserId ? staffById.get(person.linkedUserId) : undefined
     const inResourceScope = resourceUnitId ? personIsInResourceScope(person.id, resourceUnitId, snapshot, termUnitIds) : null
@@ -328,9 +399,11 @@ export async function listOperationsCandidates(
       inResourceScope,
     }
   })
-  const accountOnlyCandidates: OperationsCandidate[] = staffAccounts
-    .filter(account => !linkedUserIds.has(account.id))
-    .map(account => ({ parishId: actor.parishId, personId: null, userId: account.id, displayName: account.fullName, eligibility: 'ACTIONABLE', inResourceScope: resourceUnitId ? false : null }))
+  const accountOnlyCandidates: OperationsCandidate[] = scopeUnitIds
+    ? []
+    : staffAccounts
+      .filter(account => !linkedUserIds.has(account.id))
+      .map(account => ({ parishId: actor.parishId, personId: null, userId: account.id, displayName: account.fullName, eligibility: 'ACTIONABLE' as const, inResourceScope: resourceUnitId ? false : null }))
   return [...personCandidates, ...accountOnlyCandidates]
     .filter(candidate => parishWide || !resourceUnitId || candidate.inResourceScope)
     .sort((left, right) => left.displayName.localeCompare(right.displayName, 'vi'))
@@ -341,21 +414,19 @@ function operationRoleAllows(capability: OperationsCapability, roles: string[]):
   // Personal task authority is additive: being a manager must neither grant
   // it implicitly nor mask an independently accepted task assignment.
   if (capability === 'operations.task.execute') return roles.includes('TASK_OWNER') || roles.includes('TASK_CONTRIBUTOR')
-  if (capability === 'operations.task.approve') return roles.includes('TASK_APPROVER') || roles.includes('APPROVER')
   if (roles.includes('EVENT_ORGANIZER') || roles.includes('EVENT_CREATOR')) {
     return new Set<OperationsCapability>([
       'operations.event.view', 'operations.event.manage', 'operations.event.transition', 'operations.event.cancel',
       'operations.event.override_readiness', 'operations.task.view', 'operations.task.create', 'operations.task.manage',
       'operations.task.assign', 'operations.task.reassign', 'operations.task.comment', 'operations.workstream.create',
       'operations.workstream.manage', 'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
-      'operations.audit.view',
     ]).has(capability)
   }
   if (roles.includes('WORKSTREAM_LEAD')) {
     return new Set<OperationsCapability>([
       'operations.event.view', 'operations.task.view', 'operations.task.create', 'operations.task.manage',
       'operations.task.assign', 'operations.task.reassign', 'operations.task.comment', 'operations.workstream.manage',
-      'operations.workstream.mark_ready', 'operations.audit.view',
+      'operations.workstream.mark_ready',
     ]).has(capability)
   }
   if (capability === 'operations.task.comment' || capability === 'operations.task.view') return roles.length > 0
@@ -382,7 +453,7 @@ function decideOperationsAuthorization(
   if (resource.task) {
     const assignments = snapshot.taskAssignments.get(resource.task.id) ?? []
     // Pending/declined assignments grant enough visibility to acknowledge or
-    // inspect the assignment, never execute/approve authority.
+    // inspect the assignment, never execute authority.
     if (assignments.length > 0) operationRoles.push('TASK_ASSIGNEE')
     operationRoles.push(...assignments
       .filter(row => row.acknowledgementStatus === 'ACCEPTED')
@@ -395,7 +466,7 @@ function decideOperationsAuthorization(
     return { allowed: true, reason: 'ALLOWED', positionTitles: [], unitIds: [], operationRoles }
   }
   if (actor.role === 'admin' && isOperationsAdminMutationOverrideEnabled() && ADMIN_OVERRIDE_CAPABILITIES.has(capability)) {
-    return { allowed: true, reason: 'ALLOWED', positionTitles: [], unitIds: [], operationRoles }
+    return { allowed: true, reason: 'ADMIN_OVERRIDE', positionTitles: [], unitIds: [], operationRoles }
   }
   // Unknown capabilities still fail closed; admin grants are explicit above.
   if (actor.role === 'admin') return deny('ACCOUNT_ROLE', [], [], operationRoles)
@@ -409,13 +480,18 @@ function decideOperationsAuthorization(
     Boolean(term.unitId && descendantIds(snapshot.units, requestedUnitId).includes(term.unitId))
   ))
   const parishLeader = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
+  const parishDeputy = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_DEPUTY' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
+  const parishSecretary = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_SECRETARY' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
   const unitLeader = requestedUnitId !== null && snapshot.currentTerms.some(term => {
     if (!term.unitId || !descendantIds(snapshot.units, term.unitId).includes(requestedUnitId)) return false
     const unitType = unitsById.get(term.unitId)?.unitType
-    return (unitType === 'BRANCH' && term.positionCode === 'BRANCH_LEADER') || (unitType === 'COMMITTEE' && term.positionCode === 'COMMITTEE_LEADER')
+    return (unitType === 'BRANCH' && (term.positionCode === 'BRANCH_LEADER' || term.positionCode === 'BRANCH_DEPUTY'))
+      || (unitType === 'COMMITTEE' && (term.positionCode === 'COMMITTEE_LEADER' || term.positionCode === 'COMMITTEE_DEPUTY'))
   })
   if (parishLeader && PARISH_LEADER_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  if (unitLeader && UNIT_LEADER_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+  if (parishDeputy && PARISH_OFFICE_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+  if (parishSecretary && PARISH_SECRETARY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+  if (unitLeader && UNIT_LEADER_OR_DEPUTY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
   if (scopeMember && (capability === 'operations.event.view' || capability === 'operations.task.view')) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles: [...operationRoles, 'SCOPE_MEMBER'] }
   return deny('POSITION_SCOPE', positionTitles, unitIds, operationRoles)
 }
@@ -471,9 +547,25 @@ export async function resolveOperationsUserAuthorization(
   return resolveOperationsAuthorization({ userId: target.id, role: target.role, parishId }, capability, { ...scope, parishId }, executor)
 }
 
+const authorizationByExecutor = new WeakMap<object, OperationsDecision>()
+
+/** Latest successful assertOperationsCapability decision for this DB executor/tx (D3 audit trail). */
+export function peekOperationsAuthorizationReason(executor: object): OperationsDecision['reason'] | undefined {
+  return authorizationByExecutor.get(executor)?.reason
+}
+
+export function rememberOperationsAuthorization(executor: object, decision: OperationsDecision): void {
+  // Multi-assert commands (capability + target, create + publish) share one tx.
+  // The override flag is the load-bearing signal for D3 review, so once an
+  // ADMIN_OVERRIDE is recorded it sticks for the rest of the transaction.
+  if (authorizationByExecutor.get(executor)?.reason === 'ADMIN_OVERRIDE') return
+  authorizationByExecutor.set(executor, decision)
+}
+
 export async function assertOperationsCapability(actor: ActorContext, capability: OperationsCapability, scope: OperationsScope, executor: DbExecutor = db): Promise<OperationsDecision> {
   const decision = await resolveOperationsAuthorization(actor, capability, scope, executor)
   if (!decision.allowed) throw Object.assign(new Error('Bạn không có quyền Operations trong phạm vi này.'), { status: 403, code: 'FORBIDDEN', decision })
+  if (executor && typeof executor === 'object') rememberOperationsAuthorization(executor, decision)
   return decision
 }
 
@@ -483,8 +575,8 @@ export async function getOperationsCallerPermissions(actor: ActorContext, scope:
     'operations.event.cancel', 'operations.event.override_readiness', 'operations.event.publish_public',
     'operations.task.view', 'operations.task.create',
     'operations.task.manage', 'operations.task.assign', 'operations.task.execute', 'operations.task.reassign',
-    'operations.task.approve', 'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
-    'operations.workstream.assign_lead', 'operations.workstream.mark_ready', 'operations.audit.view',
+    'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
+    'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
   ]
   if (actor.parishId !== scope.parishId || !STAFF_ROLES.has(actor.role)) return Object.fromEntries(capabilities.map(capability => [capability, false]))
   const resource = await loadResource(executor, actor.parishId, scope)

@@ -19,7 +19,7 @@
     "lint": "oxlint --deny-warnings",
     "verify:ci": "npm run lint && npm run lint:architecture-inventory && npm run lint:ds && npm run build && npm run test:coverage -- --fileParallelism=false",
     "test": "vitest run",
-    "test:security-critical": "vitest run src/__tests__/deploymentSecurityContract.test.ts server/src/__tests__/security/auth-cookie.test.ts server/src/__tests__/security/authorization-matrix-audit-b.test.ts server/src/__tests__/security/tenantIsolation.test.ts server/src/__tests__/rbac-matrix.test.ts server/src/__tests__/goliveVerification.test.ts server/src/__tests__/smokeTestPhase15.test.ts --fileParallelism=false",
+    "test:security-critical": "vitest run src/__tests__/deploymentSecurityContract.test.ts server/src/__tests__/security/auth-cookie.test.ts server/src/__tests__/security/authorization-matrix-audit-b.test.ts server/src/__tests__/security/tenantIsolation.test.ts server/src/__tests__/rbac-matrix.test.ts server/src/__tests__/operationsRouteGuard.test.ts server/src/__tests__/goliveVerification.test.ts server/src/__tests__/smokeTestPhase15.test.ts --fileParallelism=false",
     "test:coverage": "vitest run --coverage --testTimeout=15000",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

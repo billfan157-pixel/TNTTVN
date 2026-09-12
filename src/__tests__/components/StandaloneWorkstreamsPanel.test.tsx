@@ -43,11 +43,11 @@ beforeEach(() => {
   vi.mocked(operationsApi.getWorkstreamTasks).mockImplementation(async () => page(tasks) as any)
   vi.mocked(operationsApi.addWorkstreamMember).mockImplementation(async () => {
     version = 2
-    members = [{ id: 'member-1', parishId: 'p', workstreamId: 'group-1', personId: 'person-1', userId: null, operationRole: 'CONTRIBUTOR', startsAt: null, endsAt: null, version: 1 }]
+    members = [{ id: 'member-1', parishId: 'p', workstreamId: 'group-1', personId: 'person-1', userId: null, operationRole: 'OBSERVER', startsAt: null, endsAt: null, version: 1 }]
     return { ...members[0], workstreamVersion: 2 } as any
   })
   vi.mocked(operationsApi.createTask).mockImplementation(async () => {
-    const task = { id: 'task-1', parishId: 'p', operationEventId: null, workstreamId: 'group-1', title: 'Kiểm kê dụng cụ', phase: 'PREPARATION', status: 'BACKLOG', priority: 'NORMAL', isRequired: false, approvalStatus: 'NOT_REQUIRED', version: 1 }
+    const task = { id: 'task-1', parishId: 'p', operationEventId: null, workstreamId: 'group-1', title: 'Kiểm kê dụng cụ', phase: 'PREPARATION', status: 'BACKLOG', priority: 'NORMAL', isRequired: false, version: 1 }
     tasks = [task]
     return task as any
   })
@@ -59,22 +59,22 @@ it('creates a scoped standalone group, adds a member, creates a task and assigns
   await screen.findByText('Chưa có nhóm độc lập trong phạm vi của bạn.')
   fireEvent.change(screen.getByLabelText('Tên nhóm độc lập'), { target: { value: 'Nhóm thường trực' } })
   fireEvent.click(screen.getByRole('button', { name: 'Tạo nhóm' }))
-  await waitFor(() => expect(operationsApi.createWorkstream).toHaveBeenCalledWith({ eventId: null, sourceUnitId: 'branch-1', name: 'Nhóm thường trực', isRequired: false }))
+  await waitFor(() => expect(operationsApi.createWorkstream).toHaveBeenCalledWith({ eventId: null, sourceUnitId: 'branch-1', name: 'Nhóm thường trực', isRequired: false }, expect.any(String)))
   await screen.findByRole('heading', { name: 'Nhóm thường trực' })
 
   fireEvent.change(screen.getByLabelText('Thành viên nhóm độc lập'), { target: { value: 'person:person-1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Thêm vào nhóm' }))
-  await waitFor(() => expect(operationsApi.addWorkstreamMember).toHaveBeenCalledWith('group-1', { version: 1, personId: 'person-1', operationRole: 'CONTRIBUTOR' }))
-  await screen.findByText('Thành viên Một · Thành viên')
+  await waitFor(() => expect(operationsApi.addWorkstreamMember).toHaveBeenCalledWith('group-1', { version: 1, personId: 'person-1', operationRole: 'OBSERVER' }, expect.any(String)))
+  await screen.findByText('Thành viên Một · Theo dõi')
 
   fireEvent.change(screen.getByLabelText('Tên việc của nhóm độc lập'), { target: { value: 'Kiểm kê dụng cụ' } })
   fireEvent.click(screen.getByRole('button', { name: 'Tạo việc' }))
-  await waitFor(() => expect(operationsApi.createTask).toHaveBeenCalledWith({ title: 'Kiểm kê dụng cụ', eventId: null, workstreamId: 'group-1', dueAt: null }))
+  await waitFor(() => expect(operationsApi.createTask).toHaveBeenCalledWith({ title: 'Kiểm kê dụng cụ', eventId: null, workstreamId: 'group-1', dueAt: null }, expect.any(String)))
   await screen.findByRole('option', { name: 'Kiểm kê dụng cụ' })
 
   fireEvent.change(screen.getByLabelText('Người nhận việc nhóm độc lập'), { target: { value: 'person:person-1' } })
   fireEvent.click(screen.getByRole('button', { name: 'Giao việc' }))
-  await waitFor(() => expect(operationsApi.assignTask).toHaveBeenCalledWith('task-1', { version: 1, personId: 'person-1', assignmentRole: 'OWNER' }))
+  await waitFor(() => expect(operationsApi.assignTask).toHaveBeenCalledWith('task-1', { version: 1, personId: 'person-1', assignmentRole: 'OWNER' }, expect.any(String)))
   const warning = (await screen.findByText(/Lý do bận được giữ riêng tư/)).closest('[role="status"]')
   expect(warning).toHaveTextContent('Lý do bận được giữ riêng tư')
   expect(warning).not.toHaveTextContent('Private appointment')

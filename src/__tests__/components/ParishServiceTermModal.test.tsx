@@ -136,9 +136,40 @@ describe('ParishServiceTermModal', () => {
     fireEvent.change(titleInput, { target: { value: 'Trưởng Xứ đoàn' } })
     expect(screen.getByText(/Trưởng Xứ đoàn \(Toàn xứ\)/i)).toBeTruthy()
 
+    // Typing Thư ký should suggest PARISH_SECRETARY
+    fireEvent.change(titleInput, { target: { value: 'Thư ký' } })
+    expect(screen.getByText(/Thư ký Xứ đoàn \(Toàn xứ\)/i)).toBeTruthy()
+
+    // Typing Phó ban should suggest COMMITTEE_DEPUTY
+    fireEvent.change(titleInput, { target: { value: 'Phó ban' } })
+    expect(screen.getByText(/Phó Ban \(Khối Chuyên môn\)/i)).toBeTruthy()
+
+    // Typing Phó trưởng ngành should suggest BRANCH_DEPUTY
+    fireEvent.change(titleInput, { target: { value: 'Phó trưởng ngành' } })
+    expect(screen.getByText(/Phó Ngành \(Khối Ngành\)/i)).toBeTruthy()
+
     // Typing Thủ quỹ should clear leader positionCode
     fireEvent.change(titleInput, { target: { value: 'Thủ quỹ' } })
     expect(screen.getByText(/Chức vụ tổ chức thường nhật/i)).toBeTruthy()
+  })
+
+  it('offers all seven coordination codes in custom mode', () => {
+    render(
+      <ParishServiceTermModal
+        snapshot={mockSnapshot}
+        onClose={onClose}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Tùy chỉnh vai trò kỹ thuật/i }))
+    const optionSets = Array.from(document.querySelectorAll('select')).map(select =>
+      Array.from(select.options).map(option => option.value),
+    )
+    expect(optionSets.some(values => [
+      'PARISH_LEADER', 'PARISH_SECRETARY', 'PARISH_DEPUTY',
+      'BRANCH_LEADER', 'BRANCH_DEPUTY', 'COMMITTEE_LEADER', 'COMMITTEE_DEPUTY',
+    ].every(code => values.includes(code)))).toBe(true)
   })
 
   it('applies duration presets correctly', () => {

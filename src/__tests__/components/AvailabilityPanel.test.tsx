@@ -22,7 +22,7 @@ describe('AvailabilityPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Báo bận' }))
     await waitFor(() => expect(operationsApi.createBlockout).toHaveBeenCalledWith({
       userId: 'U1', startsAt: new Date('2099-03-01T15:00').toISOString(), endsAt: new Date('2099-03-01T17:00').toISOString(), reason: 'Lý do riêng',
-    }))
+    }, expect.any(String)))
     expect(await screen.findByText('Đã lưu lịch bận.')).toBeInTheDocument()
   })
 
@@ -44,8 +44,8 @@ describe('AvailabilityPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }))
     fireEvent.change(screen.getByLabelText('Sửa lý do bận B1'), { target: { value: 'Lý do mới' } })
     fireEvent.click(screen.getByRole('button', { name: 'Lưu' }))
-    await waitFor(() => expect(operationsApi.updateBlockout).toHaveBeenCalledWith('B1', expect.objectContaining({ version: 4, reason: 'Lý do mới' })))
+    await waitFor(() => expect(operationsApi.updateBlockout).toHaveBeenCalledWith('B1', expect.objectContaining({ version: 4, reason: 'Lý do mới' }), expect.any(String)))
     fireEvent.click(screen.getByRole('button', { name: 'Thu hồi' }))
-    await waitFor(() => expect(operationsApi.revokeBlockout).toHaveBeenCalledWith('B1', 4))
+    await waitFor(() => expect(operationsApi.revokeBlockout).toHaveBeenCalledWith('B1', 4, expect.any(String)))
   })
 })

@@ -5,11 +5,15 @@ import { automaticEventTransition, canCreateEventTask, EVENT_PHASES, manualEvent
 const event = { status: 'PLANNING' as const, startsAt: '2026-09-10T08:00:00+07:00', endsAt: '2026-09-10T10:00:00+07:00', automationPaused: false }
 describe('approved Operations lifecycle policy', () => {
   it('allows adjacent steps and requires a reason plus pause on every rewind', () => {
-    for (let index = 1; index < EVENT_PHASES.length; index++) {
+    for (let index = 1; index < EVENT_PHASES.length - 1; index++) {
       expect(manualEventTransition(EVENT_PHASES[index - 1], EVENT_PHASES[index])).toEqual({ backwards: false, pauseAutomation: false })
       expect(() => manualEventTransition(EVENT_PHASES[index], EVENT_PHASES[index - 1], ' ')).toThrow('EVENT_REWIND_REASON_REQUIRED')
       expect(manualEventTransition(EVENT_PHASES[index], EVENT_PHASES[index - 1], 'Điều chỉnh')).toEqual({ backwards: true, pauseAutomation: true })
     }
+    expect(manualEventTransition('LIVE', 'COMPLETED')).toEqual({ backwards: false, pauseAutomation: false })
+    // COMPLETED là trạng thái cuối: không lùi được nữa, kể cả có lý do.
+    expect(() => manualEventTransition('COMPLETED', 'LIVE', 'Mở lại')).toThrow('EVENT_COMPLETED_TERMINAL')
+    expect(() => manualEventTransition('COMPLETED', 'LIVE')).toThrow('EVENT_COMPLETED_TERMINAL')
     expect(() => manualEventTransition('DRAFT', 'READY')).toThrow('NOT_ADJACENT')
     expect(() => manualEventTransition('CANCELLED', 'LIVE')).toThrow('NOT_ADJACENT')
     expect(() => manualEventTransition('READY', 'READY')).toThrow('NOT_ADJACENT')

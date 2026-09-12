@@ -12,11 +12,10 @@ import {
 } from '../../lib/api/operations'
 import { getTenantScope, getTenantScopeKey } from '../../lib/tenantScope'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
+import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 
 const memberRoles: Record<OperationWorkstreamMember['operationRole'], string> = {
   WORKSTREAM_LEAD: 'Trưởng nhóm',
-  CONTRIBUTOR: 'Thành viên',
-  APPROVER: 'Người duyệt',
   OBSERVER: 'Theo dõi',
 }
 
@@ -28,17 +27,18 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
   const [unitId, setUnitId] = useState('')
   const [groupName, setGroupName] = useState('')
   const [memberTarget, setMemberTarget] = useState('')
-  const [memberRole, setMemberRole] = useState<OperationWorkstreamMember['operationRole']>('CONTRIBUTOR')
+  const [memberRole, setMemberRole] = useState<OperationWorkstreamMember['operationRole']>('OBSERVER')
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDueAt, setTaskDueAt] = useState('')
   const [taskId, setTaskId] = useState('')
   const [taskTarget, setTaskTarget] = useState('')
-  const [taskRole, setTaskRole] = useState<'OWNER' | 'CONTRIBUTOR' | 'APPROVER' | 'OBSERVER'>('OWNER')
+  const [taskRole, setTaskRole] = useState<'OWNER' | 'CONTRIBUTOR'>('OWNER')
   const [assignmentWarnings, setAssignmentWarnings] = useState<Array<{ id: string; startsAt: string; endsAt: string }>>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const generation = useRef(0)
   const inFlight = useRef(false)
+  const { stableKey, releaseKey } = useStableCommandKey()
   const scopeKey = getTenantScopeKey()
   const invalidateRequests = useCallback(() => { generation.current++ }, [])
 
@@ -132,7 +132,13 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
       event.preventDefault()
       if (!unitId || !groupName.trim()) return
       void run(
-        () => operationsApi.createWorkstream({ eventId: null, sourceUnitId: unitId, name: groupName.trim(), isRequired: false }),
+        async () => {
+          const payload = { eventId: null, sourceUnitId: unitId, name: groupName.trim(), isRequired: false }
+          const key = stableKey('standalone-workstream-create', payload)
+          const result = await operationsApi.createWorkstream(payload, key)
+          releaseKey('standalone-workstream-create')
+          return result
+        },
         false,
         async created => {
           setGroupName('')
@@ -158,7 +164,13 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
         <Button size="sm" disabled={busy || !memberTarget || (memberRole === 'WORKSTREAM_LEAD' && !detail.permissions['operations.workstream.assign_lead'])} onClick={() => {
           const target = parseOperationCandidateValue(memberTarget)
           if (!target) return
-          void run(() => operationsApi.addWorkstreamMember(detail.workstream.id, { version: detail.workstream.version, ...target, operationRole: memberRole }), true, () => setMemberTarget(''))
+          const payload = { version: detail.workstream.version, ...target, operationRole: memberRole }
+          const key = stableKey('standalone-member-add', { workstreamId: detail.workstream.id, ...payload })
+          return void run(async () => {
+            const result = await operationsApi.addWorkstreamMember(detail.workstream.id, payload, key)
+            releaseKey('standalone-member-add')
+            return result
+          }, true, () => setMemberTarget(''))
         }}>Thêm vào nhóm</Button>
       </div>}
 
@@ -166,7 +178,13 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
         event.preventDefault()
         if (!taskTitle.trim()) return
         void run(
-          () => operationsApi.createTask({ title: taskTitle.trim(), eventId: null, workstreamId: detail.workstream.id, dueAt: taskDueAt ? new Date(taskDueAt).toISOString() : null }),
+          async () => {
+            const payload = { title: taskTitle.trim(), eventId: null, workstreamId: detail.workstream.id, dueAt: taskDueAt ? new Date(taskDueAt).toISOString() : null }
+            const key = stableKey('standalone-task-create', payload)
+            const result = await operationsApi.createTask(payload, key)
+            releaseKey('standalone-task-create')
+            return result
+          },
           true,
           () => { setTaskTitle(''); setTaskDueAt('') },
         )
@@ -179,13 +197,19 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
       {tasks.length > 0 && detail.permissions['operations.task.assign'] && <div className="grid gap-2 sm:grid-cols-[2fr_2fr_1fr_auto] sm:items-end">
         <Select aria-label="Việc trong nhóm độc lập" value={taskId} disabled={busy} onChange={event => setTaskId(event.target.value)}>{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</Select>
         <Select aria-label="Người nhận việc nhóm độc lập" value={taskTarget} disabled={busy || candidateDirectory.loading} onChange={event => setTaskTarget(event.target.value)}><option value="">Chọn người nhận</option>{candidates.map(candidate => <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>{candidate.displayName}{candidate.eligibility === 'PLANNING_ONLY' ? ' · chưa có tài khoản' : ''}</option>)}</Select>
-        <Select aria-label="Vai trò việc nhóm độc lập" value={taskRole} disabled={busy} onChange={event => setTaskRole(event.target.value as typeof taskRole)}><option value="OWNER">Phụ trách chính</option><option value="CONTRIBUTOR">Phối hợp</option><option value="APPROVER">Người duyệt</option><option value="OBSERVER">Theo dõi</option></Select>
+        <Select aria-label="Vai trò việc nhóm độc lập" value={taskRole} disabled={busy} onChange={event => setTaskRole(event.target.value as typeof taskRole)}><option value="OWNER">Phụ trách chính</option><option value="CONTRIBUTOR">Phối hợp</option></Select>
         <Button size="sm" disabled={busy || !taskId || !taskTarget} onClick={() => {
           const task = tasks.find(item => item.id === taskId)
           const target = parseOperationCandidateValue(taskTarget)
           if (!task || !target) return
-          void run(
-            () => operationsApi.assignTask(task.id, { version: task.version, ...target, assignmentRole: taskRole }),
+          const payload = { version: task.version, ...target, assignmentRole: taskRole }
+          const key = stableKey('standalone-task-assign', { taskId: task.id, ...payload })
+          return void run(
+            async () => {
+              const result = await operationsApi.assignTask(task.id, payload, key)
+              releaseKey('standalone-task-assign')
+              return result
+            },
             true,
             result => { setTaskTarget(''); setAssignmentWarnings(result.conflictWarnings) },
           )

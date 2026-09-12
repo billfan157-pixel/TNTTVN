@@ -43,6 +43,7 @@ Vite :3100 ── /api proxy ──► Hono :3101 ──► SQLite sandbox riên
 | Offline/sync | Điểm danh khi browser offline tạo Dexie queue; reconnect gửi batch; server read-back đúng và queue sạch | compaction, retry/backoff, conflict và ownership matrix ở integration |
 | Năm học/khóa | Khóa HK1 qua UI; backend từ chối ghi điểm và xét lên lớp sớm | positive promotion, policy thresholds và lifecycle transition matrix ở integration |
 | Smart Exam/OMR | Tạo phiên MC qua UI; server tính lại đáp án thay vì tin score client; reload giữ kết quả; complete ghi điểm và khóa mutation | detector/QR/geometry/corpus, multi-frame consensus và offline barriers ở integration/field gate |
+| Operations (9 @critical, `e2e/operations.spec.ts`) | Public event projection sang parent calendar read-only; primary dispatch chỉ mời sau PLANNING và acceptance đầu thành OWNER; handover giữ 1 OWNER PENDING + blockout warning; evidence/comments độc lập persist qua UI; retrospective COMPLETED → follow-up có chủ; template preview/instantiate không kế thừa assignee; reschedule OCC + recipient cancel; phase/start/closure gates | OCC/idempotency/authority/readiness/reminder/dispatch matrix ở server integration (`server/src/__tests__/operations*.test.ts`) |
 | Workspaces/navigation | Full suite traverses staff/parent/mobile workspaces và route-policy redirects | route inventory, a11y và visual matrix riêng |
 
 Physical camera accuracy, target-device latency, thermal behavior và release corpus ADR-060 không được tuyên bố PASS từ browser E2E.

@@ -1,6 +1,7 @@
+import { operationsErrorText } from '../lib/operationsErrors'
 import { create } from 'zustand'
 import { api, ApiError } from '../lib/api'
-import type { OperationAssignmentTarget, OperationChecklistItem, OperationEvent, OperationEventDetail, OperationReminder, OperationTask, OperationTaskDetail, OperationTaskDispatchInvitation, OperationsListPage } from '../lib/api/operations'
+import type { OperationAssignment, OperationAssignmentTarget, OperationChecklistItem, OperationEvent, OperationEventDetail, OperationReminder, OperationTask, OperationTaskDetail, OperationTaskDispatchInvitation, OperationsCreationOptions, OperationsListPage } from '../lib/api/operations'
 import { dexieStorage } from '../lib/db'
 import { getTenantScope } from '../lib/tenantScope'
 
@@ -9,6 +10,19 @@ let sessionGeneration = 0
 let eventRequest = 0
 let taskRequest = 0
 let overviewRequest = 0
+// P1-4: caller-side abort for superseded detail loads. The generation
+// counters above stay as the correctness backstop (a late response is still
+// discarded even if its fetch already completed); aborting only frees the
+// in-flight request early instead of letting it run to the transport timeout.
+let eventDetailAbort: AbortController | null = null
+let taskDetailAbort: AbortController | null = null
+
+function abortDetailLoads() {
+  eventDetailAbort?.abort()
+  taskDetailAbort?.abort()
+  eventDetailAbort = null
+  taskDetailAbort = null
+}
 
 type OperationsDataSource = 'server' | 'cache' | 'none'
 
@@ -50,23 +64,27 @@ interface OperationsState {
   loadMoreEvents: () => Promise<void>
   loadMoreTasks: () => Promise<void>
   loadMoreReminders: () => Promise<void>
-  createEvent: (input: { title: string; eventType: string; startsAt: string; endsAt: string; timezone: string; location?: string | null; visibility?: OperationEvent['visibility'] }) => Promise<OperationEvent>
-  updateEvent: (id: string, input: { version: number; title?: string; eventType?: string; startsAt?: string; endsAt?: string; timezone?: string; location?: string | null; visibility?: OperationEvent['visibility'] }) => Promise<OperationEvent>
-  selectEvent: (id: string | null) => Promise<void>
-  selectTask: (id: string | null) => Promise<void>
+  createEvent: (input: { title: string; eventType: string; startsAt: string; endsAt: string; timezone: string; location?: string | null; visibility?: OperationEvent['visibility']; eventScopeType?: 'XU_DOAN' | 'UNIT'; scopeUnitId?: string | null; organizerUserId?: string | null; organizerPersonId?: string | null }, idempotencyKey?: string) => Promise<OperationEvent>
+  updateEvent: (id: string, input: { version: number; title?: string; eventType?: string; startsAt?: string; endsAt?: string; timezone?: string; location?: string | null; visibility?: OperationEvent['visibility'] }, idempotencyKey?: string) => Promise<OperationEvent>
+  selectEvent: (id: string | null) => Promise<number>
+  selectTask: (id: string | null) => Promise<number>
   refreshTaskViews: (id: string) => Promise<void>
-  createTask: (input: { title: string; eventId: string; workstreamId?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; phase?: OperationTask['phase']; isRequired?: boolean }) => Promise<OperationTask>
-  assignTask: (task: OperationTask, target: OperationAssignmentTarget, role: 'OWNER' | 'CONTRIBUTOR' | 'APPROVER' | 'OBSERVER') => Promise<void>
-  dispatchTask: (task: OperationTask, primary: OperationAssignmentTarget, reserve: OperationAssignmentTarget | null, acknowledgeBy: string) => Promise<void>
-  acceptTaskDispatch: (invitation: OperationTaskDispatchInvitation) => Promise<void>
-  transitionEvent: (id: string, status: OperationEvent['status'], version: number, options?: { reason?: string; outcomeSummary?: string; override?: boolean }) => Promise<OperationEvent>
-  resumeEventAutomation: (id: string, version: number, reason: string) => Promise<OperationEvent>
-  transitionTask: (task: OperationTask, status: OperationTask['status'], completionNote?: string) => Promise<OperationTask>
-  acknowledgeTask: (task: OperationTask, status: 'ACCEPTED' | 'DECLINED', note?: string) => Promise<void>
-  addChecklistItem: (task: OperationTask, label: string, isRequired: boolean) => Promise<void>
-  toggleChecklistItem: (task: OperationTask, item: OperationChecklistItem) => Promise<void>
-  markReminderRead: (reminder: OperationReminder) => Promise<void>
-  cancelReminder: (reminder: OperationReminder) => Promise<void>
+  createTask: (input: { title: string; eventId: string; workstreamId?: string | null; scopeUnitId?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; phase?: OperationTask['phase']; isRequired?: boolean }, idempotencyKey?: string) => Promise<OperationTask>
+  createStandaloneTask: (input: { title: string; scopeUnitId: string; dueAt?: string | null }, idempotencyKey?: string) => Promise<OperationTask>
+  updateTask: (task: OperationTask, input: { title?: string; description?: string | null; priority?: OperationTask['priority']; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; isRequired?: boolean }, idempotencyKey?: string) => Promise<{ task: OperationTask; acknowledgementReset: boolean }>
+  assignTask: (task: OperationTask, target: OperationAssignmentTarget, role: 'OWNER' | 'CONTRIBUTOR', idempotencyKey?: string) => Promise<void>
+  dispatchTask: (task: OperationTask, primary: OperationAssignmentTarget, reserve: OperationAssignmentTarget | null, acknowledgeBy: string, idempotencyKey?: string) => Promise<void>
+  acceptTaskDispatch: (invitation: OperationTaskDispatchInvitation, idempotencyKey?: string) => Promise<void>
+  transitionEvent: (id: string, status: OperationEvent['status'], version: number, options?: { reason?: string; outcomeSummary?: string; override?: boolean }, idempotencyKey?: string) => Promise<OperationEvent>
+  resumeEventAutomation: (id: string, version: number, reason: string, idempotencyKey?: string) => Promise<OperationEvent>
+  transitionTask: (task: OperationTask, status: OperationTask['status'], options?: string | { completionNote?: string; blockedReason?: string; cancellationReason?: string; idempotencyKey?: string }) => Promise<OperationTask>
+  acknowledgeTask: (task: OperationTask, status: 'ACCEPTED' | 'DECLINED', note?: string, idempotencyKey?: string) => Promise<void>
+  addChecklistItem: (task: OperationTask, label: string, isRequired: boolean, idempotencyKey?: string) => Promise<void>
+  toggleChecklistItem: (task: OperationTask, item: OperationChecklistItem, idempotencyKey?: string) => Promise<void>
+  markReminderRead: (reminder: OperationReminder, idempotencyKey?: string) => Promise<void>
+  cancelReminder: (reminder: OperationReminder, idempotencyKey?: string) => Promise<void>
+  creationOptions: OperationsCreationOptions | null
+  fetchCreationOptions: () => Promise<void>
   clear: () => void
 }
 
@@ -125,8 +143,10 @@ function pageMeta<T>(page: OperationsListPage<T>) {
 
 function isOfflineFailure(error: unknown) {
   // Never use cache to mask 401/403/validation/server failures. The transport
-  // normalizes genuine reachability failures to ApiError(0).
-  return error instanceof ApiError && error.status === 0
+  // normalizes genuine reachability failures to ApiError(0). A superseded
+  // (caller-aborted) request also surfaces as status 0 but must never trigger
+  // the cache fallback.
+  return error instanceof ApiError && error.status === 0 && error.code !== 'REQUEST_ABORTED'
 }
 
 async function persistCurrentServerSnapshot(): Promise<void> {
@@ -146,7 +166,56 @@ async function persistCurrentServerSnapshot(): Promise<void> {
   if (sameScope(currentScope)) useOperationsStore.setState({ cacheSavedAt: savedAt })
 }
 
-export const useOperationsStore = create<OperationsState>((set) => ({
+function formatStoreError(error: unknown, defaultMessage: string): string {
+  const err = error as any
+  if (isOccConflict(error)) {
+    return operationsErrorText('VERSION_CONFLICT', defaultMessage)
+  }
+  const code = err?.code
+  if (code) return operationsErrorText(code, err?.message || defaultMessage)
+  if (error instanceof Error) {
+    if (error.message.includes('VERSION_CONFLICT') || error.message.includes('thay đổi bởi người khác') || error.message.includes('OCC conflict')) {
+      return operationsErrorText('VERSION_CONFLICT', error.message)
+    }
+    return operationsErrorText(undefined, error.message)
+  }
+  return defaultMessage
+}
+
+function isOccConflict(error: unknown): boolean {
+  const err = error as any
+  if (err?.code === 'VERSION_CONFLICT' || err?.code === 'VERSION_MISMATCH') return true
+  // Other 409 codes (dispatch resolved, duplicate owner, idempotency replayed,
+  // template archived, self-approval...) describe different situations and must
+  // keep their own message instead of borrowing the OCC one.
+  if (err?.code) return false
+  const message = String(err?.message || '')
+  return message.includes('thay đổi bởi người khác') || message.includes('VERSION_CONFLICT') || message.includes('OCC conflict')
+}
+
+function handleConflictSync(get: () => any, error: unknown) {
+  const err = error as any
+  // Dedicated dialogs own these flows (acceptance/override); a global banner + refetch would fight them.
+  if (err?.code === 'TASK_ACCEPTANCE_PENDING' || err?.code === 'READINESS_BLOCKED' || err?.code === 'COMPLETION_BLOCKED') return
+  const isConflict = isOccConflict(error)
+  if (isConflict) {
+    const state = get()
+    const conflictMessage = formatStoreError(error, 'Dữ liệu đã được cập nhật bởi người khác. Hệ thống đã tải lại thông tin mới nhất.')
+    if (state.selectedEvent?.event?.id) {
+      void state.selectEvent(state.selectedEvent.event.id).catch(() => undefined)
+    }
+    void (async () => {
+      try {
+        await state.fetch()
+      } catch {
+        // ignore fetch failures during conflict sync
+      }
+      useOperationsStore.setState({ error: conflictMessage })
+    })()
+  }
+}
+
+export const useOperationsStore = create<OperationsState>((set, get) => ({
   events: [],
   tasks: [],
   reminders: [],
@@ -170,6 +239,18 @@ export const useOperationsStore = create<OperationsState>((set) => ({
   eventHasMore: false,
   taskHasMore: false,
   reminderHasMore: false,
+  creationOptions: null,
+
+  fetchCreationOptions: async () => {
+    const requestScope = scope()
+    try {
+      const options = await api.getCreationOptions()
+      if (!sameScope(requestScope)) return
+      set({ creationOptions: options })
+    } catch {
+      if (sameScope(requestScope)) set({ creationOptions: null })
+    }
+  },
 
   fetch: async () => {
     const requestScope = scope()
@@ -199,9 +280,12 @@ export const useOperationsStore = create<OperationsState>((set) => ({
     } catch (error) {
       if (!sameScope(requestScope) || request !== overviewRequest) return
       if (isOfflineFailure(error) && sameScope(requestScope)) {
-        const cached = await loadCache(requestScope)
-        if (cached && sameScope(requestScope) && request === overviewRequest) {
-          eventRequest++; taskRequest++
+          const cached = await loadCache(requestScope)
+          if (cached && sameScope(requestScope) && request === overviewRequest) {
+            eventRequest++; taskRequest++
+            // The offline fallback discards any selection, so its in-flight
+            // detail loads are superseded as well.
+            abortDetailLoads()
           set({
             selectedEvent: null, selectedTask: null, assignmentWarnings: null, detailLoading: false, taskDetailLoading: false,
             events: cached.events, tasks: cached.tasks, reminders: [], dispatchInvitations: [], permissions: {}, loading: false, error: null, source: 'cache', cacheSavedAt: cached.savedAt,
@@ -235,7 +319,7 @@ export const useOperationsStore = create<OperationsState>((set) => ({
       const current = useOperationsStore.getState()
       await saveCache({ parishId: requestScope.parishId, userId: requestScope.userId, events, tasks: current.tasks, eventTotal: meta.total, taskTotal: current.taskTotal, savedAt })
     } catch (error) {
-      set({ loading: false, error: error instanceof Error ? error.message : 'Không tải thêm được danh sách sự kiện' })
+      if (sameScope(requestScope)) set({ loading: false, error: formatStoreError(error, 'Không tải thêm được danh sách sự kiện') })
       throw error
     }
   },
@@ -257,7 +341,7 @@ export const useOperationsStore = create<OperationsState>((set) => ({
       const current = useOperationsStore.getState()
       await saveCache({ parishId: requestScope.parishId, userId: requestScope.userId, events: current.events, tasks, eventTotal: current.eventTotal, taskTotal: meta.total, savedAt })
     } catch (error) {
-      set({ loading: false, error: error instanceof Error ? error.message : 'Không tải thêm được công việc' })
+      if (sameScope(requestScope)) set({ loading: false, error: formatStoreError(error, 'Không tải thêm được công việc') })
       throw error
     }
   },
@@ -276,30 +360,30 @@ export const useOperationsStore = create<OperationsState>((set) => ({
       const reminders = [...useOperationsStore.getState().reminders, ...incoming.filter(item => !existingIds.has(item.id))]
       set({ reminders, reminderTotal: meta.total, reminderPage: meta.page, reminderHasMore: meta.page < meta.totalPages, loading: false })
     } catch (error) {
-      set({ loading: false, error: error instanceof Error ? error.message : 'Không tải thêm được nhắc việc' })
+      if (sameScope(requestScope)) set({ loading: false, error: formatStoreError(error, 'Không tải thêm được nhắc việc') })
       throw error
     }
   },
 
-  createEvent: async input => {
+  createEvent: async (input, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const created = await api.createEvent(input)
+      const created = await api.createEvent(input, idempotencyKey)
       if (created.parishId !== scope().parishId) throw new Error('Không thể xác nhận event trong giáo xứ hiện tại')
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc tạo event.')
-      set(state => ({ events: [created, ...state.events], eventTotal: state.eventTotal + 1 }))
+      set(state => ({ events: [created, ...state.events], error: null, eventTotal: state.eventTotal + 1 }))
       await persistCurrentServerSnapshot()
       return created
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể tạo operation event' })
+      if (sameScope(requestScope)) set({ error: formatStoreError(error, 'Không thể tạo operation event') })
       throw error
     }
   },
 
-  updateEvent: async (id, input) => {
+  updateEvent: async (id, input, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const changed = await api.updateEvent(id, input)
+      const changed = await api.updateEvent(id, input, idempotencyKey)
       if (!sameScope(requestScope) || changed.parishId !== requestScope.parishId || changed.id !== id) throw new Error('Không thể xác nhận event trong giáo xứ hiện tại')
       set(state => ({
         events: state.events.map(event => event.id === id ? changed : event),
@@ -308,7 +392,7 @@ export const useOperationsStore = create<OperationsState>((set) => ({
       await persistCurrentServerSnapshot()
       return changed
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể cập nhật operation event' })
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể cập nhật operation event') }); handleConflictSync(get, error) }
       throw error
     }
   },
@@ -316,31 +400,50 @@ export const useOperationsStore = create<OperationsState>((set) => ({
   selectEvent: async id => {
     const request = ++eventRequest
     taskRequest++
-    if (!id) { set({ selectedEvent: null, selectedTask: null, detailLoading: false, taskDetailLoading: false }); return }
+    // A superseded detail load is aborted early; the generation counter
+    // below stays as the backstop for already-completed responses.
+    eventDetailAbort?.abort()
+    eventDetailAbort = null
+    if (!id) { set({ selectedEvent: null, selectedTask: null, detailLoading: false, taskDetailLoading: false }); return request }
     const requestScope = scope()
+    const controller = new AbortController()
+    eventDetailAbort = controller
     set({ detailLoading: true, selectedTask: null, taskDetailLoading: false, error: null })
     try {
-      const detail = await api.getEvent(id)
+      const detail = await api.getEvent(id, controller.signal)
+      if (eventDetailAbort === controller) eventDetailAbort = null
       const activeScope = getTenantScope()
-      if (!activeScope || !sameScope(requestScope) || request !== eventRequest) return
+      if (!activeScope || !sameScope(requestScope) || request !== eventRequest) return request
       if (detail.event.id !== id || detail.event.parishId !== activeScope.parishId || detail.tasks.some((task: OperationTask) => task.parishId !== activeScope.parishId)) throw new Error('Máy chủ trả chi tiết event sai phạm vi giáo xứ')
       set({ selectedEvent: detail, selectedTask: null, detailLoading: false })
     } catch (error) {
-      if (!sameScope(requestScope) || request !== eventRequest) return
+      // Superseded selections die silently: the newer selection owns the UI,
+      // and the abort must never surface as an error banner or offline cache.
+      if (controller.signal.aborted) {
+        if (eventDetailAbort === controller) eventDetailAbort = null
+        return request
+      }
+      if (!sameScope(requestScope) || request !== eventRequest) return request
       set({ detailLoading: false, error: error instanceof Error ? error.message : 'Không thể tải chi tiết event' })
       throw error
     }
+    return request
   },
 
   selectTask: async id => {
     const request = ++taskRequest
-    if (!id) { set({ selectedTask: null, taskDetailLoading: false }); return }
+    taskDetailAbort?.abort()
+    taskDetailAbort = null
+    if (!id) { set({ selectedTask: null, taskDetailLoading: false }); return request }
     const requestScope = scope()
+    const controller = new AbortController()
+    taskDetailAbort = controller
     set({ selectedTask: null, taskDetailLoading: true, error: null })
     try {
-      const detail = await api.getTask(id)
+      const detail = await api.getTask(id, controller.signal)
+      if (taskDetailAbort === controller) taskDetailAbort = null
       const activeScope = getTenantScope()
-      if (!activeScope || !sameScope(requestScope) || request !== taskRequest) return
+      if (!activeScope || !sameScope(requestScope) || request !== taskRequest) return request
       if (detail.task.id !== id || detail.task.parishId !== activeScope.parishId || [...detail.checklist, ...detail.assignees, ...detail.comments].some(item => item.parishId !== activeScope.parishId || item.taskId !== id)) throw new Error('Máy chủ trả chi tiết task sai phạm vi giáo xứ')
       set(state => ({ selectedTask: detail, taskDetailLoading: false,
         selectedEvent: state.selectedEvent?.tasks.some(task => task.id === id) ? { ...state.selectedEvent,
@@ -349,10 +452,15 @@ export const useOperationsStore = create<OperationsState>((set) => ({
         } : state.selectedEvent,
       }))
     } catch (error) {
-      if (!sameScope(requestScope) || request !== taskRequest) return
+      if (controller.signal.aborted) {
+        if (taskDetailAbort === controller) taskDetailAbort = null
+        return request
+      }
+      if (!sameScope(requestScope) || request !== taskRequest) return request
       set({ taskDetailLoading: false, error: error instanceof Error ? error.message : 'Không thể tải chi tiết task' })
       throw error
     }
+    return request
   },
 
   refreshTaskViews: async id => {
@@ -362,38 +470,103 @@ export const useOperationsStore = create<OperationsState>((set) => ({
     if (!sameScope(requestScope) || selection !== taskRequest || useOperationsStore.getState().selectedTask?.task.id !== id) return
     const event = useOperationsStore.getState().selectedEvent
     if (event?.tasks.some(task => task.id === id)) {
-      const expectedEventRequest = eventRequest + 1
-      await useOperationsStore.getState().selectEvent(event.event.id)
-      if (!sameScope(requestScope) || taskRequest !== selection + 1 || eventRequest !== expectedEventRequest) return
+      // P1-7: compare the token returned by the awaited selection instead of
+      // inferring it with `selection + 1` arithmetic that breaks whenever a
+      // concurrent selection interleaves.
+      const appliedEventRequest = await useOperationsStore.getState().selectEvent(event.event.id)
+      if (!sameScope(requestScope) || appliedEventRequest !== eventRequest) return
     }
     await useOperationsStore.getState().selectTask(id)
   },
 
-  createTask: async input => {
+  createTask: async (input, idempotencyKey) => {
     const requestScope = scope()
-    const created = await api.createTask(input)
-    if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc tạo task.')
-    if (created.parishId !== requestScope.parishId || created.operationEventId !== input.eventId) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
-    set(state => ({ selectedEvent: state.selectedEvent?.event.id === input.eventId ? { ...state.selectedEvent, tasks: [...state.selectedEvent.tasks, created] } : state.selectedEvent }))
-    return created
-  },
-
-  assignTask: async (task, target, role) => {
-    const requestScope = scope()
-    set({ assignmentWarnings: null })
     try {
-      const result = await api.assignTask(task.id, { version: task.version, ...target, assignmentRole: role })
-      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc phân công.')
-      if (result.assignment.parishId !== requestScope.parishId || result.assignment.taskId !== task.id) throw new Error('Không thể xác nhận assignment trong giáo xứ hiện tại')
-      set({ assignmentWarnings: { taskId: task.id, items: result.conflictWarnings.map(({ id, startsAt, endsAt }) => ({ id, startsAt, endsAt })) } })
-      set(state => state.selectedEvent?.tasks.some(item => item.id === task.id) ? ({ selectedEvent: { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item), assignees: [...state.selectedEvent.assignees.filter(item => item.id !== result.assignment.id), result.assignment] } }) : {})
+      const created = await api.createTask(input, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc tạo task.')
+      if (created.parishId !== requestScope.parishId || created.operationEventId !== input.eventId) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
+      set(state => ({ selectedEvent: state.selectedEvent?.event.id === input.eventId ? { ...state.selectedEvent, tasks: [...state.selectedEvent.tasks, created] } : state.selectedEvent }))
+      return created
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể phân công task' })
+      // Surface failures in the shared error banner instead of a silent
+      // unhandled rejection (P1-6), mirroring createStandaloneTask.
+      if (sameScope(requestScope)) set({ error: formatStoreError(error, 'Không thể tạo task') })
       throw error
     }
   },
 
-  dispatchTask: async (task, primary, reserve, acknowledgeBy) => {
+  createStandaloneTask: async (input, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const created = await api.createTask({ title: input.title, eventId: null, workstreamId: null, scopeUnitId: input.scopeUnitId, dueAt: input.dueAt ?? null }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc tạo task.')
+      if (created.parishId !== requestScope.parishId || created.scopeUnitId !== input.scopeUnitId) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
+      return created
+    } catch (error) {
+      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể tạo task độc lập' })
+      throw error
+    }
+  },
+
+  updateTask: async (task, input, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const result = await api.updateTask(task.id, { version: task.version, ...input }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc sửa task.')
+      if (result.task.parishId !== requestScope.parishId || result.task.id !== task.id) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
+      // The server decides whether acknowledgements reopen; the store mirrors
+      // that verdict instead of reclassifying the change in the client.
+      const reopen = (assignment: OperationAssignment): OperationAssignment => result.acknowledgementReset && assignment.taskId === task.id
+        ? { ...assignment, acknowledgementStatus: 'PENDING', version: assignment.version + 1 }
+        : assignment
+      set(state => ({
+        error: null,
+        selectedEvent: state.selectedEvent?.tasks.some(item => item.id === task.id)
+          ? {
+              ...state.selectedEvent,
+              tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, ...result.task } : item),
+              assignees: state.selectedEvent.assignees.map(reopen),
+            }
+          : state.selectedEvent,
+        selectedTask: state.selectedTask?.task.id === task.id
+          ? {
+              ...state.selectedTask,
+              task: { ...state.selectedTask.task, ...result.task },
+              assignees: state.selectedTask.assignees.map(reopen),
+            }
+          : state.selectedTask,
+        tasks: state.tasks.map(item => item.id === task.id ? { ...item, ...result.task, myAssignments: item.myAssignments?.map(reopen) } : item),
+      }))
+      return result
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể cập nhật task') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  assignTask: async (task, target, role, idempotencyKey) => {
+    const requestScope = scope()
+    set({ assignmentWarnings: null })
+    try {
+      const result = await api.assignTask(task.id, { version: task.version, ...target, assignmentRole: role }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc phân công.')
+      if (result.assignment.parishId !== requestScope.parishId || result.assignment.taskId !== task.id) throw new Error('Không thể xác nhận assignment trong giáo xứ hiện tại')
+      set({ assignmentWarnings: { taskId: task.id, items: result.conflictWarnings.map(({ id, startsAt, endsAt }) => ({ id, startsAt, endsAt })) } })
+      set(state => state.selectedEvent?.tasks.some(item => item.id === task.id) ? ({ selectedEvent: { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item), assignees: [...state.selectedEvent.assignees.filter(item => item.id !== result.assignment.id), result.assignment] } }) : {})
+      set(state => state.selectedTask?.task.id === task.id ? ({
+        selectedTask: {
+          ...state.selectedTask,
+          task: { ...state.selectedTask.task, version: result.taskVersion },
+          assignees: [...state.selectedTask.assignees.filter(item => item.id !== result.assignment.id), result.assignment],
+        },
+      }) : {})
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể phân công task') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  dispatchTask: async (task, primary, reserve, acknowledgeBy, idempotencyKey) => {
     const requestScope = scope()
     try {
       const result = await api.createTaskDispatch(task.id, {
@@ -401,24 +574,27 @@ export const useOperationsStore = create<OperationsState>((set) => ({
         acknowledgeBy,
         ...('userId' in primary ? { primaryUserId: primary.userId } : { primaryPersonId: primary.personId }),
         ...(reserve ? ('userId' in reserve ? { reserveUserId: reserve.userId } : { reservePersonId: reserve.personId }) : {}),
-      })
+      }, idempotencyKey)
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc phân công.')
       if (result.dispatch.parishId !== requestScope.parishId || result.dispatch.taskId !== task.id) throw new Error('Không thể xác nhận lượt phân công trong giáo xứ hiện tại')
       set(state => ({
         selectedEvent: state.selectedEvent?.tasks.some(item => item.id === task.id)
           ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item) }
           : state.selectedEvent,
+        selectedTask: state.selectedTask?.task.id === task.id
+          ? { ...state.selectedTask, task: { ...state.selectedTask.task, version: result.taskVersion } }
+          : state.selectedTask,
       }))
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể tạo lượt phân công chính/dự bị' })
+      if (sameScope(requestScope)) set({ error: formatStoreError(error, 'Không thể tạo lượt phân công chính/dự bị') })
       throw error
     }
   },
 
-  acceptTaskDispatch: async invitation => {
+  acceptTaskDispatch: async (invitation, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const result = await api.acceptTaskDispatch(invitation.taskId, invitation.id, { version: invitation.version, target: invitation.target })
+      const result = await api.acceptTaskDispatch(invitation.taskId, invitation.id, { version: invitation.version, target: invitation.target }, idempotencyKey)
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc nhận nhiệm vụ.')
       if (result.dispatch.parishId !== requestScope.parishId || result.assignment.taskId !== invitation.taskId) throw new Error('Không thể xác nhận nhận nhiệm vụ trong giáo xứ hiện tại')
       set(state => ({
@@ -432,67 +608,86 @@ export const useOperationsStore = create<OperationsState>((set) => ({
       }))
       await useOperationsStore.getState().fetch().catch(() => undefined)
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể nhận nhiệm vụ' })
+      if (sameScope(requestScope)) set({ error: formatStoreError(error, 'Không thể nhận nhiệm vụ') })
       throw error
     }
   },
 
-  transitionEvent: async (id, status, version, options) => {
+  transitionEvent: async (id, status, version, options, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const updated = await api.transitionEvent(id, { status, version, ...options })
+      const updated = await api.transitionEvent(id, { status, version, ...options }, idempotencyKey)
       if (updated.parishId !== scope().parishId) throw new Error('Không thể xác nhận event trong giáo xứ hiện tại')
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc cập nhật event.')
       set(state => ({
-        events: state.events.map(event => event.id === id ? updated : event),
+        events: state.events.map(event => event.id === id ? updated : event), error: null,
         selectedEvent: state.selectedEvent?.event.id === id ? { ...state.selectedEvent, event: updated } : state.selectedEvent,
       }))
       await persistCurrentServerSnapshot()
       return updated
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể chuyển trạng thái sự kiện' })
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể chuyển trạng thái sự kiện') }); handleConflictSync(get, error) }
       throw error
     }
   },
 
-  transitionTask: async (task, status, completionNote) => {
+  transitionTask: async (task, status, options) => {
+    const completionNote = typeof options === 'string' ? options : options?.completionNote
+    const blockedReason = typeof options === 'object' ? options?.blockedReason : undefined
+    const cancellationReason = typeof options === 'object' ? options?.cancellationReason : undefined
+    const idempotencyKey = typeof options === 'object' ? options?.idempotencyKey : undefined
     const requestScope = scope()
     try {
-      const updated = await api.transitionTask(task.id, { status, version: task.version, completionNote })
+      const updated = await api.transitionTask(task.id, { status, version: task.version, completionNote, blockedReason, cancellationReason }, idempotencyKey)
       if (updated.parishId !== scope().parishId) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc cập nhật task.')
       set(state => ({
+        error: null,
         tasks: state.tasks.map(item => item.id === task.id ? updated : item),
         selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? updated : item) } : state.selectedEvent,
+        selectedTask: state.selectedTask?.task.id === task.id ? { ...state.selectedTask, task: updated } : state.selectedTask,
       }))
       await persistCurrentServerSnapshot()
       return updated
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể cập nhật task' })
+      if (sameScope(requestScope)) {
+        set({ error: formatStoreError(error, 'Không thể cập nhật task') })
+        handleConflictSync(get, error)
+      }
       throw error
     }
   },
 
-  acknowledgeTask: async (task, status, note) => {
+  acknowledgeTask: async (task, status, note, idempotencyKey) => {
     const requestScope = scope()
     try {
       const assignment = task.myAssignments?.find(item => item.acknowledgementStatus === 'PENDING')
       if (!assignment) throw new Error('Không tìm thấy phân công đang chờ phản hồi.')
-      const updated = await api.acknowledgeTask(task.id, assignment.id, assignment.version, status, note)
+      const updated = await api.acknowledgeTask(task.id, assignment.id, assignment.version, status, note, idempotencyKey)
       if (updated.parishId !== scope().parishId) throw new Error('Không thể xác nhận phân công trong giáo xứ hiện tại')
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc phản hồi phân công.')
-      set(state => ({ tasks: state.tasks.map(item => item.id === task.id ? { ...item, myAssignments: item.myAssignments?.map(value => value.id === updated.id ? updated : value) } : item) }))
+      set(state => ({
+        tasks: state.tasks.map(item => item.id === task.id ? { ...item, myAssignments: item.myAssignments?.map(value => value.id === updated.id ? updated : value) } : item),
+        selectedEvent: state.selectedEvent ? {
+          ...state.selectedEvent,
+          assignees: state.selectedEvent.assignees.map(value => value.id === updated.id ? { ...value, acknowledgementStatus: updated.acknowledgementStatus, version: updated.version } : value),
+        } : state.selectedEvent,
+        selectedTask: state.selectedTask ? {
+          ...state.selectedTask,
+          assignees: state.selectedTask.assignees.map(value => value.id === updated.id ? { ...value, acknowledgementStatus: updated.acknowledgementStatus, version: updated.version } : value),
+        } : state.selectedTask,
+      }))
       await persistCurrentServerSnapshot()
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể cập nhật trạng thái nhận việc' })
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể cập nhật trạng thái nhận việc') }); handleConflictSync(get, error) }
       throw error
     }
   },
 
-  resumeEventAutomation: async (id, version, reason) => {
+  resumeEventAutomation: async (id, version, reason, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const updated = await api.resumeEventAutomation(id, { version, reason })
+      const updated = await api.resumeEventAutomation(id, { version, reason }, idempotencyKey)
       if (updated.parishId !== scope().parishId) throw new Error('Không thể tiếp tục tự động hóa trong giáo xứ hiện tại')
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc cập nhật event.')
       set(state => ({
@@ -502,83 +697,96 @@ export const useOperationsStore = create<OperationsState>((set) => ({
       await persistCurrentServerSnapshot()
       return updated
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không thể tiếp tục tự động chuyển giai đoạn' })
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể tiếp tục tự động chuyển giai đoạn') }); handleConflictSync(get, error) }
       throw error
     }
   },
 
-  addChecklistItem: async (task, label, isRequired) => {
+  addChecklistItem: async (task, label, isRequired, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const result = await api.createChecklistItem(task.id, { version: task.version, label, isRequired })
+      const result = await api.createChecklistItem(task.id, { version: task.version, label, isRequired }, idempotencyKey)
       if (result.item.parishId !== requestScope.parishId || result.item.taskId !== task.id) throw new Error('Không thể xác nhận checklist trong task hiện tại')
       if (!sameScope(requestScope)) return
       set(state => ({
         selectedTask: state.selectedTask?.task.id === task.id ? {
           ...state.selectedTask,
-          task: { ...state.selectedTask.task, version: result.taskVersion, approvalStatus: result.approvalStatus },
+          task: { ...state.selectedTask.task, version: result.taskVersion },
           checklist: [...state.selectedTask.checklist, result.item],
         } : state.selectedTask,
-        selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion, approvalStatus: result.approvalStatus } : item) } : state.selectedEvent,
-        tasks: state.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion, approvalStatus: result.approvalStatus } : item),
+        selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item) } : state.selectedEvent,
+        tasks: state.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item),
       }))
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : 'Không thể thêm mục checklist' })
+      if (sameScope(requestScope)) {
+        set({ error: formatStoreError(error, 'Không thể thêm mục checklist') })
+        handleConflictSync(get, error)
+      }
       throw error
     }
   },
 
-  toggleChecklistItem: async (task, checklistItem) => {
+  toggleChecklistItem: async (task, checklistItem, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const result = await api.updateChecklistItem(task.id, checklistItem.id, { version: task.version, isDone: !checklistItem.isDone })
+      const result = await api.updateChecklistItem(task.id, checklistItem.id, { version: task.version, isDone: !checklistItem.isDone }, idempotencyKey)
       if (result.item.parishId !== requestScope.parishId || result.item.taskId !== task.id) throw new Error('Không thể xác nhận checklist trong task hiện tại')
       if (!sameScope(requestScope)) return
       set(state => ({
         selectedTask: state.selectedTask?.task.id === task.id ? {
           ...state.selectedTask,
-          task: { ...state.selectedTask.task, version: result.taskVersion, approvalStatus: result.approvalStatus },
+          task: { ...state.selectedTask.task, version: result.taskVersion },
           checklist: state.selectedTask.checklist.map(item => item.id === checklistItem.id ? result.item : item),
         } : state.selectedTask,
-        selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion, approvalStatus: result.approvalStatus } : item) } : state.selectedEvent,
-        tasks: state.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion, approvalStatus: result.approvalStatus } : item),
+        selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item) } : state.selectedEvent,
+        tasks: state.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item),
       }))
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : 'Không thể cập nhật checklist' })
+      if (sameScope(requestScope)) {
+        set({ error: formatStoreError(error, 'Không thể cập nhật checklist') })
+        handleConflictSync(get, error)
+      }
       throw error
     }
   },
 
-  cancelReminder: async reminder => {
+  cancelReminder: async (reminder, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const result = await api.cancelReminder(reminder.id, reminder.version, 'Người nhận không còn cần lịch nhắc này.')
+      const result = await api.cancelReminder(reminder.id, reminder.version, 'Người nhận không còn cần lịch nhắc này.', idempotencyKey)
       if (!sameScope(requestScope)) return
       if (result.id !== reminder.id || result.parishId !== requestScope.parishId || result.status !== 'CANCELLED') throw new Error('Không thể xác nhận hủy lịch nhắc.')
       set(state => ({ reminders: state.reminders.map(item => item.id === reminder.id ? { ...item, status: 'CANCELLED', version: result.version } : item) }))
     } catch (error) {
-      if (sameScope(requestScope)) set({ error: error instanceof Error ? error.message : 'Không hủy được lịch nhắc' })
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không hủy được lịch nhắc') }); handleConflictSync(get, error) }
       throw error
     }
   },
 
-  markReminderRead: async reminder => {
+  markReminderRead: async (reminder, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const result = await api.markReminderRead(reminder.id)
+      const result = await api.markReminderRead(reminder.id, reminder.version, idempotencyKey)
       if (!sameScope(requestScope)) return
       if (result.id !== reminder.id) throw new Error('Máy chủ trả xác nhận nhắc việc không khớp yêu cầu')
-      set(state => ({ reminders: state.reminders.map(item => item.id === reminder.id ? { ...item, readAt: result.readAt } : item) }))
+      set(state => ({
+        error: null,
+        reminders: state.reminders.map(item => item.id === reminder.id ? { ...item, readAt: result.readAt, version: result.version ?? (item.version + 1) } : item),
+      }))
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : 'Không thể đánh dấu nhắc việc đã đọc' })
+      if (sameScope(requestScope)) {
+        set({ error: formatStoreError(error, 'Không thể đánh dấu nhắc việc đã đọc') })
+        handleConflictSync(get, error)
+      }
       throw error
     }
   },
 
   clear: () => {
     sessionGeneration++; eventRequest++; taskRequest++; overviewRequest++
+    abortDetailLoads()
     set({
-    events: [], tasks: [], reminders: [], dispatchInvitations: [], assignmentWarnings: null, permissions: {}, selectedEvent: null, selectedTask: null, detailLoading: false, taskDetailLoading: false, loading: false, error: null,
+    events: [], tasks: [], reminders: [], dispatchInvitations: [], assignmentWarnings: null, permissions: {}, creationOptions: null, selectedEvent: null, selectedTask: null, detailLoading: false, taskDetailLoading: false, loading: false, error: null,
     source: 'none', cacheSavedAt: null, eventTotal: 0, taskTotal: 0, eventPage: 1, taskPage: 1,
     reminderTotal: 0, reminderPage: 1, eventHasMore: false, taskHasMore: false, reminderHasMore: false,
     })

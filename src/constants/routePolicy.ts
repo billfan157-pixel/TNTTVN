@@ -32,10 +32,9 @@ export type MobileRouteTab =
   | 'parent'
   | 'notices'
   | 'parish-home'
-  | 'catechists'
   | 'calendar'
   | 'parish-profile'
-  | 'finances'
+  | 'operations'
 
 export type WorkspaceId = 'academic' | 'organization' | 'parent'
 export type RouteWorkspace = WorkspaceId | 'shared'
@@ -77,7 +76,7 @@ export const ROUTE_POLICIES = {
   '/parish': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Tổng Quan Xứ Đoàn', workspace: 'organization', desktopTab: 'parish-home', mobileTab: 'parish-home' },
   '/notices': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thông Báo', workspace: 'organization', desktopTab: 'notices', mobileTab: 'notices' },
   '/calendar': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Lịch Phụng Vụ', workspace: 'organization', desktopTab: 'calendar', mobileTab: 'calendar' },
-  '/operations': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Công Việc', workspace: 'organization', desktopTab: 'operations' },
+  '/operations': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Công Việc', workspace: 'organization', desktopTab: 'operations', mobileTab: 'operations' },
   '/parish-profile': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Hồ Sơ Xứ Đoàn', workspace: 'organization', desktopTab: 'parish-profile', mobileTab: 'parish-profile' },
   '/settings': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Cài Đặt', workspace: 'shared', desktopTab: 'settings', mobileTab: 'settings' },
   '/feedback': { requiresAuth: true, roles: ALL_ROLES, mobileTitle: 'Thư Góp Ý', workspace: 'shared', desktopTab: 'feedback' },
@@ -87,10 +86,10 @@ export const ROUTE_POLICIES = {
   '/users': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Tài Khoản', workspace: 'shared', desktopTab: 'management' },
   '/classes': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Lớp Học', workspace: 'academic', desktopTab: 'students' },
   '/academic-years': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Năm Học', workspace: 'academic', desktopTab: 'management' },
-  '/catechists': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Giáo Lý Viên', workspace: 'organization', desktopTab: 'catechists', mobileTab: 'catechists' },
+  '/catechists': { requiresAuth: true, roles: STAFF_ROLES, mobileTitle: 'Giáo Lý Viên', workspace: 'organization', desktopTab: 'catechists' },
   '/audit-logs': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Nhật Ký Hệ Thống', workspace: 'shared', desktopTab: 'audit-logs' },
   '/management': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quản Lý Hệ Thống', workspace: 'shared', desktopTab: 'management' },
-  '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ & Thu Chi', workspace: 'organization', desktopTab: 'finances', mobileTab: 'finances' },
+  '/finances': { requiresAuth: true, roles: ADMIN_ONLY, mobileTitle: 'Quỹ & Thu Chi', workspace: 'organization', desktopTab: 'finances' },
 } as const satisfies Record<string, RoutePolicy>
 
 export type AppRoutePath = keyof typeof ROUTE_POLICIES
@@ -149,12 +148,12 @@ export const MOBILE_TAB_PATHS = {
   parent: '/parent',
   notices: '/notices',
   'parish-home': '/parish',
-  catechists: '/catechists',
   calendar: '/calendar',
   'parish-profile': '/parish-profile',
-  finances: '/finances',
+  operations: '/operations',
 } as const satisfies Record<MobileRouteTab, ProtectedRoutePath>
 
+/** Academic workspace primary bottom-nav tabs (idle preload + nav). */
 export const MOBILE_PRIMARY_TABS = [
   'home',
   'attendance',
@@ -162,6 +161,19 @@ export const MOBILE_PRIMARY_TABS = [
   'students',
   'parent',
   'reports',
+] as const satisfies readonly MobileRouteTab[]
+
+/**
+ * Organization workspace primary bottom-nav (Wave 0 DECIDED 2026-09-12):
+ * Tổng Quan · Lịch · Công Việc · Thông Báo · Hồ Sơ.
+ * Catechists + Finances are overflow/secondary (no mobileTab).
+ */
+export const MOBILE_ORG_PRIMARY_TABS = [
+  'parish-home',
+  'calendar',
+  'operations',
+  'notices',
+  'parish-profile',
 ] as const satisfies readonly MobileRouteTab[]
 
 export function getRoutePolicy(pathname: string): RoutePolicy | undefined {
@@ -177,6 +189,7 @@ export function canRoleAccessRoute(pathname: AppRoutePath, role: Role | null | u
 /** Mobile destinations whose code chunks may be prefetched for the active role. */
 export function getMobilePreloadPaths(role: Role | null | undefined): ProtectedRoutePath[] {
   if (!role) return []
-  return [...new Set(MOBILE_PRIMARY_TABS.map(tab => MOBILE_TAB_PATHS[tab]))]
+  const tabs = [...MOBILE_PRIMARY_TABS, ...MOBILE_ORG_PRIMARY_TABS]
+  return [...new Set(tabs.map(tab => MOBILE_TAB_PATHS[tab]))]
     .filter(path => canRoleAccessRoute(path, role))
 }

@@ -13,11 +13,15 @@ const toggleChecklistItem = vi.fn()
 const createEvent = vi.fn()
 const updateEvent = vi.fn()
 const createTask = vi.fn()
+const createStandaloneTask = vi.fn()
+const updateTask = vi.fn()
+const fetchCreationOptions = vi.fn().mockResolvedValue(undefined)
 const dispatchTask = vi.fn()
 const acceptTaskDispatch = vi.fn()
 const selectEvent = vi.fn()
 const fetchOperations = vi.fn().mockResolvedValue(undefined)
 let online = true
+let source: 'server' | 'cache' | 'none' = 'server'
 let events: OperationEvent[] = []
 let selectedEvent: OperationEventDetail | null = null
 let selectedTask: OperationTaskDetail | null = null
@@ -26,22 +30,33 @@ let permissions: Record<string, boolean> = {}
 let assignmentWarnings: { taskId: string; items: Array<{ id: string; startsAt: string; endsAt: string }> } | null = null
 let dispatchInvitations: import('../../lib/api/operations').OperationTaskDispatchInvitation[] = []
 let operationCandidates: OperationCandidate[] = []
+let creationOptions: import('../../lib/api/operations').OperationsCreationOptions | null = null
 
 const assignedTask: OperationTask = {
   id: 'TSK-1', parishId: 'parish-a', title: 'Chuẩn bị nghi thức', status: 'TODO', priority: 'HIGH', phase: 'PREPARATION', isRequired: true,
-  approvalStatus: 'NOT_REQUIRED', version: 3,
+  version: 3,
   myAssignments: [{ id: 'OPA-1', parishId: 'parish-a', taskId: 'TSK-1', userId: 'user-a', assignmentRole: 'OWNER', acknowledgementStatus: 'PENDING', version: 1 }],
 }
 
+let effectiveMode: 'desktop' | 'mobile' = 'desktop'
+vi.mock('../../hooks/useEffectiveMode', () => ({ useEffectiveMode: () => effectiveMode }))
 vi.mock('../../hooks/useOnlineStatus', () => ({ useOnlineStatus: () => online }))
-vi.mock('../../stores/operationsStore', () => ({
-  useOperationsStore: () => ({
-    events, tasks: [assignedTask], reminders, dispatchInvitations, assignmentWarnings, permissions, selectedEvent, selectedTask, detailLoading: false, taskDetailLoading: false, loading: false, error: null,
-    source: 'server', cacheSavedAt: null, eventTotal: 0, taskTotal: 1, eventHasMore: false, taskHasMore: false,
-    reminderHasMore: false, loadMoreEvents: vi.fn(), loadMoreTasks: vi.fn(), loadMoreReminders: vi.fn(),
-    fetch: fetchOperations, createEvent, updateEvent, selectEvent, selectTask: vi.fn(), createTask, assignTask: vi.fn(), dispatchTask, acceptTaskDispatch, transitionEvent, resumeEventAutomation, transitionTask, acknowledgeTask, addChecklistItem, toggleChecklistItem, markReminderRead,
-  }),
-}))
+vi.mock('../../stores/operationsStore', () => {
+  const selectState = (selector?: any) => {
+    const state = {
+      events, tasks: [assignedTask], reminders, dispatchInvitations, assignmentWarnings, permissions, creationOptions, selectedEvent, selectedTask, detailLoading: false, taskDetailLoading: false, loading: false, error: null,
+      source, cacheSavedAt: null, eventTotal: 0, taskTotal: 1, eventHasMore: false, taskHasMore: false,
+      reminderHasMore: false, loadMoreEvents: vi.fn(), loadMoreTasks: vi.fn(), loadMoreReminders: vi.fn(),
+      fetch: fetchOperations, fetchCreationOptions, createEvent, updateEvent, selectEvent, selectTask: vi.fn(), createTask, createStandaloneTask, updateTask, assignTask: vi.fn(), dispatchTask, acceptTaskDispatch, transitionEvent, resumeEventAutomation, transitionTask, acknowledgeTask, addChecklistItem, toggleChecklistItem, markReminderRead, cancelReminder: vi.fn(),
+    }
+    return typeof selector === 'function' ? selector(state) : state
+  }
+  const useOperationsStore = Object.assign(
+    (selector?: any) => selectState(selector),
+    { setState: vi.fn(), getState: () => selectState() },
+  )
+  return { useOperationsStore }
+})
 vi.mock('../../stores/parishProfileStore', () => ({ useParishProfileStore: (selector: any) => selector({ snapshot: null, fetchSnapshot: vi.fn() }) }))
 vi.mock('../../hooks/useOperationCandidates', () => ({
   useOperationCandidates: () => ({ candidates: operationCandidates, loading: false, error: '' }),
@@ -54,17 +69,18 @@ vi.mock('../../components/operations/EventTemplatesPanel', () => ({ EventTemplat
 
 describe('OperationsPage mobile-safe action boundary', () => {
   it('renders task detail and checklist without selecting an event', () => {
-    selectedTask = { task: { ...assignedTask, description: 'Independent task evidence', approvalStatus: 'PENDING' }, checklist: [], assignees: [], comments: [], dependencies: [], permissions: {} }
+    selectedTask = { task: { ...assignedTask, description: 'Independent task evidence' }, checklist: [], assignees: [], comments: [], dependencies: [], permissions: {} }
     render(<OperationsPage />)
     expect(screen.getByRole('button', { name: 'Chi tiết nhiệm vụ' })).toBeEnabled()
     expect(screen.getByText('Independent task evidence')).toBeInTheDocument()
-    expect(screen.getByText('Đang chờ duyệt')).toBeInTheDocument()
     expect(screen.getByLabelText('Chi tiết checklist')).toBeInTheDocument()
   })
 
   beforeEach(() => {
+    effectiveMode = 'desktop'
     assignmentWarnings = null
     online = true
+    source = 'server'
     assignedTask.status = 'TODO'
     assignedTask.myAssignments![0].acknowledgementStatus = 'PENDING'
     acknowledgeTask.mockReset().mockResolvedValue(undefined)
@@ -77,6 +93,9 @@ describe('OperationsPage mobile-safe action boundary', () => {
     createEvent.mockReset().mockResolvedValue(undefined)
     updateEvent.mockReset().mockResolvedValue(undefined)
     createTask.mockReset().mockResolvedValue({ ...assignedTask })
+    createStandaloneTask.mockReset().mockResolvedValue({ ...assignedTask })
+    updateTask.mockReset().mockResolvedValue({ task: { ...assignedTask }, acknowledgementReset: false })
+    fetchCreationOptions.mockClear()
     dispatchTask.mockReset().mockResolvedValue(undefined)
     acceptTaskDispatch.mockReset().mockResolvedValue(undefined)
     selectEvent.mockReset().mockResolvedValue(undefined)
@@ -88,12 +107,19 @@ describe('OperationsPage mobile-safe action boundary', () => {
     dispatchInvitations = []
     operationCandidates = []
     permissions = {}
+    creationOptions = null
   })
 
   it('creates a public Operations event without accepting a client-owned calendar link', async () => {
     permissions = { 'operations.event.create': true, 'operations.event.publish_public': true }
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [{ userId: 'user-xdt', displayName: 'Trưởng Xứ đoàn', positionCode: 'PARISH_LEADER' }],
+      units: [],
+    }
     render(<OperationsPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Tạo sự kiện mới' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Công khai' }))
     fireEvent.change(screen.getByLabelText('Tên sự kiện'), { target: { value: 'Trại Hè 2027' } })
     fireEvent.change(screen.getByLabelText('Loại sự kiện'), { target: { value: 'CAMP' } })
@@ -105,16 +131,61 @@ describe('OperationsPage mobile-safe action boundary', () => {
     await waitFor(() => expect(createEvent).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Trại Hè 2027', eventType: 'CAMP', location: 'Sân giáo xứ', visibility: 'PUBLIC_SUMMARY',
       startsAt: new Date('2027-06-01T08:00').toISOString(), endsAt: new Date('2027-06-01T17:00').toISOString(),
-    })))
+    }), expect.any(String)))
     expect(createEvent.mock.calls[0][0]).not.toHaveProperty('sourceParishEventId')
   })
 
   it('keeps public visibility unavailable when the server capability is absent', () => {
     permissions = { 'operations.event.create': true }
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [{ userId: 'user-xdt', displayName: 'Trưởng Xứ đoàn', positionCode: 'PARISH_LEADER' }],
+      units: [],
+    }
     render(<OperationsPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Tạo sự kiện mới' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }))
     expect(screen.getByRole('button', { name: 'Công khai' })).toBeDisabled()
-    expect(screen.getByText(/Trưởng Xứ đoàn duyệt việc công khai/)).toBeInTheDocument()
+    expect(screen.getByText(/việc công khai cần quyền riêng/)).toBeInTheDocument()
+  })
+
+  it('shows only permitted creation actions in the new-item menu', () => {
+    permissions = {}
+    creationOptions = {
+      canCreateXuDoanEvent: false,
+      xuDoanOrganizers: [],
+      units: [{ id: 'UNIT-1', name: 'Ban Truyền thông', unitType: 'COMMITTEE', canCreateEvent: true, canCreateTask: true, organizers: [{ userId: 'user-tb', displayName: 'Trưởng Ban', positionCode: 'COMMITTEE_LEADER' }], myRole: 'COMMITTEE_LEADER' }],
+    }
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    expect(screen.queryByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /Tạo sự kiện Ban Truyền thông/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /Tạo Task · Ban Truyền thông/ })).toBeInTheDocument()
+  })
+
+  it('hides the new-item menu when nothing is permitted', () => {
+    permissions = {}
+    creationOptions = { canCreateXuDoanEvent: false, xuDoanOrganizers: [], units: [] }
+    render(<OperationsPage />)
+    expect(screen.queryByRole('button', { name: 'Tạo mới' })).not.toBeInTheDocument()
+  })
+
+  it('creates a standalone task scoped to the chosen unit', async () => {
+    permissions = {}
+    creationOptions = {
+      canCreateXuDoanEvent: false,
+      xuDoanOrganizers: [],
+      units: [{ id: 'UNIT-1', name: 'Ban Truyền thông', unitType: 'COMMITTEE', canCreateEvent: false, canCreateTask: true, organizers: [], myRole: 'COMMITTEE_LEADER' }],
+    }
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Tạo Task · Ban Truyền thông/ }))
+    fireEvent.change(screen.getByLabelText('Tên công việc'), { target: { value: 'Cập nhật ảnh đại diện' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo Task' }))
+
+    await waitFor(() => expect(createStandaloneTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Cập nhật ảnh đại diện', scopeUnitId: 'UNIT-1',
+    }), expect.any(String)))
   })
 
   it('edits visibility and public calendar fields only through the Operations command', async () => {
@@ -131,7 +202,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
     await waitFor(() => expect(updateEvent).toHaveBeenCalledWith('E1', expect.objectContaining({
       version: 7, title: 'Họp phụ huynh', eventType: 'MEETING', location: 'Hội trường', visibility: 'PUBLIC_SUMMARY',
-    })))
+    }), expect.any(String)))
     expect(updateEvent.mock.calls[0][1]).not.toHaveProperty('sourceParishEventId')
   })
 
@@ -139,12 +210,12 @@ describe('OperationsPage mobile-safe action boundary', () => {
     const view = render(<OperationsPage />)
     expect(screen.queryByRole('button', { name: 'Hoàn tất' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Nhận việc' }))
-    expect(acknowledgeTask).toHaveBeenCalledWith(assignedTask, 'ACCEPTED')
+    expect(acknowledgeTask).toHaveBeenCalledWith(assignedTask, 'ACCEPTED', undefined, expect.any(String))
     assignedTask.myAssignments![0].acknowledgementStatus = 'ACCEPTED'
     view.rerender(<OperationsPage />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Hoàn tất' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Hoàn tất' }))
-    expect(transitionTask).toHaveBeenCalledWith(assignedTask, 'DONE')
+    expect(transitionTask).toHaveBeenCalledWith(assignedTask, 'DONE', expect.objectContaining({ idempotencyKey: expect.any(String) }))
   })
 
   it('makes online-first behavior explicit and disables mutations while offline', () => {
@@ -174,7 +245,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }))
 
-    await waitFor(() => expect(transitionEvent).toHaveBeenCalledWith('E1', 'PLANNING', 4, { reason: undefined, outcomeSummary: undefined }))
+    await waitFor(() => expect(transitionEvent).toHaveBeenCalledWith('E1', 'PLANNING', 4, { reason: undefined, outcomeSummary: undefined }, expect.any(String)))
   })
 
   it('requires an explicit warning confirmation before overriding pending task acceptance', async () => {
@@ -194,7 +265,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
     await waitFor(() => expect(transitionEvent).toHaveBeenNthCalledWith(2, 'E1', 'PREPARING', 5, {
       reason: undefined, outcomeSummary: undefined, override: true,
-    }))
+    }, expect.any(String)))
   })
 
   it('rewinds one phase only with a reason and preserves the OCC version', async () => {
@@ -211,7 +282,17 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
     await waitFor(() => expect(transitionEvent).toHaveBeenCalledWith('E1', 'PREPARING', 8, {
       reason: 'Cần kiểm tra lại vật dụng', outcomeSummary: undefined,
-    }))
+    }, expect.any(String)))
+  })
+
+  it('hides the rewind button on completed events (COMPLETED is terminal)', () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'COMPLETED', visibility: 'INTERNAL', version: 10 },
+      workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] },
+      permissions: { 'operations.event.transition': true },
+    }
+    render(<OperationsPage />)
+    expect(screen.queryByRole('button', { name: 'Lùi một giai đoạn' })).not.toBeInTheDocument()
   })
 
   it('shows durable automation pause state and explicitly resumes it', async () => {
@@ -224,7 +305,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
     expect(screen.getByText('Lùi lại để kiểm tra an toàn')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục tự động chuyển' }))
-    await waitFor(() => expect(resumeEventAutomation).toHaveBeenCalledWith('E1', 9, 'Người quản lý chủ động tiếp tục tự động chuyển giai đoạn.'))
+    await waitFor(() => expect(resumeEventAutomation).toHaveBeenCalledWith('E1', 9, 'Người quản lý chủ động tiếp tục tự động chuyển giai đoạn.', expect.any(String)))
   })
 
   it('does not offer public-event cancellation without publish authority', () => {
@@ -252,8 +333,41 @@ describe('OperationsPage mobile-safe action boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
 
     await waitFor(() => expect(createTask).toHaveBeenCalledWith({
-      title: 'Phục vụ nghi thức', eventId: 'E1', workstreamId: null, dueAt: null, scheduledStartAt: null, scheduledEndAt: null, phase: 'EXECUTION', isRequired: true,
-    }))
+      title: 'Phục vụ nghi thức', eventId: 'E1', workstreamId: null, scopeUnitId: null, dueAt: null, scheduledStartAt: null, scheduledEndAt: null, phase: 'EXECUTION', isRequired: true,
+    }, expect.any(String)))
+  })
+
+  it('edits a task through the command modal and announces only the server acknowledgement verdict', async () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      workstreams: [], tasks: [{ ...assignedTask, myAssignments: undefined }], assignees: [], readiness: { percent: 100, blockers: [] },
+      permissions: { 'operations.task.manage': true },
+    }
+    updateTask.mockResolvedValue({ task: { ...assignedTask, myAssignments: undefined, title: 'Chuẩn bị nghi thức mới', version: 4 }, acknowledgementReset: true })
+    render(<OperationsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sửa' }))
+    const dialog = screen.getByRole('dialog', { name: 'Sửa nhiệm vụ' })
+    fireEvent.change(within(dialog).getByLabelText('Tên nhiệm vụ'), { target: { value: 'Chuẩn bị nghi thức mới' } })
+    fireEvent.change(within(dialog).getByLabelText('Hạn nhiệm vụ'), { target: { value: '2026-09-30T20:00' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu thay đổi' }))
+
+    await waitFor(() => expect(updateTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'TSK-1', version: 3 }),
+      expect.objectContaining({ title: 'Chuẩn bị nghi thức mới', dueAt: new Date('2026-09-30T20:00').toISOString() }),
+      expect.any(String),
+    ))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Sửa nhiệm vụ' })).not.toBeInTheDocument())
+  })
+
+  it('hides task editing without the server manage capability', () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      workstreams: [], tasks: [{ ...assignedTask, myAssignments: undefined }], assignees: [], readiness: { percent: 100, blockers: [] },
+      permissions: { 'operations.task.create': true },
+    }
+    render(<OperationsPage />)
+    expect(screen.queryByRole('button', { name: 'Sửa' })).not.toBeInTheDocument()
   })
 
   it('creates a task shift only with a valid start and end window', async () => {
@@ -270,7 +384,32 @@ describe('OperationsPage mobile-safe action boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
     await waitFor(() => expect(createTask).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Trực cổng', scheduledStartAt: new Date('2026-10-01T08:00').toISOString(), scheduledEndAt: new Date('2026-10-01T10:00').toISOString(),
-    })))
+    }), expect.any(String)))
+  })
+
+  it('reuses the idempotency key when retrying an unchanged task creation', async () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] },
+      permissions: { 'operations.task.create': true },
+    }
+    render(<OperationsPage />)
+    fireEvent.change(screen.getByLabelText('Tên task'), { target: { value: 'Trực đêm' } })
+    createTask.mockRejectedValueOnce(new Error('Network failure'))
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1))
+    const firstKey = createTask.mock.calls[0][1]
+    expect(typeof firstKey).toBe('string')
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(2))
+    expect(createTask.mock.calls[1][1]).toBe(firstKey)
+
+    fireEvent.change(screen.getByLabelText('Tên task'), { target: { value: 'Trực ngày' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
+    await waitFor(() => expect(createTask).toHaveBeenCalledTimes(3))
+    expect(createTask.mock.calls[2][1]).not.toBe(firstKey)
   })
 
   it('creates an OWNER dispatch with an optional reserve and explicit acknowledgement deadline', async () => {
@@ -297,6 +436,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
       { userId: 'U1' },
       { userId: 'U2' },
       new Date('2027-01-01T12:00').toISOString(),
+      expect.any(String),
     ))
   })
 
@@ -310,7 +450,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
     const invitationPanel = screen.getByLabelText('Lời mời nhận nhiệm vụ')
     expect(within(invitationPanel).getByText(/Người dự bị/)).toBeInTheDocument()
     fireEvent.click(within(invitationPanel).getByRole('button', { name: 'Nhận nhiệm vụ' }))
-    await waitFor(() => expect(acceptTaskDispatch).toHaveBeenCalledWith(dispatchInvitations[0]))
+    await waitFor(() => expect(acceptTaskDispatch).toHaveBeenCalledWith(dispatchInvitations[0], expect.any(String)))
   })
 
   it('does not complete a live event until an outcome summary is provided', () => {
@@ -347,7 +487,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
     render(<OperationsPage />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }))
-    expect(markReminderRead).toHaveBeenCalledWith(reminders[0])
+    expect(markReminderRead).toHaveBeenCalledWith(reminders[0], expect.any(String))
   })
 
   it('blocks closure for cancelled required work even when readiness is 100 percent', () => {
@@ -383,11 +523,11 @@ describe('OperationsPage mobile-safe action boundary', () => {
     render(<OperationsPage />)
 
     fireEvent.click(screen.getByRole('checkbox', { name: /kiểm tra dụng cụ/i }))
-    expect(toggleChecklistItem).toHaveBeenCalledWith(checklistTask, checklistItem)
+    expect(toggleChecklistItem).toHaveBeenCalledWith(checklistTask, checklistItem, expect.any(String))
     expect(screen.queryByRole('button', { name: 'Thêm mục' })).not.toBeInTheDocument()
   })
 
-  it('opens event detail modal when clicking an event card or pressing Enter', () => {
+  it('opens event detail modal from the explicit detail button, not from row keyboard', () => {
     events = [{
       id: 'EVT-100', parishId: 'parish-a', title: 'Hội Trại Sa Mạc 2026', eventType: 'CAMP',
       startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh',
@@ -395,15 +535,22 @@ describe('OperationsPage mobile-safe action boundary', () => {
     }]
     render(<OperationsPage />)
 
-    // Click on the event card title / article
+    // Click on the event card title / article (pointer shortcut)
     const eventHeading = screen.getByText('Hội Trại Sa Mạc 2026')
     expect(eventHeading).toBeInTheDocument()
     fireEvent.click(eventHeading)
     expect(selectEvent).toHaveBeenCalledWith('EVT-100')
 
-    // Keyboard interaction (Enter)
+    // A6': the row is not keyboard-focusable — keyboard users go through the
+    // explicit button (no nested-interactive article), so row Enter does nothing.
     const article = eventHeading.closest('article')!
+    expect(article).not.toHaveAttribute('tabindex')
+    selectEvent.mockClear()
     fireEvent.keyDown(article, { key: 'Enter' })
+    expect(selectEvent).not.toHaveBeenCalled()
+
+    // The explicit detail button remains the keyboard path.
+    fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }))
     expect(selectEvent).toHaveBeenCalledWith('EVT-100')
   })
 
@@ -422,5 +569,192 @@ describe('OperationsPage mobile-safe action boundary', () => {
     // Clicking "Đóng chi tiết" closes the modal
     fireEvent.click(screen.getByRole('button', { name: 'Đóng chi tiết' }))
     expect(selectEvent).toHaveBeenCalledWith(null)
+  })
+
+  it('preserves mobile visual and DOM reading order (WCAG focus order) without CSS order hacks', () => {
+    effectiveMode = 'mobile'
+    events = [{
+      id: 'EVT-100', parishId: 'parish-a', title: 'Hội Trại Sa Mạc 2026', eventType: 'CAMP',
+      startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh',
+      status: 'PLANNING', visibility: 'INTERNAL', version: 1,
+    }]
+    render(<OperationsPage />)
+
+    const inbox = screen.getByRole('region', { name: 'Hộp nhắc việc' })
+    const myTasks = screen.getByRole('region', { name: 'Việc của tôi' })
+    const eventsSection = screen.getByRole('region', { name: 'Sự kiện đang diễn ra' })
+    const kpiStrip = screen.getByRole('region', { name: 'Tổng quan công việc' })
+    const utilities = screen.getByRole('region', { name: 'Tiện ích điều hành' })
+
+    // DOM order in mobile must follow: Inbox -> My Tasks -> Events -> KPI -> Utilities
+    expect(inbox.compareDocumentPosition(myTasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(myTasks.compareDocumentPosition(eventsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(eventsSection.compareDocumentPosition(kpiStrip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(kpiStrip.compareDocumentPosition(utilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // Mobile utility accordion toggle
+    const toggleBtn = screen.getByRole('button', { name: 'Mở tiện ích' })
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('tablist', { name: 'Phân khu tiện ích điều hành' })).not.toBeInTheDocument()
+
+    fireEvent.click(toggleBtn)
+    expect(screen.getByRole('button', { name: 'Thu gọn' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('tablist', { name: 'Phân khu tiện ích điều hành' })).toBeInTheDocument()
+  })
+
+  it('exposes accessible quick filter chips with role=group and aria-pressed', () => {
+    render(<OperationsPage />)
+
+    const filterGroup = screen.getByRole('group', { name: 'Lọc công việc theo trạng thái' })
+    expect(filterGroup).toBeInTheDocument()
+
+    const allChip = within(filterGroup).getByRole('button', { name: /Tất cả/ })
+    const pendingChip = within(filterGroup).getByRole('button', { name: /Cần xác nhận/ })
+
+    expect(allChip).toHaveAttribute('aria-pressed', 'true')
+    expect(pendingChip).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(pendingChip)
+    expect(allChip).toHaveAttribute('aria-pressed', 'false')
+    expect(pendingChip).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('renders mobile floating action button (FAB) and opens bottom-sheet creation menu', () => {
+    effectiveMode = 'mobile'
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [{ userId: 'user-xdt', displayName: 'Trưởng Xứ đoàn', positionCode: 'PARISH_LEADER' }],
+      units: [{ id: 'UNIT-1', name: 'Ban Phụng Vụ', unitType: 'COMMITTEE', canCreateEvent: true, canCreateTask: true, organizers: [], myRole: 'COMMITTEE_LEADER' }],
+    }
+    render(<OperationsPage />)
+
+    const fab = screen.getByRole('button', { name: 'Tạo mới sự kiện hoặc nhiệm vụ' })
+    expect(fab).toBeInTheDocument()
+    expect(fab).toHaveClass('fixed')
+
+    fireEvent.click(fab)
+
+    const sheet = screen.getByRole('dialog', { name: 'Tạo mới' })
+    expect(sheet).toBeInTheDocument()
+    expect(within(sheet).getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ })).toBeInTheDocument()
+    expect(within(sheet).getByRole('menuitem', { name: /Tạo sự kiện Ban Phụng Vụ/ })).toBeInTheDocument()
+    expect(within(sheet).getByRole('menuitem', { name: /Tạo Task · Ban Phụng Vụ/ })).toBeInTheDocument()
+  })
+
+  it('filters events by search query in the events section and supports clear', () => {
+    events = [
+      { id: 'E1', parishId: 'parish-a', title: 'Hội Trại Sa Mạc 2026', eventType: 'CAMP', startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', location: 'Rừng Nam Cát Tiên', version: 1 },
+      { id: 'E2', parishId: 'parish-a', title: 'Lễ Khai Giảng Niên Khóa', eventType: 'FEAST', startsAt: '2026-09-15T07:00:00Z', endsAt: '2026-09-15T11:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', location: 'Hoa Viên Thánh Đường', version: 1 },
+      { id: 'E3', parishId: 'parish-a', title: 'Tĩnh Tâm Ban Huynh Trưởng', eventType: 'OTHER', startsAt: '2026-11-20T08:00:00Z', endsAt: '2026-11-20T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', location: 'Đan Viện Châu Sơn', version: 1 },
+    ]
+    render(<OperationsPage />)
+
+    const searchInput = screen.getByRole('searchbox', { name: 'Tìm kiếm sự kiện' })
+    expect(searchInput).toBeInTheDocument()
+
+    // Search by title
+    fireEvent.change(searchInput, { target: { value: 'Khai Giảng' } })
+    expect(screen.getByText('Lễ Khai Giảng Niên Khóa')).toBeInTheDocument()
+    expect(screen.queryByText('Hội Trại Sa Mạc 2026')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tĩnh Tâm Ban Huynh Trưởng')).not.toBeInTheDocument()
+
+    // Clear search using clear button
+    const clearBtn = screen.getByRole('button', { name: 'Xóa tìm kiếm sự kiện' })
+    fireEvent.click(clearBtn)
+    expect(screen.getByText('Hội Trại Sa Mạc 2026')).toBeInTheDocument()
+    expect(screen.getByText('Tĩnh Tâm Ban Huynh Trưởng')).toBeInTheDocument()
+
+    // Search by location
+    fireEvent.change(searchInput, { target: { value: 'Châu Sơn' } })
+    expect(screen.getByText('Tĩnh Tâm Ban Huynh Trưởng')).toBeInTheDocument()
+    expect(screen.queryByText('Hội Trại Sa Mạc 2026')).not.toBeInTheDocument()
+  })
+
+  it('renders primary transition button in selectedEvent sticky footer and validates task filter chips', () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      workstreams: [],
+      tasks: [{ ...assignedTask, status: 'TODO' }],
+      assignees: [],
+      readiness: { percent: 100, blockers: [] },
+      permissions: { 'operations.event.transition': true },
+    }
+    render(<OperationsPage />)
+
+    // Sticky footer contains transition button
+    const transitionBtn = screen.getByRole('button', { name: 'Chuyển sang chuẩn bị' })
+    expect(transitionBtn).toBeInTheDocument()
+    expect(transitionBtn.closest('.modal-content__footer')).toBeInTheDocument()
+
+    // Modal task filter chips have role="group" and aria-pressed
+    const taskFilterGroup = screen.getByRole('group', { name: 'Lọc task theo trạng thái' })
+    expect(taskFilterGroup).toBeInTheDocument()
+
+    const allChip = within(taskFilterGroup).getByRole('button', { name: /Tất cả/ })
+    expect(allChip).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('P1-4: refetches cached overview when connectivity returns', async () => {
+    online = false
+    source = 'cache'
+    const { rerender } = render(<OperationsPage />)
+    fetchOperations.mockClear()
+    online = true
+    rerender(<OperationsPage />)
+    await waitFor(() => expect(fetchOperations).toHaveBeenCalledTimes(1))
+  })
+
+  it('P1-4: does not refetch on online toggle while already on server data', async () => {
+    online = false
+    source = 'server'
+    const { rerender } = render(<OperationsPage />)
+    fetchOperations.mockClear()
+    online = true
+    rerender(<OperationsPage />)
+    await waitFor(() => expect(fetchOperations).not.toHaveBeenCalled())
+  })
+
+  it('P1-8: a reminder action in flight does not lock the dispatch accept button', async () => {
+    acceptTaskDispatch.mockImplementation(() => new Promise(() => {}))
+    markReminderRead.mockImplementation(() => new Promise(() => {}))
+    const invitation = {
+      id: 'OPD-1', parishId: 'parish-a', taskId: 'TSK-9', version: 1, target: 'PRIMARY' as const,
+      acknowledgeBy: '2027-01-01T05:00:00Z', invitedAt: '2027-01-01T04:00:00Z', taskTitle: 'Trực cổng', eventId: 'EVT-9', eventTitle: 'Trại hè',
+    }
+    dispatchInvitations = [invitation]
+    reminders = [{
+      id: 'REM-1', parishId: 'parish-a', triggerAt: '2027-01-01T04:00:00Z',
+      kind: 'TASK_DUE', status: 'SENT', version: 1, readAt: null, sentAt: null, createdAt: '2026-09-30T01:00:00Z',
+    }]
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }))
+    await waitFor(() => expect(markReminderRead).toHaveBeenCalledTimes(1))
+    // The unrelated dispatch invitation stays actionable while the reminder resolves.
+    expect(screen.getByRole('button', { name: 'Nhận nhiệm vụ' })).toBeEnabled()
+  })
+
+  it('P1-A5: create menu supports Escape, outside-click and arrow navigation', async () => {
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [],
+      units: [{ id: 'UNIT-1', name: 'Ban A', unitType: 'COMMITTEE', canCreateEvent: true, canCreateTask: true, organizers: [], myRole: null }],
+    }
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    const menu = screen.getByRole('menu', { name: 'Tạo mới' })
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.length).toBeGreaterThan(1)
+    ;(items[0] as HTMLElement).focus()
+    fireEvent.keyDown(menu, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(items[1])
+    fireEvent.keyDown(menu, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(items[0])
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu', { name: 'Tạo mới' })).not.toBeInTheDocument())
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Tạo mới' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    expect(screen.getByRole('menu', { name: 'Tạo mới' })).toBeInTheDocument()
+    fireEvent.pointerDown(document.body)
+    await waitFor(() => expect(screen.queryByRole('menu', { name: 'Tạo mới' })).not.toBeInTheDocument())
   })
 })

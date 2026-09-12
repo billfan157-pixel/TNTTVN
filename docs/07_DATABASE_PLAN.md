@@ -1,11 +1,11 @@
 # Database Schema Specification & Plan
 
-> Canonical Single Source of Truth (SSOT) for all 71 SQLite production tables managed by the database bootstrap, migration runner and Drizzle mappings.
-> Version: 3.3 | Last reviewed: 2026-09-08 | Status: ✅ Current | Prerequisites: 02
+> Canonical Single Source of Truth (SSOT) for all 75 SQLite production tables managed by the database bootstrap, migration runner and Drizzle mappings (73 Drizzle-mapped domain tables + `schema_migrations` and `rate_limits`, which are bootstrap/migration infrastructure created via raw SQL in `bootstrapSchema.ts`/`migrationRunner.ts` rather than `sqliteTable` mappings — hence the architecture inventory gate counts 73 Drizzle tables).
+> Version: 3.4 | Last reviewed: 2026-09-12 | Status: ✅ Current | Prerequisites: 02
 
 ---
 
-## All Production Tables (71)
+## All Production Tables (75)
 
 **Operations unit/position integrity (2026-09-10):** additive migration
 `20260910-252` installs `check_parish_unit_position_scope_update`. A unit-type
@@ -68,7 +68,7 @@ or rewrite term history to force a deployment through.
 | 42 | `parish_profiles` | Identity, ngày thành lập, bổn mạng, khẩu hiệu và giới thiệu Xứ đoàn | PK `parish_id` |
 | 43 | `parish_people` | Identity tổ chức duy nhất cho người đang/từng phục vụ; có thể liên kết một tài khoản đăng nhập | PK `(parish_id,id)`; partial UNIQUE `(parish_id,linked_user_id)` khi active; name/status indexes |
 | 44 | `parish_organization_units` | Ban Điều hành root; Ngành và Ban chuyên môn là hai nhánh song song trực thuộc; chi đoàn/đơn vị khác | PK `(parish_id,id)`; parent/type indexes; cycle chặn tại service; migrations `20260909-248..249` chặn writer mới đặt `BOARD` có parent, đặt `BRANCH|COMMITTEE` ngoài active Board, hoặc vô hiệu hóa/đổi loại Board còn đơn vị trực thuộc; partial unique index `20260910-251` giới hạn tối đa một BOARD active/parish và fail nếu legacy duplicate chưa reconcile |
-| 45 | `parish_service_terms` | Chức vụ, cấp bậc và nhiệm kỳ; `position_title` là nhãn, `position_code` mới là Operations authority có kiểm tra loại unit | PK `(parish_id,id)`; person/unit/date indexes; tenant composite FKs; position-code/unit triggers; migration `20260909-250` chặn nhiệm kỳ leader chồng ngày trong cùng scope nhưng cho phép một person giữ leader term ở nhiều scope khác nhau |
+| 45 | `parish_service_terms` | Chức vụ, cấp bậc và nhiệm kỳ; `position_title` là nhãn, `position_code` mới là Operations authority có kiểm tra loại unit | PK `(parish_id,id)`; person/unit/date indexes; tenant composite FKs; position-code/unit triggers; migration `20260909-250` chặn nhiệm kỳ leader chồng ngày trong cùng scope nhưng cho phép một person giữ leader term ở nhiều scope khác nhau; migration `20260912-256` mở CHECK lên 7 codes (`PARISH_SECRETARY/PARISH_DEPUTY/BRANCH_DEPUTY/COMMITTEE_DEPUTY`) + triggers scope/overlap; migration `20260912-259` backfill exact-match deputy/secretary titles còn NULL |
 | 46 | `parish_records` | Cột mốc, hoạt động và thành tích có draft/publication/timeline state; `source_event_id` là soft/nonunique history link, không phải Operations ownership key | PK `(parish_id,id)`; type/timeline indexes |
 | 47 | `parish_record_people` | Quan hệ nhiều-nhiều record ↔ person | PK `(parish_id,record_id,person_id)`; composite tenant FKs |
 | 48 | `parish_archive_assets` | Metadata tư liệu upload riêng tư hoặc external HTTPS | PK `(parish_id,id)`; type/storage indexes; storage XOR constraint |
@@ -83,14 +83,14 @@ or rewrite term history to force a deployment through.
 | 57 | `exam_question_snapshots` | Snapshot bất biến của đúng version câu hỏi đã materialize vào phiên thi | PK `(parish_id,id)`; UNIQUE session/position; composite FK session/question/version |
 | 58 | `rate_limits` | Bộ đếm rate-limit bền vững dùng chung giữa tiến trình/API; dữ liệu vận hành, không phải tenant business record | `key` PK; `count` và epoch `reset_at` bắt buộc |
 | 59 | `schema_migrations` | Ledger phiên bản migration đã áp dụng để bootstrap idempotent và fail-closed | `version` PK; `applied_at` mặc định `CURRENT_TIMESTAMP` |
-| 60 | `operation_events` | Aggregate điều phối sự kiện nội bộ, optional one-to-one link tới lịch công khai và provenance template | PK `(parish_id,id)`; source/scope/visibility indexes; source/scope/organizer triggers; migrations `20260909-241..242` thêm cặp `source_template_id/version` và trigger same-parish/version/delete protection |
+| 60 | `operation_events` | Aggregate điều phối sự kiện nội bộ, optional one-to-one link tới lịch công khai và provenance template | PK `(parish_id,id)`; source/scope/visibility indexes; source/scope/organizer triggers; migrations `20260909-241..242` thêm cặp `source_template_id/version` và trigger same-parish/version/delete protection; migration `20260912-257` thêm `event_scope_type` (`XU_DOAN↔scope_unit_id NULL`) + backfill + consistency triggers/index |
 | 61 | `operation_event_participants` | Người tham gia nội bộ theo đúng một active user/person | PK `(parish_id,event_id,id)`; unique active user/person per event; target trigger |
 | 62 | `operation_blockouts` | Khoảng không sẵn sàng của user/person dùng để cảnh báo phân công | PK `(parish_id,id)`; target/time indexes và target trigger; migration `20260909-238` thêm OCC `version >= 1`, mặc định 1 cho dữ liệu cũ |
 | 63 | `operation_reminders` | Reminder domain dedupe/read/delivery reconciliation và OCC lịch gửi | PK `(parish_id,id)`; UNIQUE `(parish_id,dedupe_key)`; due index và target trigger; migration `20260909-237` thêm `version >= 1`, mặc định 1 cho dữ liệu cũ |
 | 64 | `operation_workstreams` | Nhóm công việc theo event/unit, readiness và OCC | PK `(parish_id,id)`; event/scope indexes và cross-context scope triggers |
-| 65 | `operation_tasks` | Task lifecycle/OCC/approval/completion/block/cancellation; phase PREPARATION/EXECUTION/FOLLOW_UP | PK `(parish_id,id)`; list/workstream indexes; event/workstream scope và cancellation-reason triggers; migration 20260909-236 adds NOT NULL phase with enum CHECK and PREPARATION default for legacy rows |
+| 65 | `operation_tasks` | Task lifecycle/OCC/completion/block/cancellation; phase PREPARATION/EXECUTION/FOLLOW_UP | PK `(parish_id,id)`; list/workstream/schedule/scope indexes; event/workstream/scope-unit/schedule/cancellation triggers; migration 20260909-236 adds NOT NULL phase with enum CHECK and PREPARATION default for legacy rows; migration `20260912-258` thêm nullable `scope_unit_id` (backfill từ workstream/event) + scope triggers/index; migration `20260912-260` drops `approval_status/approved_by/approved_at` (approval workflow retired) |
 | 66 | `operation_task_dependencies` | Cạnh `BLOCKED_BY` tenant-scoped | PK `(parish_id,task_id,depends_on_task_id)`; composite FKs và self-loop CHECK |
-| 67 | `operation_task_assignees` | OWNER/CONTRIBUTOR/APPROVER/OBSERVER có identity, acknowledgement, version và soft revoke | PK `(parish_id,id)`; partial UNIQUE một OWNER active và target-role uniqueness |
+| 67 | `operation_task_assignees` | OWNER/CONTRIBUTOR có identity, acknowledgement, version và soft revoke | PK `(parish_id,id)`; partial UNIQUE một OWNER active và target-role uniqueness |
 | 68 | `operation_checklist_items` | Checklist required/done của task | PK `(parish_id,task_id,id)`; task/sort index; composite FK |
 | 69 | `operation_workstream_members` | Resource role có thời hạn/version/soft revoke | PK `(parish_id,id)`; target-role uniqueness và user/person indexes |
 | 70 | `operation_task_comments` | Comment/evidence HTTPS metadata riêng của task | PK `(parish_id,id)`; task/time index; composite FKs |
@@ -98,6 +98,7 @@ or rewrite term history to force a deployment through.
 | 72 | `operation_event_retrospectives` | Hậu kiểm riêng tư 1:1 sau event, tách bài học/cải thiện khỏi outcome đã chốt | PK `(parish_id,event_id)`; composite FK cascade tới `operation_events`; OCC `version >= 1`; migration `20260909-239` |
 | 73 | `operation_event_templates` | Family mẫu sự kiện theo phạm vi tổ chức, latest content version, monotonic family version và lifecycle active/archive có thể khôi phục | PK `(parish_id,id)`; composite FK scope unit; list index; `version` + `latest_version` + `is_active` là OCC/CAS chống ABA, không xóa snapshot/provenance; migrations `20260909-240,243` |
 | 74 | `operation_event_template_versions` | Snapshot JSON bất biến của từng phiên bản, gắn source event để giữ provenance | PK `(parish_id,template_id,version)`; composite FK RESTRICT tới family/source event; source index; event instance tham chiếu bằng trigger same-parish và version tồn tại |
+| 75 | `operation_task_dispatches` | Lượt phân công chính/dự bị (primary/reserve) của task với acknowledgement deadline, trạng thái SCHEDULED/PENDING/ACCEPTED/CANCELLED và OCC `version` | PK `(parish_id,id)`; composite FK cascade tới `operation_tasks`, FK restrict tới user/person; partial UNIQUE một dispatch active `(parish_id,task_id)` WHERE status IN (SCHEDULED,PENDING); CHECK target XOR, distinct primary/reserve và acceptance state; migration `20260910-254` |
 
 ---
 

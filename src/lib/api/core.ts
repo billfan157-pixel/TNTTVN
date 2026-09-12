@@ -227,12 +227,47 @@ function canAutoRetry(method: string, customHeaders?: Record<string, string>, al
 }
 
 /**
+ * P1-4: combine a caller-supplied abort signal (superseded selections) with
+ * the transport timeout. Prefers native AbortSignal.any with a manual
+ * fallback so older webviews never break every request.
+ */
+function combineWithTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs)
+  if (!externalSignal) return timeoutSignal
+  const nativeAny = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any
+  if (typeof nativeAny === 'function') return nativeAny.call(AbortSignal, [externalSignal, timeoutSignal])
+  const controller = new AbortController()
+  const abortFromExternal = () => {
+    timeoutSignal.removeEventListener('abort', abortFromTimeout)
+    controller.abort()
+  }
+  const abortFromTimeout = () => {
+    externalSignal.removeEventListener('abort', abortFromExternal)
+    controller.abort()
+  }
+  if (externalSignal.aborted) abortFromExternal()
+  else if (timeoutSignal.aborted) abortFromTimeout()
+  else {
+    externalSignal.addEventListener('abort', abortFromExternal, { once: true })
+    timeoutSignal.addEventListener('abort', abortFromTimeout, { once: true })
+  }
+  return controller.signal
+}
+
+function requestAbortedError(path: string): ApiError {
+  // Superseded by a newer selection — never retried, never treated as offline.
+  return new ApiError(0, 'Request superseded — a newer selection replaced it', path, 'REQUEST_ABORTED')
+}
+
+/**
  * Core request function with:
  * - JWT auto-refresh with mutex (prevents concurrent refresh race)
  * - Retry logic with exponential backoff for transient failures (method-aware — A12)
  * - Proper error classification
+ * - Optional caller abort signal (P1-4): aborts superseded detail loads early
+ *   instead of letting them run to the transport timeout.
  */
-export async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false, externalSignal?: AbortSignal): Promise<T> {
   // SECURITY (2026-08-11): KHÔNG nạp access token từ localStorage — memory-only.
   // Nếu memory rỗng (sau reload), caller phải gọi bootstrapAccessToken() trước
   // (xem authStore.loadFromStorage / main.tsx). Refresh token nguồn duy nhất là
@@ -261,6 +296,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
   const serializedBody = body === undefined ? undefined : isMultipart ? body : JSON.stringify(body)
   let requestSessionGeneration = authSessionGeneration
+  const timeoutMs = responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS
 
   let res: Response
   try {
@@ -271,16 +307,21 @@ export async function request<T>(method: string, path: string, body?: unknown, r
       // A01 Phase 1: bắt buộc để gửi/nhận HttpOnly cookie refresh (cùng site
       // & cross-origin khi API server riêng).
       credentials: 'include',
-      signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS),
+      signal: combineWithTimeout(externalSignal, timeoutMs),
     })
   } catch {
     if (authSessionGeneration !== requestSessionGeneration) {
       throw new ApiError(401, 'Authentication session changed while request was in flight', path)
     }
+    // P1-4: a caller-aborted (superseded) request must neither retry nor
+    // masquerade as a network/offline failure.
+    if (externalSignal?.aborted) {
+      throw requestAbortedError(path)
+    }
     // Network error — A12: chỉ retry method idempotent (hoặc có Idempotency-Key)
     if (canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
       await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
-      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope)
+      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal)
     }
     throw new ApiError(0, 'Network error — unable to reach server', path)
   }
@@ -297,9 +338,15 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     if (refreshRes === 'success') {
       headers['Authorization'] = `Bearer ${accessToken}`
       requestSessionGeneration = authSessionGeneration
-      res = await fetch(url, { method, headers, body: serializedBody, credentials: 'include', signal: AbortSignal.timeout(responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS) })
+      if (externalSignal?.aborted) {
+        throw requestAbortedError(path)
+      }
+      res = await fetch(url, { method, headers, body: serializedBody, credentials: 'include', signal: combineWithTimeout(externalSignal, timeoutMs) })
       if (authSessionGeneration !== requestSessionGeneration) {
         throw new ApiError(401, 'Authentication session changed while request was in flight', path)
+      }
+      if (externalSignal?.aborted) {
+        throw requestAbortedError(path)
       }
     } else if (refreshRes === 'auth_failed') {
       redirectToLogin()
@@ -313,8 +360,11 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   // Handle 5xx with retry — A12: chỉ method idempotent (hoặc có Idempotency-Key)
   // 501 Not Implemented là cấu hình tĩnh (vd VAPID chưa set) — retry không bao giờ thành công, chỉ tạo spam 4×.
   if (res.status >= 500 && res.status !== 501 && canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
+    if (externalSignal?.aborted) {
+      throw requestAbortedError(path)
+    }
     await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
-    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope)
+    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal)
   }
 
   if (!res.ok) {
@@ -330,8 +380,10 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     let details: any = undefined
     let issues: any[] | undefined
     let customMessage: string | undefined
+    let errorCode: string | undefined
     try {
       const parsed = JSON.parse(text)
+      errorCode = typeof parsed?.error?.code === 'string' ? parsed.error.code : undefined
       details = parsed?.error?.details
       // ADR-016 (sync-fix): zValidator 400 trả { success:false, error:{ issues:[...] } }.
       // Lưu issues để batch handler cách ly đúng record lỗi (thay vì retry mù cả batch),
@@ -359,9 +411,10 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     if (res.status === 502 && !customMessage && !issues) {
       message = 'Không thể kết nối máy chủ — backend đang không chạy. Hãy mở `npm run dev:server` (hoặc `npm run dev:all`).'
     }
-    const err = new ApiError(res.status, message, path)
+    const err = new ApiError(res.status, message, path, errorCode)
     ;(err as any).details = details
     ;(err as any).issues = issues
+    ;(err as any).code = errorCode
     throw err
   }
 
@@ -404,11 +457,13 @@ export function withDeadline<T>(p: Promise<T>, ms: number, fallback: T): Promise
 export class ApiError extends Error {
   status: number
   path: string
-  constructor(status: number, message: string, path: string) {
+  code?: string
+  constructor(status: number, message: string, path: string, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.path = path
+    this.code = code
   }
 }
 

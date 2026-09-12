@@ -5,7 +5,7 @@ import { operationsApi, type OperationTaskDetail } from '../../lib/api/operation
 import { setTenantScope } from '../../lib/tenantScope'
 
 const detail: OperationTaskDetail = {
-  task: { id: 'T1', parishId: 'P1', title: 'Task', status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: true, approvalStatus: 'NOT_REQUIRED', version: 9 },
+  task: { id: 'T1', parishId: 'P1', title: 'Task', status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: true, version: 9 },
   assignees: [{ id: 'A1', parishId: 'P1', taskId: 'T1', userId: 'U1', assignmentRole: 'OWNER', acknowledgementStatus: 'ACCEPTED', version: 2 }],
   comments: [], checklist: [], dependencies: [], permissions: { 'operations.task.reassign': true },
 }
@@ -33,7 +33,7 @@ describe('TaskHandoverForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Xác nhận bàn giao' }))
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
     expect(onWarnings).toHaveBeenCalledWith('T1', warnings)
-    expect(handover).toHaveBeenCalledWith('T1', { version: 9, assignmentId: 'A1', assignmentVersion: 2, personId: 'P-new', reason: 'Schedule change' })
+    expect(handover).toHaveBeenCalledWith('T1', { version: 9, assignmentId: 'A1', assignmentVersion: 2, personId: 'P-new', reason: 'Schedule change' }, expect.any(String))
   })
   it('keeps the draft and does not refresh on a rejected command', async () => {
     vi.spyOn(operationsApi, 'handoverTask').mockRejectedValue(new Error('Version conflict'))

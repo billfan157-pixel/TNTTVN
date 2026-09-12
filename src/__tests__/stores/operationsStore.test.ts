@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { waitFor } from '@testing-library/react'
 import { api, ApiError } from '../../lib/api'
 import { dexieStorage } from '../../lib/db'
 import { setTenantScope } from '../../lib/tenantScope'
@@ -15,7 +16,7 @@ function event(id: string, parishId = parishA): OperationEvent {
 function task(id: string, parishId = parishA): OperationTask {
   return {
     id, parishId, title: `Task ${id}`, status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: false,
-    approvalStatus: 'NOT_REQUIRED', version: 1,
+    version: 1,
     myAssignments: [{ id: `assignment-${id}`, parishId, taskId: id, userId: 'user-a', assignmentRole: 'OWNER', acknowledgementStatus: 'PENDING', version: 1 }],
   }
 }
@@ -108,8 +109,18 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
     expect(useOperationsStore.getState().selectedTask?.task.id).toBe('new')
   })
 
+  it('forwards a caller-provided idempotency key so form retries reuse it', async () => {
+    const create = vi.spyOn(api, 'createEvent').mockResolvedValue(event('E-new'))
+    const input = {
+      title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z',
+      timezone: 'Asia/Ho_Chi_Minh' as const,
+    }
+    await useOperationsStore.getState().createEvent(input, 'stable-key-1')
+    expect(create).toHaveBeenCalledWith(input, 'stable-key-1')
+  })
+
   it('refreshes overview and event task assignments after handover', async () => {
-    const updated = { ...taskDetail('T'), task: { ...task('T'), version: 5, approvalStatus: 'APPROVED' as const } }
+    const updated = { ...taskDetail('T'), task: { ...task('T'), version: 5 } }
     useOperationsStore.setState({ selectedTask: taskDetail('T'), selectedEvent: { ...eventDetail('E'), tasks: [task('T')], assignees: task('T').myAssignments! } })
     vi.spyOn(api, 'getEvents').mockResolvedValue(page([event('E')]))
     vi.spyOn(api, 'getTasks').mockResolvedValue(page([]))
@@ -118,7 +129,7 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
     vi.spyOn(api, 'getEvent').mockResolvedValue({ ...eventDetail('E'), tasks: [updated.task], readiness: { percent: 0, blockers: [{ type: 'OWNER_PENDING', id: 'T', label: 'Chờ nhận việc' }] } })
     await useOperationsStore.getState().refreshTaskViews('T')
     expect(useOperationsStore.getState().tasks).toEqual([])
-    expect(useOperationsStore.getState().selectedEvent).toMatchObject({ tasks: [{ id: 'T', version: 5, approvalStatus: 'APPROVED' }], assignees: [] })
+    expect(useOperationsStore.getState().selectedEvent).toMatchObject({ tasks: [{ id: 'T', version: 5 }], assignees: [] })
     expect(useOperationsStore.getState().selectedEvent?.readiness.percent).toBe(0)
   })
 
@@ -169,7 +180,7 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
 
     expect(createDispatch).toHaveBeenCalledWith('A', {
       version: 1, acknowledgeBy: '2027-01-01T05:00:00Z', primaryUserId: 'primary', reservePersonId: 'reserve-person',
-    })
+    }, undefined)
     expect(useOperationsStore.getState().selectedEvent?.tasks[0].version).toBe(2)
   })
 
@@ -190,7 +201,7 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
 
     await useOperationsStore.getState().acceptTaskDispatch(invitation)
 
-    expect(api.acceptTaskDispatch).toHaveBeenCalledWith('A', 'OPD-1', { version: 3, target: 'RESERVE' })
+    expect(api.acceptTaskDispatch).toHaveBeenCalledWith('A', 'OPD-1', { version: 3, target: 'RESERVE' }, undefined)
     expect(useOperationsStore.getState().dispatchInvitations).toEqual([])
   })
 
@@ -240,7 +251,7 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
 
     await useOperationsStore.getState().acknowledgeTask(assignedTask, 'ACCEPTED')
 
-    expect(acknowledge).toHaveBeenCalledWith('A', 'assignment-A', 1, 'ACCEPTED', undefined)
+    expect(acknowledge).toHaveBeenCalledWith('A', 'assignment-A', 1, 'ACCEPTED', undefined, undefined)
     expect(useOperationsStore.getState().tasks[0].myAssignments?.[0]).toMatchObject({ acknowledgementStatus: 'ACCEPTED', version: 2 })
   })
 
@@ -296,11 +307,11 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
   it('keeps reminder inbox online-only and updates read state only after server acknowledgement', async () => {
     const current = reminder('R1')
     useOperationsStore.setState({ reminders: [current], source: 'server' })
-    const markRead = vi.spyOn(api, 'markReminderRead').mockResolvedValue({ id: current.id, readAt: '2026-10-01T00:31:00Z' })
+    const markRead = vi.spyOn(api, 'markReminderRead').mockResolvedValue({ id: current.id, readAt: '2026-10-01T00:31:00Z', version: current.version + 1 })
 
     await useOperationsStore.getState().markReminderRead(current)
 
-    expect(markRead).toHaveBeenCalledWith('R1')
+    expect(markRead).toHaveBeenCalledWith('R1', current.version, undefined)
     expect(useOperationsStore.getState().reminders[0].readAt).toBe('2026-10-01T00:31:00Z')
     expect(dexieStorage.setItem).not.toHaveBeenCalled()
   })
@@ -328,29 +339,108 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
   it('does not mark a different reminder read when the acknowledgement ID is inconsistent', async () => {
     const current = reminder('R1')
     useOperationsStore.setState({ reminders: [current] })
-    vi.spyOn(api, 'markReminderRead').mockResolvedValue({ id: 'R2', readAt: '2026-10-01T00:31:00Z' })
+    vi.spyOn(api, 'markReminderRead').mockResolvedValue({ id: 'R2', readAt: '2026-10-01T00:31:00Z', version: current.version + 1 })
 
     await expect(useOperationsStore.getState().markReminderRead(current)).rejects.toThrow(/không khớp yêu cầu/i)
     expect(useOperationsStore.getState().reminders[0].readAt).toBeNull()
   })
 
   it('uses the latest acknowledged task version for sequential checklist commands', async () => {
-    const currentTask = { ...task('checklist'), approvalStatus: 'APPROVED' as const }
+    const currentTask = { ...task('checklist') }
     const item: OperationChecklistItem = { id: 'C1', parishId: parishA, taskId: currentTask.id, label: 'Kiểm tra dụng cụ', isRequired: true, isDone: false, sortOrder: 0 }
     useOperationsStore.setState({
       tasks: [currentTask],
       selectedTask: { task: currentTask, assignees: [], checklist: [], comments: [], dependencies: [], permissions: { 'operations.task.manage': true } },
     })
-    vi.spyOn(api, 'createChecklistItem').mockResolvedValue({ item, taskVersion: 2, approvalStatus: 'PENDING' })
-    const update = vi.spyOn(api, 'updateChecklistItem').mockResolvedValue({ item: { ...item, isDone: true }, taskVersion: 3, approvalStatus: 'PENDING' })
+    vi.spyOn(api, 'createChecklistItem').mockResolvedValue({ item, taskVersion: 2 })
+    const update = vi.spyOn(api, 'updateChecklistItem').mockResolvedValue({ item: { ...item, isDone: true }, taskVersion: 3 })
 
     await useOperationsStore.getState().addChecklistItem(currentTask, item.label, true)
     const afterCreate = useOperationsStore.getState().selectedTask!
-    expect(afterCreate.task.approvalStatus).toBe('PENDING')
-    expect(useOperationsStore.getState().tasks[0].approvalStatus).toBe('PENDING')
+    expect(afterCreate.task.version).toBe(2)
+    expect(useOperationsStore.getState().tasks[0].version).toBe(2)
     await useOperationsStore.getState().toggleChecklistItem(afterCreate.task, afterCreate.checklist[0])
 
-    expect(update).toHaveBeenCalledWith('checklist', 'C1', { version: 2, isDone: true })
+    expect(update).toHaveBeenCalledWith('checklist', 'C1', { version: 2, isDone: true }, undefined)
     expect(useOperationsStore.getState().selectedTask).toMatchObject({ task: { version: 3 }, checklist: [{ id: 'C1', isDone: true }] })
+  })
+
+  it('supports options with blockedReason and cancellationReason in transitionTask', async () => {
+    const currentTask = { ...task('T1'), status: 'IN_PROGRESS' as const, version: 1 }
+    useOperationsStore.setState({ tasks: [currentTask], selectedTask: { task: currentTask, assignees: [], checklist: [], comments: [], dependencies: [], permissions: { 'operations.task.execute': true } } })
+    const spy = vi.spyOn(api, 'transitionTask').mockResolvedValue({ ...currentTask, status: 'BLOCKED', version: 2 })
+
+    await useOperationsStore.getState().transitionTask(currentTask, 'BLOCKED', { blockedReason: 'Thiếu vật tư', idempotencyKey: 'cmd-block' })
+    expect(spy).toHaveBeenCalledWith('T1', expect.objectContaining({ status: 'BLOCKED', version: 1, blockedReason: 'Thiếu vật tư' }), 'cmd-block')
+
+    await useOperationsStore.getState().transitionTask({ ...currentTask, version: 2 }, 'CANCELLED', { cancellationReason: 'Không cần nữa' })
+    expect(spy).toHaveBeenCalledWith('T1', expect.objectContaining({ status: 'CANCELLED', version: 2, cancellationReason: 'Không cần nữa' }), undefined)
+  })
+
+  it('formats 409 conflict error into friendly Vietnamese and triggers entity refetch', async () => {
+    const currentTask = { ...task('T1'), version: 1 }
+    useOperationsStore.setState({ tasks: [currentTask], selectedTask: { task: currentTask, assignees: [], checklist: [], comments: [], dependencies: [], permissions: { 'operations.task.manage': true } } })
+    const conflictError = Object.assign(new Error('OCC conflict'), { status: 409, code: 'VERSION_MISMATCH' })
+    vi.spyOn(api, 'updateTask').mockRejectedValue(conflictError)
+    const fetchSpy = vi.spyOn(api, 'getEvents').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getTasks').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getReminders').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getDispatchInbox').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getPermissions').mockResolvedValue({ parishId: parishA, permissions: {} })
+
+    await expect(useOperationsStore.getState().updateTask(currentTask, { title: 'Tên mới' })).rejects.toThrow()
+    await waitFor(() => {
+      expect(useOperationsStore.getState().error).toMatch(/thay đổi bởi người khác/i)
+      expect(fetchSpy).toHaveBeenCalled()
+    })
+  })
+
+  it('does not set error state when request scope changed during catch in markReminderRead', async () => {
+    const current = reminder('R1')
+    useOperationsStore.setState({ reminders: [current], error: null })
+    vi.spyOn(api, 'markReminderRead').mockImplementation(async () => {
+      useOperationsStore.getState().clear()
+      setTenantScope({ parishId: parishB, userId: 'user-b' })
+      throw new Error('Network failure')
+    })
+
+    await expect(useOperationsStore.getState().markReminderRead(current)).rejects.toThrow('Network failure')
+    expect(useOperationsStore.getState().error).toBeNull()
+  })
+
+  it('P1-6: surfaces createTask failures in the shared error banner like createStandaloneTask', async () => {
+    vi.spyOn(api, 'createTask').mockRejectedValue(new Error('boom'))
+    await expect(useOperationsStore.getState().createTask({ title: 'A', eventId: 'E' })).rejects.toThrow('boom')
+    // formatStoreError maps the failure instead of leaving a silent rejection.
+    expect(useOperationsStore.getState().error).toContain('boom')
+  })
+
+  it('P1-4: aborts a superseded task detail load and applies only the newest selection', async () => {
+    const first = deferred<OperationTaskDetail>()
+    const getTask = vi.spyOn(api, 'getTask').mockReturnValueOnce(first.promise).mockResolvedValue(taskDetail('B'))
+    const pendingA = useOperationsStore.getState().selectTask('A')
+    const signalA = getTask.mock.calls[0][1] as AbortSignal | undefined
+    expect(signalA).toBeInstanceOf(AbortSignal)
+    await useOperationsStore.getState().selectTask('B')
+    expect(signalA?.aborted).toBe(true)
+    first.resolve(taskDetail('A')); await pendingA
+    expect(useOperationsStore.getState().selectedTask?.task.id).toBe('B')
+  })
+
+  it('P1-4: a superseded load failure dies silently without an error banner', async () => {
+    const first = deferred<OperationTaskDetail>()
+    vi.spyOn(api, 'getTask').mockReturnValueOnce(first.promise).mockResolvedValue(taskDetail('B'))
+    const pendingA = useOperationsStore.getState().selectTask('A')
+    await useOperationsStore.getState().selectTask('B')
+    first.reject(new ApiError(0, 'Request superseded', '/operations/tasks/A', 'REQUEST_ABORTED'))
+    await pendingA
+    expect(useOperationsStore.getState().selectedTask?.task.id).toBe('B')
+    expect(useOperationsStore.getState().error).toBeNull()
+  })
+
+  it('P1-4: passes an abort signal to event detail loads', async () => {
+    const getEvent = vi.spyOn(api, 'getEvent').mockResolvedValue(eventDetail('E'))
+    await useOperationsStore.getState().selectEvent('E')
+    expect(getEvent.mock.calls[0][1]).toBeInstanceOf(AbortSignal)
   })
 })

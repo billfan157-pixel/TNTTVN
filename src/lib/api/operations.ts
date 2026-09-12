@@ -1,7 +1,7 @@
 import { newIdempotencyKey, request } from './core'
 
-const command = <T>(method: 'POST' | 'PUT', path: string, body?: unknown, idempotencyKey = newIdempotencyKey()) =>
-  request<T>(method, path, body, 0, { 'Idempotency-Key': idempotencyKey })
+const command = <T>(method: 'POST' | 'PUT', path: string, body?: unknown, idempotencyKey?: string) =>
+  request<T>(method, path, body, 0, { 'Idempotency-Key': idempotencyKey || newIdempotencyKey() })
 
 export interface OperationAssignment {
   id: string
@@ -9,7 +9,7 @@ export interface OperationAssignment {
   taskId: string
   userId?: string | null
   personId?: string | null
-  assignmentRole: 'OWNER' | 'CONTRIBUTOR' | 'APPROVER' | 'OBSERVER'
+  assignmentRole: 'OWNER' | 'CONTRIBUTOR'
   acknowledgementStatus: 'PENDING' | 'ACCEPTED' | 'DECLINED'
   version: number
 }
@@ -57,11 +57,14 @@ export interface OperationEvent {
   location?: string | null
   status: 'DRAFT' | 'PLANNING' | 'PREPARING' | 'READY' | 'LIVE' | 'COMPLETED' | 'CANCELLED'
   visibility: 'INTERNAL' | 'PUBLIC_SUMMARY'
+  eventScopeType?: 'XU_DOAN' | 'UNIT' | null
   expectedHeadcount?: number | null
   sourceParishEventId?: string | null
   sourceTemplateId?: string | null
   sourceTemplateVersion?: number | null
   scopeUnitId?: string | null
+  organizerUserId?: string | null
+  organizerPersonId?: string | null
   outcomeSummary?: string | null
   completionRecordId?: string | null
   automationPaused?: boolean
@@ -76,6 +79,7 @@ export interface OperationTask {
   parishId: string
   operationEventId?: string | null
   workstreamId?: string | null
+  scopeUnitId?: string | null
   title: string
   description?: string | null
   status: 'BACKLOG' | 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE' | 'CANCELLED'
@@ -87,7 +91,6 @@ export interface OperationTask {
   scheduledEndAt?: string | null
   blockedReason?: string | null
   cancellationReason?: string | null
-  approvalStatus: 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED'
   myAssignments?: OperationAssignment[]
   version: number
 }
@@ -128,7 +131,6 @@ export interface OperationEventTemplatePreview {
       phase: OperationTask['phase']
       priority: OperationTask['priority']
       isRequired: boolean
-      requiresApproval: boolean
       dueOffsetMinutes: number | null
       dueAt: string | null
       scheduledStartOffsetMinutes?: number | null
@@ -195,7 +197,7 @@ export interface OperationReminder {
   eventId?: string | null
   recipientUserId?: string
   triggerAt: string
-  kind: 'TASK_DUE' | 'EVENT_START' | 'OVERDUE'
+  kind: 'TASK_DUE' | 'EVENT_START' | 'OVERDUE' | 'MANAGER_PREP'
   status: 'PENDING' | 'ENQUEUED' | 'SENT' | 'FAILED' | 'CANCELLED'
   version: number
   readAt?: string | null
@@ -240,7 +242,7 @@ export interface OperationWorkstreamMember {
   workstreamId: string
   userId: string | null
   personId: string | null
-  operationRole: 'WORKSTREAM_LEAD' | 'CONTRIBUTOR' | 'APPROVER' | 'OBSERVER'
+  operationRole: 'WORKSTREAM_LEAD' | 'OBSERVER'
   startsAt: string | null
   endsAt: string | null
   version: number
@@ -266,6 +268,7 @@ export type OperationAssignmentTarget = { personId: string; userId?: never } | {
 
 export interface OperationEventDetail {
   event: OperationEvent
+  organizer?: { userId: string | null; personId: string | null; displayName: string | null } | null
   retrospective?: OperationEventRetrospective | null
   workstreams: OperationWorkstream[]
   tasks: OperationTask[]
@@ -282,6 +285,37 @@ export interface OperationsListPage<T> {
   error: null
 }
 
+/** Business creation options for the "+ Tạo mới" menu — server-authoritative (O8: codes EN, UI maps to VI). */
+export type OperationsPositionCode = 'PARISH_LEADER' | 'PARISH_SECRETARY' | 'PARISH_DEPUTY' | 'BRANCH_LEADER' | 'BRANCH_DEPUTY' | 'COMMITTEE_LEADER' | 'COMMITTEE_DEPUTY'
+export const OPERATIONS_POSITION_LABELS_VI: Record<OperationsPositionCode, string> = {
+  PARISH_LEADER: 'Xứ đoàn trưởng',
+  PARISH_SECRETARY: 'Thư ký Xứ đoàn',
+  PARISH_DEPUTY: 'Phó Xứ đoàn',
+  BRANCH_LEADER: 'Trưởng Ngành',
+  BRANCH_DEPUTY: 'Phó Ngành',
+  COMMITTEE_LEADER: 'Trưởng Ban',
+  COMMITTEE_DEPUTY: 'Phó Ban',
+}
+export interface OperationsOrganizerOption {
+  userId: string
+  displayName: string
+  positionCode: string
+}
+export interface OperationsCreationUnitOption {
+  id: string
+  name: string
+  unitType: 'BRANCH' | 'COMMITTEE'
+  canCreateEvent: boolean
+  canCreateTask: boolean
+  organizers: OperationsOrganizerOption[]
+  myRole: string | null
+}
+export interface OperationsCreationOptions {
+  canCreateXuDoanEvent: boolean
+  xuDoanOrganizers: OperationsOrganizerOption[]
+  units: OperationsCreationUnitOption[]
+}
+
 const paged = <T>(path: string, page = 1, limit = 50) => {
   const separator = path.includes('?') ? '&' : '?'
   return request<OperationsListPage<T>>('GET', `${path}${separator}page=${page}&limit=${limit}`, undefined, 0, undefined, false, 'json', true)
@@ -289,9 +323,9 @@ const paged = <T>(path: string, page = 1, limit = 50) => {
 
 export const operationsApi = {
   getMyBlockouts: (page = 1, limit = 500) => paged<OperationBlockout>('/operations/blockouts/mine', page, limit),
-  createBlockout: (body: { userId: string; startsAt: string; endsAt: string; reason?: string | null }) => command<OperationBlockout>('POST', '/operations/blockouts', body),
-  updateBlockout: (id: string, body: { version: number; startsAt: string; endsAt: string; reason: string | null }) => command<OperationBlockout>('PUT', `/operations/blockouts/${encodeURIComponent(id)}`, body),
-  revokeBlockout: (id: string, version: number) => command<{ id: string; parishId: string; version: number; deletedAt: string }>('POST', `/operations/blockouts/${encodeURIComponent(id)}/revoke`, { version }),
+  createBlockout: (body: { userId: string; startsAt: string; endsAt: string; reason?: string | null }, idempotencyKey?: string) => command<OperationBlockout>('POST', '/operations/blockouts', body, idempotencyKey),
+  updateBlockout: (id: string, body: { version: number; startsAt: string; endsAt: string; reason: string | null }, idempotencyKey?: string) => command<OperationBlockout>('PUT', `/operations/blockouts/${encodeURIComponent(id)}`, body, idempotencyKey),
+  revokeBlockout: (id: string, version: number, idempotencyKey?: string) => command<{ id: string; parishId: string; version: number; deletedAt: string }>('POST', `/operations/blockouts/${encodeURIComponent(id)}/revoke`, { version }, idempotencyKey),
   getCandidates: (target: OperationCandidateTarget, page = 1, limit = 500) => {
     const [field, value] = Object.entries(target)[0]
     return paged<OperationCandidate>(`/operations/candidates?${field}=${encodeURIComponent(value)}`, page, limit)
@@ -305,50 +339,52 @@ export const operationsApi = {
   restoreEventTemplate: (id: string, body: { expectedVersion: number; expectedLatestVersion: number; reason: string }, idempotencyKey?: string) => command<OperationEventTemplate>('POST', `/operations/templates/${encodeURIComponent(id)}/restore`, body, idempotencyKey),
   instantiateEventTemplate: (id: string, body: { templateVersion: number; startsAt: string; timezone: string; visibility?: OperationEvent['visibility']; organizerUserId?: string | null; organizerPersonId?: string | null }, idempotencyKey?: string) => command<{ event: OperationEvent; tasks: OperationTask[]; checklist: OperationChecklistItem[]; template: { id: string; name: string; version: number } }>('POST', `/operations/templates/${encodeURIComponent(id)}/instantiate`, body, idempotencyKey),
   getStandaloneWorkstreams: (page = 1, limit = 500) => paged<OperationWorkstream>('/operations/workstreams?standalone=true', page, limit),
-  cancelReminder: (id: string, expectedVersion: number, reason: string) => command<{ id: string; parishId: string; status: 'CANCELLED'; version: number }>('POST', `/operations/reminders/${encodeURIComponent(id)}/cancel`, { expectedVersion, reason }),
-  rescheduleReminder: (id: string, body: { expectedVersion: number; triggerAt: string; reason: string }) => command<OperationReminder>('POST', `/operations/reminders/${encodeURIComponent(id)}/reschedule`, body),
-  createReminder: (body: ({ eventId: string; kind: 'EVENT_START' } | { taskId: string; kind: 'TASK_DUE' }) & { recipientUserId: string; triggerAt: string }) => command<OperationReminder>('POST', '/operations/reminders', body),
+  cancelReminder: (id: string, expectedVersion: number, reason: string, idempotencyKey?: string) => command<{ id: string; parishId: string; status: 'CANCELLED'; version: number }>('POST', `/operations/reminders/${encodeURIComponent(id)}/cancel`, { expectedVersion, reason }, idempotencyKey),
+  rescheduleReminder: (id: string, body: { expectedVersion: number; triggerAt: string; reason: string }, idempotencyKey?: string) => command<OperationReminder>('POST', `/operations/reminders/${encodeURIComponent(id)}/reschedule`, body, idempotencyKey),
+  createReminder: (body: ({ eventId: string; kind: 'EVENT_START' } | { taskId: string; kind: 'TASK_DUE' }) & { recipientUserId: string; triggerAt: string }, idempotencyKey?: string) => command<OperationReminder>('POST', '/operations/reminders', body, idempotencyKey),
   getResourceReminders: (target: { taskId: string } | { eventId: string }, page = 1, limit = 50) => paged<OperationReminder>(`/operations/reminders?${'taskId' in target ? `taskId=${encodeURIComponent(target.taskId)}` : `eventId=${encodeURIComponent(target.eventId)}`}`, page, limit),
   getWorkstream: (id: string) => request<OperationWorkstreamDetail>('GET', `/operations/workstreams/${encodeURIComponent(id)}`),
-  createWorkstream: (body: { eventId?: string | null; sourceUnitId?: string | null; name: string; isRequired: boolean }) => command<OperationWorkstream>('POST', '/operations/workstreams', body),
-  addWorkstreamMember: (id: string, body: { version: number; operationRole: OperationWorkstreamMember['operationRole'] } & OperationAssignmentTarget) => command<OperationWorkstreamMember & { workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/members`, body),
-  removeWorkstreamMember: (id: string, memberId: string, body: { version: number; memberVersion: number; reason: string }) => command<{ member: OperationWorkstreamMember; workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}/remove`, body),
+  createWorkstream: (body: { eventId?: string | null; sourceUnitId?: string | null; name: string; isRequired: boolean }, idempotencyKey?: string) => command<OperationWorkstream>('POST', '/operations/workstreams', body, idempotencyKey),
+  addWorkstreamMember: (id: string, body: { version: number; operationRole: OperationWorkstreamMember['operationRole'] } & OperationAssignmentTarget, idempotencyKey?: string) => command<OperationWorkstreamMember & { workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/members`, body, idempotencyKey),
+  removeWorkstreamMember: (id: string, memberId: string, body: { version: number; memberVersion: number; reason: string }, idempotencyKey?: string) => command<{ member: OperationWorkstreamMember; workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}/remove`, body, idempotencyKey),
   replaceWorkstreamLead: (id: string, body: {
     version: number
     currentLeadMemberId?: string | null
     currentLeadMemberVersion?: number | null
     endsAt?: string | null
     reason: string
-  } & OperationAssignmentTarget) => command<{ previousLead: OperationWorkstreamMember | null; newLead: OperationWorkstreamMember; workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/lead/replace`, body),
-  updateWorkstreamMemberValidity: (id: string, memberId: string, body: { version: number; memberVersion: number; startsAt: string | null; endsAt: string | null; reason: string }) => command<{ member: OperationWorkstreamMember; workstreamVersion: number }>('PUT', `/operations/workstreams/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}/validity`, body),
-  setWorkstreamReady: (id: string, body: { version: number; status: 'READY' | 'BLOCKED'; reason?: string }) => command<OperationWorkstream>('POST', `/operations/workstreams/${encodeURIComponent(id)}/ready`, body),
+  } & OperationAssignmentTarget, idempotencyKey?: string) => command<{ previousLead: OperationWorkstreamMember | null; newLead: OperationWorkstreamMember; workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/lead/replace`, body, idempotencyKey),
+  updateWorkstreamMemberValidity: (id: string, memberId: string, body: { version: number; memberVersion: number; startsAt: string | null; endsAt: string | null; reason: string }, idempotencyKey?: string) => command<{ member: OperationWorkstreamMember; workstreamVersion: number }>('PUT', `/operations/workstreams/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}/validity`, body, idempotencyKey),
+  setWorkstreamReady: (id: string, body: { version: number; status: 'READY' | 'BLOCKED'; reason?: string }, idempotencyKey?: string) => command<OperationWorkstream>('POST', `/operations/workstreams/${encodeURIComponent(id)}/ready`, body, idempotencyKey),
   getEvents: (page = 1, limit = 50) => paged<OperationEvent>('/operations/events', page, limit),
   getTasks: (mine = false, page = 1, limit = 50) => paged<OperationTask>(`/operations/tasks${mine ? '?mine=true' : ''}`, page, limit),
   getDispatchInbox: (page = 1, limit = 100) => paged<OperationTaskDispatchInvitation>('/operations/dispatches/inbox', page, limit),
   getWorkstreamTasks: (workstreamId: string, page = 1, limit = 50) => paged<OperationTask>(`/operations/tasks?workstreamId=${encodeURIComponent(workstreamId)}`, page, limit),
-  getApprovalQueue: (page = 1) => paged<OperationTask>('/operations/tasks?queue=approval', page, 50),
   getReminders: (page = 1, limit = 50) => paged<OperationReminder>('/operations/reminders/inbox', page, limit),
   getPermissions: (unitId?: string) => request<{ parishId: string; permissions: Record<string, boolean> }>('GET', `/operations/permissions${unitId ? `?unitId=${encodeURIComponent(unitId)}` : ''}`),
-  getEvent: (id: string) => request<OperationEventDetail>('GET', `/operations/events/${encodeURIComponent(id)}`),
-  getTask: (id: string) => request<OperationTaskDetail>('GET', `/operations/tasks/${encodeURIComponent(id)}`),
+  getEvent: (id: string, signal?: AbortSignal) => request<OperationEventDetail>('GET', `/operations/events/${encodeURIComponent(id)}`, undefined, 0, undefined, false, 'json', false, signal),
+  getTask: (id: string, signal?: AbortSignal) => request<OperationTaskDetail>('GET', `/operations/tasks/${encodeURIComponent(id)}`, undefined, 0, undefined, false, 'json', false, signal),
   getReadiness: (id: string) => request<OperationReadiness>('GET', `/operations/events/${encodeURIComponent(id)}/readiness`),
-  createEvent: (body: { title: string; eventType: string; startsAt: string; endsAt: string; timezone: string; location?: string | null; visibility?: OperationEvent['visibility']; scopeUnitId?: string | null; organizerUserId?: string | null }) => command<OperationEvent>('POST', '/operations/events', body),
-  updateEvent: (id: string, body: { version: number; title?: string; eventType?: string; startsAt?: string; endsAt?: string; timezone?: string; location?: string | null; visibility?: OperationEvent['visibility'] }) => command<OperationEvent>('PUT', `/operations/events/${encodeURIComponent(id)}`, body),
-  createTask: (body: { title: string; eventId?: string | null; workstreamId?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; priority?: OperationTask['priority']; phase?: OperationTask['phase']; isRequired?: boolean; requiresApproval?: boolean }) => command<OperationTask>('POST', '/operations/tasks', body),
-  assignTask: (id: string, body: { version: number; assignmentRole: OperationAssignment['assignmentRole']; note?: string } & OperationAssignmentTarget) => command<{ assignment: OperationAssignment; taskVersion: number; conflictWarnings: Array<{ id: string; startsAt: string; endsAt: string; reason?: string | null }> }>('POST', `/operations/tasks/${encodeURIComponent(id)}/assign`, body),
-  createTaskDispatch: (id: string, body: { version: number; acknowledgeBy: string; primaryUserId?: string; primaryPersonId?: string; reserveUserId?: string; reservePersonId?: string }) => command<{ dispatch: OperationTaskDispatch; taskVersion: number }>('POST', `/operations/tasks/${encodeURIComponent(id)}/dispatch`, body),
-  acceptTaskDispatch: (taskId: string, dispatchId: string, body: { version: number; target: 'PRIMARY' | 'RESERVE' }) => command<{ dispatch: OperationTaskDispatch; assignment: OperationAssignment; taskVersion: number }>('POST', `/operations/tasks/${encodeURIComponent(taskId)}/dispatches/${encodeURIComponent(dispatchId)}/accept`, body),
-  transitionEvent: (id: string, body: { version: number; status: OperationEvent['status']; reason?: string; outcomeSummary?: string; override?: boolean }) => command<OperationEvent>('POST', `/operations/events/${encodeURIComponent(id)}/transition`, body),
-  resumeEventAutomation: (id: string, body: { version: number; reason: string }) => command<OperationEvent>('POST', `/operations/events/${encodeURIComponent(id)}/automation/resume`, body),
-  saveEventRetrospective: (id: string, body: { expectedVersion: number | null; lessonsLearned: string; improvementNotes?: string | null }) => command<OperationEventRetrospective>('PUT', `/operations/events/${encodeURIComponent(id)}/retrospective`, body),
-  createEventFollowUp: (id: string, body: { eventVersion: number; title: string; description?: string | null; dueAt: string; priority?: OperationTask['priority'] } & OperationAssignmentTarget) => command<{ task: OperationTask; assignment: OperationAssignment; eventVersion: number; conflictWarnings: Array<{ id: string; startsAt: string; endsAt: string }> }>('POST', `/operations/events/${encodeURIComponent(id)}/follow-ups`, body),
-  transitionTask: (id: string, body: { version: number; status: OperationTask['status']; completionNote?: string; blockedReason?: string; cancellationReason?: string }) => command<OperationTask>('POST', `/operations/tasks/${encodeURIComponent(id)}/transition`, body),
-  restoreTask: (id: string, body: { version: number; reason: string }) => command<OperationTask>('POST', `/operations/tasks/${encodeURIComponent(id)}/restore`, body),
-  acknowledgeTask: (id: string, assignmentId: string, version: number, status: 'ACCEPTED' | 'DECLINED', note?: string) => command<OperationAssignment>('POST', `/operations/tasks/${encodeURIComponent(id)}/acknowledge`, { assignmentId, version, status, note }),
-  createChecklistItem: (taskId: string, body: { version: number; label: string; isRequired?: boolean; sortOrder?: number }) => command<{ item: OperationChecklistItem; taskVersion: number; approvalStatus: OperationTask['approvalStatus'] }>('POST', `/operations/tasks/${encodeURIComponent(taskId)}/checklist`, body),
-  updateChecklistItem: (taskId: string, itemId: string, body: { version: number; isDone: boolean }) => command<{ item: OperationChecklistItem; taskVersion: number; approvalStatus: OperationTask['approvalStatus'] }>('POST', `/operations/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, body),
-  markReminderRead: (id: string) => command<{ id: string; readAt: string }>('POST', `/operations/reminders/${encodeURIComponent(id)}/read`),
-  approveTask: (id: string, body: { version: number; decision: 'APPROVED' | 'REJECTED'; reason?: string }) => command<OperationTask>('POST', `/operations/tasks/${encodeURIComponent(id)}/approve`, body),
-  handoverTask: (id: string, body: { version: number; assignmentId: string; assignmentVersion: number; reason: string } & OperationAssignmentTarget) => command<{ assignment: OperationAssignment; taskVersion: number; conflictWarnings: Array<{ id: string; startsAt: string; endsAt: string }> }>('POST', `/operations/tasks/${encodeURIComponent(id)}/handover`, body),
-  commentTask: (id: string, body: { content: string; evidenceUrl?: string }) => command<OperationTaskComment>('POST', `/operations/tasks/${encodeURIComponent(id)}/comments`, body),
+  createEvent: (body: { title: string; eventType: string; startsAt: string; endsAt: string; timezone: string; location?: string | null; visibility?: OperationEvent['visibility']; eventScopeType?: 'XU_DOAN' | 'UNIT'; scopeUnitId?: string | null; organizerUserId?: string | null; organizerPersonId?: string | null }, idempotencyKey?: string) => command<OperationEvent>('POST', '/operations/events', body, idempotencyKey),
+  updateEvent: (id: string, body: { version: number; title?: string; eventType?: string; startsAt?: string; endsAt?: string; timezone?: string; location?: string | null; visibility?: OperationEvent['visibility'] }, idempotencyKey?: string) => command<OperationEvent>('PUT', `/operations/events/${encodeURIComponent(id)}`, body, idempotencyKey),
+  getCreationOptions: () => request<{ success: true; data: OperationsCreationOptions; error: null }>('GET', '/operations/creation-options', undefined, 0, undefined, false, 'json', true).then(response => response.data),
+  createTask: (body: { title: string; eventId?: string | null; workstreamId?: string | null; scopeUnitId?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; priority?: OperationTask['priority']; phase?: OperationTask['phase']; isRequired?: boolean }, idempotencyKey?: string) => command<OperationTask>('POST', '/operations/tasks', body, idempotencyKey),
+  // Server classifies important changes itself; the response reports whether
+  // ACCEPTED acknowledgements were reopened so the UI never guesses.
+  updateTask: (id: string, body: { version: number; title?: string; description?: string | null; priority?: OperationTask['priority']; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; isRequired?: boolean }, idempotencyKey?: string) => command<{ task: OperationTask; acknowledgementReset: boolean; resetAssignments: Array<{ id: string }> }>('PUT', `/operations/tasks/${encodeURIComponent(id)}`, body, idempotencyKey),
+  assignTask: (id: string, body: { version: number; assignmentRole: OperationAssignment['assignmentRole']; note?: string } & OperationAssignmentTarget, idempotencyKey?: string) => command<{ assignment: OperationAssignment; taskVersion: number; conflictWarnings: Array<{ id: string; startsAt: string; endsAt: string; reason?: string | null }> }>('POST', `/operations/tasks/${encodeURIComponent(id)}/assign`, body, idempotencyKey),
+  createTaskDispatch: (id: string, body: { version: number; acknowledgeBy: string; primaryUserId?: string; primaryPersonId?: string; reserveUserId?: string; reservePersonId?: string }, idempotencyKey?: string) => command<{ dispatch: OperationTaskDispatch; taskVersion: number }>('POST', `/operations/tasks/${encodeURIComponent(id)}/dispatch`, body, idempotencyKey),
+  acceptTaskDispatch: (taskId: string, dispatchId: string, body: { version: number; target: 'PRIMARY' | 'RESERVE' }, idempotencyKey?: string) => command<{ dispatch: OperationTaskDispatch; assignment: OperationAssignment; taskVersion: number }>('POST', `/operations/tasks/${encodeURIComponent(taskId)}/dispatches/${encodeURIComponent(dispatchId)}/accept`, body, idempotencyKey),
+  transitionEvent: (id: string, body: { version: number; status: OperationEvent['status']; reason?: string; outcomeSummary?: string; override?: boolean }, idempotencyKey?: string) => command<OperationEvent>('POST', `/operations/events/${encodeURIComponent(id)}/transition`, body, idempotencyKey),
+  resumeEventAutomation: (id: string, body: { version: number; reason: string }, idempotencyKey?: string) => command<OperationEvent>('POST', `/operations/events/${encodeURIComponent(id)}/automation/resume`, body, idempotencyKey),
+  saveEventRetrospective: (id: string, body: { expectedVersion: number | null; lessonsLearned: string; improvementNotes?: string | null }, idempotencyKey?: string) => command<OperationEventRetrospective>('PUT', `/operations/events/${encodeURIComponent(id)}/retrospective`, body, idempotencyKey),
+  createEventFollowUp: (id: string, body: { eventVersion: number; title: string; description?: string | null; dueAt: string; priority?: OperationTask['priority'] } & OperationAssignmentTarget, idempotencyKey?: string) => command<{ task: OperationTask; assignment: OperationAssignment; eventVersion: number; conflictWarnings: Array<{ id: string; startsAt: string; endsAt: string }> }>('POST', `/operations/events/${encodeURIComponent(id)}/follow-ups`, body, idempotencyKey),
+  transitionTask: (id: string, body: { version: number; status: OperationTask['status']; completionNote?: string; blockedReason?: string; cancellationReason?: string }, idempotencyKey?: string) => command<OperationTask>('POST', `/operations/tasks/${encodeURIComponent(id)}/transition`, body, idempotencyKey),
+  restoreTask: (id: string, body: { version: number; reason: string }, idempotencyKey?: string) => command<OperationTask>('POST', `/operations/tasks/${encodeURIComponent(id)}/restore`, body, idempotencyKey),
+  acknowledgeTask: (id: string, assignmentId: string, version: number, status: 'ACCEPTED' | 'DECLINED', note?: string, idempotencyKey?: string) => command<OperationAssignment>('POST', `/operations/tasks/${encodeURIComponent(id)}/acknowledge`, { assignmentId, version, status, note }, idempotencyKey),
+  createChecklistItem: (taskId: string, body: { version: number; label: string; isRequired?: boolean; sortOrder?: number }, idempotencyKey?: string) => command<{ item: OperationChecklistItem; taskVersion: number }>('POST', `/operations/tasks/${encodeURIComponent(taskId)}/checklist`, body, idempotencyKey),
+  updateChecklistItem: (taskId: string, itemId: string, body: { version: number; isDone: boolean }, idempotencyKey?: string) => command<{ item: OperationChecklistItem; taskVersion: number }>('POST', `/operations/tasks/${encodeURIComponent(taskId)}/checklist/${encodeURIComponent(itemId)}`, body, idempotencyKey),
+  markReminderRead: (id: string, expectedVersion?: number, idempotencyKey?: string) => command<{ id: string; readAt: string; version: number }>('POST', `/operations/reminders/${encodeURIComponent(id)}/read`, expectedVersion !== undefined ? { expectedVersion } : {}, idempotencyKey),
+  handoverTask: (id: string, body: { version: number; assignmentId: string; assignmentVersion: number; reason: string } & OperationAssignmentTarget, idempotencyKey?: string) => command<{ assignment: OperationAssignment; taskVersion: number; conflictWarnings: Array<{ id: string; startsAt: string; endsAt: string }> }>('POST', `/operations/tasks/${encodeURIComponent(id)}/handover`, body, idempotencyKey),
+  commentTask: (id: string, body: { content: string; evidenceUrl?: string }, idempotencyKey?: string) => command<OperationTaskComment>('POST', `/operations/tasks/${encodeURIComponent(id)}/comments`, body, idempotencyKey),
 }

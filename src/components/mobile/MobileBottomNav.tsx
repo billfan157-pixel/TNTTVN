@@ -7,9 +7,9 @@ import {
   PieChart,
   HeartHandshake,
   Calendar,
-  Wallet,
   Bell,
   FileText,
+  ClipboardList,
 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { canRoleAccessRoute, type MobileRouteTab, type WorkspaceId } from '../../constants/routePolicy'
@@ -37,15 +37,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
     setPendingTab(current => current === activeTab ? null : current)
   }, [activeTab])
 
+  // Wave 0 DECIDED: Tổng Quan · Lịch · Công Việc · Thông Báo · Hồ Sơ
+  // (Huynh Trưởng + Sổ Quỹ → MobileTopBar overflow / secondary routes)
   const orgTabs: MobileNavItem[] = [
     { id: 'parish-home', label: 'Tổng Quan', icon: Home },
-    ...(canRoleAccessRoute('/catechists', role) ? [{ id: 'catechists' as const, label: 'Huynh Trưởng', icon: Users }] : []),
     ...(canRoleAccessRoute('/calendar', role) ? [{ id: 'calendar' as const, label: 'Lịch Xứ', icon: Calendar }] : []),
-    ...(canRoleAccessRoute('/finances', role)
-      ? [{ id: 'finances' as const, label: 'Sổ Quỹ', icon: Wallet }]
-      : canRoleAccessRoute('/notices', role)
-        ? [{ id: 'notices' as const, label: 'Thông Báo', icon: Bell }]
-        : []),
+    ...(canRoleAccessRoute('/operations', role) ? [{ id: 'operations' as const, label: 'Công Việc', icon: ClipboardList }] : []),
+    ...(canRoleAccessRoute('/notices', role) ? [{ id: 'notices' as const, label: 'Thông Báo', icon: Bell }] : []),
     ...(canRoleAccessRoute('/parish-profile', role) ? [{ id: 'parish-profile' as const, label: 'Hồ Sơ Xứ', icon: FileText }] : []),
   ]
 

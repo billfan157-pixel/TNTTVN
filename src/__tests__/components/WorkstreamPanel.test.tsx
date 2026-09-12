@@ -18,7 +18,7 @@ it('loads resource permissions and sends the current aggregate version', async (
   render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
   fireEvent.click(await screen.findByText('Nhóm đã sẵn sàng'))
-  await waitFor(() => expect(operationsApi.setWorkstreamReady).toHaveBeenCalledWith('g', { version: 4, status: 'READY' }))
+  await waitFor(() => expect(operationsApi.setWorkstreamReady).toHaveBeenCalledWith('g', { version: 4, status: 'READY' }, expect.any(String)))
   await waitFor(() => expect(refresh).toHaveBeenCalled())
 })
 it('blocks offline reads and hides mutation forms', () => {
@@ -56,13 +56,13 @@ it('does not offer readiness controls without resource permission', async () => 
 })
 
 it('updates membership validity with both current versions and a reason', async () => {
-  const member = { id: 'member-1', parishId: 'p', workstreamId: 'g', personId: 'person-1', userId: null, operationRole: 'CONTRIBUTOR', startsAt: null, endsAt: null, version: 2 }
+  const member = { id: 'member-1', parishId: 'p', workstreamId: 'g', personId: 'person-1', userId: null, operationRole: 'OBSERVER', startsAt: null, endsAt: null, version: 2 }
   vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [member], permissions: { 'operations.workstream.manage': true } } as any)
   vi.mocked(operationsApi.updateWorkstreamMemberValidity).mockResolvedValue({ member: { ...member, version: 3 }, workstreamVersion: 5 } as any)
   const refresh = vi.fn()
   render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
-  await screen.findByText(/Thành viên Một · Thành viên/)
+  await screen.findByText(/Thành viên Một · Theo dõi/)
   fireEvent.change(screen.getByLabelText('Bắt đầu vai trò member-1'), { target: { value: '2026-12-01T08:00' } })
   fireEvent.change(screen.getByLabelText('Kết thúc vai trò member-1'), { target: { value: '2026-12-31T17:00' } })
   fireEvent.change(screen.getByLabelText('Lý do đổi thời hạn member-1'), { target: { value: 'Phân công tháng 12' } })
@@ -73,7 +73,7 @@ it('updates membership validity with both current versions and a reason', async 
     startsAt: new Date('2026-12-01T08:00').toISOString(),
     endsAt: new Date('2026-12-31T17:00').toISOString(),
     reason: 'Phân công tháng 12',
-  }))
+  }, expect.any(String)))
   await waitFor(() => expect(refresh).toHaveBeenCalled())
 })
 
@@ -98,6 +98,23 @@ it('offers only the atomic lead handover while the event is LIVE', async () => {
     currentLeadMemberVersion: 3,
     personId: 'person-1',
     reason: 'Đổi ca trực',
-  }))
+  }, expect.any(String)))
   await waitFor(() => expect(refresh).toHaveBeenCalled())
+})
+
+it('P1-9: keeps destructive reason drafts scoped to their own command', async () => {
+  const member = { id: 'member-1', parishId: 'p', workstreamId: 'g', personId: 'person-1', userId: null, operationRole: 'OBSERVER', startsAt: null, endsAt: null, version: 2 }
+  vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [member], permissions: { 'operations.workstream.manage': true, 'operations.workstream.mark_ready': true } } as any)
+  render(<WorkstreamPanel event={event} enabled refresh={vi.fn()} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  const removeButton = await screen.findByRole('button', { name: 'Thu hồi vai trò' })
+  const blockedButton = await screen.findByRole('button', { name: 'Báo nhóm bị chặn' })
+  expect(removeButton).toBeDisabled()
+  expect(blockedButton).toBeDisabled()
+  // A reason typed for member removal must not satisfy the blocked-report gate.
+  fireEvent.change(screen.getByLabelText('Lý do thu hồi vai trò member-1'), { target: { value: 'Hết phân công' } })
+  expect(removeButton).toBeEnabled()
+  expect(blockedButton).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Lý do báo nhóm bị chặn'), { target: { value: 'Thiếu người' } })
+  expect(blockedButton).toBeEnabled()
 })

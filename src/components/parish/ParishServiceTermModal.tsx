@@ -61,10 +61,28 @@ const POSITION_CODE_DETAILS: Record<
     description: 'Có toàn quyền tạo, điều phối và phê chuẩn mọi Event, Workstream và Task trên toàn Giáo xứ.',
     badgeTone: 'primary',
   },
+  PARISH_SECRETARY: {
+    label: 'Thư ký Xứ đoàn (Toàn xứ)',
+    scopeLabel: 'Thẩm quyền toàn Xứ đoàn (theo ủy quyền)',
+    description: 'Được tạo sự kiện Xứ đoàn thay mặt Trưởng Xứ đoàn (Organizer luôn là Trưởng Xứ đoàn) và hỗ trợ cấu hình Event/Field.',
+    badgeTone: 'primary',
+  },
+  PARISH_DEPUTY: {
+    label: 'Phó Xứ đoàn (Toàn xứ)',
+    scopeLabel: 'Thẩm quyền toàn Xứ đoàn (theo ủy quyền)',
+    description: 'Được tạo sự kiện Xứ đoàn với Organizer là Trưởng Xứ đoàn. Không tự trở thành Organizer.',
+    badgeTone: 'primary',
+  },
   BRANCH_LEADER: {
     label: 'Trưởng ngành (Khối Ngành)',
     scopeLabel: 'Thẩm quyền trong Ngành',
     description: 'Có quyền tạo và điều phối các sự kiện, chỉ định Organizer và giao task cho nhân sự thuộc Ngành phụ trách.',
+    badgeTone: 'teal',
+  },
+  BRANCH_DEPUTY: {
+    label: 'Phó Ngành (Khối Ngành)',
+    scopeLabel: 'Thẩm quyền trong Ngành (không làm Field Lead)',
+    description: 'Được tạo sự kiện chuyên môn và Task trong Ngành với Organizer là Trưởng Ngành. Không được làm Trưởng Field.',
     badgeTone: 'teal',
   },
   COMMITTEE_LEADER: {
@@ -73,7 +91,15 @@ const POSITION_CODE_DETAILS: Record<
     description: 'Có quyền tạo và điều phối các sự kiện chuyên môn, chỉ định Workstream Lead và điều động nhân sự trong Ban.',
     badgeTone: 'violet',
   },
+  COMMITTEE_DEPUTY: {
+    label: 'Phó Ban (Khối Chuyên môn)',
+    scopeLabel: 'Thẩm quyền trong Ban (không làm Field Lead)',
+    description: 'Được tạo sự kiện chuyên môn và Task trong Ban với Organizer là Trưởng Ban. Không được làm Trưởng Field.',
+    badgeTone: 'violet',
+  },
 }
+
+const codeDetails = (code: TermPositionCode) => (code ? POSITION_CODE_DETAILS[code as ParishOperationsPositionCode] : undefined)
 
 const AUTHORITY_REASON_PRESETS = [
   'Bổ nhiệm đầu niên khóa mới',
@@ -87,9 +113,11 @@ function isPositionCodeValidForUnitType(
   unitType: ParishUnitType | null,
 ): boolean {
   if (!positionCode) return true
-  if (positionCode === 'PARISH_LEADER') return unitType === null || unitType === 'BOARD'
-  if (positionCode === 'BRANCH_LEADER') return unitType === 'BRANCH'
-  if (positionCode === 'COMMITTEE_LEADER') return unitType === 'COMMITTEE'
+  if (positionCode === 'PARISH_LEADER' || positionCode === 'PARISH_SECRETARY' || positionCode === 'PARISH_DEPUTY') {
+    return unitType === null || unitType === 'BOARD'
+  }
+  if (positionCode === 'BRANCH_LEADER' || positionCode === 'BRANCH_DEPUTY') return unitType === 'BRANCH'
+  if (positionCode === 'COMMITTEE_LEADER' || positionCode === 'COMMITTEE_DEPUTY') return unitType === 'COMMITTEE'
   return false
 }
 
@@ -178,12 +206,21 @@ export function ParishServiceTermModal({
   const handleSelectPositionTitle = (title: string) => {
     setPositionTitle(title)
     if (!isCustomPositionCode) {
+      const normalized = title.trim().toLocaleLowerCase('vi')
       if (title.includes('Trưởng Xứ đoàn') || title.includes('Xứ đoàn trưởng')) {
         setPositionCode('PARISH_LEADER')
+      } else if (normalized.includes('thư ký')) {
+        setPositionCode('PARISH_SECRETARY')
+      } else if (normalized.includes('phó xứ')) {
+        setPositionCode('PARISH_DEPUTY')
       } else if (title.includes('Trưởng ngành')) {
         setPositionCode('BRANCH_LEADER')
+      } else if (normalized.includes('phó ngành') || normalized.includes('phó trưởng ngành')) {
+        setPositionCode('BRANCH_DEPUTY')
       } else if (title.includes('Trưởng ban')) {
         setPositionCode('COMMITTEE_LEADER')
+      } else if (normalized.includes('phó ban') || normalized.includes('phó trưởng ban')) {
+        setPositionCode('COMMITTEE_DEPUTY')
       } else {
         setPositionCode('')
       }
@@ -536,14 +573,18 @@ export function ParishServiceTermModal({
               >
                 <option value="">Không cấp quyền tự động (Theo nhiệm vụ cụ thể)</option>
                 <option value="PARISH_LEADER">PARISH_LEADER — Trưởng Xứ đoàn (Toàn xứ)</option>
+                <option value="PARISH_SECRETARY">PARISH_SECRETARY — Thư ký Xứ đoàn (Toàn xứ)</option>
+                <option value="PARISH_DEPUTY">PARISH_DEPUTY — Phó Xứ đoàn (Toàn xứ)</option>
                 <option value="BRANCH_LEADER">BRANCH_LEADER — Trưởng ngành (Khối Ngành)</option>
+                <option value="BRANCH_DEPUTY">BRANCH_DEPUTY — Phó Ngành (Khối Ngành)</option>
                 <option value="COMMITTEE_LEADER">COMMITTEE_LEADER — Trưởng ban (Khối Ban Chuyên môn)</option>
+                <option value="COMMITTEE_DEPUTY">COMMITTEE_DEPUTY — Phó Ban (Khối Ban Chuyên môn)</option>
               </Select>
             ) : (
               <div className="flex items-center gap-2">
-                {positionCode ? (
-                  <Badge tone={POSITION_CODE_DETAILS[positionCode].badgeTone}>
-                    {POSITION_CODE_DETAILS[positionCode].label}
+                {codeDetails(positionCode) ? (
+                  <Badge tone={codeDetails(positionCode)!.badgeTone}>
+                    {codeDetails(positionCode)!.label}
                   </Badge>
                 ) : (
                   <Badge tone="neutral">Chức vụ tổ chức thường nhật (Không tự động có quyền điều phối)</Badge>
@@ -553,9 +594,9 @@ export function ParishServiceTermModal({
 
             {/* Giải thích quyền hạn */}
             <p className="text-xs text-text-muted m-0">
-              {positionCode
-                ? POSITION_CODE_DETAILS[positionCode].description
-                : 'Thành viên Ban Điều Hành, Phó ban, Phó ngành, Chi đoàn trưởng hoặc GLV không tự động có quyền điều phối toàn đơn vị; quyền vận hành sẽ phát sinh cụ thể khi được giao vai trò Event Organizer, Workstream Lead hoặc Task Assignee.'}
+              {codeDetails(positionCode)
+                ? codeDetails(positionCode)!.description
+                : 'Thành viên Ban Điều Hành, Thủ quỹ, Ủy viên, Chi đoàn trưởng hoặc GLV không tự động có quyền điều phối toàn đơn vị; quyền vận hành sẽ phát sinh cụ thể khi được giao vai trò Event Organizer, Workstream Lead hoặc Task Assignee.'}
             </p>
 
             {/* Cảnh báo không tương thích đơn vị */}
@@ -711,7 +752,7 @@ export function ParishServiceTermModal({
               <div className="flex items-center gap-2">
                 <span className="text-text-muted">Quyền điều phối:</span>
                 <span className="font-semibold text-text-main">
-                  {positionCode ? POSITION_CODE_DETAILS[positionCode].scopeLabel : 'Theo tài nguyên cụ thể'}
+                  {codeDetails(positionCode)?.scopeLabel ?? 'Theo tài nguyên cụ thể'}
                 </span>
               </div>
             </div>

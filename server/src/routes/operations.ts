@@ -28,10 +28,10 @@ import {
   parishPeople,
   parishRecords,
   parishOrganizationUnits,
+  parishServiceTerms,
   users,
 } from '../db/schema.js'
-import { assertOperationsCapability, assertOperationsTargetWithinAuthority, getOperationsCallerPermissions, listOperationsCandidates, resolveOperationsAuthorization, resolveOperationsAuthorizationBatch, resolveOperationsUserAuthorization } from '../services/operationsAuthorization.js'
-import { assertTaskApproverIsIndependent, assertTaskAssignmentSeparationOfDuty, assertWorkstreamMemberSeparationOfDuty } from '../services/operationsSeparationOfDuty.js'
+import { assertOperationsCapability, assertOperationsTargetWithinAuthority, getOperationsCallerPermissions, listOperationsCandidates, peekOperationsAuthorizationReason, resolveOperationsAuthorization, resolveOperationsAuthorizationBatch, resolveOperationsUserAuthorization } from '../services/operationsAuthorization.js'
 import { OperationsIdempotencyError, requireOperationsIdempotencyKey, runIdempotentOperationsCommand } from '../services/operationsIdempotency.js'
 import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
@@ -69,7 +69,7 @@ const workstreamMemberSchema = exactTarget({
   version: z.number().int().min(1),
   userId: nullableId,
   personId: nullableId,
-  operationRole: z.enum(['WORKSTREAM_LEAD', 'CONTRIBUTOR', 'APPROVER', 'OBSERVER']),
+  operationRole: z.enum(['WORKSTREAM_LEAD', 'OBSERVER']),
   startsAt: instant.nullable().optional(),
   endsAt: instant.nullable().optional(),
 })
@@ -90,13 +90,13 @@ const taskCreateSchema = z.object({
   description: z.string().trim().max(5000).nullable().optional(),
   eventId: nullableId,
   workstreamId: nullableId,
+  scopeUnitId: nullableId,
   parentTaskId: nullableId,
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional().default('NORMAL'),
   dueAt: instant.nullable().optional(),
   scheduledStartAt: instant.nullable().optional(),
   scheduledEndAt: instant.nullable().optional(),
   isRequired: z.boolean().optional().default(false),
-  requiresApproval: z.boolean().optional().default(false),
 }).superRefine(validateTaskSchedule)
 const taskUpdateSchema = z.object({
   version: z.number().int().min(1),
@@ -112,7 +112,7 @@ const assignmentSchema = exactTarget({
   version: z.number().int().min(1),
   userId: nullableId,
   personId: nullableId,
-  assignmentRole: z.enum(['OWNER', 'CONTRIBUTOR', 'APPROVER', 'OBSERVER']),
+  assignmentRole: z.enum(['OWNER', 'CONTRIBUTOR']),
   note: z.string().trim().max(2000).nullable().optional(),
 })
 const acknowledgementSchema = z.object({ assignmentId: id, version: z.number().int().min(1), status: z.enum(['ACCEPTED', 'DECLINED']), note: z.string().trim().max(2000).nullable().optional() })
@@ -130,6 +130,7 @@ const dispatchCreateSchema = z.object({
 const dispatchAcceptSchema = z.object({ version: z.number().int().min(1), target: z.enum(['PRIMARY', 'RESERVE']) })
 const eventCreateSchema = z.object({
   sourceParishEventId: nullableId,
+  eventScopeType: z.enum(['XU_DOAN', 'UNIT']).nullable().optional(),
   scopeUnitId: nullableId,
   organizerUserId: nullableId,
   organizerPersonId: nullableId,
@@ -149,6 +150,7 @@ const eventCreateSchema = z.object({
 const eventUpdateSchema = z.object({
   version: z.number().int().min(1),
   sourceParishEventId: nullableId,
+  eventScopeType: z.enum(['XU_DOAN', 'UNIT']).nullable().optional(),
   scopeUnitId: nullableId,
   organizerUserId: nullableId,
   organizerPersonId: nullableId,
@@ -178,6 +180,7 @@ const reminderSchema = z.object({ taskId: nullableId, eventId: nullableId, recip
 })
 const reminderRescheduleSchema = z.object({ expectedVersion: z.number().int().min(1), triggerAt: instant, reason: z.string().trim().min(1).max(2000) })
 const reminderCancelSchema = z.object({ expectedVersion: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
+const reminderReadSchema = z.object({ expectedVersion: z.number().int().min(1).optional() })
 const eventTransitionSchema = z.object({ version: z.number().int().min(1), status: z.enum(['DRAFT', 'PLANNING', 'PREPARING', 'READY', 'LIVE', 'COMPLETED', 'CANCELLED']), reason: z.string().trim().max(2000).nullable().optional(), outcomeSummary: z.string().trim().max(5000).nullable().optional(), override: z.boolean().optional().default(false) })
 const eventAutomationResumeSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const eventRetrospectiveSchema = z.object({
@@ -209,7 +212,6 @@ const templateSnapshotSchema = z.object({
     phase: z.enum(['PREPARATION', 'EXECUTION', 'FOLLOW_UP']),
     priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']),
     isRequired: z.boolean(),
-    requiresApproval: z.boolean(),
     dueOffsetMinutes: z.number().int().nullable(),
     scheduledStartOffsetMinutes: z.number().int().nullable().optional().default(null),
     scheduledEndOffsetMinutes: z.number().int().nullable().optional().default(null),
@@ -252,9 +254,6 @@ const dependencySchema = z.object({ version: z.number().int().min(1), dependsOnT
 const checklistCreateSchema = z.object({ version: z.number().int().min(1), label: z.string().trim().min(1).max(300), isRequired: z.boolean().optional().default(false), sortOrder: z.number().int().min(0).max(10000).optional().default(0) })
 const checklistUpdateSchema = z.object({ version: z.number().int().min(1), isDone: z.boolean() })
 const commentSchema = z.object({ content: z.string().trim().min(1).max(5000), evidenceUrl: z.string().url().max(2000).refine(value => value.startsWith('https://'), 'Evidence URL phải dùng HTTPS.').nullable().optional() })
-const approvalSchema = z.object({ version: z.number().int().min(1), decision: z.enum(['APPROVED', 'REJECTED']), reason: z.string().trim().max(2000).nullable().optional() }).superRefine((value, ctx) => {
-  if (value.decision === 'REJECTED' && !value.reason) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['reason'], message: 'Từ chối duyệt bắt buộc có lý do.' })
-})
 const memberRemoveSchema = z.object({ version: z.number().int().min(1), memberVersion: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const memberValiditySchema = z.object({
   version: z.number().int().min(1),
@@ -309,8 +308,17 @@ function commandResponse(c: any, result: { value: unknown; replayed: boolean }, 
   c.header('Idempotency-Replayed', result.replayed ? 'true' : 'false')
   return successResponse(c, result.value, created && !result.replayed ? 201 : 200)
 }
+function asAuditObject(value: unknown): Record<string, unknown> {
+  if (value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value)) return { ...(value as Record<string, unknown>) }
+  if (value === undefined) return {}
+  return { value }
+}
 async function audit(tx: DbTransaction, user: JwtPayload, c: any, action: string, entityType: string, entityId: string, oldValue?: unknown, newValue?: unknown) {
-  await tx.insert(auditLogs).values({ id: generateId('AUD'), userId: user.userId, action, entityType, entityId, oldValue: oldValue === undefined ? null : JSON.stringify(oldValue), newValue: newValue === undefined ? null : JSON.stringify(newValue), ip: getClientIp(c), userAgent: c.req.header('user-agent') || '', parishId: user.parishId })
+  const authorizationReason = peekOperationsAuthorizationReason(tx)
+  const storedNewValue = authorizationReason
+    ? { ...asAuditObject(newValue), authorizationReason }
+    : newValue
+  await tx.insert(auditLogs).values({ id: generateId('AUD'), userId: user.userId, action, entityType, entityId, oldValue: oldValue === undefined ? null : JSON.stringify(oldValue), newValue: storedNewValue === undefined ? null : JSON.stringify(storedNewValue), ip: getClientIp(c), userAgent: c.req.header('user-agent') || '', parishId: user.parishId })
 }
 async function actionableTargetUserId(tx: DbTransaction, parishId: string, target: { userId?: string | null; personId?: string | null }) {
   if (target.userId) return target.userId
@@ -427,7 +435,7 @@ function assertEventFieldsMutable(event: { status: string }) {
 }
 function assertTaskMutable(task: { status: string }) {
   if (task.status === 'DONE' || task.status === 'CANCELLED') {
-    throw Object.assign(new Error('Task đã kết thúc; không thể thay đổi cấu trúc, phân công hoặc approval.'), { status: 409, code: 'TASK_IMMUTABLE' })
+    throw Object.assign(new Error('Task đã kết thúc; không thể thay đổi cấu trúc hoặc phân công.'), { status: 409, code: 'TASK_IMMUTABLE' })
   }
 }
 async function assertEventAcceptsPlanningMutation(tx: DbTransaction, parishId: string, eventId: string, action: string) {
@@ -482,6 +490,195 @@ async function assertScopeUnit(tx: DbTransaction, parishId: string, unitId?: str
   if (!unit) throw Object.assign(new Error('Không tìm thấy đơn vị tổ chức đang hoạt động.'), { status: 404 })
 }
 
+/**
+ * Xứ đoàn business rules (O1-O8 locked).
+ * - eventScopeType XU_DOAN ↔ scopeUnitId NULL, UNIT ↔ scopeUnitId NOT NULL.
+ * - Creator ≠ Organizer. Thư ký/Phó xứ tạo Xứ đoàn event → organizer phải là Xứ đoàn trưởng.
+ * - Phó Ban/Ngành tạo chuyên môn event → organizer phải là Trưởng cùng unit.
+ * - WORKSTREAM_LEAD phải là Trưởng Ban/Ngành đúng unit (O3: Phó không được làm Lead).
+ */
+type ActorPosition = { positionCode: string | null; unitId: string | null }
+async function getActorActivePositions(tx: DbTransaction, parishId: string, actorUserId: string): Promise<ActorPosition[]> {
+  const [person] = await tx.select({ id: parishPeople.id }).from(parishPeople)
+    .where(and(eq(parishPeople.parishId, parishId), eq(parishPeople.linkedUserId, actorUserId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1)
+  if (!person) return []
+  const today = parishCalendarDate()
+  const terms = await tx.select({ positionCode: parishServiceTerms.positionCode, unitId: parishServiceTerms.unitId })
+    .from(parishServiceTerms)
+    .where(and(
+      eq(parishServiceTerms.parishId, parishId),
+      eq(parishServiceTerms.personId, person.id),
+      isNull(parishServiceTerms.deletedAt),
+      lte(parishServiceTerms.startDate, today),
+      or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+    ))
+  return terms.map(term => ({ positionCode: term.positionCode, unitId: term.unitId }))
+}
+
+function resolveEventScopeType(inputScopeType: 'XU_DOAN' | 'UNIT' | null | undefined, scopeUnitId?: string | null): 'XU_DOAN' | 'UNIT' {
+  const derived = scopeUnitId ? 'UNIT' as const : 'XU_DOAN' as const
+  const scopeType = inputScopeType ?? derived
+  if (scopeType === 'XU_DOAN' && scopeUnitId) {
+    throw Object.assign(new Error('Sự kiện Xứ đoàn không thuộc Ban/Ngành cụ thể (scopeUnitId phải để trống).'), { status: 400, code: 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH' })
+  }
+  if (scopeType === 'UNIT' && !scopeUnitId) {
+    throw Object.assign(new Error('Sự kiện chuyên môn phải thuộc đúng một Ban/Ngành (thiếu scopeUnitId).'), { status: 400, code: 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH' })
+  }
+  return scopeType
+}
+
+async function findActiveParishLeaderUserId(tx: DbTransaction, parishId: string): Promise<string | null> {
+  const today = parishCalendarDate()
+  const leaders = await tx.select({ linkedUserId: parishPeople.linkedUserId })
+    .from(parishServiceTerms)
+    .innerJoin(parishPeople, and(eq(parishPeople.parishId, parishServiceTerms.parishId), eq(parishPeople.id, parishServiceTerms.personId)))
+    .innerJoin(users, and(eq(users.parishId, parishPeople.parishId), eq(users.id, parishPeople.linkedUserId)))
+    .where(and(
+      eq(parishServiceTerms.parishId, parishId),
+      eq(parishServiceTerms.positionCode, 'PARISH_LEADER'),
+      isNull(parishServiceTerms.deletedAt),
+      lte(parishServiceTerms.startDate, today),
+      or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+      eq(parishPeople.serviceStatus, 'ACTIVE'),
+      isNull(parishPeople.deletedAt),
+      eq(users.status, 'ACTIVE'),
+      isNull(users.deletedAt),
+    )).limit(2)
+  if (leaders.length !== 1) return null
+  return leaders[0].linkedUserId
+}
+
+async function isActiveParishLeader(tx: DbTransaction, parishId: string, userId: string | null, personId: string | null): Promise<boolean> {
+  if (!userId && !personId) return false
+  const today = parishCalendarDate()
+  const rows = await tx.select({ id: parishServiceTerms.id })
+    .from(parishServiceTerms)
+    .innerJoin(parishPeople, and(eq(parishPeople.parishId, parishServiceTerms.parishId), eq(parishPeople.id, parishServiceTerms.personId)))
+    .where(and(
+      eq(parishServiceTerms.parishId, parishId),
+      eq(parishServiceTerms.positionCode, 'PARISH_LEADER'),
+      isNull(parishServiceTerms.deletedAt),
+      lte(parishServiceTerms.startDate, today),
+      or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+      eq(parishPeople.serviceStatus, 'ACTIVE'),
+      isNull(parishPeople.deletedAt),
+      userId ? eq(parishPeople.linkedUserId, userId) : eq(parishPeople.id, personId!),
+    )).limit(1)
+  return rows.length > 0
+}
+
+/** Organizer sự kiện chuyên môn phải là Trưởng Ban/Trưởng Ngành đương nhiệm đúng unit (Trưởng Xứ đoàn chỉ đứng tên event Xứ đoàn). */
+async function isActiveUnitLeader(tx: DbTransaction, parishId: string, scopeUnitId: string, userId: string | null, personId: string | null): Promise<boolean> {
+  if (!userId && !personId) return false
+  const today = parishCalendarDate()
+  const rows = await tx.select({ id: parishServiceTerms.id })
+    .from(parishServiceTerms)
+    .innerJoin(parishPeople, and(eq(parishPeople.parishId, parishServiceTerms.parishId), eq(parishPeople.id, parishServiceTerms.personId)))
+    .where(and(
+      eq(parishServiceTerms.parishId, parishId),
+      inArray(parishServiceTerms.positionCode, ['BRANCH_LEADER', 'COMMITTEE_LEADER']),
+      eq(parishServiceTerms.unitId, scopeUnitId),
+      isNull(parishServiceTerms.deletedAt),
+      lte(parishServiceTerms.startDate, today),
+      or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+      eq(parishPeople.serviceStatus, 'ACTIVE'),
+      isNull(parishPeople.deletedAt),
+      userId ? eq(parishPeople.linkedUserId, userId) : eq(parishPeople.id, personId!),
+    )).limit(1)
+  return rows.length > 0
+}
+
+/**
+ * Shared creator≠organizer resolution for event creation paths (POST /events,
+ * template instantiate). Returns the organizer to persist; throws 400/403 for
+ * business actors when the organizer rule is violated. ADMIN keeps a
+ * compatibility path (O2) and skips business validation.
+ */
+async function resolveEventOrganizerForCreate(
+  tx: DbTransaction,
+  actor: { userId: string; role: string; parishId: string },
+  input: { scopeType: 'XU_DOAN' | 'UNIT'; scopeUnitId: string | null; organizerUserId?: string | null; organizerPersonId?: string | null },
+): Promise<{ organizerUserId: string | null; organizerPersonId: string | null }> {
+  const isAdmin = actor.role === 'admin'
+  let organizerUserId = input.organizerUserId ?? null
+  let organizerPersonId = input.organizerPersonId ?? null
+  if (input.scopeType === 'XU_DOAN') {
+    if (!organizerUserId && !organizerPersonId) {
+      const autoLeader = await findActiveParishLeaderUserId(tx, actor.parishId)
+      if (autoLeader) {
+        organizerUserId = autoLeader
+      } else if (!isAdmin) {
+        throw Object.assign(new Error('Sự kiện Xứ đoàn bắt buộc có Xứ đoàn trưởng làm Organizer (không tìm thấy đúng 1 Xứ đoàn trưởng active).'), { status: 400, code: 'ORGANIZER_REQUIRED' })
+      }
+    } else if (!isAdmin) {
+      const isLeader = await isActiveParishLeader(tx, actor.parishId, organizerUserId, organizerPersonId)
+      if (!isLeader) throw Object.assign(new Error('Organizer sự kiện Xứ đoàn phải là Xứ đoàn trưởng đang đương nhiệm.'), { status: 400, code: 'ORGANIZER_MUST_BE_PARISH_LEADER' })
+    }
+  } else {
+    // Trưởng Xứ đoàn bypass kiểm tra scope (blanket) nhưng tạo event chuyên môn
+    // vẫn phải chỉ định Trưởng unit làm organizer — tự đứng tên bị
+    // ORGANIZER_MUST_BE_UNIT_LEADER ở bước validate bên dưới.
+    if (!isAdmin) {
+      const positions = await getActorActivePositions(tx, actor.parishId, actor.userId)
+      const isParishLeader = positions.some(p => p.positionCode === 'PARISH_LEADER')
+      if (!isParishLeader) {
+        const ownUnitIds = positions.map(p => p.unitId).filter((v): v is string => Boolean(v))
+        if (!input.scopeUnitId || !ownUnitIds.includes(input.scopeUnitId)) {
+          throw Object.assign(new Error('Sự kiện chuyên môn phải thuộc đúng Ban/Ngành của người tạo.'), { status: 403, code: 'UNIT_SCOPE_MISMATCH' })
+        }
+      }
+    }
+    if (!organizerUserId && !organizerPersonId && !isAdmin) {
+      const positions = await getActorActivePositions(tx, actor.parishId, actor.userId)
+      const leaderTerm = positions.find(p => p.positionCode === 'BRANCH_LEADER' || p.positionCode === 'COMMITTEE_LEADER')
+      const parishLeaderTerm = positions.find(p => p.positionCode === 'PARISH_LEADER')
+      if (leaderTerm || parishLeaderTerm) {
+        organizerUserId = actor.userId
+      } else {
+        throw Object.assign(new Error('Phó Ban/Phó Ngành tạo sự kiện phải chỉ định Trưởng Ban/Trưởng Ngành làm Organizer.'), { status: 400, code: 'ORGANIZER_REQUIRED' })
+      }
+    }
+    if (!isAdmin && (organizerUserId || organizerPersonId)) {
+      const isUnitLeader = await isActiveUnitLeader(tx, actor.parishId, input.scopeUnitId!, organizerUserId, organizerPersonId)
+      if (!isUnitLeader) throw Object.assign(new Error('Organizer sự kiện chuyên môn phải là Trưởng Ban/Trưởng Ngành đương nhiệm đúng đơn vị phụ trách.'), { status: 400, code: 'ORGANIZER_MUST_BE_UNIT_LEADER' })
+    }
+  }
+  return { organizerUserId, organizerPersonId }
+}
+
+/** Field Lead phải là Trưởng Ban/Ngành đang đương nhiệm của đúng đơn vị phụ trách Field.
+ * standalone workstream (không sourceUnitId) và unit đã xóa giữ đường tương thích cũ;
+ * callers quyết định có bypass cho admin kỹ thuật hay không (member-add và lead-replace
+ * hiện đều bypass, theo triết lý O2 — xem route gọi hàm này). */
+async function assertWorkstreamLeadEligibility(tx: DbTransaction, parishId: string, sourceUnitId: string | null, target: { userId?: string | null; personId?: string | null }): Promise<void> {
+  if (!sourceUnitId) return
+  const [unit] = await tx.select({ unitType: parishOrganizationUnits.unitType }).from(parishOrganizationUnits)
+    .where(and(eq(parishOrganizationUnits.parishId, parishId), eq(parishOrganizationUnits.id, sourceUnitId), isNull(parishOrganizationUnits.deletedAt))).limit(1)
+  if (!unit) return
+  const wantedCode = unit.unitType === 'BRANCH' ? 'BRANCH_LEADER' : unit.unitType === 'COMMITTEE' ? 'COMMITTEE_LEADER' : null
+  if (!wantedCode) return
+  const today = parishCalendarDate()
+  const personFilter = target.personId
+    ? eq(parishPeople.id, target.personId)
+    : eq(parishPeople.linkedUserId, target.userId!)
+  const rows = await tx.select({ positionCode: parishServiceTerms.positionCode, unitId: parishServiceTerms.unitId })
+    .from(parishServiceTerms)
+    .innerJoin(parishPeople, and(eq(parishPeople.parishId, parishServiceTerms.parishId), eq(parishPeople.id, parishServiceTerms.personId)))
+    .where(and(
+      eq(parishServiceTerms.parishId, parishId),
+      isNull(parishServiceTerms.deletedAt),
+      lte(parishServiceTerms.startDate, today),
+      or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+      eq(parishPeople.serviceStatus, 'ACTIVE'),
+      isNull(parishPeople.deletedAt),
+      personFilter,
+    ))
+  const isUnitLeader = rows.some(row => row.positionCode === wantedCode && row.unitId === sourceUnitId)
+  if (!isUnitLeader) {
+    throw Object.assign(new Error('Trưởng Field phải là Trưởng Ban/Trưởng Ngành đang đương nhiệm của đúng đơn vị phụ trách.'), { status: 403, code: 'WORKSTREAM_LEAD_OUTSIDE_UNIT' })
+  }
+}
+
 async function buildOperationTemplateSnapshot(tx: DbTransaction, parishId: string, event: typeof operationEvents.$inferSelect): Promise<OperationTemplateSnapshot> {
   const tasks = await tx.select({
     id: operationTasks.id,
@@ -490,7 +687,6 @@ async function buildOperationTemplateSnapshot(tx: DbTransaction, parishId: strin
     phase: operationTasks.phase,
     priority: operationTasks.priority,
     isRequired: operationTasks.isRequired,
-    approvalStatus: operationTasks.approvalStatus,
     dueAt: operationTasks.dueAt,
     scheduledStartAt: operationTasks.scheduledStartAt,
     scheduledEndAt: operationTasks.scheduledEndAt,
@@ -525,7 +721,6 @@ async function buildOperationTemplateSnapshot(tx: DbTransaction, parishId: strin
       phase: task.phase,
       priority: task.priority,
       isRequired: task.isRequired,
-      requiresApproval: task.approvalStatus !== 'NOT_REQUIRED',
       dueOffsetMinutes: task.dueAt ? Math.round((Date.parse(task.dueAt) - Date.parse(event.startsAt)) / 60_000) : null,
       scheduledStartOffsetMinutes: task.scheduledStartAt ? Math.round((Date.parse(task.scheduledStartAt) - Date.parse(event.startsAt)) / 60_000) : null,
       scheduledEndOffsetMinutes: task.scheduledEndAt ? Math.round((Date.parse(task.scheduledEndAt) - Date.parse(event.startsAt)) / 60_000) : null,
@@ -753,6 +948,84 @@ operationsRouter.get('/units', async c => {
   } catch (error) { return handleError(c, error) }
 })
 
+/**
+ * Business creation options for the "+ Tạo mới" menu (XV).
+ * Server-authoritative: the menu shows only actions the caller can actually
+ * perform; the mutation routes re-check everything. Position codes stay in
+ * English here — the UI maps them to Vietnamese labels (O8).
+ */
+operationsRouter.get('/creation-options', async c => {
+  const user = actor(c)
+  try {
+    const today = parishCalendarDate()
+    const isAdmin = user.role === 'admin'
+    const [person] = await db.select({ id: parishPeople.id }).from(parishPeople)
+      .where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1)
+    const myTerms = person ? await db.select({ positionCode: parishServiceTerms.positionCode, unitId: parishServiceTerms.unitId })
+      .from(parishServiceTerms)
+      .where(and(
+        eq(parishServiceTerms.parishId, user.parishId), eq(parishServiceTerms.personId, person.id),
+        isNull(parishServiceTerms.deletedAt),
+        lte(parishServiceTerms.startDate, today), or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+      )) : []
+    const units = await db.select({ id: parishOrganizationUnits.id, name: parishOrganizationUnits.name, unitType: parishOrganizationUnits.unitType })
+      .from(parishOrganizationUnits)
+      .where(and(eq(parishOrganizationUnits.parishId, user.parishId), eq(parishOrganizationUnits.isActive, true), isNull(parishOrganizationUnits.deletedAt)))
+      .orderBy(parishOrganizationUnits.sortOrder, parishOrganizationUnits.name)
+    const unitsById = new Map(units.map(unit => [unit.id, unit]))
+    const isBoardUnit = (unitId: string | null) => !unitId || unitsById.get(unitId)?.unitType === 'BOARD'
+    const myCodes = new Set(myTerms.map(term => term.positionCode))
+    const myUnitIds = new Set(myTerms.map(term => term.unitId).filter((value): value is string => Boolean(value)))
+    const isParishLeader = myTerms.some(term => term.positionCode === 'PARISH_LEADER' && isBoardUnit(term.unitId))
+    const isParishOffice = isParishLeader || myTerms.some(term => (term.positionCode === 'PARISH_SECRETARY' || term.positionCode === 'PARISH_DEPUTY') && isBoardUnit(term.unitId))
+    const canCreateXuDoanEvent = isAdmin || isParishOffice
+    // Phó Xứ đoàn và Thư ký chỉ tạo Event Xứ đoàn, không tạo Event chuyên môn
+    // hay Task độc lập (menu unit bên dưới ẩn hẳn với họ; capability +
+    // organizer rules ở route cũng chặn tương ứng nếu gọi trực tiếp).
+    const canCreateUnitEventBlanket = isAdmin || isParishLeader
+    // Active leaders with actionable staff accounts, for organizer pickers.
+    const leaderTerms = await db.select({
+      positionCode: parishServiceTerms.positionCode, unitId: parishServiceTerms.unitId,
+      fullName: parishPeople.fullName, linkedUserId: parishPeople.linkedUserId,
+    }).from(parishServiceTerms)
+      .innerJoin(parishPeople, and(eq(parishPeople.parishId, parishServiceTerms.parishId), eq(parishPeople.id, parishServiceTerms.personId)))
+      .innerJoin(users, and(eq(users.parishId, parishPeople.parishId), eq(users.id, parishPeople.linkedUserId)))
+      .where(and(
+        eq(parishServiceTerms.parishId, user.parishId),
+        inArray(parishServiceTerms.positionCode, ['PARISH_LEADER', 'BRANCH_LEADER', 'COMMITTEE_LEADER']),
+        isNull(parishServiceTerms.deletedAt),
+        lte(parishServiceTerms.startDate, today), or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+        eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt),
+        inArray(users.role, ['admin', 'chunhiem', 'phuta']), eq(users.status, 'ACTIVE'), isNull(users.deletedAt),
+      ))
+    const xuDoanOrganizers = leaderTerms
+      .filter(term => term.positionCode === 'PARISH_LEADER')
+      .map(term => ({ userId: term.linkedUserId!, displayName: term.fullName, positionCode: term.positionCode! }))
+    const unitOptions = units
+      .filter(unit => unit.unitType === 'BRANCH' || unit.unitType === 'COMMITTEE')
+      .map(unit => {
+        const wanted = unit.unitType === 'BRANCH' ? 'BRANCH_LEADER' : 'COMMITTEE_LEADER'
+        const organizers = leaderTerms
+          .filter(term => term.positionCode === wanted && term.unitId === unit.id)
+          .map(term => ({ userId: term.linkedUserId!, displayName: term.fullName, positionCode: term.positionCode! }))
+        const holdsUnitRole = myUnitIds.has(unit.id) && (
+          myCodes.has(wanted)
+          || myCodes.has(unit.unitType === 'BRANCH' ? 'BRANCH_DEPUTY' : 'COMMITTEE_DEPUTY')
+        )
+        const canCreateEvent = canCreateUnitEventBlanket || holdsUnitRole
+        return {
+          id: unit.id, name: unit.name, unitType: unit.unitType,
+          canCreateEvent, canCreateTask: canCreateEvent, organizers,
+          myRole: holdsUnitRole
+            ? (myCodes.has(wanted) ? wanted : (unit.unitType === 'BRANCH' ? 'BRANCH_DEPUTY' : 'COMMITTEE_DEPUTY'))
+            : null,
+        }
+      })
+      .filter(option => option.canCreateEvent)
+    return successResponse(c, { canCreateXuDoanEvent, xuDoanOrganizers, units: unitOptions })
+  } catch (error) { return handleError(c, error) }
+})
+
 operationsRouter.get('/templates', zValidator('query', templateListQuerySchema), async c => {
   const user = actor(c); const archived = c.req.valid('query').archived === 'true'
   try {
@@ -915,30 +1188,35 @@ operationsRouter.post('/templates/:id/instantiate', zValidator('json', templateI
       )).limit(1)
       if (!snapshotRow) throw Object.assign(new Error('Không tìm thấy phiên bản mẫu sự kiện.'), { status: 404 })
       await assertScopeUnit(tx, user.parishId, template.scopeUnitId)
-      await assertTarget(tx, user.parishId, body.organizerUserId, body.organizerPersonId, true)
-      if (body.organizerUserId || body.organizerPersonId) {
-        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, { userId: body.organizerUserId, personId: body.organizerPersonId }, tx)
+      const eventScopeType = template.scopeUnitId ? 'UNIT' as const : 'XU_DOAN' as const
+      const resolvedOrganizer = await resolveEventOrganizerForCreate(tx, user, {
+        scopeType: eventScopeType, scopeUnitId: template.scopeUnitId,
+        organizerUserId: body.organizerUserId, organizerPersonId: body.organizerPersonId,
+      })
+      await assertTarget(tx, user.parishId, resolvedOrganizer.organizerUserId, resolvedOrganizer.organizerPersonId, true)
+      if (resolvedOrganizer.organizerUserId || resolvedOrganizer.organizerPersonId) {
+        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: template.scopeUnitId }, { userId: resolvedOrganizer.organizerUserId, personId: resolvedOrganizer.organizerPersonId }, tx)
       }
       const snapshot = parseOperationTemplateSnapshot(snapshotRow.snapshotJson)
       const materialized = previewOperationTemplate(snapshot, body.startsAt)
       const now = new Date().toISOString()
       const event = {
         id: generateId('OPS'), parishId: user.parishId, sourceParishEventId: null as string | null,
-        sourceTemplateId: template.id, sourceTemplateVersion: body.templateVersion, scopeUnitId: template.scopeUnitId,
+        sourceTemplateId: template.id, sourceTemplateVersion: body.templateVersion, eventScopeType, scopeUnitId: template.scopeUnitId,
         title: materialized.event.title, description: materialized.event.description, eventType: materialized.event.eventType,
         startsAt: materialized.event.startsAt, endsAt: materialized.event.endsAt, timezone: body.timezone,
         location: materialized.event.location, status: 'DRAFT' as const, visibility: body.visibility,
-        organizerPersonId: body.organizerPersonId ?? null, organizerUserId: body.organizerUserId ?? null,
+        organizerPersonId: resolvedOrganizer.organizerPersonId, organizerUserId: resolvedOrganizer.organizerUserId,
         expectedHeadcount: materialized.event.expectedHeadcount, outcomeSummary: null, version: 1,
         createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null,
       }
       assertPublicCalendarFields(event)
       const tasks = materialized.tasks.map(task => ({
-        id: generateId('TSK'), parishId: user.parishId, operationEventId: event.id, workstreamId: null, parentTaskId: null,
+        id: generateId('TSK'), parishId: user.parishId, operationEventId: event.id, workstreamId: null, scopeUnitId: template.scopeUnitId, parentTaskId: null,
         phase: task.phase, title: task.title, description: task.description, status: 'TODO' as const, priority: task.priority,
         isRequired: task.isRequired, dueAt: task.dueAt, scheduledStartAt: task.scheduledStartAt, scheduledEndAt: task.scheduledEndAt, startedAt: null, completedAt: null, completionNote: null,
-        blockedReason: null, cancellationReason: null, approvalStatus: task.requiresApproval ? 'PENDING' as const : 'NOT_REQUIRED' as const,
-        approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId,
+        blockedReason: null, cancellationReason: null,
+        version: 1, createdBy: user.userId, updatedBy: user.userId,
         completedBy: null, createdAt: now, updatedAt: now, deletedAt: null,
       }))
       const checklist = materialized.tasks.flatMap((task, taskIndex) => task.checklist.map(item => ({
@@ -986,14 +1264,30 @@ operationsRouter.get('/events', async c => {
   const user = actor(c)
   try {
     const { page, limit, offset } = listPagination(c)
-    const rows = await db.select().from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))).orderBy(desc(operationEvents.startsAt))
-    const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.event.view', rows.map(row => ({
-      parishId: row.parishId,
+    // Two-phase read: decide visibility on narrow auth columns first so only
+    // the requested page is hydrated as full rows. Total still reflects every
+    // visible row because per-row authorization cannot be pushed into SQL.
+    const narrow = await db.select({
+      id: operationEvents.id,
+      scopeUnitId: operationEvents.scopeUnitId,
+      organizerUserId: operationEvents.organizerUserId,
+      organizerPersonId: operationEvents.organizerPersonId,
+      status: operationEvents.status,
+      createdBy: operationEvents.createdBy,
+    }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))).orderBy(desc(operationEvents.startsAt), asc(operationEvents.id))
+    const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.event.view', narrow.map(row => ({
+      parishId: user.parishId,
       event: { id: row.id, scopeUnitId: row.scopeUnitId, organizerUserId: row.organizerUserId, organizerPersonId: row.organizerPersonId, status: row.status, createdBy: row.createdBy },
       resourceUnitId: row.scopeUnitId,
     })))
-    const visible = rows.filter((_, index) => decisions[index]?.allowed)
-    return paginatedResponse(c, visible.slice(offset, offset + limit), { page, limit, total: visible.length })
+    const visibleIds = narrow.filter((_, index) => decisions[index]?.allowed).map(row => row.id)
+    const pageIds = visibleIds.slice(offset, offset + limit)
+    const pageRows = pageIds.length === 0 ? [] : await db.select().from(operationEvents).where(and(
+      eq(operationEvents.parishId, user.parishId), inArray(operationEvents.id, pageIds), isNull(operationEvents.deletedAt),
+    ))
+    const rowsById = new Map(pageRows.map(row => [row.id, row]))
+    const visible = pageIds.map(id => rowsById.get(id)).filter((row): row is typeof pageRows[number] => Boolean(row))
+    return paginatedResponse(c, visible, { page, limit, total: visibleIds.length })
   } catch (error) { return handleError(c, error) }
 })
 
@@ -1001,18 +1295,25 @@ operationsRouter.post('/events', zValidator('json', eventCreateSchema), async c 
   const user = actor(c); const body = c.req.valid('json')
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.create', body, async tx => {
+      const scopeType = resolveEventScopeType(body.eventScopeType ?? null, body.scopeUnitId ?? null)
       await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, tx)
       if (body.visibility === 'PUBLIC_SUMMARY') {
         await assertOperationsCapability(user, 'operations.event.publish_public', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, tx)
       }
       await assertScopeUnit(tx, user.parishId, body.scopeUnitId)
       if (body.sourceParishEventId) throw Object.assign(new Error('Liên kết Lịch do Operations tự quản lý; client không được chọn parish event nguồn.'), { status: 400, code: 'CALENDAR_LINK_SERVER_MANAGED' })
-      await assertTarget(tx, user.parishId, body.organizerUserId, body.organizerPersonId, true)
-      if (body.organizerUserId || body.organizerPersonId) {
-        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, { userId: body.organizerUserId, personId: body.organizerPersonId }, tx)
+      // Creator ≠ Organizer (O1 locked). O2: admin kỹ thuật mutate-all nên được bypass check nghiệp vụ để giữ fixtures/tests cũ;
+      // business users (non-admin) enforce đầy đủ (xem resolveEventOrganizerForCreate).
+      const { organizerUserId, organizerPersonId } = await resolveEventOrganizerForCreate(tx, user, {
+        scopeType, scopeUnitId: body.scopeUnitId ?? null,
+        organizerUserId: body.organizerUserId, organizerPersonId: body.organizerPersonId,
+      })
+      await assertTarget(tx, user.parishId, organizerUserId, organizerPersonId, true)
+      if (organizerUserId || organizerPersonId) {
+        await assertOperationsTargetWithinAuthority(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: body.scopeUnitId }, { userId: organizerUserId, personId: organizerPersonId }, tx)
       }
       const now = new Date().toISOString()
-      const row = { id: generateId('OPS'), parishId: user.parishId, sourceParishEventId: null as string | null, scopeUnitId: body.scopeUnitId ?? null, title: body.title, description: body.description ?? null, eventType: body.eventType, startsAt: body.startsAt, endsAt: body.endsAt, timezone: body.timezone, location: body.location ?? null, status: 'DRAFT' as const, visibility: body.visibility, organizerPersonId: body.organizerPersonId ?? null, organizerUserId: body.organizerUserId ?? null, expectedHeadcount: body.expectedHeadcount ?? null, outcomeSummary: null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null }
+      const row = { id: generateId('OPS'), parishId: user.parishId, sourceParishEventId: null as string | null, eventScopeType: scopeType as 'XU_DOAN' | 'UNIT', scopeUnitId: body.scopeUnitId ?? null, title: body.title, description: body.description ?? null, eventType: body.eventType, startsAt: body.startsAt, endsAt: body.endsAt, timezone: body.timezone, location: body.location ?? null, status: 'DRAFT' as const, visibility: body.visibility, organizerPersonId, organizerUserId, expectedHeadcount: body.expectedHeadcount ?? null, outcomeSummary: null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null }
       assertPublicCalendarFields(row)
       await tx.insert(operationEvents).values(row)
       await audit(tx, user, c, 'CREATE', 'operation_event', row.id, undefined, row); return row
@@ -1043,6 +1344,24 @@ operationsRouter.put('/events/:id', zValidator('json', eventUpdateSchema), async
         await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: nextScopeUnitId }, tx)
       }
       if (nextOrganizerUserId && nextOrganizerPersonId) throw Object.assign(new Error('Organizer chỉ dùng user hoặc person, không dùng cả hai.'), { status: 400 })
+      // Scope-type consistency: XU_DOAN ↔ scopeUnitId NULL. Đổi scopeUnitId tự dẫn scope type theo (đã yêu cầu create authority ở scope đích ở trên).
+      const existingScopeType = existing.eventScopeType ?? (existing.scopeUnitId ? 'UNIT' : 'XU_DOAN')
+      const nextScopeType = body.eventScopeType ?? (nextScopeUnitId ? 'UNIT' : 'XU_DOAN')
+      if (body.eventScopeType && body.eventScopeType !== nextScopeType) {
+        throw Object.assign(new Error('Phạm vi sự kiện không khớp đơn vị phụ trách.'), { status: 400, code: 'OPERATION_EVENT_SCOPE_TYPE_MISMATCH' })
+      }
+      // Đổi organizer/scope ở business actors phải giữ rule leader (admin giữ compatibility path).
+      if (user.role !== 'admin' && (body.organizerUserId !== undefined || body.organizerPersonId !== undefined || body.scopeUnitId !== undefined)) {
+        if (nextScopeType === 'XU_DOAN') {
+          if ((nextOrganizerUserId || nextOrganizerPersonId) && !(await isActiveParishLeader(tx, user.parishId, nextOrganizerUserId, nextOrganizerPersonId))) {
+            throw Object.assign(new Error('Organizer sự kiện Xứ đoàn phải là Xứ đoàn trưởng đang đương nhiệm.'), { status: 400, code: 'ORGANIZER_MUST_BE_PARISH_LEADER' })
+          }
+        } else if (nextOrganizerUserId || nextOrganizerPersonId) {
+          if (!(await isActiveUnitLeader(tx, user.parishId, nextScopeUnitId!, nextOrganizerUserId, nextOrganizerPersonId))) {
+            throw Object.assign(new Error('Organizer sự kiện chuyên môn phải là Trưởng Ban/Trưởng Ngành đương nhiệm đúng đơn vị phụ trách.'), { status: 400, code: 'ORGANIZER_MUST_BE_UNIT_LEADER' })
+          }
+        }
+      }
       const startsAt = body.startsAt ?? existing.startsAt; const endsAt = body.endsAt ?? existing.endsAt
       const visibility = body.visibility ?? existing.visibility
       if (existing.visibility === 'PUBLIC_SUMMARY' || visibility === 'PUBLIC_SUMMARY') {
@@ -1066,6 +1385,7 @@ operationsRouter.put('/events/:id', zValidator('json', eventUpdateSchema), async
       }
       const updates: any = { sourceParishEventId, updatedAt: now, updatedBy: user.userId, version: existing.version + 1 }
       for (const field of ['scopeUnitId', 'organizerUserId', 'organizerPersonId', 'title', 'description', 'eventType', 'startsAt', 'endsAt', 'timezone', 'location', 'visibility', 'expectedHeadcount'] as const) if (body[field] !== undefined) updates[field] = body[field]
+      if (nextScopeType !== existingScopeType) updates.eventScopeType = nextScopeType
       const [changed] = await tx.update(operationEvents).set(updates).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', existing)
       if (existing.status !== 'DRAFT' && existing.visibility !== 'PUBLIC_SUMMARY' && changed.visibility === 'PUBLIC_SUMMARY') await enqueuePublicEventParentNotification(tx, user.parishId, eventId, changed.version, changed, now)
@@ -1097,7 +1417,21 @@ operationsRouter.get('/events/:id', async c => {
       readiness(tx, user.parishId, eventId),
       closureReadiness(tx, user.parishId, eventId),
     ]))
-    return successResponse(c, { event, retrospective: retrospectiveRows[0] ?? null, workstreams, tasks, participants, assignees: assignees.map(row => row.assignment), readiness: readinessState, closure: closureState, permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, eventId }) })
+    // Organizer display name for the detail header (privacy-safe: name only,
+    // resolved server-side so person organizers without accounts also show).
+    let organizer: { userId: string | null; personId: string | null; displayName: string | null } = {
+      userId: event.organizerUserId, personId: event.organizerPersonId, displayName: null,
+    }
+    if (event.organizerUserId) {
+      const [account] = await db.select({ fullName: users.fullName }).from(users)
+        .where(and(eq(users.parishId, user.parishId), eq(users.id, event.organizerUserId))).limit(1)
+      organizer.displayName = account?.fullName ?? null
+    } else if (event.organizerPersonId) {
+      const [person] = await db.select({ fullName: parishPeople.fullName }).from(parishPeople)
+        .where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.id, event.organizerPersonId))).limit(1)
+      organizer.displayName = person?.fullName ?? null
+    }
+    return successResponse(c, { event, organizer, retrospective: retrospectiveRows[0] ?? null, workstreams, tasks, participants, assignees: assignees.map(row => row.assignment), readiness: readinessState, closure: closureState, permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, eventId }) })
   } catch (error) { return handleError(c, error) }
 })
 
@@ -1145,7 +1479,7 @@ operationsRouter.post('/events/:id/follow-ups', zValidator('json', eventFollowUp
       const now = new Date().toISOString()
       const [changedEvent] = await tx.update(operationEvents).set({ version: event.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), eq(operationEvents.version, body.eventVersion))).returning({ version: operationEvents.version })
       if (!changedEvent) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
-      const task = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: null, parentTaskId: null, phase: 'FOLLOW_UP' as const, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: false, dueAt: body.dueAt, scheduledStartAt: null, scheduledEndAt: null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, cancellationReason: null, approvalStatus: 'NOT_REQUIRED' as const, approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
+      const task = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: null, scopeUnitId: event.scopeUnitId, parentTaskId: null, phase: 'FOLLOW_UP' as const, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: false, dueAt: body.dueAt, scheduledStartAt: null, scheduledEndAt: null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, cancellationReason: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
       const assignment = { id: generateId('OPA'), parishId: user.parishId, taskId: task.id, userId: target.userId, personId: target.personId, assignmentRole: 'OWNER' as const, acknowledgementStatus: 'PENDING' as const, assignedBy: user.userId, assignedAt: now, respondedAt: null, completedAt: null, note: 'Follow-up từ hậu kiểm sự kiện', version: 1, removedAt: null }
       await tx.insert(operationTasks).values(task)
       await tx.insert(operationTaskAssignees).values(assignment)
@@ -1218,7 +1552,9 @@ operationsRouter.post('/events/:id/transition', zValidator('json', eventTransiti
           backwards = manualEventTransition(event.status, body.status, body.reason).backwards
         } catch (error) {
           const code = error instanceof Error ? error.message : 'EVENT_TRANSITION_NOT_ADJACENT'
-          throw Object.assign(new Error(code === 'EVENT_REWIND_REASON_REQUIRED' ? 'Lùi giai đoạn bắt buộc nhập lý do.' : `Chỉ được chuyển từng giai đoạn liền kề từ ${event.status}.`), { status: code === 'EVENT_REWIND_REASON_REQUIRED' ? 400 : 409, code })
+          if (code === 'EVENT_REWIND_REASON_REQUIRED') throw Object.assign(new Error('Lùi giai đoạn bắt buộc nhập lý do.'), { status: 400, code })
+          if (code === 'EVENT_COMPLETED_TERMINAL') throw Object.assign(new Error('Sự kiện đã hoàn tất; không thể chuyển giai đoạn tiếp.'), { status: 409, code })
+          throw Object.assign(new Error(`Chỉ được chuyển từng giai đoạn liền kề từ ${event.status}.`), { status: 409, code })
         }
       }
       if (body.status === 'COMPLETED' && !body.outcomeSummary) throw Object.assign(new Error('Hoàn tất event bắt buộc có tổng kết kết quả.'), { status: 400 })
@@ -1322,7 +1658,7 @@ operationsRouter.get('/blockouts/mine', async c => {
   const user = actor(c)
   try {
     const { page, limit, offset } = listPagination(c)
-    const [selfPerson] = await db.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), isNull(parishPeople.deletedAt))).limit(1)
+    const [selfPerson] = await db.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1)
     const where = and(
       eq(operationBlockouts.parishId, user.parishId),
       or(eq(operationBlockouts.userId, user.userId), selfPerson ? eq(operationBlockouts.personId, selfPerson.id) : undefined),
@@ -1341,7 +1677,7 @@ operationsRouter.put('/blockouts/:id', zValidator('json', blockoutUpdateSchema),
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.blockout.update', { blockoutId, ...body }, async tx => {
       const [[selfPerson], [existing]] = await Promise.all([
-        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), isNull(parishPeople.deletedAt))).limit(1),
+        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1),
         tx.select().from(operationBlockouts).where(and(eq(operationBlockouts.parishId, user.parishId), eq(operationBlockouts.id, blockoutId), isNull(operationBlockouts.deletedAt))).limit(1),
       ])
       const targetsSelf = existing && (existing.userId === user.userId || Boolean(selfPerson && existing.personId === selfPerson.id))
@@ -1365,7 +1701,7 @@ operationsRouter.post('/blockouts/:id/revoke', zValidator('json', blockoutRevoke
   try {
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.blockout.revoke', { blockoutId, ...body }, async tx => {
       const [[selfPerson], [existing]] = await Promise.all([
-        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), isNull(parishPeople.deletedAt))).limit(1),
+        tx.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1),
         tx.select().from(operationBlockouts).where(and(eq(operationBlockouts.parishId, user.parishId), eq(operationBlockouts.id, blockoutId), isNull(operationBlockouts.deletedAt))).limit(1),
       ])
       const targetsSelf = existing && (existing.userId === user.userId || Boolean(selfPerson && existing.personId === selfPerson.id))
@@ -1525,13 +1861,27 @@ operationsRouter.post('/reminders/:id/cancel', zValidator('json', reminderCancel
   } catch (error) { return handleError(c, error) }
 })
 
-operationsRouter.post('/reminders/:id/read', async c => {
-  const user = actor(c); const reminderId = c.req.param('id')
+operationsRouter.post('/reminders/:id/read', zValidator('json', reminderReadSchema.optional()), async c => {
+  const user = actor(c); const reminderId = c.req.param('id'); const body = (c.req.valid('json') as { expectedVersion?: number } | undefined) || {}
   try {
-    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.reminder.read', { reminderId }, async tx => {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.reminder.read', { reminderId, ...body }, async tx => {
       const [row] = await tx.select().from(operationReminders).where(and(eq(operationReminders.parishId, user.parishId), eq(operationReminders.id, reminderId), eq(operationReminders.recipientUserId, user.userId))).limit(1)
       if (!row) throw Object.assign(new Error('Không tìm thấy reminder.'), { status: 404 })
-      const readAt = row.readAt ?? new Date().toISOString(); await tx.update(operationReminders).set({ readAt }).where(and(eq(operationReminders.parishId, user.parishId), eq(operationReminders.id, reminderId))); return { id: reminderId, readAt }
+      if (body.expectedVersion !== undefined && row.version !== body.expectedVersion) {
+        throw new VersionConflictError('Lịch nhắc đã bị thay đổi bởi người khác.', row)
+      }
+      const readAt = row.readAt ?? new Date().toISOString()
+      const nextVersion = row.version + 1
+      const [changed] = await tx.update(operationReminders).set({
+        readAt,
+        version: nextVersion,
+      }).where(and(
+        eq(operationReminders.parishId, user.parishId),
+        eq(operationReminders.id, reminderId),
+        body.expectedVersion !== undefined ? eq(operationReminders.version, body.expectedVersion) : sql`1=1`,
+      )).returning({ id: operationReminders.id, readAt: operationReminders.readAt, version: operationReminders.version })
+      if (!changed) throw new VersionConflictError('Lịch nhắc đã bị thay đổi bởi người khác.', row)
+      return changed
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
@@ -1542,26 +1892,43 @@ operationsRouter.get('/workstreams', async c => {
   try {
     if (eventId && standalone) throw Object.assign(new Error('Không thể lọc đồng thời eventId và standalone.'), { status: 400 })
     const { page, limit, offset } = listPagination(c)
-    const [rows, eventRows] = await Promise.all([
-      db.select().from(operationWorkstreams).where(and(
-        eq(operationWorkstreams.parishId, user.parishId),
-        eventId ? eq(operationWorkstreams.operationEventId, eventId) : standalone ? isNull(operationWorkstreams.operationEventId) : undefined,
-        isNull(operationWorkstreams.deletedAt),
-      )).orderBy(operationWorkstreams.name),
-      db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))),
-    ])
+    // Two-phase read: decide visibility on narrow columns, then hydrate only
+    // the requested page. The events map is restricted to referenced IDs.
+    const narrow = await db.select({
+      id: operationWorkstreams.id,
+      sourceUnitId: operationWorkstreams.sourceUnitId,
+      operationEventId: operationWorkstreams.operationEventId,
+    }).from(operationWorkstreams).where(and(
+      eq(operationWorkstreams.parishId, user.parishId),
+      eventId ? eq(operationWorkstreams.operationEventId, eventId) : standalone ? isNull(operationWorkstreams.operationEventId) : undefined,
+      isNull(operationWorkstreams.deletedAt),
+    )).orderBy(operationWorkstreams.name, asc(operationWorkstreams.id))
+    const referencedEventIds = [...new Set(narrow.map(row => row.operationEventId).filter((value): value is string => Boolean(value)))]
+    const eventRows: Array<{ id: string; scopeUnitId: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string }> = []
+    for (let index = 0; index < referencedEventIds.length; index += 400) {
+      const chunk = referencedEventIds.slice(index, index + 400)
+      eventRows.push(...await db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), inArray(operationEvents.id, chunk), isNull(operationEvents.deletedAt))))
+    }
     const eventsById = new Map(eventRows.map(row => [row.id, row]))
-    const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.task.view', rows.map(row => {
+    const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.task.view', narrow.map(row => {
       const event = row.operationEventId ? eventsById.get(row.operationEventId) : undefined
       return {
-        parishId: row.parishId,
+        parishId: user.parishId,
         workstream: { id: row.id, sourceUnitId: row.sourceUnitId, operationEventId: row.operationEventId },
         event,
         resourceUnitId: row.sourceUnitId ?? event?.scopeUnitId ?? null,
       }
     }))
-    const visible = rows.filter((_, index) => decisions[index]?.allowed)
-    return paginatedResponse(c, visible.slice(offset, offset + limit), { page, limit, total: visible.length })
+    const visibleIds = narrow.filter((_, index) => decisions[index]?.allowed).map(row => row.id)
+    const pageIds = visibleIds.slice(offset, offset + limit)
+    const pageRows: Array<typeof operationWorkstreams.$inferSelect> = pageIds.length === 0 ? [] : await db.select().from(operationWorkstreams).where(and(
+      eq(operationWorkstreams.parishId, user.parishId), inArray(operationWorkstreams.id, pageIds), isNull(operationWorkstreams.deletedAt),
+    ))
+    const rowsById = new Map(pageRows.map(row => [row.id, row]))
+    const visible = pageIds
+      .map(id => rowsById.get(id))
+      .filter((row): row is typeof operationWorkstreams.$inferSelect => Boolean(row))
+    return paginatedResponse(c, visible, { page, limit, total: visibleIds.length })
   } catch (error) { return handleError(c, error) }
 })
 
@@ -1590,13 +1957,17 @@ operationsRouter.post('/workstreams', zValidator('json', workstreamCreateSchema)
       if (!body.eventId && !body.sourceUnitId) {
         throw Object.assign(new Error('Nhóm độc lập phải có đơn vị tổ chức phụ trách.'), { status: 400, code: 'STANDALONE_WORKSTREAM_SCOPE_REQUIRED' })
       }
-      let event: { id: string; scopeUnitId: string | null; status: string } | undefined
+      let event: { id: string; scopeUnitId: string | null; eventScopeType: string | null; status: string } | undefined
       if (body.eventId) {
-        ;[event] = await tx.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, status: operationEvents.status }).from(operationEvents).where(and(
+        ;[event] = await tx.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, eventScopeType: operationEvents.eventScopeType, status: operationEvents.status }).from(operationEvents).where(and(
           eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, body.eventId), isNull(operationEvents.deletedAt),
         )).limit(1)
         if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
         if (event.status === 'COMPLETED' || event.status === 'CANCELLED') throw Object.assign(new Error('Event đã kết thúc; không thể thêm workstream.'), { status: 409, code: 'EVENT_IMMUTABLE' })
+        const eventScope = event.eventScopeType ?? (event.scopeUnitId ? 'UNIT' : 'XU_DOAN')
+        if (eventScope === 'XU_DOAN' && !body.sourceUnitId && user.role !== 'admin') {
+          throw Object.assign(new Error('Field trong sự kiện Xứ đoàn phải gắn đúng một Ban/Ngành phụ trách (thiếu sourceUnitId).'), { status: 400, code: 'FIELD_SCOPE_REQUIRED' })
+        }
       }
       await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, eventId: body.eventId, resourceUnitId: body.sourceUnitId }, tx)
       if (body.sourceUnitId && event && body.sourceUnitId !== event.scopeUnitId) {
@@ -1647,7 +2018,9 @@ operationsRouter.post('/workstreams/:id/members', zValidator('json', workstreamM
       if (body.startsAt && body.endsAt && body.endsAt <= body.startsAt) throw Object.assign(new Error('Thời hạn role không hợp lệ.'), { status: 400 })
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
       await assertOperationsTargetWithinAuthority(user, body.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage', { parishId: user.parishId, workstreamId }, body, tx)
-      await assertWorkstreamMemberSeparationOfDuty(tx, user.parishId, workstreamId, body, body.operationRole, body)
+      if (body.operationRole === 'WORKSTREAM_LEAD' && user.role !== 'admin') {
+        await assertWorkstreamLeadEligibility(tx, user.parishId, workstream.sourceUnitId, body)
+      }
       const row = { id: generateId('OWM'), parishId: user.parishId, workstreamId, userId: body.userId ?? null, personId: body.personId ?? null, operationRole: body.operationRole, assignedBy: user.userId, assignedAt: new Date().toISOString(), startsAt: body.startsAt ?? null, endsAt: body.endsAt ?? null, version: 1, removedAt: null }
       await tx.insert(operationWorkstreamMembers).values(row)
       const [changed] = await tx.update(operationWorkstreams).set({ version: workstream.version + 1, updatedBy: user.userId, updatedAt: row.assignedAt }).where(and(eq(operationWorkstreams.parishId, user.parishId), eq(operationWorkstreams.id, workstreamId), eq(operationWorkstreams.version, body.version))).returning({ version: operationWorkstreams.version })
@@ -1708,6 +2081,9 @@ operationsRouter.post('/workstreams/:id/lead/replace', zValidator('json', leadRe
       await assertTarget(tx, user.parishId, target.userId, target.personId, true)
       await assertActionableOperationsTarget(tx, user.parishId, target)
       await assertOperationsTargetWithinAuthority(user, 'operations.workstream.assign_lead', { parishId: user.parishId, workstreamId }, target, tx)
+      if (user.role !== 'admin') {
+        await assertWorkstreamLeadEligibility(tx, user.parishId, workstream.sourceUnitId, target)
+      }
 
       const now = new Date().toISOString()
       if (body.endsAt && body.endsAt <= now) {
@@ -1779,7 +2155,6 @@ operationsRouter.put('/workstreams/:id/members/:memberId/validity', zValidator('
       if (workstream.version !== body.version) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', workstream)
       if (member.version !== body.memberVersion) throw new VersionConflictError('Workstream membership đã bị thay đổi bởi người khác.', member)
       await assertWorkstreamMembershipMutationAllowed(tx, user.parishId, workstream.operationEventId, member.operationRole, 'đổi thời hạn thành viên workstream')
-      await assertWorkstreamMemberSeparationOfDuty(tx, user.parishId, workstreamId, member, member.operationRole, body)
       const now = new Date().toISOString()
       const [changedMember] = await tx.update(operationWorkstreamMembers).set({ startsAt: body.startsAt, endsAt: body.endsAt, version: member.version + 1 }).where(and(
         eq(operationWorkstreamMembers.parishId, user.parishId), eq(operationWorkstreamMembers.workstreamId, workstreamId), eq(operationWorkstreamMembers.id, memberId),
@@ -1821,20 +2196,37 @@ operationsRouter.get('/tasks', async c => {
   const user = actor(c); const mine = c.req.query('mine') === 'true'; const eventId = c.req.query('eventId'); const workstreamId = c.req.query('workstreamId'); const status = c.req.query('status'); const overdue = c.req.query('overdue') === 'true'
   try {
     const { page, limit, offset } = listPagination(c)
-    const rows = await db.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eventId ? eq(operationTasks.operationEventId, eventId) : undefined, workstreamId ? eq(operationTasks.workstreamId, workstreamId) : undefined, status ? eq(operationTasks.status, status as any) : undefined, overdue ? and(lte(operationTasks.dueAt, new Date().toISOString()), notInArray(operationTasks.status, ['DONE', 'CANCELLED'])) : undefined, isNull(operationTasks.deletedAt))).orderBy(asc(operationTasks.dueAt), desc(operationTasks.createdAt))
+    // Two-phase read: visibility is decided on narrow auth columns so only the
+    // requested page is hydrated as full rows. Related workstream/event maps
+    // are restricted to referenced IDs (chunked for the SQL variable limit).
+    const narrow = await db.select({
+      id: operationTasks.id,
+      workstreamId: operationTasks.workstreamId,
+      operationEventId: operationTasks.operationEventId,
+      status: operationTasks.status,
+      dueAt: operationTasks.dueAt,
+      createdAt: operationTasks.createdAt,
+    }).from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eventId ? eq(operationTasks.operationEventId, eventId) : undefined, workstreamId ? eq(operationTasks.workstreamId, workstreamId) : undefined, status ? eq(operationTasks.status, status as any) : undefined, overdue ? and(lte(operationTasks.dueAt, new Date().toISOString()), notInArray(operationTasks.status, ['DONE', 'CANCELLED'])) : undefined, isNull(operationTasks.deletedAt))).orderBy(asc(operationTasks.dueAt), desc(operationTasks.createdAt), asc(operationTasks.id))
+    const referencedWorkstreamIds = [...new Set(narrow.map(row => row.workstreamId).filter((value): value is string => Boolean(value)))]
+    const referencedEventIds = [...new Set(narrow.map(row => row.operationEventId).filter((value): value is string => Boolean(value)))]
+    const queryIdChunks = async <T>(ids: string[], load: (chunk: string[]) => Promise<T[]>): Promise<T[]> => {
+      const chunks: string[][] = []
+      for (let index = 0; index < ids.length; index += 400) chunks.push(ids.slice(index, index + 400))
+      return (await Promise.all(chunks.map(load))).flat()
+    }
     const [workstreamRows, eventRows, personRows] = await Promise.all([
-      db.select({ id: operationWorkstreams.id, sourceUnitId: operationWorkstreams.sourceUnitId, operationEventId: operationWorkstreams.operationEventId }).from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), isNull(operationWorkstreams.deletedAt))),
-      db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))),
-      mine ? db.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1) : Promise.resolve([]),
+      queryIdChunks(referencedWorkstreamIds, chunk => db.select({ id: operationWorkstreams.id, sourceUnitId: operationWorkstreams.sourceUnitId, operationEventId: operationWorkstreams.operationEventId }).from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, user.parishId), inArray(operationWorkstreams.id, chunk), isNull(operationWorkstreams.deletedAt)))),
+      queryIdChunks(referencedEventIds, chunk => db.select({ id: operationEvents.id, scopeUnitId: operationEvents.scopeUnitId, organizerUserId: operationEvents.organizerUserId, organizerPersonId: operationEvents.organizerPersonId, status: operationEvents.status, createdBy: operationEvents.createdBy }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), inArray(operationEvents.id, chunk), isNull(operationEvents.deletedAt)))),
+      mine ? db.select({ id: parishPeople.id }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.linkedUserId, user.userId), eq(parishPeople.serviceStatus, 'ACTIVE'), isNull(parishPeople.deletedAt))).limit(1) : Promise.resolve([] as Array<{ id: string }>),
     ])
     const workstreamsById = new Map(workstreamRows.map(row => [row.id, row]))
     const eventsById = new Map(eventRows.map(row => [row.id, row]))
-    const resources = rows.map(row => {
+    const resources = narrow.map(row => {
       const workstream = row.workstreamId ? workstreamsById.get(row.workstreamId) : undefined
       const resolvedEventId = row.operationEventId ?? workstream?.operationEventId ?? null
       const event = resolvedEventId ? eventsById.get(resolvedEventId) : undefined
       return {
-        parishId: row.parishId,
+        parishId: user.parishId,
         task: { id: row.id, workstreamId: row.workstreamId, operationEventId: row.operationEventId },
         workstream,
         event,
@@ -1842,8 +2234,6 @@ operationsRouter.get('/tasks', async c => {
       }
     })
     const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.task.view', resources)
-    const approvalQueue = c.req.query('queue') === 'approval'
-    const approvalDecisions = approvalQueue ? await resolveOperationsAuthorizationBatch(user, 'operations.task.approve', resources) : []
     const selfPerson = personRows[0]
     const myAssignmentRows = mine ? await db.select().from(operationTaskAssignees).where(and(
       eq(operationTaskAssignees.parishId, user.parishId),
@@ -1852,18 +2242,27 @@ operationsRouter.get('/tasks', async c => {
     )) : []
     const assignmentsByTask = new Map<string, Array<typeof operationTaskAssignees.$inferSelect>>()
     for (const assignment of myAssignmentRows) assignmentsByTask.set(assignment.taskId, [...(assignmentsByTask.get(assignment.taskId) ?? []), assignment])
-    const visible: Array<typeof rows[number] & { myAssignments?: Array<typeof operationTaskAssignees.$inferSelect> }> = []
-    rows.forEach((row, index) => {
+    const visibleIds: string[] = []
+    const visibleAssignments = new Map<string, Array<typeof operationTaskAssignees.$inferSelect>>()
+    narrow.forEach((row, index) => {
       const decision = decisions[index]
       if (!decision?.allowed) return
-      if (approvalQueue) {
-        if (approvalDecisions[index]?.allowed && row.approvalStatus === 'PENDING' && row.status !== 'DONE' && row.status !== 'CANCELLED') visible.push(row)
-        return
+      if (!mine) visibleIds.push(row.id)
+      else if (decision.operationRoles.some(role => role.startsWith('TASK_'))) {
+        visibleIds.push(row.id)
+        visibleAssignments.set(row.id, assignmentsByTask.get(row.id) ?? [])
       }
-      if (!mine) visible.push(row)
-      else if (decision.operationRoles.some(role => role.startsWith('TASK_'))) visible.push({ ...row, myAssignments: assignmentsByTask.get(row.id) ?? [] })
     })
-    return paginatedResponse(c, visible.slice(offset, offset + limit), { page, limit, total: visible.length })
+    const pageIds = visibleIds.slice(offset, offset + limit)
+    const pageRows: Array<typeof operationTasks.$inferSelect> = pageIds.length === 0 ? [] : await db.select().from(operationTasks).where(and(
+      eq(operationTasks.parishId, user.parishId), inArray(operationTasks.id, pageIds), isNull(operationTasks.deletedAt),
+    ))
+    const rowsById = new Map(pageRows.map(row => [row.id, row]))
+    const visible = pageIds
+      .map(id => rowsById.get(id))
+      .filter((row): row is typeof operationTasks.$inferSelect => Boolean(row))
+      .map(row => mine && visibleAssignments.has(row.id) ? { ...row, myAssignments: visibleAssignments.get(row.id) } : row)
+    return paginatedResponse(c, visible, { page, limit, total: visibleIds.length })
   } catch (error) { return handleError(c, error) }
 })
 
@@ -1929,17 +2328,25 @@ operationsRouter.post('/tasks', zValidator('json', taskCreateSchema), async c =>
       }
       const eventId = body.eventId ?? workstream?.operationEventId ?? null
       if (body.eventId && workstream && workstream.operationEventId !== body.eventId) throw Object.assign(new Error('Task và workstream không cùng operation event.'), { status: 400 })
-      await assertOperationsCapability(user, 'operations.task.create', { parishId: user.parishId, eventId, workstreamId: body.workstreamId, resourceUnitId: workstream?.sourceUnitId }, tx)
+      let eventScopeUnitId: string | null = null
       if (eventId) {
-        const [event] = await tx.select({ id: operationEvents.id, status: operationEvents.status }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
+        const [event] = await tx.select({ id: operationEvents.id, status: operationEvents.status, scopeUnitId: operationEvents.scopeUnitId }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
         if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
         if (!canCreateEventTask(event.status)) throw Object.assign(new Error('Chỉ tạo task khi sự kiện ở Nháp, Kế hoạch, Chuẩn bị hoặc Sẵn sàng.'), { status: 409, code: 'EVENT_IMMUTABLE' })
+        eventScopeUnitId = event.scopeUnitId
+      }
+      // O7-A: standalone task scope nullable chuyển tiếp; ưu tiên scopeUnitId gửi lên, fallback workstream/event.
+      const resolvedScopeUnitId = body.scopeUnitId ?? workstream?.sourceUnitId ?? eventScopeUnitId ?? null
+      await assertScopeUnit(tx, user.parishId, resolvedScopeUnitId)
+      await assertOperationsCapability(user, 'operations.task.create', { parishId: user.parishId, eventId, workstreamId: body.workstreamId, resourceUnitId: resolvedScopeUnitId }, tx)
+      if (!eventId && !body.workstreamId && !resolvedScopeUnitId && user.role !== 'admin') {
+        throw Object.assign(new Error('Task độc lập phải thuộc đúng một Ban/Ngành của người tạo (thiếu scopeUnitId).'), { status: 400, code: 'STANDALONE_TASK_SCOPE_REQUIRED' })
       }
       if (body.parentTaskId) {
         const [parent] = await tx.select({ operationEventId: operationTasks.operationEventId, workstreamId: operationTasks.workstreamId }).from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, body.parentTaskId), isNull(operationTasks.deletedAt))).limit(1)
         if (!parent || parent.operationEventId !== eventId || parent.workstreamId !== (body.workstreamId ?? null)) throw Object.assign(new Error('Task cha phải thuộc cùng event và workstream.'), { status: 400 })
       }
-      const now = new Date().toISOString(); const row = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: body.workstreamId ?? null, parentTaskId: body.parentTaskId ?? null, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: body.isRequired, dueAt: body.dueAt ?? null, scheduledStartAt: body.scheduledStartAt ?? null, scheduledEndAt: body.scheduledEndAt ?? null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, approvalStatus: body.requiresApproval ? 'PENDING' as const : 'NOT_REQUIRED' as const, approvedBy: null, approvedAt: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
+      const now = new Date().toISOString(); const row = { id: generateId('TSK'), parishId: user.parishId, operationEventId: eventId, workstreamId: body.workstreamId ?? null, scopeUnitId: resolvedScopeUnitId, parentTaskId: body.parentTaskId ?? null, title: body.title, description: body.description ?? null, status: 'TODO' as const, priority: body.priority, isRequired: body.isRequired, dueAt: body.dueAt ?? null, scheduledStartAt: body.scheduledStartAt ?? null, scheduledEndAt: body.scheduledEndAt ?? null, startedAt: null, completedAt: null, completionNote: null, blockedReason: null, cancellationReason: null, version: 1, createdBy: user.userId, updatedBy: user.userId, completedBy: null, createdAt: now, updatedAt: now, deletedAt: null }
       const phasedRow = { ...row, phase: body.phase }
       await tx.insert(operationTasks).values(phasedRow); await audit(tx, user, c, 'CREATE', 'operation_task', row.id, undefined, phasedRow); return phasedRow
     })
@@ -1963,10 +2370,6 @@ operationsRouter.get('/tasks/:id', async c => {
   } catch (error) { return handleError(c, error) }
 })
 
-function invalidateTaskApproval(task: { approvalStatus: string }) {
-  return task.approvalStatus === 'NOT_REQUIRED' ? {} : { approvalStatus: 'PENDING' as const, approvedBy: null, approvedAt: null }
-}
-
 operationsRouter.put('/tasks/:id', zValidator('json', taskUpdateSchema), async c => {
   const user = actor(c); const taskId = c.req.param('id'); const body = c.req.valid('json')
   try {
@@ -1983,10 +2386,33 @@ operationsRouter.put('/tasks/:id', zValidator('json', taskUpdateSchema), async c
       if (scheduleError) throw Object.assign(new Error(scheduleError), { status: 400, code: 'INVALID_TASK_SCHEDULE' })
       const updates: any = { version: existing.version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }
       for (const field of ['title', 'description', 'priority', 'dueAt', 'scheduledStartAt', 'scheduledEndAt', 'isRequired'] as const) if (body[field] !== undefined) updates[field] = body[field]
-      if ((['title', 'description', 'isRequired'] as const).some(field => body[field] !== undefined && body[field] !== existing[field])) Object.assign(updates, invalidateTaskApproval(existing))
+      // Acknowledgement lifecycle rule: an actual change to title, description,
+      // requiredness, deadline or scheduled shift reopens the acknowledgement
+      // obligation. Priority and identical (no-op) values never reset it; the
+      // server owns this classification and never infers it from free text.
+      const importantChange = (['title', 'description', 'isRequired', 'dueAt', 'scheduledStartAt', 'scheduledEndAt'] as const)
+        .some(field => body[field] !== undefined && body[field] !== existing[field])
+      const resetAssignments: Array<{ id: string }> = []
+      if (importantChange) {
+        const acceptedRows = await tx.select({ id: operationTaskAssignees.id, version: operationTaskAssignees.version }).from(operationTaskAssignees).where(and(
+          eq(operationTaskAssignees.parishId, user.parishId), eq(operationTaskAssignees.taskId, taskId),
+          eq(operationTaskAssignees.acknowledgementStatus, 'ACCEPTED'), isNull(operationTaskAssignees.removedAt),
+        ))
+        for (const row of acceptedRows) {
+          const [resetRow] = await tx.update(operationTaskAssignees).set({
+            acknowledgementStatus: 'PENDING', respondedAt: null, note: null, version: row.version + 1,
+          }).where(and(
+            eq(operationTaskAssignees.parishId, user.parishId), eq(operationTaskAssignees.id, row.id),
+            eq(operationTaskAssignees.acknowledgementStatus, 'ACCEPTED'), eq(operationTaskAssignees.version, row.version), isNull(operationTaskAssignees.removedAt),
+          )).returning({ id: operationTaskAssignees.id })
+          if (!resetRow) throw new VersionConflictError('Assignment đã bị thay đổi bởi người khác.', row)
+          resetAssignments.push({ id: resetRow.id })
+        }
+      }
       const [changed] = await tx.update(operationTasks).set(updates).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', existing)
-      await audit(tx, user, c, 'UPDATE', 'operation_task', taskId, existing, changed); return changed
+      await audit(tx, user, c, 'UPDATE', 'operation_task', taskId, existing, { ...changed, acknowledgementReset: importantChange, resetAssignments })
+      return { task: changed, acknowledgementReset: importantChange, resetAssignments }
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
@@ -2117,7 +2543,6 @@ operationsRouter.post('/tasks/:id/assign', zValidator('json', assignmentSchema),
       assertTaskMutable(task)
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
       await assertOperationsTargetWithinAuthority(user, 'operations.task.assign', { parishId: user.parishId, taskId }, body, tx)
-      await assertTaskAssignmentSeparationOfDuty(tx, user.parishId, taskId, body, body.assignmentRole)
       if (body.assignmentRole === 'OWNER') {
         const [activeDispatch] = await tx.select({ id: operationTaskDispatches.id }).from(operationTaskDispatches).where(and(
           eq(operationTaskDispatches.parishId, user.parishId), eq(operationTaskDispatches.taskId, taskId), inArray(operationTaskDispatches.status, ['SCHEDULED', 'PENDING']),
@@ -2173,7 +2598,6 @@ operationsRouter.post('/tasks/:id/handover', zValidator('json', ownerHandoverSch
       assertTaskMutable(task)
       await assertTarget(tx, user.parishId, body.userId, body.personId, true)
       await assertOperationsTargetWithinAuthority(user, 'operations.task.reassign', { parishId: user.parishId, taskId }, body, tx)
-      await assertTaskAssignmentSeparationOfDuty(tx, user.parishId, taskId, body, 'OWNER')
       if ((body.userId && body.userId === previous.userId) || (body.personId && body.personId === previous.personId)) throw Object.assign(new Error('Hãy chọn người phụ trách khác.'), { status: 409 })
       const personIds = [body.personId, previous.personId].filter((value): value is string => Boolean(value))
       const people = personIds.length ? await tx.select({ id: parishPeople.id, linkedUserId: parishPeople.linkedUserId }).from(parishPeople).where(and(eq(parishPeople.parishId, user.parishId), inArray(parishPeople.id, personIds))) : []
@@ -2227,9 +2651,9 @@ operationsRouter.post('/tasks/:id/checklist', zValidator('json', checklistCreate
       assertTaskMutable(task)
       const row = { parishId: user.parishId, taskId, id: generateId('OPC'), label: body.label, isRequired: body.isRequired, isDone: false, completedBy: null, completedAt: null, sortOrder: body.sortOrder }
       await tx.insert(operationChecklistItems).values(row)
-      const [changed] = await tx.update(operationTasks).set({ ...(body.isRequired ? invalidateTaskApproval(task) : {}), version: task.version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version, approvalStatus: operationTasks.approvalStatus })
+      const [changed] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version })
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
-      await audit(tx, user, c, 'CHECKLIST_ADD', 'operation_task', taskId, { approvalStatus: task.approvalStatus }, { checklistId: row.id, label: row.label, isRequired: row.isRequired, approvalStatus: changed.approvalStatus }); return { item: row, taskVersion: changed.version, approvalStatus: changed.approvalStatus }
+      await audit(tx, user, c, 'CHECKLIST_ADD', 'operation_task', taskId, { version: task.version }, { checklistId: row.id, label: row.label, isRequired: row.isRequired, taskVersion: changed.version }); return { item: row, taskVersion: changed.version }
     })
     return commandResponse(c, result, true)
   } catch (error) { return handleError(c, error) }
@@ -2247,11 +2671,15 @@ operationsRouter.post('/tasks/:taskId/checklist/:itemId', zValidator('json', che
       assertTaskMutable(task)
       const [previousItem] = await tx.select().from(operationChecklistItems).where(and(eq(operationChecklistItems.parishId, user.parishId), eq(operationChecklistItems.taskId, taskId), eq(operationChecklistItems.id, itemId))).limit(1)
       if (!previousItem) throw Object.assign(new Error('Không tìm thấy checklist item.'), { status: 404 })
-      const now = new Date().toISOString(); const [item] = await tx.update(operationChecklistItems).set({ isDone: body.isDone, completedBy: body.isDone ? user.userId : null, completedAt: body.isDone ? now : null }).where(and(eq(operationChecklistItems.parishId, user.parishId), eq(operationChecklistItems.taskId, taskId), eq(operationChecklistItems.id, itemId))).returning()
-      if (!item) throw Object.assign(new Error('Không tìm thấy checklist item.'), { status: 404 })
-      const [changed] = await tx.update(operationTasks).set({ ...(previousItem.isRequired && previousItem.isDone !== body.isDone ? invalidateTaskApproval(task) : {}), version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version, approvalStatus: operationTasks.approvalStatus })
+      // B3'-quick: guard the update on the just-read item state so a concurrent
+      // (or out-of-band) modification fails closed with OCC 409 instead of
+      // committing on a stale read. A genuinely missing item already 404s at
+      // the previousItem read above, so 0 rows here means the row moved under us.
+      const now = new Date().toISOString(); const [item] = await tx.update(operationChecklistItems).set({ isDone: body.isDone, completedBy: body.isDone ? user.userId : null, completedAt: body.isDone ? now : null }).where(and(eq(operationChecklistItems.parishId, user.parishId), eq(operationChecklistItems.taskId, taskId), eq(operationChecklistItems.id, itemId), eq(operationChecklistItems.isDone, previousItem.isDone), eq(operationChecklistItems.isRequired, previousItem.isRequired))).returning()
+      if (!item) throw new VersionConflictError('Checklist đã bị thay đổi bởi người khác.', task)
+      const [changed] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version })
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
-      await audit(tx, user, c, 'CHECKLIST_UPDATE', 'operation_task', taskId, { isDone: previousItem.isDone, approvalStatus: task.approvalStatus }, { checklistId: itemId, isDone: body.isDone, approvalStatus: changed.approvalStatus }); return { item, taskVersion: changed.version, approvalStatus: changed.approvalStatus }
+      await audit(tx, user, c, 'CHECKLIST_UPDATE', 'operation_task', taskId, { isDone: previousItem.isDone, version: task.version }, { checklistId: itemId, isDone: body.isDone, taskVersion: changed.version }); return { item, taskVersion: changed.version }
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
@@ -2282,13 +2710,25 @@ operationsRouter.post('/tasks/:id/dependencies', zValidator('json', dependencySc
       if (!task[0] || !dependency[0] || task[0].operationEventId !== dependency[0].operationEventId) throw Object.assign(new Error('Dependency phải thuộc cùng operation event.'), { status: 400 })
       if (task[0].version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task[0])
       assertTaskMutable(task[0])
-      const edges = await tx.select().from(operationTaskDependencies).where(eq(operationTaskDependencies.parishId, user.parishId))
+      // Same-event edges only — parish-wide dependency scan was a write-path full table read.
+      const eventId = task[0].operationEventId
+      const edges = await tx.select({
+        taskId: operationTaskDependencies.taskId,
+        dependsOnTaskId: operationTaskDependencies.dependsOnTaskId,
+      }).from(operationTaskDependencies).innerJoin(operationTasks, and(
+        eq(operationTasks.parishId, operationTaskDependencies.parishId),
+        eq(operationTasks.id, operationTaskDependencies.taskId),
+        isNull(operationTasks.deletedAt),
+      )).where(and(
+        eq(operationTaskDependencies.parishId, user.parishId),
+        eventId === null ? isNull(operationTasks.operationEventId) : eq(operationTasks.operationEventId, eventId),
+      ))
       const graph = new Map<string, string[]>(); for (const edge of edges) graph.set(edge.taskId, [...(graph.get(edge.taskId) ?? []), edge.dependsOnTaskId])
       graph.set(taskId, [...(graph.get(taskId) ?? []), body.dependsOnTaskId])
       const pending = [body.dependsOnTaskId]; const seen = new Set<string>()
       while (pending.length) { const current = pending.shift()!; if (current === taskId) throw Object.assign(new Error('Dependency tạo chu trình.'), { status: 409 }); if (seen.has(current)) continue; seen.add(current); pending.push(...(graph.get(current) ?? [])) }
       const row = { parishId: user.parishId, taskId, dependsOnTaskId: body.dependsOnTaskId, dependencyType: 'BLOCKED_BY' as const }; await tx.insert(operationTaskDependencies).values(row)
-      const [changed] = await tx.update(operationTasks).set({ ...invalidateTaskApproval(task[0]), version: task[0].version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version })
+      const [changed] = await tx.update(operationTasks).set({ version: task[0].version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version })
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task[0])
       await audit(tx, user, c, 'DEPENDENCY_ADD', 'operation_task', taskId, undefined, row); return { ...row, taskVersion: changed.version }
     })
@@ -2313,7 +2753,6 @@ operationsRouter.post('/tasks/:id/transition', zValidator('json', taskTransition
         if (dependencies.some(item => item.status !== 'DONE' && item.status !== 'CANCELLED')) throw Object.assign(new Error('Task còn dependency chưa hoàn tất.'), { status: 409 })
         const [incomplete] = await tx.select({ id: operationChecklistItems.id }).from(operationChecklistItems).where(and(eq(operationChecklistItems.parishId, user.parishId), eq(operationChecklistItems.taskId, taskId), eq(operationChecklistItems.isRequired, true), eq(operationChecklistItems.isDone, false))).limit(1)
         if (incomplete) throw Object.assign(new Error('Task còn checklist bắt buộc chưa hoàn tất.'), { status: 409 })
-        if (task.approvalStatus !== 'NOT_REQUIRED' && task.approvalStatus !== 'APPROVED') throw Object.assign(new Error('Task chưa được duyệt.'), { status: 409 })
       }
       const now = new Date().toISOString(); const [changed] = await tx.update(operationTasks).set({ status: body.status, completionNote: body.completionNote ?? task.completionNote, blockedReason: body.status === 'BLOCKED' ? body.blockedReason : null, cancellationReason: body.status === 'CANCELLED' ? body.cancellationReason : null, startedAt: body.status === 'IN_PROGRESS' ? (task.startedAt ?? now) : task.startedAt, completedAt: body.status === 'DONE' ? now : null, completedBy: body.status === 'DONE' ? user.userId : null, version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
@@ -2367,25 +2806,6 @@ operationsRouter.post('/tasks/:id/restore', zValidator('json', taskRestoreSchema
         { status: task.status, version: task.version, cancellationReason: task.cancellationReason },
         { status: changed.status, version: changed.version, reason: body.reason })
       return changed
-    })
-    return commandResponse(c, result)
-  } catch (error) { return handleError(c, error) }
-})
-
-operationsRouter.post('/tasks/:id/approve', zValidator('json', approvalSchema), async c => {
-  const user = actor(c); const taskId = c.req.param('id'); const body = c.req.valid('json')
-  try {
-    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.task.approve', { taskId, ...body }, async tx => {
-      const [task] = await tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1)
-      if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
-      await assertOperationsCapability(user, 'operations.task.approve', { parishId: user.parishId, taskId }, tx)
-      await assertTaskApproverIsIndependent(tx, user.parishId, taskId, user.userId)
-      if (task.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
-      assertTaskMutable(task)
-      if (task.approvalStatus === 'NOT_REQUIRED') throw Object.assign(new Error('Task không yêu cầu approval.'), { status: 409 })
-      const now = new Date().toISOString(); const [changed] = await tx.update(operationTasks).set({ approvalStatus: body.decision, approvedBy: body.decision === 'APPROVED' ? user.userId : null, approvedAt: body.decision === 'APPROVED' ? now : null, version: task.version + 1, updatedBy: user.userId, updatedAt: now }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning()
-      if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
-      await audit(tx, user, c, 'APPROVE', 'operation_task', taskId, { approvalStatus: task.approvalStatus }, { approvalStatus: body.decision, reason: body.reason }); return changed
     })
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }

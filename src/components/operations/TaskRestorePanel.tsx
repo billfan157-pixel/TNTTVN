@@ -2,13 +2,16 @@ import { useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { Button, TextArea } from '../common/ui'
 import { operationsApi, type OperationTaskDetail } from '../../lib/api/operations'
+import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
+import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 
 export function TaskRestorePanel({ detail, enabled, refresh }: { detail: OperationTaskDetail; enabled: boolean; refresh: () => Promise<unknown> | unknown }) {
   const [reason, setReason] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const inFlight = useRef(false)
+  const { stableKey, releaseKey } = useStableCommandKey()
   if (detail.task.status !== 'CANCELLED' || !detail.permissions['operations.task.manage']) return null
 
   return <section className="mb-4 space-y-3 rounded-xl border border-parish-warning/30 bg-parish-warning-bg/30 p-3" aria-label="Khôi phục nhiệm vụ đã hủy">
@@ -26,13 +29,18 @@ export function TaskRestorePanel({ detail, enabled, refresh }: { detail: Operati
       const scope = getTenantScopeKey()
       if (!scope || inFlight.current || !reason.trim()) return
       inFlight.current = true; setBusy(true); setMessage('')
-      void operationsApi.restoreTask(detail.task.id, { version: detail.task.version, reason: reason.trim() })
+      // Stable idempotency key (P1-5): a retried restore with the same
+      // payload reuses the key so the server dedups instead of double-acting.
+      const payload = { version: detail.task.version, reason: reason.trim() }
+      const key = stableKey('task-restore', { id: detail.task.id, ...payload })
+      void operationsApi.restoreTask(detail.task.id, payload, key)
         .then(async () => {
           if (scope !== getTenantScopeKey()) return
+          releaseKey('task-restore')
           setReason(''); setMessage('Đã khôi phục nhiệm vụ về trạng thái Chưa làm.')
           await refresh()
         })
-        .catch(error => { if (scope === getTenantScopeKey()) setMessage(error instanceof Error ? error.message : 'Không khôi phục được nhiệm vụ.') })
+        .catch(error => { if (scope === getTenantScopeKey()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không khôi phục được nhiệm vụ.')) })
         .finally(() => {
           inFlight.current = false
           if (scope === getTenantScopeKey()) setBusy(false)

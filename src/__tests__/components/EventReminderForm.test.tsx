@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { EventReminderForm } from '../../components/operations/EventReminderForm'
 import { operationsApi, type OperationEventDetail, type OperationTaskDetail } from '../../lib/api/operations'
@@ -18,7 +18,7 @@ it('uses task-specific authority and sends exactly one resource target', async (
   fireEvent.change(screen.getByLabelText('Thời điểm nhắc công việc'), { target: { value: '2099-10-01T08:00' } })
   fireEvent.click(screen.getByText('Lưu lịch nhắc'))
   await screen.findByText(/Đã lưu lịch nhắc/)
-  expect(operationsApi.createReminder).toHaveBeenCalledWith({ taskId: 't', recipientUserId: 'u', triggerAt: new Date('2099-10-01T08:00').toISOString(), kind: 'TASK_DUE' })
+  expect(operationsApi.createReminder).toHaveBeenCalledWith({ taskId: 't', recipientUserId: 'u', triggerAt: new Date('2099-10-01T08:00').toISOString(), kind: 'TASK_DUE' }, expect.any(String))
 })
 it.each(['DONE', 'CANCELLED'])('hides task reminder authoring for terminal state %s', status => {
   render(<EventReminderForm event={event} task={{ ...task, task: { ...task.task, status: status as 'DONE' | 'CANCELLED' } }} enabled />)
@@ -35,12 +35,28 @@ it('schedules an exact recipient and reports scheduling, not delivery', async ()
   fireEvent.change(screen.getByLabelText('Thời điểm nhắc sự kiện'), { target: { value: '2099-10-01T08:00' } })
   fireEvent.click(screen.getByText('Lưu lịch nhắc'))
   expect(await screen.findByText(/Đã lưu lịch nhắc/)).toBeInTheDocument()
-  expect(operationsApi.createReminder).toHaveBeenCalledWith({ eventId: 'e', recipientUserId: 'u', triggerAt: new Date('2099-10-01T08:00').toISOString(), kind: 'EVENT_START' })
+  expect(operationsApi.createReminder).toHaveBeenCalledWith({ eventId: 'e', recipientUserId: 'u', triggerAt: new Date('2099-10-01T08:00').toISOString(), kind: 'EVENT_START' }, expect.any(String))
 })
 it.each([false, true])('hides authoring offline or without manage authority (%s)', enabled => {
   render(<EventReminderForm event={{ ...event, permissions: {} }} enabled={enabled} />)
   expect(screen.queryByText('Lưu lịch nhắc')).not.toBeInTheDocument()
 })
+it('D3: warns when the draft lands near another pending reminder for the same recipient', async () => {
+  // 40 minutes before the draft below, computed in local time like the datetime-local input.
+  const nearAt = new Date(new Date('2099-10-01T09:00').getTime() - 40 * 60_000).toISOString()
+  const reminder = { id: 'r1', parishId: 'p', eventId: 'e', recipientUserId: 'u', triggerAt: nearAt, kind: 'EVENT_START' as const, status: 'PENDING' as const, version: 1, createdAt: '2026-01-01T00:00:00.000Z' }
+  vi.mocked(operationsApi.getResourceReminders).mockResolvedValue({ success: true, error: null, data: [reminder], meta: { page: 1, limit: 50, total: 1, totalPages: 1 } })
+  render(<EventReminderForm event={event} enabled />)
+  await screen.findByText('Lịch nhắc đã đặt')
+  fireEvent.change(screen.getByLabelText('Người nhận nhắc sự kiện'), { target: { value: 'u' } })
+  // 40 minutes after the pending row → warning; saving stays allowed.
+  fireEvent.change(screen.getByLabelText('Thời điểm nhắc sự kiện'), { target: { value: '2099-10-01T09:00' } })
+  expect(await screen.findByText(/kiểm tra trùng trước khi lưu/)).toBeInTheDocument()
+  // 3 hours away → no warning.
+  fireEvent.change(screen.getByLabelText('Thời điểm nhắc sự kiện'), { target: { value: '2099-10-01T12:00' } })
+  await waitFor(() => expect(screen.queryByText(/kiểm tra trùng trước khi lưu/)).not.toBeInTheDocument())
+})
+
 it('rejects past times without sending a command', () => {
   render(<EventReminderForm event={event} enabled />)
   fireEvent.change(screen.getByLabelText('Người nhận nhắc sự kiện'), { target: { value: 'u' } })
@@ -66,5 +82,5 @@ it('loads resource reminders and reschedules a pending row with its exact versio
     expectedVersion: 4,
     triggerAt: new Date('2099-10-02T08:00').toISOString(),
     reason: 'Thay đổi giờ tập trung',
-  })
+  }, expect.any(String))
 })

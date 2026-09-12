@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CalendarPlus, CopyCheck, LayoutTemplate } from 'lucide-react'
 import { EmptyState } from '../common/StateFeedback'
 import { Badge, Button, Select, TextArea, TextInput } from '../common/ui'
-import { operationsApi, type OperationEventDetail, type OperationEventTemplate, type OperationEventTemplatePreview } from '../../lib/api/operations'
+import { operationsApi, type OperationEventDetail, type OperationEventTemplate, type OperationEventTemplatePreview, type OperationsCreationOptions } from '../../lib/api/operations'
+import { operationsErrorText } from '../../lib/operationsErrors'
 import { newIdempotencyKey } from '../../lib/api/core'
 import { getTenantScope, getTenantScopeKey } from '../../lib/tenantScope'
 
@@ -22,6 +23,7 @@ export function EventTemplatesPanel({
   canPublishPublic = false,
   refreshToken = 0,
   onTemplatesChanged,
+  creationOptions = null,
 }: {
   enabled: boolean
   sourceEvent: OperationEventDetail | null
@@ -30,6 +32,7 @@ export function EventTemplatesPanel({
   canPublishPublic?: boolean
   refreshToken?: number
   onTemplatesChanged?: () => void
+  creationOptions?: OperationsCreationOptions | null
 }) {
   const [templates, setTemplates] = useState<OperationEventTemplate[]>([])
   const [archivedTemplates, setArchivedTemplates] = useState<OperationEventTemplate[]>([])
@@ -45,6 +48,7 @@ export function EventTemplatesPanel({
   const [restoreReason, setRestoreReason] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [organizerUserId, setOrganizerUserId] = useState('')
   const [projectionScopeKey, setProjectionScopeKey] = useState<string | null>(null)
   const generation = useRef(0)
   const inFlight = useRef(false)
@@ -60,7 +64,24 @@ export function EventTemplatesPanel({
   const selectedTemplate = visibleTemplates.find(template => template.id === templateId) ?? null
   const selectedArchivedTemplate = visibleArchivedTemplates.find(template => template.id === archivedTemplateId) ?? null
   const canSnapshotSource = Boolean(sourceEvent?.permissions['operations.event.create'])
-  const sourceMatchesTemplate = Boolean(sourceEvent && selectedTemplate && sourceEvent.event.scopeUnitId === selectedTemplate.scopeUnitId)
+  const templateScopeType = (scopeUnitId: string | null | undefined) => (scopeUnitId ? 'UNIT' as const : 'XU_DOAN' as const)
+  const eventScopeTypeOf = (event: OperationEventDetail['event']) => event.eventScopeType ?? (event.scopeUnitId ? 'UNIT' : 'XU_DOAN')
+  const sourceMatchesTemplate = Boolean(sourceEvent && selectedTemplate
+    && eventScopeTypeOf(sourceEvent.event) === templateScopeType(selectedTemplate.scopeUnitId)
+    && sourceEvent.event.scopeUnitId === selectedTemplate.scopeUnitId)
+  const templateUnitName = (scopeUnitId: string | null) => scopeUnitId
+    ? (creationOptions?.units.find(unit => unit.id === scopeUnitId)?.name ?? 'Chuyên môn')
+    : 'Xứ đoàn'
+  // Organizer picker for template instantiation: without it a deputy hits
+  // 400 ORGANIZER_MUST_BE_UNIT_LEADER with no way out. Falls back to the
+  // legacy self-organizer when creation options are unavailable.
+  const instantiateOrganizers = selectedTemplate
+    ? (selectedTemplate.scopeUnitId
+      ? (creationOptions?.units.find(unit => unit.id === selectedTemplate.scopeUnitId)?.organizers ?? [])
+      : (creationOptions?.xuDoanOrganizers ?? []))
+    : []
+  const effectiveInstantiateOrganizer = organizerUserId
+    || (creationOptions && instantiateOrganizers.length === 1 ? instantiateOrganizers[0].userId : '')
 
   const loadTemplates = useCallback(async () => {
     void refreshToken
@@ -88,7 +109,7 @@ export function EventTemplatesPanel({
         setTemplateId('')
         setArchivedTemplateId('')
         setPreview(null)
-        setMessage(error instanceof Error ? error.message : 'Không tải được mẫu sự kiện.')
+        setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không tải được mẫu sự kiện.'))
       }
     }
   }, [enabled, mode, refreshToken])
@@ -111,7 +132,7 @@ export function EventTemplatesPanel({
     const token = generation.current; const current = () => token === generation.current && scope === getTenantScopeKey()
     inFlight.current = true; setBusy(true); setMessage('')
     try { await action(current) } catch (error) {
-      if (current()) setMessage(error instanceof Error ? error.message : 'Không cập nhật được mẫu sự kiện.')
+      if (current()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không cập nhật được mẫu sự kiện.'))
     } finally {
       inFlight.current = false
       if (current()) setBusy(false)
@@ -144,24 +165,39 @@ export function EventTemplatesPanel({
       ? <EmptyState icon={LayoutTemplate} title="Chưa có mẫu trong phạm vi của bạn." description="Mẫu sẽ xuất hiện khi người có quyền trong Ban/Ngành tạo và duyệt nội dung." className="py-5" />
       : <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm font-semibold text-text-main">Mẫu
-          <Select aria-label="Mẫu sự kiện cần dùng" className="mt-1 w-full" value={templateId} disabled={busy} onChange={event => { setTemplateId(event.target.value); setPreview(null) }}>
+          <Select aria-label="Mẫu sự kiện cần dùng" className="mt-1 w-full" value={templateId} disabled={busy} onChange={event => { setTemplateId(event.target.value); setPreview(null); setOrganizerUserId('') }}>
             {visibleTemplates.map(template => <option key={template.id} value={template.id}>{template.name} · v{template.latestVersion}</option>)}
           </Select>
         </label>
         <label className="text-sm font-semibold text-text-main">Bắt đầu sự kiện mới
           <TextInput aria-label="Thời gian bắt đầu từ mẫu" className="mt-1 w-full" type="datetime-local" value={startsAt} disabled={busy} onChange={event => { setStartsAt(event.target.value); setPreview(null) }} />
         </label>
+        {selectedTemplate && (
+          <p className="m-0 text-xs text-text-muted sm:col-span-2">
+            Phạm vi mẫu: {selectedTemplate.scopeUnitId ? `Chuyên môn · ${templateUnitName(selectedTemplate.scopeUnitId)}` : 'Toàn Xứ đoàn'}.
+            Sự kiện tạo ra {selectedTemplate.scopeUnitId ? 'thuộc đúng Ban/Ngành này' : 'là sự kiện Xứ đoàn (Organizer là Trưởng Xứ đoàn)'}.
+          </p>
+        )}
+        {selectedTemplate && creationOptions && instantiateOrganizers.length > 0 && (
+          <label className="text-sm font-semibold text-text-main sm:col-span-2">Người chịu trách nhiệm (Organizer)
+            <Select aria-label="Organizer sự kiện từ mẫu" className="mt-1 w-full" value={organizerUserId || (instantiateOrganizers.length === 1 ? instantiateOrganizers[0].userId : '')} required={instantiateOrganizers.length > 0} disabled={busy || instantiateOrganizers.length <= 1} onChange={event => setOrganizerUserId(event.target.value)}>
+              {instantiateOrganizers.length !== 1 && <option value="">Chọn người chịu trách nhiệm</option>}
+              {instantiateOrganizers.map(person => <option key={person.userId} value={person.userId}>{person.displayName}</option>)}
+            </Select>
+            <span className="mt-1 block text-xs font-normal text-text-muted">Người tạo chỉ thực hiện thao tác; máy chủ kiểm tra lại Organizer khi lưu.</span>
+          </label>
+        )}
         <fieldset className="sm:col-span-2">
           <legend className="mb-1 text-sm font-semibold text-text-main">Hiển thị sự kiện</legend>
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="Hiển thị sự kiện từ mẫu">
             <Button type="button" variant={!publicSummary ? 'primary' : 'secondary'} size="sm" disabled={busy} onClick={() => setPublicSummary(false)}>Nội bộ</Button>
-            <Button type="button" variant={publicSummary ? 'primary' : 'secondary'} size="sm" disabled={busy || !canPublishPublic} title={!canPublishPublic ? 'Chỉ Trưởng Xứ đoàn được công khai sự kiện.' : undefined} onClick={() => setPublicSummary(true)}>Công khai</Button>
+            <Button type="button" variant={publicSummary ? 'primary' : 'secondary'} size="sm" disabled={busy || !canPublishPublic} title={!canPublishPublic ? 'Bạn chưa có quyền công khai sự kiện.' : undefined} onClick={() => setPublicSummary(true)}>Công khai</Button>
           </div>
-          <p className="mb-0 mt-1 text-xs text-text-muted">{canPublishPublic ? 'Công khai tự sinh bản chiếu Lịch và thông báo phụ huynh;' : 'Bạn chỉ được tạo bản nội bộ; Trưởng Xứ đoàn duyệt việc công khai;'} task, phân công và hậu kiểm luôn nội bộ.</p>
+          <p className="mb-0 mt-1 text-xs text-text-muted">{canPublishPublic ? 'Công khai tự sinh bản chiếu Lịch và thông báo phụ huynh;' : 'Bạn chưa có quyền công khai; bản tạo ra sẽ ở chế độ nội bộ;'} task, phân công và hậu kiểm luôn nội bộ.</p>
         </fieldset>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
           <Button variant="secondary" size="sm" disabled={busy || !startsAt || !selectedTemplate} onClick={previewSelected}>Xem trước</Button>
-          <Button size="sm" leadingIcon={<CalendarPlus className="h-4 w-4" />} disabled={busy || !preview || preview.template.id !== selectedTemplate?.id || preview.version !== selectedTemplate?.latestVersion} onClick={() => {
+          <Button size="sm" leadingIcon={<CalendarPlus className="h-4 w-4" />} disabled={busy || !preview || preview.template.id !== selectedTemplate?.id || preview.version !== selectedTemplate?.latestVersion || (creationOptions !== null && instantiateOrganizers.length > 1 && !effectiveInstantiateOrganizer)} onClick={() => {
             if (!preview || !selectedTemplate || !startsAt) return
             void run(async current => {
               const scope = getTenantScope()
@@ -171,7 +207,12 @@ export function EventTemplatesPanel({
                 startsAt: new Date(startsAt).toISOString(),
                 timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Ho_Chi_Minh',
                 visibility: publicSummary ? 'PUBLIC_SUMMARY' : 'INTERNAL',
-                organizerUserId: scope.userId,
+                // Without creation options keep the legacy self-organizer; with
+                // options, an explicit pick wins and otherwise the server
+                // auto-resolves (leader self / parish leader).
+                ...(creationOptions
+                  ? (effectiveInstantiateOrganizer ? { organizerUserId: effectiveInstantiateOrganizer } : {})
+                  : { organizerUserId: scope.userId }),
               } as const
               const created = await operationsApi.instantiateEventTemplate(selectedTemplate.id, payload, keyForPayload(instantiateCommand, { templateId: selectedTemplate.id, ...payload }))
               if (!current()) return
