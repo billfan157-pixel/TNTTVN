@@ -50,7 +50,7 @@ describe('LeaveRequestModal Component', () => {
     )
 
     expect(screen.getByText('Đơn Xin Phép Nghỉ')).toBeDefined()
-    expect(screen.getByText('Nguyễn Văn A')).toBeDefined()
+    expect(screen.getByText(/Nguyễn Văn A/)).toBeDefined()
     expect(screen.getByText(/Ấu Nhi 1/)).toBeDefined()
     expect(screen.getByLabelText(/Ngày Xin Nghỉ/i)).toBeDefined()
   })

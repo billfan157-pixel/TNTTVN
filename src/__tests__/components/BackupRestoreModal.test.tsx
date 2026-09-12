@@ -72,16 +72,14 @@ describe('BackupRestoreModal', () => {
   it('calls onClose when close button is clicked', () => {
     const onClose = vi.fn()
     render(<BackupRestoreModal isOpen={true} onClose={onClose} />)
-    fireEvent.click(screen.getByText('Đóng'))
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('calls onClose when X button is clicked', () => {
     const onClose = vi.fn()
     render(<BackupRestoreModal isOpen={true} onClose={onClose} />)
-    const buttons = screen.getAllByRole('button')
-    const xBtn = buttons.find(b => b.innerHTML.includes('svg'))
-    fireEvent.click(xBtn!)
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

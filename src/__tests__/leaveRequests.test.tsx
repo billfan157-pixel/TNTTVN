@@ -48,9 +48,9 @@ describe('Leave Requests Frontend Components & Store Tests', () => {
 
       expect(screen.getByText(/Đơn Xin Phép Nghỉ/i)).toBeDefined()
       expect(screen.getByText(/Giuse/i)).toBeDefined()
-      expect(screen.getByText(/^Thánh Lễ$/i)).toBeDefined()
-      expect(screen.getByText(/^Giáo Lý$/i)).toBeDefined()
-      expect(screen.getByText(/^Chầu Thánh Thể$/i)).toBeDefined()
+      expect(screen.getByText(/Thánh Lễ Chúa Nhật/i)).toBeDefined()
+      expect(screen.getByText(/Giờ Học Giáo Lý/i)).toBeDefined()
+      expect(screen.getByText(/Chầu Thánh Thể/i)).toBeDefined()
     })
 
     it('submits leave request via store when valid', async () => {
