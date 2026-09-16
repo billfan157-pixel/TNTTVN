@@ -64,6 +64,10 @@ jobs:
 
       - name: Upload Vitest Log
         if: always()
+        # Evidence-only: upload thất bại (vd. hết artifact storage quota)
+        # không được làm đỏ quality gate hay chặn deploy-production
+        # (deploy chỉ chạy khi workflow conclusion == success).
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: vitest-log
@@ -73,6 +77,8 @@ jobs:
 
       - name: Upload Coverage Summary
         if: always()
+        # Evidence-only: xem comment ở step Upload Vitest Log.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: coverage-summary
@@ -126,6 +132,10 @@ jobs:
 
       - name: Upload Playwright Runtime Evidence
         if: always()
+        # Evidence-only: xem comment ở step Upload Vitest Log.
+        # Lưu ý: retention 7 ngày là documented truth (docs/03_DESIGN_SYSTEM.md),
+        # không được giảm ở đây.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: playwright-runtime-evidence
