@@ -43,6 +43,8 @@ interface OperationsState {
   dispatchInvitations: OperationTaskDispatchInvitation[]
   assignmentWarnings: { taskId: string; items: Array<{ id: string; startsAt: string; endsAt: string }> } | null
   permissions: Record<string, boolean>
+  /** W2.11: parish IANA zone from GET /permissions (forms default to it). */
+  parishTimezone: string | null
   selectedEvent: OperationEventDetail | null
   selectedTask: OperationTaskDetail | null
   detailLoading: boolean
@@ -60,23 +62,35 @@ interface OperationsState {
   eventHasMore: boolean
   taskHasMore: boolean
   reminderHasMore: boolean
+  // W2.3: the dispatch inbox is capped at 100 per page server-side; previously
+  // its meta was validated and discarded, so invitations 101+ were invisible.
+  dispatchTotal: number
+  dispatchPage: number
+  dispatchHasMore: boolean
   fetch: () => Promise<void>
+  // W2.13: server-side event search. `eventQuery` is the active filter; fetch
+  // and loadMoreEvents keep honoring it across background refreshes.
+  eventQuery: string
+  setEventSearch: (q: string) => void
+  searchEvents: (q: string) => Promise<void>
   loadMoreEvents: () => Promise<void>
   loadMoreTasks: () => Promise<void>
   loadMoreReminders: () => Promise<void>
-  createEvent: (input: { title: string; eventType: string; startsAt: string; endsAt: string; timezone: string; location?: string | null; visibility?: OperationEvent['visibility']; eventScopeType?: 'XU_DOAN' | 'UNIT'; scopeUnitId?: string | null; organizerUserId?: string | null; organizerPersonId?: string | null }, idempotencyKey?: string) => Promise<OperationEvent>
-  updateEvent: (id: string, input: { version: number; title?: string; eventType?: string; startsAt?: string; endsAt?: string; timezone?: string; location?: string | null; visibility?: OperationEvent['visibility'] }, idempotencyKey?: string) => Promise<OperationEvent>
+  loadMoreDispatches: () => Promise<void>
+  createEvent: (input: { title: string; eventType: string; startsAt: string; endsAt: string; timezone: string; description?: string | null; location?: string | null; visibility?: OperationEvent['visibility']; eventScopeType?: 'XU_DOAN' | 'UNIT'; scopeUnitId?: string | null; organizerUserId?: string | null; organizerPersonId?: string | null; expectedHeadcount?: number | null }, idempotencyKey?: string) => Promise<OperationEvent>
+  updateEvent: (id: string, input: { version: number; title?: string; description?: string | null; eventType?: string; startsAt?: string; endsAt?: string; timezone?: string; location?: string | null; visibility?: OperationEvent['visibility']; organizerUserId?: string | null; organizerPersonId?: string | null; expectedHeadcount?: number | null }, idempotencyKey?: string) => Promise<OperationEvent>
   selectEvent: (id: string | null) => Promise<number>
   selectTask: (id: string | null) => Promise<number>
   refreshTaskViews: (id: string) => Promise<void>
-  createTask: (input: { title: string; eventId: string; workstreamId?: string | null; scopeUnitId?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; phase?: OperationTask['phase']; isRequired?: boolean }, idempotencyKey?: string) => Promise<OperationTask>
-  createStandaloneTask: (input: { title: string; scopeUnitId: string; dueAt?: string | null }, idempotencyKey?: string) => Promise<OperationTask>
+  createTask: (input: { title: string; description?: string | null; eventId: string; workstreamId?: string | null; scopeUnitId?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; phase?: OperationTask['phase']; isRequired?: boolean }, idempotencyKey?: string) => Promise<OperationTask>
+  createStandaloneTask: (input: { title: string; scopeUnitId: string; description?: string | null; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; phase?: OperationTask['phase']; priority?: OperationTask['priority']; isRequired?: boolean }, idempotencyKey?: string) => Promise<OperationTask>
   updateTask: (task: OperationTask, input: { title?: string; description?: string | null; priority?: OperationTask['priority']; dueAt?: string | null; scheduledStartAt?: string | null; scheduledEndAt?: string | null; isRequired?: boolean }, idempotencyKey?: string) => Promise<{ task: OperationTask; acknowledgementReset: boolean }>
   assignTask: (task: OperationTask, target: OperationAssignmentTarget, role: 'OWNER' | 'CONTRIBUTOR', idempotencyKey?: string) => Promise<void>
   dispatchTask: (task: OperationTask, primary: OperationAssignmentTarget, reserve: OperationAssignmentTarget | null, acknowledgeBy: string, idempotencyKey?: string) => Promise<void>
   acceptTaskDispatch: (invitation: OperationTaskDispatchInvitation, idempotencyKey?: string) => Promise<void>
   transitionEvent: (id: string, status: OperationEvent['status'], version: number, options?: { reason?: string; outcomeSummary?: string; override?: boolean }, idempotencyKey?: string) => Promise<OperationEvent>
   resumeEventAutomation: (id: string, version: number, reason: string, idempotencyKey?: string) => Promise<OperationEvent>
+  restoreEvent: (id: string, version: number, reason: string, idempotencyKey?: string) => Promise<OperationEvent>
   transitionTask: (task: OperationTask, status: OperationTask['status'], options?: string | { completionNote?: string; blockedReason?: string; cancellationReason?: string; idempotencyKey?: string }) => Promise<OperationTask>
   acknowledgeTask: (task: OperationTask, status: 'ACCEPTED' | 'DECLINED', note?: string, idempotencyKey?: string) => Promise<void>
   addChecklistItem: (task: OperationTask, label: string, isRequired: boolean, idempotencyKey?: string) => Promise<void>
@@ -222,6 +236,7 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
   dispatchInvitations: [],
   assignmentWarnings: null,
   permissions: {},
+  parishTimezone: null,
   selectedEvent: null,
   selectedTask: null,
   detailLoading: false,
@@ -239,6 +254,10 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
   eventHasMore: false,
   taskHasMore: false,
   reminderHasMore: false,
+  dispatchTotal: 0,
+  dispatchPage: 1,
+  dispatchHasMore: false,
+  eventQuery: '',
   creationOptions: null,
 
   fetchCreationOptions: async () => {
@@ -258,25 +277,31 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
     const parishId = requestScope.parishId
     set({ loading: true, error: null })
     try {
-      const [eventPage, taskPage, reminderPage, dispatchPage, access] = await Promise.all([api.getEvents(1), api.getTasks(true, 1), api.getReminders(1), api.getDispatchInbox(1), api.getPermissions()])
+      const eventQuery = get().eventQuery.trim()
+      const [eventPage, taskPage, reminderPage, dispatchInboxPage, access] = await Promise.all([api.getEvents(1, 50, eventQuery ? { q: eventQuery } : undefined), api.getTasks(true, 1), api.getReminders(1), api.getDispatchInbox(1), api.getPermissions()])
       const eventMeta = pageMeta(eventPage)
       const taskMeta = pageMeta(taskPage)
       const reminderMeta = pageMeta(reminderPage)
-      pageMeta(dispatchPage)
+      const dispatchMeta = pageMeta(dispatchInboxPage)
       if (access.parishId !== parishId) throw new Error('Máy chủ trả quyền Operations sai phạm vi giáo xứ')
       if (!sameScope(requestScope) || request !== overviewRequest) return
       const events = assertTenant(eventPage.data, parishId)
       const tasks = assertTenant(taskPage.data, parishId)
       const reminders = assertTenant(reminderPage.data, parishId)
-      const dispatchInvitations = assertTenant(dispatchPage.data, parishId)
+      const dispatchInvitations = assertTenant(dispatchInboxPage.data, parishId)
       const savedAt = new Date().toISOString()
       set({
+        // W2.11: remember the parish zone alongside the permission map.
+        parishTimezone: access.timezone ?? null,
         events, tasks, reminders, dispatchInvitations, permissions: access.permissions, loading: false, error: null, source: 'server', cacheSavedAt: savedAt,
         eventTotal: eventMeta.total, taskTotal: taskMeta.total, eventPage: eventMeta.page, taskPage: taskMeta.page,
         eventHasMore: eventMeta.page < eventMeta.totalPages, taskHasMore: taskMeta.page < taskMeta.totalPages,
         reminderTotal: reminderMeta.total, reminderPage: reminderMeta.page, reminderHasMore: reminderMeta.page < reminderMeta.totalPages,
+        dispatchTotal: dispatchMeta.total, dispatchPage: dispatchMeta.page, dispatchHasMore: dispatchMeta.page < dispatchMeta.totalPages,
       })
-      await saveCache({ parishId, userId: requestScope.userId, events, tasks, eventTotal: eventMeta.total, taskTotal: taskMeta.total, savedAt })
+      // W2.13: a search-filtered snapshot must not poison the offline cache,
+      // whose honest copy semantics assume the unfiltered overview.
+      if (!eventQuery) await saveCache({ parishId, userId: requestScope.userId, events, tasks, eventTotal: eventMeta.total, taskTotal: taskMeta.total, savedAt })
     } catch (error) {
       if (!sameScope(requestScope) || request !== overviewRequest) return
       if (isOfflineFailure(error) && sameScope(requestScope)) {
@@ -292,6 +317,7 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
             eventTotal: cached.eventTotal, taskTotal: cached.taskTotal, eventPage: 1, taskPage: 1,
             eventHasMore: cached.events.length < cached.eventTotal, taskHasMore: cached.tasks.length < cached.taskTotal,
             reminderTotal: 0, reminderPage: 1, reminderHasMore: false,
+            dispatchTotal: 0, dispatchPage: 1, dispatchHasMore: false,
           })
           return
         }
@@ -302,13 +328,24 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
     }
   },
 
+  // W2.13: store the filter without refetching (the page debounces and then
+  // calls searchEvents; a plain fetch also honors the stored filter).
+  setEventSearch: (q: string) => { set({ eventQuery: q }) },
+
+  // Debounced search entry point: set the filter, then refetch page 1.
+  searchEvents: async (q: string) => {
+    set({ eventQuery: q })
+    await get().fetch().catch(() => undefined)
+  },
+
   loadMoreEvents: async () => {
     const requestScope = scope()
     const state = useOperationsStore.getState()
-    if (state.loading || !state.eventHasMore || state.source !== 'server') return
-    set({ loading: true, error: null })
+    if (state.loading || !state.eventHasMore || state.source !== 'server') return    set({ loading: true, error: null })
     try {
-      const response = await api.getEvents(state.eventPage + 1)
+      // W2.13: the active search filter keeps paging consistently.
+      const q = state.eventQuery.trim()
+      const response = await api.getEvents(state.eventPage + 1, 50, q ? { q } : undefined)
       const meta = pageMeta(response)
       if (!sameScope(requestScope)) return
       const incoming = assertTenant(response.data, requestScope.parishId)
@@ -316,8 +353,12 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
       const events = [...useOperationsStore.getState().events, ...incoming.filter(item => !existingIds.has(item.id))]
       const savedAt = new Date().toISOString()
       set({ events, eventTotal: meta.total, eventPage: meta.page, eventHasMore: meta.page < meta.totalPages, loading: false, cacheSavedAt: savedAt })
-      const current = useOperationsStore.getState()
-      await saveCache({ parishId: requestScope.parishId, userId: requestScope.userId, events, tasks: current.tasks, eventTotal: meta.total, taskTotal: current.taskTotal, savedAt })
+      // Search-filtered pages must not overwrite the offline cache slice —
+      // that snapshot owns the honest "cached" view (ADR-110 copy semantics).
+      if (!q) {
+        const current = useOperationsStore.getState()
+        await saveCache({ parishId: requestScope.parishId, userId: requestScope.userId, events, tasks: current.tasks, eventTotal: meta.total, taskTotal: current.taskTotal, savedAt })
+      }
     } catch (error) {
       if (sameScope(requestScope)) set({ loading: false, error: formatStoreError(error, 'Không tải thêm được danh sách sự kiện') })
       throw error
@@ -361,6 +402,26 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
       set({ reminders, reminderTotal: meta.total, reminderPage: meta.page, reminderHasMore: meta.page < meta.totalPages, loading: false })
     } catch (error) {
       if (sameScope(requestScope)) set({ loading: false, error: formatStoreError(error, 'Không tải thêm được nhắc việc') })
+      throw error
+    }
+  },
+
+  // W2.3: paginated dispatch inbox — invitations beyond page 1 were invisible.
+  loadMoreDispatches: async () => {
+    const requestScope = scope()
+    const state = useOperationsStore.getState()
+    if (state.loading || !state.dispatchHasMore || state.source !== 'server') return
+    set({ loading: true, error: null })
+    try {
+      const response = await api.getDispatchInbox(state.dispatchPage + 1)
+      const meta = pageMeta(response)
+      if (!sameScope(requestScope)) return
+      const incoming = assertTenant(response.data, requestScope.parishId)
+      const existingIds = new Set(useOperationsStore.getState().dispatchInvitations.map(item => item.id))
+      const dispatchInvitations = [...useOperationsStore.getState().dispatchInvitations, ...incoming.filter(item => !existingIds.has(item.id))]
+      set({ dispatchInvitations, dispatchTotal: meta.total, dispatchPage: meta.page, dispatchHasMore: meta.page < meta.totalPages, loading: false })
+    } catch (error) {
+      if (sameScope(requestScope)) set({ loading: false, error: formatStoreError(error, 'Không tải thêm được lời mời') })
       throw error
     }
   },
@@ -498,7 +559,21 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
   createStandaloneTask: async (input, idempotencyKey) => {
     const requestScope = scope()
     try {
-      const created = await api.createTask({ title: input.title, eventId: null, workstreamId: null, scopeUnitId: input.scopeUnitId, dueAt: input.dueAt ?? null }, idempotencyKey)
+      // W2.11: the server create schema (taskCreateSchema) supports the full
+      // field set; the standalone path previously forwarded only 3 fields.
+      const created = await api.createTask({
+        title: input.title,
+        description: input.description ?? null,
+        eventId: null,
+        workstreamId: null,
+        scopeUnitId: input.scopeUnitId,
+        dueAt: input.dueAt ?? null,
+        scheduledStartAt: input.scheduledStartAt ?? null,
+        scheduledEndAt: input.scheduledEndAt ?? null,
+        phase: input.phase,
+        priority: input.priority,
+        isRequired: input.isRequired,
+      }, idempotencyKey)
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc tạo task.')
       if (created.parishId !== requestScope.parishId || created.scopeUnitId !== input.scopeUnitId) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
       return created
@@ -702,6 +777,24 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
     }
   },
 
+  restoreEvent: async (id, version, reason, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const updated = await api.restoreEvent(id, { version, reason }, idempotencyKey)
+      if (updated.parishId !== scope().parishId) throw new Error('Không thể khôi phục sự kiện trong giáo xứ hiện tại')
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc cập nhật event.')
+      set(state => ({
+        events: state.events.map(event => event.id === id ? updated : event),
+        selectedEvent: state.selectedEvent?.event.id === id ? { ...state.selectedEvent, event: updated } : state.selectedEvent,
+      }))
+      await persistCurrentServerSnapshot()
+      return updated
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể khôi phục sự kiện đã hủy') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
   addChecklistItem: async (task, label, isRequired, idempotencyKey) => {
     const requestScope = scope()
     try {
@@ -789,6 +882,9 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
     events: [], tasks: [], reminders: [], dispatchInvitations: [], assignmentWarnings: null, permissions: {}, creationOptions: null, selectedEvent: null, selectedTask: null, detailLoading: false, taskDetailLoading: false, loading: false, error: null,
     source: 'none', cacheSavedAt: null, eventTotal: 0, taskTotal: 0, eventPage: 1, taskPage: 1,
     reminderTotal: 0, reminderPage: 1, eventHasMore: false, taskHasMore: false, reminderHasMore: false,
+    dispatchTotal: 0, dispatchPage: 1, dispatchHasMore: false,
+    // W2.11/W2.13: a stale search filter or parish zone must survive no session.
+    eventQuery: '', parishTimezone: null,
     })
   },
 }))

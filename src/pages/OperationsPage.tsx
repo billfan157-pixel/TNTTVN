@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -6,49 +6,53 @@ import {
   Bell,
   Calendar,
   CalendarClock,
-  Check,
   CheckCircle2,
   CircleAlert,
   ClipboardList,
-  Clock,
   Layers,
   LayoutTemplate,
-  ListTodo,
-  MapPin,
   RefreshCw,
-  Play,
   Plus,
-  Search,
   ShieldCheck,
   Users,
   WifiOff,
-  XCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { DesktopAppShell } from '../components/desktop/DesktopAppShell'
 import { PageHeader } from '../components/common/PageHeader'
+import { SubpageHeader } from '../components/common/SubpageHeader'
 import { EmptyState, ErrorState, SkeletonCardGrid } from '../components/common/StateFeedback'
 import { ModalShell } from '../components/common/ModalShell'
-import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import {
   Badge,
   Button,
-  Select,
   Surface,
   TabPanel,
   Tabs,
-  TextArea,
-  TextInput,
   type SelectionItem,
 } from '../components/common/ui'
-import type { OperationEvent, OperationReminder, OperationTask, OperationTaskDispatchInvitation } from '../lib/api/operations'
+import type { OperationEvent, OperationTask, OperationTaskDispatchInvitation } from '../lib/api/operations'
 import { useOnlineStatus } from '../hooks/useOnlineStatus'
 import { useEffectiveMode } from '../hooks/useEffectiveMode'
+import { useOperationsEventUrlSync } from '../hooks/useOperationsEventUrlSync'
+import { useOperationsAutoRefresh } from '../hooks/useOperationsAutoRefresh'
+import { useEventTransitionFlow } from '../hooks/useOperationsEventTransitionFlow'
 import { operationsErrorText } from '../lib/operationsErrors'
 import { newIdempotencyKey } from '../lib/api/core'
 import { useOperationsStore } from '../stores/operationsStore'
 import { useToastStore } from '../stores/toastStore'
 import { WorkstreamPanel } from '../components/operations/WorkstreamPanel'
+import { CreateMenuItems } from '../components/operations/CreateMenuItems'
+import { OperationsEventList } from '../components/operations/OperationsEventList'
+import { OperationsMyTaskBoard } from '../components/operations/OperationsMyTaskBoard'
+import { OperationsInboxList } from '../components/operations/OperationsInboxList'
+import { EventLifecycleHub } from '../components/operations/EventLifecycleHub'
+import { EventTasksTab } from '../components/operations/EventTasksTab'
+import { EventOverviewStats } from '../components/operations/EventOverviewStats'
+import { TaskEditDialog } from '../components/operations/TaskEditDialog'
+import { OperationsEventDialogs } from '../components/operations/OperationsEventDialogs'
+import { TaskAcknowledgeDialog } from '../components/operations/TaskAcknowledgeDialog'
+import { EventParticipantsPanel } from '../components/operations/EventParticipantsPanel'
 import { EventReminderForm } from '../components/operations/EventReminderForm'
 import { TaskChecklistSection } from '../components/operations/TaskChecklistSection'
 const AvailabilityPanel = lazy(() => import('../components/operations/AvailabilityPanel').then(m => ({ default: m.AvailabilityPanel })))
@@ -57,59 +61,15 @@ import { EventRetrospectivePanel } from '../components/operations/EventRetrospec
 const EventTemplatesPanel = lazy(() => import('../components/operations/EventTemplatesPanel').then(m => ({ default: m.EventTemplatesPanel })))
 import { CreateEventForm } from '../components/operations/CreateEventForm'
 import { StandaloneTaskForm } from '../components/operations/StandaloneTaskForm'
-import { EventTaskForm } from '../components/operations/EventTaskForm'
-import { TaskAssignForm } from '../components/operations/TaskAssignForm'
 import { EventEditForm } from '../components/operations/EventEditForm'
-import { isTaskScheduleInvalid, operationsOfflineBannerText } from '../components/operations/operationsViewHelpers'
+import { formatEventInstant, isTaskScheduleInvalid, operationsOfflineBannerText, isTerminalTask, isClosedEvent, statusLabel, statusTone, nextEventStatus, previousEventStatus, transitionLabel, toIso, toDateTimeInput } from '../components/operations/operationsViewHelpers'
 
-const statusLabel: Record<string, string> = {
-  DRAFT: 'Bản nháp', PLANNING: 'Kế hoạch', PREPARING: 'Chuẩn bị', READY: 'Sẵn sàng', LIVE: 'Đang diễn ra', COMPLETED: 'Hoàn tất', CANCELLED: 'Đã hủy',
-  BACKLOG: 'Chờ xếp việc', TODO: 'Chưa làm', IN_PROGRESS: 'Đang làm', BLOCKED: 'Bị chặn', DONE: 'Hoàn tất',
-}
-const isTerminalTask = (status: string) => status === 'DONE' || status === 'CANCELLED'
-const isClosedEvent = (status: string) => status === 'COMPLETED' || status === 'CANCELLED'
-const nextEventStatus: Partial<Record<OperationEvent['status'], OperationEvent['status']>> = {
-  DRAFT: 'PLANNING', PLANNING: 'PREPARING', PREPARING: 'READY', READY: 'LIVE', LIVE: 'COMPLETED',
-}
-const previousEventStatus: Partial<Record<OperationEvent['status'], OperationEvent['status']>> = {
-  PLANNING: 'DRAFT', PREPARING: 'PLANNING', READY: 'PREPARING', LIVE: 'READY',
-}
-const transitionLabel: Partial<Record<OperationEvent['status'], string>> = {
-  PLANNING: 'Bắt đầu lập kế hoạch', PREPARING: 'Chuyển sang chuẩn bị', READY: 'Đánh dấu sẵn sàng', LIVE: 'Bắt đầu sự kiện', COMPLETED: 'Hoàn tất sự kiện',
-}
-const reminderKindLabel = { TASK_DUE: 'Nhắc hạn công việc', EVENT_START: 'Nhắc giờ bắt đầu sự kiện', OVERDUE: 'Công việc quá hạn', MANAGER_PREP: 'Sự kiện đủ người nhận việc' } as const
-const reminderStatusLabel = { PENDING: 'Đang chờ', ENQUEUED: 'Đang gửi', SENT: 'Đã gửi', FAILED: 'Không gửi được', CANCELLED: 'Đã hủy' } as const
-const taskPhaseLabel: Record<OperationTask['phase'], string> = {
-  PREPARATION: 'Trước sự kiện', EXECUTION: 'Trong sự kiện', FOLLOW_UP: 'Sau sự kiện',
-}
+// W3.2: the status vocabulary and lifecycle maps moved to operationsViewHelpers
+// (single source shared with the extracted EventList / MyTaskBoard sections).
+// EVENT_STEPS lives with the transition-flow hook.
 
-const statusTone = (status: string): 'neutral' | 'primary' | 'success' | 'warning' | 'danger' => {
-  if (status === 'DONE' || status === 'COMPLETED' || status === 'READY') return 'success'
-  if (status === 'BLOCKED' || status === 'CANCELLED') return 'danger'
-  if (status === 'IN_PROGRESS' || status === 'LIVE') return 'primary'
-  if (status === 'PLANNING' || status === 'PREPARING' || status === 'TODO') return 'warning'
-  return 'neutral'
-}
-
-const EVENT_STEPS: Array<{ status: OperationEvent['status']; label: string }> = [
-  { status: 'DRAFT', label: 'Bản nháp' },
-  { status: 'PLANNING', label: 'Kế hoạch' },
-  { status: 'PREPARING', label: 'Chuẩn bị' },
-  { status: 'READY', label: 'Sẵn sàng' },
-  { status: 'LIVE', label: 'Diễn ra' },
-  { status: 'COMPLETED', label: 'Hoàn tất' },
-]
-
-type EventModalTab = 'tasks' | 'workstreams' | 'reminders' | 'templates' | 'retrospective'
-type TaskStatusFilter = 'ALL' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'
-
-function toIso(value: string) {
-  return new Date(value).toISOString()
-}
-function toDateTimeInput(value: string) {
-  const date = new Date(value)
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-}
+type EventModalTab = 'tasks' | 'workstreams' | 'participants' | 'reminders' | 'templates' | 'retrospective'
+type TaskStatusFilter = 'ALL' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED' | 'ARCHIVED'
 
 export default function OperationsPage() {
   // One selector per slice: a store update (e.g. marking one reminder read)
@@ -122,7 +82,6 @@ export default function OperationsPage() {
   const creationOptions = useOperationsStore(s => s.creationOptions)
   const selectedEvent = useOperationsStore(s => s.selectedEvent)
   const selectedTask = useOperationsStore(s => s.selectedTask)
-  const detailLoading = useOperationsStore(s => s.detailLoading)
   const taskDetailLoading = useOperationsStore(s => s.taskDetailLoading)
   const loading = useOperationsStore(s => s.loading)
   const error = useOperationsStore(s => s.error)
@@ -130,39 +89,102 @@ export default function OperationsPage() {
   const cacheSavedAt = useOperationsStore(s => s.cacheSavedAt)
   const mode = useEffectiveMode()
   const isMobileLayout = mode === 'mobile'
-  const [eventSearchQuery, setEventSearchQuery] = useState('')
-  const filteredEvents = useMemo(() => {
-    const q = eventSearchQuery.trim().toLowerCase()
-    if (!q) return events
-    return events.filter(e =>
-      e.title.toLowerCase().includes(q)
-      || (e.location && e.location.toLowerCase().includes(q))
-    )
-  }, [events, eventSearchQuery])
+  // W2.9: "Tải thêm" needs its own spinner — the global `loading` also covers
+  // initial fetch and background refetch, so users couldn't tell a page load
+  // from a whole-list refresh. (W3.2: events moved into OperationsEventList,
+  // which owns its own load-more busy state.)
+  const [loadingMoreLists, setLoadingMoreLists] = useState<{ tasks: boolean; reminders: boolean; dispatches: boolean }>({ tasks: false, reminders: false, dispatches: false })
+  const loadMoreList = (kind: 'tasks' | 'reminders' | 'dispatches') => {
+    if (loadingMoreLists[kind]) return
+    setLoadingMoreLists(current => ({ ...current, [kind]: true }))
+    const run = kind === 'tasks' ? loadMoreTasks : kind === 'reminders' ? loadMoreReminders : loadMoreDispatches
+    void run().catch(() => undefined).finally(() => {
+      setLoadingMoreLists(current => ({ ...current, [kind]: false }))
+    })
+  }
   const [utilitiesExpanded, setUtilitiesExpanded] = useState(false)
   const eventTotal = useOperationsStore(s => s.eventTotal)
   const taskTotal = useOperationsStore(s => s.taskTotal)
-  const eventHasMore = useOperationsStore(s => s.eventHasMore)
   const taskHasMore = useOperationsStore(s => s.taskHasMore)
   const reminderHasMore = useOperationsStore(s => s.reminderHasMore)
+  // W2.3: dispatch inbox pagination is now first-class (was silently capped).
+  const dispatchTotal = useOperationsStore(s => s.dispatchTotal)
+  const dispatchHasMore = useOperationsStore(s => s.dispatchHasMore)
   const fetch = useOperationsStore(s => s.fetch)
   const fetchCreationOptions = useOperationsStore(s => s.fetchCreationOptions)
-  const loadMoreEvents = useOperationsStore(s => s.loadMoreEvents)
   const loadMoreTasks = useOperationsStore(s => s.loadMoreTasks)
   const loadMoreReminders = useOperationsStore(s => s.loadMoreReminders)
+  const loadMoreDispatches = useOperationsStore(s => s.loadMoreDispatches)
   const selectEvent = useOperationsStore(s => s.selectEvent)
   const selectTask = useOperationsStore(s => s.selectTask)
   const updateTask = useOperationsStore(s => s.updateTask)
   const acceptTaskDispatch = useOperationsStore(s => s.acceptTaskDispatch)
-  const transitionEvent = useOperationsStore(s => s.transitionEvent)
-  const resumeEventAutomation = useOperationsStore(s => s.resumeEventAutomation)
   const transitionTask = useOperationsStore(s => s.transitionTask)
   const acknowledgeTask = useOperationsStore(s => s.acknowledgeTask)
-  const markReminderRead = useOperationsStore(s => s.markReminderRead)
-  const cancelReminder = useOperationsStore(s => s.cancelReminder)
   const assignmentWarnings = useOperationsStore(s => s.assignmentWarnings)
   const isOnline = useOnlineStatus()
+  // W3.2: the event search query, its W2.13 server-side debounce and the
+  // per-row pending marker all moved into OperationsEventList with the list.
   const [busyTask, setBusyTask] = useState<string | null>(null)
+  // W3.8: secondary row actions (decline / report-blocked / cancel) collapse
+  // into an overflow menu so primary ones stay tappable on 320–390px screens.
+  // The popup is fixed-position anchored to the trigger: the list Surface uses
+  // overflow-hidden for rounded clipping, which would cut an absolute child.
+  const [taskOverflow, setTaskOverflow] = useState<{ taskId: string; top: number; left: number; actions: Array<{ key: string; label: string; danger?: boolean; run: () => void }> } | null>(null)
+  const taskOverflowRef = useRef<HTMLDivElement | null>(null)
+  const taskOverflowTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const openTaskOverflow = (taskId: string, actions: Array<{ key: string; label: string; danger?: boolean; run: () => void }>, button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect()
+    const menuHeight = Math.max(actions.length, 1) * 44 + 8
+    const openUp = rect.bottom + menuHeight + 8 > window.innerHeight && rect.top > menuHeight + 8
+    setTaskOverflow({
+      taskId,
+      actions,
+      top: openUp ? rect.top - menuHeight - 4 : rect.bottom + 4,
+      left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
+    })
+    requestAnimationFrame(() => {
+      taskOverflowRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    })
+  }
+  const focusTaskOverflowItem = (direction: 1 | -1 | 'first' | 'last') => {
+    const items = Array.from(taskOverflowRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
+    if (items.length === 0) return
+    if (direction === 'first') { items[0]?.focus(); return }
+    if (direction === 'last') { items[items.length - 1]?.focus(); return }
+    const active = items.indexOf(document.activeElement as HTMLButtonElement)
+    items[(active + direction + items.length) % items.length]?.focus()
+  }
+  useEffect(() => {
+    if (!taskOverflow) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (taskOverflowRef.current?.contains(target) || taskOverflowTriggerRef.current?.contains(target)) return
+      setTaskOverflow(null)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setTaskOverflow(null)
+        taskOverflowTriggerRef.current?.focus()
+      } else if (event.key === 'Tab') {
+        // W3.3 parity: leaving the menu by Tab dismisses it.
+        setTaskOverflow(null)
+      }
+    }
+    // A fixed popup detached from its row would float over unrelated content.
+    const close = () => setTaskOverflow(null)
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [taskOverflow])
   // P1-8: inbox commands (dispatch accept, reminder read/cancel) track their
   // own busy rows so one in-flight reminder action never locks unrelated
   // dispatch accepts, task transitions, or other reminder rows.
@@ -172,9 +194,9 @@ export default function OperationsPage() {
     if (busy) next.add(id); else next.delete(id)
     return next
   })
-  // Which row triggered the in-flight detail load (store clears/keeps the
+  // Which row triggered the in-flight task detail load (store clears/keeps the
   // previous selection, so its id alone can't identify the spinner row).
-  const [pendingEventId, setPendingEventId] = useState<string | null>(null)
+  // W3.2: the event row's pending marker moved into OperationsEventList.
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showCreateMenu, setShowCreateMenu] = useState(false)
@@ -184,14 +206,21 @@ export default function OperationsPage() {
   const focusCreateMenuItem = (direction: 1 | -1 | 'first' | 'last') => {
     const items = Array.from(createMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])
     if (items.length === 0) return
+    // W3.3: 'first' now actually focuses (it used to compute an index but the
+    // open-menu path never called it).
+    if (direction === 'first') { items[0]?.focus(); return }
+    if (direction === 'last') { items[items.length - 1]?.focus(); return }
     const active = items.indexOf(document.activeElement as HTMLButtonElement)
-    const next = direction === 'first' ? 0 : direction === 'last' ? items.length - 1 : (active + direction + items.length) % items.length
+    const next = (active + direction + items.length) % items.length
     items[next]?.focus()
   }
   useEffect(() => {
     // Desktop dropdown only — the mobile sheet is a ModalShell dialog that
     // already owns Escape/outside-click/focus behavior.
     if (isMobileLayout || !showCreateMenu) return
+    // W3.3: move focus into the menu when it opens so arrow keys work right
+    // away; the render is gated on canMutate so no items => no-op.
+    const frame = requestAnimationFrame(() => focusCreateMenuItem('first'))
     const onPointerDown = (event: PointerEvent) => {
       if (createMenuRef.current && !createMenuRef.current.contains(event.target as Node)) setShowCreateMenu(false)
     }
@@ -205,6 +234,7 @@ export default function OperationsPage() {
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      cancelAnimationFrame(frame)
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
@@ -214,14 +244,12 @@ export default function OperationsPage() {
   const [standaloneScopeUnitId, setStandaloneScopeUnitId] = useState('')
   const [editingTask, setEditingTask] = useState<OperationTask | null>(null)
   const [showEditTask, setShowEditTask] = useState(false)
+  // W1.7: task detail (checklist/comments/handover/restore) renders inside a
+  // dialog derived from selectedTask — selecting a task IS the open state, so
+  // every path that loads a detail (row button, Checklist button, reminder
+  // "Mở") brings it in front of the user instead of at the page bottom.
   const [savingTask, setSavingTask] = useState(false)
   const [taskEditDraft, setTaskEditDraft] = useState({ title: '', description: '', dueAt: '', scheduledStartAt: '', scheduledEndAt: '', priority: 'NORMAL' as OperationTask['priority'], isRequired: false })
-  const [eventReason, setEventReason] = useState('')
-  const [showCancelPrompt, setShowCancelPrompt] = useState(false)
-  const [showRewindPrompt, setShowRewindPrompt] = useState(false)
-  const [acceptanceWarning, setAcceptanceWarning] = useState<Array<{ id: string; label: string }> | null>(null)
-  const [outcomeSummary, setOutcomeSummary] = useState('')
-  const [transitioningEvent, setTransitioningEvent] = useState(false)
   const [eventModalTab, setEventModalTab] = useState<EventModalTab>('tasks')
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatusFilter>('ALL')
   const [templateCatalogRevision, setTemplateCatalogRevision] = useState(0)
@@ -248,11 +276,15 @@ export default function OperationsPage() {
   const [taskReasonText, setTaskReasonText] = useState('')
   const [taskReasonSubmitting, setTaskReasonSubmitting] = useState(false)
 
-  // 4. Override & Blockers modal state
-  const [readinessBlockers, setReadinessBlockers] = useState<Array<{ id?: string; label?: string; code?: string }> | null>(null)
-  const [completionBlockers, setCompletionBlockers] = useState<Array<{ type?: string; id?: string; label?: string }> | null>(null)
-  const [pendingTargetStatus, setPendingTargetStatus] = useState<OperationEvent['status'] | null>(null)
-  const [overrideReason, setOverrideReason] = useState('')
+  // W4.3: accepting/declining now routes through a dialog with an optional
+  // note (server `acknowledgementSchema.note` already supported it; the UI
+  // was the missing half).
+  const [ackNoteAction, setAckNoteAction] = useState<{ task: OperationTask; status: 'ACCEPTED' | 'DECLINED' } | null>(null)
+  const [ackNoteText, setAckNoteText] = useState('')
+  const [ackNoteSubmitting, setAckNoteSubmitting] = useState(false)
+
+  // 4. (W3.2) Event transition flow — cancel/rewind prompts, structured-error
+  // dialogs and automation resume — moved to useEventTransitionFlow unchanged.
 
   // 5. Sub drafts reset (task edit draft lives here; checklist/event-edit
   // drafts live in their extracted sections with their own guards).
@@ -272,6 +304,7 @@ export default function OperationsPage() {
   const handleCloseEventModal = () => {
     setShowCancelPrompt(false)
     setShowRewindPrompt(false)
+    setShowRestorePrompt(false)
     setAcceptanceWarning(null)
     setEventReason('')
     setOutcomeSummary('')
@@ -283,6 +316,43 @@ export default function OperationsPage() {
 
   const hasFreshServerState = source === 'server'
   const canMutate = isOnline && hasFreshServerState
+  // W3.2: event transition/cancel/rewind/override flow (extracted unchanged).
+  // The flow object goes to EventLifecycleHub; the footer and the dialog
+  // overlays still read a few fields directly.
+  // W3.2: event transition/cancel/rewind/override flow (extracted unchanged).
+  // The flow object goes to EventLifecycleHub + OperationsEventDialogs; only
+  // the footer and reset helpers read individual fields directly here.
+  const transitionFlow = useEventTransitionFlow({ selectedEvent, canMutate })
+  const {
+    setEventReason,
+    setShowCancelPrompt, setShowRewindPrompt,
+    setShowRestorePrompt, showRestorePrompt,
+    setAcceptanceWarning, setOutcomeSummary,
+    showCancelPrompt,
+    showRewindPrompt,
+    outcomeSummary,
+    transitioningEvent,
+    setReadinessBlockers,
+    setCompletionBlockers,
+    setPendingTargetStatus,
+    setOverrideReason,
+    handleEventTransition,
+  } = transitionFlow
+  // W1.3: KPI filter cards scroll the "Việc của tôi" section into view so the
+  // filter change is visible on long mobile stacks (and harmless on desktop).
+  // W3.1: useCallback keeps the memoized KPI strip's identity stable.
+  const myTasksSectionRef = useRef<HTMLElement | null>(null)
+  const activateKpiFilter = useCallback((filter: MyTaskFilter) => {
+    setMyTaskFilter(filter)
+    const el = myTasksSectionRef.current
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+  // W1.2: resolve reminder context (which event/task is being announced).
+  // The tasks slice is mine=true and reminders only exist for resources the
+  // recipient may view (server re-gated at create AND due-time), so titles are
+  // resolved from the recipient's own scoped lists — never a server join.
+  const taskTitleById = useMemo(() => new Map(tasks.map(task => [task.id, task.title])), [tasks])
+  const eventTitleById = useMemo(() => new Map(events.map(event => [event.id, event.title])), [events])
   // "+ Tạo mới" information architecture follows business authority (XV):
   // only actions the caller can perform are shown — never a disabled list.
   const canCreateXuDoan = Boolean(creationOptions?.canCreateXuDoanEvent)
@@ -298,22 +368,24 @@ export default function OperationsPage() {
     return scopeType === 'XU_DOAN' ? 'Sự kiện Xứ đoàn' : `Chuyên môn · ${unitNameOf(event.scopeUnitId) ?? 'đơn vị phụ trách'}`;
   }
   const selectedEventClosed = selectedEvent ? isClosedEvent(selectedEvent.event.status) : false
-  const closureTasks = useMemo(() => selectedEvent?.tasks.filter(task => task.isRequired && task.status !== 'DONE') ?? [], [selectedEvent])
   const closureBlockers = useMemo(() => selectedEvent?.closure?.blockers
     ?? selectedEvent?.tasks.filter(task => task.isRequired && task.status !== 'DONE').map(task => ({ type: 'TASK_INCOMPLETE', id: task.id, label: task.title }))
     ?? [], [selectedEvent])
   const completedTasksCount = useMemo(() => selectedEvent?.tasks.filter(t => t.status === 'DONE').length ?? 0, [selectedEvent])
+  // W3.1: per-row `selectedEvent.assignees.filter(...)` inside the task map
+  // was O(tasks × assignees) per render; precompute counts once per detail.
+  const assigneeCountByTask = useMemo(() => {
+    const counts = new Map<string, number>()
+    if (selectedEvent) for (const item of selectedEvent.assignees) counts.set(item.taskId, (counts.get(item.taskId) ?? 0) + 1)
+    return counts
+  }, [selectedEvent])
   const totalTasksCount = selectedEvent?.tasks.length ?? 0
   const totalAssigneesCount = selectedEvent?.assignees.length ?? 0
   const totalWorkstreamsCount = selectedEvent?.workstreams.length ?? 0
-  const currentStepIndex = selectedEvent ? (
-    selectedEvent.event.status === 'CANCELLED'
-      ? -1
-      : EVENT_STEPS.findIndex(s => s.status === selectedEvent.event.status)
-  ) : -1
 
   const filteredTasks = useMemo(() => selectedEvent?.tasks.filter(t => {
-    if (taskStatusFilter === 'ALL') return true
+    if (taskStatusFilter === 'ALL') return t.status !== 'CANCELLED'
+    if (taskStatusFilter === 'ARCHIVED') return t.status === 'CANCELLED'
     return t.status === taskStatusFilter
   }) ?? [], [selectedEvent, taskStatusFilter])
   // Event Xứ đoàn nhìn theo Field trước (XV): nhóm task theo mảng phụ trách.
@@ -355,6 +427,20 @@ export default function OperationsPage() {
       ),
       icon: <Layers className="h-4 w-4" />,
     }] : []),
+    // W4.2a: participants tab (view open to all who can see the event; the
+    // panel itself gates add/status behind operations.event.manage).
+    {
+      value: 'participants' as EventModalTab,
+      label: (
+        <span className="flex items-center gap-1.5">
+          <span>Người tham dự</span>
+          <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
+            {(selectedEvent.participants ?? []).length}
+          </span>
+        </span>
+      ),
+      icon: <Users className="h-4 w-4" />,
+    },
     {
       value: 'reminders',
       label: <span>Lập lịch nhắc việc</span>,
@@ -376,13 +462,16 @@ export default function OperationsPage() {
   // when showFieldTab): if the selected tab disappears (e.g. rewind out of
   // COMPLETED), fall back to 'tasks' so the modal never renders an empty body.
   const activeModalTab = modalTabs.some(tab => tab.value === eventModalTab) ? eventModalTab : 'tasks'
+  // W2.2: keep `?event=&tab=` and the detail modal in sync (deep link, F5, back).
+  useOperationsEventUrlSync(activeModalTab, setEventModalTab)
 
   const taskFilterOptions: Array<{ key: TaskStatusFilter; label: string; count: number }> = useMemo(() => selectedEvent ? [
-    { key: 'ALL', label: 'Tất cả', count: selectedEvent.tasks.length },
+    { key: 'ALL', label: 'Tất cả', count: selectedEvent.tasks.filter(t => t.status !== 'CANCELLED').length },
     { key: 'TODO', label: 'Chưa làm', count: selectedEvent.tasks.filter(t => t.status === 'TODO').length },
     { key: 'IN_PROGRESS', label: 'Đang làm', count: selectedEvent.tasks.filter(t => t.status === 'IN_PROGRESS').length },
     { key: 'DONE', label: 'Hoàn tất', count: selectedEvent.tasks.filter(t => t.status === 'DONE').length },
     { key: 'BLOCKED', label: 'Bị chặn', count: selectedEvent.tasks.filter(t => t.status === 'BLOCKED').length },
+    { key: 'ARCHIVED', label: 'Lưu trữ', count: selectedEvent.tasks.filter(t => t.status === 'CANCELLED').length },
   ] : [], [selectedEvent])
 
   useEffect(() => { void fetch().catch(() => undefined) }, [fetch])
@@ -396,8 +485,19 @@ export default function OperationsPage() {
   useEffect(() => {
     if (isOnline && source === 'cache') void fetch().catch(() => undefined)
   }, [isOnline, source, fetch])
+  // W4.1: 90s read-only freshness poll while the tab is visible and the store
+  // is on server data (ADR-110: never poll a cache snapshot, never offline).
+  // Gating on `!loading` also serializes the interval across a slow tick: the
+  // clock restarts after each response, so requests can never stack.
+  useOperationsAutoRefresh(
+    () => {
+      if (useOperationsStore.getState().loading) return
+      void fetch().catch(() => undefined)
+    },
+    { active: isOnline && source === 'server' && !loading },
+  )
 
-  type MyTaskFilter = 'ALL' | 'PENDING' | 'ACTIVE' | 'BLOCKED' | 'DONE'
+  type MyTaskFilter = 'ALL' | 'PENDING' | 'ACTIVE' | 'BLOCKED' | 'DONE' | 'ARCHIVED'
   type UtilityTab = 'availability' | 'workstreams' | 'templates'
 
   const [myTaskFilter, setMyTaskFilter] = useState<MyTaskFilter>('ALL')
@@ -407,14 +507,22 @@ export default function OperationsPage() {
   const pendingResponses = pendingAcknowledgements + dispatchInvitations.length
   const blockedTasksCount = useMemo(() => tasks.filter(task => task.status === 'BLOCKED').length, [tasks])
   const activeTasksCount = useMemo(() => tasks.filter(task => task.status === 'IN_PROGRESS' || task.status === 'TODO').length, [tasks])
+  const archivedTasksCount = useMemo(() => tasks.filter(task => task.status === 'CANCELLED').length, [tasks])
+  const activeTasksTotal = useMemo(() => tasks.filter(task => task.status !== 'CANCELLED').length, [tasks])
+  // W3.1: the KPI sublabel used to run events.filter per render.
+  const activeEventsCount = useMemo(() => events.filter(e => e.status !== 'COMPLETED' && e.status !== 'CANCELLED').length, [events])
 
-  const myTaskFilterOptions: Array<{ key: MyTaskFilter; label: string; count: number }> = [
-    { key: 'ALL', label: 'Tất cả', count: tasks.length },
+  // W3.1: stable arrays — previously rebuilt every render, invalidating any
+  // future memo of the consumers (chip lists stay small but identity churn
+  // is what forced section re-renders).
+  const myTaskFilterOptions = useMemo<Array<{ key: MyTaskFilter; label: string; count: number }>>(() => [
+    { key: 'ALL', label: 'Tất cả', count: activeTasksTotal },
     { key: 'PENDING', label: 'Cần xác nhận', count: pendingResponses },
     { key: 'ACTIVE', label: 'Đang làm', count: activeTasksCount },
     { key: 'BLOCKED', label: 'Bị chặn', count: blockedTasksCount },
     { key: 'DONE', label: 'Đã xong', count: tasks.filter(t => t.status === 'DONE').length },
-  ]
+    { key: 'ARCHIVED', label: 'Lưu trữ', count: archivedTasksCount },
+  ], [activeTasksTotal, pendingResponses, activeTasksCount, blockedTasksCount, tasks, archivedTasksCount])
 
   const filteredMyTasks = useMemo(() => {
     return tasks.filter(task => {
@@ -430,7 +538,10 @@ export default function OperationsPage() {
       if (myTaskFilter === 'DONE') {
         return task.status === 'DONE'
       }
-      return true
+      if (myTaskFilter === 'ARCHIVED') {
+        return task.status === 'CANCELLED'
+      }
+      return task.status !== 'CANCELLED'
     })
   }, [tasks, myTaskFilter])
 
@@ -452,46 +563,49 @@ export default function OperationsPage() {
     },
   ]
 
-  const overviewCards: Array<{
-    label: string
-    sublabel: string
-    value: number
-    Icon: LucideIcon
-    tone: 'primary' | 'teal' | 'warning' | 'danger'
-    filterKey?: MyTaskFilter
-  }> = [
-    {
-      label: 'Sự kiện',
-      sublabel: `${events.filter(e => e.status !== 'COMPLETED' && e.status !== 'CANCELLED').length} đang hoạt động`,
-      value: eventTotal,
-      Icon: Calendar,
-      tone: 'primary',
-    },
-    {
-      label: 'Việc của tôi',
-      sublabel: `${activeTasksCount} đang thực hiện`,
-      value: taskTotal,
-      Icon: ShieldCheck,
-      tone: 'teal',
-      filterKey: 'ALL',
-    },
-    {
-      label: 'Chờ phản hồi',
-      sublabel: pendingResponses > 0 ? 'Cần phản hồi ngay' : 'Đã phản hồi hết',
-      value: pendingResponses,
-      Icon: CircleAlert,
-      tone: 'warning',
-      filterKey: 'PENDING',
-    },
-    {
-      label: 'Đang bị chặn',
-      sublabel: blockedTasksCount > 0 ? 'Cần tháo gỡ điểm nghẽn' : 'Không có điểm nghẽn',
-      value: blockedTasksCount,
-      Icon: AlertTriangle,
-      tone: 'danger',
-      filterKey: 'BLOCKED',
-    },
-  ]
+  const overviewCards = useMemo(() => {
+    const cards: Array<{
+      label: string
+      sublabel: string
+      value: number
+      Icon: LucideIcon
+      tone: 'primary' | 'teal' | 'warning' | 'danger'
+      filterKey?: MyTaskFilter
+    }> = [
+      {
+        label: 'Sự kiện',
+        sublabel: `${activeEventsCount} đang hoạt động`,
+        value: eventTotal,
+        Icon: Calendar,
+        tone: 'primary',
+      },
+      {
+        label: 'Việc của tôi',
+        sublabel: `${activeTasksCount} đang thực hiện`,
+        value: taskTotal,
+        Icon: ShieldCheck,
+        tone: 'teal',
+        filterKey: 'ALL',
+      },
+      {
+        label: 'Chờ phản hồi',
+        sublabel: pendingResponses > 0 ? 'Cần phản hồi ngay' : 'Đã phản hồi hết',
+        value: pendingResponses,
+        Icon: CircleAlert,
+        tone: 'warning',
+        filterKey: 'PENDING',
+      },
+      {
+        label: 'Đang bị chặn',
+        sublabel: blockedTasksCount > 0 ? 'Cần tháo gỡ điểm nghẽn' : 'Không có điểm nghẽn',
+        value: blockedTasksCount,
+        Icon: AlertTriangle,
+        tone: 'danger',
+        filterKey: 'BLOCKED',
+      },
+    ]
+    return cards
+  }, [activeEventsCount, eventTotal, activeTasksCount, taskTotal, pendingResponses, blockedTasksCount])
 
   const handleTask = async (task: typeof tasks[number], action: 'DONE' | 'ACCEPTED' | 'DECLINED' | 'IN_PROGRESS' | 'BLOCKED' | 'CANCELLED') => {
     if (busyTask === task.id) return
@@ -500,22 +614,42 @@ export default function OperationsPage() {
       setTaskReasonText('')
       return
     }
+    // W4.3: Nhận/Từ chối asks for an optional note first, then sends.
+    if (action === 'ACCEPTED' || action === 'DECLINED') {
+      setAckNoteAction({ task, status: action })
+      setAckNoteText('')
+      return
+    }
     setBusyTask(task.id)
     try {
       if (action === 'DONE' || action === 'IN_PROGRESS') {
         const key = stableCommandKey('task-transition', { id: task.id, version: task.version, status: action })
         await transitionTask(task, action, { idempotencyKey: key })
         releaseCommandKey('task-transition')
-      } else {
-        const assignment = task.myAssignments?.find(item => item.acknowledgementStatus === 'PENDING')
-        const key = stableCommandKey('task-acknowledge', { id: task.id, assignmentId: assignment?.id, version: assignment?.version, status: action })
-        await acknowledgeTask(task, action, undefined, key)
-        releaseCommandKey('task-acknowledge')
       }
       if (selectedEvent) await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể cập nhật trạng thái nhiệm vụ'), 'error')
     } finally { setBusyTask(null) }
+  }
+
+  const handleConfirmAckNote = async () => {
+    if (!ackNoteAction || ackNoteSubmitting) return
+    const { task, status } = ackNoteAction
+    setAckNoteSubmitting(true)
+    setBusyTask(task.id)
+    try {
+      const assignment = task.myAssignments?.find(item => item.acknowledgementStatus === 'PENDING')
+      const note = ackNoteText.trim() || undefined
+      const key = stableCommandKey('task-acknowledge', { id: task.id, assignmentId: assignment?.id, version: assignment?.version, status, note })
+      await acknowledgeTask(task, status, note, key)
+      releaseCommandKey('task-acknowledge')
+      setAckNoteAction(null)
+      setAckNoteText('')
+      if (selectedEvent) await selectEvent(selectedEvent.event.id)
+    } catch (error: any) {
+      useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể cập nhật trạng thái nhiệm vụ'), 'error')
+    } finally { setAckNoteSubmitting(false); setBusyTask(null) }
   }
 
   const handleConfirmTaskReason = async () => {
@@ -597,69 +731,6 @@ export default function OperationsPage() {
     } finally { setSavingTask(false) }
   }
 
-  const handleEventTransition = async (status: OperationEvent['status'], override = false, customReason?: string) => {
-    if (!selectedEvent || selectedEvent.event.status === 'CANCELLED' || !canMutate || transitioningEvent) return
-    const currentIndex = EVENT_STEPS.findIndex(step => step.status === selectedEvent.event.status)
-    const targetIndex = EVENT_STEPS.findIndex(step => step.status === status)
-    const backwards = currentIndex >= 0 && targetIndex >= 0 && targetIndex < currentIndex
-    const requiresReason = status === 'CANCELLED' || backwards
-    const requiresOutcome = status === 'COMPLETED'
-    const finalReason = (customReason || eventReason).trim()
-    if ((requiresReason && !finalReason) || (requiresOutcome && !outcomeSummary.trim())) return
-    setTransitioningEvent(true)
-    try {
-      const payload = {
-        reason: finalReason || undefined,
-        outcomeSummary: outcomeSummary.trim() || undefined,
-        ...(override ? { override: true } : {}),
-      }
-      const key = stableCommandKey('event-transition', { id: selectedEvent.event.id, version: selectedEvent.event.version, status, ...payload })
-      await transitionEvent(selectedEvent.event.id, status, selectedEvent.event.version, {
-        ...payload,
-      }, key)
-      releaseCommandKey('event-transition')
-      setEventReason('')
-      setShowCancelPrompt(false)
-      setShowRewindPrompt(false)
-      setAcceptanceWarning(null)
-      setReadinessBlockers(null)
-      setCompletionBlockers(null)
-      setPendingTargetStatus(null)
-      setOverrideReason('')
-      setOutcomeSummary('')
-      await selectEvent(selectedEvent.event.id)
-    } catch (error: any) {
-      const errCode = error?.code
-      if (errCode === 'TASK_ACCEPTANCE_PENDING') {
-        const details = error?.details
-        setAcceptanceWarning(Array.isArray(details) ? details : [])
-      } else if (errCode === 'READINESS_BLOCKED') {
-        const details = error?.details
-        setReadinessBlockers(Array.isArray(details) ? details : [])
-        setPendingTargetStatus(status)
-      } else if (errCode === 'COMPLETION_BLOCKED') {
-        const details = error?.details
-        setCompletionBlockers(Array.isArray(details) ? details : [])
-      } else {
-        useToastStore.getState().addToast(operationsErrorText(errCode, error?.message || 'Không thể chuyển giai đoạn sự kiện'), 'error')
-      }
-    } finally { setTransitioningEvent(false) }
-  }
-
-  const handleResumeAutomation = async () => {
-    if (!selectedEvent?.event.automationPaused || !canMutate) return
-    setTransitioningEvent(true)
-    try {
-      const reason = 'Người quản lý chủ động tiếp tục tự động chuyển giai đoạn.'
-      const key = stableCommandKey('event-resume', { id: selectedEvent.event.id, version: selectedEvent.event.version, reason })
-      await resumeEventAutomation(selectedEvent.event.id, selectedEvent.event.version, reason, key)
-      releaseCommandKey('event-resume')
-      await selectEvent(selectedEvent.event.id)
-    } catch (error: any) {
-      useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể tiếp tục tự động chuyển giai đoạn'), 'error')
-    } finally { setTransitioningEvent(false) }
-  }
-
   const handleAcceptDispatch = async (invitation: OperationTaskDispatchInvitation) => {
     if (busyInbox.has(invitation.id)) return
     setInboxBusy(invitation.id, true)
@@ -672,465 +743,112 @@ export default function OperationsPage() {
     } finally { setInboxBusy(invitation.id, false) }
   }
 
-  const handleMarkReminderRead = async (reminder: OperationReminder) => {
-    if (busyInbox.has(reminder.id)) return
-    setInboxBusy(reminder.id, true)
-    try {
-      const key = stableCommandKey('reminder-read', { id: reminder.id, version: reminder.version })
-      await markReminderRead(reminder, key)
-      releaseCommandKey('reminder-read')
-    } catch (error: any) {
-      useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể đánh dấu đã đọc'), 'error')
-    } finally { setInboxBusy(reminder.id, false) }
-  }
+  // W3.2: reminder read/cancel/reschedule handlers moved into
+  // OperationsInboxList (which keeps the W2.12 manager-gated editor).
 
-  const handleCancelReminder = async (reminder: OperationReminder) => {
-    if (busyInbox.has(reminder.id)) return
-    setInboxBusy(reminder.id, true)
-    try {
-      const key = stableCommandKey('reminder-cancel', { id: reminder.id, version: reminder.version })
-      await cancelReminder(reminder, key)
-      releaseCommandKey('reminder-cancel')
-    } catch (error: any) {
-      useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể hủy lịch nhắc'), 'error')
-    } finally { setInboxBusy(reminder.id, false) }
-  }
-
-  const renderKpiStrip = () => (
+  // W3.1: memoized section element — with a stable overviewCards this re-renders
+  // only when the cards data or the pressed-filter highlight actually change.
+  const kpiStrip = useMemo(() => (
     <section aria-label="Tổng quan công việc" className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-      {overviewCards.map(({ label, sublabel, value, Icon, tone, filterKey }) => (
-        <Surface
-          key={label}
-          variant="card"
-          className={`p-4 rounded-2xl border transition-colors shadow-xs ${
-            filterKey && myTaskFilter === filterKey
-              ? 'border-parish-primary ring-2 ring-parish-primary/20 bg-parish-primary-light/10'
-              : 'border-surface-border hover:border-surface-border/80'
-          } ${filterKey ? 'cursor-pointer' : ''}`}
-          onClick={() => {
-            if (filterKey) setMyTaskFilter(filterKey)
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-text-muted">{label}</span>
-            <div className={`icon-container rounded-xl ${
-              tone === 'primary' ? 'bg-parish-primary-light text-parish-primary' :
-              tone === 'teal' ? 'bg-parish-success-bg text-parish-success' :
-              tone === 'warning' ? 'bg-parish-warning-bg text-parish-warning' :
-              'bg-parish-danger-bg text-parish-danger'
-            }`}>
-              <Icon className="h-4 w-4" />
-            </div>
-          </div>
-          <p className="mb-0 mt-2 text-2xl font-black text-text-main">{value}</p>
-          <p className="mb-0 mt-1 text-xs text-text-muted">{sublabel}</p>
-        </Surface>
-      ))}
-    </section>
-  )
-
-  const renderEventsSection = () => (
-    <Surface as="section" variant="card" className="overflow-hidden rounded-2xl border border-surface-border shadow-xs flex flex-col" aria-label="Sự kiện đang diễn ra">
-      <div className="flex items-center justify-between border-b border-surface-border px-4 py-3.5 bg-surface-ground/30">
-        <div className="flex items-center gap-2">
-          <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-            <Calendar className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="m-0 text-sm font-extrabold text-text-main">Sự Kiện &amp; Công Việc Đang Diễn Ra</h2>
-            <p className="m-0 text-xs text-text-muted">{events.length} sự kiện trong phạm vi điều phối</p>
-          </div>
-        </div>
-        <Badge tone="primary">{events.length}</Badge>
-      </div>
-
-      {events.length > 2 && (
-        <div className="px-3 py-2 border-b border-surface-border bg-surface-ground/20">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted pointer-events-none" />
-            <input
-              type="search"
-              aria-label="Tìm kiếm sự kiện"
-              placeholder="Tìm theo tên hoặc địa điểm..."
-              value={eventSearchQuery}
-              onChange={e => setEventSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-8 py-1.5 text-xs rounded-lg border border-surface-border bg-surface-card text-text-main placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-parish-primary"
-            />
-            {eventSearchQuery && (
-              <button
-                type="button"
-                aria-label="Xóa tìm kiếm sự kiện"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-text-muted hover:text-text-main"
-                onClick={() => setEventSearchQuery('')}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="divide-y divide-surface-border flex-1">
-        {events.length === 0 ? (
-          <div className="p-8">
-            <EmptyState
-              icon={Calendar}
-              title="Chưa có sự kiện nào"
-              description="Hiện không có sự kiện hoạt động nào trong phạm vi quản lý của bạn."
-            />
-          </div>
-        ) : filteredEvents.length === 0 ? (
-          <div className="p-6">
-            <EmptyState
-              icon={Calendar}
-              title="Không tìm thấy sự kiện"
-              description={`Không có sự kiện nào khớp với từ khóa "${eventSearchQuery}".`}
-            />
-          </div>
-        ) : (
-          filteredEvents.map(event => (
-            <article
-              key={event.id}
-              className="group p-4 cursor-pointer transition-colors hover:bg-surface-hover/50"
-              onClick={() => {
-                if (!isOnline || source === 'cache') return
-                setPendingEventId(event.id)
-                void selectEvent(event.id).catch(() => undefined).finally(() => {
-                  setPendingEventId(current => (current === event.id ? null : current))
-                })
-              }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="m-0 truncate text-sm font-bold text-text-main group-hover:text-parish-primary transition-colors">
-                      {event.title}
-                    </h3>
-                    <Badge tone="neutral">{scopeBadgeOf(event)}</Badge>
-                    <Badge tone={statusTone(event.status)}>{statusLabel[event.status] || event.status}</Badge>
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5 text-text-muted" />
-                      {new Date(event.startsAt).toLocaleString('vi-VN')}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="h-3.5 w-3.5 text-text-muted" />
-                      {event.location || 'Chưa có địa điểm'}
-                    </span>
-                  </div>
-
-                  {event.sourceParishEventId && (
-                    <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-parish-primary-light/50 px-2 py-0.5 text-xs font-semibold text-parish-primary">
-                      <CalendarClock className="h-3 w-3" />
-                      Liên kết Lịch Xứ Đoàn
-                    </div>
-                  )}
-                </div>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 group-hover:bg-parish-primary group-hover:text-white transition-colors"
-                  disabled={!isOnline || source === 'cache'}
-                  loading={detailLoading && pendingEventId === event.id}
-                  onClick={e => {
-                    e.stopPropagation()
-                    setPendingEventId(event.id)
-                    void selectEvent(event.id).catch(() => undefined).finally(() => {
-                      setPendingEventId(current => (current === event.id ? null : current))
-                    })
-                  }}
-                >
-                  Xem chi tiết
-                </Button>
+      {overviewCards.map(({ label, sublabel, value, Icon, tone, filterKey }) => {
+        // W1.3: filterable cards are real buttons (aria-pressed + keyboard);
+        // non-filterable cards stay static. Surface as="button" renders a
+        // <button> through the same card primitive, keeping DS visuals.
+        const cardClass = `p-4 rounded-2xl border shadow-xs text-left transition-colors ${
+          filterKey && myTaskFilter === filterKey
+            ? 'border-parish-primary ring-2 ring-parish-primary/20 bg-parish-primary-light/10'
+            : 'border-surface-border hover:border-surface-border/80'
+        }`
+        return (
+          <Surface
+            key={label}
+            variant="card"
+            {...(filterKey
+              ? {
+                  as: 'button' as const,
+                  type: 'button' as const,
+                  'aria-pressed': myTaskFilter === filterKey,
+                  onClick: () => activateKpiFilter(filterKey),
+                  className: cardClass,
+                }
+              : { className: `p-4 rounded-2xl border shadow-xs ${filterKey ? '' : 'border-surface-border'}` })}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">{label}</span>
+              <div className={`icon-container rounded-xl ${
+                tone === 'primary' ? 'bg-parish-primary-light text-parish-primary' :
+                tone === 'teal' ? 'bg-parish-success-bg text-parish-success' :
+                tone === 'warning' ? 'bg-parish-warning-bg text-parish-warning' :
+                'bg-parish-danger-bg text-parish-danger'
+              }`}>
+                <Icon className="h-4 w-4" />
               </div>
-            </article>
-          ))
-        )}
-        {eventHasMore && (
-          <div className="p-3 text-center bg-surface-ground/20">
-            <Button variant="secondary" size="sm" disabled={!isOnline || source !== 'server' || loading} onClick={() => void loadMoreEvents().catch(() => undefined)}>
-              Tải thêm sự kiện
-            </Button>
-          </div>
-        )}
-      </div>
-    </Surface>
-  )
+            </div>
+            <span className="block mb-0 mt-2 text-2xl font-black text-text-main">{value}</span>
+            <span className="block mt-1 text-xs text-text-muted">{sublabel}</span>
+          </Surface>
+        )
+      })}
+    </section>
+  ), [overviewCards, myTaskFilter, activateKpiFilter])
+
+  // W3.2: the events list moved to OperationsEventList (owns its search input,
+  // W2.13 debounce, per-row pending marker and load-more busy).
 
   const renderMyTasksSection = () => (
-    <Surface as="section" variant="card" className="overflow-hidden rounded-2xl border border-surface-border shadow-xs flex flex-col" aria-label="Việc của tôi">
-      <div className="flex items-center justify-between border-b border-surface-border px-4 py-3.5 bg-surface-ground/30">
-        <div className="flex items-center gap-2">
-          <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-            <ShieldCheck className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="m-0 text-sm font-extrabold text-text-main">Việc Của Tôi</h2>
-            <p className="m-0 text-xs text-text-muted">{tasks.length} nhiệm vụ được giao cho bạn</p>
-          </div>
-        </div>
-        <Badge tone="neutral">{filteredMyTasks.length}/{tasks.length}</Badge>
-      </div>
-
-      {dispatchInvitations.length > 0 && (
-        <div className="space-y-2 border-b border-surface-border bg-parish-warning-bg p-3" aria-label="Lời mời nhận nhiệm vụ">
-          <p className="m-0 text-xs font-extrabold text-text-main">Lời mời phụ trách đang chờ</p>
-          {dispatchInvitations.map(invitation => (
-            <div key={invitation.id} className="flex flex-col gap-2 rounded-xl border border-parish-warning/30 bg-surface-card p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="m-0 text-sm font-bold text-text-main">{invitation.taskTitle}</p>
-                <p className="m-0 text-xs text-text-muted">
-                  {invitation.eventTitle} · {invitation.target === 'PRIMARY' ? 'Người chính' : 'Người dự bị'} · phản hồi trước {new Date(invitation.acknowledgeBy).toLocaleString('vi-VN')}
-                </p>
-              </div>
-              <Button
-                size="sm"
-                disabled={!canMutate || busyInbox.has(invitation.id)}
-                loading={busyInbox.has(invitation.id)}
-                onClick={() => void handleAcceptDispatch(invitation)}
-              >
-                Nhận nhiệm vụ
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Quick Filter Chips — intentionally hand-rolled, not DS FilterChips:
-          DS pills are 32px/grouped 30px tall, below the 44px mobile touch
-          invariant; these keep role=group + aria-pressed + min-h-44. (B5) */}
-      <div className="flex flex-wrap gap-1.5 px-3 py-2 bg-surface-ground/40 border-b border-surface-border" role="group" aria-label="Lọc công việc theo trạng thái">
-        {myTaskFilterOptions.map(opt => (
-          <button
-            key={opt.key}
-            type="button"
-            aria-pressed={myTaskFilter === opt.key}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors min-h-[44px] sm:min-h-0 inline-flex items-center justify-center mobile-touch-target ${
-              myTaskFilter === opt.key
-                ? 'bg-parish-primary text-white shadow-xs'
-                : 'bg-surface-card text-text-muted hover:text-text-main border border-surface-border hover:bg-surface-hover'
-            }`}
-            onClick={() => setMyTaskFilter(opt.key)}
-          >
-            {opt.label} ({opt.count})
-          </button>
-        ))}
-      </div>
-
-      <div className="divide-y divide-surface-border flex-1">
-        {filteredMyTasks.length === 0 && (
-          <div className="p-8">
-            <EmptyState
-              icon={ShieldCheck}
-              title="Không có công việc nào"
-              description={
-                myTaskFilter === 'ALL'
-                  ? 'Hiện không có công việc nào cần xử lý.'
-                  : `Không có công việc nào ở trạng thái ${myTaskFilterOptions.find(o => o.key === myTaskFilter)?.label.toLowerCase()}.`
-              }
-            />
-          </div>
-        )}
-        {filteredMyTasks.map(task => {
-          const mutable = !isTerminalTask(task.status)
-          const hasPending = mutable && task.myAssignments?.some(assignment => assignment.acknowledgementStatus === 'PENDING')
-          const canExecute = task.myAssignments?.some(assignment =>
-            assignment.acknowledgementStatus === 'ACCEPTED'
-            && (assignment.assignmentRole === 'OWNER' || assignment.assignmentRole === 'CONTRIBUTOR'))
-          return (
-            <article key={task.id} className="p-4 transition-colors hover:bg-surface-hover/30">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 shrink-0">
-                  {task.status === 'DONE' ? (
-                    <div className="rounded-full bg-parish-success-bg p-1 text-parish-success">
-                      <CheckCircle2 className="h-4 w-4" />
-                    </div>
-                  ) : task.status === 'BLOCKED' ? (
-                    <div className="rounded-full bg-parish-danger-bg p-1 text-parish-danger">
-                      <AlertTriangle className="h-4 w-4" />
-                    </div>
-                  ) : (
-                    <div className="rounded-full bg-parish-primary-light p-1 text-parish-primary">
-                      <CircleAlert className="h-4 w-4" />
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <h3 className="m-0 text-sm font-bold text-text-main">{task.title}</h3>
-                      {task.isRequired && <Badge tone="warning">Bắt buộc</Badge>}
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-1">
-                      <Badge tone="neutral">{taskPhaseLabel[task.phase]}</Badge>
-                      <Badge tone={statusTone(task.status)}>{statusLabel[task.status] || task.status}</Badge>
-                    </div>
-                  </div>
-
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {task.scheduledStartAt && task.scheduledEndAt
-                        ? `Ca: ${new Date(task.scheduledStartAt).toLocaleString('vi-VN')} – ${new Date(task.scheduledEndAt).toLocaleString('vi-VN')}`
-                        : task.dueAt ? `Hạn: ${new Date(task.dueAt).toLocaleString('vi-VN')}` : 'Chưa có lịch'}
-                    </span>
-                    {task.scheduledStartAt && task.scheduledEndAt && task.dueAt && <span>Hạn: {new Date(task.dueAt).toLocaleString('vi-VN')}</span>}
-                  </div>
-
-                  {task.blockedReason && (
-                    <div className="mt-2 rounded-lg border border-parish-danger/30 bg-parish-danger-bg p-2 text-xs text-parish-danger">
-                      <span className="font-bold">Điểm nghẽn:</span> {task.blockedReason}
-                    </div>
-                  )}
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!isOnline || source !== 'server' || taskDetailLoading}
-                      onClick={() => void selectTask(task.id).catch(() => undefined)}
-                    >
-                      Chi tiết nhiệm vụ
-                    </Button>
-                    {canExecute && mutable && (
-                      <Button
-                        size="sm"
-                        disabled={!canMutate || busyTask === task.id}
-                        onClick={() => void handleTask(task, 'DONE')}
-                      >
-                        Hoàn tất
-                      </Button>
-                    )}
-                    {hasPending && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={!canMutate || busyTask === task.id}
-                        onClick={() => void handleTask(task, 'ACCEPTED')}
-                      >
-                        Nhận việc
-                      </Button>
-                    )}
-                    {hasPending && (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={!canMutate || busyTask === task.id}
-                        onClick={() => void handleTask(task, 'DECLINED')}
-                      >
-                        Từ chối
-                      </Button>
-                    )}
-                    {mutable && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={!canMutate || busyTask === task.id}
-                        onClick={() => void handleTask(task, 'BLOCKED')}
-                      >
-                        Báo bị chặn
-                      </Button>
-                    )}
-                    {mutable && (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={!canMutate || busyTask === task.id}
-                        onClick={() => void handleTask(task, 'CANCELLED')}
-                      >
-                        Hủy việc
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </article>
-          )
-        })}
-        {taskHasMore && (
-          <div className="p-3 text-center bg-surface-ground/20">
-            <Button variant="secondary" size="sm" disabled={!isOnline || source !== 'server' || loading} onClick={() => void loadMoreTasks().catch(() => undefined)}>
-              Tải thêm công việc
-            </Button>
-          </div>
-        )}
-      </div>
-    </Surface>
+    <OperationsMyTaskBoard
+      sectionRef={myTasksSectionRef}
+      tasks={tasks}
+      filteredMyTasks={filteredMyTasks}
+      taskTotal={taskTotal}
+      taskHasMore={taskHasMore}
+      loadingMoreTasks={loadingMoreLists.tasks}
+      onLoadMoreTasks={() => loadMoreList('tasks')}
+      myTaskFilter={myTaskFilter}
+      onMyTaskFilterChange={setMyTaskFilter}
+      myTaskFilterOptions={myTaskFilterOptions}
+      dispatchInvitations={dispatchInvitations}
+      dispatchTotal={dispatchTotal}
+      dispatchHasMore={dispatchHasMore}
+      loadingMoreDispatches={loadingMoreLists.dispatches}
+      onLoadMoreDispatches={() => loadMoreList('dispatches')}
+      busyInbox={busyInbox}
+      onAcceptDispatch={invitation => void handleAcceptDispatch(invitation)}
+      isOnline={isOnline}
+      source={source}
+      canMutate={canMutate}
+      loading={loading}
+      taskDetailLoading={taskDetailLoading}
+      busyTask={busyTask}
+      onSelectTask={taskId => void selectTask(taskId).catch(() => undefined)}
+      onTaskAction={(task, action) => void handleTask(task, action)}
+      onOverflowOpen={(task, actions, button) => {
+        if (taskOverflow?.taskId === task.id) { setTaskOverflow(null); return }
+        taskOverflowTriggerRef.current = button
+        openTaskOverflow(task.id, actions, button)
+      }}
+      overflowTaskId={taskOverflow?.taskId ?? null}
+    />
   )
 
   const renderInboxSection = () => (
-    <Surface as="section" variant="card" className="overflow-hidden rounded-2xl border border-surface-border shadow-xs" aria-label="Hộp nhắc việc">
-      <div className="flex items-center justify-between border-b border-surface-border px-4 py-3.5 bg-surface-ground/30">
-        <div className="flex items-center gap-2">
-          <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-            <Bell className="h-4 w-4" />
-          </div>
-          <div>
-            <h2 className="m-0 text-sm font-extrabold text-text-main">Hộp Nhắc Việc</h2>
-            <p className="m-0 text-xs text-text-muted">Thông báo mốc thời gian và hạn hoàn thành nhiệm vụ</p>
-          </div>
-        </div>
-        <Badge tone="neutral">{reminders.filter(r => !r.readAt).length} chưa đọc</Badge>
-      </div>
-
-      <div className="divide-y divide-surface-border">
-        {reminders.length === 0 && (
-          <div className="p-6">
-            <EmptyState
-              icon={Bell}
-              title="Chưa có nhắc việc nào"
-              description="Hộp thư nhắc việc tự động hiện trống."
-            />
-          </div>
-        )}
-        {reminders.map(reminder => (
-          <article
-            key={reminder.id}
-            data-reminder-id={reminder.id}
-            className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 transition-colors ${
-              reminder.readAt ? 'hover:bg-surface-hover/30' : 'bg-parish-primary-light/30 border-l-4 border-parish-primary'
-            }`}
-          >
-            <div>
-              <p className="m-0 text-sm font-bold text-text-main">{reminderKindLabel[reminder.kind]}</p>
-              <p className="mb-0 mt-1 text-xs text-text-muted">
-                {new Date(reminder.triggerAt).toLocaleString('vi-VN')} · {reminderStatusLabel[reminder.status]}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {reminder.readAt ? (
-                <Badge tone="neutral">Đã đọc</Badge>
-              ) : (
-                <Button variant="secondary" size="sm" disabled={!canMutate || busyInbox.has(reminder.id)} loading={busyInbox.has(reminder.id)} onClick={() => void handleMarkReminderRead(reminder)}>
-                  Đánh dấu đã đọc
-                </Button>
-              )}
-              {reminder.status === 'PENDING' && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!canMutate || busyInbox.has(reminder.id)}
-                  loading={busyInbox.has(reminder.id)}
-                  onClick={() => void handleCancelReminder(reminder)}
-                >
-                  Hủy lịch nhắc
-                </Button>
-              )}
-            </div>
-          </article>
-        ))}
-        {reminderHasMore && (
-          <div className="p-3 text-center bg-surface-ground/20">
-            <Button variant="secondary" size="sm" disabled={!isOnline || source !== 'server' || loading} onClick={() => void loadMoreReminders().catch(() => undefined)}>
-              Tải thêm nhắc việc
-            </Button>
-          </div>
-        )}
-      </div>
-    </Surface>
+    <OperationsInboxList
+      reminders={reminders}
+      reminderHasMore={reminderHasMore}
+      loadingMoreReminders={loadingMoreLists.reminders}
+      onLoadMoreReminders={() => loadMoreList('reminders')}
+      busyInbox={busyInbox}
+      setInboxBusy={setInboxBusy}
+      canMutate={canMutate}
+      isOnline={isOnline}
+      source={source}
+      loading={loading}
+      permissions={permissions}
+      taskTitleById={taskTitleById}
+      eventTitleById={eventTitleById}
+      onSelectTask={taskId => void selectTask(taskId).catch(() => undefined)}
+      onSelectEvent={eventId => void selectEvent(eventId).catch(() => undefined)}
+    />
   )
 
   const renderUtilitiesSection = () => (
@@ -1190,62 +908,96 @@ export default function OperationsPage() {
   )
 
   if (loading && events.length === 0 && tasks.length === 0) {
-    return <DesktopAppShell width="wide" embedded={mode === 'mobile'}><SkeletonCardGrid count={5} /></DesktopAppShell>
+    return <DesktopAppShell width="wide"><SkeletonCardGrid count={5} /></DesktopAppShell>
   }
 
   return (
-    <DesktopAppShell width="wide" embedded={isMobileLayout} className="flex flex-col gap-5">
-      <PageHeader
-        title="Sự Kiện & Công Việc"
-        description="Điều phối trách nhiệm, tiến độ và các điểm đang chặn trước ngày sự kiện."
-        icon={<ClipboardList aria-hidden="true" className="h-6 w-6" />}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            {canCreateAnything && (
-              <div className="relative" ref={createMenuRef}>
-                <Button ref={createMenuButtonRef} size="sm" leadingIcon={<Plus className="h-4 w-4" />} disabled={!canMutate} onClick={() => setShowCreateMenu(value => !value)} aria-haspopup="menu" aria-expanded={showCreateMenu}>
-                  Tạo mới
-                </Button>
-                {!isMobileLayout && showCreateMenu && canMutate && (
-                  <div
-                    role="menu"
-                    aria-label="Tạo mới"
-                    className="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-xl border border-surface-border bg-surface-card shadow-lg"
-                    onKeyDown={event => {
-                      if (event.key === 'ArrowDown') { event.preventDefault(); focusCreateMenuItem(1) }
-                      else if (event.key === 'ArrowUp') { event.preventDefault(); focusCreateMenuItem(-1) }
-                      else if (event.key === 'Home') { event.preventDefault(); focusCreateMenuItem('first') }
-                      else if (event.key === 'End') { event.preventDefault(); focusCreateMenuItem('last') }
-                    }}
-                  >
-                    {canCreateXuDoan && (
-                      <button type="button" role="menuitem" className="flex w-full flex-col gap-0.5 px-4 py-3 text-left hover:bg-surface-hover" onClick={() => openCreateEvent('XU_DOAN')}>
-                        <span className="text-sm font-bold text-text-main">Tạo sự kiện Xứ đoàn</span>
-                        <span className="text-xs text-text-muted">Toàn Xứ đoàn · nhiều Ban/Ngành phối hợp</span>
-                      </button>
-                    )}
-                    {unitCreationOptions.filter(unit => unit.canCreateEvent).map(unit => (
-                      <button key={`event-${unit.id}`} type="button" role="menuitem" className="flex w-full flex-col gap-0.5 px-4 py-3 text-left hover:bg-surface-hover" onClick={() => openCreateEvent('UNIT', unit.id)}>
-                        <span className="text-sm font-bold text-text-main">Tạo sự kiện {unit.name}</span>
-                        <span className="text-xs text-text-muted">Sự kiện chuyên môn · {unit.unitType === 'BRANCH' ? 'Ngành' : 'Ban'}</span>
-                      </button>
-                    ))}
-                    {unitCreationOptions.filter(unit => unit.canCreateTask).map(unit => (
-                      <button key={`task-${unit.id}`} type="button" role="menuitem" className="flex w-full flex-col gap-0.5 px-4 py-3 text-left hover:bg-surface-hover" onClick={() => openCreateStandaloneTask(unit.id)}>
-                        <span className="text-sm font-bold text-text-main">Tạo Task · {unit.name}</span>
-                        <span className="text-xs text-text-muted">Việc độc lập, không cần sự kiện</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            <Button variant="secondary" size="sm" leadingIcon={<RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />} disabled={loading || !isOnline} onClick={() => void fetch().catch(() => undefined)}>
-              Làm mới
-            </Button>
-          </div>
-        }
-      />
+    <DesktopAppShell width="wide" className="flex flex-col gap-5">
+      {isMobileLayout ? (
+        <SubpageHeader
+          icon={<ClipboardList size={16} aria-hidden="true" />}
+          title="Sự Kiện & Công Việc"
+          meta={
+            <span className="truncate">
+              {eventTotal > 0 || taskTotal > 0
+                ? `${eventTotal} sự kiện · ${taskTotal} công việc`
+                : 'Điều phối trách nhiệm, tiến độ và các điểm chặn'}
+            </span>
+          }
+          actions={
+            <div className="flex items-center gap-1.5">
+              {canCreateAnything && (
+                <button
+                  type="button"
+                  onClick={() => setShowCreateMenu(true)}
+                  className="subpage-header__btn subpage-header__btn--primary"
+                  disabled={!canMutate}
+                  aria-label="Tạo mới"
+                >
+                  <Plus size={13} aria-hidden="true" />
+                  <span>Tạo mới</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void fetch().catch(() => undefined)}
+                className="subpage-header__btn subpage-header__btn--secondary subpage-header__btn--icon-only"
+                disabled={loading || !isOnline}
+                aria-label="Làm mới danh sách"
+                title="Làm mới danh sách"
+              >
+                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
+              </button>
+            </div>
+          }
+        />
+      ) : (
+        <PageHeader
+          title="Sự Kiện & Công Việc"
+          description="Điều phối trách nhiệm, tiến độ và các điểm đang chặn trước ngày sự kiện."
+          icon={<ClipboardList aria-hidden="true" className="h-6 w-6" />}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              {canCreateAnything && (
+                <div className="relative" ref={createMenuRef}>
+                  <Button ref={createMenuButtonRef} size="sm" leadingIcon={<Plus className="h-4 w-4" />} disabled={!canMutate} onClick={() => setShowCreateMenu(value => !value)} aria-haspopup="menu" aria-expanded={showCreateMenu}>
+                    Tạo mới
+                  </Button>
+                  {showCreateMenu && canMutate && (
+                    <div
+                      role="menu"
+                      aria-label="Tạo mới"
+                      className="absolute right-0 z-30 mt-2 w-80 sm:w-96 max-h-[min(520px,calc(100vh-140px))] overflow-y-auto rounded-2xl border border-surface-border bg-surface-card/98 shadow-2xl p-2 backdrop-blur-md"
+                      onKeyDown={event => {
+                        if (event.key === 'ArrowDown') { event.preventDefault(); focusCreateMenuItem(1) }
+                        else if (event.key === 'ArrowUp') { event.preventDefault(); focusCreateMenuItem(-1) }
+                        else if (event.key === 'Home') { event.preventDefault(); focusCreateMenuItem('first') }
+                        else if (event.key === 'End') { event.preventDefault(); focusCreateMenuItem('last') }
+                        else if (event.key === 'Tab') {
+                          // W3.3: leaving the menu by Tab closes it — APG behavior
+                          // (the popover is dismissed, focus returns to the page).
+                          setShowCreateMenu(false)
+                        }
+                      }}
+                    >
+                      <CreateMenuItems
+                        layout="dropdown"
+                        canCreateXuDoan={canCreateXuDoan}
+                        units={unitCreationOptions}
+                        onPickEvent={openCreateEvent}
+                        onPickStandaloneTask={openCreateStandaloneTask}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              <Button variant="secondary" size="sm" leadingIcon={<RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />} disabled={loading || !isOnline} onClick={() => void fetch().catch(() => undefined)}>
+                Làm mới
+              </Button>
+            </div>
+          }
+        />
+      )}
 
       {(!isOnline || source === 'cache') && (
         <Surface variant="sunken" role="status" className="flex items-start gap-2 border border-parish-warning/30 p-3 text-sm text-parish-warning">
@@ -1298,67 +1050,13 @@ export default function OperationsPage() {
           subtitle="Chọn loại sự kiện hoặc nhiệm vụ cần khởi tạo"
           maxWidth="480px"
         >
-          <div role="menu" aria-label="Tạo mới" className="space-y-2 py-1">
-            {canCreateXuDoan && (
-              <button
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-3 rounded-xl border border-surface-border bg-surface-card p-3.5 text-left transition-colors hover:bg-surface-hover active:bg-surface-active min-h-[56px] mobile-touch-target"
-                onClick={() => {
-                  setShowCreateMenu(false)
-                  openCreateEvent('XU_DOAN')
-                }}
-              >
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <Calendar className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="m-0 text-sm font-bold text-text-main">Tạo sự kiện Xứ đoàn</p>
-                  <p className="m-0 text-xs text-text-muted">Toàn Xứ đoàn · nhiều Ban/Ngành phối hợp</p>
-                </div>
-              </button>
-            )}
-            {unitCreationOptions.filter(unit => unit.canCreateEvent).map(unit => (
-              <button
-                key={`event-${unit.id}`}
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-3 rounded-xl border border-surface-border bg-surface-card p-3.5 text-left transition-colors hover:bg-surface-hover active:bg-surface-active min-h-[56px] mobile-touch-target"
-                onClick={() => {
-                  setShowCreateMenu(false)
-                  openCreateEvent('UNIT', unit.id)
-                }}
-              >
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <Users className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="m-0 text-sm font-bold text-text-main">Tạo sự kiện {unit.name}</p>
-                  <p className="m-0 text-xs text-text-muted">Sự kiện chuyên môn · {unit.unitType === 'BRANCH' ? 'Ngành' : 'Ban'}</p>
-                </div>
-              </button>
-            ))}
-            {unitCreationOptions.filter(unit => unit.canCreateTask).map(unit => (
-              <button
-                key={`task-${unit.id}`}
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-3 rounded-xl border border-surface-border bg-surface-card p-3.5 text-left transition-colors hover:bg-surface-hover active:bg-surface-active min-h-[56px] mobile-touch-target"
-                onClick={() => {
-                  setShowCreateMenu(false)
-                  openCreateStandaloneTask(unit.id)
-                }}
-              >
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <ListTodo className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="m-0 text-sm font-bold text-text-main">Tạo Task · {unit.name}</p>
-                  <p className="m-0 text-xs text-text-muted">Việc độc lập, không cần sự kiện</p>
-                </div>
-              </button>
-            ))}
-          </div>
+          <CreateMenuItems
+            layout="sheet"
+            canCreateXuDoan={canCreateXuDoan}
+            units={unitCreationOptions}
+            onPickEvent={(kind, unitId) => { setShowCreateMenu(false); openCreateEvent(kind, unitId) }}
+            onPickStandaloneTask={unitId => { setShowCreateMenu(false); openCreateStandaloneTask(unitId) }}
+          />
         </ModalShell>
       )}
 
@@ -1366,25 +1064,29 @@ export default function OperationsPage() {
         <button
           type="button"
           aria-label="Tạo mới sự kiện hoặc nhiệm vụ"
-          className="fixed bottom-20 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-parish-primary text-white shadow-lg transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary focus-visible:ring-offset-2 sm:hidden"
+          // W2.8: shared .mobile-floating-action primitive owns bottom clearance
+          // (nav height + safe-area) and right safe-area; the old hand-rolled
+          // `bottom-20 right-4 sm:hidden` overlapped the nav under the home
+          // indicator and vanished on 640–1023px tablets (still mobile shell).
+          className="mobile-floating-action mobile-touch-target flex items-center justify-center shadow-lg transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary focus-visible:ring-offset-2"
           onClick={() => setShowCreateMenu(true)}
         >
-          <Plus className="h-6 w-6" />
+          <Plus className="h-6 w-6" aria-hidden="true" />
         </button>
       )}
       {isMobileLayout ? (
         <>
           {renderInboxSection()}
           {renderMyTasksSection()}
-          {renderEventsSection()}
-          {renderKpiStrip()}
+          <OperationsEventList />
+          {kpiStrip}
           {renderUtilitiesSection()}
         </>
       ) : (
         <>
-          {renderKpiStrip()}
+          {kpiStrip}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 items-start">
-            {renderEventsSection()}
+            <OperationsEventList />
             {renderMyTasksSection()}
           </div>
           {renderInboxSection()}
@@ -1398,7 +1100,7 @@ export default function OperationsPage() {
           onClose={handleCloseEventModal}
           mobileDisplay="bottom-sheet"
           title={selectedEvent.event.title}
-          subtitle={`${new Date(selectedEvent.event.startsAt).toLocaleString('vi-VN')} · ${selectedEvent.event.location || 'Chưa có địa điểm'} · Tiến độ chuẩn bị ${selectedEvent.readiness.percent}%`}
+          subtitle={`${formatEventInstant(selectedEvent.event.startsAt, selectedEvent.event.timezone)} · ${selectedEvent.event.location || 'Chưa có địa điểm'} · Tiến độ chuẩn bị ${selectedEvent.readiness.percent}%`}
           icon={<CalendarClock aria-hidden="true" className="h-5 w-5 text-parish-primary" />}
           headerActions={
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1417,15 +1119,19 @@ export default function OperationsPage() {
           }
           maxWidth="1040px"
           footer={
-            <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+            /* W3.6 (MB-05): on phones the primary transition leads as a
+               full-width row and the remaining actions follow below; at sm+
+               every order/width reverts to the original desktop layout. */
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
               <Button
                 variant="secondary"
                 size="sm"
+                className="order-last w-full sm:order-none sm:w-auto"
                 onClick={handleCloseEventModal}
               >
                 Đóng chi tiết
               </Button>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 {previousEventStatus[selectedEvent.event.status] && selectedEvent.permissions['operations.event.transition'] && (
                   <Button
                     size="sm"
@@ -1443,8 +1149,18 @@ export default function OperationsPage() {
                     size="sm"
                     variant="primary"
                     loading={transitioningEvent}
+                    // W3.6 (MB-05): the primary transition leads its own
+                    // full-width row on phones; rewind/cancel drop to the next
+                    // row. sm+ restores the original side-by-side order.
+                    className="order-first w-full sm:order-none sm:w-auto"
+                    // W1.1: readiness blockers must not disable the forward button
+                    // for holders of override_readiness — the server re-validates and
+                    // returns READINESS_BLOCKED, which opens the override-reason dialog
+                    // (the designed path). Non-holders keep the pre-blocked behavior.
                     disabled={!canMutate
-                      || ((nextEventStatus[selectedEvent.event.status] === 'READY' || nextEventStatus[selectedEvent.event.status] === 'LIVE') && selectedEvent.readiness.blockers.length > 0)
+                      || ((nextEventStatus[selectedEvent.event.status] === 'READY' || nextEventStatus[selectedEvent.event.status] === 'LIVE')
+                        && selectedEvent.readiness.blockers.length > 0
+                        && !selectedEvent.permissions['operations.event.override_readiness'])
                       || (nextEventStatus[selectedEvent.event.status] === 'COMPLETED' && (!outcomeSummary.trim() || closureBlockers.length > 0))}
                     onClick={() => void handleEventTransition(nextEventStatus[selectedEvent.event.status]!)}
                     leadingIcon={<ArrowRight className="h-4 w-4" />}
@@ -1466,6 +1182,19 @@ export default function OperationsPage() {
                     Hủy sự kiện
                   </Button>
                 )}
+                {selectedEvent.event.status === 'CANCELLED'
+                  && selectedEvent.permissions['operations.event.transition']
+                  && !showRestorePrompt && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={transitioningEvent}
+                    disabled={!canMutate}
+                    onClick={() => setShowRestorePrompt(true)}
+                  >
+                    Khôi phục sự kiện
+                  </Button>
+                )}
               </div>
             </div>
           }
@@ -1474,286 +1203,23 @@ export default function OperationsPage() {
             {selectedEvent.permissions['operations.event.manage'] && !selectedEventClosed && selectedEvent.event.status !== 'LIVE' && (selectedEvent.event.visibility !== 'PUBLIC_SUMMARY' || selectedEvent.permissions['operations.event.publish_public']) && (
               <EventEditForm detail={selectedEvent} />
             )}
-            {/* 1. KHỐI TIẾN TRÌNH VÒNG ĐỜI & SẴN SÀNG (LIFECYCLE HUB) */}
-            <div className="rounded-2xl border border-surface-border bg-surface-ground/40 p-4 sm:p-5 space-y-4 shadow-xs" aria-label="Vòng đời sự kiện">
-              {/* Trạng thái bị hủy (nếu có) */}
-              {selectedEvent.event.status === 'CANCELLED' ? (
-                <div className="flex items-start gap-3 rounded-xl border border-parish-danger/30 bg-parish-danger-bg/20 p-3.5 text-text-main">
-                  <XCircle className="h-5 w-5 text-parish-danger shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="m-0 text-sm font-bold text-parish-danger">Sự kiện đã bị hủy</p>
-                    <p className="mb-0 mt-1 text-xs text-text-muted">Lý do và người thực hiện được giữ trong nhật ký audit.</p>
-                  </div>
-                </div>
-              ) : (
-                /* Visual Lifecycle Stepper */
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Giai đoạn sự kiện</span>
-                    <span className="text-xs font-semibold text-text-muted">
-                      Trạng thái hiện tại: <span className="font-bold text-text-main">{statusLabel[selectedEvent.event.status] || selectedEvent.event.status}</span>
-                    </span>
-                  </div>
+            {/* 1. KHỐI TIẾN TRÌNH VÒNG ĐỜI & SẴN SÀNG — W3.2: EventLifecycleHub */}
+            <EventLifecycleHub
+              detail={selectedEvent}
+              flow={transitionFlow}
+              canMutate={canMutate}
+              onShowTasksTab={() => setEventModalTab('tasks')}
+            />
 
-                  <div className="relative flex items-center justify-between px-2 sm:px-6 py-2">
-                    {/* Background Connecting Track */}
-                    <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-1 bg-surface-border -z-0 rounded-full" />
-                    {/* Active Progress Connecting Track */}
-                    <div
-                      className="absolute left-6 top-1/2 -translate-y-1/2 h-1 bg-parish-primary transition-[width] duration-300 -z-0 rounded-full"
-                      style={{
-                        width: currentStepIndex > 0 ? `${(currentStepIndex / (EVENT_STEPS.length - 1)) * 100}%` : '0%',
-                        maxWidth: 'calc(100% - 48px)',
-                      }}
-                    />
-
-                    {EVENT_STEPS.map((step, index) => {
-                      const isPast = currentStepIndex > index
-                      const isCurrent = currentStepIndex === index
-
-                      return (
-                        <div key={step.status} className="relative z-10 flex flex-col items-center gap-1">
-                          <div
-                            className={`flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-full text-xs font-bold transition-colors duration-150 ${
-                              isPast
-                                ? 'bg-parish-success text-text-inverse shadow-xs'
-                                : isCurrent
-                                  ? 'bg-parish-primary text-text-inverse ring-4 ring-parish-primary/25 shadow-sm'
-                                  : 'border-2 border-surface-border bg-surface-card text-text-muted'
-                            }`}
-                          >
-                            {isPast ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : index + 1}
-                          </div>
-                          <span
-                            className={`text-xs whitespace-nowrap ${
-                              isCurrent
-                                ? 'font-extrabold text-parish-primary'
-                                : isPast
-                                  ? 'font-semibold text-text-main'
-                                  : 'text-text-muted'
-                            }`}
-                          >
-                            {step.label}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Thanh Tiến Độ Sẵn Sàng (Readiness Bar) */}
-              <div className="space-y-1.5 pt-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-text-main flex items-center gap-1.5">
-                    <CheckCircle2 className="h-4 w-4 text-parish-primary" />
-                    Tiến độ chuẩn bị sự kiện
-                  </span>
-                  <span className={`font-bold ${selectedEvent.readiness.percent === 100 ? 'text-parish-success' : selectedEvent.readiness.percent >= 50 ? 'text-parish-primary' : 'text-parish-warning'}`}>
-                    {selectedEvent.readiness.percent}%
-                  </span>
-                </div>
-                <div className="h-2 w-full rounded-full bg-surface-border/70 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-[width] duration-300 ${selectedEvent.readiness.percent === 100 ? 'bg-parish-success' : selectedEvent.readiness.percent >= 50 ? 'bg-parish-primary' : 'bg-parish-warning'}`}
-                    style={{ width: `${Math.min(100, Math.max(0, selectedEvent.readiness.percent))}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Điểm chặn Readiness Blockers */}
-              {selectedEvent.readiness.blockers.length > 0 && (
-                <div className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg/40 p-3 space-y-2">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-parish-warning">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    <span>Điểm chặn cần giải quyết trước khi chuyển trạng thái ({selectedEvent.readiness.blockers.length}):</span>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {selectedEvent.readiness.blockers.map(blocker => (
-                      <div key={`${blocker.type}:${blocker.id}`} className="rounded-lg border border-surface-border/80 bg-surface-card px-3 py-2 text-xs text-text-main flex items-center justify-between gap-2 shadow-xs">
-                        <span className="font-semibold">{blocker.label}</span>
-                        <Badge tone="neutral" className="text-xs uppercase font-bold shrink-0">{blocker.type}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(nextEventStatus[selectedEvent.event.status] === 'READY' || nextEventStatus[selectedEvent.event.status] === 'LIVE') && selectedEvent.readiness.blockers.length > 0 && (
-                <p className="mb-0 text-xs font-semibold text-parish-warning">Cần xử lý hết điểm chặn readiness trước khi chuyển trạng thái.</p>
-              )}
-
-              {nextEventStatus[selectedEvent.event.status] === 'COMPLETED' && (
-                <div className={`rounded-xl border p-3 space-y-2 ${closureBlockers.length > 0 || !outcomeSummary.trim() ? 'border-parish-warning/30 bg-parish-warning-bg/40' : 'border-parish-success/30 bg-parish-success-bg/40'}`}>
-                  <p className="m-0 text-xs font-bold text-text-main">Điều kiện đóng sự kiện</p>
-                  {!outcomeSummary.trim() && <p className="m-0 text-xs text-parish-warning">Chưa nhập tổng kết kết quả.</p>}
-                  {closureBlockers.map(blocker => (
-                    <button
-                      key={`${blocker.type}:${blocker.id}`}
-                      type="button"
-                      className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-surface-border bg-surface-card px-3 py-2 text-left text-xs text-text-main"
-                      onClick={() => setEventModalTab('tasks')}
-                    >
-                      <span className="font-semibold">{blocker.label}</span>
-                      <Badge tone="neutral" className="shrink-0 text-xs uppercase font-bold">{blocker.type}</Badge>
-                    </button>
-                  ))}
-                  {outcomeSummary.trim() && closureBlockers.length === 0 && <p className="m-0 text-xs font-semibold text-parish-success">Đã đủ điều kiện đóng sự kiện.</p>}
-                </div>
-              )}
-
-              {selectedEvent.event.automationPaused && (
-                <div role="status" className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg/40 p-3 text-sm text-text-main">
-                  <p className="m-0 font-bold">Tự động chuyển giai đoạn đang tạm dừng</p>
-                  <p className="mb-0 mt-1 text-xs">{selectedEvent.event.automationPauseReason || 'Sự kiện đã được lùi giai đoạn thủ công.'}</p>
-                  {selectedEvent.permissions['operations.event.transition'] && (
-                    <Button className="mt-2" size="sm" variant="secondary" loading={transitioningEvent} disabled={!canMutate} leadingIcon={<Play className="h-4 w-4" />} onClick={() => void handleResumeAutomation()}>
-                      Tiếp tục tự động chuyển
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              {/* Status & Readiness summary line */}
-              {selectedEvent.event.status !== 'CANCELLED' && (
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-surface-border/80 text-xs text-text-muted">
-                  <span>Trạng thái hiện tại: <span className="font-semibold text-text-main">{statusLabel[selectedEvent.event.status] || selectedEvent.event.status}</span></span>
-                  <span>Tiến độ chuẩn bị: <span className="font-semibold text-parish-primary">{selectedEvent.readiness.percent}%</span></span>
-                </div>
-              )}
-
-              {/* Hộp xác nhận hủy sự kiện */}
-              {showCancelPrompt
-                && (selectedEvent.event.status === 'DRAFT' || selectedEvent.event.status === 'PLANNING' || selectedEvent.event.status === 'PREPARING' || selectedEvent.event.status === 'READY')
-                && selectedEvent.permissions['operations.event.cancel']
-                && (selectedEvent.event.visibility !== 'PUBLIC_SUMMARY' || selectedEvent.permissions['operations.event.publish_public']) && (
-                <div className="rounded-xl border border-parish-danger/30 bg-parish-danger-bg/20 p-3 sm:p-4 space-y-2.5">
-                  <label className="block text-sm font-semibold text-text-main">
-                    Lý do hủy sự kiện (bắt buộc)
-                    <TextArea
-                      className="mt-1 min-h-20 w-full"
-                      value={eventReason}
-                      maxLength={1000}
-                      placeholder="Nhập lý do hủy sự kiện..."
-                      onChange={event => setEventReason(event.target.value)}
-                      autoFocus
-                    />
-                  </label>
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setShowCancelPrompt(false)
-                        setEventReason('')
-                      }}
-                    >
-                      Không hủy nữa
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      loading={transitioningEvent}
-                      disabled={!canMutate || !eventReason.trim()}
-                      onClick={() => void handleEventTransition('CANCELLED')}
-                    >
-                      Xác nhận hủy sự kiện
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {showRewindPrompt && previousEventStatus[selectedEvent.event.status] && selectedEvent.permissions['operations.event.transition'] && (
-                <div className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg/20 p-3 sm:p-4 space-y-2.5">
-                  <label className="block text-sm font-semibold text-text-main">
-                    Lý do lùi về {statusLabel[previousEventStatus[selectedEvent.event.status]!]}
-                    <TextArea className="mt-1 min-h-20 w-full" value={eventReason} maxLength={2000} placeholder="Nêu lý do để lưu vào lịch sử sự kiện..." onChange={event => setEventReason(event.target.value)} autoFocus />
-                  </label>
-                  <p className="m-0 text-xs text-text-muted">Task và xác nhận nhận việc được giữ nguyên. Tự động chuyển theo giờ sẽ tạm dừng cho tới khi người quản lý bật lại.</p>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => { setShowRewindPrompt(false); setEventReason('') }}>Không lùi nữa</Button>
-                    <Button variant="primary" size="sm" loading={transitioningEvent} disabled={!canMutate || !eventReason.trim()} onClick={() => void handleEventTransition(previousEventStatus[selectedEvent.event.status]!)}>Xác nhận lùi giai đoạn</Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Form tổng kết khi LIVE */}
-              {selectedEvent.event.status === 'LIVE' && selectedEvent.permissions['operations.event.transition'] && (
-                <label className="mt-3 block text-sm font-semibold text-text-main">
-                  Tổng kết kết quả
-                  <TextArea
-                    className="mt-1 min-h-24 w-full"
-                    value={outcomeSummary}
-                    maxLength={4000}
-                    required
-                    placeholder="Bắt buộc trước khi hoàn tất sự kiện"
-                    onChange={event => setOutcomeSummary(event.target.value)}
-                  />
-                </label>
-              )}
-
-              {/* Cảnh báo closure tasks khi LIVE */}
-              {selectedEvent.event.status === 'LIVE' && closureTasks.length > 0 && (
-                <div role="status" className="rounded-lg border border-parish-warning/30 bg-parish-warning-bg p-3 text-sm text-text-main">
-                  <p className="m-0 font-bold">Chưa thể đóng sự kiện: còn nhiệm vụ bắt buộc chưa hoàn tất.</p>
-                  <ul className="mb-0 mt-2 list-disc pl-5">
-                    {closureTasks.map(task => <li key={task.id}>{task.title} · {statusLabel[task.status] || task.status}</li>)}
-                  </ul>
-                  <p className="mb-0 mt-2 text-xs">Nhiệm vụ đã hủy không được tính là hoàn tất. Máy chủ kiểm tra lại khi đóng sự kiện.</p>
-                </div>
-              )}
-            </div>
-
-            {/* 2. CHỈ SỐ NHANH EXECUTIVE KPI STRIP */}
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-              <div className="rounded-xl border border-surface-border bg-surface-card p-3 flex items-center gap-2.5 shadow-xs">
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <Calendar className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-medium text-text-muted truncate">Thời gian</p>
-                  <p className="m-0 text-xs font-bold text-text-main truncate">
-                    {new Date(selectedEvent.event.startsAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-surface-border bg-surface-card p-3 flex items-center gap-2.5 shadow-xs">
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <MapPin className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-medium text-text-muted truncate">Địa điểm</p>
-                  <p className="m-0 text-xs font-bold text-text-main truncate">
-                    {selectedEvent.event.location || 'Chưa thiết lập'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-surface-border bg-surface-card p-3 flex items-center gap-2.5 shadow-xs">
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <ListTodo className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-medium text-text-muted truncate">Công việc</p>
-                  <p className="m-0 text-xs font-bold text-text-main truncate">
-                    {completedTasksCount}/{totalTasksCount} hoàn tất
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-surface-border bg-surface-card p-3 flex items-center gap-2.5 shadow-xs">
-                <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
-                  <Users className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-medium text-text-muted truncate">Đội ngũ</p>
-                  <p className="m-0 text-xs font-bold text-text-main truncate">
-                    {totalAssigneesCount} người · {totalWorkstreamsCount} nhóm
-                  </p>
-                </div>
-              </div>
-            </div>
+            {/* 2. CHỈ SỐ NHANH — W3.2: EventOverviewStats */}
+            <EventOverviewStats
+              startsAt={selectedEvent.event.startsAt}
+              location={selectedEvent.event.location ?? null}
+              completedTasksCount={completedTasksCount}
+              totalTasksCount={totalTasksCount}
+              totalAssigneesCount={totalAssigneesCount}
+              totalWorkstreamsCount={totalWorkstreamsCount}
+            />
 
             {/* 3. ĐIỀU HƯỚNG TABS */}
             <div className="border-b border-surface-border">
@@ -1769,127 +1235,43 @@ export default function OperationsPage() {
             {/* 4. NỘI DUNG THEO TABS */}
             {/* Tab 1: Nhiệm vụ & Phân công */}
             <TabPanel tabsId="event-modal-tabs" value="tasks" activeValue={activeModalTab} className="space-y-5">
-              {/* Cảnh báo phân công trùng lịch */}
-              {assignmentWarnings && assignmentWarnings.items.length > 0 && selectedEvent.tasks.some(task => task.id === assignmentWarnings.taskId) && (
-                <div role="status" className="rounded-lg border border-surface-border p-3 text-sm text-text-main">
-                  <p className="m-0 font-medium">Đã lưu phân công, nhưng người nhận có lịch bận tại hạn công việc. Hãy trao đổi lại; đây chưa phải xác nhận nhận việc hoặc kiểm tra toàn bộ ca phục vụ.</p>
-                  <div className="mt-2 space-y-1">
-                    {assignmentWarnings.items.map(item => (
-                      <p key={item.id} className="m-0 text-xs">{new Date(item.startsAt).toLocaleString('vi-VN')} – {new Date(item.endsAt).toLocaleString('vi-VN')}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Lưới Task List + Forms */}
-              <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <h3 className="m-0 text-sm font-extrabold text-text-main">Task của sự kiện</h3>
-                    {/* Filter Chips — same DS-deviation rationale as the task-board chips above (B5). */}
-                    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Lọc task theo trạng thái">
-                      {taskFilterOptions.map(opt => (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          aria-pressed={taskStatusFilter === opt.key}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors min-h-[44px] sm:min-h-0 inline-flex items-center justify-center mobile-touch-target ${
-                            taskStatusFilter === opt.key
-                              ? 'bg-parish-primary text-white shadow-xs'
-                              : 'bg-surface-card text-text-muted hover:text-text-main border border-surface-border hover:bg-surface-hover'
-                          }`}
-                          onClick={() => setTaskStatusFilter(opt.key)}
-                        >
-                          {opt.label} ({opt.count})
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {filteredTasks.length === 0 ? (
-                    <EmptyState
-                      icon={ClipboardList}
-                      title={taskStatusFilter === 'ALL' ? 'Chưa có task.' : 'Không có task nào trong bộ lọc này.'}
-                      description={taskStatusFilter === 'ALL' ? 'Tạo công việc mới ở biểu mẫu bên cạnh để bắt đầu phân công.' : 'Hãy chọn một trạng thái khác để xem công việc.'}
-                      className="rounded-xl border border-surface-border py-8"
-                    />
-                  ) : (
-                    <div className="space-y-4">
-                      {taskGroups.filter(group => group.tasks.length > 0).map(group => (
-                        <section key={group.key} aria-label={group.label ?? 'Task của sự kiện'}>
-                          {group.label && (
-                            <h4 className="m-0 mb-2 text-xs font-extrabold uppercase tracking-wider text-text-muted">{group.label} ({group.tasks.length})</h4>
-                          )}
-                          <div className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card overflow-hidden">
-                            {group.tasks.map(task => (
-                        <div key={task.id} className="flex items-start justify-between gap-3 px-3.5 py-3 hover:bg-surface-hover/40 transition-colors">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <p className="m-0 text-sm font-bold text-text-main">{task.title}</p>
-                              {task.isRequired && (
-                                <Badge tone="warning" className="uppercase font-bold py-0">Bắt buộc</Badge>
-                              )}
-                            </div>
-                            <p className="mb-0 mt-1 text-xs text-text-muted">
-                              {taskPhaseLabel[task.phase]} · {selectedEvent.assignees.filter(item => item.taskId === task.id).length} người được phân công
-                            </p>
-                            {task.scheduledStartAt && task.scheduledEndAt && (
-                              <p className="mb-0 mt-1 text-xs text-text-muted flex items-center gap-1">
-                                <Clock className="h-3 w-3 text-text-muted" />
-                                Ca: {new Date(task.scheduledStartAt).toLocaleString('vi-VN')} – {new Date(task.scheduledEndAt).toLocaleString('vi-VN')}
-                              </p>
-                            )}
-                            {task.dueAt && (
-                              <p className="mb-0 mt-1 text-xs text-text-muted flex items-center gap-1">
-                                <Clock className="h-3 w-3 text-text-muted" />
-                                Hạn: {new Date(task.dueAt).toLocaleString('vi-VN')}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-2 shrink-0">
-                            <Badge tone={statusTone(task.status)}>{statusLabel[task.status] || task.status}</Badge>
-                            {selectedEvent.permissions['operations.task.manage'] && task.status !== 'DONE' && task.status !== 'CANCELLED' && (
-                              <Button variant="ghost" size="sm" disabled={!isOnline || source !== 'server'} onClick={() => openEditTask(task)}>
-                                Sửa
-                              </Button>
-                            )}
-                            <Button
-                              variant={selectedTask?.task.id === task.id ? 'primary' : 'ghost'}
-                              size="sm"
-                              loading={taskDetailLoading && pendingTaskId === task.id}
-                              disabled={!isOnline || source !== 'server'}
-                              onClick={() => {
-                                setPendingTaskId(task.id)
-                                void selectTask(task.id).catch(() => undefined).finally(() => {
-                                  setPendingTaskId(current => (current === task.id ? null : current))
-                                })
-                              }}
-                            >
-                              Checklist
-                            </Button>
-                          </div>
-                        </div>
-                            ))}
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  <EventTaskForm detail={selectedEvent} />
-                  <TaskAssignForm detail={selectedEvent} />
-                </div>
-              </div>
-
-              {/* Checklist của nhiệm vụ đã chọn */}
-              {selectedEvent && <TaskChecklistSection />}
+              <EventTasksTab
+                detail={selectedEvent}
+                assignmentWarnings={assignmentWarnings}
+                taskGroups={taskGroups}
+                taskFilterOptions={taskFilterOptions}
+                taskStatusFilter={taskStatusFilter}
+                onTaskStatusFilterChange={setTaskStatusFilter}
+                assigneeCountByTask={assigneeCountByTask}
+                selectedTaskId={selectedTask?.task.id ?? null}
+                pendingTaskId={pendingTaskId}
+                taskDetailLoading={taskDetailLoading}
+                isOnline={isOnline}
+                source={source}
+                onOpenEditTask={openEditTask}
+                onOpenChecklist={task => {
+                  setPendingTaskId(task.id)
+                  void selectTask(task.id).catch(() => undefined).finally(() => {
+                    setPendingTaskId(current => (current === task.id ? null : current))
+                  })
+                }}
+                onCancelTask={task => void handleTask(task, 'CANCELLED')}
+              />
             </TabPanel>
 
             {/* Tab 2: Nhóm công tác */}
             <TabPanel tabsId="event-modal-tabs" value="workstreams" activeValue={activeModalTab}>
               <WorkstreamPanel key={selectedEvent.event.id} event={selectedEvent} enabled={canMutate} fieldUnits={unitCreationOptions} refresh={() => selectEvent(selectedEvent.event.id)} />
+            </TabPanel>
+
+            {/* Tab: Người tham dự (W4.2a) */}
+            <TabPanel tabsId="event-modal-tabs" value="participants" activeValue={activeModalTab}>
+              <EventParticipantsPanel
+                key={`participants-${selectedEvent.event.id}`}
+                detail={selectedEvent}
+                enabled={canMutate}
+                refresh={() => selectEvent(selectedEvent.event.id)}
+              />
             </TabPanel>
 
             {/* Tab 3: Lập lịch nhắc việc */}
@@ -1939,194 +1321,96 @@ export default function OperationsPage() {
         </ModalShell>
       )}
 
-      {!selectedEvent && <TaskChecklistSection />}
-
+      {/* W1.7: TaskChecklistSection used to render at the very bottom of the
+          page ("!selectedEvent && …") where users never noticed it after
+          clicking "Chi tiết nhiệm vụ". The detail is now a dialog whose open
+          state IS selectedTask, so every path that loads a task detail (my
+          tasks row, event-tab Checklist button, reminder "Mở") brings it in
+          front of the user; nested-modal arbitration lives in modalStack. */}
       <ModalShell
-        isOpen={showEditTask && editingTask !== null}
-        onClose={() => { if (!savingTask) { setShowEditTask(false); setEditingTask(null) } }}
-        title="Sửa nhiệm vụ"
-        subtitle={editingTask?.title}
+        isOpen={Boolean(selectedTask)}
+        onClose={() => void selectTask(null)}
+        title="Chi tiết nhiệm vụ"
+        subtitle={selectedTask?.task.title}
+        icon={<ClipboardList aria-hidden="true" className="h-5 w-5 text-parish-primary" />}
+        mobileDisplay="bottom-sheet"
+        maxWidth="720px"
       >
-        <form className="space-y-3" onSubmit={handleUpdateTask}>
-          <TextInput aria-label="Tên nhiệm vụ" className="w-full" value={taskEditDraft.title} required maxLength={300} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, title: event.target.value }))} />
-          <TextArea aria-label="Mô tả nhiệm vụ" className="w-full" value={taskEditDraft.description} maxLength={5000} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, description: event.target.value }))} />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Select aria-label="Ưu tiên nhiệm vụ" className="w-full" value={taskEditDraft.priority} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, priority: event.target.value as OperationTask['priority'] }))}>
-              <option value="LOW">Ưu tiên thấp</option>
-              <option value="NORMAL">Ưu tiên bình thường</option>
-              <option value="HIGH">Ưu tiên cao</option>
-              <option value="URGENT">Khẩn</option>
-            </Select>
-            <label className="flex items-center gap-2 text-sm text-text-main">
-              <input type="checkbox" checked={taskEditDraft.isRequired} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, isRequired: event.target.checked }))} /> Nhiệm vụ bắt buộc
-            </label>
-            <TextInput aria-label="Hạn nhiệm vụ" className="w-full" type="datetime-local" value={taskEditDraft.dueAt} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, dueAt: event.target.value }))} />
-            <TextInput aria-label="Bắt đầu ca nhiệm vụ" className="w-full" type="datetime-local" value={taskEditDraft.scheduledStartAt} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, scheduledStartAt: event.target.value }))} />
-            <TextInput aria-label="Kết thúc ca nhiệm vụ" className="w-full" type="datetime-local" value={taskEditDraft.scheduledEndAt} disabled={savingTask} onChange={event => setTaskEditDraft(value => ({ ...value, scheduledEndAt: event.target.value }))} />
-          </div>
-          <p className="m-0 text-xs text-text-muted">Máy chủ quyết định thay đổi nào là quan trọng: sửa tên, mô tả, mức bắt buộc, hạn hoặc ca nhiệm vụ sẽ yêu cầu người đã nhận việc xác nhận lại. Đổi ưu tiên không làm mất xác nhận cũ.</p>
-          {taskEditScheduleInvalid && <p className="m-0 text-xs text-parish-danger">Ca nhiệm vụ phải có đủ giờ bắt đầu và kết thúc, giờ kết thúc phải sau giờ bắt đầu.</p>}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" size="sm" disabled={savingTask} onClick={() => { setShowEditTask(false); setEditingTask(null) }}>Hủy</Button>
-            {taskEditFormError && <p role="alert" className="m-0 text-xs text-parish-danger">{taskEditFormError}</p>}
-            <Button type="submit" size="sm" loading={savingTask} disabled={!taskEditDraft.title.trim() || taskEditScheduleInvalid}>Lưu thay đổi</Button>
-          </div>
-        </form>
+        <TaskChecklistSection />
       </ModalShell>
 
-      <ConfirmDialog
-        isOpen={acceptanceWarning !== null}
-        title="Còn người chưa nhận nhiệm vụ"
-        message={acceptanceWarning?.length
-          ? `Các task chưa đủ xác nhận: ${acceptanceWarning.map(item => item.label).join(', ')}. Bạn vẫn muốn chuyển sự kiện sang Chuẩn bị?`
-          : 'Vẫn còn người thực hiện chưa nhận nhiệm vụ. Bạn vẫn muốn chuyển sự kiện sang Chuẩn bị?'}
-        confirmText="Vẫn chuyển sang Chuẩn bị"
-        cancelText="Ở lại Kế hoạch"
-        variant="warning"
-        isBusy={transitioningEvent}
-        onCancel={() => setAcceptanceWarning(null)}
-        onConfirm={() => void handleEventTransition('PREPARING', true)}
+      <TaskEditDialog
+        open={showEditTask}
+        editingTask={editingTask}
+        draft={taskEditDraft}
+        scheduleInvalid={taskEditScheduleInvalid}
+        saving={savingTask}
+        formError={taskEditFormError}
+        onDraftChange={patch => setTaskEditDraft(value => ({ ...value, ...patch }))}
+        onClose={() => { setShowEditTask(false); setEditingTask(null) }}
+        onSubmit={handleUpdateTask}
       />
 
-      {/* Modal nhập lý do khi task chuyển BLOCKED hoặc CANCELLED */}
-      <ModalShell
-        isOpen={taskReasonAction !== null}
-        onClose={() => { if (!taskReasonSubmitting) setTaskReasonAction(null) }}
-        title={taskReasonAction?.status === 'BLOCKED' ? 'Báo Điểm Nghẽn (Bị Chặn)' : 'Hủy Nhiệm Vụ'}
-        subtitle={taskReasonAction?.task.title}
-      >
-        <form onSubmit={e => { e.preventDefault(); void handleConfirmTaskReason() }} className="space-y-4">
-          <p className="text-sm text-text-muted">
-            {taskReasonAction?.status === 'BLOCKED'
-              ? 'Vui lòng nêu rõ lý do khiến nhiệm vụ không thể tiếp tục thực hiện để Ban Điều hành hỗ trợ giải quyết.'
-              : 'Vui lòng nêu rõ lý do hủy nhiệm vụ này. Thao tác hủy sẽ thông báo đến những người đã được phân công.'}
-          </p>
-          <TextArea
-            aria-label="Lý do"
-            required
-            rows={3}
-            maxLength={2000}
-            placeholder={taskReasonAction?.status === 'BLOCKED' ? 'Mô tả trở ngại, thiếu vật tư, nhân sự...' : 'Lý do hủy nhiệm vụ...'}
-            value={taskReasonText}
-            onChange={e => setTaskReasonText(e.target.value)}
-          />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
+      <OperationsEventDialogs
+        detail={selectedEvent}
+        flow={transitionFlow}
+        taskReason={{
+          action: taskReasonAction,
+          text: taskReasonText,
+          submitting: taskReasonSubmitting,
+          onTextChange: setTaskReasonText,
+          onClose: () => setTaskReasonAction(null),
+          onConfirm: () => void handleConfirmTaskReason(),
+        }}
+      />
+
+      <TaskAcknowledgeDialog
+        action={ackNoteAction}
+        note={ackNoteText}
+        submitting={ackNoteSubmitting}
+        onNoteChange={setAckNoteText}
+        onClose={() => { setAckNoteAction(null); setAckNoteText('') }}
+        onConfirm={handleConfirmAckNote}
+      />
+
+      {/* W3.8: fixed-position overflow popup (rendered at tree root so list
+          overflow-hidden clipping cannot cut it). APG menu keys mirror the
+          create-menu: Arrow/Home/End move focus, Escape closes and restores
+          focus, Tab dismisses, item click runs and closes. */}
+      {taskOverflow && (
+        <div
+          ref={taskOverflowRef}
+          role="menu"
+          aria-label="Thêm thao tác"
+          className="fixed z-40 w-48 rounded-xl border border-surface-border bg-surface-card/98 p-1 shadow-2xl backdrop-blur-md"
+          style={{ top: taskOverflow.top, left: taskOverflow.left }}
+          onKeyDown={event => {
+            if (event.key === 'ArrowDown') { event.preventDefault(); focusTaskOverflowItem(1) }
+            else if (event.key === 'ArrowUp') { event.preventDefault(); focusTaskOverflowItem(-1) }
+            else if (event.key === 'Home') { event.preventDefault(); focusTaskOverflowItem('first') }
+            else if (event.key === 'End') { event.preventDefault(); focusTaskOverflowItem('last') }
+          }}
+        >
+          {taskOverflow.actions.map(action => (
+            <button
+              key={action.key}
               type="button"
-              variant="ghost"
-              disabled={taskReasonSubmitting}
-              onClick={() => setTaskReasonAction(null)}
+              role="menuitem"
+              disabled={!canMutate || busyTask === taskOverflow.taskId}
+              className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary ${
+                action.danger ? 'text-parish-danger' : 'text-text-main'
+              }`}
+              onClick={() => {
+                setTaskOverflow(null)
+                taskOverflowTriggerRef.current = null
+                action.run()
+              }}
             >
-              Đóng
-            </Button>
-            <Button
-              variant={taskReasonAction?.status === 'BLOCKED' ? 'primary' : 'danger'}
-              type="submit"
-              loading={taskReasonSubmitting}
-              disabled={!taskReasonText.trim()}
-            >
-              {taskReasonAction?.status === 'BLOCKED' ? 'Xác nhận bị chặn' : 'Xác nhận hủy việc'}
-            </Button>
-          </div>
-        </form>
-      </ModalShell>
-
-      {/* Modal Override cho READINESS_BLOCKED */}
-      <ModalShell
-        isOpen={readinessBlockers !== null}
-        onClose={() => { setReadinessBlockers(null); setOverrideReason('') }}
-        title="Điều kiện Sẵn sàng Chưa Hoàn tất"
-        subtitle={selectedEvent?.event.title}
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-muted">
-            Chưa thể chuyển sự kiện sang giai đoạn tiếp theo do còn các điểm nghẽn sau:
-          </p>
-          <ul className="space-y-2 max-h-48 overflow-y-auto border border-surface-border rounded-xl p-3 bg-surface-ground/30">
-            {readinessBlockers?.map((blocker, index) => (
-              <li key={blocker.id || index} className="flex items-start gap-2 text-sm text-text-main">
-                <AlertTriangle className="h-4 w-4 text-parish-warning shrink-0 mt-0.5" />
-                <span>{blocker.label || 'Điều kiện chưa hoàn tất'}</span>
-              </li>
-            ))}
-          </ul>
-          {selectedEvent?.permissions['operations.event.override_readiness'] ? (
-            <div className="space-y-3 pt-2 border-t border-surface-border">
-              <p className="text-sm font-semibold text-text-main">
-                Bạn có quyền Ghi đè (Override Readiness). Nhập lý do bắt buộc để tiếp tục:
-              </p>
-              <TextArea
-                aria-label="Lý do ghi đè"
-                required
-                rows={3}
-                maxLength={2000}
-                placeholder="Nhập lý do ghi đè điều kiện sẵn sàng..."
-                value={overrideReason}
-                onChange={e => setOverrideReason(e.target.value)}
-              />
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => { setReadinessBlockers(null); setOverrideReason('') }}>
-                  Hủy
-                </Button>
-                <Button
-                  variant="danger"
-                  loading={transitioningEvent}
-                  disabled={!overrideReason.trim()}
-                  onClick={() => {
-                    const status = pendingTargetStatus
-                    if (status) {
-                      void handleEventTransition(status, true, overrideReason)
-                    }
-                  }}
-                >
-                  Xác nhận Ghi đè & Chuyển
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="pt-2 border-t border-surface-border">
-              <p className="text-sm text-parish-danger">
-                Bạn không có quyền Ghi đè (cần quyền operations.event.override_readiness). Vui lòng hoàn thành các điều kiện trên hoặc báo Trưởng Ban Điều hành.
-              </p>
-              <div className="flex justify-end">
-                <Button variant="secondary" onClick={() => { setReadinessBlockers(null); setOverrideReason('') }}>
-                  Đã hiểu
-                </Button>
-              </div>
-            </div>
-          )}
+              {action.label}
+            </button>
+          ))}
         </div>
-      </ModalShell>
-
-      {/* Modal Cảnh báo cho COMPLETION_BLOCKED */}
-      <ModalShell
-        isOpen={completionBlockers !== null}
-        onClose={() => setCompletionBlockers(null)}
-        title="Chưa thể Đóng Sự kiện"
-        subtitle={selectedEvent?.event.title}
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-muted">
-            Sự kiện còn các nhiệm vụ bắt buộc hoặc điều kiện chưa hoàn tất:
-          </p>
-          <ul className="space-y-2 max-h-48 overflow-y-auto border border-surface-border rounded-xl p-3 bg-surface-ground/30">
-            {completionBlockers?.map((blocker, index) => (
-              <li key={blocker.id || index} className="flex items-start gap-2 text-sm text-text-main">
-                <CircleAlert className="h-4 w-4 text-parish-danger shrink-0 mt-0.5" />
-                <span>{blocker.label || 'Nhiệm vụ bắt buộc chưa hoàn thành'}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-text-muted">
-            Vui lòng kiểm tra và hoàn thành các nhiệm vụ bắt buộc trong tab Nhiệm vụ trước khi thực hiện Hoàn tất sự kiện.
-          </p>
-          <div className="flex justify-end">
-            <Button variant="primary" onClick={() => setCompletionBlockers(null)}>
-              Đã hiểu
-            </Button>
-          </div>
-        </div>
-      </ModalShell>
+      )}
     </DesktopAppShell>
   )
 }

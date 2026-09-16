@@ -42,7 +42,8 @@ describe('AvailabilityPanel', () => {
     vi.mocked(operationsApi.revokeBlockout).mockResolvedValue({ id: row.id, parishId: row.parishId, version: 5, deletedAt: '2099-03-01T00:00:00Z' })
     render(<AvailabilityPanel enabled />)
     fireEvent.click(await screen.findByRole('button', { name: 'Sửa' }))
-    fireEvent.change(screen.getByLabelText('Sửa lý do bận B1'), { target: { value: 'Lý do mới' } })
+    // W3.5 (U-16): editor labels carry the row window, not the raw id.
+    fireEvent.change(screen.getByLabelText(/Sửa lý do của khoảng/), { target: { value: 'Lý do mới' } })
     fireEvent.click(screen.getByRole('button', { name: 'Lưu' }))
     await waitFor(() => expect(operationsApi.updateBlockout).toHaveBeenCalledWith('B1', expect.objectContaining({ version: 4, reason: 'Lý do mới' }), expect.any(String)))
     fireEvent.click(screen.getByRole('button', { name: 'Thu hồi' }))

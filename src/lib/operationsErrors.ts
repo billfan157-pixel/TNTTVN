@@ -66,22 +66,40 @@ const OPERATIONS_ERROR_MAP: Record<string, string> = {
   TEMPLATE_SNAPSHOT_INVALID: 'Mẫu sự kiện không hợp lệ, không thể khởi tạo.',
 
   // 5. Generic HTTP & Auth codes
+  // W1.5 (E-01): these generic codes carry NO specific domain meaning — the
+  // backend assigns them as a catch-all when a throw had a status but no code.
+  // The server's own Vietnamese message is therefore more accurate and wins in
+  // operationsErrorText (GENERIC_OPERATIONS_CODES below). The map entries here
+  // only serve as last-resort text when the server sent no message at all.
   FORBIDDEN: 'Bạn không có quyền thực hiện thao tác này trong phạm vi hiện tại.',
   NOT_FOUND: 'Không tìm thấy dữ liệu yêu cầu.',
-  CONFLICT: 'Dữ liệu bị trùng lặp hoặc vi phạm ràng buộc toàn vẹn.',
+  CONFLICT: 'Thao tác xung đột với dữ liệu hiện có. Vui lòng tải lại và thử lại.',
   VALIDATION_ERROR: 'Dữ liệu biểu mẫu không hợp lệ. Vui lòng kiểm tra lại các trường nhập.',
+  // W1.5 (E-02): FSM adjacency code surfaced by the event transition route —
+  // previously unmapped, which left the raw message untranslated.
+  EVENT_TRANSITION_NOT_ADJACENT: 'Chỉ được chuyển từng giai đoạn liền kề.',
 }
 
+/**
+ * Generic status-only codes assigned by the backend catch-all handler
+ * (handleError): the specific information lives in the message, not the code.
+ * For these, a server-provided message always beats the generic map text.
+ */
+const GENERIC_OPERATIONS_CODES = new Set(['CONFLICT', 'VALIDATION_ERROR', 'FORBIDDEN', 'NOT_FOUND'])
+
 export function operationsErrorText(code: string | undefined | null, defaultMessage?: string): string {
+  const message = defaultMessage?.trim()
+  // W1.5: preserve the server's specific Vietnamese text when the attached
+  // code is only a generic status fallback (e.g. 409 without a domain code).
+  if (code && GENERIC_OPERATIONS_CODES.has(code) && message) return message
   if (code && OPERATIONS_ERROR_MAP[code]) {
     return OPERATIONS_ERROR_MAP[code]
   }
-  if (defaultMessage && defaultMessage.trim()) {
-    const trimmed = defaultMessage.trim()
-    if (OPERATIONS_ERROR_MAP[trimmed]) {
-      return OPERATIONS_ERROR_MAP[trimmed]
+  if (message) {
+    if (OPERATIONS_ERROR_MAP[message]) {
+      return OPERATIONS_ERROR_MAP[message]
     }
-    return defaultMessage
+    return defaultMessage as string
   }
   return 'Thao tác không thành công. Vui lòng kiểm tra kết nối và thử lại.'
 }

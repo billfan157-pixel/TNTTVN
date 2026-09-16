@@ -6,6 +6,8 @@ interface MobileAppShellProps {
   setActiveTab: (tab: MobileTab) => void | Promise<void>
   preloadTab?: (tab: MobileTab) => void
   activeWorkspace?: WorkspaceId
+  /** W2.10: forwarded to the nav's "Công Việc" badge. */
+  operationsBadge?: number
   children: React.ReactNode
 }
 
@@ -22,6 +24,7 @@ export const MobileAppShell: React.FC<MobileAppShellProps> = ({
   setActiveTab,
   preloadTab,
   activeWorkspace,
+  operationsBadge,
   children,
 }) => (
   <div className="mobile-app-shell">
@@ -34,6 +37,7 @@ export const MobileAppShell: React.FC<MobileAppShellProps> = ({
         setActiveTab={setActiveTab}
         preloadTab={preloadTab}
         activeWorkspace={activeWorkspace}
+        operationsBadge={operationsBadge}
       />
     )}
   </div>

@@ -26,6 +26,7 @@ import {
 } from '../../utils/icalGenerator'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import type { LiturgicalDay } from '../../types/liturgical'
+import { SubpageHeader } from '../common/SubpageHeader'
 
 export const MobileCalendarView: React.FC = () => {
   const navigate = useNavigate()
@@ -54,6 +55,11 @@ export const MobileCalendarView: React.FC = () => {
     return firstDate.getDay()
   }, [year, month])
 
+  const isCurrentMonth = useMemo(() => {
+    const now = new Date()
+    return now.getFullYear() === year && now.getMonth() + 1 === month
+  }, [year, month])
+
   const handlePrevMonth = () => {
     setCurrentDate(new Date(year, month - 2, 1))
   }
@@ -68,6 +74,14 @@ export const MobileCalendarView: React.FC = () => {
     setSelectedDay(getLiturgicalDay(today))
   }
 
+  const handleDownloadIcs = () => {
+    const icsString = generateLiturgicalIcs(monthDays, parishEvents as any, {
+      calendarName: `Lịch Phụng Vụ T${month}/${year} - TNTT`,
+      parishName: 'Giáo Xứ Gia Tôn',
+    })
+    downloadIcsFile(icsString, `lich-phung-vu-T${month}-${year}.ics`)
+  }
+
   const selectedDayColorMeta = LITURGICAL_COLORS[selectedDay.color] || LITURGICAL_COLORS.GREEN
 
   const selectedDayParishEvents = useMemo(() => {
@@ -78,63 +92,64 @@ export const MobileCalendarView: React.FC = () => {
 
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
-      {/* Top Header & Month Switcher */}
-      <div className="mobile-page-header mobile-page-header--compact mobile-calendar-header">
-        <div className="mobile-page-header__identity">
-          <div className="mobile-page-header__icon" aria-hidden="true">
-            <CalendarIcon size={20} />
-          </div>
-          <div className="min-w-0">
-            <h2 className="mobile-page-header__title truncate">Lịch Phụng Vụ</h2>
-            <p className="mobile-page-header__description truncate">Theo lịch của Hội đồng Giám mục Việt Nam</p>
-          </div>
-        </div>
-
-        <div className="mobile-page-header__actions mobile-calendar-header__toolbar flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              const icsString = generateLiturgicalIcs(monthDays, parishEvents as any, {
-                calendarName: `Lịch Phụng Vụ T${month}/${year} - TNTT`,
-                parishName: 'Giáo Xứ Gia Tôn',
-              })
-              downloadIcsFile(icsString, `lich-phung-vu-T${month}-${year}.ics`)
-            }}
-            className="btn btn-primary text-xs font-bold p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl shadow-xs"
-            title="Tải lịch tháng này (.ics)"
-          >
-            <Download size={13} />
-          </button>
-
-          <div className="flex items-center gap-1 bg-surface-app rounded-xl border border-surface-border p-1">
-            {/* Polish 2026-08-22: wire nút "Hôm nay" (trước đây handleToday dead-code) */}
+      {/* Top Header & Month Switcher — Standard SubpageHeader single-row layout */}
+      <SubpageHeader
+        className="mobile-calendar-header"
+        icon={<CalendarIcon size={16} aria-hidden="true" />}
+        title={`Tháng ${month}, ${year}`}
+        meta={
+          <span className="truncate">
+            {selectedDay.seasonName ? `${selectedDay.seasonName} · HĐGMVN` : 'Lịch Phụng Vụ HĐGMVN'}
+          </span>
+        }
+        actions={
+          <div className="flex items-center gap-1 shrink-0">
             <button
+              type="button"
+              onClick={handlePrevMonth}
+              aria-label="Về tháng trước"
+              data-compact-touch
+              className="subpage-header__btn subpage-header__btn--secondary subpage-header__btn--icon-only"
+              title="Tháng trước"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
               onClick={handleToday}
-              className="px-2 min-h-[44px] rounded-lg text-xs font-bold text-text-secondary hover:text-parish-primary bg-transparent border-none cursor-pointer"
+              data-compact-touch
+              className={`subpage-header__btn px-2 ${
+                isCurrentMonth
+                  ? 'subpage-header__btn--secondary text-text-muted opacity-70'
+                  : 'subpage-header__btn--primary font-bold'
+              }`}
               title="Về tháng hiện tại"
             >
               Hôm nay
             </button>
             <button
-              onClick={handlePrevMonth}
-              aria-label="Về tháng trước"
-              className="p-1 min-h-[44px] min-w-[44px] rounded-lg text-text-muted hover:text-text-main bg-transparent border-none cursor-pointer"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="text-xs font-bold text-text-main px-1 min-w-[65px] text-center">
-              {month}/{year}
-            </span>
-            <button
+              type="button"
               onClick={handleNextMonth}
               aria-label="Sang tháng tiếp theo"
-              className="p-1 min-h-[44px] min-w-[44px] rounded-lg text-text-muted hover:text-text-main bg-transparent border-none cursor-pointer"
+              data-compact-touch
+              className="subpage-header__btn subpage-header__btn--secondary subpage-header__btn--icon-only"
+              title="Tháng sau"
             >
               <ChevronRight size={16} />
             </button>
+            <button
+              type="button"
+              onClick={handleDownloadIcs}
+              data-compact-touch
+              className="subpage-header__btn subpage-header__btn--secondary subpage-header__btn--icon-only"
+              aria-label="Tải lịch tháng này (.ics)"
+              title="Tải lịch tháng này (.ics)"
+            >
+              <Download size={14} />
+            </button>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Calendar Month Grid */}
       <div className="app-panel p-3 flex flex-col gap-2">

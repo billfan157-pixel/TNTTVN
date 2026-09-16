@@ -331,6 +331,13 @@ const calendarRoute = createRoute({
 const operationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/operations',
+  // W2.2: deep-link the event detail modal and its tab — F5/back/Share URL
+  // re-open the same event. ids are opaque strings here; the server's 403/404
+  // fail-closed on unknown ids, the page just shows the error banner.
+  validateSearch: z.object({
+    event: z.string().optional(),
+    tab: z.enum(['tasks', 'workstreams', 'participants', 'reminders', 'templates', 'retrospective']).optional(),
+  }),
   beforeLoad: requireRouteAccess('/operations'),
   component: () => (
     <PageSuspense>

@@ -21,6 +21,8 @@ interface MobileBottomNavProps {
   setActiveTab: (tab: MobileTab) => void | Promise<void>
   preloadTab?: (tab: MobileTab) => void
   activeWorkspace?: WorkspaceId
+  /** W2.10: pending-operation count shown as a badge on the org "Công Việc" tab. */
+  operationsBadge?: number
 }
 
 interface MobileNavItem {
@@ -29,7 +31,7 @@ interface MobileNavItem {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>
 }
 
-export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, preloadTab, activeWorkspace }) => {
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, preloadTab, activeWorkspace, operationsBadge }) => {
   const { role } = useAuth()
   const [pendingTab, setPendingTab] = useState<MobileTab | null>(null)
 
@@ -69,6 +71,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
           const isActive = activeTab === tab.id
           const isVisuallyActive = (pendingTab ?? activeTab) === tab.id
           const isPending = pendingTab === tab.id && !isActive
+          // W2.10: async dispatch/acknowledgement work is invisible until the
+          // user opens the page — badge the org "Công Việc" tab with the count
+          // of responses owed (0/undefined hides it; offline never badges).
+          const badgeCount = tab.id === 'operations' && operationsBadge && operationsBadge > 0 ? operationsBadge : 0
+          const badgeText = badgeCount > 99 ? '99+' : String(badgeCount)
 
           return (
             <button
@@ -87,10 +94,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
               }}
               aria-current={isActive ? 'page' : undefined}
               aria-busy={isPending || undefined}
-              aria-label={tab.label}
+              aria-label={badgeCount ? `${tab.label} · ${badgeCount} việc chờ phản hồi` : tab.label}
             >
               <span className="mobile-bottom-nav__icon" aria-hidden="true">
                 <Icon size={21} strokeWidth={isActive ? 2.4 : 2} />
+                {badgeCount > 0 && <span className="mobile-bottom-nav__badge" aria-hidden="true">{badgeText}</span>}
               </span>
               <span className="mobile-bottom-nav__label">{tab.label}</span>
             </button>

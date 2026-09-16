@@ -71,6 +71,7 @@
 
 .page-header {
   position: relative;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -80,7 +81,6 @@
 
 .page-header--card {
   padding: 20px 22px;
-  overflow: hidden;
   border: 1px solid var(--color-surface-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface-card);
@@ -94,6 +94,8 @@
   background: linear-gradient(180deg, var(--color-parish-gold), var(--color-parish-primary));
   content: '';
   opacity: 0.82;
+  border-top-left-radius: var(--radius-lg);
+  border-bottom-left-radius: var(--radius-lg);
 }
 
 .page-header__identity {

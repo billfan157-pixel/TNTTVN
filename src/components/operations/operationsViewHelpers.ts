@@ -14,6 +14,22 @@ export const isTerminalTask = (status: string) => status === 'DONE' || status ==
 
 export const isClosedEvent = (status: string) => status === 'COMPLETED' || status === 'CANCELLED'
 
+/**
+ * W2.11: render an instant in the event's own recorded timezone - the zone the
+ * planning actually happened in - instead of the reader's browser zone. When
+ * the record's zone differs from the browser's, a short zone tag follows the
+ * time so nobody misreads "14:00" as their local 14:00.
+ */
+export function formatEventInstant(iso: string, eventTimezone?: string | null): string {
+  const date = new Date(iso)
+  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  const zone = eventTimezone && eventTimezone !== browserZone ? eventTimezone : null
+  const text = date.toLocaleString('vi-VN', zone ? { timeZone: zone } : undefined)
+  if (!zone) return text
+  const short = new Intl.DateTimeFormat('vi-VN', { timeZone: zone, timeZoneName: 'short' }).formatToParts(date).find(part => part.type === 'timeZoneName')?.value
+  return `${text} (${short ?? zone})`
+}
+
 /** Select options for OperationEvent.eventType, shared by create/edit forms (A4' audit 2026-09-12). */
 export const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'FEAST_DAY', label: 'Lễ / Bổn mạng' },
@@ -38,6 +54,35 @@ export const canCreateEventTask = (status: OperationEvent['status']) => ['DRAFT'
 
 export const taskPhaseLabel: Record<OperationTask['phase'], string> = {
   PREPARATION: 'Trước sự kiện', EXECUTION: 'Trong sự kiện', FOLLOW_UP: 'Sau sự kiện',
+}
+
+// W3.2: shared status vocabulary + lifecycle maps, moved out of OperationsPage
+// so the extracted EventList / MyTaskBoard sections (and the page) import one
+// source of truth instead of duplicating the tables.
+export const statusLabel: Record<string, string> = {
+  DRAFT: 'Bản nháp', PLANNING: 'Kế hoạch', PREPARING: 'Chuẩn bị', READY: 'Sẵn sàng', LIVE: 'Đang diễn ra', COMPLETED: 'Hoàn tất', CANCELLED: 'Đã hủy',
+  BACKLOG: 'Chờ xếp việc', TODO: 'Chưa làm', IN_PROGRESS: 'Đang làm', BLOCKED: 'Bị chặn', DONE: 'Hoàn tất',
+}
+
+export const statusTone = (status: string): 'neutral' | 'primary' | 'success' | 'warning' | 'danger' => {
+  if (status === 'DONE' || status === 'COMPLETED' || status === 'READY') return 'success'
+  if (status === 'BLOCKED' || status === 'CANCELLED') return 'danger'
+  if (status === 'IN_PROGRESS' || status === 'LIVE') return 'primary'
+  if (status === 'PLANNING' || status === 'PREPARING' || status === 'TODO') return 'warning'
+  return 'neutral'
+}
+
+export const reminderKindLabel = { TASK_DUE: 'Nhắc hạn công việc', EVENT_START: 'Nhắc giờ bắt đầu sự kiện', OVERDUE: 'Công việc quá hạn', MANAGER_PREP: 'Sự kiện đủ người nhận việc' } as const
+export const reminderStatusLabel = { PENDING: 'Đang chờ', ENQUEUED: 'Đang gửi', SENT: 'Đã gửi', FAILED: 'Không gửi được', CANCELLED: 'Đã hủy' } as const
+
+export const nextEventStatus: Partial<Record<OperationEvent['status'], OperationEvent['status']>> = {
+  DRAFT: 'PLANNING', PLANNING: 'PREPARING', PREPARING: 'READY', READY: 'LIVE', LIVE: 'COMPLETED',
+}
+export const previousEventStatus: Partial<Record<OperationEvent['status'], OperationEvent['status']>> = {
+  PLANNING: 'DRAFT', PREPARING: 'PLANNING', READY: 'PREPARING', LIVE: 'READY',
+}
+export const transitionLabel: Partial<Record<OperationEvent['status'], string>> = {
+  PLANNING: 'Bắt đầu lập kế hoạch', PREPARING: 'Chuyển sang chuẩn bị', READY: 'Đánh dấu sẵn sàng', LIVE: 'Bắt đầu sự kiện', COMPLETED: 'Hoàn tất sự kiện',
 }
 
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Users } from 'lucide-react'
 import { Button, Select, TextInput } from '../common/ui'
+import { EmptyState } from '../common/StateFeedback'
 import type { OperationEventDetail } from '../../lib/api/operations'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
@@ -42,11 +43,15 @@ export function TaskAssignForm({ detail }: { detail: OperationEventDetail }) {
             <p className="m-0 text-xs text-text-muted">Giao việc cho nhân sự</p>
           </div>
         </div>
-        <p className="m-0 text-xs text-text-muted py-2">
-          {detail.tasks.length === 0
-            ? 'Chưa có nhiệm vụ nào được tạo cho sự kiện này để phân công.'
-            : 'Tất cả nhiệm vụ đã hoàn tất hoặc đã kết thúc. Không còn nhiệm vụ nào cần phân công.'}
-        </p>
+        {/* W3.4 (U-14a): standard empty state instead of a raw <p> note. */}
+        <EmptyState
+          icon={Users}
+          title={detail.tasks.length === 0 ? 'Chưa có nhiệm vụ nào để phân công.' : 'Không còn nhiệm vụ nào mở.'}
+          description={detail.tasks.length === 0
+            ? 'Hãy tạo công việc cho sự kiện này trước khi giao cho nhân sự.'
+            : 'Tất cả nhiệm vụ đã hoàn tất hoặc đã kết thúc.'}
+          className="py-4"
+        />
       </div>
     )
   }

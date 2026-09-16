@@ -298,10 +298,30 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
 
     await useOperationsStore.getState().loadMoreEvents()
 
-    expect(getEvents).toHaveBeenCalledWith(2)
+    // W2.13: page-2 request carries the (empty) filter explicitly.
+    expect(getEvents).toHaveBeenCalledWith(2, 50, undefined)
     expect(useOperationsStore.getState().events.map(item => item.id)).toEqual(['A', 'B'])
     expect(useOperationsStore.getState().eventHasMore).toBe(false)
     expect(dexieStorage.setItem).toHaveBeenCalled()
+  })
+
+  it('W2.13: applies the server filter on fetch and never caches a filtered slice', async () => {
+    const getEvents = vi.spyOn(api, 'getEvents').mockResolvedValue(page([event('A')], 1, 1, 1, 1))
+    vi.spyOn(api, 'getTasks').mockResolvedValue(page([task('T1')], 1, 1, 1, 1))
+    vi.spyOn(api, 'getReminders').mockResolvedValue(page([], 1, 1, 1, 1))
+    vi.spyOn(api, 'getDispatchInbox').mockResolvedValue(page([], 1, 1, 1, 1))
+    vi.spyOn(api, 'getPermissions').mockResolvedValue({ parishId: parishA, timezone: 'Asia/Ho_Chi_Minh', permissions: {} } as any)
+    await useOperationsStore.getState().searchEvents('trại hè')
+    expect(getEvents).toHaveBeenLastCalledWith(1, 50, { q: 'trại hè' })
+    expect(dexieStorage.setItem).not.toHaveBeenCalled()
+    // Clearing the filter restores the unfiltered fetch and cache write.
+    ;(dexieStorage.setItem as ReturnType<typeof vi.fn>).mockClear()
+    await useOperationsStore.getState().searchEvents('')
+    expect(getEvents).toHaveBeenLastCalledWith(1, 50, undefined)
+    expect(dexieStorage.setItem).toHaveBeenCalled()
+    expect(useOperationsStore.getState().parishTimezone).toBe('Asia/Ho_Chi_Minh')
+    useOperationsStore.getState().clear()
+    expect(useOperationsStore.getState().eventQuery).toBe('')
   })
 
   it('keeps reminder inbox online-only and updates read state only after server acknowledgement', async () => {
@@ -442,5 +462,18 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
     const getEvent = vi.spyOn(api, 'getEvent').mockResolvedValue(eventDetail('E'))
     await useOperationsStore.getState().selectEvent('E')
     expect(getEvent.mock.calls[0][1]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('restores a cancelled event and updates store state and persistence', async () => {
+    const current = { ...event('E1'), status: 'CANCELLED' as const, version: 2 }
+    useOperationsStore.setState({ events: [current], selectedEvent: { ...eventDetail('E1'), event: current, permissions: { 'operations.event.transition': true } } })
+    const restored = { ...current, status: 'PLANNING' as const, version: 3 }
+    const spy = vi.spyOn(api, 'restoreEvent').mockResolvedValue(restored)
+
+    const result = await useOperationsStore.getState().restoreEvent('E1', 2, 'Khôi phục để tiếp tục chuẩn bị', 'cmd-restore')
+    expect(spy).toHaveBeenCalledWith('E1', { version: 2, reason: 'Khôi phục để tiếp tục chuẩn bị' }, 'cmd-restore')
+    expect(result.status).toBe('PLANNING')
+    expect(useOperationsStore.getState().events[0]?.status).toBe('PLANNING')
+    expect(useOperationsStore.getState().selectedEvent?.event.status).toBe('PLANNING')
   })
 })

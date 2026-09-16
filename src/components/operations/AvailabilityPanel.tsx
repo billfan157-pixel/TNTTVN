@@ -11,6 +11,12 @@ function localDateTime(iso: string) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
+// W3.5 (U-16): readable label for one blockout row (self data — there is no
+// person display name to use, so the window itself identifies it).
+function blockoutRowLabel(row: OperationBlockout) {
+  return `${new Date(row.startsAt).toLocaleString('vi-VN')} – ${new Date(row.endsAt).toLocaleString('vi-VN')}`
+}
+
 export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
   const [rows, setRows] = useState<OperationBlockout[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -93,9 +99,11 @@ export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
           }, 'Đã thu hồi lịch bận.')
         }}>Thu hồi</Button></div></div>
         {editing?.id === row.id && <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-          <TextInput aria-label={`Sửa bận từ ${row.id}`} type="datetime-local" value={editing.startsAt} disabled={busy} onChange={event => setEditing(value => value ? { ...value, startsAt: event.target.value } : value)} />
-          <TextInput aria-label={`Sửa bận đến ${row.id}`} type="datetime-local" value={editing.endsAt} disabled={busy} onChange={event => setEditing(value => value ? { ...value, endsAt: event.target.value } : value)} />
-          <TextInput aria-label={`Sửa lý do bận ${row.id}`} value={editing.reason} maxLength={500} disabled={busy} onChange={event => setEditing(value => value ? { ...value, reason: event.target.value } : value)} />
+          {/* W3.5 (U-16): the blockout's own window labels the editor instead of
+              the raw row id — screen readers no longer spell UUIDs. */}
+          <TextInput aria-label={`Sửa bận từ của khoảng ${blockoutRowLabel(row)}`} type="datetime-local" value={editing.startsAt} disabled={busy} onChange={event => setEditing(value => value ? { ...value, startsAt: event.target.value } : value)} />
+          <TextInput aria-label={`Sửa bận đến của khoảng ${blockoutRowLabel(row)}`} type="datetime-local" value={editing.endsAt} disabled={busy} onChange={event => setEditing(value => value ? { ...value, endsAt: event.target.value } : value)} />
+          <TextInput aria-label={`Sửa lý do của khoảng ${blockoutRowLabel(row)}`} value={editing.reason} maxLength={500} disabled={busy} onChange={event => setEditing(value => value ? { ...value, reason: event.target.value } : value)} />
           <Button size="sm" disabled={busy || !validWindow(editing.startsAt, editing.endsAt)} onClick={() => {
             const payload = { version: row.version, startsAt: new Date(editing.startsAt).toISOString(), endsAt: new Date(editing.endsAt).toISOString(), reason: editing.reason.trim() || null }
             const key = stableKey('blockout-update', { id: row.id, ...payload })

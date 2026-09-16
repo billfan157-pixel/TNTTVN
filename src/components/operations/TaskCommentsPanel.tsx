@@ -32,7 +32,10 @@ export function TaskCommentsPanel({ detail, enabled, refresh }: { detail: Operat
     } finally { pending.current = false; if (current()) setBusy(false) }
   }
   return <section className="mt-4 space-y-3" aria-label="Trao đổi nhiệm vụ">
-    {error && <div><p role="alert" className="text-sm text-text-main">{error}</p><Button variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => void run(async () => undefined)}>Tải lại nhiệm vụ</Button></div>}
+    {/* W3.5 (U-17): this used to route through run(), whose success path clears
+        the composer — pressing "Tải lại" after a failure silently discarded the
+        comment being typed. Reload only refetches the detail; the draft stays. */}
+    {error && <div><p role="alert" className="text-sm text-text-main">{error}</p><Button variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => { setError(''); void refresh().catch(() => undefined) }}>Tải lại nhiệm vụ</Button></div>}
     <h3 className="m-0 text-sm font-bold text-text-main">Trao đổi</h3>
     {detail.comments.length === 0 && <EmptyState icon={MessageSquare} title="Chưa có bình luận." description="Trao đổi về nhiệm vụ sẽ hiện ở đây." className="py-5" />}
     {detail.comments.map(comment => <article key={comment.id} className="rounded-lg border border-surface-border p-3">

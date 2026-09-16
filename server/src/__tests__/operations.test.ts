@@ -243,6 +243,50 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await request('/tasks?limit=501', adminToken)).status).toBe(400)
   })
 
+  it('W2.13: pushes q/status/scope filters into GET /events before authz and pagination', async () => {
+    const unique = `W213-${suffix}`
+    const matchA = await createEvent({ title: `${unique} Trại hè`, location: `Rừng ${unique}`, startsAt: '2027-01-01T08:00:00+07:00', endsAt: '2027-01-01T16:00:00+07:00' })
+    const matchB = await createEvent({ title: `Họp ${unique}`, location: `Hoa viên ${unique}`, scopeUnitId: branchId, startsAt: '2027-01-02T08:00:00+07:00', endsAt: '2027-01-02T10:00:00+07:00' })
+    const noMatch = await createEvent({ title: 'Không liên quan W213-zzz', location: 'Không liên quan W213-zzz', startsAt: '2027-01-03T08:00:00+07:00', endsAt: '2027-01-03T10:00:00+07:00' })
+
+    // Title and location both match; DRAFT is still visible to admin (viewer rule).
+    const body = await (await request(`/events?q=${encodeURIComponent(unique)}`, adminToken)).json() as any
+    expect(body.data.map((row: any) => row.id).sort()).toEqual([matchA.id, matchB.id].sort())
+    expect(body.meta).toMatchObject({ page: 1, total: 2 })
+
+    // Location-only match.
+    const locationOnly = await (await request(`/events?q=${encodeURIComponent('Rừng ' + unique)}`, adminToken)).json() as any
+    expect(locationOnly.data.map((row: any) => row.id)).toEqual([matchA.id])
+
+    // status filter narrows the same base set (created events are DRAFT).
+    const draftFiltered = await (await request(`/events?q=${encodeURIComponent(unique)}&status=DRAFT`, adminToken)).json() as any
+    expect(draftFiltered.meta.total).toBe(2)
+    const planningFiltered = await (await request(`/events?q=${encodeURIComponent(unique)}&status=PLANNING`, adminToken)).json() as any
+    expect(planningFiltered.meta.total).toBe(0)
+    await request(`/events/${matchA.id}/transition`, adminToken, 'POST', { version: matchA.version, status: 'PLANNING' })
+    const planningNow = await (await request(`/events?q=${encodeURIComponent(unique)}&status=PLANNING`, adminToken)).json() as any
+    expect(planningNow.data.map((row: any) => row.id)).toEqual([matchA.id])
+
+    // scope=XU_DOAN means scopeUnitId NULL; UNIT the opposite.
+    const xuDoan = await (await request(`/events?q=${encodeURIComponent(unique)}&scope=XU_DOAN`, adminToken)).json() as any
+    expect(xuDoan.data.map((row: any) => row.id)).toEqual([matchA.id])
+    const unit = await (await request(`/events?q=${encodeURIComponent(unique)}&scope=UNIT`, adminToken)).json() as any
+    expect(unit.data.map((row: any) => row.id)).toEqual([matchB.id])
+
+    // Pagination respects the filtered set (total stays 2 for the base query).
+    const page2 = await (await request(`/events?q=${encodeURIComponent(unique)}&page=2&limit=1`, adminToken)).json() as any
+    expect(page2.data).toHaveLength(1)
+    expect(page2.meta).toMatchObject({ page: 2, limit: 1, total: 2, totalPages: 2 })
+    expect([page2.data[0].id]).not.toEqual([noMatch.id])
+
+    // Cross-tenant filter stays fail-closed.
+    const foreign = await (await request(`/events?q=${encodeURIComponent(unique)}`, foreignToken)).json() as any
+    expect(foreign.meta.total).toBe(0)
+    // Invalid enum values reject instead of silently ignoring the filter.
+    expect((await request('/events?status=NOT_A_STATUS', adminToken)).status).toBe(400)
+    expect((await request('/events?scope=OTHER', adminToken)).status).toBe(400)
+  })
+
   it('supports multiple assignees while keeping OWNER unique and personal actions role-bound', async () => {
     const parentTarget = await request(`/tasks/${taskId}/assign`, adminToken, 'POST', { version: 1, userId: parentId, assignmentRole: 'CONTRIBUTOR' })
     expect(parentTarget.status).toBe(400)
@@ -1274,6 +1318,18 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const second = await data(await request('/tasks', adminToken, 'POST', { title: 'Gửi tài liệu', eventId: event.id }))
     const edge = await request(`/tasks/${second.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: first.id })
     expect(edge.status).toBe(201)
+    // W4.2b: task detail ships dependency edges enriched with the source
+    // title/status so the client can render a read-only "waiting on" list.
+    const secondDetail = await data(await request(`/tasks/${second.id}`, adminToken))
+    expect(secondDetail.dependencies).toEqual([
+      expect.objectContaining({
+        taskId: second.id,
+        dependsOnTaskId: first.id,
+        dependencyType: 'BLOCKED_BY',
+        dependsOnTitle: 'Chuẩn bị tài liệu',
+        dependsOnStatus: 'TODO',
+      }),
+    ])
     const cycle = await request(`/tasks/${first.id}/dependencies`, adminToken, 'POST', { version: 1, dependsOnTaskId: second.id })
     expect(cycle.status).toBe(409)
 
@@ -1403,6 +1459,41 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const rejected = await request(`/tasks/${closedTask.id}/restore`, adminToken, 'POST', { version: closedCancelledTask.version, reason: 'Không được mở lại child của event đóng' })
     expect(rejected.status).toBe(409)
     expect((await rejected.json() as any).error.code).toBe('EVENT_IMMUTABLE')
+  })
+
+  it('restores a cancelled event back to planning with mandatory reason, OCC, and audit', async () => {
+    const eventSuffix = `${Date.now()}-event`
+    const event = await createEvent({ title: `Event hủy để khôi phục ${eventSuffix}` })
+    const planning = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    const cancelled = await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: planning.version, status: 'CANCELLED', reason: 'Hoãn kế hoạch tạm thời' }))
+
+    // Missing reason -> 400
+    expect((await request(`/events/${event.id}/restore`, adminToken, 'POST', { version: cancelled.version })).status).toBe(400)
+    // Wrong parish -> 404
+    expect((await request(`/events/${event.id}/restore`, foreignToken, 'POST', { version: cancelled.version, reason: 'Sai giáo xứ' })).status).toBe(404)
+
+    const receipt = `restore-event-${eventSuffix}`
+    const restoredResponse = await request(`/events/${event.id}/restore`, adminToken, 'POST', { version: cancelled.version, reason: 'Khởi động lại sự kiện' }, receipt)
+    expect(restoredResponse.status).toBe(200)
+    const restored = await data(restoredResponse)
+    expect(restored).toMatchObject({ id: event.id, status: 'PLANNING', automationPaused: true, version: cancelled.version + 1 })
+
+    // Idempotent replay
+    const replay = await request(`/events/${event.id}/restore`, adminToken, 'POST', { version: cancelled.version, reason: 'Khởi động lại sự kiện' }, receipt)
+    expect(replay.status).toBe(200)
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true')
+    expect((await data(replay)).version).toBe(restored.version)
+
+    // Stale version -> 409
+    const stale = await request(`/events/${event.id}/restore`, adminToken, 'POST', { version: cancelled.version, reason: 'Request cũ' })
+    expect(stale.status).toBe(409)
+
+    // Already restored -> not cancelled -> 409
+    const notCancelled = await request(`/events/${event.id}/restore`, adminToken, 'POST', { version: restored.version, reason: 'Khôi phục lần hai' })
+    expect(notCancelled.status).toBe(409)
+
+    const [restoreAudit] = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishA), eq(auditLogs.action, 'RESTORE'), eq(auditLogs.entityId, event.id)))
+    expect(restoreAudit.newValue).toContain('Khởi động lại sự kiện')
   })
 
   it('snapshots, previews, versions and atomically instantiates scoped event templates without copying authority state', async () => {
@@ -1733,12 +1824,14 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(inboxResponse.status).toBe(200)
     const inbox = await data(inboxResponse)
     const inboxReminder = inbox.find((item: any) => item.id === reminder.id)
-    expect(inboxReminder).toMatchObject({ id: reminder.id, parishId: parishA, status: 'SENT', kind: 'TASK_DUE' })
+    expect(inboxReminder).toMatchObject({ id: reminder.id, parishId: parishA, status: 'SENT', kind: 'TASK_DUE', taskId, eventId: null })
     expect(inboxReminder).not.toHaveProperty('dedupeKey')
     expect(inboxReminder).not.toHaveProperty('notificationId')
     expect(inboxReminder).not.toHaveProperty('attemptCount')
     expect(inboxReminder).not.toHaveProperty('error')
-    expect(inboxReminder).not.toHaveProperty('taskId')
+    // W1.2: recipient-scoped resource pointers (taskId/eventId) are projected so
+    // the inbox can resolve titles from the recipient's own scoped lists; the
+    // recipient identity itself and queue internals remain absent.
     expect(inboxReminder).not.toHaveProperty('recipientUserId')
 
     const ambiguous = await data(await request('/reminders', adminToken, 'POST', { ...reminderBody, kind: 'OVERDUE' }))

@@ -39,4 +39,28 @@ describe('MobileBottomNav Workspace Navigation', () => {
     expect(screen.queryByText(/Huynh trưởng/i)).toBeNull()
     expect(screen.queryByText(/Sổ quỹ/i)).toBeNull()
   })
+
+  // W2.10: pending-operations badge on the org "Công Việc" tab.
+  it('W2.10: badges the Công Việc tab with the pending count', () => {
+    render(
+      <MobileBottomNav
+        activeTab="parish-home"
+        setActiveTab={vi.fn()}
+        activeWorkspace="organization"
+        operationsBadge={3}
+      />
+    )
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Công Việc · 3 việc chờ phản hồi' })).toBeInTheDocument()
+  })
+
+  it('W2.10: caps the badge at 99+ and hides it at zero', () => {
+    const { rerender } = render(
+      <MobileBottomNav activeTab="parish-home" setActiveTab={vi.fn()} activeWorkspace="organization" operationsBadge={150} />
+    )
+    expect(screen.getByText('99+')).toBeInTheDocument()
+    rerender(<MobileBottomNav activeTab="parish-home" setActiveTab={vi.fn()} activeWorkspace="organization" operationsBadge={0} />)
+    expect(screen.queryByText('99+')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Công Việc' })).toBeInTheDocument()
+  })
 })

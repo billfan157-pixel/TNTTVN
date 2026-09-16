@@ -22,6 +22,7 @@ import { useSyncEngine } from '../../hooks/useSyncEngine'
 import { useStoreErrorWatcher } from '../../hooks/useStoreErrorWatcher'
 import { useScrollRestoration } from '../../hooks/useScrollRestoration'
 import { useMobileRoutePreload } from '../../hooks/useMobileRoutePreload'
+import { useOperationsPendingCount } from '../../hooks/useOperationsPendingCount'
 import { getFilteredClassList, useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -153,6 +154,8 @@ export function RootLayout() {
   const mode = useEffectiveMode()
   useScrollRestoration(pathname, mode)
   const preloadMobileTab = useMobileRoutePreload(mode, currentUser?.role)
+  // W2.10: "Công Việc" badge on the org bottom-nav — read-only, org workspace only.
+  const operationsPendingCount = useOperationsPendingCount(mode === 'mobile' && activeWorkspace === 'organization')
   const rawClasses = useClassStore(s => s.classes)
   const classList = React.useMemo(() => getFilteredClassList(rawClasses), [rawClasses])
 
@@ -198,6 +201,7 @@ export function RootLayout() {
           setActiveTab={(tab) => navigate({ to: MOBILE_TAB_PATHS[tab] })}
           preloadTab={preloadMobileTab}
           activeWorkspace={activeWorkspace}
+          operationsBadge={operationsPendingCount}
         >
           <HeaderBar activeWorkspace={activeWorkspace} onWorkspaceChange={switchWorkspace} />
           <PageTransition routeKey={pathname}>

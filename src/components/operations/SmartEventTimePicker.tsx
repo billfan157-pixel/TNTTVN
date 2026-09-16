@@ -361,41 +361,32 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
       {/* 2. Toggle Switches: Thời gian & Ngày kết thúc */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-surface-border bg-surface-card p-2.5 sm:p-3 shadow-2xs">
         <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-          {/* Toggle 1: Thời gian */}
-          <div
-            className="flex items-center gap-2.5 cursor-pointer select-none"
-            onClick={handleToggleHasTime}
-            role="button"
-            tabIndex={0}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                handleToggleHasTime()
-              }
-            }}
-          >
+          {/* W1.4: single interactive control per switch (APG). The old wrapper
+              was role="button" tabIndex=0 with onKeyDown wrapping the switch
+              button — nested-interactive, and Enter/Space could fire the toggle
+              twice. Text now uses <label htmlFor>, which is clickable but not
+              focusable, so keyboard users hit the switch itself exactly once. */}
+          <div className="flex items-center gap-2.5 select-none">
             <button
               type="button"
+              id={`${idPrefix}-toggle-time`}
               role="switch"
               aria-checked={hasTime}
               aria-label="Bật tắt thời gian"
               disabled={disabled}
-              onClick={e => {
-                e.stopPropagation()
-                handleToggleHasTime()
-              }}
+              onClick={handleToggleHasTime}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-parish-primary/40 disabled:cursor-not-allowed disabled:opacity-50 ${
                 hasTime ? 'bg-parish-primary' : 'bg-surface-border'
               }`}
             >
               <span
                 aria-hidden="true"
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-surface-card shadow-sm ring-0 transition duration-200 ease-in-out ${
                   hasTime ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>
-            <div className="flex flex-col">
+            <label htmlFor={`${idPrefix}-toggle-time`} className="flex flex-col cursor-pointer">
               <span className="text-xs font-bold text-text-main flex items-center gap-1">
                 <Clock className="h-3.5 w-3.5 text-parish-primary" />
                 Thời gian
@@ -403,44 +394,31 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
               <span className="text-xs text-text-muted">
                 {hasTime ? 'Có giờ cụ thể' : 'Cả ngày (All day)'}
               </span>
-            </div>
+            </label>
           </div>
 
-          {/* Toggle 2: Ngày kết thúc */}
-          <div
-            className="flex items-center gap-2.5 cursor-pointer select-none"
-            onClick={handleToggleHasEndDate}
-            role="button"
-            tabIndex={0}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                handleToggleHasEndDate()
-              }
-            }}
-          >
+          {/* Toggle 2: Ngày kết thúc — same W1.4 single-control pattern */}
+          <div className="flex items-center gap-2.5 select-none">
             <button
               type="button"
+              id={`${idPrefix}-toggle-enddate`}
               role="switch"
               aria-checked={hasEndDate}
               aria-label="Bật tắt ngày kết thúc"
               disabled={disabled}
-              onClick={e => {
-                e.stopPropagation()
-                handleToggleHasEndDate()
-              }}
+              onClick={handleToggleHasEndDate}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-parish-primary/40 disabled:cursor-not-allowed disabled:opacity-50 ${
                 hasEndDate ? 'bg-parish-primary' : 'bg-surface-border'
               }`}
             >
               <span
                 aria-hidden="true"
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-surface-card shadow-sm ring-0 transition duration-200 ease-in-out ${
                   hasEndDate ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>
-            <div className="flex flex-col">
+            <label htmlFor={`${idPrefix}-toggle-enddate`} className="flex flex-col cursor-pointer">
               <span className="text-xs font-bold text-text-main flex items-center gap-1">
                 <CalendarRange className="h-3.5 w-3.5 text-parish-gold" />
                 Ngày kết thúc
@@ -448,17 +426,18 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
               <span className="text-xs text-text-muted">
                 {hasEndDate ? 'Nhiều ngày / Qua đêm' : 'Cùng ngày'}
               </span>
-            </div>
+            </label>
           </div>
         </div>
 
-        {/* Status Badge */}
+        {/* Status Badge (W3.5/U-18: lucide icons instead of raw emoji so
+            screen readers never spell them out; text carries the meaning). */}
         <div className="hidden md:flex items-center">
-          <span className="rounded-md bg-surface-hover px-2.5 py-1 text-xs font-semibold text-text-secondary border border-surface-border/40">
-            {!hasTime && !hasEndDate && '📅 Sự kiện 1 ngày trọn vẹn'}
-            {!hasTime && hasEndDate && '📅 Sự kiện cả ngày nhiều ngày'}
-            {hasTime && !hasEndDate && '⏱ Sự kiện có giờ trong ngày'}
-            {hasTime && hasEndDate && '🗓 Sự kiện đầy đủ ngày & giờ'}
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-hover px-2.5 py-1 text-xs font-semibold text-text-secondary border border-surface-border/40">
+            {!hasTime && !hasEndDate && (<><Calendar className="h-3.5 w-3.5" aria-hidden="true" /><span>Sự kiện 1 ngày trọn vẹn</span></>)}
+            {!hasTime && hasEndDate && (<><CalendarRange className="h-3.5 w-3.5" aria-hidden="true" /><span>Sự kiện cả ngày nhiều ngày</span></>)}
+            {hasTime && !hasEndDate && (<><Clock className="h-3.5 w-3.5" aria-hidden="true" /><span>Sự kiện có giờ trong ngày</span></>)}
+            {hasTime && hasEndDate && (<><CalendarRange className="h-3.5 w-3.5" aria-hidden="true" /><span>Sự kiện đầy đủ ngày &amp; giờ</span></>)}
           </span>
         </div>
       </div>
@@ -549,13 +528,14 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
           </div>
         )}
 
-        {/* Fallback hidden input when both toggles are off to preserve form and test selectors */}
+        {/* Fallback hidden input when both toggles are off to preserve form
+            state (W3.5/U-18: no aria-label/id masquerade — hidden inputs are
+            not in the a11y tree, so the labels belonged to nothing). */}
         {!hasEndDate && !hasTime && (
           <input
             type="hidden"
-            id={endId}
-            aria-label={endLabel}
             value={endsAt}
+            readOnly
           />
         )}
       </div>
@@ -586,7 +566,7 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
                   onClick={() => applyDurationPreset(preset.minutes)}
                   className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors touch-manipulation min-h-9 sm:min-h-7 ${
                     isSelected
-                      ? 'bg-parish-primary text-white shadow-xs ring-2 ring-parish-primary/20 font-bold'
+                      ? 'bg-parish-primary text-text-inverse shadow-xs ring-2 ring-parish-primary/20 font-bold'
                       : 'bg-surface-card border border-surface-border text-text-secondary hover:border-parish-primary/40 hover:text-parish-primary'
                   }`}
                   title={preset.tag}
@@ -628,7 +608,7 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
           {durationInfo.isValid ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-parish-primary/20 bg-parish-primary-light/20 p-2.5 text-xs">
               <div className="flex items-center gap-2 min-w-0">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-parish-primary text-white shrink-0 font-black text-xs">
+                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-parish-primary text-text-inverse shrink-0 font-black text-xs">
                   ✓
                 </div>
                 <div className="min-w-0 flex-1">
@@ -670,7 +650,9 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
                   variant="secondary"
                   size="sm"
                   onClick={() => applyDurationPreset(120)}
-                  className="!min-h-7 !py-0.5 !px-2 text-xs"
+                  // W3.4 (U-14e): the old `!min-h-7 !py-0.5` important override
+                  // beat the shell's 44px mobile target rule — `.btn-sm` is the
+                  // standard compact tier and the media query handles mobile.
                 >
                   Đặt lại +2 giờ
                 </Button>
@@ -679,7 +661,6 @@ export const SmartEventTimePicker: React.FC<SmartEventTimePickerProps> = ({
                   variant="secondary"
                   size="sm"
                   onClick={applyAllDayPreset}
-                  className="!min-h-7 !py-0.5 !px-2 text-xs"
                 >
                   Cả ngày
                 </Button>

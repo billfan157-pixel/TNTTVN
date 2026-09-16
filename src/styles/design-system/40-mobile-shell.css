@@ -190,24 +190,7 @@
 }
 
 .mobile-calendar-header {
-  align-items: stretch;
-  flex-direction: column;
-}
-
-.mobile-calendar-header__toolbar {
   width: 100%;
-  justify-content: space-between;
-}
-
-@media (min-width: 640px) {
-  .mobile-calendar-header {
-    align-items: center;
-    flex-direction: row;
-  }
-
-  .mobile-calendar-header__toolbar {
-    width: auto;
-  }
 }
 
 @keyframes sheetEnter {
@@ -499,6 +482,25 @@
   justify-content: center;
   min-width: 30px;
   min-height: 28px;
+  position: relative;
+}
+
+/* W2.10: pending-operations badge on the org bottom-nav "Công Việc" tab. */
+.mobile-bottom-nav__badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-parish-danger);
+  color: var(--color-text-inverse);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
 }
 
 .mobile-bottom-nav__label {

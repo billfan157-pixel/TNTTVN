@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ClipboardCheck } from 'lucide-react'
 import { Button, Select, TextArea, TextInput } from '../common/ui'
+import { EmptyState } from '../common/StateFeedback'
 import { operationsApi, type OperationEventDetail } from '../../lib/api/operations'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
@@ -85,7 +86,8 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
     </form> : detail.retrospective ? <div className="space-y-2 text-sm text-text-main">
       <p className="m-0 whitespace-pre-wrap"><strong>Bài học:</strong> {detail.retrospective.lessonsLearned}</p>
       {detail.retrospective.improvementNotes && <p className="m-0 whitespace-pre-wrap"><strong>Cải thiện:</strong> {detail.retrospective.improvementNotes}</p>}
-    </div> : <p className="m-0 text-sm text-text-muted">Chưa có hậu kiểm được lưu.</p>}
+    </div> : /* W3.4 (U-14a): standard empty state instead of a raw <p> note. */
+      <EmptyState icon={ClipboardCheck} title="Chưa có hậu kiểm được lưu." description="Ghi lại bài học sau khi sự kiện hoàn tất để làm dữ liệu cho lần tổ chức sau." className="py-5" />}
 
     {canCreateFollowUp && <form className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-2" onSubmit={event => {
       event.preventDefault()

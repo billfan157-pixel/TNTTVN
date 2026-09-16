@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CalendarPlus } from 'lucide-react'
-import { Button, Select, Surface, TextInput } from '../common/ui'
+import { Button, Select, Surface, TextArea, TextInput } from '../common/ui'
 import type { OperationEvent } from '../../lib/api/operations'
 import { OPERATIONS_POSITION_LABELS_VI } from '../../lib/api/operations'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
@@ -30,6 +30,12 @@ export function CreateEventForm({
   const source = useOperationsStore(s => s.source)
   const permissions = useOperationsStore(s => s.permissions)
   const creationOptions = useOperationsStore(s => s.creationOptions)
+  // W2.11: parish zone wins over the creator's browser zone; a mismatch hint
+  // is shown so the picker's wall-clock values are never silently mis-read.
+  const parishTimezone = useOperationsStore(s => s.parishTimezone)
+  const browserTimezone = typeof Intl !== 'undefined' ? (Intl.DateTimeFormat().resolvedOptions().timeZone || '') : ''
+  const effectiveTimezone = parishTimezone || browserTimezone || 'Asia/Ho_Chi_Minh'
+  const timezoneMismatch = Boolean(parishTimezone && browserTimezone && parishTimezone !== browserTimezone)
   const createEvent = useOperationsStore(s => s.createEvent)
   const selectEvent = useOperationsStore(s => s.selectEvent)
   const canMutate = isOnline && source === 'server'
@@ -37,7 +43,7 @@ export function CreateEventForm({
   const unitCreationOptions = creationOptions?.units ?? []
   const canCreateAnyUnitEvent = unitCreationOptions.some(unit => unit.canCreateEvent)
 
-  const [draft, setDraft] = useState({ title: '', startsAt: '', endsAt: '', eventType: 'OTHER', location: '', visibility: 'INTERNAL' as OperationEvent['visibility'], scopeKind: initialScopeKind, scopeUnitId: initialScopeUnitId, organizerUserId: '' })
+  const [draft, setDraft] = useState({ title: '', description: '', startsAt: '', endsAt: '', eventType: 'OTHER', location: '', expectedHeadcount: '', visibility: 'INTERNAL' as OperationEvent['visibility'], scopeKind: initialScopeKind, scopeUnitId: initialScopeUnitId, organizerUserId: '' })
   const [creating, setCreating] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const { stableKey, releaseKey } = useStableCommandKey()
@@ -47,6 +53,18 @@ export function CreateEventForm({
     ? (creationOptions?.xuDoanOrganizers ?? [])
     : (draftScopeUnit?.organizers ?? [])
   const effectiveOrganizerId = draft.organizerUserId || (draftOrganizers.length === 1 ? draftOrganizers[0].userId : '')
+  // W2.7: the submit button used to stay disabled with no explanation (errors
+  // only appeared after a server rejection). Once the user engaged with the
+  // form, list exactly what is still missing next to the disabled button.
+  const scheduleInvalid = Boolean(draft.startsAt && draft.endsAt && draft.endsAt <= draft.startsAt)
+  const formDirty = Boolean(draft.title.trim() || draft.startsAt || draft.endsAt || draft.organizerUserId || (draft.scopeKind === 'UNIT' && draft.scopeUnitId))
+  const missingFields: string[] = []
+  if (!draft.title.trim()) missingFields.push('Nhập tên sự kiện.')
+  if (!draft.startsAt || !draft.endsAt) missingFields.push('Chọn thời gian bắt đầu và kết thúc.')
+  if (scheduleInvalid) missingFields.push('Giờ kết thúc phải sau giờ bắt đầu.')
+  if (draft.scopeKind === 'UNIT' && !draft.scopeUnitId) missingFields.push('Chọn Ban/Ngành phụ trách.')
+  if (draftOrganizers.length > 1 && !effectiveOrganizerId) missingFields.push('Chọn người chịu trách nhiệm (Organizer).')
+  const showMissingHint = formDirty && missingFields.length > 0 && !creating
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -58,11 +76,13 @@ export function CreateEventForm({
     try {
       const payload = {
         title: draft.title,
+        description: draft.description.trim() || null,
         eventType: draft.eventType,
         startsAt: toIso(draft.startsAt),
         endsAt: toIso(draft.endsAt),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Ho_Chi_Minh',
+        timezone: effectiveTimezone,
         location: draft.location.trim() || null,
+        expectedHeadcount: draft.expectedHeadcount ? Number(draft.expectedHeadcount) : null,
         visibility: draft.visibility,
         eventScopeType: draft.scopeKind,
         scopeUnitId: draft.scopeKind === 'UNIT' ? draft.scopeUnitId : null,
@@ -132,6 +152,15 @@ export function CreateEventForm({
         <label className="text-sm font-semibold text-text-main">Địa điểm
           <TextInput className="mt-1 w-full" value={draft.location} maxLength={draft.visibility === 'PUBLIC_SUMMARY' ? 200 : 300} onChange={event => setDraft(value => ({ ...value, location: event.target.value }))} />
         </label>
+        {/* W2.1: description + expected headcount — already in the server
+            create schema (eventCreateSchema) but previously unreachable. */}
+        <label className="sm:col-span-2 text-sm font-semibold text-text-main">
+          Mô tả sự kiện
+          <TextArea className="mt-1 w-full" value={draft.description} maxLength={5000} placeholder="Diễn biến, lưu ý chung (không bắt buộc)" onChange={event => setDraft(value => ({ ...value, description: event.target.value }))} />
+        </label>
+        <label className="text-sm font-semibold text-text-main">Số người dự kiến
+          <TextInput className="mt-1 w-full" type="number" min={0} value={draft.expectedHeadcount} onChange={event => setDraft(value => ({ ...value, expectedHeadcount: event.target.value }))} />
+        </label>
         <SmartEventTimePicker
           className="sm:col-span-2"
           startsAt={draft.startsAt}
@@ -141,10 +170,23 @@ export function CreateEventForm({
           idPrefix="create-event"
           onChange={({ startsAt, endsAt }) => setDraft(value => ({ ...value, startsAt, endsAt }))}
         />
+        {/* W2.11: with the parish zone in effect and a different browser, say
+            so explicitly — the picker keeps wall-clock input, the record is
+            stamped Asia/Ho_Chi_Minh-style and reminders fire on parish time. */}
+        {timezoneMismatch && (
+          <p role="note" className="sm:col-span-2 m-0 rounded-lg border border-surface-border bg-surface-ground/30 p-2 text-xs text-text-muted">
+            Giờ lưu theo <span className="font-bold text-text-main">Giờ Xứ đoàn ({effectiveTimezone})</span>; máy bạn đang ở {browserTimezone} — hãy nhập giờ địa phương của Xứ đoàn.
+          </p>
+        )}
+        {showMissingHint && (
+          <ul role="status" className="sm:col-span-2 m-0 space-y-0.5 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/30 p-2 text-xs text-parish-warning">
+            {missingFields.map(field => <li key={field}>{field}</li>)}
+          </ul>
+        )}
         <div className="sm:col-span-2 flex justify-end items-center gap-2 pt-2 border-t border-surface-border">
           {formError && <p role="alert" className="m-0 mr-auto text-xs text-parish-danger">{formError}</p>}
           <Button variant="secondary" size="sm" onClick={onClose}>Hủy</Button>
-          <Button type="submit" size="sm" loading={creating} disabled={!canMutate || !draft.title.trim() || !draft.startsAt || !draft.endsAt || draft.endsAt <= draft.startsAt || (draft.scopeKind === 'UNIT' && !draft.scopeUnitId) || (draftOrganizers.length > 1 && !effectiveOrganizerId)}>Lưu bản nháp</Button>
+          <Button type="submit" size="sm" loading={creating} disabled={!canMutate || missingFields.length > 0}>Lưu bản nháp</Button>
         </div>
       </form>
   )

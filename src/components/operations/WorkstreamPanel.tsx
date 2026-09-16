@@ -20,16 +20,18 @@ function localDateTime(iso: string | null) {
   return new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
-function MemberValidityEditor({ member, busy, save }: { member: OperationWorkstreamMember; busy: boolean; save: (startsAt: string | null, endsAt: string | null, reason: string) => void }) {
+// W3.5 (U-16): editors receive a human `memberLabel` — raw member UUIDs in
+// aria-labels made screen readers spell meaningless ids.
+function MemberValidityEditor({ member, memberLabel, busy, save }: { member: OperationWorkstreamMember; memberLabel: string; busy: boolean; save: (startsAt: string | null, endsAt: string | null, reason: string) => void }) {
   const [startsAt, setStartsAt] = useState(() => localDateTime(member.startsAt))
   const [endsAt, setEndsAt] = useState(() => localDateTime(member.endsAt))
   const [validityReason, setValidityReason] = useState('')
   useEffect(() => { setStartsAt(localDateTime(member.startsAt)); setEndsAt(localDateTime(member.endsAt)); setValidityReason('') }, [member.endsAt, member.startsAt, member.version])
   const invalidInterval = Boolean(startsAt && endsAt && new Date(endsAt).getTime() <= new Date(startsAt).getTime())
   return <div className="mt-2 grid w-full gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-    <TextInput aria-label={`Bắt đầu vai trò ${member.id}`} type="datetime-local" value={startsAt} disabled={busy} onChange={event => setStartsAt(event.target.value)} />
-    <TextInput aria-label={`Kết thúc vai trò ${member.id}`} type="datetime-local" value={endsAt} disabled={busy} onChange={event => setEndsAt(event.target.value)} />
-    <TextInput aria-label={`Lý do đổi thời hạn ${member.id}`} value={validityReason} maxLength={2000} required disabled={busy} placeholder="Lý do đổi thời hạn" onChange={event => setValidityReason(event.target.value)} />
+    <TextInput aria-label={`Bắt đầu vai trò của ${memberLabel}`} type="datetime-local" value={startsAt} disabled={busy} onChange={event => setStartsAt(event.target.value)} />
+    <TextInput aria-label={`Kết thúc vai trò của ${memberLabel}`} type="datetime-local" value={endsAt} disabled={busy} onChange={event => setEndsAt(event.target.value)} />
+    <TextInput aria-label={`Lý do đổi thời hạn vai trò của ${memberLabel}`} value={validityReason} maxLength={2000} required disabled={busy} placeholder="Lý do đổi thời hạn" onChange={event => setValidityReason(event.target.value)} />
     <Button size="sm" variant="secondary" disabled={busy || invalidInterval || !validityReason.trim()} onClick={() => save(startsAt ? new Date(startsAt).toISOString() : null, endsAt ? new Date(endsAt).toISOString() : null, validityReason.trim())}>Lưu thời hạn</Button>
   </div>
 }
@@ -48,6 +50,11 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
   const [removeReasons, setRemoveReasons] = useState<Record<string, string>>({})
   const [leadReplaceReason, setLeadReplaceReason] = useState('')
   const [blockedReason, setBlockedReason] = useState('')
+  // W2.5: inline rename/description editor for one group (PUT /workstreams/:id).
+  const [editingGroup, setEditingGroup] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editRequired, setEditRequired] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const generation = useRef(0)
@@ -104,7 +111,7 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
   return <section className="mt-4 space-y-3 rounded-xl border border-surface-border p-3" aria-label="Nhóm công việc">
     <h3 className="m-0 text-sm font-extrabold text-text-main">Nhóm công việc</h3>
     {error && <p role="alert" className="text-sm text-text-main">{error}</p>}
-    <div className="flex flex-wrap gap-2">{event.workstreams.map(group => <Button key={group.id} variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => void run(() => load(group.id))}>{group.name}{group.isRequired ? ' · Bắt buộc' : ''}</Button>)}</div>
+    <div className="flex flex-wrap gap-2">{event.workstreams.map(group => <Button key={group.id} variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => void run(() => load(group.id))}>{group.name}{group.isRequired ? ' · Bắt buộc' : ''}{group.blockedReason ? ' · Bị chặn' : ''}</Button>)}</div>
     {writable && event.permissions['operations.workstream.create'] && <form className="flex flex-wrap items-center gap-2" onSubmit={e => {
       e.preventDefault()
       void run(async () => {
@@ -129,12 +136,48 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
       <Button type="submit" disabled={busy || !name.trim() || needsFieldUnit}>{isXuDoanEvent ? 'Tạo mảng' : 'Tạo nhóm'}</Button>
     </form>}
     {detail && <div className="space-y-3">
-      <h4 className="text-sm font-bold text-text-main">{detail.workstream.name} · {detail.workstream.status === 'READY' ? 'Sẵn sàng' : detail.workstream.status === 'BLOCKED' ? 'Bị chặn' : 'Đang chuẩn bị'}</h4>
-      <Button variant="ghost" size="sm" disabled={!enabled || busy} onClick={() => void run(() => load(detail.workstream.id))}>Tải lại nhóm</Button>
-      {detail.members.map(member => <div key={member.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-text-main">
-        <span>{candidates.find(candidate => candidate.personId === member.personId || candidate.userId === member.userId)?.displayName ?? 'Thành viên được phân công'} · {roles[member.operationRole]}{member.endsAt ? ` · đến ${new Date(member.endsAt).toLocaleString('vi-VN')}` : ''}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="m-0 text-sm font-bold text-text-main">{detail.workstream.name} · {detail.workstream.status === 'READY' ? 'Sẵn sàng' : detail.workstream.status === 'BLOCKED' ? 'Bị chặn' : 'Đang chuẩn bị'}</h4>
+        <div className="flex gap-2">
+          {writable && detail.permissions['operations.workstream.manage'] && <Button variant="ghost" size="sm" disabled={busy} aria-expanded={editingGroup} onClick={() => {
+            setEditingGroup(value => {
+              if (!value) { setEditName(detail.workstream.name); setEditDescription(detail.workstream.description ?? ''); setEditRequired(detail.workstream.isRequired) }
+              return !value
+            })
+          }}>Sửa nhóm</Button>}
+          <Button variant="ghost" size="sm" disabled={!enabled || busy} onClick={() => void run(() => load(detail.workstream.id))}>Tải lại nhóm</Button>
+        </div>
+      </div>
+      {/* W2.5: PUT /workstreams/:id — đổi tên/mô tả/required, OCC on version.
+          sourceUnitId intentionally not edited here (needs create authority on
+          the target unit; keep that move in a dedicated flow). */}
+      {editingGroup && <form className="grid gap-2 rounded-lg border border-surface-border bg-surface-ground/30 p-2 sm:grid-cols-[2fr_3fr_auto_auto] sm:items-end" onSubmit={e => {
+        e.preventDefault()
+        if (!editName.trim()) return
+        void run(async () => {
+          const scope = getTenantScopeKey(); const token = generation.current
+          const payload = { version: detail.workstream.version, name: editName.trim(), description: editDescription.trim() || null, isRequired: editRequired }
+          await operationsApi.updateWorkstream(detail.workstream.id, payload, stableKey('workstream-update', { workstreamId: detail.workstream.id, ...payload }))
+          releaseKey('workstream-update')
+          if (!scope || scope !== getTenantScopeKey() || token !== generation.current) return
+          await load(detail.workstream.id)
+          if (!scope || scope !== getTenantScopeKey() || token !== generation.current) return
+          setEditingGroup(false); setEditName(''); setEditDescription(''); setEditRequired(false)
+          await refresh()
+        })
+      }}>
+        <TextInput aria-label={isXuDoanEvent ? 'Tên mảng mới' : 'Tên nhóm mới'} value={editName} maxLength={200} required disabled={busy} onChange={e => setEditName(e.target.value)} />
+        <TextInput aria-label="Mô tả nhóm" value={editDescription} maxLength={3000} disabled={busy} placeholder="Mô tả (không bắt buộc)" onChange={e => setEditDescription(e.target.value)} />
+        <label className="flex min-h-11 items-center gap-2 text-sm text-text-main cursor-pointer select-none"><input type="checkbox" checked={editRequired} disabled={busy} onChange={e => setEditRequired(e.target.checked)} /> {isXuDoanEvent ? 'Mảng bắt buộc' : 'Nhóm bắt buộc'}</label>
+        <Button type="submit" size="sm" disabled={busy || !editName.trim()}>Lưu</Button>
+      </form>}
+      {detail.members.map(member => {
+        // W3.5 (U-16): one human label per member row, reused by every control.
+        const memberLabel = candidates.find(candidate => candidate.personId === member.personId || candidate.userId === member.userId)?.displayName ?? 'Thành viên được phân công'
+        return <div key={member.id} className="flex flex-wrap items-center justify-between gap-2 text-sm text-text-main">
+        <span>{memberLabel} · {roles[member.operationRole]}{member.endsAt ? ` · đến ${new Date(member.endsAt).toLocaleString('vi-VN')}` : ''}</span>
         {writable && detail.permissions[member.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage'] && <div className="flex w-full items-center gap-2">
-          <TextInput aria-label={`Lý do thu hồi vai trò ${member.id}`} value={removeReasons[member.id] ?? ''} maxLength={2000} disabled={busy} placeholder="Lý do thu hồi vai trò" onChange={e => setRemoveReasons(value => ({ ...value, [member.id]: e.target.value }))} />
+          <TextInput aria-label={`Lý do thu hồi vai trò của ${memberLabel}`} value={removeReasons[member.id] ?? ''} maxLength={2000} disabled={busy} placeholder="Lý do thu hồi vai trò" onChange={e => setRemoveReasons(value => ({ ...value, [member.id]: e.target.value }))} />
           <Button variant="danger" size="sm" disabled={busy || !(removeReasons[member.id] ?? '').trim()} onClick={() => {
           const payload = { version: detail.workstream.version, memberVersion: member.version, reason: (removeReasons[member.id] ?? '').trim() }
           const key = stableKey('workstream-member-remove', { workstreamId: detail.workstream.id, memberId: member.id, ...payload })
@@ -144,7 +187,7 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
             return result
           })
         }}>Thu hồi vai trò</Button></div>}
-        {writable && detail.permissions[member.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage'] && <MemberValidityEditor member={member} busy={busy} save={(startsAt, endsAt, validityReason) => {
+        {writable && detail.permissions[member.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage'] && <MemberValidityEditor member={member} memberLabel={memberLabel} busy={busy} save={(startsAt, endsAt, validityReason) => {
           const payload = { version: detail.workstream.version, memberVersion: member.version, startsAt, endsAt, reason: validityReason }
           const key = stableKey('workstream-member-validity', { workstreamId: detail.workstream.id, memberId: member.id, ...payload })
           return void mutate(async () => {
@@ -153,7 +196,8 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
             return result
           })
         }} />}
-      </div>)}
+      </div>
+      })}
       {writable && detail.permissions['operations.workstream.manage'] && <div className="flex flex-wrap gap-2">
         <Select aria-label="Thành viên nhóm" value={candidateValue} disabled={candidateDirectory.loading} onChange={e => setCandidateValue(e.target.value)}><option value="">{candidateDirectory.loading ? 'Đang tải nhân sự…' : 'Chọn nhân sự'}</option>{candidates.map(candidate => <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>{candidate.displayName}{candidate.eligibility === 'PLANNING_ONLY' ? ' · chưa có tài khoản' : ''}</option>)}</Select>
         <Select aria-label="Vai trò trong nhóm" value={role} onChange={e => setRole(e.target.value as typeof role)}>{Object.entries(roles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>

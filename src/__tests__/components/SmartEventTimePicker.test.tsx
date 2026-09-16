@@ -262,6 +262,27 @@ describe('SmartEventTimePicker - Component Interactions', () => {
     })
   })
 
+  it('W1.4: switches are single interactive controls (no nested role=button wrapper)', () => {
+    render(
+      <SmartEventTimePicker
+        startsAt="2026-09-13T08:00"
+        endsAt="2026-09-13T10:00"
+        onChange={vi.fn()}
+      />
+    )
+    // Old markup: a role="button" tabIndex=0 div with onKeyDown wrapped the
+    // switch button → Enter/Space could double-toggle and AT saw nested
+    // interactive. Now each switch is the only control; the text is a <label>.
+    const timeSwitch = screen.getByRole('switch', { name: 'Bật tắt thời gian' })
+    const endDateSwitch = screen.getByRole('switch', { name: 'Bật tắt ngày kết thúc' })
+    for (const control of [timeSwitch, endDateSwitch]) {
+      expect(control.tagName).toBe('BUTTON')
+      expect(control.closest('[role="button"]')).toBeNull()
+    }
+    // The visible texts are click-through labels bound to the switch, not buttons.
+    expect(screen.getByText('Thời gian').closest('label')).toHaveAttribute('for', timeSwitch.id)
+  })
+
   it('handles single-day all-day event when both toggles are turned off', () => {
     const handleChange = vi.fn()
     render(

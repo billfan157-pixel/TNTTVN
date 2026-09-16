@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { WorkstreamPanel } from '../../components/operations/WorkstreamPanel'
 import { operationsApi, type OperationEventDetail } from '../../lib/api/operations'
-vi.mock('../../lib/api/operations', () => ({ operationsApi: { getWorkstream: vi.fn(), createWorkstream: vi.fn(), setWorkstreamReady: vi.fn(), updateWorkstreamMemberValidity: vi.fn(), addWorkstreamMember: vi.fn(), removeWorkstreamMember: vi.fn(), replaceWorkstreamLead: vi.fn() } }))
+vi.mock('../../lib/api/operations', () => ({ operationsApi: { getWorkstream: vi.fn(), createWorkstream: vi.fn(), updateWorkstream: vi.fn(), setWorkstreamReady: vi.fn(), updateWorkstreamMemberValidity: vi.fn(), addWorkstreamMember: vi.fn(), removeWorkstreamMember: vi.fn(), replaceWorkstreamLead: vi.fn() } }))
 vi.mock('../../hooks/useOperationCandidates', () => ({
   useOperationCandidates: () => ({ candidates: [{ parishId: 'p', personId: 'person-1', userId: 'user-1', displayName: 'Thành viên Một', eligibility: 'ACTIONABLE', inResourceScope: true }], loading: false, error: '' }),
   operationCandidateValue: (candidate: any) => `person:${candidate.personId}`,
@@ -63,9 +63,10 @@ it('updates membership validity with both current versions and a reason', async 
   render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
   await screen.findByText(/Thành viên Một · Theo dõi/)
-  fireEvent.change(screen.getByLabelText('Bắt đầu vai trò member-1'), { target: { value: '2026-12-01T08:00' } })
-  fireEvent.change(screen.getByLabelText('Kết thúc vai trò member-1'), { target: { value: '2026-12-31T17:00' } })
-  fireEvent.change(screen.getByLabelText('Lý do đổi thời hạn member-1'), { target: { value: 'Phân công tháng 12' } })
+  // W3.5 (U-16): labels are member display names, not raw ids.
+  fireEvent.change(screen.getByLabelText('Bắt đầu vai trò của Thành viên Một'), { target: { value: '2026-12-01T08:00' } })
+  fireEvent.change(screen.getByLabelText('Kết thúc vai trò của Thành viên Một'), { target: { value: '2026-12-31T17:00' } })
+  fireEvent.change(screen.getByLabelText('Lý do đổi thời hạn vai trò của Thành viên Một'), { target: { value: 'Phân công tháng 12' } })
   fireEvent.click(screen.getByRole('button', { name: 'Lưu thời hạn' }))
   await waitFor(() => expect(operationsApi.updateWorkstreamMemberValidity).toHaveBeenCalledWith('g', 'member-1', {
     version: 4,
@@ -102,6 +103,23 @@ it('offers only the atomic lead handover while the event is LIVE', async () => {
   await waitFor(() => expect(refresh).toHaveBeenCalled())
 })
 
+it('W2.5: saves group rename/description through PUT with OCC version and a stable key', async () => {
+  vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [], permissions: { 'operations.workstream.manage': true } } as any)
+  vi.mocked(operationsApi.updateWorkstream).mockResolvedValue({ ...group, name: 'Phụng Vụ Thánh', description: 'Lưu ý áo lễ', isRequired: false, version: 5 } as any)
+  const refresh = vi.fn()
+  render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Sửa nhóm' }))
+  fireEvent.change(screen.getByLabelText('Tên mảng mới'), { target: { value: 'Phụng Vụ Thánh' } })
+  fireEvent.change(screen.getByLabelText('Mô tả nhóm'), { target: { value: 'Lưu ý áo lễ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Lưu' }))
+  await waitFor(() => expect(operationsApi.updateWorkstream).toHaveBeenCalledWith('g', expect.objectContaining({
+    // isRequired prefills from the stored group (true here).
+    version: 4, name: 'Phụng Vụ Thánh', description: 'Lưu ý áo lễ', isRequired: true,
+  }), expect.any(String)))
+  await waitFor(() => expect(refresh).toHaveBeenCalled())
+})
+
 it('P1-9: keeps destructive reason drafts scoped to their own command', async () => {
   const member = { id: 'member-1', parishId: 'p', workstreamId: 'g', personId: 'person-1', userId: null, operationRole: 'OBSERVER', startsAt: null, endsAt: null, version: 2 }
   vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [member], permissions: { 'operations.workstream.manage': true, 'operations.workstream.mark_ready': true } } as any)
@@ -112,7 +130,7 @@ it('P1-9: keeps destructive reason drafts scoped to their own command', async ()
   expect(removeButton).toBeDisabled()
   expect(blockedButton).toBeDisabled()
   // A reason typed for member removal must not satisfy the blocked-report gate.
-  fireEvent.change(screen.getByLabelText('Lý do thu hồi vai trò member-1'), { target: { value: 'Hết phân công' } })
+  fireEvent.change(screen.getByLabelText('Lý do thu hồi vai trò của Thành viên Một'), { target: { value: 'Hết phân công' } })
   expect(removeButton).toBeEnabled()
   expect(blockedButton).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Lý do báo nhóm bị chặn'), { target: { value: 'Thiếu người' } })

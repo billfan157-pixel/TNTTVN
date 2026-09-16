@@ -89,14 +89,23 @@ export const ModalShell: React.FC<ModalShellProps> = ({
             </div>
           )}
 
-          <div className="modal-content__header shrink-0 bg-surface-card px-4 py-3 sm:px-6 sm:py-4 border-b border-surface-border flex items-center justify-between gap-2.5 sm:gap-4">
-            <div className="flex items-center gap-2.5 min-w-0">
+          {/* W3.6: below sm the header may wrap and headerActions is capped to
+              the dialog width (max-w-full) so a long badge group reflows onto
+              its own rows instead of forcing horizontal scroll — at 320px the
+              old single-line, shrink-to-fit header scrolled the dialog body and
+              clipped the title off-screen. sm+ keeps the original nowrap row. */}
+          <div className="modal-content__header shrink-0 bg-surface-card px-4 py-3 sm:px-6 sm:py-4 border-b border-surface-border flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 sm:gap-4">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
               {icon && (
                 <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-parish-primary-light text-parish-primary flex items-center justify-center shrink-0 [&>svg]:w-4.5 [&>svg]:h-4.5 sm:[&>svg]:w-5 sm:[&>svg]:h-5">
                   {icon}
                 </div>
               )}
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
+                {/* W3.6: flex-1 (with min-w-0) is the proper truncate-in-flex
+                    pattern; without it the shrink-to-fit mobile sheet at 320px
+                    collapsed the title to zero width and clipped the dialog
+                    off the left edge. */}
                 <h3 id={titleId} className="modal-content__title typography-card-title text-base sm:text-lg font-bold leading-tight m-0 truncate">
                   {title}
                 </h3>
@@ -107,7 +116,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
                 )}
               </div>
             </div>
-            <div className="modal-content__header-actions flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="modal-content__header-actions flex items-center justify-end gap-1.5 sm:gap-2 shrink-0 max-sm:max-w-full">
               {headerActions}
               {showCloseButton && (
                 <IconButton

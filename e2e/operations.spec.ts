@@ -17,8 +17,10 @@ test('@critical public Operations event is projected to the parent read-only cal
   await page.getByLabel('Tên sự kiện').fill(key)
   await page.getByLabel('Loại sự kiện').selectOption('CAMP')
   await page.getByLabel('Địa điểm').fill('Sân giáo xứ E2E')
-  await page.getByLabel('Bắt đầu').fill(`${date}T08:00`)
-  await page.getByLabel('Kết thúc').fill(`${date}T17:00`)
+  await page.getByLabel('Bắt đầu', { exact: true }).fill(`${date}T08:00`)
+  // W4-era selector fix: the SmartEventTimePicker end-date switch label
+  // "Bật tắt ngày kết thúc" contains "Kết thúc", so exact matching is required.
+  await page.getByLabel('Kết thúc', { exact: true }).fill(`${date}T17:00`)
   // Organizer is auto-selected when a single Xứ đoàn trưởng exists; otherwise pick the first option.
   const organizerSelect = page.getByLabel('Người chịu trách nhiệm (Organizer)')
   if (await organizerSelect.isEnabled() && !(await organizerSelect.inputValue())) {
@@ -37,7 +39,9 @@ test('@critical public Operations event is projected to the parent read-only cal
   expect(draftProjectionResponse.status()).toBe(200)
   expect((await draftProjectionResponse.json()).data.some((event: { title: string }) => event.title === key)).toBe(false)
 
-  await page.getByRole('article').filter({ hasText: key }).getByRole('button', { name: 'Xem chi tiết' }).click()
+  // Create flow now opens the new event's detail directly (select-on-create),
+  // so clicking the row would hit the open dialog overlay instead.
+  await expect(page.getByRole('dialog').filter({ hasText: key })).toBeVisible()
   const planningResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }).click()
   const planningResponse = await planningResponsePromise
@@ -157,7 +161,8 @@ test('@critical Operations owner handover persists one pending owner and blockou
   await page.goto('/operations')
   await page.getByRole('article').filter({ hasText: key }).getByRole('button', { name: 'Xem chi tiết' }).click()
   await page.getByRole('button', { name: 'Checklist', exact: true }).click()
-  await page.getByLabel('Người phụ trách mới').selectOption(personId!)
+  // Candidate selects use `person:<id>` option values (operationCandidateValue).
+  await page.getByLabel('Người phụ trách mới').selectOption(`person:${personId}`)
   await page.getByLabel('Lý do bàn giao').fill('Thay đổi lịch trực')
   const acknowledged = page.waitForResponse(response => response.url().endsWith(`/tasks/${task.id}/handover`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Xác nhận bàn giao' }).click()
@@ -186,7 +191,9 @@ test('@critical Operations standalone evidence persists through UI', async ({ pa
   await injectSession(page, staff)
   await page.goto('/operations')
   const row = page.getByRole('article').filter({ hasText: key })
+  // W4.3 behavior change: accepting now opens a dialog with an optional note.
   await row.getByRole('button', { name: 'Nhận việc' }).click()
+  await page.getByRole('dialog', { name: 'Nhận nhiệm vụ' }).getByRole('button', { name: 'Xác nhận nhận việc' }).click()
   await expect(row.getByRole('button', { name: 'Nhận việc' })).toHaveCount(0)
   await row.getByRole('button', { name: 'Chi tiết nhiệm vụ' }).click()
   await page.getByLabel('Bình luận nhiệm vụ').fill('Minh chứng kiểm tra E2E')
@@ -247,6 +254,8 @@ test('@critical Operations P4 standalone group assignment respects private block
 
   await injectSession(page, admin)
   await page.goto('/operations')
+  // W2/W3 layout: standalone workstreams moved into the utilities tab.
+  await page.getByRole('tab', { name: 'Nhóm công tác độc lập' }).click()
   const panel = page.getByRole('region', { name: 'Nhóm công việc độc lập' })
   await panel.getByLabel('Đơn vị phụ trách nhóm độc lập').selectOption(unit!.id)
   await panel.getByLabel('Tên nhóm độc lập').fill(groupName)
@@ -286,6 +295,7 @@ test('@critical Operations P4 standalone group assignment respects private block
   await expect(myTask).toBeVisible()
   const acknowledgementResponsePromise = recipientPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/acknowledge`) && response.request().method() === 'POST')
   await myTask.getByRole('button', { name: 'Nhận việc' }).click()
+  await recipientPage.getByRole('dialog', { name: 'Nhận nhiệm vụ' }).getByRole('button', { name: 'Xác nhận nhận việc' }).click()
   expect((await acknowledgementResponsePromise).status()).toBe(200)
 
   const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
@@ -365,6 +375,7 @@ test('@critical Operations P5 turns a completed-event retrospective into an owne
     await expect(taskCard).toBeVisible()
     const acknowledgementResponsePromise = recipientPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${followUp.task.id}/acknowledge`) && response.request().method() === 'POST')
     await taskCard.getByRole('button', { name: 'Nhận việc' }).click()
+    await recipientPage.getByRole('dialog', { name: 'Nhận nhiệm vụ' }).getByRole('button', { name: 'Xác nhận nhận việc' }).click()
     expect((await acknowledgementResponsePromise).status()).toBe(200)
   } finally {
     await recipientContext.close()
@@ -524,8 +535,19 @@ test('@critical Operations P3 reschedules with OCC and recipient cancellation pe
   await page.goto('/operations')
   const eventCard = page.getByRole('article').filter({ hasText: eventTitle })
   await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
+  // W2/W4: a DRAFT event is creator-private; move it to PLANNING through the
+  // UI so the parish-leader recipient passes assertReminderRecipientCanView
+  // (DRAFT→PLANNING is not readiness-gated), then reach the reminders tab.
+  const planningPromise = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }).click()
+  expect((await planningPromise).status()).toBe(200)
+  // W3.2 layout: reminders live behind their own modal tab now.
+  await page.getByRole('tab', { name: 'Lập lịch nhắc việc' }).click()
+  // W4-era fixture note: recipients must be able to VIEW the event AND hold an
+  // Operations account (assertReminderRecipientCanView + assertTarget) — the
+  // seeded PARISH_LEADER (usr-e2e-phuta) satisfies both for a parish event.
   const manager = page.getByRole('region', { name: 'Quản lý nhắc sự kiện' })
-  await manager.getByLabel('Người nhận nhắc sự kiện').selectOption('usr-e2e-chunhiem')
+  await manager.getByLabel('Người nhận nhắc sự kiện').selectOption('usr-e2e-phuta')
   await manager.getByLabel('Thời điểm nhắc sự kiện').fill('2027-04-30T20:00')
   const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/reminders') && response.request().method() === 'POST')
   await manager.getByRole('button', { name: 'Lưu lịch nhắc' }).click()
@@ -546,12 +568,14 @@ test('@critical Operations P3 reschedules with OCC and recipient cancellation pe
 
   await page.reload()
   await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
+  await page.getByRole('tab', { name: 'Lập lịch nhắc việc' }).click()
   await expect(page.getByRole('region', { name: 'Quản lý nhắc sự kiện' }).locator(`[data-reminder-id="${reminder.id}"]`)).toBeVisible()
 
   const recipientContext = await browser.newContext()
   const recipientPage = await recipientContext.newPage()
   try {
-    const recipient = await apiLogin(recipientPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
+    // Matches the recipient chosen above (Operations-capable staff account).
+    const recipient = await apiLogin(recipientPage.request, 'e2e_phuta', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
     await injectSession(recipientPage, recipient)
     await recipientPage.goto('/operations')
     const inboxRow = recipientPage.locator(`[data-reminder-id="${reminder.id}"]`)
@@ -598,26 +622,34 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await page.getByRole('button', { name: 'Tạo mới' }).click()
   await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByLabel('Tên sự kiện').fill(eventTitle)
-  await page.getByLabel('Bắt đầu').fill('2026-10-12T08:00')
-  await page.getByLabel('Kết thúc').fill('2026-10-12T12:00')
+  await page.getByLabel('Bắt đầu', { exact: true }).fill('2026-10-12T08:00')
+  await page.getByLabel('Kết thúc', { exact: true }).fill('2026-10-12T12:00')
   const eventResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/events') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Lưu bản nháp' }).click()
   const eventResponse = await eventResponsePromise
   expect(eventResponse.status()).toBe(201)
   const operationEvent = (await eventResponse.json()).data as { id: string; version: number }
 
-  const eventCard = page.getByRole('article').filter({ hasText: eventTitle })
-  await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
-  await expect(page.getByRole('region', { name: 'Chi tiết sự kiện vận hành' })).toContainText(eventTitle)
+  // Select-on-create opens the detail dialog directly; workstreams live on
+  // their own tab now (Xứ đoàn event → "Mảng phụ trách" vocabulary).
+  const eventDialog = page.getByRole('dialog')
+  await expect(eventDialog).toContainText(eventTitle)
+  const reopenDetail = async () => {
+    await page.getByRole('button', { name: 'Đóng chi tiết' }).click()
+    await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
+    await expect(page.getByRole('dialog')).toContainText(eventTitle)
+  }
+  await page.getByRole('tab', { name: /Mảng phụ trách/ }).click()
 
-  await page.getByLabel('Tên nhóm công việc').fill('Nhóm nghi thức')
-  await page.getByLabel('Nhóm bắt buộc').check()
+  await page.getByLabel('Tên mảng phụ trách').fill('Nhóm nghi thức')
+  await page.getByLabel('Mảng bắt buộc').check()
   const groupResponse = page.waitForResponse(response => response.url().endsWith('/api/operations/workstreams') && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Tạo nhóm', exact: true }).click()
+  await page.getByRole('button', { name: 'Tạo mảng', exact: true }).click()
   const groupCreated = await groupResponse
   expect(groupCreated.status()).toBe(201)
   const group = (await groupCreated.json()).data as { id: string }
-  await page.getByLabel('Thành viên nhóm').selectOption(assigneePersonId)
+  // Member/assignee selects use `person:<id>` candidate values.
+  await page.getByLabel('Thành viên nhóm').selectOption(`person:${assigneePersonId}`)
   await page.getByLabel('Vai trò trong nhóm').selectOption('WORKSTREAM_LEAD')
   const memberResponse = page.waitForResponse(response => response.url().endsWith(`/workstreams/${group.id}/members`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Phân công vào nhóm' }).click()
@@ -625,20 +657,37 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   const readyResponse = page.waitForResponse(response => response.url().endsWith(`/workstreams/${group.id}/ready`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Nhóm đã sẵn sàng' }).click()
   expect((await readyResponse).status()).toBe(200)
-  await page.getByLabel('Nhóm của công việc').selectOption(group.id)
-  await page.getByLabel('Tên task').fill(preparationTitle)
-  await page.getByLabel('Giai đoạn nhiệm vụ').selectOption('PREPARATION')
-  await page.getByLabel('Hạn task').fill('2026-10-11T20:00')
-  await page.getByText('Nhiệm vụ bắt buộc').click()
-  const taskResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/tasks') && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Tạo task' }).click()
-  const taskResponse = await taskResponsePromise
-  expect(taskResponse.status()).toBe(201)
-  const task = (await taskResponse.json()).data as { id: string; version: number; phase: string }
-  expect(task.phase).toBe('PREPARATION')
 
-  const eventDetail = page.getByRole('region', { name: 'Chi tiết sự kiện vận hành' })
-  const taskRow = eventDetail.getByText(preparationTitle, { exact: true }).locator('..').locator('..')
+  await page.getByRole('tab', { name: /Nhiệm vụ & Phân công/ }).click()
+  // W4-era dispatch model: an OWNER goes through a primary invitation
+  // (POST /dispatch with an acknowledgement deadline) that only sends when
+  // the event reaches PLANNING; the staff user then accepts it from
+  // "Việc của tôi". This mirrors the dedicated OPS-DISPATCH journey.
+  const createAndInvite = async (title: string, phase: 'PREPARATION' | 'EXECUTION' | 'FOLLOW_UP', dueAt?: string) => {
+    await page.getByLabel('Tên task').fill(title)
+    await page.getByLabel('Giai đoạn nhiệm vụ').selectOption(phase)
+    if (dueAt) await page.getByLabel('Hạn task').fill(dueAt)
+    await page.getByText('Nhiệm vụ bắt buộc').click()
+    const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/tasks') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Tạo task' }).click()
+    const created = (await (await createResponsePromise).json()).data as { id: string; version: number; phase: string }
+    expect(created.phase).toBe(phase)
+    await page.getByLabel('Task cần phân công').selectOption(created.id)
+    await page.getByLabel('Vai trò phân công').selectOption('OWNER')
+    await page.getByLabel('Người thực hiện chính').selectOption(`person:${assigneePersonId}`)
+    await page.getByLabel('Hạn nhận nhiệm vụ').fill('2035-01-01T12:00')
+    const dispatchResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${created.id}/dispatch`) && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Gửi lời mời phụ trách' }).click()
+    expect((await dispatchResponsePromise).status()).toBe(201)
+    return created
+  }
+  const task = await createAndInvite(preparationTitle, 'PREPARATION', '2026-10-11T20:00')
+  const executionTask = await createAndInvite(executionTitle, 'EXECUTION')
+  const followUpTask = await createAndInvite(followUpTitle, 'FOLLOW_UP')
+
+  // W1.7: "Checklist" opens the task detail as its own dialog above the event
+  // dialog; close it again before continuing on the event surface.
+  const taskRow = eventDialog.getByText(preparationTitle, { exact: true }).locator('..').locator('..')
   await taskRow.getByRole('button', { name: 'Checklist' }).click()
   await page.getByLabel('Mục checklist mới').fill('Kiểm tra dụng cụ')
   await page.getByText('Bắt buộc', { exact: true }).last().click()
@@ -650,35 +699,12 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await checklistCheckbox.click()
   expect((await checklistUpdateResponse).status()).toBe(200)
   await expect(checklistCheckbox).toBeChecked()
+  await page.getByRole('button', { name: 'Đóng checklist' }).click()
 
-  await page.getByLabel('Task cần phân công').selectOption(task.id)
-  await page.getByLabel('Người được phân công').selectOption(assigneePersonId)
-  await page.getByLabel('Vai trò phân công').selectOption('OWNER')
-  const assignmentResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/assign`) && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Giao việc' }).click()
-  const assignmentResponse = await assignmentResponsePromise
-  expect(assignmentResponse.status()).toBe(201)
-
-  const createFutureTask = async (title: string, phase: 'EXECUTION' | 'FOLLOW_UP') => {
-    await page.getByLabel('Tên task').fill(title)
-    await page.getByLabel('Giai đoạn nhiệm vụ').selectOption(phase)
-    await page.getByText('Nhiệm vụ bắt buộc').click()
-    const createResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/tasks') && response.request().method() === 'POST')
-    await page.getByRole('button', { name: 'Tạo task' }).click()
-    const createResponse = await createResponsePromise
-    expect(createResponse.status()).toBe(201)
-    const created = (await createResponse.json()).data as { id: string; phase: string }
-    expect(created.phase).toBe(phase)
-    await page.getByLabel('Task cần phân công').selectOption(created.id)
-    await page.getByLabel('Người được phân công').selectOption(assigneePersonId)
-    await page.getByLabel('Vai trò phân công').selectOption('OWNER')
-    const assignResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${created.id}/assign`) && response.request().method() === 'POST')
-    await page.getByRole('button', { name: 'Giao việc' }).click()
-    expect((await assignResponsePromise).status()).toBe(201)
-    return created
-  }
-  const executionTask = await createFutureTask(executionTitle, 'EXECUTION')
-  const followUpTask = await createFutureTask(followUpTitle, 'FOLLOW_UP')
+  // PLANNING sends the invitations; before that the recipient sees nothing.
+  const planningResponsePromise = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }).click()
+  expect((await planningResponsePromise).status()).toBe(200)
 
   const staffContext = await browser.newContext()
   const staffPage = await staffContext.newPage()
@@ -686,52 +712,61 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     const staff = await apiLogin(staffPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
     await injectSession(staffPage, staff)
     await staffPage.goto('/operations')
-    const acknowledge = async (taskId: string, title: string) => {
-      const row = staffPage.getByRole('article').filter({ hasText: title })
-      await expect(row).toBeVisible()
-      const response = staffPage.waitForResponse(value => value.url().endsWith(`/api/operations/tasks/${taskId}/acknowledge`) && value.request().method() === 'POST')
-      await row.getByRole('button', { name: 'Nhận việc' }).click()
+    const invitationPanel = staffPage.locator('[aria-label="Lời mời nhận nhiệm vụ"]')
+    const acceptInvite = async (taskId: string, title: string) => {
+      const row = invitationPanel.locator('div', { hasText: title }).last()
+      const response = staffPage.waitForResponse(value => value.url().includes(`/api/operations/tasks/${taskId}/dispatches/`) && value.url().endsWith('/accept') && value.request().method() === 'POST')
+      await row.getByRole('button', { name: 'Nhận nhiệm vụ' }).click()
       expect((await response).status()).toBe(200)
-      return row
     }
-    const myTask = await acknowledge(task.id, preparationTitle)
+    await acceptInvite(task.id, preparationTitle)
+    await acceptInvite(executionTask.id, executionTitle)
+    await acceptInvite(followUpTask.id, followUpTask)
     const completeResponse = staffPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/transition`) && response.request().method() === 'POST')
-    await myTask.getByRole('button', { name: 'Hoàn tất' }).click()
+    await staffPage.getByRole('article').filter({ hasText: preparationTitle }).getByRole('button', { name: 'Hoàn tất' }).click()
     expect((await completeResponse).status()).toBe(200)
-    await acknowledge(executionTask.id, executionTitle)
-    await acknowledge(followUpTask.id, followUpTitle)
 
     const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
     expect(readBack.status()).toBe(200)
     expect((await readBack.json()).data.task).toMatchObject({ id: task.id, workstreamId: group.id, phase: 'PREPARATION', status: 'DONE', parishId: 'gia-ton' })
 
     // Refresh the event projection after the other authenticated actor accepted/completed work.
-    await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
-    const transitionFromUi = async (label: string) => {
-      const response = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
+    await reopenDetail()
+    // W1.1: with two required tasks still open, the READY/LIVE gates answer
+    // READINESS_BLOCKED and the manager path is the override dialog — the
+    // button must NOT stay dead-disabled for an override holder.
+    const transitionStep = async (label: string) => {
+      const first = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
       await page.getByRole('button', { name: label }).click()
-      expect((await response).status()).toBe(200)
+      const firstResponse = await first
+      if (firstResponse.status() === 200) return
+      expect(((await firstResponse.json()) as { error?: { code?: string } }).error?.code).toBe('READINESS_BLOCKED')
+      const retry = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
+      await page.getByRole('textbox', { name: 'Lý do ghi đè' }).fill('E2E: các việc phụ vẫn chạy đúng kế hoạch.')
+      await page.getByRole('button', { name: 'Xác nhận Ghi đè & Chuyển' }).click()
+      expect((await retry).status()).toBe(200)
     }
-    await transitionFromUi('Bắt đầu lập kế hoạch')
-    await transitionFromUi('Đánh dấu sẵn sàng')
-    await transitionFromUi('Bắt đầu sự kiện')
+    await transitionStep('Chuyển sang chuẩn bị')
+    await transitionStep('Đánh dấu sẵn sàng')
+    await transitionStep('Bắt đầu sự kiện')
     await page.getByRole('textbox', { name: 'Tổng kết kết quả' }).fill('Hoàn tất đúng kế hoạch E2E.')
     expect(page.getByRole('button', { name: 'Hoàn tất sự kiện' })).toBeDisabled()
-    await expect(eventDetail).toContainText(executionTitle)
-    await expect(eventDetail).toContainText(followUpTitle)
+    await expect(eventDialog).toContainText(executionTitle)
+    await expect(eventDialog).toContainText(followUpTitle)
 
     const completeFutureTask = async (taskId: string, title: string) => {
-      const row = staffPage.getByRole('article').filter({ hasText: title })
       const response = staffPage.waitForResponse(value => value.url().endsWith(`/api/operations/tasks/${taskId}/transition`) && value.request().method() === 'POST')
-      await row.getByRole('button', { name: 'Hoàn tất' }).click()
+      await staffPage.getByRole('article').filter({ hasText: title }).getByRole('button', { name: 'Hoàn tất' }).click()
       expect((await response).status()).toBe(200)
     }
     await completeFutureTask(executionTask.id, executionTitle)
     await completeFutureTask(followUpTask.id, followUpTitle)
 
-    await eventCard.getByRole('button', { name: 'Xem chi tiết' }).click()
+    await reopenDetail()
     await expect(page.getByRole('button', { name: 'Hoàn tất sự kiện' })).toBeEnabled()
-    await transitionFromUi('Hoàn tất sự kiện')
+    const finalResponse = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Hoàn tất sự kiện' }).click()
+    expect((await finalResponse).status()).toBe(200)
     const eventReadBack = await page.request.get(`/api/operations/events/${operationEvent.id}`, { headers: authHeaders(admin) })
     expect((await eventReadBack.json()).data).toMatchObject({ event: { status: 'COMPLETED' }, readiness: { percent: 100, blockers: [] } })
     for (const expected of [executionTask, followUpTask]) {

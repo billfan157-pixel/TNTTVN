@@ -43,6 +43,27 @@ describe('EventTemplatesPanel', () => {
     mocks.restoreEventTemplate.mockResolvedValue({ ...template, version: 3 })
   })
 
+  it('W3.7: only the pressed control shows busy while its command is in flight', async () => {
+    render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn().mockResolvedValue(undefined)} />)
+    await screen.findByRole('option', { name: 'Mẫu trại · v2' })
+    fireEvent.change(screen.getByLabelText('Thời gian bắt đầu từ mẫu'), { target: { value: '2027-02-01T08:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }))
+    await screen.findByLabelText('Bản xem trước mẫu sự kiện')
+
+    let releaseInstantiate!: (value: any) => void
+    mocks.instantiateEventTemplate.mockReturnValueOnce(new Promise(done => { releaseInstantiate = done }))
+    const createButton = screen.getByRole('button', { name: 'Tạo bản nháp từ mẫu' })
+    fireEvent.click(createButton)
+    await waitFor(() => expect(createButton).toHaveAttribute('aria-busy', 'true'))
+    // Sibling controls are locked by the serializer but must not lie about
+    // being the in-flight action.
+    const previewButton = screen.getByRole('button', { name: 'Xem trước' })
+    expect(previewButton).toBeDisabled()
+    expect(previewButton).not.toHaveAttribute('aria-busy')
+    releaseInstantiate({ event: { id: 'event-copy', parishId: 'parish-a', sourceTemplateId: 'tpl-1', sourceTemplateVersion: 2, title: 'Trại hè' }, tasks: [], checklist: [], template: { id: 'tpl-1', name: 'Mẫu trại', version: 2 } })
+    await waitFor(() => expect(createButton).not.toHaveAttribute('aria-busy'))
+  })
+
   it('requires preview of the exact version before atomically creating a draft', async () => {
     const onEventCreated = vi.fn().mockResolvedValue(undefined)
     render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={onEventCreated} />)
@@ -56,6 +77,27 @@ describe('EventTemplatesPanel', () => {
     await waitFor(() => expect(mocks.instantiateEventTemplate).toHaveBeenCalledWith('tpl-1', expect.objectContaining({ templateVersion: 2, visibility: 'INTERNAL', organizerUserId: 'user-a' }), expect.any(String)))
     await waitFor(() => expect(onEventCreated).toHaveBeenCalledWith('event-copy'))
     expect(screen.getByText(/chưa có người được phân công/i)).toBeInTheDocument()
+  })
+
+  it('W2.6: keeps the preview on time edits but marks it stale with a visible reason', async () => {
+    render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn()} />)
+    await screen.findByRole('option', { name: 'Mẫu trại · v2' })
+    fireEvent.change(screen.getByLabelText('Thời gian bắt đầu từ mẫu'), { target: { value: '2027-02-01T08:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }))
+    await screen.findByLabelText('Bản xem trước mẫu sự kiện')
+    expect(screen.getByRole('button', { name: 'Tạo bản nháp từ mẫu' })).toBeEnabled()
+
+    // Editing the time no longer destroys the preview silently…
+    fireEvent.change(screen.getByLabelText('Thời gian bắt đầu từ mẫu'), { target: { value: '2027-02-02T08:00' } })
+    expect(screen.getByLabelText('Bản xem trước mẫu sự kiện')).toBeInTheDocument()
+    // …it marks it stale and the disabled button now says why.
+    expect(screen.getByRole('button', { name: 'Tạo bản nháp từ mẫu' })).toBeDisabled()
+    expect(screen.getByText(/Bản xem trước đang tính theo giờ cũ/)).toBeInTheDocument()
+
+    // Re-previewing clears the warning and re-enables.
+    fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tạo bản nháp từ mẫu' })).toBeEnabled())
+    expect(screen.queryByText(/Bản xem trước đang tính theo giờ cũ/)).not.toBeInTheDocument()
   })
 
   it('offers an organizer picker from creation options so a deputy can instantiate under a leader', async () => {

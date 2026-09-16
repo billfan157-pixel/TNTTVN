@@ -6,6 +6,7 @@ import { operationsApi, type OperationEventDetail, type OperationEventTemplate, 
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { newIdempotencyKey } from '../../lib/api/core'
 import { getTenantScope, getTenantScopeKey } from '../../lib/tenantScope'
+import { useOperationsStore } from '../../stores/operationsStore'
 
 type StableCommandKey = { fingerprint: string; key: string }
 
@@ -41,6 +42,10 @@ export function EventTemplatesPanel({
   const [startsAt, setStartsAt] = useState('')
   const [publicSummary, setPublicSummary] = useState(false)
   const [preview, setPreview] = useState<OperationEventTemplatePreview | null>(null)
+  // W2.6: the draft used to be destroyed silently on every time edit, leaving
+  // "Tạo bản nháp từ mẫu" dead with no explanation. Keep the preview, mark it
+  // stale instead, and tell the user why the button waits.
+  const [previewStartsAt, setPreviewStartsAt] = useState('')
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
   const [versionReason, setVersionReason] = useState('')
@@ -126,16 +131,20 @@ export function EventTemplatesPanel({
     return () => { currentGeneration.current++ }
   }, [loadTemplates, scopeKey])
 
-  const run = async (action: (current: () => boolean) => Promise<void>) => {
+  // W3.7: `busy` serializes commands (unchanged), but a single busy flag made
+  // every button look equally idle while a long instantiate ran. busyControl
+  // names the in-flight action so exactly that button spins.
+  const [busyControl, setBusyControl] = useState<string | null>(null)
+  const run = async (action: (current: () => boolean) => Promise<void>, control?: string) => {
     const scope = getTenantScopeKey()
     if (!enabled || !scope || inFlight.current) return
     const token = generation.current; const current = () => token === generation.current && scope === getTenantScopeKey()
-    inFlight.current = true; setBusy(true); setMessage('')
+    inFlight.current = true; setBusy(true); setBusyControl(control ?? null); setMessage('')
     try { await action(current) } catch (error) {
       if (current()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không cập nhật được mẫu sự kiện.'))
     } finally {
       inFlight.current = false
-      if (current()) setBusy(false)
+      if (current()) { setBusy(false); setBusyControl(null) }
     }
   }
 
@@ -147,8 +156,20 @@ export function EventTemplatesPanel({
       if (!current()) return
       if (result.template.id !== selectedTemplate.id || result.template.parishId !== getTenantScope()?.parishId || result.version !== selectedTemplate.latestVersion) throw new Error('Bản xem trước không khớp mẫu đã chọn.')
       setPreview(result)
-    })
+      setPreviewStartsAt(startsAt)
+    }, 'preview')
   }
+
+  // W2.6: editing the time after a preview keeps the preview on screen but
+  // marks it stale (it materializes derived offsets from the previewed time);
+  // instantiate stays gated on a FRESH preview, now with a visible reason.
+  const previewIsStale = Boolean(preview && startsAt !== previewStartsAt)
+  const instantiateDisabledReason = busy ? ''
+    : !selectedTemplate || !startsAt ? 'Chọn mẫu và giờ bắt đầu trước.'
+    : !preview ? 'Bấm “Xem trước” để máy chủ vật hóa lịch task từ mẫu.'
+    : previewIsStale ? 'Bấm “Xem trước” lại — lịch suy ra phụ thuộc giờ bắt đầu.'
+    : (creationOptions !== null && instantiateOrganizers.length > 1 && !effectiveInstantiateOrganizer) ? 'Chọn người chịu trách nhiệm (Organizer).'
+    : ''
 
   const isCatalog = mode === 'catalog'
 
@@ -170,7 +191,8 @@ export function EventTemplatesPanel({
           </Select>
         </label>
         <label className="text-sm font-semibold text-text-main">Bắt đầu sự kiện mới
-          <TextInput aria-label="Thời gian bắt đầu từ mẫu" className="mt-1 w-full" type="datetime-local" value={startsAt} disabled={busy} onChange={event => { setStartsAt(event.target.value); setPreview(null) }} />
+          {/* W2.6: no longer wipes the preview — it becomes stale instead. */}
+          <TextInput aria-label="Thời gian bắt đầu từ mẫu" className="mt-1 w-full" type="datetime-local" value={startsAt} disabled={busy} onChange={event => setStartsAt(event.target.value)} />
         </label>
         {selectedTemplate && (
           <p className="m-0 text-xs text-text-muted sm:col-span-2">
@@ -196,8 +218,8 @@ export function EventTemplatesPanel({
           <p className="mb-0 mt-1 text-xs text-text-muted">{canPublishPublic ? 'Công khai tự sinh bản chiếu Lịch và thông báo phụ huynh;' : 'Bạn chưa có quyền công khai; bản tạo ra sẽ ở chế độ nội bộ;'} task, phân công và hậu kiểm luôn nội bộ.</p>
         </fieldset>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
-          <Button variant="secondary" size="sm" disabled={busy || !startsAt || !selectedTemplate} onClick={previewSelected}>Xem trước</Button>
-          <Button size="sm" leadingIcon={<CalendarPlus className="h-4 w-4" />} disabled={busy || !preview || preview.template.id !== selectedTemplate?.id || preview.version !== selectedTemplate?.latestVersion || (creationOptions !== null && instantiateOrganizers.length > 1 && !effectiveInstantiateOrganizer)} onClick={() => {
+          <Button variant="secondary" size="sm" loading={busyControl === 'preview'} disabled={busy || !startsAt || !selectedTemplate} onClick={previewSelected}>Xem trước</Button>
+          <Button size="sm" leadingIcon={<CalendarPlus className="h-4 w-4" />} loading={busyControl === 'instantiate'} disabled={busy || !preview || preview.template.id !== selectedTemplate?.id || preview.version !== selectedTemplate?.latestVersion || previewIsStale || (creationOptions !== null && instantiateOrganizers.length > 1 && !effectiveInstantiateOrganizer)} onClick={() => {
             if (!preview || !selectedTemplate || !startsAt) return
             void run(async current => {
               const scope = getTenantScope()
@@ -205,7 +227,8 @@ export function EventTemplatesPanel({
               const payload = {
                 templateVersion: preview.version,
                 startsAt: new Date(startsAt).toISOString(),
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Ho_Chi_Minh',
+                // W2.11: parish zone first, browser zone only as fallback.
+                timezone: useOperationsStore.getState().parishTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Ho_Chi_Minh',
                 visibility: publicSummary ? 'PUBLIC_SUMMARY' : 'INTERNAL',
                 // Without creation options keep the legacy self-organizer; with
                 // options, an explicit pick wins and otherwise the server
@@ -221,9 +244,12 @@ export function EventTemplatesPanel({
               setMessage(`Đã tạo bản nháp “${created.event.title}” với ${created.tasks.length} task; chưa có người được phân công.`)
               await loadTemplates()
               await onEventCreated(created.event.id)
-            })
+            }, 'instantiate')
           }}>Tạo bản nháp từ mẫu</Button>
         </div>
+        {/* W2.6: explain why the create button waits instead of dying silently. */}
+        {instantiateDisabledReason && <p className="m-0 text-xs font-medium text-parish-warning sm:col-span-2">{instantiateDisabledReason}</p>}
+        {previewIsStale && <p role="status" className="m-0 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/40 p-2 text-xs text-parish-warning sm:col-span-2">Bản xem trước đang tính theo giờ cũ — bấm “Xem trước” lại để cập nhật lịch suy ra.</p>}
       </div>)}
 
     {isCatalog && preview && <div role="region" className="space-y-2 rounded-lg bg-surface-sunken p-3" aria-label="Bản xem trước mẫu sự kiện">
@@ -246,12 +272,12 @@ export function EventTemplatesPanel({
         snapshotCommand.current = null
         setTemplateName(''); setTemplateDescription(''); setMessage('Đã lưu snapshot v1; thay đổi event sau này không sửa mẫu này.')
         await loadTemplates(); setTemplateId(created.id); setPreview(null); onTemplatesChanged?.()
-      })
+      }, 'snapshot')
     }}>
       <div className="sm:col-span-2"><h3 className="m-0 text-sm font-extrabold text-text-main">Lưu sự kiện đang mở thành mẫu</h3><p className="mb-0 mt-1 text-xs text-text-muted">Task đã hủy và toàn bộ identity/quyền vận hành không được đưa vào snapshot.</p></div>
       <TextInput aria-label="Tên mẫu sự kiện" value={templateName} maxLength={200} required disabled={busy} placeholder="Ví dụ: Mẫu sinh hoạt ngành" onChange={event => setTemplateName(event.target.value)} />
       <TextInput aria-label="Mô tả mẫu sự kiện" value={templateDescription} maxLength={3000} disabled={busy} placeholder="Phạm vi áp dụng của mẫu" onChange={event => setTemplateDescription(event.target.value)} />
-      <Button type="submit" size="sm" leadingIcon={<CopyCheck className="h-4 w-4" />} disabled={busy || !templateName.trim()}>Lưu mẫu v1</Button>
+      <Button type="submit" size="sm" leadingIcon={<CopyCheck className="h-4 w-4" />} loading={busyControl === 'snapshot'} disabled={busy || !templateName.trim()}>Lưu mẫu v1</Button>
     </form>}
 
     {!isCatalog && visibleTemplates.length > 0 && <label className="block text-sm font-semibold text-text-main">Mẫu cần cập nhật
@@ -271,12 +297,12 @@ export function EventTemplatesPanel({
         versionCommand.current = null
         setVersionReason(''); setPreview(null); setMessage(`Đã tạo phiên bản ${changed.latestVersion}; các event cũ vẫn giữ snapshot trước.`)
         await loadTemplates(); onTemplatesChanged?.()
-      })
+      }, 'version')
     }}>
       <label className="text-sm font-semibold text-text-main">Lý do tạo phiên bản mới
         <TextArea aria-label="Lý do tạo phiên bản mẫu" className="mt-1 min-h-20 w-full" value={versionReason} maxLength={2000} required disabled={busy} placeholder="Điểm nào trong event hiện tại cần trở thành chuẩn mới?" onChange={event => setVersionReason(event.target.value)} />
       </label>
-      <Button type="submit" variant="secondary" size="sm" disabled={busy || !versionReason.trim()}>Tạo phiên bản mới</Button>
+      <Button type="submit" variant="secondary" size="sm" loading={busyControl === 'version'} disabled={busy || !versionReason.trim()}>Tạo phiên bản mới</Button>
     </form>}
 
     {!isCatalog && canSnapshotSource && selectedTemplate && <form className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-[1fr_auto] sm:items-end" onSubmit={event => {
@@ -289,12 +315,12 @@ export function EventTemplatesPanel({
         archiveCommand.current = null
         setArchiveReason(''); setPreview(null); setMessage('Đã lưu trữ mẫu. Event đã tạo trước đây vẫn giữ nguyên provenance và snapshot.')
         await loadTemplates(); onTemplatesChanged?.()
-      })
+      }, 'archive')
     }}>
       <label className="text-sm font-semibold text-text-main">Lý do lưu trữ mẫu
         <TextArea aria-label="Lý do lưu trữ mẫu sự kiện" className="mt-1 min-h-20 w-full" value={archiveReason} maxLength={2000} required disabled={busy} placeholder="Ví dụ: tạm ẩn để rà soát nội dung" onChange={event => setArchiveReason(event.target.value)} />
       </label>
-      <Button type="submit" variant="danger" size="sm" disabled={busy || !archiveReason.trim()}>Lưu trữ mẫu</Button>
+      <Button type="submit" variant="danger" size="sm" loading={busyControl === 'archive'} disabled={busy || !archiveReason.trim()}>Lưu trữ mẫu</Button>
     </form>}
 
     {!isCatalog && canSnapshotSource && visibleArchivedTemplates.length > 0 && <form className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-2" onSubmit={event => {
@@ -307,7 +333,7 @@ export function EventTemplatesPanel({
         restoreCommand.current = null
         setRestoreReason(''); setMessage('Đã khôi phục mẫu vào catalog hoạt động.')
         await loadTemplates(); onTemplatesChanged?.()
-      })
+      }, 'restore')
     }}>
       <div className="sm:col-span-2"><h3 className="m-0 text-sm font-extrabold text-text-main">Mẫu đang lưu trữ</h3><p className="mb-0 mt-1 text-xs text-text-muted">Mẫu lưu trữ không thể xem trước, tạo phiên bản hay tạo event mới cho đến khi được khôi phục.</p></div>
       <label className="text-sm font-semibold text-text-main">Mẫu cần khôi phục
@@ -318,7 +344,7 @@ export function EventTemplatesPanel({
       <label className="text-sm font-semibold text-text-main">Lý do khôi phục
         <TextArea aria-label="Lý do khôi phục mẫu sự kiện" className="mt-1 min-h-20 w-full" value={restoreReason} maxLength={2000} required disabled={busy} placeholder="Nội dung đã được rà soát như thế nào?" onChange={event => setRestoreReason(event.target.value)} />
       </label>
-      <Button type="submit" variant="secondary" size="sm" disabled={busy || !selectedArchivedTemplate || !restoreReason.trim()}>Khôi phục mẫu</Button>
+      <Button type="submit" variant="secondary" size="sm" loading={busyControl === 'restore'} disabled={busy || !selectedArchivedTemplate || !restoreReason.trim()}>Khôi phục mẫu</Button>
     </form>}
 
     {message && <p role="status" className="m-0 text-sm text-text-main">{message}</p>}

@@ -6,6 +6,9 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { useOperationsStore } from '../../stores/operationsStore'
 import { TaskRestorePanel } from './TaskRestorePanel'
+import { TaskAssigneesPanel } from './TaskAssigneesPanel'
+import { TaskDispatchPanel } from './TaskDispatchPanel'
+import { TaskDependenciesPanel } from './TaskDependenciesPanel'
 import { TaskCommentsPanel } from './TaskCommentsPanel'
 import { TaskHandoverForm } from './TaskHandoverForm'
 import { isTerminalTask, taskPhaseLabel } from './operationsViewHelpers'
@@ -62,7 +65,10 @@ export function TaskChecklistSection() {
   return (
     <div className="mt-5 rounded-xl border border-surface-border p-3" aria-label="Chi tiết checklist">
       <TaskRestorePanel key={`restore-${selectedTask.task.id}-${selectedTask.task.version}`} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
+      <TaskAssigneesPanel key={`assignees-${selectedTask.task.id}-${selectedTask.task.version}`} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
       <TaskCommentsPanel key={selectedTask.task.id} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
+      {/* W2.3: read-only dispatch round history in the task dialog. */}
+      <TaskDispatchPanel key={`dispatches-${selectedTask.task.id}`} detail={selectedTask} enabled />
       <TaskHandoverForm key={`handover-${selectedTask.task.id}`} detail={selectedTask} enabled={canMutate} onWarnings={(taskId, items) => useOperationsStore.setState({ assignmentWarnings: { taskId, items } })} refresh={() => refresh(selectedTask.task.id)} />
       {assignmentWarnings?.taskId === selectedTask.task.id && assignmentWarnings.items.length > 0 && (
         <p role="status" className="text-sm text-text-main">
@@ -77,6 +83,8 @@ export function TaskChecklistSection() {
         <Button variant="ghost" size="sm" onClick={() => void selectTask(null)}>Đóng checklist</Button>
       </div>
       {selectedTask.task.description && <p className="whitespace-pre-wrap text-sm text-text-main">{selectedTask.task.description}</p>}
+      {/* W4.2b: read-only "waiting on" list — no add/remove UI by design. */}
+      <TaskDependenciesPanel detail={selectedTask} />
       <div className="mt-3 divide-y divide-surface-border rounded-lg border border-surface-border">
         {selectedTask.checklist.length === 0 && <EmptyState icon={ListChecks} title="Chưa có mục checklist." description="Thêm mục cần kiểm tra ở biểu mẫu bên dưới." className="py-5" />}
         {selectedTask.checklist.map(item => {

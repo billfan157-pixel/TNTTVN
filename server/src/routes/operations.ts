@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { canCreateEventTask, manualEventTransition, preparationAcceptanceReadiness, reserveInvitationAt } from '../domain/OperationsEventLifecycle.js'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, notInArray, or, sql } from 'drizzle-orm'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import type { DbTransaction } from '../db/transactions.js'
@@ -237,6 +237,12 @@ const templateStatusChangeSchema = z.object({
   reason: z.string().trim().min(1).max(2000),
 })
 const templateListQuerySchema = z.object({ archived: z.enum(['true', 'false']).optional().default('false') })
+// W2.13: server-side event search filters (q = title/location substring).
+const eventListQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  status: z.enum(['DRAFT', 'PLANNING', 'PREPARING', 'READY', 'LIVE', 'COMPLETED', 'CANCELLED']).optional(),
+  scope: z.enum(['XU_DOAN', 'UNIT']).optional(),
+})
 const templatePreviewQuerySchema = z.object({ version: z.coerce.number().int().min(1).optional(), startsAt: instant })
 const templateInstantiateSchema = z.object({
   templateVersion: z.number().int().min(1),
@@ -250,6 +256,7 @@ const templateInstantiateSchema = z.object({
 })
 const taskTransitionSchema = z.object({ version: z.number().int().min(1), status: z.enum(['BACKLOG', 'TODO', 'IN_PROGRESS', 'BLOCKED', 'DONE', 'CANCELLED']), completionNote: z.string().trim().max(3000).nullable().optional(), blockedReason: z.string().trim().max(2000).nullable().optional(), cancellationReason: z.string().trim().max(2000).nullable().optional() })
 const taskRestoreSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
+const eventRestoreSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const dependencySchema = z.object({ version: z.number().int().min(1), dependsOnTaskId: id })
 const checklistCreateSchema = z.object({ version: z.number().int().min(1), label: z.string().trim().min(1).max(300), isRequired: z.boolean().optional().default(false), sortOrder: z.number().int().min(0).max(10000).optional().default(0) })
 const checklistUpdateSchema = z.object({ version: z.number().int().min(1), isDone: z.boolean() })
@@ -923,7 +930,9 @@ async function preparationAcknowledgementState(tx: DbTransaction, parishId: stri
 operationsRouter.get('/permissions', async c => {
   const user = actor(c)
   const scope = { parishId: user.parishId, resourceUnitId: c.req.query('unitId') || null, eventId: c.req.query('eventId') || null, workstreamId: c.req.query('workstreamId') || null, taskId: c.req.query('taskId') || null }
-  return successResponse(c, { parishId: user.parishId, permissions: await getOperationsCallerPermissions(user, scope) })
+  // W2.11: the caller's parish IANA zone travels with the permission map so
+  // Operations forms default to "giờ xứ đoàn" instead of the browser zone.
+  return successResponse(c, { parishId: user.parishId, timezone: getParishTimeZone(), permissions: await getOperationsCallerPermissions(user, scope) })
 })
 
 operationsRouter.get('/units', async c => {
@@ -1260,10 +1269,23 @@ operationsRouter.get('/events/public-summary', async c => {
   } catch (error) { return handleError(c, error) }
 })
 
-operationsRouter.get('/events', async c => {
+operationsRouter.get('/events', zValidator('query', eventListQuerySchema), async c => {
   const user = actor(c)
+  const { q, status, scope } = c.req.valid('query')
   try {
     const { page, limit, offset } = listPagination(c)
+    // W2.13: q/status/scope are pushed into SQL so search is not limited to
+    // the first loaded page. Two-phase read unchanged: per-row authorization
+    // still decides the visible set, and total reflects every visible row
+    // matching the filter. SQLite LIKE is case-insensitive for ASCII and
+    // diacritic text compares by code point, which matches search intent.
+    const filters = [eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt)]
+    if (q) {
+      const needle = `%${q.replace(/[%_]/g, '')}%`
+      filters.push(or(like(operationEvents.title, needle), like(operationEvents.location, needle))!)
+    }
+    if (status) filters.push(eq(operationEvents.status, status))
+    if (scope) filters.push(scope === 'XU_DOAN' ? isNull(operationEvents.scopeUnitId) : isNotNull(operationEvents.scopeUnitId))
     // Two-phase read: decide visibility on narrow auth columns first so only
     // the requested page is hydrated as full rows. Total still reflects every
     // visible row because per-row authorization cannot be pushed into SQL.
@@ -1274,7 +1296,7 @@ operationsRouter.get('/events', async c => {
       organizerPersonId: operationEvents.organizerPersonId,
       status: operationEvents.status,
       createdBy: operationEvents.createdBy,
-    }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), isNull(operationEvents.deletedAt))).orderBy(desc(operationEvents.startsAt), asc(operationEvents.id))
+    }).from(operationEvents).where(and(...filters)).orderBy(desc(operationEvents.startsAt), asc(operationEvents.id))
     const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.event.view', narrow.map(row => ({
       parishId: user.parishId,
       event: { id: row.id, scopeUnitId: row.scopeUnitId, organizerUserId: row.organizerUserId, organizerPersonId: row.organizerPersonId, status: row.status, createdBy: row.createdBy },
@@ -1639,6 +1661,44 @@ operationsRouter.post('/events/:id/automation/resume', zValidator('json', eventA
   } catch (error) { return handleError(c, error) }
 })
 
+operationsRouter.post('/events/:id/restore', zValidator('json', eventRestoreSchema), async c => {
+  const user = actor(c); const eventId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.event.restore', { eventId, ...body }, async tx => {
+      const [event] = await tx.select().from(operationEvents).where(and(
+        eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt),
+      )).limit(1)
+      if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.event.transition', { parishId: user.parishId, eventId }, tx)
+      if (event.version !== body.version) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      if (event.status !== 'CANCELLED') throw Object.assign(new Error('Chỉ có thể khôi phục sự kiện đã hủy.'), { status: 409, code: 'EVENT_NOT_CANCELLED' })
+      const now = new Date().toISOString()
+      const [changed] = await tx.update(operationEvents).set({
+        status: 'PLANNING',
+        automationPaused: true,
+        automationPausedAt: now,
+        automationPausedBy: user.userId,
+        automationPauseReason: `Khôi phục từ lưu trữ: ${body.reason}`,
+        version: event.version + 1,
+        updatedBy: user.userId,
+        updatedAt: now,
+      }).where(and(
+        eq(operationEvents.parishId, user.parishId),
+        eq(operationEvents.id, eventId),
+        eq(operationEvents.version, body.version),
+        eq(operationEvents.status, 'CANCELLED'),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
+      await audit(tx, user, c, 'RESTORE', 'operation_event', eventId,
+        { status: event.status, version: event.version },
+        { status: changed.status, version: changed.version, reason: body.reason, automationPaused: changed.automationPaused },
+      )
+      return changed
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+})
+
 operationsRouter.post('/blockouts', zValidator('json', blockoutSchema), async c => {
   const user = actor(c); const body = c.req.valid('json')
   try {
@@ -1728,6 +1788,13 @@ operationsRouter.get('/reminders/inbox', async c => {
       db.select({
         id: operationReminders.id,
         parishId: operationReminders.parishId,
+        // W1.2: recipient-scoped resource pointers. The inbox is already filtered
+        // to recipient = caller, and recipientship was gated by
+        // assertReminderRecipientCanView at create AND at due-time, so this caller
+        // already holds view authority over whatever these ids resolve to.
+        // Still no dedupe/queue/provider/recipient internals.
+        taskId: operationReminders.taskId,
+        eventId: operationReminders.eventId,
         triggerAt: operationReminders.triggerAt,
         kind: operationReminders.kind,
         status: operationReminders.status,
@@ -2364,7 +2431,18 @@ operationsRouter.get('/tasks/:id', async c => {
       db.select().from(operationTaskAssignees).where(and(eq(operationTaskAssignees.parishId, user.parishId), eq(operationTaskAssignees.taskId, taskId), isNull(operationTaskAssignees.removedAt))),
       db.select().from(operationChecklistItems).where(and(eq(operationChecklistItems.parishId, user.parishId), eq(operationChecklistItems.taskId, taskId))).orderBy(operationChecklistItems.sortOrder),
       db.select().from(operationTaskComments).where(and(eq(operationTaskComments.parishId, user.parishId), eq(operationTaskComments.taskId, taskId), isNull(operationTaskComments.deletedAt))).orderBy(operationTaskComments.createdAt),
-      db.select().from(operationTaskDependencies).where(and(eq(operationTaskDependencies.parishId, user.parishId), eq(operationTaskDependencies.taskId, taskId))),
+      // W4.2b: ship the depends-on task's title/status with each edge (LEFT
+      // JOIN so a soft-deleted source still explains the block; tenant
+      // predicate unchanged, caller already passed task.view authz).
+      db.select({
+        taskId: operationTaskDependencies.taskId,
+        dependsOnTaskId: operationTaskDependencies.dependsOnTaskId,
+        dependencyType: operationTaskDependencies.dependencyType,
+        dependsOnTitle: operationTasks.title,
+        dependsOnStatus: operationTasks.status,
+      }).from(operationTaskDependencies)
+        .leftJoin(operationTasks, and(eq(operationTasks.parishId, operationTaskDependencies.parishId), eq(operationTasks.id, operationTaskDependencies.dependsOnTaskId), isNull(operationTasks.deletedAt)))
+        .where(and(eq(operationTaskDependencies.parishId, user.parishId), eq(operationTaskDependencies.taskId, taskId))),
     ])
     return successResponse(c, { task, assignees, checklist, comments, dependencies, permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, taskId }) })
   } catch (error) { return handleError(c, error) }

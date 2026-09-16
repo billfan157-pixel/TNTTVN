@@ -3,10 +3,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OperationsPage from '../../pages/OperationsPage'
 import type { OperationCandidate, OperationEvent, OperationEventDetail, OperationReminder, OperationTask, OperationTaskDetail } from '../../lib/api/operations'
 
+const { rescheduleReminder, getTaskDispatches } = vi.hoisted(() => ({
+  // W2.12: the page now calls operationsApi.rescheduleReminder directly for the
+  // inbox editor (the store has no reschedule command).
+  rescheduleReminder: vi.fn(),
+  // W2.3: the task dialog mounts TaskDispatchPanel, which probes dispatch rounds.
+  getTaskDispatches: vi.fn(),
+}))
+vi.mock('../../lib/api/operations', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/api/operations')>()
+  return { ...actual, operationsApi: { ...actual.operationsApi, rescheduleReminder, getTaskDispatches } }
+})
 const acknowledgeTask = vi.fn()
 const transitionTask = vi.fn()
 const transitionEvent = vi.fn()
 const resumeEventAutomation = vi.fn()
+const restoreEvent = vi.fn()
 const markReminderRead = vi.fn()
 const addChecklistItem = vi.fn()
 const toggleChecklistItem = vi.fn()
@@ -19,7 +31,12 @@ const fetchCreationOptions = vi.fn().mockResolvedValue(undefined)
 const dispatchTask = vi.fn()
 const acceptTaskDispatch = vi.fn()
 const selectEvent = vi.fn()
+// W1.7: page now derives the task-detail dialog from selectedTask and calls
+// selectTask(...).catch(...) — the mock must resolve a Promise.
+const selectTask = vi.fn().mockResolvedValue(1)
 const fetchOperations = vi.fn().mockResolvedValue(undefined)
+// W2.13: server-side search goes through this store action.
+const searchEvents = vi.fn().mockResolvedValue(undefined)
 let online = true
 let source: 'server' | 'cache' | 'none' = 'server'
 let events: OperationEvent[] = []
@@ -40,6 +57,13 @@ const assignedTask: OperationTask = {
 
 let effectiveMode: 'desktop' | 'mobile' = 'desktop'
 vi.mock('../../hooks/useEffectiveMode', () => ({ useEffectiveMode: () => effectiveMode }))
+// W2.2: the page now syncs the event modal with `?event=&tab=`.
+const mockNavigate = vi.fn()
+let operationsSearch: { event?: string; tab?: string } = {}
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => mockNavigate,
+  useSearch: () => operationsSearch,
+}))
 vi.mock('../../hooks/useOnlineStatus', () => ({ useOnlineStatus: () => online }))
 vi.mock('../../stores/operationsStore', () => {
   const selectState = (selector?: any) => {
@@ -47,7 +71,9 @@ vi.mock('../../stores/operationsStore', () => {
       events, tasks: [assignedTask], reminders, dispatchInvitations, assignmentWarnings, permissions, creationOptions, selectedEvent, selectedTask, detailLoading: false, taskDetailLoading: false, loading: false, error: null,
       source, cacheSavedAt: null, eventTotal: 0, taskTotal: 1, eventHasMore: false, taskHasMore: false,
       reminderHasMore: false, loadMoreEvents: vi.fn(), loadMoreTasks: vi.fn(), loadMoreReminders: vi.fn(),
-      fetch: fetchOperations, fetchCreationOptions, createEvent, updateEvent, selectEvent, selectTask: vi.fn(), createTask, createStandaloneTask, updateTask, assignTask: vi.fn(), dispatchTask, acceptTaskDispatch, transitionEvent, resumeEventAutomation, transitionTask, acknowledgeTask, addChecklistItem, toggleChecklistItem, markReminderRead, cancelReminder: vi.fn(),
+      // W2.3/W2.11/W2.13: new store surface the page subscribes to.
+      eventQuery: '', searchEvents, setEventSearch: vi.fn(), dispatchTotal: 0, dispatchHasMore: false, loadMoreDispatches: vi.fn(), parishTimezone: null,
+      fetch: fetchOperations, fetchCreationOptions, createEvent, updateEvent, selectEvent, selectTask, createTask, createStandaloneTask, updateTask, assignTask: vi.fn(), dispatchTask, acceptTaskDispatch, transitionEvent, resumeEventAutomation, restoreEvent, transitionTask, acknowledgeTask, addChecklistItem, toggleChecklistItem, markReminderRead, cancelReminder: vi.fn(),
     }
     return typeof selector === 'function' ? selector(state) : state
   }
@@ -68,12 +94,155 @@ vi.mock('../../components/operations/StandaloneWorkstreamsPanel', () => ({ Stand
 vi.mock('../../components/operations/EventTemplatesPanel', () => ({ EventTemplatesPanel: () => <div aria-label="Mẫu sự kiện" /> }))
 
 describe('OperationsPage mobile-safe action boundary', () => {
-  it('renders task detail and checklist without selecting an event', () => {
+  it('W2.13: debounces the event search into the server-side store action', async () => {
+    const base: OperationEvent = { id: 'E1', parishId: 'parish-a', title: 'Hội Trại', eventType: 'CAMP', startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 1 }
+    events = [{ ...base, id: 'E1' }, { ...base, id: 'E2', title: 'Trại hè' }, { ...base, id: 'E3', title: 'Họp' }]
+    render(<OperationsPage />)
+    const input = screen.getByLabelText('Tìm kiếm sự kiện')
+    fireEvent.change(input, { target: { value: ' trại ' } })
+    // Debounced 300ms, then fired once with the trimmed query.
+    expect(searchEvents).not.toHaveBeenCalled()
+    await waitFor(() => expect(searchEvents).toHaveBeenCalledWith('trại'), { timeout: 1500 })
+    events = []
+  })
+
+  it('W3.3: the desktop dropdown renders the shared CreateMenuItems rows with menuitem roles', async () => {
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [],
+      units: [{ id: 'UNIT-1', name: 'Ban Truyền thông', unitType: 'COMMITTEE', canCreateEvent: true, canCreateTask: true, organizers: [], myRole: 'COMMITTEE_LEADER' }],
+    }
+    permissions = { 'operations.event.create': true, 'operations.task.create': true }
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }))
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map(item => item.textContent)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Tạo sự kiện Xứ đoàn'),
+      expect.stringContaining('Tạo sự kiện Ban Truyền thông'),
+      expect.stringContaining('Tạo Task · Ban Truyền thông'),
+    ]))
+    // W3.3: opening moves focus into the first item for the arrow-key path.
+    await waitFor(() => expect(document.activeElement).toBe(items[0]))
+  })
+
+  it('W2.2: opens the event named by ?event= and mirrors a selection back to the URL', async () => {
+    operationsSearch = { event: 'EVT-DEEP' }
+    render(<OperationsPage />)
+    await waitFor(() => expect(selectEvent).toHaveBeenCalledWith('EVT-DEEP'))
+  })
+
+  it('W2.2: writes the selected event id into the URL (replace) and applies ?tab=', async () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Hội Trại', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 1 },
+      workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] }, permissions: {},
+    }
+    operationsSearch = { event: 'E1', tab: 'templates' }
+    render(<OperationsPage />)
+    // The lazy templates TabPanel (mocked to a labeled div) renders only when
+    // the URL tab is honored over the default 'tasks'.
+    expect(await screen.findByLabelText('Mẫu sự kiện')).toBeInTheDocument()
+  })
+
+  it('W2.2: closing the modal clears ?event= from the URL', async () => {
+    selectedEvent = {
+      event: { id: 'E1', parishId: 'parish-a', title: 'Hội Trại', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 1 },
+      workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] }, permissions: {},
+    }
+    operationsSearch = { event: 'E1' }
+    const { rerender } = render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng chi tiết' }))
+    expect(selectEvent).toHaveBeenCalledWith(null)
+    // The mocked store mirrors the committed selection: re-render without it
+    // and the sync hook must strip the deep-link parameters from the URL.
+    selectedEvent = null
+    rerender(<OperationsPage />)
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(expect.objectContaining({
+      to: '/operations',
+      search: {},
+      replace: true,
+    })))
+  })
+
+  it('W2.12: offers "Dời giờ" only with the manager capability the server command requires', async () => {
+    reminders = [{ id: 'R1', parishId: 'parish-a', eventId: 'E1', triggerAt: '2026-10-01T00:30:00Z', kind: 'EVENT_START', status: 'PENDING', version: 2, readAt: null, createdAt: '2026-09-30T01:00:00Z' }]
+    const { rerender } = render(<OperationsPage />)
+    // Plain recipient: cancel (self-exempted) yes, reschedule (manager-only) no.
+    expect(screen.queryByRole('button', { name: 'Dời giờ' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hủy lịch nhắc' })).toBeInTheDocument()
+
+    permissions = { 'operations.event.manage': true }
+    rerender(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Dời giờ' }))
+    fireEvent.change(screen.getByLabelText('Giờ nhắc mới của lịch nhắc'), { target: { value: '2027-01-02T08:00' } })
+    fireEvent.change(screen.getByLabelText('Lý do dời giờ nhắc'), { target: { value: 'Đổi giờ tập trung' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu giờ mới' }))
+    await waitFor(() => expect(rescheduleReminder).toHaveBeenCalledWith('R1', expect.objectContaining({
+      expectedVersion: 2, reason: 'Đổi giờ tập trung',
+    }), expect.any(String)))
+    // Success refreshes the overview so the new triggerAt lands in the inbox.
+    await waitFor(() => expect(fetchOperations).toHaveBeenCalled())
+  })
+
+  it('W3.8: secondary actions collapse into the overflow menu and still reach the store', async () => {
+    render(<OperationsPage />)
+    // Row keeps primary actions inline; the secondary set lives behind "···".
+    expect(screen.getByRole('button', { name: 'Nhận việc' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Từ chối' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Báo bị chặn' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Hủy việc' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm thao tác cho Chuẩn bị nghi thức' }))
+    const menu = await screen.findByRole('menu', { name: 'Thêm thao tác' })
+    expect(within(menu).getByRole('menuitem', { name: 'Từ chối' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Báo bị chặn' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Hủy việc' })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Từ chối' }))
+    // W4.3: declining opens the note dialog first; confirm sends it.
+    const declineDialog = await screen.findByRole('dialog', { name: 'Từ chối nhiệm vụ' })
+    fireEvent.click(within(declineDialog).getByRole('button', { name: 'Xác nhận từ chối' }))
+    await waitFor(() => expect(acknowledgeTask).toHaveBeenCalledWith(assignedTask, 'DECLINED', undefined, expect.any(String)))
+    // Picking an item dismisses the popup.
+    expect(screen.queryByRole('menu', { name: 'Thêm thao tác' })).not.toBeInTheDocument()
+  })
+
+  it('W1.7: renders task detail and checklist inside a dialog without selecting an event', () => {
     selectedTask = { task: { ...assignedTask, description: 'Independent task evidence' }, checklist: [], assignees: [], comments: [], dependencies: [], permissions: {} }
     render(<OperationsPage />)
     expect(screen.getByRole('button', { name: 'Chi tiết nhiệm vụ' })).toBeEnabled()
-    expect(screen.getByText('Independent task evidence')).toBeInTheDocument()
-    expect(screen.getByLabelText('Chi tiết checklist')).toBeInTheDocument()
+    // The detail must live in a modal (open state derived from selectedTask),
+    // not at the bottom of the page where users never noticed it.
+    const dialog = screen.getByRole('dialog', { name: 'Chi tiết nhiệm vụ' })
+    expect(within(dialog).getByText('Independent task evidence')).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Chi tiết checklist')).toBeInTheDocument()
+  })
+
+  it('W1.2: reminder rows show the target title and open its detail', () => {
+    reminders = [{ id: 'R1', parishId: 'parish-a', taskId: 'TSK-1', triggerAt: '2026-10-01T00:30:00Z', kind: 'TASK_DUE', status: 'SENT', version: 2, readAt: null, createdAt: '2026-09-30T01:00:00Z' }]
+    render(<OperationsPage />)
+    const inbox = screen.getByRole('region', { name: 'Hộp nhắc việc' })
+    // Title resolved from the recipient's own scoped task list (mine=true).
+    expect(within(inbox).getByText(/Chuẩn bị nghi thức/)).toBeInTheDocument()
+    fireEvent.click(within(inbox).getByRole('button', { name: 'Mở' }))
+    expect(selectTask).toHaveBeenCalledWith('TSK-1')
+  })
+
+  it('W1.3: KPI filter cards are keyboard-accessible buttons with aria-pressed', () => {
+    render(<OperationsPage />)
+    const kpi = screen.getByRole('region', { name: 'Tổng quan công việc' })
+    const pending = within(kpi).getByRole('button', { name: /Chờ phản hồi/ })
+    expect(pending).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(pending)
+    expect(pending).toHaveAttribute('aria-pressed', 'true')
+    // The non-filterable summary card stays static (no button affordance).
+    expect(within(kpi).queryByRole('button', { name: /^Sự kiện/ })).not.toBeInTheDocument()
+  })
+
+  it('W1.6: starts an accepted TODO task through the execute path', () => {
+    assignedTask.myAssignments![0].acknowledgementStatus = 'ACCEPTED'
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Bắt đầu làm' }))
+    expect(transitionTask).toHaveBeenCalledWith(assignedTask, 'IN_PROGRESS', expect.objectContaining({ idempotencyKey: expect.any(String) }))
   })
 
   beforeEach(() => {
@@ -84,6 +253,8 @@ describe('OperationsPage mobile-safe action boundary', () => {
     assignedTask.status = 'TODO'
     assignedTask.myAssignments![0].acknowledgementStatus = 'PENDING'
     acknowledgeTask.mockReset().mockResolvedValue(undefined)
+    rescheduleReminder.mockReset().mockResolvedValue({ id: 'R1', version: 3 })
+    getTaskDispatches.mockReset().mockResolvedValue([])
     transitionTask.mockReset().mockResolvedValue(undefined)
     transitionEvent.mockReset().mockResolvedValue(undefined)
     resumeEventAutomation.mockReset().mockResolvedValue(undefined)
@@ -99,6 +270,10 @@ describe('OperationsPage mobile-safe action boundary', () => {
     dispatchTask.mockReset().mockResolvedValue(undefined)
     acceptTaskDispatch.mockReset().mockResolvedValue(undefined)
     selectEvent.mockReset().mockResolvedValue(undefined)
+    selectTask.mockReset().mockResolvedValue(1)
+    searchEvents.mockReset().mockResolvedValue(undefined)
+    mockNavigate.mockReset()
+    operationsSearch = {}
     fetchOperations.mockClear()
     events = []
     selectedEvent = null
@@ -209,8 +384,12 @@ describe('OperationsPage mobile-safe action boundary', () => {
   it('shows only role-appropriate assignment actions and passes the exact task to the store', async () => {
     const view = render(<OperationsPage />)
     expect(screen.queryByRole('button', { name: 'Hoàn tất' })).not.toBeInTheDocument()
+    // W4.3: accepting opens the dialog; a note is optional but sent when typed.
     fireEvent.click(screen.getByRole('button', { name: 'Nhận việc' }))
-    expect(acknowledgeTask).toHaveBeenCalledWith(assignedTask, 'ACCEPTED', undefined, expect.any(String))
+    const dialog = await screen.findByRole('dialog', { name: 'Nhận nhiệm vụ' })
+    fireEvent.change(within(dialog).getByLabelText('Ghi chú khi phản hồi nhiệm vụ'), { target: { value: 'Nhận việc, sẽ liên hệ ban hậu cần' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận nhận việc' }))
+    expect(acknowledgeTask).toHaveBeenCalledWith(assignedTask, 'ACCEPTED', 'Nhận việc, sẽ liên hệ ban hậu cần', expect.any(String))
     assignedTask.myAssignments![0].acknowledgementStatus = 'ACCEPTED'
     view.rerender(<OperationsPage />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Hoàn tất' })).toBeEnabled())
@@ -571,6 +750,23 @@ describe('OperationsPage mobile-safe action boundary', () => {
     expect(selectEvent).toHaveBeenCalledWith(null)
   })
 
+  it('renders SubpageHeader synchronized with mobile views when effectiveMode is mobile', () => {
+    effectiveMode = 'mobile'
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [],
+      units: [],
+    }
+    permissions = { 'operations.event.create': true }
+    render(<OperationsPage />)
+
+    const mobileHeader = screen.getByRole('region', { name: 'Sự Kiện & Công Việc' })
+    expect(mobileHeader).toHaveClass('subpage-header')
+    expect(within(mobileHeader).getByRole('heading', { level: 2, name: 'Sự Kiện & Công Việc' })).toHaveClass('subpage-header__title')
+    expect(within(mobileHeader).getByRole('button', { name: 'Tạo mới' })).toHaveClass('subpage-header__btn--primary')
+    expect(within(mobileHeader).getByRole('button', { name: 'Làm mới danh sách' })).toHaveClass('subpage-header__btn--icon-only')
+  })
+
   it('preserves mobile visual and DOM reading order (WCAG focus order) without CSS order hacks', () => {
     effectiveMode = 'mobile'
     events = [{
@@ -630,7 +826,11 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
     const fab = screen.getByRole('button', { name: 'Tạo mới sự kiện hoặc nhiệm vụ' })
     expect(fab).toBeInTheDocument()
-    expect(fab).toHaveClass('fixed')
+    // W2.8: the shared primitive owns bottom clearance/safe-area; no more
+    // hand-rolled fixed positioning that overlapped the nav on notched phones.
+    expect(fab).toHaveClass('mobile-floating-action')
+    expect(fab).not.toHaveClass('fixed')
+    expect(fab).not.toHaveClass('sm:hidden')
 
     fireEvent.click(fab)
 
@@ -756,5 +956,162 @@ describe('OperationsPage mobile-safe action boundary', () => {
     expect(screen.getByRole('menu', { name: 'Tạo mới' })).toBeInTheDocument()
     fireEvent.pointerDown(document.body)
     await waitFor(() => expect(screen.queryByRole('menu', { name: 'Tạo mới' })).not.toBeInTheDocument())
+  })
+
+  it('renders categorized create menu with badges and opens dialogs', async () => {
+    creationOptions = {
+      canCreateXuDoanEvent: true,
+      xuDoanOrganizers: [],
+      units: [
+        { id: 'UNIT-B', name: 'Ngành Nghĩa', unitType: 'BRANCH', canCreateEvent: true, canCreateTask: false, organizers: [], myRole: null },
+        { id: 'UNIT-C', name: 'Ban Ẩm Thực', unitType: 'COMMITTEE', canCreateEvent: false, canCreateTask: true, organizers: [], myRole: null },
+      ],
+    }
+    render(<OperationsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới' }))
+    const menu = screen.getByRole('menu', { name: 'Tạo mới' })
+
+    // Verify category headers
+    expect(within(menu).getByText('Sự kiện')).toBeInTheDocument()
+    expect(within(menu).getByText('Nhiệm vụ độc lập')).toBeInTheDocument()
+
+    // Verify items and badges
+    expect(within(menu).getByText('Tạo sự kiện Xứ đoàn')).toBeInTheDocument()
+    expect(within(menu).getByText('Toàn xứ')).toBeInTheDocument()
+    expect(within(menu).getByText('Tạo sự kiện Ngành Nghĩa')).toBeInTheDocument()
+    expect(within(menu).getByText('Ngành')).toBeInTheDocument()
+    expect(within(menu).getByText('Tạo Task · Ban Ẩm Thực')).toBeInTheDocument()
+    expect(within(menu).getByText('Task')).toBeInTheDocument()
+
+    // Clicking "Tạo sự kiện Xứ đoàn" opens CreateEventForm modal
+    fireEvent.click(within(menu).getByText('Tạo sự kiện Xứ đoàn'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Tạo sự kiện Xứ đoàn' })).toBeInTheDocument())
+  })
+
+  it('separates active and archived events in OperationsEventList and displays archive switcher', async () => {
+    const activeEvt: OperationEvent = {
+      id: 'EVT-ACTIVE', parishId: 'parish-a', title: 'Hội trại giới trẻ', eventType: 'CAMP', status: 'PLANNING',
+      startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh',
+      visibility: 'INTERNAL', automationPaused: false, version: 1, createdBy: 'user-a', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+    }
+    const cancelledEvt: OperationEvent = {
+      id: 'EVT-CANCELLED', parishId: 'parish-a', title: 'Lễ bế giảng cũ', eventType: 'FEAST_DAY', status: 'CANCELLED',
+      startsAt: '2026-09-10T08:00:00Z', endsAt: '2026-09-10T11:00:00Z', timezone: 'Asia/Ho_Chi_Minh',
+      visibility: 'INTERNAL', automationPaused: true, version: 2, createdBy: 'user-a', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
+    }
+    events = [activeEvt, cancelledEvt]
+    render(<OperationsPage />)
+
+    // Active tab is default: shows active event, does not show cancelled event
+    expect(screen.getByText('Đang hoạt động (1)')).toBeInTheDocument()
+    expect(screen.getByText('Lưu trữ (1)')).toBeInTheDocument()
+    expect(screen.getByText('Hội trại giới trẻ')).toBeInTheDocument()
+    expect(screen.queryByText('Lễ bế giảng cũ')).not.toBeInTheDocument()
+
+    // Switch to "Lưu trữ"
+    fireEvent.click(screen.getByText('Lưu trữ (1)'))
+    expect(screen.queryByText('Hội trại giới trẻ')).not.toBeInTheDocument()
+    expect(screen.getByText('Lễ bế giảng cũ')).toBeInTheDocument()
+    expect(screen.getByText('Đã hủy / Lưu trữ')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Xem & Khôi phục' })).toBeInTheDocument()
+  })
+
+  it('allows restoring a cancelled event with mandatory reason in EventLifecycleHub', async () => {
+    const cancelledEvt: OperationEvent = {
+      id: 'EVT-RESTORE', parishId: 'parish-a', title: 'Sự kiện cần khôi phục', eventType: 'CAMP', status: 'CANCELLED',
+      startsAt: '2026-10-15T08:00:00Z', endsAt: '2026-10-15T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh',
+      visibility: 'INTERNAL', automationPaused: true, version: 2, createdBy: 'user-a', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
+    }
+    selectedEvent = {
+      event: cancelledEvt,
+      tasks: [],
+      workstreams: [],
+      assignees: [],
+      permissions: { 'operations.event.transition': true },
+      readiness: { percent: 0, blockers: [] },
+    }
+    restoreEvent.mockResolvedValue({ ...cancelledEvt, status: 'PLANNING', version: 3 })
+    render(<OperationsPage />)
+
+    // Verify archive notice
+    expect(screen.getByText('Sự kiện đã bị hủy & chuyển vào Lưu trữ')).toBeInTheDocument()
+
+    // Click "Khôi phục sự kiện"
+    const restoreButtons = screen.getAllByRole('button', { name: 'Khôi phục sự kiện' })
+    expect(restoreButtons.length).toBeGreaterThan(0)
+    fireEvent.click(restoreButtons[0]!)
+
+    // Prompt for reason appears
+    const textarea = screen.getByPlaceholderText('Nhập lý do khôi phục sự kiện về Kế hoạch...')
+    expect(textarea).toBeInTheDocument()
+
+    // Submit button is disabled without reason
+    const confirmButton = screen.getByRole('button', { name: 'Xác nhận khôi phục' })
+    expect(confirmButton).toBeDisabled()
+
+    // Type reason and submit
+    fireEvent.change(textarea, { target: { value: 'Kế hoạch đã được phê duyệt lại' } })
+    expect(confirmButton).not.toBeDisabled()
+    fireEvent.click(confirmButton)
+
+    await waitFor(() => {
+      expect(restoreEvent).toHaveBeenCalledWith('EVT-RESTORE', 2, 'Kế hoạch đã được phê duyệt lại', expect.any(String))
+    })
+  })
+
+  it('filters cancelled tasks into Lưu trữ and allows cancelling active tasks with reason', async () => {
+    const activeTask: OperationTask = {
+      id: 'TSK-ACTIVE', parishId: 'parish-a', title: 'Mua nguyên liệu nấu ăn', status: 'TODO', priority: 'NORMAL', phase: 'PREPARATION', isRequired: false,
+      version: 1, myAssignments: [{ id: 'OPA-1', parishId: 'parish-a', taskId: 'TSK-ACTIVE', userId: 'user-a', assignmentRole: 'OWNER', acknowledgementStatus: 'ACCEPTED', version: 1 }],
+    }
+    const cancelledTask: OperationTask = {
+      id: 'TSK-CANCELLED', parishId: 'parish-a', title: 'Chuẩn bị phông bạt cũ', status: 'CANCELLED', priority: 'NORMAL', phase: 'PREPARATION', isRequired: false,
+      version: 2, cancellationReason: 'Không còn cần dùng', myAssignments: [],
+    }
+
+    selectedEvent = {
+      event: {
+        id: 'EVT-1', parishId: 'parish-a', title: 'Hội trại', eventType: 'CAMP', status: 'PLANNING',
+        startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh',
+        visibility: 'INTERNAL', automationPaused: false, version: 1, createdBy: 'user-a', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+      },
+      tasks: [activeTask, cancelledTask],
+      workstreams: [],
+      assignees: [],
+      permissions: { 'operations.task.manage': true },
+      readiness: { percent: 50, blockers: [] },
+    }
+    transitionTask.mockResolvedValue({ ...activeTask, status: 'CANCELLED', version: 2 })
+
+    render(<OperationsPage />)
+
+    // In event tasks tab: "Tất cả (1)" shows only active task, not cancelled
+    const eventFilterGroup = screen.getByRole('group', { name: 'Lọc task theo trạng thái' })
+    expect(within(eventFilterGroup).getByText('Tất cả (1)')).toBeInTheDocument()
+    expect(within(eventFilterGroup).getByText('Lưu trữ (1)')).toBeInTheDocument()
+    expect(screen.getByText('Mua nguyên liệu nấu ăn')).toBeInTheDocument()
+    expect(screen.queryByText('Chuẩn bị phông bạt cũ')).not.toBeInTheDocument()
+
+    // Active task has "Hủy việc" button
+    const cancelTaskBtn = screen.getByRole('button', { name: 'Hủy việc' })
+    fireEvent.click(cancelTaskBtn)
+
+    // Reason dialog appears
+    expect(screen.getByRole('heading', { name: 'Hủy Nhiệm Vụ' })).toBeInTheDocument()
+    const reasonInput = screen.getByPlaceholderText('Lý do hủy nhiệm vụ...')
+    fireEvent.change(reasonInput, { target: { value: 'Thay đổi thực đơn' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Xác nhận hủy việc' }))
+
+    await waitFor(() => {
+      expect(transitionTask).toHaveBeenCalledWith(activeTask, 'CANCELLED', expect.objectContaining({
+        cancellationReason: 'Thay đổi thực đơn',
+      }))
+    })
+
+    // Filter by "Lưu trữ" in the event
+    fireEvent.click(within(eventFilterGroup).getByText('Lưu trữ (1)'))
+    expect(screen.queryByText('Mua nguyên liệu nấu ăn')).not.toBeInTheDocument()
+    expect(screen.getByText('Chuẩn bị phông bạt cũ')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Chi tiết & Khôi phục' })).toBeInTheDocument()
   })
 })
