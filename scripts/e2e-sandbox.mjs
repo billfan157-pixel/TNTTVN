@@ -3,7 +3,9 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,6 +14,10 @@ import path from 'node:path'
 const E2E_TEMP_PREFIX = 'brave-davinci-e2e-'
 const OWNER_FILE = '.e2e-owner'
 const RUN_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+// Stale-sandbox janitor (2026-09-16): killed/interrupted runs never reach the
+// cleanup reporter, so their temp dirs accumulate. Anything older than this
+// is by definition not a live run (a full e2e invocation takes minutes).
+const STALE_SANDBOX_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 function samePath(left, right) {
   const normalize = value => process.platform === 'win32'
@@ -98,6 +104,44 @@ export function removeE2ESandbox(runIdInput) {
     retryDelay: 250,
   })
   return true
+}
+
+/**
+ * Best-effort janitor for sandboxes orphaned by killed runs. Only touches
+ * directories that (a) carry our temp prefix, (b) parse as a run UUID,
+ * (c) still hold a matching owner marker (proof our harness created them),
+ * and (d) are older than the stale threshold. Anything else — including a
+ * live run's fresh directory — is left alone. Never throws: a janitor must
+ * not fail harness startup (per-directory failures are skipped silently).
+ *
+ * @returns number of directories actually removed.
+ */
+export function pruneStaleE2ESandboxes({ maxAgeMs = STALE_SANDBOX_MAX_AGE_MS, now = Date.now() } = {}) {
+  let removed = 0
+  let entries
+  try {
+    entries = readdirSync(path.resolve(tmpdir()), { withFileTypes: true })
+  } catch {
+    return 0
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(E2E_TEMP_PREFIX)) continue
+    const candidateId = entry.name.slice(E2E_TEMP_PREFIX.length)
+    if (!RUN_ID_PATTERN.test(candidateId)) continue
+    try {
+      const dir = path.resolve(tmpdir(), entry.name)
+      const ownerPath = path.join(dir, OWNER_FILE)
+      const owner = readFileSync(ownerPath, 'utf8').trim().toLowerCase()
+      if (owner !== candidateId.toLowerCase()) continue
+      const ageMs = now - statSync(ownerPath).mtimeMs
+      if (!Number.isFinite(ageMs) || ageMs < maxAgeMs) continue
+      rmSync(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 250 })
+      removed += 1
+    } catch {
+      continue
+    }
+  }
+  return removed
 }
 
 function parseLoopbackHttpUrl(rawValue, label, { requireRootPath = false } = {}) {

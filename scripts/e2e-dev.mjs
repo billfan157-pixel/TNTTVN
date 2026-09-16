@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import {
   createE2ERunId,
   createE2ESandbox,
+  pruneStaleE2ESandboxes,
   removeE2ESandbox,
   resolveE2EEndpoints,
 } from './e2e-sandbox.mjs'
@@ -114,6 +115,10 @@ function configureIsolatedEnvironment() {
     ? process.env.E2E_RUN_ID
     : createE2ERunId()
   process.env.E2E_RUN_ID = runId
+  // Reclaim temp dirs orphaned by previously killed runs (owner-marker +
+  // age-gated; never touches live runs and never fails startup).
+  const reclaimed = pruneStaleE2ESandboxes()
+  if (reclaimed > 0) console.log(`[e2e-dev] Đã dọn ${reclaimed} sandbox tồn đọng.`)
   ownedTempDir = createE2ESandbox(runId)
   const dbPath = path.join(ownedTempDir, 'parish-e2e.db')
 

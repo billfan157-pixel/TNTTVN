@@ -567,7 +567,10 @@ test('@critical Operations P3 reschedules with OCC and recipient cancellation pe
   expect((await rescheduleResponse.json()).data).toMatchObject({ id: reminder.id, status: 'PENDING', version: 2 })
 
   await page.reload()
-  await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
+  // W2.2 deep-link: the ?event= URL reopens the same event modal on load, so
+  // the detail is already visible behind where the card was — assert the
+  // dialog instead of clicking the covered card.
+  await expect(page.getByRole('dialog').filter({ hasText: eventTitle })).toBeVisible()
   await page.getByRole('tab', { name: 'Lập lịch nhắc việc' }).click()
   await expect(page.getByRole('region', { name: 'Quản lý nhắc sự kiện' }).locator(`[data-reminder-id="${reminder.id}"]`)).toBeVisible()
 
@@ -596,7 +599,9 @@ test('@critical Operations P3 reschedules with OCC and recipient cancellation pe
 
 test('@critical Operations P2 persists three task phases and enforces start/closure gates', async ({ page, browser }, testInfo) => {
   // This journey includes group creation/membership and two authenticated users.
-  test.setTimeout(90_000)
+  // WebKit needs ~114s locally (2.3m measured solo) vs 26s on Chromium, so
+  // the journey budget is 180s; tighter budgets flake on WebKit only.
+  test.setTimeout(180_000)
   const admin = await getAdminSession(page.request)
   const key = testKey(testInfo, 'OPS')
   const eventTitle = `Vận hành ${key}`
@@ -643,6 +648,13 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
 
   await page.getByLabel('Tên mảng phụ trách').fill('Nhóm nghi thức')
   await page.getByLabel('Mảng bắt buộc').check()
+  // XU_DOAN Fields must name their owning unit (FIELD_SCOPE_REQUIRED since
+  // authority hardening): pick the first available unit before creating.
+  const fieldUnitSelect = page.getByLabel('Ban/Ngành phụ trách mảng')
+  if (await fieldUnitSelect.count()) {
+    const firstUnit = fieldUnitSelect.locator('option[value]:not([value=""])').first()
+    if (await firstUnit.count()) await fieldUnitSelect.selectOption(await firstUnit.getAttribute('value') as string)
+  }
   const groupResponse = page.waitForResponse(response => response.url().endsWith('/api/operations/workstreams') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Tạo mảng', exact: true }).click()
   const groupCreated = await groupResponse
@@ -664,6 +676,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   // the event reaches PLANNING; the staff user then accepts it from
   // "Việc của tôi". This mirrors the dedicated OPS-DISPATCH journey.
   const createAndInvite = async (title: string, phase: 'PREPARATION' | 'EXECUTION' | 'FOLLOW_UP', dueAt?: string) => {
+    await page.getByLabel('Nhóm của công việc').selectOption(group.id)
     await page.getByLabel('Tên task').fill(title)
     await page.getByLabel('Giai đoạn nhiệm vụ').selectOption(phase)
     if (dueAt) await page.getByLabel('Hạn task').fill(dueAt)
@@ -687,7 +700,11 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
 
   // W1.7: "Checklist" opens the task detail as its own dialog above the event
   // dialog; close it again before continuing on the event surface.
-  const taskRow = eventDialog.getByText(preparationTitle, { exact: true }).locator('..').locator('..')
+  // Row-anchored: the task title text also appears inside the assign form's
+  // <option> list, so a bare getByText matches twice and `../..` chains land
+  // on the wrong column. Anchor on the row container (the only row-class div
+  // containing this title) instead.
+  const taskRow = eventDialog.locator('div.flex.items-start.justify-between', { hasText: preparationTitle })
   await taskRow.getByRole('button', { name: 'Checklist' }).click()
   await page.getByLabel('Mục checklist mới').fill('Kiểm tra dụng cụ')
   await page.getByText('Bắt buộc', { exact: true }).last().click()
@@ -714,14 +731,17 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     await staffPage.goto('/operations')
     const invitationPanel = staffPage.locator('[aria-label="Lời mời nhận nhiệm vụ"]')
     const acceptInvite = async (taskId: string, title: string) => {
-      const row = invitationPanel.locator('div', { hasText: title }).last()
+      // Anchor on the invitation card (the only rounded-xl container holding
+      // this title): bare `div:last` lands on the nested text column, which
+      // has no button, and the title also appears in other rows' subtrees.
+      const row = invitationPanel.locator('div.rounded-xl', { hasText: title })
       const response = staffPage.waitForResponse(value => value.url().includes(`/api/operations/tasks/${taskId}/dispatches/`) && value.url().endsWith('/accept') && value.request().method() === 'POST')
       await row.getByRole('button', { name: 'Nhận nhiệm vụ' }).click()
       expect((await response).status()).toBe(200)
     }
     await acceptInvite(task.id, preparationTitle)
     await acceptInvite(executionTask.id, executionTitle)
-    await acceptInvite(followUpTask.id, followUpTask)
+    await acceptInvite(followUpTask.id, followUpTitle)
     const completeResponse = staffPage.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${task.id}/transition`) && response.request().method() === 'POST')
     await staffPage.getByRole('article').filter({ hasText: preparationTitle }).getByRole('button', { name: 'Hoàn tất' }).click()
     expect((await completeResponse).status()).toBe(200)
@@ -763,6 +783,9 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     await completeFutureTask(followUpTask.id, followUpTitle)
 
     await reopenDetail()
+    // Reopening clears the modal-local outcome summary (by design), so fill
+    // it again now that every required task is DONE.
+    await page.getByRole('textbox', { name: 'Tổng kết kết quả' }).fill('Hoàn tất đúng kế hoạch E2E.')
     await expect(page.getByRole('button', { name: 'Hoàn tất sự kiện' })).toBeEnabled()
     const finalResponse = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
     await page.getByRole('button', { name: 'Hoàn tất sự kiện' }).click()
