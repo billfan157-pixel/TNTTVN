@@ -180,19 +180,19 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
           <TextInput aria-label={`Lý do thu hồi vai trò của ${memberLabel}`} value={removeReasons[member.id] ?? ''} maxLength={2000} disabled={busy} placeholder="Lý do thu hồi vai trò" onChange={e => setRemoveReasons(value => ({ ...value, [member.id]: e.target.value }))} />
           <Button variant="danger" size="sm" disabled={busy || !(removeReasons[member.id] ?? '').trim()} onClick={() => {
           const payload = { version: detail.workstream.version, memberVersion: member.version, reason: (removeReasons[member.id] ?? '').trim() }
-          const key = stableKey('workstream-member-remove', { workstreamId: detail.workstream.id, memberId: member.id, ...payload })
+          const key = stableKey(`workstream-member-remove:${member.id}`, { workstreamId: detail.workstream.id, memberId: member.id, ...payload })
           return void mutate(async () => {
             const result = await operationsApi.removeWorkstreamMember(detail.workstream.id, member.id, payload, key)
-            releaseKey('workstream-member-remove')
+            releaseKey(`workstream-member-remove:${member.id}`)
             return result
           })
         }}>Thu hồi vai trò</Button></div>}
         {writable && detail.permissions[member.operationRole === 'WORKSTREAM_LEAD' ? 'operations.workstream.assign_lead' : 'operations.workstream.manage'] && <MemberValidityEditor member={member} memberLabel={memberLabel} busy={busy} save={(startsAt, endsAt, validityReason) => {
           const payload = { version: detail.workstream.version, memberVersion: member.version, startsAt, endsAt, reason: validityReason }
-          const key = stableKey('workstream-member-validity', { workstreamId: detail.workstream.id, memberId: member.id, ...payload })
+          const key = stableKey(`workstream-member-validity:${member.id}`, { workstreamId: detail.workstream.id, memberId: member.id, ...payload })
           return void mutate(async () => {
             const result = await operationsApi.updateWorkstreamMemberValidity(detail.workstream.id, member.id, payload, key)
-            releaseKey('workstream-member-validity')
+            releaseKey(`workstream-member-validity:${member.id}`)
             return result
           })
         }} />}

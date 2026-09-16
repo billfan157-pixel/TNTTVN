@@ -91,10 +91,10 @@ export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
     <div className="divide-y divide-surface-border">
       {rows.map(row => <div key={row.id} data-blockout-id={row.id} className="py-3 text-sm text-text-main">
         <div className="flex flex-wrap items-center justify-between gap-2"><span>{new Date(row.startsAt).toLocaleString('vi-VN')} – {new Date(row.endsAt).toLocaleString('vi-VN')}{row.reason ? ` · ${row.reason}` : ''}</span><div className="flex gap-2"><Button variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => setEditing({ id: row.id, startsAt: localDateTime(row.startsAt), endsAt: localDateTime(row.endsAt), reason: row.reason ?? '' })}>Sửa</Button><Button variant="danger" size="sm" disabled={!enabled || busy} onClick={() => {
-          const key = stableKey('blockout-revoke', { id: row.id, version: row.version })
+          const key = stableKey(`blockout-revoke:${row.id}`, { id: row.id, version: row.version })
           return void mutate(async () => {
             const result = await operationsApi.revokeBlockout(row.id, row.version, key)
-            releaseKey('blockout-revoke')
+            releaseKey(`blockout-revoke:${row.id}`)
             return result
           }, 'Đã thu hồi lịch bận.')
         }}>Thu hồi</Button></div></div>
@@ -106,10 +106,10 @@ export function AvailabilityPanel({ enabled }: { enabled: boolean }) {
           <TextInput aria-label={`Sửa lý do của khoảng ${blockoutRowLabel(row)}`} value={editing.reason} maxLength={500} disabled={busy} onChange={event => setEditing(value => value ? { ...value, reason: event.target.value } : value)} />
           <Button size="sm" disabled={busy || !validWindow(editing.startsAt, editing.endsAt)} onClick={() => {
             const payload = { version: row.version, startsAt: new Date(editing.startsAt).toISOString(), endsAt: new Date(editing.endsAt).toISOString(), reason: editing.reason.trim() || null }
-            const key = stableKey('blockout-update', { id: row.id, ...payload })
+            const key = stableKey(`blockout-update:${row.id}`, { id: row.id, ...payload })
             return void mutate(async () => {
               const result = await operationsApi.updateBlockout(row.id, payload, key)
-              releaseKey('blockout-update')
+              releaseKey(`blockout-update:${row.id}`)
               return result
             }, 'Đã cập nhật lịch bận.')
           }}>Lưu</Button>

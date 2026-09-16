@@ -36,6 +36,12 @@ export function useOperationsEventUrlSync(
   const urlTab = search.tab ?? null
   const seenUrlEventRef = useRef<string | null>(null)
   const openingRef = useRef<string | null>(null)
+  // W2.2-fix (2026-09-16): the ?tab= parameter is honored ONCE per distinct
+  // (event, tab) pair. Without this, the effect below re-applies a stale URL
+  // tab on every render where it differs from the active tab — permanently
+  // reverting manual tab switches made while the URL still holds the old tab
+  // (the UI→URL mirror only catches up afterwards, and loses the race).
+  const appliedUrlTabRef = useRef<{ event: string; tab: OperationsEventModalTab } | null>(null)
 
   // URL → UI: an id the query JUST gained (not one already selected) opens it.
   useEffect(() => {
@@ -49,10 +55,19 @@ export function useOperationsEventUrlSync(
     })
   }, [urlEventId, selectedId, selectEvent])
 
-  // URL → UI: honor ?tab= once the linked event is shown. Applies only while
-  // the parameter exists, so later manual tab switches are not reverted.
+  // URL → UI: honor ?tab= once the linked event is shown, and only once per
+  // distinct (event, tab) pair — later manual tab switches are never reverted
+  // (a fresh deep-link with a different tab still applies, and a return to a
+  // pair after the URL stopped carrying it applies again).
   useEffect(() => {
-    if (!urlTab || !selectedId || urlEventId !== selectedId) return
+    if (!urlTab) {
+      appliedUrlTabRef.current = null
+      return
+    }
+    if (!selectedId || urlEventId !== selectedId) return
+    const applied = appliedUrlTabRef.current
+    if (applied && applied.event === urlEventId && applied.tab === urlTab) return
+    appliedUrlTabRef.current = { event: urlEventId, tab: urlTab }
     if (activeTab === urlTab) return
     applyUrlTab(urlTab)
   }, [urlTab, urlEventId, selectedId, activeTab, applyUrlTab])

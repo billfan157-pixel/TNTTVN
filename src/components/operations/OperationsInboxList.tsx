@@ -70,9 +70,11 @@ export function OperationsInboxList({
     if (busyInbox.has(reminder.id)) return
     setInboxBusy(reminder.id, true)
     try {
-      const key = stableKey('reminder-read', { id: reminder.id, version: reminder.version })
+      // V9 hardening: idempotency slots are per reminder so concurrent rows
+      // never evict each other's pending keys.
+      const key = stableKey(`reminder-read:${reminder.id}`, { id: reminder.id, version: reminder.version })
       await markReminderRead(reminder, key)
-      releaseKey('reminder-read')
+      releaseKey(`reminder-read:${reminder.id}`)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể đánh dấu đã đọc'), 'error')
     } finally { setInboxBusy(reminder.id, false) }
@@ -82,9 +84,9 @@ export function OperationsInboxList({
     if (busyInbox.has(reminder.id)) return
     setInboxBusy(reminder.id, true)
     try {
-      const key = stableKey('reminder-cancel', { id: reminder.id, version: reminder.version })
+      const key = stableKey(`reminder-cancel:${reminder.id}`, { id: reminder.id, version: reminder.version })
       await cancelReminder(reminder, key)
-      releaseKey('reminder-cancel')
+      releaseKey(`reminder-cancel:${reminder.id}`)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể hủy lịch nhắc'), 'error')
     } finally { setInboxBusy(reminder.id, false) }
@@ -95,9 +97,9 @@ export function OperationsInboxList({
     setInboxBusy(reminder.id, true)
     try {
       const payload = { expectedVersion: reminder.version, triggerAt: new Date(rescheduleAt).toISOString(), reason: rescheduleReason.trim() }
-      const key = stableKey('reminder-reschedule', { id: reminder.id, ...payload })
+      const key = stableKey(`reminder-reschedule:${reminder.id}`, { id: reminder.id, ...payload })
       await operationsApi.rescheduleReminder(reminder.id, payload, key)
-      releaseKey('reminder-reschedule')
+      releaseKey(`reminder-reschedule:${reminder.id}`)
       setRescheduleId(null); setRescheduleAt(''); setRescheduleReason('')
       await fetch().catch(() => undefined)
     } catch (error: any) {

@@ -64,11 +64,11 @@ export function useEventTransitionFlow(input: {
         outcomeSummary: outcomeSummary.trim() || undefined,
         ...(override ? { override: true } : {}),
       }
-      const key = stableCommandKey('event-transition', { id: selectedEvent.event.id, version: selectedEvent.event.version, status, ...payload })
+      const key = stableCommandKey(`event-transition:${selectedEvent.event.id}`, { id: selectedEvent.event.id, version: selectedEvent.event.version, status, ...payload })
       await transitionEvent(selectedEvent.event.id, status, selectedEvent.event.version, {
         ...payload,
       }, key)
-      releaseCommandKey('event-transition')
+      releaseCommandKey(`event-transition:${selectedEvent.event.id}`)
       setEventReason('')
       setShowCancelPrompt(false)
       setShowRewindPrompt(false)
@@ -102,9 +102,9 @@ export function useEventTransitionFlow(input: {
     setTransitioningEvent(true)
     try {
       const reason = 'Người quản lý chủ động tiếp tục tự động chuyển giai đoạn.'
-      const key = stableCommandKey('event-resume', { id: selectedEvent.event.id, version: selectedEvent.event.version, reason })
+      const key = stableCommandKey(`event-resume:${selectedEvent.event.id}`, { id: selectedEvent.event.id, version: selectedEvent.event.version, reason })
       await resumeEventAutomation(selectedEvent.event.id, selectedEvent.event.version, reason, key)
-      releaseCommandKey('event-resume')
+      releaseCommandKey(`event-resume:${selectedEvent.event.id}`)
       await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể tiếp tục tự động chuyển giai đoạn'), 'error')
@@ -117,9 +117,9 @@ export function useEventTransitionFlow(input: {
     if (!finalReason) return
     setTransitioningEvent(true)
     try {
-      const key = stableCommandKey('event-restore', { id: selectedEvent.event.id, version: selectedEvent.event.version, reason: finalReason })
+      const key = stableCommandKey(`event-restore:${selectedEvent.event.id}`, { id: selectedEvent.event.id, version: selectedEvent.event.version, reason: finalReason })
       await restoreEvent(selectedEvent.event.id, selectedEvent.event.version, finalReason, key)
-      releaseCommandKey('event-restore')
+      releaseCommandKey(`event-restore:${selectedEvent.event.id}`)
       useToastStore.getState().addToast('Đã khôi phục sự kiện về Kế hoạch.', 'success')
       setShowRestorePrompt(false)
       setRestoreReason('')

@@ -242,11 +242,11 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
           const target = parseOperationCandidateValue(taskTarget)
           if (!task || !target) return
           const payload = { version: task.version, ...target, assignmentRole: taskRole }
-          const key = stableKey('standalone-task-assign', { taskId: task.id, ...payload })
+          const key = stableKey(`standalone-task-assign:${task.id}`, { taskId: task.id, ...payload })
           return void run(
             async () => {
               const result = await operationsApi.assignTask(task.id, payload, key)
-              releaseKey('standalone-task-assign')
+              releaseKey(`standalone-task-assign:${task.id}`)
               return result
             },
             true,

@@ -54,9 +54,9 @@ export function TaskChecklistSection() {
     if (isTerminalTask(selectedTask.task.status)) return
     setBusyTaskId(selectedTask.task.id)
     try {
-      const key = stableKey('checklist-toggle', { taskId: selectedTask.task.id, itemId: item.id, version: selectedTask.task.version, isDone: !item.isDone })
+      const key = stableKey(`checklist-toggle:${item.id}`, { taskId: selectedTask.task.id, itemId: item.id, version: selectedTask.task.version, isDone: !item.isDone })
       await toggleChecklistItem(selectedTask.task, item, key)
-      releaseKey('checklist-toggle')
+      releaseKey(`checklist-toggle:${item.id}`)
     } catch {
       // Store owns the visible OCC/API error; unchecked state remains authoritative.
     } finally { setBusyTaskId(null) }

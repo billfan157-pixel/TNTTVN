@@ -256,6 +256,9 @@ export default function OperationsPage() {
 
   // 1. Stable idempotency keys per form: same payload retry reuses the key so
   // the server dedups; changed payload or success releases it for a fresh key.
+  // V9 hardening: slots are scoped per entity (`action:id`) so acting on task
+  // B never evicts the pending key of task A — retrying A after a failure
+  // replays instead of executing anew (and surfacing a confusing 409).
   type StableCommandKey = { fingerprint: string; key: string }
   const commandKeys = useRef(new Map<string, StableCommandKey>())
   const stableCommandKey = (form: string, payload: unknown): string => {
@@ -623,9 +626,9 @@ export default function OperationsPage() {
     setBusyTask(task.id)
     try {
       if (action === 'DONE' || action === 'IN_PROGRESS') {
-        const key = stableCommandKey('task-transition', { id: task.id, version: task.version, status: action })
+        const key = stableCommandKey(`task-transition:${task.id}`, { id: task.id, version: task.version, status: action })
         await transitionTask(task, action, { idempotencyKey: key })
-        releaseCommandKey('task-transition')
+        releaseCommandKey(`task-transition:${task.id}`)
       }
       if (selectedEvent) await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
@@ -641,9 +644,9 @@ export default function OperationsPage() {
     try {
       const assignment = task.myAssignments?.find(item => item.acknowledgementStatus === 'PENDING')
       const note = ackNoteText.trim() || undefined
-      const key = stableCommandKey('task-acknowledge', { id: task.id, assignmentId: assignment?.id, version: assignment?.version, status, note })
+      const key = stableCommandKey(`task-acknowledge:${task.id}`, { id: task.id, assignmentId: assignment?.id, version: assignment?.version, status, note })
       await acknowledgeTask(task, status, note, key)
-      releaseCommandKey('task-acknowledge')
+      releaseCommandKey(`task-acknowledge:${task.id}`)
       setAckNoteAction(null)
       setAckNoteText('')
       if (selectedEvent) await selectEvent(selectedEvent.event.id)
@@ -660,9 +663,9 @@ export default function OperationsPage() {
       const options = status === 'BLOCKED'
         ? { blockedReason: taskReasonText.trim() }
         : { cancellationReason: taskReasonText.trim() }
-      const key = stableCommandKey('task-transition', { id: task.id, version: task.version, status, ...options })
+      const key = stableCommandKey(`task-transition:${task.id}`, { id: task.id, version: task.version, status, ...options })
       await transitionTask(task, status, { ...options, idempotencyKey: key })
-      releaseCommandKey('task-transition')
+      releaseCommandKey(`task-transition:${task.id}`)
       useToastStore.getState().addToast(status === 'BLOCKED' ? 'Đã ghi nhận điểm nghẽn của nhiệm vụ.' : 'Đã hủy nhiệm vụ.', 'success')
       setTaskReasonAction(null)
       setTaskReasonText('')
@@ -718,8 +721,8 @@ export default function OperationsPage() {
         scheduledEndAt: taskEditDraft.scheduledEndAt ? toIso(taskEditDraft.scheduledEndAt) : null,
         isRequired: taskEditDraft.isRequired,
       }
-      const result = await updateTask(editingTask, payload, stableCommandKey('update-task', { id: editingTask.id, version: editingTask.version, ...payload }))
-      releaseCommandKey('update-task')
+      const result = await updateTask(editingTask, payload, stableCommandKey(`update-task:${editingTask.id}`, { id: editingTask.id, version: editingTask.version, ...payload }))
+      releaseCommandKey(`update-task:${editingTask.id}`)
       setShowEditTask(false)
       setEditingTask(null)
       if (result.acknowledgementReset) {
@@ -735,9 +738,9 @@ export default function OperationsPage() {
     if (busyInbox.has(invitation.id)) return
     setInboxBusy(invitation.id, true)
     try {
-      const key = stableCommandKey('accept-dispatch', { id: invitation.id, version: invitation.version, target: invitation.target })
+      const key = stableCommandKey(`accept-dispatch:${invitation.id}`, { id: invitation.id, version: invitation.version, target: invitation.target })
       await acceptTaskDispatch(invitation, key)
-      releaseCommandKey('accept-dispatch')
+      releaseCommandKey(`accept-dispatch:${invitation.id}`)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể nhận nhiệm vụ'), 'error')
     } finally { setInboxBusy(invitation.id, false) }

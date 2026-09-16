@@ -43,9 +43,9 @@ export function TaskAssigneesPanel({ detail, enabled, refresh }: {
     const current = () => active.current && scope === getTenantScopeKey()
     try {
       const payload = { version: detail.task.version, assignmentVersion, reason }
-      const key = stableKey('assignment-remove', { taskId: detail.task.id, assignmentId, ...payload })
+      const key = stableKey(`assignment-remove:${assignmentId}`, { taskId: detail.task.id, assignmentId, ...payload })
       await operationsApi.removeTaskAssignment(detail.task.id, assignmentId, payload, key)
-      releaseKey('assignment-remove')
+      releaseKey(`assignment-remove:${assignmentId}`)
       if (!current()) return
       setReasons(value => ({ ...value, [assignmentId]: '' }))
       await refresh()

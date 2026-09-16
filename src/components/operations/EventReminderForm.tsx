@@ -137,22 +137,26 @@ export function EventReminderForm({ event, task, enabled }: Props) {
             <TextInput aria-label={`Lý do đổi hoặc hủy nhắc ${subject}`} value={reason} maxLength={2000} required disabled={busy} placeholder="Lý do bắt buộc" onChange={e => setReason(e.target.value)} />
             <Button size="sm" disabled={busy || !reason.trim() || !editAt || new Date(editAt).getTime() <= Date.now()} onClick={() => {
               const payload = { expectedVersion: reminder.version, triggerAt: new Date(editAt).toISOString(), reason: reason.trim() }
-              const key = stableKey('reminder-reschedule', { id: reminder.id, ...payload })
+              const key = stableKey(`reminder-reschedule:${reminder.id}`, { id: reminder.id, ...payload })
               return void finishMutation(
                 async () => {
                   const result = await operationsApi.rescheduleReminder(reminder.id, payload, key)
-                  releaseKey('reminder-reschedule')
+                  releaseKey(`reminder-reschedule:${reminder.id}`)
                   return result
                 },
                 'Đã đổi thời điểm nhắc.',
               )
             }}>Lưu giờ mới</Button>
             <Button variant="danger" size="sm" disabled={busy || !reason.trim()} onClick={() => {
-              const key = stableKey('reminder-cancel', { id: reminder.id, version: reminder.version })
+              // V10 hardening: the server hashes (key, reason) together, so the
+              // fingerprint must include the reason — otherwise editing the
+              // reason after a commit-with-lost-response turns a replay into a
+              // confusing IDEMPOTENCY_CONFLICT instead of a successful replay.
+              const key = stableKey(`reminder-cancel:${reminder.id}`, { id: reminder.id, version: reminder.version, reason: reason.trim() })
               return void finishMutation(
                 async () => {
                   const result = await operationsApi.cancelReminder(reminder.id, reminder.version, reason.trim(), key)
-                  releaseKey('reminder-cancel')
+                  releaseKey(`reminder-cancel:${reminder.id}`)
                   return result
                 },
                 'Đã hủy lịch nhắc.',

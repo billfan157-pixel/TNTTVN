@@ -2266,6 +2266,156 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(((await unitEvent.json()) as any).error.code).toBe('UNIT_SCOPE_MISMATCH')
   })
 
+  // Hardening fixtures (V1/V2/V3/V5/V7/V8): a second branch leader owning
+  // otherBranchId. Each test calls ensureHardLeaderB() so the cases stay
+  // order-independent under `-t` filters.
+  async function ensureHardLeaderB() {
+    const id = `ops-hard-leader-b-${suffix}`
+    const [existing] = await db.select({ id: users.id }).from(users).where(and(eq(users.parishId, parishA), eq(users.id, id))).limit(1)
+    if (!existing) {
+      await db.insert(users).values([
+        { id, username: id, passwordHash: 'hash', fullName: 'Other Branch Leader', role: 'chunhiem', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 },
+      ])
+      await db.insert(parishPeople).values([
+        { id: `person-hard-b-${suffix}`, parishId: parishA, linkedUserId: id, fullName: 'Other Branch Leader', createdBy: adminId, updatedBy: adminId },
+      ])
+      await db.insert(parishServiceTerms).values([
+        { id: `term-hard-b-${suffix}`, parishId: parishA, personId: `person-hard-b-${suffix}`, unitId: otherBranchId, positionTitle: 'Trưởng ngành', positionCode: 'BRANCH_LEADER', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId },
+      ])
+    }
+    return { id, token: accessToken(id, 'chunhiem', parishA) }
+  }
+
+  it('V1/V2: rejects pinning another unit scope onto a foreign event (scope coherence)', async () => {
+    const { id: otherLeaderId, token: otherLeaderToken } = await ensureHardLeaderB()
+    const victimResponse = await request('/events', otherLeaderToken, 'POST', {
+      scopeUnitId: otherBranchId, organizerUserId: otherLeaderId,
+      title: 'Sự kiện nạn nhân scope B', eventType: 'MEETING', startsAt: '2026-11-20T08:00:00+07:00', endsAt: '2026-11-20T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(victimResponse.status).toBe(201)
+    const victimCreated = await data(victimResponse)
+    const victim = await data(await request(`/events/${victimCreated.id}/transition`, otherLeaderToken, 'POST', { version: victimCreated.version, status: 'PLANNING' }))
+    expect(victim.status).toBe('PLANNING')
+
+    // V1: leader of branch A pins scopeUnitId=A onto event B → 403.
+    expect((await request('/tasks', leaderToken, 'POST', { eventId: victim.id, scopeUnitId: branchId, title: 'Task ngoài phạm vi' })).status).toBe(403)
+    // Coherent control: same-scope leader creates with matching scope → 201.
+    const ownTask = await request('/tasks', otherLeaderToken, 'POST', { eventId: victim.id, scopeUnitId: otherBranchId, title: 'Task trong phạm vi' })
+    expect(ownTask.status).toBe(201)
+    // Fallback control (no explicit scope, derived from the graph) still works.
+    expect((await request('/tasks', otherLeaderToken, 'POST', { eventId: victim.id, title: 'Task suy scope' })).status).toBe(201)
+
+    // V2: leader of branch A pins sourceUnitId=A onto event B → 403.
+    expect((await request('/workstreams', leaderToken, 'POST', { eventId: victim.id, sourceUnitId: branchId, name: 'Nhóm ngoài phạm vi' })).status).toBe(403)
+    const ownGroup = await request('/workstreams', otherLeaderToken, 'POST', { eventId: victim.id, sourceUnitId: otherBranchId, name: 'Nhóm trong phạm vi' })
+    expect(ownGroup.status).toBe(201)
+  })
+
+  it('V3: rejects template creation snapshotting another creator DRAFT', async () => {
+    const { token: otherLeaderToken } = await ensureHardLeaderB()
+    const draftResponse = await request('/events', otherLeaderToken, 'POST', {
+      scopeUnitId: otherBranchId, organizerUserId: `ops-hard-leader-b-${suffix}`,
+      title: 'Bản nháp riêng B', eventType: 'MEETING', startsAt: '2026-11-21T08:00:00+07:00', endsAt: '2026-11-21T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(draftResponse.status).toBe(201)
+    const draft = await data(draftResponse)
+    // Parish-wide leader holds event.create in every scope but must not read
+    // another creator DRAFT through the template snapshot path.
+    expect((await request(`/events/${draft.id}/templates`, parishLeaderToken, 'POST', { eventVersion: 1, name: 'Mẫu từ nháp người khác' })).status).toBe(403)
+    // The creator keeps the path for their own draft.
+    const ownTemplateResponse = await request(`/events/${draft.id}/templates`, otherLeaderToken, 'POST', { eventVersion: 1, name: 'Mẫu của chính mình' })
+    expect(ownTemplateResponse.status).toBe(201)
+    const ownTemplate = await data(ownTemplateResponse)
+    // Versions route: sourceEventId pointing at another creator DRAFT → 403.
+    const draft2 = await data(await request('/events', otherLeaderToken, 'POST', {
+      scopeUnitId: otherBranchId, organizerUserId: `ops-hard-leader-b-${suffix}`,
+      title: 'Bản nháp nguồn B2', eventType: 'MEETING', startsAt: '2026-11-22T08:00:00+07:00', endsAt: '2026-11-22T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    expect((await request(`/templates/${ownTemplate.id}/versions`, parishLeaderToken, 'POST', {
+      expectedVersion: 1, expectedLatestVersion: 1, sourceEventId: draft2.id, sourceEventVersion: 1, reason: 'Phiên bản từ nháp người khác',
+    })).status).toBe(403)
+    // Admin keeps the compatibility path (DRAFT gate admits admin).
+    expect((await request(`/events/${draft.id}/templates`, adminToken, 'POST', { eventVersion: 1, name: 'Mẫu admin từ nháp' })).status).toBe(201)
+  })
+
+  it('V5: rejects acknowledgement after the event turns CANCELLED', async () => {
+    const { id: otherLeaderId, token: otherLeaderToken } = await ensureHardLeaderB()
+    const created = await data(await request('/events', otherLeaderToken, 'POST', {
+      scopeUnitId: otherBranchId, organizerUserId: otherLeaderId,
+      title: 'Sự kiện sẽ hủy', eventType: 'MEETING', startsAt: '2026-11-23T08:00:00+07:00', endsAt: '2026-11-23T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const planning = await data(await request(`/events/${created.id}/transition`, otherLeaderToken, 'POST', { version: created.version, status: 'PLANNING' }))
+    const task = await data(await request('/tasks', otherLeaderToken, 'POST', { eventId: created.id, title: 'Việc sẽ hủy' }))
+    const assigned = await data(await request(`/tasks/${task.id}/assign`, otherLeaderToken, 'POST', { version: 1, userId: otherLeaderId, assignmentRole: 'OWNER' }))
+    expect((await request(`/tasks/${task.id}/acknowledge`, otherLeaderToken, 'POST', { assignmentId: assigned.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
+    const cancelled = await data(await request(`/events/${created.id}/transition`, otherLeaderToken, 'POST', { version: planning.version, status: 'CANCELLED', reason: 'Hủy để kiểm thử acknowledgement' }))
+    expect(cancelled.status).toBe('CANCELLED')
+    const late = await request(`/tasks/${task.id}/acknowledge`, otherLeaderToken, 'POST', { assignmentId: assigned.assignment.id, version: 2, status: 'DECLINED' })
+    expect(late.status).toBe(409)
+    expect(((await late.json()) as any).error.code).toBe('EVENT_NOT_OPEN')
+  })
+
+  it('V5b: follow-up tasks under a COMPLETED event stay acknowledgeable (designed exemption)', async () => {
+    const { id: otherLeaderId, token: otherLeaderToken } = await ensureHardLeaderB()
+    const created = await data(await request('/events', otherLeaderToken, 'POST', {
+      scopeUnitId: otherBranchId, organizerUserId: otherLeaderId,
+      title: 'Sự kiện có follow-up', eventType: 'MEETING', startsAt: '2026-11-26T08:00:00+07:00', endsAt: '2026-11-26T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    let current = created
+    for (const status of ['PLANNING', 'PREPARING', 'READY', 'LIVE'] as const) current = await data(await request(`/events/${created.id}/transition`, otherLeaderToken, 'POST', { version: current.version, status }))
+    current = await data(await request(`/events/${created.id}/transition`, otherLeaderToken, 'POST', { version: current.version, status: 'COMPLETED', outcomeSummary: 'Hoàn tất, còn việc tiếp nối.' }))
+    expect(current.status).toBe('COMPLETED')
+    const followUp = await data(await request(`/events/${created.id}/follow-ups`, otherLeaderToken, 'POST', {
+      eventVersion: current.version, title: 'Việc tiếp nối', dueAt: '2026-12-01T08:00:00+07:00', userId: otherLeaderId,
+    }))
+    expect(followUp.task).toMatchObject({ phase: 'FOLLOW_UP', status: 'TODO' })
+    // The parent event is COMPLETED, yet the follow-up OWNER must acknowledge
+    // to start — the V5 terminal guard exempts FOLLOW_UP by design.
+    expect((await request(`/tasks/${followUp.task.id}/acknowledge`, otherLeaderToken, 'POST', { assignmentId: followUp.assignment.id, version: 1, status: 'ACCEPTED' })).status).toBe(200)
+  })
+
+  it('V7: rejects dependency edges pointing at tasks the caller cannot view', async () => {
+    const { token: otherLeaderToken } = await ensureHardLeaderB()
+    const parishEvent = await data(await request('/events', parishLeaderToken, 'POST', {
+      eventScopeType: 'XU_DOAN',
+      title: 'Sự kiện Xứ đoàn hai Field', eventType: 'MEETING', startsAt: '2026-11-24T08:00:00+07:00', endsAt: '2026-11-24T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    await data(await request(`/events/${parishEvent.id}/transition`, parishLeaderToken, 'POST', { version: parishEvent.version, status: 'PLANNING' }))
+    const fieldA = await data(await request('/workstreams', leaderToken, 'POST', { eventId: parishEvent.id, sourceUnitId: branchId, name: 'Field A' }))
+    const fieldB = await data(await request('/workstreams', otherLeaderToken, 'POST', { eventId: parishEvent.id, sourceUnitId: otherBranchId, name: 'Field B' }))
+    const taskA = await data(await request('/tasks', leaderToken, 'POST', { eventId: parishEvent.id, workstreamId: fieldA.id, title: 'Việc Field A' }))
+    const taskB = await data(await request('/tasks', otherLeaderToken, 'POST', { eventId: parishEvent.id, workstreamId: fieldB.id, title: 'Việc Field B' }))
+    // Leader A manages A but cannot view B: the edge must not be creatable
+    // (and the attempt must not confirm or deny B beyond a uniform 403).
+    expect((await request(`/tasks/${taskA.id}/dependencies`, leaderToken, 'POST', { version: 1, dependsOnTaskId: taskB.id })).status).toBe(403)
+    // Control: edge inside the caller own scope still works.
+    const taskA2 = await data(await request('/tasks', leaderToken, 'POST', { eventId: parishEvent.id, workstreamId: fieldA.id, title: 'Việc Field A2' }))
+    expect((await request(`/tasks/${taskA2.id}/dependencies`, leaderToken, 'POST', { version: 1, dependsOnTaskId: taskA.id })).status).toBe(201)
+  })
+
+  it('V8: dependency removal is OCC-guarded, audited and requires management', async () => {
+    const { token: otherLeaderToken } = await ensureHardLeaderB()
+    const created = await data(await request('/events', otherLeaderToken, 'POST', {
+      scopeUnitId: otherBranchId, organizerUserId: `ops-hard-leader-b-${suffix}`,
+      title: 'Sự kiện gỡ dependency', eventType: 'MEETING', startsAt: '2026-11-25T08:00:00+07:00', endsAt: '2026-11-25T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const first = await data(await request('/tasks', otherLeaderToken, 'POST', { eventId: created.id, title: 'Việc nguồn' }))
+    const second = await data(await request('/tasks', otherLeaderToken, 'POST', { eventId: created.id, title: 'Việc bị chặn' }))
+    const edge = await data(await request(`/tasks/${second.id}/dependencies`, otherLeaderToken, 'POST', { version: 1, dependsOnTaskId: first.id }))
+    expect(edge.taskVersion).toBe(2)
+    // No management over the blocked task → 403, edge untouched.
+    expect((await request(`/tasks/${second.id}/dependencies/${first.id}/remove`, committeeLeaderToken, 'POST', { version: 2, reason: 'Người ngoài scope' })).status).toBe(403)
+    // Stale version → 409, edge untouched.
+    expect((await request(`/tasks/${second.id}/dependencies/${first.id}/remove`, otherLeaderToken, 'POST', { version: 1, reason: 'Version cũ' })).status).toBe(409)
+    // Correct removal bumps the source task and clears the gate.
+    const removed = await data(await request(`/tasks/${second.id}/dependencies/${first.id}/remove`, otherLeaderToken, 'POST', { version: 2, reason: 'Thêm nhầm dependency' }))
+    expect(removed.taskVersion).toBe(3)
+    const detail = await data(await request(`/tasks/${second.id}`, otherLeaderToken))
+    expect(detail.dependencies).toEqual([])
+    // Removing again → 404, never a silent no-op success.
+    expect((await request(`/tasks/${second.id}/dependencies/${first.id}/remove`, otherLeaderToken, 'POST', { version: 3, reason: 'Gỡ lại' })).status).toBe(404)
+  })
+
   it('scopes the parish secretary to Xu-Doan creation, own events and parish-wide read', async () => {
     // Secretary creates Xu-Doan events like a deputy: creator self, organizer leader.
     const created = await request('/events', secretaryToken, 'POST', {

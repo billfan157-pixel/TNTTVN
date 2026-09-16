@@ -36,6 +36,7 @@ const OPERATIONS_ERROR_MAP: Record<string, string> = {
   DISPATCH_TARGETS_MUST_DIFFER: 'Người chính và người dự bị phải là hai người khác nhau.',
   DISPATCH_ALREADY_RESOLVED: 'Lượt phân công này đã được xử lý (đã có người nhận hoặc đã hủy).',
   DISPATCH_EVENT_REQUIRED: 'Phân công theo lượt mời chỉ áp dụng cho nhiệm vụ thuộc sự kiện.',
+  EVENT_NOT_OPEN: 'Sự kiện hiện không cho phép phản hồi nhiệm vụ.',
   TASK_DISPATCH_ACTIVE: 'Đang có lượt mời chờ xử lý; không thể giao trực tiếp. Hãy chờ kết quả hoặc hủy lượt mời.',
   TASK_OWNER_EXISTS: 'Nhiệm vụ đã có người phụ trách chính.',
   TASK_NOT_CANCELLED: 'Chỉ nhiệm vụ đã hủy mới được khôi phục.',

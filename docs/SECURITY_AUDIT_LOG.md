@@ -51,6 +51,23 @@ Audit evidence độc lập theo yêu cầu nằm trong [report 2026-09-05, §13
 - H2 strict legacy-token strategy, H6 private/group binding, H7 reminder/operational audiences, H8 legacy reauth callers/refresh-read boundary và production unknowns vẫn mở. Epoch comparison chỉ có khi token mang version. Không chứng nhận hệ thống an toàn trên mọi route chỉ từ tests xanh.
 - Regression mới dùng Hono/SQLite, real Dexie migration giữ queue và UI QR; auth/parent/permission browser E2E 3/3 PASS với backend/DB sandbox thật. Chi tiết full-run failures, reruns và giới hạn ở §13 report; chưa production/device verification hoặc exhaustive E2E.
 
+## Audit OPS-HARDEN-20260916 — Operations scope/terminal hardening (working tree; chưa deployed)
+
+- V1/V2 (scope-confusion write, P1→đã fix): `POST /tasks` và `POST /workstreams` từng authorize theo scope caller khai (`scope.resourceUnitId` thắng persisted graph) nên Trưởng unit A gắn được task/Field vào event đơn vị B khi biết UUID (probe 201). Fix: coherence check — scope ghi phải bằng graph scope (`workstream.source ?? event.scope`) khi graph có scope cụ thể; lệch thì assert thêm quyền ở scope đích thật (position-only, parish-wide/admin qua, organizer-role không qua). `PUT /workstreams/:id` đổi `sourceUnitId` cùng lớp fix. Standalone và event Xứ đoàn (scope null) giữ hành vi cũ; client (`EventTaskForm`, `WorkstreamPanel`) vốn gửi scope coherent nên không vỡ flow.
+- V3 (P2→đã fix): `POST /events/:id/templates` và `/templates/:id/versions` không scope `eventId` nên bypass DRAFT creator-only gate (parish-wide leader snapshot được nháp người khác, probe 201). Fix: scope đúng source event; creator/admin giữ path.
+- V4 (drift, quyết định nới theo code 2026-09-16): checklist cho `manage` fallback trong khi §31.3 cũ đòi chỉ ACCEPTED owner — đã sửa BUSINESS_RULES §31.3 ghi rõ manage được tick hộ (transition vẫn execute-only).
+- V5 (P3→đã fix, kèm exemption follow-up 2026-09-16): `acknowledge` sau event DRAFT/COMPLETED/CANCELLED → thêm guard `409 EVENT_NOT_OPEN` (+ map client). Task `FOLLOW_UP` được miễn theo thiết kế (chỉ sinh từ event COMPLETED, OWNER phải nhận mới bắt đầu; e2e P5 ack ở bước này) — thiếu exemption này guard sẽ phá flow follow-up hợp lệ, đã pin bằng test V5b.
+- V6 (P3→accepted-limitation): inbox giữ `taskId/eventId` sau thu hồi — chỉ identifier, detail vẫn 403 + UI đã honest-empty; không đổi server.
+- V7 (P3→đã fix): `POST dependencies` không authz task đích (oracle + edge trái phép) → thêm `task.view` trên đích trước existence check (missing/forbidden đều 403 đồng nhất).
+- V8 (P2→đã fix): dependency một chiều → thêm `POST /tasks/:id/dependencies/:dependsOnTaskId/remove` (`{version,reason}`, manage, OCC bump, audit `DEPENDENCY_REMOVE`, thiếu edge 404); contract §25 cập nhật; UI vẫn read-only.
+- V9/V10 (P3→đã fix): idempotency slot dùng chung per-action (page, hook transition, member/checklist/participant/blockout/assign rows) → scope slot per-entity; fingerprint `reminder-cancel` thiếu reason (EventReminderForm) → đã gồm reason khớp server hash.
+- V11 (fact→không đổi code): audit lưu reason nguyên văn nhưng độc giả chỉ admin cùng parish; redact theo mẫu blockout cho field mới.
+- Vòng 2 (nghiên cứu rủi ro tồn đọng 2026-09-16):
+  - Bug thật trong `useOperationsEventUrlSync` (W2.2): effect URL→UI áp `?tab=` MỌI render lệch với tab hiện tại, revert vĩnh viễn chuyển tab thủ công khi URL còn giữ tab cũ (UI→URL thua race) — user thật kẹt ở tab cũ sau 2 lần chuyển. Fix: honor mỗi cặp (event,tab) đúng một lần + reset khi URL hết tab (back-forward tới cùng pair vẫn ăn). Pin bằng unit test hook + e2e P2.
+  - V5 exemption: guard terminal làm vỡ flow follow-up hợp lệ (task FOLLOW_UP gắn event COMPLETED, e2e P5 ack) → miễn FOLLOW_UP theo thiết kế + test V5b.
+  - E2E spec drifts (app đúng, spec sai — toàn bộ có sẵn trước fix, e2e @critical chưa từng chạy sau Wave): P3 click card sau reload (deep-link tự mở modal — sửa thành assert dialog), P2 thiếu chọn đơn vị Field (bắt buộc từ 0560dc9), P2 sai tên biến `followUpTask` thay `followUpTitle`, P2 mất dòng chọn nhóm (`274a963` từng có), P2 locator `../..` gãy do title trùng `<option>` + wrapper cột, P2 thiếu nhập lại outcomeSummary sau reopen (đúng là reset on close).
+  - P2 webkit cần ~114s (chromium 26s): thuần chậm, không treo → budget riêng 180s cho journey này (đo thực tế).
+
 ## Đăng Ký Audit (Register)
 
 | Audit | Severity | Vấn đề | Trạng thái | Đóng ngày |
@@ -59,6 +76,7 @@ Audit evidence độc lập theo yêu cầu nằm trong [report 2026-09-05, §13
 | XD-20260907 | P0–P2 | Cross-domain ownership, period locks, Grade projection, restore lifecycle | XD-01/04/05/07/08 regression verified; XD-09 contained; XD-02/03/06, legacy recovery và production validation còn mở | — |
 | ROSTER-20260906 | P0–P2 | Student identity/membership, class lifecycle, assignment cardinality, import/undo/offline recovery | ✅ Engineering verified; production inventory/migration/deploy/smoke chưa đóng — ADR-108 | 2026-09-06 (engineering) |
 | AUTH-RBAC-20260905 | P0–P2 | D1–D11 auth/tenant/object paths, H1/H3/H4/H5/H8 và single-parish deployment hardening | Sửa working tree; remaining gaps và production validation chưa đóng — xem §13–§16 report 2026-09-05 | — |
+| OPS-HARDEN-20260916 | P1–P3 | Operations scope-confusion write (V1/V2), DRAFT template snapshot (V3), checklist drift (V4), terminal ack (V5), dependency target/oracle + one-way edge (V7/V8), idempotency slot/fingerprint (V9/V10) | Sửa working tree + negative tests đỏ→xanh; e2e critical/full suite/production gates còn mở — xem section | — |
 | AUDIT-SYNC-01 | 🔴 P1/P2 | gradeStore thiếu sync trigger tức thì + thiếu audit logging trên Settings, Login, Telegram | ✅ CLOSED (2026-08-14) | `gradeStore.ts`, `DesktopGradeMatrix.tsx`, `settings.ts`, `auth.ts`, `parents.ts`, `AuditLogPage.tsx` |
 | INF-01 | 🔴 P1/P2 | backup-db.mjs guard kiểm tra sai extension (.js thay vì .mjs) | ✅ CLOSED (2026-08-14) | `scripts/backup-db.mjs`, `scripts/backup-db.js` |
 | INF-02 | 🔴 P1/P2 | Thiếu automated backup scheduler trong repo | ✅ CLOSED (2026-08-14) | `server/src/services/backupScheduler.ts`, `server/src/index.ts` |

@@ -100,9 +100,9 @@ export function EventParticipantsPanel({ detail, enabled, refresh }: {
     const current = () => active.current && scope === getTenantScopeKey()
     try {
       const payload = { version: participant.version, status }
-      const key = stableKey('participant-status', { participantId: participant.id, ...payload })
+      const key = stableKey(`participant-status:${participant.id}`, { participantId: participant.id, ...payload })
       await operationsApi.setEventParticipantStatus(detail.event.id, participant.id, payload, key)
-      releaseKey('participant-status')
+      releaseKey(`participant-status:${participant.id}`)
       if (current()) await refresh()
     } catch (failure) {
       if (current()) setError(operationsErrorText((failure as { code?: string })?.code, failure instanceof Error ? failure.message : 'Không cập nhật được trạng thái.'))

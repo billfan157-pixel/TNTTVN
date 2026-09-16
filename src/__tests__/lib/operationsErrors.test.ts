@@ -27,6 +27,11 @@ describe('operationsErrorText (W1.5: server message must survive generic codes)'
       .toBe('Chỉ được chuyển từng giai đoạn liền kề.')
   })
 
+  it('maps EVENT_NOT_OPEN (V5: acknowledgement on a closed event)', () => {
+    expect(operationsErrorText('EVENT_NOT_OPEN', 'Sự kiện hiện không cho phép phản hồi nhiệm vụ.'))
+      .toBe('Sự kiện hiện không cho phép phản hồi nhiệm vụ.')
+  })
+
   it('falls back to the message when the code is unknown', () => {
     expect(operationsErrorText('SOMETHING_NEW', 'Máy chủ nói gì đó mới.'))
       .toBe('Máy chủ nói gì đó mới.')

@@ -258,6 +258,7 @@ const taskTransitionSchema = z.object({ version: z.number().int().min(1), status
 const taskRestoreSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const eventRestoreSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const dependencySchema = z.object({ version: z.number().int().min(1), dependsOnTaskId: id })
+const dependencyRemoveSchema = z.object({ version: z.number().int().min(1), reason: z.string().trim().min(1).max(2000) })
 const checklistCreateSchema = z.object({ version: z.number().int().min(1), label: z.string().trim().min(1).max(300), isRequired: z.boolean().optional().default(false), sortOrder: z.number().int().min(0).max(10000).optional().default(0) })
 const checklistUpdateSchema = z.object({ version: z.number().int().min(1), isDone: z.boolean() })
 const commentSchema = z.object({ content: z.string().trim().min(1).max(5000), evidenceUrl: z.string().url().max(2000).refine(value => value.startsWith('https://'), 'Evidence URL phải dùng HTTPS.').nullable().optional() })
@@ -1080,7 +1081,10 @@ operationsRouter.post('/events/:id/templates', zValidator('json', templateCreate
       )).limit(1)
       if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
       if (event.version !== body.eventVersion) throw new VersionConflictError('Operation event đã bị thay đổi bởi người khác.', event)
-      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: event.scopeUnitId }, tx)
+      // V3 hardening: scope by eventId so the DRAFT creator-only gate inside
+      // decideOperationsAuthorization applies to the snapshot source. A
+      // same-scope position alone must not snapshot another creator's DRAFT.
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, eventId, resourceUnitId: event.scopeUnitId }, tx)
       const snapshot = await buildOperationTemplateSnapshot(tx, user.parishId, event)
       const now = new Date().toISOString()
       const template = {
@@ -1115,7 +1119,8 @@ operationsRouter.post('/templates/:id/versions', zValidator('json', templateVers
       if (!sourceEvent) throw Object.assign(new Error('Không tìm thấy operation event nguồn.'), { status: 404 })
       if (sourceEvent.version !== body.sourceEventVersion) throw new VersionConflictError('Operation event nguồn đã bị thay đổi bởi người khác.', sourceEvent)
       if (sourceEvent.scopeUnitId !== template.scopeUnitId) throw Object.assign(new Error('Event nguồn phải có cùng phạm vi tổ chức với mẫu.'), { status: 409, code: 'TEMPLATE_SCOPE_MISMATCH' })
-      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, resourceUnitId: sourceEvent.scopeUnitId }, tx)
+      // V3 hardening: same DRAFT gate for the version source event.
+      await assertOperationsCapability(user, 'operations.event.create', { parishId: user.parishId, eventId: body.sourceEventId, resourceUnitId: sourceEvent.scopeUnitId }, tx)
       const snapshot = await buildOperationTemplateSnapshot(tx, user.parishId, sourceEvent)
       const now = new Date().toISOString(); const nextVersion = template.latestVersion + 1
       await tx.insert(operationEventTemplateVersions).values({ parishId: user.parishId, templateId, version: nextVersion, sourceEventId: sourceEvent.id, snapshotJson: JSON.stringify(snapshot), createdBy: user.userId, createdAt: now })
@@ -2042,6 +2047,13 @@ operationsRouter.post('/workstreams', zValidator('json', workstreamCreateSchema)
         // but cannot use that role to publish authority into another unit.
         await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, resourceUnitId: body.sourceUnitId }, tx)
       }
+      // Scope coherence (V2 hardening): a Field pinned to a UNIT event must
+      // belong to that event's unit unless the caller holds true-scope or
+      // parish-wide authority (admin override, parish office). XU_DOAN events
+      // (null scope) intentionally accept Fields from any unit.
+      if (event && event.scopeUnitId && body.sourceUnitId && body.sourceUnitId !== event.scopeUnitId) {
+        await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, resourceUnitId: event.scopeUnitId }, tx)
+      }
       await assertScopeUnit(tx, user.parishId, body.sourceUnitId)
       const now = new Date().toISOString(); const row = { id: generateId('WS'), parishId: user.parishId, operationEventId: body.eventId ?? null, sourceUnitId: body.sourceUnitId ?? null, name: body.name, description: body.description ?? null, status: 'PLANNING' as const, blockedReason: null, isRequired: body.isRequired, leaderPersonId: null, leaderUserId: null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null }
       await tx.insert(operationWorkstreams).values(row); await audit(tx, user, c, 'CREATE', 'operation_workstream', row.id, undefined, row); return row
@@ -2061,6 +2073,17 @@ operationsRouter.put('/workstreams/:id', zValidator('json', workstreamUpdateSche
       await assertWorkstreamEventAcceptsMutation(tx, user.parishId, existing.operationEventId, 'sửa workstream')
       if (body.sourceUnitId !== undefined && body.sourceUnitId !== existing.sourceUnitId) {
         await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, resourceUnitId: body.sourceUnitId }, tx)
+      }
+      // Scope coherence on re-scope (V2 hardening, same class as create): a
+      // Field attached to a UNIT event cannot be moved to another unit unless
+      // the caller holds true-scope or parish-wide authority.
+      if (body.sourceUnitId !== undefined && body.sourceUnitId !== existing.sourceUnitId && existing.operationEventId && body.sourceUnitId) {
+        const [attachedEvent] = await tx.select({ scopeUnitId: operationEvents.scopeUnitId }).from(operationEvents).where(and(
+          eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, existing.operationEventId), isNull(operationEvents.deletedAt),
+        )).limit(1)
+        if (attachedEvent?.scopeUnitId && body.sourceUnitId !== attachedEvent.scopeUnitId) {
+          await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, resourceUnitId: attachedEvent.scopeUnitId }, tx)
+        }
       }
       await assertScopeUnit(tx, user.parishId, body.sourceUnitId)
       const updates: any = { version: existing.version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }
@@ -2406,6 +2429,16 @@ operationsRouter.post('/tasks', zValidator('json', taskCreateSchema), async c =>
       const resolvedScopeUnitId = body.scopeUnitId ?? workstream?.sourceUnitId ?? eventScopeUnitId ?? null
       await assertScopeUnit(tx, user.parishId, resolvedScopeUnitId)
       await assertOperationsCapability(user, 'operations.task.create', { parishId: user.parishId, eventId, workstreamId: body.workstreamId, resourceUnitId: resolvedScopeUnitId }, tx)
+      // Scope coherence (V1 hardening): when the task is attached to a graph
+      // with a concrete unit scope, the written scope must equal the graph
+      // scope unless the caller holds true-scope or parish-wide authority. A
+      // unit position in the *claimed* scope alone must not smuggle work into
+      // another unit's event (ADR-112 O6: no cross-unit borrowing). Standalone
+      // tasks and XU_DOAN graphs (null scope) keep the existing behavior.
+      const graphScopeUnitId = workstream?.sourceUnitId ?? eventScopeUnitId ?? null
+      if ((eventId || body.workstreamId) && graphScopeUnitId && resolvedScopeUnitId !== graphScopeUnitId) {
+        await assertOperationsCapability(user, 'operations.task.create', { parishId: user.parishId, resourceUnitId: graphScopeUnitId }, tx)
+      }
       if (!eventId && !body.workstreamId && !resolvedScopeUnitId && user.role !== 'admin') {
         throw Object.assign(new Error('Task độc lập phải thuộc đúng một Ban/Ngành của người tạo (thiếu scopeUnitId).'), { status: 400, code: 'STANDALONE_TASK_SCOPE_REQUIRED' })
       }
@@ -2709,6 +2742,20 @@ operationsRouter.post('/tasks/:id/acknowledge', zValidator('json', acknowledgeme
       if (!assignment || (assignment.userId !== user.userId && assignment.personId !== person?.id)) throw Object.assign(new Error('Không tìm thấy assignment của người dùng.'), { status: 404 })
       if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
       assertTaskMutable(task)
+      // V5 hardening: acknowledgement after the event leaves its planning
+      // window is rejected, mirroring the dispatch-accept guard. Flipping an
+      // assignment behind a closed event pollutes post-closure audit.
+      // FOLLOW_UP-phase tasks are exempt by design: they are created only
+      // from COMPLETED events as forward-looking post-closure work with their
+      // own audit trail, and their OWNER must acknowledge to start.
+      if (task.operationEventId && task.phase !== 'FOLLOW_UP') {
+        const [event] = await tx.select({ status: operationEvents.status }).from(operationEvents).where(and(
+          eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, task.operationEventId), isNull(operationEvents.deletedAt),
+        )).limit(1)
+        if (!event || ['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event.status)) {
+          throw Object.assign(new Error('Sự kiện hiện không cho phép phản hồi nhiệm vụ.'), { status: 409, code: 'EVENT_NOT_OPEN' })
+        }
+      }
       if (assignment.version !== body.version) throw new VersionConflictError('Assignment đã bị thay đổi bởi người khác.', assignment)
       const now = new Date().toISOString(); const [changed] = await tx.update(operationTaskAssignees).set({ acknowledgementStatus: body.status, respondedAt: now, note: body.note ?? assignment.note, version: assignment.version + 1 }).where(and(eq(operationTaskAssignees.parishId, user.parishId), eq(operationTaskAssignees.id, assignment.id), eq(operationTaskAssignees.version, body.version))).returning()
       if (!changed) throw new VersionConflictError('Assignment đã bị thay đổi bởi người khác.', assignment)
@@ -2781,6 +2828,10 @@ operationsRouter.post('/tasks/:id/dependencies', zValidator('json', dependencySc
     const result = await runIdempotentOperationsCommand(user, key(c), 'operations.task.dependency.add', { taskId, ...body }, async tx => {
       if (taskId === body.dependsOnTaskId) throw Object.assign(new Error('Task không thể phụ thuộc chính nó.'), { status: 400 })
       await assertOperationsCapability(user, 'operations.task.manage', { parishId: user.parishId, taskId }, tx)
+      // V7 hardening: the caller must also view the dependency target. Missing
+      // and forbidden both fail closed with a uniform 403, so this check
+      // doubles as an existence-oracle guard for task UUIDs.
+      await assertOperationsCapability(user, 'operations.task.view', { parishId: user.parishId, taskId: body.dependsOnTaskId }, tx)
       const [task, dependency] = await Promise.all([
         tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1),
         tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, body.dependsOnTaskId), isNull(operationTasks.deletedAt))).limit(1),
@@ -2811,6 +2862,34 @@ operationsRouter.post('/tasks/:id/dependencies', zValidator('json', dependencySc
       await audit(tx, user, c, 'DEPENDENCY_ADD', 'operation_task', taskId, undefined, row); return { ...row, taskVersion: changed.version }
     })
     return commandResponse(c, result, true)
+  } catch (error) { return handleError(c, error) }
+})
+
+// V8: dependency removal. Adding an edge is no longer a one-way door: the
+// manager of the blocked task can remove a mistaken edge with the same OCC
+// and audit guarantees as every other task-structure mutation. Deleting an
+// edge cannot create a cycle, so no graph scan is needed.
+operationsRouter.post('/tasks/:id/dependencies/:dependsOnTaskId/remove', zValidator('json', dependencyRemoveSchema), async c => {
+  const user = actor(c); const taskId = c.req.param('id'); const dependsOnTaskId = c.req.param('dependsOnTaskId'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.task.dependency.remove', { taskId, dependsOnTaskId, ...body }, async tx => {
+      await assertOperationsCapability(user, 'operations.task.manage', { parishId: user.parishId, taskId }, tx)
+      const [task] = await tx.select().from(operationTasks).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), isNull(operationTasks.deletedAt))).limit(1)
+      if (!task) throw Object.assign(new Error('Không tìm thấy task.'), { status: 404 })
+      if (task.version !== body.version) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      assertTaskMutable(task)
+      const [edge] = await tx.select().from(operationTaskDependencies).where(and(
+        eq(operationTaskDependencies.parishId, user.parishId), eq(operationTaskDependencies.taskId, taskId), eq(operationTaskDependencies.dependsOnTaskId, dependsOnTaskId),
+      )).limit(1)
+      if (!edge) throw Object.assign(new Error('Không tìm thấy dependency cần gỡ.'), { status: 404 })
+      await tx.delete(operationTaskDependencies).where(and(
+        eq(operationTaskDependencies.parishId, user.parishId), eq(operationTaskDependencies.taskId, taskId), eq(operationTaskDependencies.dependsOnTaskId, dependsOnTaskId),
+      ))
+      const [changed] = await tx.update(operationTasks).set({ version: task.version + 1, updatedBy: user.userId, updatedAt: new Date().toISOString() }).where(and(eq(operationTasks.parishId, user.parishId), eq(operationTasks.id, taskId), eq(operationTasks.version, body.version))).returning({ version: operationTasks.version })
+      if (!changed) throw new VersionConflictError('Task đã bị thay đổi bởi người khác.', task)
+      await audit(tx, user, c, 'DEPENDENCY_REMOVE', 'operation_task', taskId, { dependsOnTaskId, dependencyType: edge.dependencyType }, { dependsOnTaskId, reason: body.reason, taskVersion: changed.version }); return { taskVersion: changed.version }
+    })
+    return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
 })
 
