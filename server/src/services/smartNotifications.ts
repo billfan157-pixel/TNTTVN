@@ -185,7 +185,10 @@ export async function notifyBatchReportCards(
       )
       if (queued) sent++
     } catch (err) {
-      console.error(`[smartNotifications] failed to enqueue report card for ${s.studentName} (${s.className}):`, err)
+      console.error('[smartNotifications] failed to enqueue report card', {
+        studentId: s.studentId || 'unknown',
+        errorType: err instanceof Error ? err.name : typeof err,
+      })
     }
   }
   return sent

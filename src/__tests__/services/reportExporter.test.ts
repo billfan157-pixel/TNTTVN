@@ -1,8 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { useStudentStore } from '../../stores/studentStore'
-import { useGradeStore } from '../../stores/gradeStore'
-import { useAttendanceStore } from '../../stores/attendanceStore'
-import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { getCurrentAcademicYear } from '../../utils/academicYear'
 import {
@@ -12,7 +8,14 @@ import {
   exportXlsx,
   exportFilename,
 } from '../../services/reportExporter'
-import type { Student, GradeRecord, AttendanceRecord } from '../../types'
+
+const { fetchOfficialAcademicYearReportsMock } = vi.hoisted(() => ({
+  fetchOfficialAcademicYearReportsMock: vi.fn(),
+}))
+
+vi.mock('../../services/officialReporting', () => ({
+  fetchOfficialAcademicYearReports: (...args: unknown[]) => fetchOfficialAcademicYearReportsMock(...args),
+}))
 
 const { xlsxMock } = vi.hoisted(() => ({
   xlsxMock: {
@@ -29,102 +32,64 @@ const { xlsxMock } = vi.hoisted(() => ({
 vi.mock('xlsx', () => ({ ...xlsxMock, default: xlsxMock }))
 
 const activeAY = getCurrentAcademicYear()
-const CLASS_ID = 'CL-TN1'
-
-function makeStudent(overrides: Partial<Student> = {}): Student {
+function report(studentId: string, code: string, fullName: string, semester1: number, semester2: number, classification1: string) {
   return {
-    id: 'ST-1', code: 'TN001', holyName: 'Giuse', fullName: 'Nguyễn Văn A',
-    gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'Phụ Huynh A',
-    parentPhone: '0901234567', address: 'X', branch: 'ThieuNhi', classId: CLASS_ID,
-    status: 'Đang học', ...overrides,
+    student: { id: studentId, code, holyName: 'Giuse', fullName, className: 'Lớp 1' },
+    academicYear: activeAY,
+    grades: [
+      { semester: 1, gpa: semester1, classification: classification1 },
+      { semester: 2, gpa: semester2, classification: semester2 >= 8 ? 'Giỏi' : 'Trung Bình' },
+    ],
+    yearSummary: { gpa: (semester1 + semester2) / 2, classification: 'Giỏi' },
+    attendanceSummary: { massPresentCount: 1, massTotalCount: 1, catechismPresentCount: 0, catechismTotalCount: 1, overallAttendanceRate: 50 },
+    promotion: null,
   }
-}
-
-function makeGrade(overrides: Partial<GradeRecord> = {}): GradeRecord {
-  return {
-    id: 'GR-1', studentId: 'ST-1', academicYear: activeAY, semester: 1,
-    scoreOral: 9.0, scoreOral_source: 'manual', scoreOral_updated_at: null,
-    score15m: null, score15m_source: null, score15m_updated_at: null,
-    score1Period: null, score1Period_source: null, score1Period_updated_at: null,
-    scoreMidterm: null, scoreMidterm_source: null, scoreMidterm_updated_at: null,
-    scoreFinal: null, scoreFinal_source: null, scoreFinal_updated_at: null,
-    scoreDaoDuc: null, ...overrides,
-  }
-}
-
-function makeAttendance(date: string, status: AttendanceRecord['status'] = 'Present'): AttendanceRecord {
-  return { id: `ATT-${date}`, studentId: 'ST-1', date, type: 'CatechismClass', status }
 }
 
 describe('reportExporter (Báo Cáo Nâng Cao & Xuất File)', () => {
   beforeEach(() => {
-    useStudentStore.setState({ students: [], error: null, isLoading: false })
-    useGradeStore.setState({ grades: [] })
-    useAttendanceStore.setState({ attendance: [] })
-    useClassStore.setState({ classes: [], branches: [], academicYears: [] })
     useAcademicYearStore.setState({ currentYear: activeAY, academicYears: [] })
+    fetchOfficialAcademicYearReportsMock.mockReset()
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('buildBranchSummaryRows đếm xếp loại đúng theo học kỳ (khớp UI)', () => {
-    useStudentStore.setState({
-      students: [
-        makeStudent({ id: 'ST-XS', code: 'TN001', branch: 'ThieuNhi' }),
-        makeStudent({ id: 'ST-TB', code: 'TN002', branch: 'ThieuNhi' }),
-        makeStudent({ id: 'ST-AN', code: 'TN003', branch: 'AuNhi' }),
-        makeStudent({ id: 'ST-DEL', code: 'TN004', branch: 'AuNhi', deletedAt: new Date().toISOString() }),
-      ],
-    })
-    useGradeStore.setState({
-      grades: [
-        makeGrade({ id: 'GR-XS', studentId: 'ST-XS', scoreOral: 9.5 }),
-        makeGrade({ id: 'GR-TB', studentId: 'ST-TB', scoreOral: 6.0 }),
-        makeGrade({ id: 'GR-AN', studentId: 'ST-AN', scoreOral: 8.0 }),
-      ],
-    })
+  it('buildBranchSummaryRows uses server classifications for the selected semester', async () => {
+    fetchOfficialAcademicYearReportsMock.mockResolvedValue([
+      { classInfo: { id: 'TN1', name: 'Thiếu Nhi 1', branchId: 'ThieuNhi', academicYear: activeAY }, summary: { className: 'Thiếu Nhi 1' }, reportCards: [report('ST-XS', 'TN001', 'A', 9.5, 9, 'Xuất Sắc'), report('ST-TB', 'TN002', 'B', 6, 6, 'Trung Bình')] },
+      { classInfo: { id: 'AN1', name: 'Ấu Nhi 1', branchId: 'AuNhi', academicYear: activeAY }, summary: { className: 'Ấu Nhi 1' }, reportCards: [report('ST-AN', 'TN003', 'C', 8, 8, 'Giỏi')] },
+    ])
 
-    const rows = buildBranchSummaryRows(1)
+    const rows = await buildBranchSummaryRows(1)
     const thieuNhi = rows.find((r) => r['Phân Ngành'] === 'Thiếu Nhi')!
     const auNhi = rows.find((r) => r['Phân Ngành'] === 'Ấu Nhi')!
 
     expect(thieuNhi['Số Thiếu Nhi']).toBe(2)
-    expect(thieuNhi['Xuất Sắc (≥9.0)']).toBe(1)
+    expect(thieuNhi['Xuất Sắc']).toBe(1)
     expect(thieuNhi['Trung Bình']).toBe(1)
     expect(auNhi['Số Thiếu Nhi']).toBe(1)
     expect(auNhi['Giỏi']).toBe(1)
   })
 
-  it('buildStudentDetailRows xuất GPA HK1/HK2, xếp loại, chuyên cần và loại học sinh đã xóa', () => {
-    useStudentStore.setState({
-      students: [
-        makeStudent({ id: 'ST-1', code: 'TN001', branch: 'ThieuNhi' }),
-        makeStudent({ id: 'ST-DEL', code: 'TN002', branch: 'AuNhi', deletedAt: new Date().toISOString() }),
-      ],
-    })
-    useGradeStore.setState({
-      grades: [
-        makeGrade({ id: 'GR-1', semester: 1, scoreOral: 9.0 }),
-        makeGrade({ id: 'GR-2', semester: 2, scoreOral: 8.0 }),
-      ],
-    })
-    useAttendanceStore.setState({
-      attendance: [makeAttendance('2026-09-06'), makeAttendance('2026-09-13', 'AbsentUnexcused')],
-    })
-    useClassStore.setState({ classes: [{ id: CLASS_ID, code: 'TN1', name: 'Lớp Thiếu Nhi 1', branchId: 'ThieuNhi', branchName: 'Thiếu Nhi', academicYearId: activeAY, academicYear: activeAY, room: null, homeroomTeacher: null, assistants: [], studentCount: 1, parishId: 'gia-ton', createdAt: '', updatedAt: '', updatedBy: null }], branches: [], academicYears: [] })
+  it('buildStudentDetailRows exports the server year summary without local recalculation', async () => {
+    const official = report('ST-1', 'TN001', 'Nguyễn Văn A', 9, 8, 'Xuất Sắc')
+    official.student.className = 'Lớp Thiếu Nhi 1'
+    fetchOfficialAcademicYearReportsMock.mockResolvedValue([
+      { classInfo: { id: 'TN1', name: 'Lớp Thiếu Nhi 1', branchId: 'ThieuNhi', academicYear: activeAY }, summary: { className: 'Lớp Thiếu Nhi 1' }, reportCards: [official] },
+    ])
 
-    const rows = buildStudentDetailRows()
+    const rows = await buildStudentDetailRows()
 
     expect(rows).toHaveLength(1)
     const row = rows[0]
     expect(row['Mã Học Sinh']).toBe('TN001')
     expect(row['Lớp']).toBe('Lớp Thiếu Nhi 1')
     expect(row['Phân Ngành']).toBe('Thiếu Nhi')
-    expect(row['HK1']).toBe('9.0')
-    expect(row['HK2']).toBe('8.0')
-    expect(row['ĐTB Cả Năm']).toBe('8.5')
+    expect(row['HK1']).toBe(9)
+    expect(row['HK2']).toBe(8)
+    expect(row['ĐTB Cả Năm']).toBe(8.5)
     expect(row['Chuyên Cần (%)']).toBe('50.0')
   })
 

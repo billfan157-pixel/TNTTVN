@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getDB } from '../lib/db'
 import { encryptQueueValue, decryptQueueValue, isEncryptedValue } from '../lib/offlineCipher'
 import type { SyncQueueItem, SyncConflict } from '../lib/db'
+import { captureTenantScope, getTenantScope, isTenantScopeCurrent, type TenantScope } from '../lib/tenantScope'
 
 export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'retrying' | 'failed'
 
@@ -49,50 +50,21 @@ function getOrCreateDeviceId(): string {
   }
 }
 
-/** ADR-016 (S19): User id hiện tại từ session đã lưu — dùng để scope sync queue. */
 function getCurrentUserId(): string {
-  try {
-    const raw = localStorage.getItem('parish_current_user')
-    if (raw) {
-      const user = JSON.parse(raw)
-      if (user && typeof user.id === 'string' && user.id) return user.id
-    }
-  } catch {
-    // ignore
-  }
-  return ''
+  return getTenantScope()?.userId || ''
 }
 
-/**
- * OFF-TENANT-1: parish hiện tại từ session đã lưu. Queue ownership là exact
- * (parishId, userId) — userId một mình KHÔNG phải tenant boundary (test
- * syncTenantOwnership: cùng user ở 2 parish phải cô lập hoàn toàn).
- */
 function getCurrentParishId(): string {
-  try {
-    const raw = localStorage.getItem('parish_current_user')
-    if (raw) {
-      const user = JSON.parse(raw)
-      if (user && typeof user.parishId === 'string' && user.parishId) return user.parishId
-    }
-  } catch {
-    // ignore
-  }
-  return ''
+  return getTenantScope()?.parishId || ''
+}
+
+export function isOpOwnedBy(item: Pick<SyncQueueItem, 'userId' | 'parishId'>, owner: TenantScope | null): boolean {
+  return Boolean(owner && item.userId === owner.userId && item.parishId === owner.parishId)
 }
 
 /** ADR-016 (S19/OS-02) + OFF-TENANT-1: Fail-closed exact-scope check. */
 export function isOwnOp(item: SyncQueueItem): boolean {
-  const currentUserId = getCurrentUserId()
-  if (!currentUserId) {
-    return !item.userId || item.userId === ''
-  }
-  if (item.userId !== currentUserId) return false
-  const currentParishId = getCurrentParishId()
-  // Scope parish active nhưng op thiếu/khác parish → không phải của phiên này
-  // (legacy rows chờ migrate quarantine; cross-parish rows của cùng user).
-  if (!currentParishId) return !item.parishId || item.parishId === ''
-  return item.parishId === currentParishId
+  return isOpOwnedBy(item, getTenantScope())
 }
 
 async function getPendingQueueItems(): Promise<SyncQueueItem[]> {
@@ -263,12 +235,14 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   addOp: async (op) => {
-    const userId = getCurrentUserId()
-    const parishId = getCurrentParishId()
+    const owner = captureTenantScope()
+    if (!owner) throw new Error('Cannot queue sync operation without an active tenant owner')
+    const { userId, parishId } = owner
     const db = getDB()
     const now = new Date().toISOString()
     const id = `OP-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     const encryptedPayload = await encryptQueueValue(op.payload)
+    if (!isTenantScopeCurrent(owner)) throw new Error('Tenant owner changed while queueing sync operation')
     const item: SyncQueueItem = {
       id,
       ...op,
@@ -366,14 +340,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   addConflict: async (conflict: Omit<SyncConflict, 'id' | 'createdAt' | 'resolved' | 'userId'>) => {
     const db = getDB()
-    const userId = getCurrentUserId()
-    if (!userId) throw new Error('Cannot store sync conflict without an authenticated user scope')
+    const owner = captureTenantScope()
+    if (!owner) throw new Error('Cannot store sync conflict without an authenticated user scope')
     const localValue = isEncryptedValue(conflict.localValue)
       ? conflict.localValue
       : await encryptQueueValue(conflict.localValue)
     const serverValue = isEncryptedValue(conflict.serverValue)
       ? conflict.serverValue
       : await encryptQueueValue(conflict.serverValue)
+    if (!isTenantScopeCurrent(owner)) throw new Error('Tenant owner changed while storing sync conflict')
     const item: SyncConflict = {
       ...conflict,
       localValue,
@@ -381,10 +356,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       id: `CONF-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
       createdAt: new Date().toISOString(),
       resolved: false,
-      userId,
+      userId: owner.userId,
       // OFF-TENANT-1: stamp parish hiện tại (ghi đè caller) để conflicts
       // scope đúng tenant như queue ops.
-      parishId: getCurrentParishId(),
+      parishId: owner.parishId,
     }
     await db.syncConflicts.add(item)
     await get().refreshConflictsCount()

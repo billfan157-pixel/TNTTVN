@@ -41,11 +41,24 @@ reportingRouter.get('/report-card/:studentId', roleMiddleware('admin', 'chunhiem
   }
 })
 
+reportingRouter.get('/classes', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const academicYear = normalizeAcademicYear(c.req.query('academicYear'))
+  try {
+    return successResponse(c, await reportingApplicationService.listClasses(user, academicYear))
+  } catch (err: any) {
+    const status = Number(err?.status || err?.statusCode || 0)
+    if (status > 0) return errorResponse(c, 'REPORT_GENERATION_ERROR', err.message || 'Lỗi khi tải danh sách lớp báo cáo', status)
+    console.error(`[GET ${c.req.path}] Report class listing failed:`, err)
+    return errorResponse(c, 'REPORT_GENERATION_ERROR', 'Lỗi khi tải danh sách lớp báo cáo. Vui lòng thử lại sau.', 500)
+  }
+})
+
 /**
  * R4 Endpoint: GET /api/reports/class-summary/:classId
  * Read-Only CQRS Class Academic & Attendance Summary
  */
-reportingRouter.get('/class-summary/:classId', roleMiddleware('admin', 'chunhiem'), async (c) => {
+reportingRouter.get('/class-summary/:classId', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
   const user = c.get('user') as JwtPayload
   const classId = c.req.param('classId')
   const academicYear = normalizeAcademicYear(c.req.query('academicYear'))

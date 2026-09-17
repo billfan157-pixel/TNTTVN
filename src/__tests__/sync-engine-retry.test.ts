@@ -5,6 +5,7 @@ vi.mock('../router', () => ({ router: {} }))
 
 import { initDB, getDB } from '../lib/db'
 import { promoteTransientFailedOps, pruneStaleQueueItems } from '../lib/syncCoordinator'
+import { setTenantScope } from '../lib/tenantScope'
 
 const OWNER = { userId: 'U-TEST', parishId: 'PARISH-TEST' }
 
@@ -20,6 +21,7 @@ describe('Sync Engine — Auto-recover transient failed ops (audit finding #10)'
     await initDB()
     await resetDB()
     localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
+    setTenantScope(OWNER)
   })
 
   it('promotes failed ops do lỗi tạm thời (network/5xx) về pending, reset retryCount', async () => {

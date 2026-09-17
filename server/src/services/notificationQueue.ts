@@ -209,6 +209,11 @@ export async function recoverQueueFromDb(): Promise<void> {
     }
   } catch (err) {
     console.error('[notificationQueue] failed to recover queue from DB:', err)
+    // Recovery is a required startup boundary. Callers that run in the
+    // background already attach their own catch/log handlers; propagating here
+    // lets initNotificationQueue() abort process startup instead of reporting a
+    // healthy instance with an unknown durable-delivery state.
+    throw err
   }
 }
 

@@ -1,9 +1,12 @@
 import { useNavigate } from '@tanstack/react-router'
 import { HeartHandshake, GraduationCap, ChevronRight } from 'lucide-react'
 import appLogo from '../assets/app-logo-192.png'
+import { useAuthStore } from '../stores/authStore'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const error = useAuthStore(state => state.error)
+  const isLoading = useAuthStore(state => state.isLoading)
 
   return (
     <main className="auth-page">
@@ -24,6 +27,8 @@ export function LoginPage() {
 
         {/* Portal chooser */}
         <div className="p-8 space-y-4">
+          {isLoading && <p role="status" className="text-sm text-text-muted">Đang kết thúc phiên đăng nhập…</p>}
+          {error && <p role="alert" className="text-sm text-parish-danger">{error}</p>}
           <button
             type="button"
             onClick={() => navigate({ to: '/login/phuhuynh' })}

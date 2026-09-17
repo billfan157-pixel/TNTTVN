@@ -1,14 +1,12 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import bcrypt from 'bcryptjs'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { purgeRateLimiter } from '../middleware/security.js'
 import { successResponse, errorResponse } from '../utils/response.js'
-import { db, client } from '../db/index.js'
-import { users } from '../db/schema.js'
-import { eq, and } from 'drizzle-orm'
+import { client } from '../db/index.js'
 import { purgeParishData, PURGE_CONFIRM_KEY, DEFAULT_PURGE_VERSION } from '../services/purgeService.js'
+import { AdminAuthorizationChangedError, captureAdminReauth } from '../services/userService.js'
 
 const systemRouter = new Hono()
 
@@ -29,15 +27,17 @@ systemRouter.post('/purge', roleMiddleware('admin'), purgeRateLimiter, zValidato
   const jwtUser = c.get('user') as JwtPayload
   const { password, confirmKey } = c.req.valid('json')
 
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId)))
-    .limit(1)
-  if (!user) return errorResponse(c, 'USER_NOT_FOUND', 'Tài khoản không tồn tại', 404)
-
-  const valid = await bcrypt.compare(password, user.passwordHash)
-  if (!valid) {
+  const reauth = await captureAdminReauth(
+    jwtUser.userId,
+    password,
+    jwtUser.parishId,
+    c.req.header('x-forwarded-for') || 'unknown',
+    c.req.header('user-agent') || '',
+    jwtUser.parishId,
+    'SYSTEM_PURGE_FAILED',
+    jwtUser.tokenVersion,
+  )
+  if (!reauth) {
     return errorResponse(c, 'INVALID_PASSWORD', 'Mật khẩu không chính xác — không thể xóa dữ liệu', 401)
   }
 
@@ -46,7 +46,7 @@ systemRouter.post('/purge', roleMiddleware('admin'), purgeRateLimiter, zValidato
   }
 
   try {
-    const result = await purgeParishData({ parishId: user.parishId, userId: user.id })
+    const result = await purgeParishData({ parishId: jwtUser.parishId, userId: jwtUser.userId, reauth })
     return successResponse(c, {
       success: true,
       message: 'Đã xóa toàn bộ dữ liệu giáo xứ thành công!',
@@ -55,6 +55,9 @@ systemRouter.post('/purge', roleMiddleware('admin'), purgeRateLimiter, zValidato
     })
   } catch (err: any) {
     console.error('PURGE FAILED:', err)
+    if (err instanceof AdminAuthorizationChangedError) {
+      return errorResponse(c, 'SESSION_INVALID', err.message, 401)
+    }
     return errorResponse(c, 'PURGE_FAILED', err?.message || 'Xóa dữ liệu thất bại', 400)
   }
 })

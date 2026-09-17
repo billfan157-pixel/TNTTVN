@@ -1,7 +1,7 @@
 import { and, eq, isNull, lte } from 'drizzle-orm'
 import { db, runDbTransaction, type DbTransaction } from '../db/index.js'
 import { notifications, operationEvents, operationTaskDispatches, operationTasks, parishPeople } from '../db/schema.js'
-import { resolveOperationsUserAuthorization } from './operationsAuthorization.js'
+import { isOperationsTargetActionableForResource } from './operationsAuthorization.js'
 
 export type OperationTaskDispatchRun = { scanned: number; invited: number; skipped: number; failed: number }
 export type OperationTaskDispatchRunOptions = { beforeClaim?: (candidate: typeof operationTaskDispatches.$inferSelect) => Promise<void> | void }
@@ -36,8 +36,8 @@ export async function processDueOperationTaskDispatches(now = new Date(), option
         if (!task || ['DONE', 'CANCELLED'].includes(task.status) || !event || ['DRAFT', 'COMPLETED', 'CANCELLED'].includes(event.status)) return false
         const recipientUserId = await reserveUserId(current.parishId, current, tx)
         if (!recipientUserId) throw new Error('DISPATCH_RESERVE_NOT_ACTIONABLE')
-        const decision = await resolveOperationsUserAuthorization(current.parishId, recipientUserId, 'operations.task.view', { taskId: current.taskId }, tx)
-        if (!decision.allowed) throw new Error('DISPATCH_RESERVE_NOT_AUTHORIZED')
+        const eligible = await isOperationsTargetActionableForResource(current.parishId, recipientUserId, { taskId: current.taskId }, tx)
+        if (!eligible) throw new Error('DISPATCH_RESERVE_NOT_AUTHORIZED')
         const notificationId = `NOT-OPS-DISPATCH-${current.id}-RESERVE`
         const [existing] = await tx.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.parishId, current.parishId), eq(notifications.id, notificationId))).limit(1)
         if (!existing) await tx.insert(notifications).values({

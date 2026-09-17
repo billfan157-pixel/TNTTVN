@@ -18,6 +18,7 @@ const mockReport = {
     { semester: 1, scoreOral: 8, score15m: 9, score1Period: 8, scoreMidterm: 8.5, scoreFinal: 9, gpa: 8.6 },
     { semester: 2, scoreOral: 9, score15m: 8.5, score1Period: 9, scoreMidterm: 9, scoreFinal: 9.5, gpa: 9.1 },
   ],
+  yearSummary: { gpa: 8.6, classification: 'Giỏi' },
   attendanceSummary: {
     massPresentCount: 18,
     massTotalCount: 20,

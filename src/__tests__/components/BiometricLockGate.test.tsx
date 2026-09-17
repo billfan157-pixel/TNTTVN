@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { authState, lockState } = vi.hoisted(() => ({
+const { authState, lockState, navigate } = vi.hoisted(() => ({
+  navigate: vi.fn(),
   authState: {
     authReady: false,
     user: null as null | { id: string; parishId: string },
@@ -36,6 +37,7 @@ vi.mock('../../lib/biometricAppLock', () => ({
   appLockAccountKey: (account: { parishId: string; userId: string }) => `${account.parishId}:${account.userId}`,
   isNativeBiometricPlatform: () => true,
 }))
+vi.mock('../../router', () => ({ router: { navigate } }))
 
 import { BiometricLockGate } from '../../components/auth/BiometricLockGate'
 
@@ -51,6 +53,22 @@ beforeEach(() => {
 })
 
 describe('BiometricLockGate', () => {
+  it('password recovery waits for logout and uses in-app navigation to preserve its warning', async () => {
+    authState.authReady = true
+    authState.user = { id: 'USR-1', parishId: 'PX-1' }
+    lockState.initializedFor = 'PX-1:USR-1'
+    lockState.enabled = true
+    lockState.locked = true
+    let finish!: () => void
+    authState.logout.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
+    render(<BiometricLockGate><div>Nội dung bảo vệ</div></BiometricLockGate>)
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất và dùng mật khẩu' }))
+    expect(authState.logout).toHaveBeenCalledOnce()
+    expect(navigate).not.toHaveBeenCalled()
+    finish()
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: '/login' }))
+  })
+
   it('native cold start không mount protected tree trước khi auth bootstrap xong', () => {
     render(<BiometricLockGate><div>Nội dung bảo vệ</div></BiometricLockGate>)
 

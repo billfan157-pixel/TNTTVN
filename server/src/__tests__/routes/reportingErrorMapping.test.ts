@@ -4,11 +4,13 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 // KHÔNG được nuốt im lặng rồi tự gán 400 như trước đây.
 const getStudentReportCardMock = vi.fn()
 const getClassSummaryMock = vi.fn()
+const listClassesMock = vi.fn()
 
 vi.mock('../../services/ReportingApplicationService.js', () => ({
   reportingApplicationService: {
     getStudentReportCard: (...args: unknown[]) => getStudentReportCardMock(...args),
     getClassSummary: (...args: unknown[]) => getClassSummaryMock(...args),
+    listClasses: (...args: unknown[]) => listClassesMock(...args),
   },
 }))
 
@@ -22,8 +24,10 @@ describe('OBS-FIX: reporting route error mapping (400-swallow regression)', () =
   const parishId = 'parish-obs-fix'
   const parentId = generateId('USR')
   const adminId = generateId('USR')
+  const assistantId = generateId('USR')
   let parentToken: string
   let adminToken: string
+  let assistantToken: string
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
   beforeAll(async () => {
@@ -37,15 +41,21 @@ describe('OBS-FIX: reporting route error mapping (400-swallow regression)', () =
         id: adminId, username: generateId('adm'), fullName: 'Admin OBS',
         passwordHash: 'hash', role: 'admin', parishId, tokenVersion: 1, status: 'ACTIVE', createdAt: now,
       },
+      {
+        id: assistantId, username: `ast_${assistantId}`, fullName: 'Assistant OBS',
+        passwordHash: 'hash', role: 'phuta', parishId, tokenVersion: 1, status: 'ACTIVE', createdAt: now,
+      },
     ])
     parentToken = generateTokens({ userId: parentId, username: 'ph_obs', role: 'phuhuynh', parishId, tokenVersion: 1 }).accessToken
     adminToken = generateTokens({ userId: adminId, username: 'adm_obs', role: 'admin', parishId, tokenVersion: 1 }).accessToken
+    assistantToken = generateTokens({ userId: assistantId, username: 'ast_obs', role: 'phuta', parishId, tokenVersion: 1 }).accessToken
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     getStudentReportCardMock.mockReset()
     getClassSummaryMock.mockReset()
+    listClassesMock.mockReset()
     consoleErrorSpy.mockClear()
   })
 
@@ -93,5 +103,34 @@ describe('OBS-FIX: reporting route error mapping (400-swallow regression)', () =
     const err = typeof json.error === 'object' ? json.error : json.error
     expect(err.code).toBe('REPORT_GENERATION_ERROR')
     expect(consoleErrorSpy).toHaveBeenCalled()
+  })
+
+  it('4. class-summary preserves the existing assistant reporting surface while service owns class scope', async () => {
+    getClassSummaryMock.mockResolvedValue({ classId: 'CLS-obs-01', students: [] })
+
+    const res = await reportingRouter.request('/class-summary/CLS-obs-01?academicYear=2026-2027', {
+      headers: { Authorization: `Bearer ${assistantToken}` },
+    })
+
+    expect(res.status).toBe(200)
+    expect(getClassSummaryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: assistantId, role: 'phuta', parishId }),
+      'CLS-obs-01',
+      '2026-2027',
+    )
+  })
+
+  it('5. official class inventory is server-scoped and available to assistants', async () => {
+    listClassesMock.mockResolvedValue([{ id: 'CLS-obs-01', name: 'Lớp OBS', branchId: 'BR-01', academicYear: '2026-2027' }])
+
+    const res = await reportingRouter.request('/classes?academicYear=2026-2027', {
+      headers: { Authorization: `Bearer ${assistantToken}` },
+    })
+
+    expect(res.status).toBe(200)
+    expect(listClassesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: assistantId, role: 'phuta', parishId }),
+      '2026-2027',
+    )
   })
 })

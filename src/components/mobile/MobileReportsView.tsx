@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
-import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { useClassStore } from '../../stores/classStore';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { useAuth } from '../../hooks/useAuth';
 import { BRANCHES } from '../../constants/branches';
@@ -24,7 +23,6 @@ import { StudentName } from '../common/StudentName';
 import { PrintReportModal } from '../common/PrintReportModal';
 import { SubpageHeader } from '../common/SubpageHeader';
 import { Tabs, TabPanel } from '../common/ui/SelectionControls';
-import { sortClassesByHierarchy } from '../../utils/classSort';
 import {
   buildBranchSummaryRows,
   buildStudentDetailRows,
@@ -32,6 +30,8 @@ import {
   exportXlsx,
   exportFilename,
 } from '../../services/reportExporter';
+import { fetchOfficialAcademicYearReports, type OfficialClassReport } from '../../services/officialReporting';
+import { getCurrentAcademicYear, normalizeAcademicYear } from '../../utils/academicYear';
 
 interface MobileReportsViewProps {
   onPrintReport: (student: Student) => void;
@@ -109,12 +109,9 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
   const { can } = useAuth();
   const canPrint = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
-  const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
-  const rawClassList = useClassStore(s => s.getClassList)();
-  const classList = useMemo(() => sortClassesByHierarchy(rawClassList, 'asc'), [rawClassList]);
-  const findClassById = useClassStore(s => s.findClassById);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
   const setSelectedSemester = useFilterStore(s => s.setSelectedSemester);
+  const currentYear = useAcademicYearStore(s => s.currentYear);
   const { restricted: semesterRestricted, openSemester } = useSemesterAccess();
 
   const [activeTab, setActiveTab] = useState<ReportsSubTab>('print');
@@ -125,12 +122,48 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
   const [isExporting, setIsExporting] = useState<string | null>(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printReportType, setPrintReportType] = useState<ReportType | undefined>(undefined);
+  const [officialReports, setOfficialReports] = useState<OfficialClassReport[]>([]);
+  const [officialError, setOfficialError] = useState<string | null>(null);
+  const [isOfficialLoading, setIsOfficialLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const year = normalizeAcademicYear(currentYear) || getCurrentAcademicYear();
+    setOfficialReports([]);
+    setOfficialError(null);
+    setIsOfficialLoading(true);
+    void fetchOfficialAcademicYearReports(year).then(reports => {
+      if (active) {
+        setOfficialReports(reports);
+        setIsOfficialLoading(false);
+      }
+    }).catch(err => {
+      if (active) {
+        setOfficialError(err instanceof Error ? err.message : 'Không thể tải dữ liệu báo cáo chính thức');
+        setIsOfficialLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [currentYear]);
+
+  const officialByStudentId = useMemo(() => new Map(
+    officialReports.flatMap(classReport => classReport.reportCards.map(report => [report.student.id, {
+      report,
+      classId: classReport.classInfo.id,
+      className: classReport.summary.className,
+    }] as const)),
+  ), [officialReports]);
+  const officialStudentCount = officialByStudentId.size;
+  const classList = useMemo(() => officialReports.map(report => ({
+    id: report.classInfo.id,
+    name: report.summary.className,
+  })).sort((a, b) => a.name.localeCompare(b.name, 'vi')), [officialReports]);
 
   const classStudents = useMemo(() => {
     return selectedClassId === 'all'
-      ? students.filter(s => !s.deletedAt)
-      : students.filter(s => !s.deletedAt && s.classId === selectedClassId);
-  }, [students, selectedClassId]);
+      ? students.filter(s => !s.deletedAt && officialByStudentId.has(s.id))
+      : students.filter(s => !s.deletedAt && officialByStudentId.get(s.id)?.classId === selectedClassId);
+  }, [officialByStudentId, students, selectedClassId]);
 
   const filteredStudents = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase('vi');
@@ -152,18 +185,20 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
   );
 
   const branchStats = useMemo(() => Object.values(BRANCHES).map(branch => {
-    const branchStudents = students.filter(student => student.branch === branch.id);
-    let excellent = 0, good = 0, fair = 0, average = 0, weak = 0;
-    branchStudents.forEach(student => {
-      const result = calculateStudentAvg(student.id, selectedSemester);
-      if (result.label === 'Xuất Sắc') excellent++;
-      else if (result.label === 'Giỏi') good++;
-      else if (result.label === 'Khá') fair++;
-      else if (result.label === 'Trung Bình') average++;
-      else if (result.label === 'Yếu') weak++;
-    });
-    return { branch, studentCount: branchStudents.length, excellent, good, fair, average, weak };
-  }), [calculateStudentAvg, selectedSemester, students]);
+    const branchCards = officialReports
+      .filter(report => report.classInfo.branchId === branch.id)
+      .flatMap(report => report.reportCards);
+    const labels = branchCards.map(report => report.grades.find(grade => grade.semester === selectedSemester)?.classification);
+    return {
+      branch,
+      studentCount: branchCards.length,
+      excellent: labels.filter(label => label === 'Xuất Sắc').length,
+      good: labels.filter(label => label === 'Giỏi').length,
+      fair: labels.filter(label => label === 'Khá').length,
+      average: labels.filter(label => label === 'Trung Bình').length,
+      weak: labels.filter(label => label === 'Yếu').length,
+    };
+  }), [officialReports, selectedSemester]);
 
   const parishOverallKPI = useMemo(() => {
     let totalEx = 0, totalGood = 0, totalFair = 0, totalAvg = 0, totalWeak = 0;
@@ -174,10 +209,10 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
       totalAvg += b.average;
       totalWeak += b.weak;
     });
-    const totalCount = students.length || 1;
+    const totalCount = officialStudentCount || 1;
     const goodOrAboveRate = Math.round(((totalEx + totalGood) / totalCount) * 100);
     return { totalEx, totalGood, totalFair, totalAvg, totalWeak, goodOrAboveRate };
-  }, [branchStats, students.length]);
+  }, [branchStats, officialStudentCount]);
 
   const handleExport = async (kind: 'branch' | 'students', format: 'csv' | 'xlsx') => {
     const exportKey = `${kind}-${format}`;
@@ -185,12 +220,12 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
     triggerHaptic(12);
     try {
       if (kind === 'branch') {
-        const rows = buildBranchSummaryRows(selectedSemester);
+        const rows = await buildBranchSummaryRows(selectedSemester);
         const filename = exportFilename('BaoCao_ThongKe_PhanNganh_HK' + selectedSemester);
         if (format === 'csv') exportCsv(filename, rows);
         else await exportXlsx(filename, 'Thống kê phân ngành', rows);
       } else {
-        const rows = buildStudentDetailRows();
+        const rows = await buildStudentDetailRows();
         const filename = exportFilename('BaoCao_ChiTiet_HocSinh');
         if (format === 'csv') exportCsv(filename, rows);
         else await exportXlsx(filename, 'Chi tiết học sinh', rows);
@@ -261,6 +296,16 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
           { value: 'export', label: 'Xuất File', icon: <Download size={14} /> },
         ]}
       />
+      {isOfficialLoading && (
+        <div className="rounded-xl border border-parish-info/30 bg-parish-info-bg p-3 text-xs font-semibold text-parish-info">
+          Đang tải dữ liệu báo cáo chính thức từ máy chủ…
+        </div>
+      )}
+      {officialError && (
+        <div className="rounded-xl border border-parish-danger/30 bg-parish-danger-bg p-3 text-xs font-semibold text-parish-danger">
+          {officialError}. Không dùng dữ liệu cục bộ thay thế.
+        </div>
+      )}
 
       {/* Tab 1: In Phiếu Điểm & Sổ Điểm */}
       <TabPanel tabsId="mobile-reports-tabs" value="print" activeValue={activeTab}>
@@ -268,7 +313,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
           <SubpageHeader
             icon={<Printer size={16} />}
             title="In Phiếu Điểm & Sổ Điểm"
-            meta={<span className="truncate">Học Kỳ {selectedSemester} · {students.length} em</span>}
+            meta={<span className="truncate">Học Kỳ {selectedSemester} · {officialStudentCount} em</span>}
             actions={renderSemesterActions()}
           />
           <div className="app-panel p-4 flex flex-col gap-3">
@@ -321,7 +366,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
               className="form-select w-full min-h-[44px] py-1 pl-3 pr-8 rounded-xl text-xs font-bold"
               aria-label="Chọn lớp để in kết quả"
             >
-              <option value="all">Tất cả các lớp ({students.length} em)</option>
+              <option value="all">Tất cả các lớp ({officialStudentCount} em)</option>
               {classList.map(c => {
                 const count = students.filter(s => !s.deletedAt && s.classId === c.id).length;
                 return (
@@ -377,18 +422,18 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
                 </button>
               </div>
             ) : visibleStudents.map(s => {
-              const avg = calculateStudentAvg(s.id, selectedSemester);
-              const cls = findClassById(s.classId);
+              const official = officialByStudentId.get(s.id)!;
+              const grade = official.report.grades.find(item => item.semester === selectedSemester);
               return (
                 <div key={s.id} className="entity-card p-3 flex justify-between items-center rounded-xl border border-surface-border bg-surface-card shadow-xs">
                   <div className="min-w-0 pr-2">
                     <StudentName holyName={s.holyName} fullName={s.fullName} size="sm" />
                     <div className="text-xs text-text-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
-                      {cls?.name && <span className="font-semibold text-text-secondary">{cls.name}</span>}
+                      {official.className && <span className="font-semibold text-text-secondary">{official.className}</span>}
                       <span>•</span>
-                      <span>ĐTB: <strong className="text-parish-primary tabular-nums">{avg.score ?? '-'}</strong></span>
+                      <span>ĐTB: <strong className="text-parish-primary tabular-nums">{grade?.gpa ?? '-'}</strong></span>
                       <span>•</span>
-                      <span>Xếp loại: <span className="font-bold text-text-main">{avg.label}</span></span>
+                      <span>Xếp loại: <span className="font-bold text-text-main">{grade?.classification || 'Chưa có'}</span></span>
                     </div>
                   </div>
                   {canPrint && (
@@ -431,7 +476,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
           <SubpageHeader
             icon={<Award size={16} />}
             title="Thống Kê Học Lực Phân Ngành"
-            meta={<span className="truncate">4 phân ngành giáo xứ · {students.length} em</span>}
+            meta={<span className="truncate">{Object.keys(BRANCHES).length} phân ngành giáo xứ · {officialStudentCount} em</span>}
             actions={renderSemesterActions()}
           />
           {/* Overview KPI Cards */}
@@ -444,7 +489,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
                 {parishOverallKPI.goodOrAboveRate}%
               </div>
               <div className="text-xs text-text-muted mt-0.5">
-                {parishOverallKPI.totalEx + parishOverallKPI.totalGood} / {students.length} em (HK{selectedSemester})
+                {parishOverallKPI.totalEx + parishOverallKPI.totalGood} / {officialStudentCount} em (HK{selectedSemester})
               </div>
             </div>
             <div className="bg-surface-card p-3.5 rounded-xl border border-surface-border shadow-xs">
@@ -452,10 +497,10 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
                 Tổng Sĩ Số
               </div>
               <div className="text-2xl font-black text-text-main mt-1 tabular-nums">
-                {students.length}
+                {officialStudentCount}
               </div>
               <div className="text-xs text-text-muted mt-0.5">
-                4 phân ngành giáo xứ
+                {Object.keys(BRANCHES).length} phân ngành giáo xứ
               </div>
             </div>
           </div>

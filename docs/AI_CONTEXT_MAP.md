@@ -351,8 +351,8 @@ When starting a task, AI Agents MUST read documents in the following order:
 | **Architecture Decisions** | [`docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`](./ADR_ARCHITECTURE_DECISION_RECORDS.md) | `server/src/services/*.ts` |
 | **Decision Governance (framework)** | `.agents/skills/quantitative-targets/SKILL.md` v5.1 (Decision Matrix Final Reference) — Decision Levels D0–D3, quantitative evidence lifecycle DEFINE→AUTHORIZE→MEASURE→COMPARE→DECIDE→REVERIFY, invariant vs SLO separation, hard gates | `AGENTS.md`, `server/src/__tests__/security/*` |
 | **Execution Workflow** | (legacy — `prompt-execution-workflow` v1.0 đã ngừng sử dụng, file đã xóa khỏi repo; execution workflow quy định tại `AGENTS.md` → `.agents/operating-contract.md`, phân loại D0–D3 tại `.agents/task-classification.md`) | `AGENTS.md` |
-| **Database Schema** | [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md) | `server/src/db/schema.ts` (51 tables) |
-| **API Contract** | [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md) | `server/src/routes/*.ts` (28 routes) |
+| **Database Schema** | [`docs/07_DATABASE_PLAN.md`](./07_DATABASE_PLAN.md) | `server/src/db/schema.ts` (73 tables) |
+| **API Contract** | [`docs/FRONTEND_API_CONTRACT.md`](./FRONTEND_API_CONTRACT.md) | `server/src/routes/*.ts` (32 routes) |
 | **Security & Auth** | [`docs/02_ARCHITECTURE.md`](./02_ARCHITECTURE.md) (Security Envelope §3) | `server/src/middleware/auth.ts`, `security.ts`, `services/refreshSessionService.ts`, `services/webPushService.ts` |
 | **Security Audit Log (SSOT)** | [`docs/SECURITY_AUDIT_LOG.md`](./SECURITY_AUDIT_LOG.md) — SSOT chứa toàn bộ security & data audits | `src/lib/api.ts`, `server/src/routes/auth.ts`, `server/src/routes/users.ts`, `server/src/routes/backup.ts`, `server/src/routes/import.ts` |
 | **Domain Business Rules** | [`docs/BUSINESS_RULES.md`](./BUSINESS_RULES.md) | `server/src/services/AttendanceApplicationService.ts`, `PromotionApplicationService.ts`, `AcademicYearLifecycleService.ts` |
@@ -384,10 +384,10 @@ src/                                ─ Client React Application
 server/src/                         ─ Backend Hono Application
 ├── index.ts                        ─ Hono app, CORS, middleware registration, graceful shutdown
 ├── seed.ts                         ─ DB seed script
-├── db/schema.ts                    ─ Drizzle ORM schema (51 tables)
+├── db/schema.ts                    ─ Drizzle ORM schema (73 tables)
 ├── middleware/                     ─ authMiddleware, roleMiddleware, security.ts
 ├── routes/                         ─ 28 REST route files
-├── services/                       ─ 39 business logic application services
+├── services/                       ─ 58 business logic application services
 ├── utils/                          ─ phone.ts, username.ts, id.ts (thêm LRQ prefix), telegram.ts
 └── repositories/                   ─ 6 CQRS Read & Write Repositories
 ```
@@ -580,9 +580,9 @@ server/src/                         ─ Backend Hono Application
 ### Module: Session Persist 2 Tầng — Marker Không-PII + Snapshot Mã Hóa (ADR-045)
 - **Files Modified**: `src/stores/authStore.ts` (marker `{id,role,parishId}` ở localStorage + snapshot `parish_auth_user` mã hóa AES-GCM trong Dexie qua `dexieStorage`; `loadFromStorage` rebuild qua `api.me()` khi snapshot hỏng), `src/lib/db.ts` (`AUTH_SNAPSHOT_KEY` + `clearAuthSnapshot()`), `src/lib/api.ts` (`api.me()` = `GET /api/auth/me`; `redirectToLogin` dọn snapshot), `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md`, `docs/BUSINESS_RULES.md` §10.13, `docs/SECURITY_AUDIT_LOG.md` A-NEW-54.
 - **Summary**:
-  1. **Marker**: `parish_current_user` chỉ còn `{id, role, parishId}` (không PII) — mọi guard (router `requireAuth`/`requireRole`, `api.isAuthenticated()`, `syncStore.getCurrentUserId`) đọc đồng bộ như cũ, không đổi call site.
+  1. **Marker**: `parish_current_user` chỉ còn `{id, role, parishId}` (không PII) — router `requireAuth`/`requireRole` và `api.isAuthenticated()` có thể đọc đồng bộ để bootstrap/UX guard. Marker không phải sync hoặc transport authority; `syncStore` đọc document-local `tenantScope` với exact owner `parishId:userId`.
   2. **Snapshot**: user đầy đủ (username/fullName/phone — PH: SĐT) mã hóa tại-rest trong IndexedDB `parish_auth_user` (khóa non-extractable, AAD `stores:<scopedKey>`, tenant-scoped `{parishId}:{userId}`).
-  3. **Rebuild**: snapshot thiếu/hỏng (Dexie purge, key rotate, LAN không có `crypto.subtle`) → online: `POST /auth/refresh` + `GET /auth/me` rebuild; offline → logout sạch. Ghi fail-safe: lỗi Dexie/crypto không hỏng login (marker đủ cho guard).
+  3. **Rebuild**: snapshot thiếu/hỏng (Dexie purge, key rotate, LAN không có `crypto.subtle`) → online: `POST /auth/refresh` trả `{accessToken,userId,parishId}` + `GET /auth/me` trả `parishId` để rebuild. Client chỉ activate identity khớp scope/marker của document; offline → logout sạch. Ghi fail-safe: lỗi Dexie/crypto không hỏng login (marker đủ cho guard).
   4. **Dọn dẹp**: `logout()` + `redirectToLogin()` (401) đều xóa marker lẫn snapshot (không PII mã hóa mồ côi).
   5. **Verify**: tsc sạch, oxlint 0 error, **1336/1336 tests PASS**, `build:frontend` clean.
 
@@ -791,7 +791,7 @@ server/src/                         ─ Backend Hono Application
 
 ### Module: Architecture Risk Baseline Stabilization (ADR-101/102, 2026-09-03)
 
-- **Offline ownership:** `SyncQueueItem`/`SyncConflict` carry `parishId`; Dexie v7 indexes exact `(parishId,userId)`. `syncStore.isOwnOp` fails closed for missing/partial ownership and legacy rows are quarantined, never reassigned to the current login. Diagnostics, compaction/remap and notice pending preservation use the same predicate.
+- **Offline ownership:** `SyncQueueItem`/`SyncConflict` carry `parishId`; Dexie v7 indexes exact `(parishId,userId)`. `syncStore.isOwnOp` fails closed for missing/partial ownership and legacy rows are quarantined, never reassigned to the current login. Document-local `tenantScope`—not the origin-wide localStorage marker—is the live owner authority. Logical request/sync flows capture its revision once: retry keeps the original owner, successful responses are encrypted into the original queue row before local apply, and remap/conflict/reconciliation aborts on owner change. A committed A receipt may survive for later A reconciliation but cannot mutate B. Diagnostics, compaction/remap and notice pending preservation use the same exact-owner predicate.
 - **Finance/grades/migrations:** `FinanceApplicationService.updateStudentFeeInTx` reconciles the linked ledger entry; class batch uses one transaction. Fee writes enforce the documented three-state/amount invariant and finance routes preserve validation as `400`; legacy `PARTIAL` is read-only pending a production data audit. Grade policy/lock/student/class/RBAC reads share the write transaction executor. `migrationRunner` wraps multi-statement SQL plus marker in one explicit transaction.
 - **Notice delta:** migrations `159/167`, `noticeService` soft delete, active-only full snapshots and tombstone-bearing delta pulls; `parent_revoked_at` limits redacted parent eviction rows to notices that actually lost parent visibility; `noticeStore` evicts tombstones.
 - **Notification worker:** migrations `160..166`; durable enqueue acknowledgement, persisted delivery kind/attempts/backoff, database claim lease, startup/poll recovery and fail-closed provider/target status. Semantics remain at-least-once across the provider-accept/DB-ack crash window.

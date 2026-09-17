@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { api, clearTokens, setTokens } from '../../lib/api'
+import { setTenantScope } from '../../lib/tenantScope'
 
 // A12 (2026-08-10): retry tự động chỉ áp cho method idempotent (GET/HEAD/PUT/DELETE)
 // hoặc mutation có Idempotency-Key. POST/PATCH không key → KHÔNG bao giờ retry mù:
@@ -29,6 +30,8 @@ describe('A12 — method-aware retry (api request)', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    setTenantScope(null)
+    clearTokens()
   })
 
   it('GET: network error → retry (2 lần) rồi thành công', async () => {
@@ -58,8 +61,26 @@ describe('A12 — method-aware retry (api request)', () => {
 
     await expect(pending).rejects.toMatchObject({
       status: 401,
-      message: 'Authentication session changed while request was in flight',
+      message: expect.stringMatching(/Authentication (session|owner) changed/),
     })
+  })
+
+  it('does not resend an A request with B credentials after retry backoff', async () => {
+    setTenantScope({ parishId: 'PARISH-A', userId: 'USER-A' })
+    setTokens('token-a')
+    fetchMock.mockRejectedValueOnce(new TypeError('network down'))
+
+    const pending = api.getStudents()
+    const rejection = expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer token-a')
+
+    setTenantScope({ parishId: 'PARISH-B', userId: 'USER-B' })
+    setTokens('token-b')
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await rejection
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('POST không có Idempotency-Key: network error → KHÔNG retry (1 lần)', async () => {

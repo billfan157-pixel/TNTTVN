@@ -79,6 +79,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   '20260912-257',
   '20260912-258',
   '20260912-259',
+  '20260917-261',
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {

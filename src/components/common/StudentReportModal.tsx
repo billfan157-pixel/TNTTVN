@@ -1,15 +1,12 @@
 import React from 'react';
-import { Student } from '../../types';
-import { useGradeStore } from '../../stores/gradeStore';
-import { useAttendanceStore } from '../../stores/attendanceStore';
-import { useClassStore } from '../../stores/classStore';
+import type { ReportCardDTO, Student } from '../../types';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { generateStudentReportCardHTML } from '../../utils/pdfGenerator';
+import { generateParentReportCardHTML } from '../../utils/pdfGenerator';
 import { ReportViewModelFactory } from '../../utils/reportViewModelFactory';
 import { ReportExportService } from '../../services/reportExportService';
-import { BRANCHES } from '../../constants/branches';
-import { Printer, Award, Church, BookOpen, HeartHandshake, CheckSquare } from 'lucide-react';
+import { api } from '../../lib/api';
+import { Printer, Award, Church, BookOpen, HeartHandshake, CheckSquare, Loader2, AlertTriangle } from 'lucide-react';
 import { ModalShell } from './ModalShell';
 import { useEffectiveMode } from '../../hooks/useEffectiveMode';
 
@@ -24,27 +21,36 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
   const academicYear = useAcademicYearStore(s => s.currentYear)
   const parishName = useSettingsStore(s => s.settings.parishName) || 'Giáo Xứ Gia Tôn'
   const dioceseName = useSettingsStore(s => s.settings.dioceseName) || 'Giáo Phận Xuân Lộc'
-  const getStudentGrade = useGradeStore(s => s.getStudentGrade)
-  const records = useGradeStore(s => s.grades)
-  const attendanceRecords = useAttendanceStore(s => s.attendance)
-  const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg)
-  const findClassById = useClassStore(s => s.findClassById)
+  const [report, setReport] = React.useState<ReportCardDTO | null>(null)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   // MOBILE-REPORT (2026-09-08): review-only DOM (bản in đi qua pdfGenerator builder
   // riêng) nên reflow mobile tự do mà không ảnh hưởng đầu ra in ấn.
   const isMobile = useEffectiveMode() === 'mobile';
 
   // B2 consolidation: in qua template chuẩn (pdfGenerator) + ReportExportService —
   // cùng pipeline với PrintReportModal "Phiếu Cá Nhân" (thay window.print phụ thuộc @media print).
-  const buildPrintHtml = React.useCallback((s: Student) => {
-    return generateStudentReportCardHTML(s, records, attendanceRecords, {
-      academicYear: academicYear || undefined,
+  React.useEffect(() => {
+    if (!isOpen || !student) return
+    let active = true
+    setReport(null)
+    setLoadError(null)
+    void api.getStudentReportCard(student.id, academicYear).then((value) => {
+      if (active) setReport(value)
+    }).catch((err: unknown) => {
+      if (active) setLoadError(err instanceof Error ? err.message : 'Không thể tải phiếu điểm từ máy chủ')
+    })
+    return () => { active = false }
+  }, [academicYear, isOpen, student])
+
+  const buildPrintHtml = React.useCallback((value: ReportCardDTO) => {
+    return generateParentReportCardHTML(value, {
       parishName,
       dioceseName,
     })
-  }, [records, attendanceRecords, academicYear, parishName, dioceseName]);
+  }, [parishName, dioceseName]);
 
   const handlePrint = () => {
-    if (student) ReportExportService.print(buildPrintHtml(student))
+    if (report) ReportExportService.print(buildPrintHtml(report))
   };
 
   const printedRef = React.useRef(false);
@@ -54,29 +60,44 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
       printedRef.current = false;
       return;
     }
-    if (!autoPrint || !student || printedRef.current) return;
+    if (!autoPrint || !report || printedRef.current) return;
     printedRef.current = true;
-    const timer = window.setTimeout(() => ReportExportService.print(buildPrintHtml(student)), 300);
+    const timer = window.setTimeout(() => ReportExportService.print(buildPrintHtml(report)), 300);
     return () => window.clearTimeout(timer);
-  }, [isOpen, autoPrint, student, buildPrintHtml]);
+  }, [isOpen, autoPrint, report, buildPrintHtml]);
 
   if (!isOpen || !student) return null;
 
-  const vm = ReportViewModelFactory.createStudentViewModel(student, records, attendanceRecords, {
-    academicYear: academicYear || undefined,
+  if (!report) {
+    return (
+      <ModalShell
+        isOpen
+        onClose={onClose}
+        icon={loadError ? <AlertTriangle className="w-5 h-5 text-parish-danger" /> : <Loader2 className="w-5 h-5 animate-spin text-parish-primary" />}
+        title="Phiếu Kết Quả Học Tập Thiếu Nhi"
+        subtitle={loadError || 'Đang tải dữ liệu chính thức từ máy chủ…'}
+        maxWidth="780px"
+      >
+        <div className="p-8 text-center text-sm text-text-muted">
+          {loadError ? 'Không dùng dữ liệu cục bộ thay thế vì phiếu lịch sử phải giữ nguyên bằng chứng đã chốt.' : 'Vui lòng chờ.'}
+        </div>
+      </ModalShell>
+    )
+  }
+
+  const vm = ReportViewModelFactory.createOfficialStudentViewModel(report, student, {
     parishName,
     dioceseName,
   });
   const attDetails = vm.summary.attendanceDetails;
 
-  const classInfo = findClassById(student.classId);
-  const branch = BRANCHES[student.branch];
+  const classInfo = { name: report.student.className || '', catechistLeader: '' };
 
-  const gradeHK1 = getStudentGrade(student.id, 1);
-  const gradeHK2 = getStudentGrade(student.id, 2);
+  const gradeHK1 = report.grades.find((grade) => grade.semester === 1);
+  const gradeHK2 = report.grades.find((grade) => grade.semester === 2);
 
-  const avgHK1 = calculateStudentAvg(student.id, 1);
-  const avgHK2 = calculateStudentAvg(student.id, 2);
+  const avgHK1 = { score: gradeHK1?.gpa ?? null, label: gradeHK1?.classification || 'Chưa có' };
+  const avgHK2 = { score: gradeHK2?.gpa ?? null, label: gradeHK2?.classification || 'Chưa có' };
 
   // Ô tiêu đề/cột đầu giữ cố định khi cuộn ngang bảng điểm trên mobile.
   const cellPad = isMobile ? '8px 6px' : '10px 12px';
@@ -90,7 +111,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
       onClose={onClose}
       icon={<Award className="w-5 h-5 text-parish-primary" />}
       title={isMobile ? 'Kết Quả Học Tập' : 'Phiếu Kết Quả Học Tập Thiếu Nhi'}
-      subtitle={`${student.holyName || ''} ${student.fullName}${classInfo?.name ? ` · Lớp ${classInfo.name}` : ''}`}
+      subtitle={`${report.student.holyName || ''} ${report.student.fullName}${classInfo.name ? ` · Lớp ${classInfo.name}` : ''}`}
       maxWidth="780px"
       headerActions={
         <button onClick={handlePrint} className="btn btn-primary btn-sm flex items-center gap-1.5">
@@ -131,8 +152,8 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="badge" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
-                  Ngành {branch?.name}
+                <span className="badge badge-primary">
+                  Dữ liệu chính thức
                 </span>
                 <span style={{ fontSize: '14px', fontWeight: 700, color: '#1E3A8A' }}>
                   {classInfo?.name}
@@ -276,7 +297,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
               Nhận Xét Của Huynh Trưởng Chủ Nhiệm
             </div>
             <div style={{ fontSize: '13px', fontStyle: 'italic', color: '#475569', lineHeight: '1.5' }}>
-              "{gradeHK1?.comments || gradeHK2?.comments || 'Em ngoan ngoãn, lắng nghe Lời Chúa và hăng hái tham gia sinh hoạt cùng các bạn trong đội.'}"
+              "Em ngoan ngoãn, lắng nghe Lời Chúa và hăng hái tham gia sinh hoạt cùng các bạn trong đội."
             </div>
           </div>
 

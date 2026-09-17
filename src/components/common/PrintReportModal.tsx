@@ -1,29 +1,28 @@
 import React, { useState } from 'react'
 import { Printer, FileText, Award, Download, Eye, Layers, User, Loader2, FileDown } from 'lucide-react'
 import {
-  generateClassGradebookHTML,
-  generateStudentReportCardHTML,
+  generateOfficialClassGradebookHTML,
+  generateParentReportCardHTML,
   generateSacramentCertificateHTML,
-  generateBatchReportCardsHTML,
+  generateOfficialBatchReportCardsHTML,
   generateBatchPhotoCardsHTML,
   generateParentInvitationHTML,
   generateBatchParentInvitationsHTML,
   type ReportType,
 } from '../../utils/pdfGenerator'
-import { ReportViewModelFactory } from '../../utils/reportViewModelFactory'
 import { ReportExportService } from '../../services/reportExportService'
+import { fetchOfficialClassReport, fetchOfficialReportClasses, type OfficialClassMetadata, type OfficialClassReport } from '../../services/officialReporting'
 import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { api } from '../../lib/api'
 import { ModalShell } from './ModalShell'
 import { useStudentStore } from '../../stores/studentStore'
-import { useGradeStore } from '../../stores/gradeStore'
-import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useClassStore } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/academicYear'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { sortClassesByHierarchy } from '../../utils/classSort'
+import type { Student } from '../../types'
 
 interface Props {
   isOpen: boolean
@@ -63,23 +62,61 @@ export const PrintReportModal: React.FC<Props> = ({
   )
   const [semester, setSemester] = useState<1 | 2>(useSettingsStore.getState().settings.currentSemester || 1)
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
+  const [isBuildingReport, setIsBuildingReport] = useState(false)
+  const [officialClassReport, setOfficialClassReport] = useState<OfficialClassReport | null>(null)
+  const [officialClassList, setOfficialClassList] = useState<OfficialClassMetadata[]>([])
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
 
   const students = useStudentStore((s) => s.students)
-  const grades = useGradeStore((g) => g.grades)
-  const attendance = useAttendanceStore((a) => a.attendance)
   const rawClassList = useClassStore((s) => s.getClassList)()
   const classList = React.useMemo(() => sortClassesByHierarchy(rawClassList, 'asc'), [rawClassList])
   const findClassById = useClassStore((s) => s.findClassById)
 
-  if (!isOpen) return null
-
   const classStudents = students.filter((s) => !s.deletedAt && s.classId === selectedClassId)
   const activeStudent = students.find((s) => s.id === selectedStudentId) || classStudents[0]
   const targetClass = findClassById(selectedClassId)
+  const profileMap = React.useMemo(
+    () => new Map(students.map((student) => [student.id, student])),
+    [students],
+  )
+  const isAcademicReport = reportType === 'CLASS_GRADEBOOK'
+    || reportType === 'BATCH_STUDENT_REPORT_CARDS'
+    || reportType === 'STUDENT_REPORT_CARD'
+
+  React.useEffect(() => {
+    if (!isOpen || !isAcademicReport) return
+    let active = true
+    const year = normalizeAcademicYear(academicYear) || getCurrentAcademicYear()
+    void fetchOfficialReportClasses(year).then((items) => {
+      if (!active) return
+      setOfficialClassList(items)
+      if (!items.some((item) => item.id === selectedClassId)) setSelectedClassId(items[0]?.id || '')
+    }).catch(() => {
+      if (active) setOfficialClassList([])
+    })
+    return () => { active = false }
+  }, [academicYear, isAcademicReport, isOpen, selectedClassId])
+
+  React.useEffect(() => {
+    if (!isOpen || !isAcademicReport || !selectedClassId) return
+    let active = true
+    const year = normalizeAcademicYear(academicYear) || getCurrentAcademicYear()
+    void fetchOfficialClassReport(selectedClassId, year).then((result) => {
+      if (!active) return
+      setOfficialClassReport(result)
+      setSelectedStudentId((current) => result.reportCards.some((report) => report.student.id === current)
+        ? current
+        : result.reportCards[0]?.student.id || '')
+    }).catch(() => {
+      if (active) setOfficialClassReport(null)
+    })
+    return () => { active = false }
+  }, [academicYear, isAcademicReport, isOpen, selectedClassId])
+
+  if (!isOpen) return null
 
   // Single rendering pipeline for single / batch actions
-  const buildHTML = (): { html: string; filename: string } => {
+  const buildHTML = async (): Promise<{ html: string; filename: string }> => {
     // ADR-017 (F4): Chuẩn hóa năm học trước khi dùng — người dùng có thể gõ
     // '2025 - 2026' trong ô Năm Học, exact-match với row '2025-2026' sẽ rỗng.
     const resolvedYear = normalizeAcademicYear(academicYear) || getCurrentAcademicYear()
@@ -95,25 +132,28 @@ export const PrintReportModal: React.FC<Props> = ({
     }
 
     if (reportType === 'BATCH_STUDENT_REPORT_CARDS') {
-      const batchVm = ReportViewModelFactory.createBatchViewModel({
-        students,
-        grades,
-        attendance,
-        academicYear: resolvedYear,
-        classId: selectedClassId,
-      })
-      const html = generateBatchReportCardsHTML(batchVm)
-      return { html, filename: `PhieuDiemHangLoat_${targetClass?.name || selectedClassId}_${resolvedYear}.html` }
+      const official = await fetchOfficialClassReport(selectedClassId, resolvedYear)
+      const html = generateOfficialBatchReportCardsHTML(
+        official.reportCards,
+        profileMap,
+        { id: official.summary.classId, name: official.summary.className },
+        options,
+      )
+      return { html, filename: `PhieuDiemHangLoat_${official.summary.className}_${resolvedYear}.html` }
     }
 
     if (reportType === 'CLASS_GRADEBOOK') {
-      const html = generateClassGradebookHTML(selectedClassId, students, grades, attendance, options)
-      return { html, filename: `SoDiem_${targetClass?.name || selectedClassId}_${resolvedYear}.html` }
+      const official = await fetchOfficialClassReport(selectedClassId, resolvedYear)
+      const html = generateOfficialClassGradebookHTML(official.reportCards, official.summary.className, profileMap, options)
+      return { html, filename: `SoDiem_${official.summary.className}_${resolvedYear}.html` }
     }
 
-    if (reportType === 'STUDENT_REPORT_CARD' && activeStudent) {
-      const html = generateStudentReportCardHTML(activeStudent, grades, attendance, options)
-      return { html, filename: `PhieuDiem_${activeStudent.code}_${resolvedYear}.html` }
+    if (reportType === 'STUDENT_REPORT_CARD') {
+      const official = await fetchOfficialClassReport(selectedClassId, resolvedYear)
+      const report = official.reportCards.find((item) => item.student.id === selectedStudentId) || official.reportCards[0]
+      if (!report) return { html: '', filename: 'report.html' }
+      const html = generateParentReportCardHTML(report, options)
+      return { html, filename: `PhieuDiem_${report.student.code}_${resolvedYear}.html` }
     }
 
     if (reportType === 'SACRAMENT_CERTIFICATE' && activeStudent) {
@@ -139,85 +179,133 @@ export const PrintReportModal: React.FC<Props> = ({
     return { html: '', filename: 'report.html' }
   }
 
-  const handlePrint = () => {
-    const { html } = buildHTML()
-    if (!html) {
-      void askConfirm({
-        title: 'Chưa có dữ liệu',
-        message: 'Vui lòng chọn dữ liệu để in!',
-        confirmText: 'OK',
-        variant: 'warning',
-        showCancel: false,
-      })
-      return
-    }
-    ReportExportService.print(html)
-  }
-
-  const handlePreview = () => {
-    const { html, filename } = buildHTML()
-    if (!html) {
-      void askConfirm({
-        title: 'Chưa có dữ liệu',
-        message: 'Vui lòng chọn dữ liệu để xem trước!',
-        confirmText: 'OK',
-        variant: 'warning',
-        showCancel: false,
-      })
-      return
-    }
-    ReportExportService.preview(html, filename)
-  }
-
-  const handleDownloadHTML = () => {
-    const { html, filename } = buildHTML()
-    if (!html) {
-      void askConfirm({
-        title: 'Chưa có dữ liệu',
-        message: 'Vui lòng chọn dữ liệu để tải file!',
-        confirmText: 'OK',
-        variant: 'warning',
-        showCancel: false,
-      })
-      return
-    }
-    ReportExportService.downloadHTML(html, filename)
-  }
-
-  const handleExportExcel = () => {
-    const resolvedYear = normalizeAcademicYear(academicYear) || getCurrentAcademicYear()
-    const matrixData: Record<string, any> = {}
-    classStudents.forEach((s) => {
-      const existing = grades.find((g) => g.studentId === s.id && normalizeAcademicYear(g.academicYear) === resolvedYear)
-      if (existing) matrixData[s.id] = existing
+  const handleBuildError = (err: unknown) => {
+    void askConfirm({
+      title: 'Không thể tải dữ liệu báo cáo',
+      message: err instanceof Error ? err.message : 'Dữ liệu authoritative từ máy chủ không khả dụng.',
+      confirmText: 'OK',
+      variant: 'danger',
+      showCancel: false,
     })
+  }
 
-    exportGradebookToExcel({
-      students: classStudents,
-      matrixData,
-      className: targetClass?.name || 'Lớp Giáo Lý',
-      semester: semester,
-      academicYear: resolvedYear,
-    })
+  const handlePrint = async () => {
+    setIsBuildingReport(true)
+    try {
+      const { html } = await buildHTML()
+      if (!html) {
+        void askConfirm({
+          title: 'Chưa có dữ liệu',
+          message: 'Vui lòng chọn dữ liệu để in!',
+          confirmText: 'OK',
+          variant: 'warning',
+          showCancel: false,
+        })
+        return
+      }
+      ReportExportService.print(html)
+    } catch (err) {
+      handleBuildError(err)
+    } finally {
+      setIsBuildingReport(false)
+    }
+  }
+
+  const handlePreview = async () => {
+    setIsBuildingReport(true)
+    try {
+      const { html, filename } = await buildHTML()
+      if (!html) {
+        void askConfirm({
+          title: 'Chưa có dữ liệu',
+          message: 'Vui lòng chọn dữ liệu để xem trước!',
+          confirmText: 'OK',
+          variant: 'warning',
+          showCancel: false,
+        })
+        return
+      }
+      ReportExportService.preview(html, filename)
+    } catch (err) {
+      handleBuildError(err)
+    } finally {
+      setIsBuildingReport(false)
+    }
+  }
+
+  const handleDownloadHTML = async () => {
+    setIsBuildingReport(true)
+    try {
+      const { html, filename } = await buildHTML()
+      if (!html) {
+        void askConfirm({
+          title: 'Chưa có dữ liệu',
+          message: 'Vui lòng chọn dữ liệu để tải file!',
+          confirmText: 'OK',
+          variant: 'warning',
+          showCancel: false,
+        })
+        return
+      }
+      ReportExportService.downloadHTML(html, filename)
+    } catch (err) {
+      handleBuildError(err)
+    } finally {
+      setIsBuildingReport(false)
+    }
+  }
+
+  const handleExportExcel = async () => {
+    setIsBuildingReport(true)
+    try {
+      const resolvedYear = normalizeAcademicYear(academicYear) || getCurrentAcademicYear()
+      const official = await fetchOfficialClassReport(selectedClassId, resolvedYear)
+      const matrixData: Record<string, any> = {}
+      const authoritativeResults: Record<string, { gpa: number | null; classification: string | null }> = {}
+      const exportStudents: Student[] = official.reportCards.map((report) => {
+        const existing = profileMap.get(report.student.id)
+        const grade = report.grades.find((item) => item.semester === semester)
+        if (grade) matrixData[report.student.id] = { ...grade, studentId: report.student.id, academicYear: resolvedYear }
+        authoritativeResults[report.student.id] = { gpa: grade?.gpa ?? null, classification: grade?.classification ?? null }
+        return {
+          id: report.student.id,
+          code: report.student.code,
+          holyName: report.student.holyName || '',
+          fullName: report.student.fullName,
+          gender: (report.student.gender === 'Nữ' ? 'Nữ' : 'Nam'),
+          dateOfBirth: report.student.dateOfBirth || '',
+          parentName: existing?.parentName || '',
+          parentPhone: existing?.parentPhone || '',
+          address: existing?.address || '',
+          branch: existing?.branch || 'ChienCon',
+          classId: selectedClassId,
+          status: existing?.status || 'Đang học',
+        }
+      })
+
+      exportGradebookToExcel({
+        students: exportStudents,
+        matrixData,
+        authoritativeResults,
+        className: official.summary.className,
+        semester: semester,
+        academicYear: resolvedYear,
+      })
+    } catch (err) {
+      handleBuildError(err)
+    } finally {
+      setIsBuildingReport(false)
+    }
   }
 
   // P0 (2026-08-14): Nối UI với server PDF pipeline (Puppeteer) — trước đây
   // api.generatePDF không có caller nào. HTML đã chứa @page (A4/A6/landscape) nên
   // server honor qua preferCSSPageSize; chỉ đổi đuôi filename .html → .pdf.
   const handleExportPdf = async () => {
-    const { html, filename } = buildHTML()
-    if (!html) {
-      void askConfirm({
-        title: 'Chưa có dữ liệu',
-        message: 'Vui lòng chọn dữ liệu để xuất PDF!',
-        confirmText: 'OK',
-        variant: 'warning',
-        showCancel: false,
-      })
-      return
-    }
     setIsGeneratingPdf(true)
     try {
+      const { html, filename } = await buildHTML()
+      if (!html) throw new Error('Vui lòng chọn dữ liệu để xuất PDF.')
       const pdfBlob = await api.generatePDF(html)
       const url = URL.createObjectURL(pdfBlob)
       const link = document.createElement('a')
@@ -228,13 +316,7 @@ export const PrintReportModal: React.FC<Props> = ({
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
     } catch (err: any) {
-      void askConfirm({
-        title: 'Lỗi tạo PDF',
-        message: `Không thể tạo file PDF: ${err?.message || 'lỗi máy chủ'}`,
-        confirmText: 'OK',
-        variant: 'danger',
-        showCancel: false,
-      })
+      handleBuildError(err)
     } finally {
       setIsGeneratingPdf(false)
     }
@@ -243,30 +325,31 @@ export const PrintReportModal: React.FC<Props> = ({
   const printFooter = (
     <div className="w-full px-4 sm:px-6 py-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:pb-3 border-t border-surface-border space-y-2">
       <div className="flex gap-2">
-        <button onClick={handlePreview} className="btn btn-secondary flex-1 min-h-[44px] text-xs font-semibold">
+        <button onClick={() => void handlePreview()} disabled={isBuildingReport || isGeneratingPdf} className="btn btn-secondary flex-1 min-h-[44px] text-xs font-semibold disabled:opacity-50">
           <Eye className="w-4 h-4" />
           <span>Xem Trước</span>
         </button>
-        <button onClick={handlePrint} className="btn btn-primary flex-[2] min-h-[44px] text-xs font-semibold">
+        <button onClick={() => void handlePrint()} disabled={isBuildingReport || isGeneratingPdf} className="btn btn-primary flex-[2] min-h-[44px] text-xs font-semibold disabled:opacity-50">
           <Printer className="w-4 h-4" />
           <span>In Tất Cả / PDF</span>
         </button>
       </div>
       <div className="flex gap-2">
         <button
-          onClick={handleExportExcel}
+          onClick={() => void handleExportExcel()}
+          disabled={isBuildingReport || isGeneratingPdf}
           className="flex flex-1 items-center justify-center gap-1.5 min-h-[44px] rounded-lg text-xs font-semibold text-parish-success bg-parish-success-bg border border-parish-success/30 transition-colors"
         >
           <Download className="w-3.5 h-3.5" />
           <span>Excel</span>
         </button>
-        <button onClick={handleDownloadHTML} className="btn btn-secondary flex-1 min-h-[44px] text-xs font-semibold">
+        <button onClick={() => void handleDownloadHTML()} disabled={isBuildingReport || isGeneratingPdf} className="btn btn-secondary flex-1 min-h-[44px] text-xs font-semibold disabled:opacity-50">
           <Download className="w-3.5 h-3.5" />
           <span>HTML</span>
         </button>
         <button
           onClick={handleExportPdf}
-          disabled={isGeneratingPdf}
+          disabled={isGeneratingPdf || isBuildingReport}
           className="flex flex-1 items-center justify-center gap-1.5 min-h-[44px] rounded-lg text-xs font-semibold text-parish-warning bg-parish-warning-bg border border-parish-warning/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGeneratingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
@@ -389,8 +472,8 @@ export const PrintReportModal: React.FC<Props> = ({
           {/* Roster Info Summary Banner for Batch Export */}
           {(reportType === 'BATCH_STUDENT_REPORT_CARDS' || reportType === 'BATCH_PHOTO_CARDS' || reportType === 'BATCH_PARENT_INVITATIONS') && (
             <div className="p-3 bg-parish-warning-bg border border-parish-warning/30 rounded-lg flex items-center justify-between text-xs text-parish-warning">
-              <span>Sẵn sàng xuất hàng loạt <strong>{classStudents.length} {reportType === 'BATCH_PHOTO_CARDS' ? 'thẻ thiếu nhi A6' : reportType === 'BATCH_PARENT_INVITATIONS' ? 'giấy mời A4' : 'kết quả học tập A4'}</strong> cho lớp <strong>{targetClass?.name || selectedClassId}</strong></span>
-              <span className="px-2 py-0.5 bg-parish-warning/20 rounded font-semibold">{classStudents.length} Học sinh</span>
+              <span>Sẵn sàng xuất hàng loạt <strong>{reportType === 'BATCH_STUDENT_REPORT_CARDS' ? (officialClassReport?.reportCards.length ?? 0) : classStudents.length} {reportType === 'BATCH_PHOTO_CARDS' ? 'thẻ thiếu nhi A6' : reportType === 'BATCH_PARENT_INVITATIONS' ? 'giấy mời A4' : 'kết quả học tập A4'}</strong> cho lớp <strong>{officialClassReport?.summary.className || targetClass?.name || selectedClassId}</strong></span>
+              <span className="px-2 py-0.5 bg-parish-warning/20 rounded font-semibold">{reportType === 'BATCH_STUDENT_REPORT_CARDS' ? (officialClassReport?.reportCards.length ?? 0) : classStudents.length} Học sinh</span>
             </div>
           )}
 
@@ -403,7 +486,7 @@ export const PrintReportModal: React.FC<Props> = ({
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
               >
-                {classList.map((c) => (
+                {(isAcademicReport ? officialClassList : classList).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} ({c.academicYear})
                   </option>
@@ -419,7 +502,9 @@ export const PrintReportModal: React.FC<Props> = ({
                   onChange={(e) => setSelectedStudentId(e.target.value)}
                   className="w-full px-3 py-2 bg-surface-card border border-surface-border rounded-lg text-sm text-text-main focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
                 >
-                  {classStudents.map((s) => (
+                  {(reportType === 'STUDENT_REPORT_CARD' && officialClassReport
+                    ? officialClassReport.reportCards.map((report) => report.student)
+                    : classStudents).map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.holyName} {s.fullName} ({s.code})
                     </option>

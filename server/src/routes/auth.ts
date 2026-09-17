@@ -9,7 +9,7 @@ import { eq, and, sql, isNull, inArray } from 'drizzle-orm'
 import { authMiddleware, isSuperAdminAccount, isSuperAdmin } from '../middleware/auth.js'
 import { loginRateLimiter, adminReauthRateLimiter, parentForgotRateLimiter } from '../middleware/security.js'
 import { maskPhoneForAudit } from '../utils/auditRedact.js'
-import { BCRYPT_COST, consumeDummyPassword, isLegacyCostHash } from '../utils/passwordPolicy.js'
+import { BCRYPT_COST, consumeRejectedLogin, isLegacyCostHash, verifyLoginPassword } from '../utils/passwordPolicy.js'
 import { generateId } from '../utils/id.js'
 import { captureAdminReauth, AdminAuthorizationChangedError } from '../services/userService.js'
 import { resolvePublicParishId } from '../utils/deploymentParish.js'
@@ -22,7 +22,7 @@ import {
   issueTokensWithSessionIn,
   rotateRefreshSession,
   revokeAllSessionsWith,
-  revokeSessionByTokenHash,
+  revokePresentedSessionByTokenHash,
   hashRefreshToken,
 } from '../services/refreshSessionService.js'
 
@@ -124,24 +124,21 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
   // Trước đây lookup toàn cục + limit(1) — sai tenant khi 2 parish dùng chung username.
   const [user] = await db.select().from(users).where(and(eq(users.username, username), eq(users.parishId, parishId))).limit(1)
   if (!user) {
-    // A-NEW-19 (2026-08-11): timing-neutral — user không tồn tại vẫn chạy bcrypt.compare
-    // với DUMMY_PASSWORD_HASH (cùng cost 12) → thời gian response không lộ username.
-    // Trước fix: gap ~126ms (user tồn tại) vs <1ms (not found) — benchmark E2.
-    await consumeDummyPassword(password)
+    await consumeRejectedLogin(password)
     return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
   if (user.deletedAt || user.status === 'INACTIVE') {
-    await consumeDummyPassword(password)
+    await consumeRejectedLogin(password)
     return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
   if (user.status === 'LOCKED' && !isSuperAdmin(user.id, user.parishId, user.role)) {
-    await consumeDummyPassword(password)
+    await consumeRejectedLogin(password)
     return errorResponse(c, 'INVALID_CREDENTIALS', 'Tên đăng nhập hoặc mật khẩu không chính xác', 401)
   }
 
-  const valid = await bcrypt.compare(password, user.passwordHash)
+  const valid = await verifyLoginPassword(password, user.passwordHash)
   if (!valid) {
     const ip = getClientIp(c)
     const userAgent = c.req.header('user-agent') || ''
@@ -167,13 +164,22 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
         // (SELECT trước bcrypt.compare ~126ms) → N request song song đều tính nextFailed=1
         // → lost update (test: 10 concurrent → failedAttempts=1 thay vì 10, không lock).
         // SQLite UPDATE đơn statement atomic → failed_attempts + 1 tính trên giá trị hiện hành.
-        await tx.update(users)
+        const [lockout] = await tx.update(users)
           .set({
             failedAttempts: sql`${users.failedAttempts} + 1`,
+            tokenVersion: sql`CASE WHEN ${users.status} != 'LOCKED' AND ${users.failedAttempts} + 1 >= ${LOGIN_LOCKOUT_THRESHOLD} THEN ${users.tokenVersion} + 1 ELSE ${users.tokenVersion} END`,
             status: sql`CASE WHEN ${users.failedAttempts} + 1 >= ${LOGIN_LOCKOUT_THRESHOLD} THEN 'LOCKED' ELSE ${users.status} END`,
           })
-          .where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
+          .where(and(
+            eq(users.id, user.id), eq(users.parishId, user.parishId),
+            eq(users.passwordHash, user.passwordHash), eq(users.role, user.role), isNull(users.deletedAt),
+            inArray(users.status, ['ACTIVE', 'FORCE_PASSWORD_CHANGE', 'LOCKED']),
+          ))
           .returning({ failedAttempts: users.failedAttempts, status: users.status })
+
+        if (lockout?.status === 'LOCKED') {
+          await revokeAllSessionsWith(tx, user.id, user.parishId)
+        }
       }
     })
 
@@ -392,43 +398,44 @@ auth.post('/refresh', csrfOriginGuard, async (c) => {
     return errorResponse(c, result.code, result.message, 401)
   }
   setRefreshCookie(c, result.refreshToken)
-  return successResponse(c, { accessToken: result.accessToken })
+  return successResponse(c, {
+    accessToken: result.accessToken,
+    userId: result.userId,
+    parishId: result.parishId,
+  })
 })
 
-auth.post('/logout', csrfOriginGuard, authMiddleware, async (c) => {
-  const jwtUser = c.get('user') as JwtPayload
+auth.post('/logout', csrfOriginGuard, async (c) => {
   let body: { refreshToken?: string } = {}
-  try { body = await c.req.json() } catch { /* body rỗng → thu hồi toàn bộ (backward compatible) */ }
+  try { body = await c.req.json() } catch { /* body rỗng */ }
 
   // A01 Phase 1: luôn xóa cookie refresh (nếu có)
   const cookieToken = getRefreshCookie(c)
   clearRefreshCookie(c)
 
-  const refreshToken = body.refreshToken ?? cookieToken
+  const refreshToken = cookieToken || (typeof body?.refreshToken === 'string' ? body.refreshToken : undefined)
   if (refreshToken) {
-    // Logout riêng phiên này (multi-device): chỉ revoke session của refresh token
-    // gửi lên — KHÔNG bump tokenVersion để thiết bị khác vẫn đăng nhập.
-    await revokeSessionByTokenHash(hashRefreshToken(refreshToken), jwtUser.parishId)
-    return successResponse(c, { success: true, message: 'Đăng xuất thành công' })
+    // Possession of the refresh credential authorizes revocation of that exact
+    // session only. A stale/expired access token must not prevent logout.
+    const sessionRevoked = await revokePresentedSessionByTokenHash(hashRefreshToken(refreshToken))
+    return successResponse(c, { success: true, serverConfirmed: true, sessionRevoked, message: 'Đăng xuất thành công' })
   }
-
-  const [user] = await db.select().from(users).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).limit(1)
-  if (user) {
-    // Phase 1: bump version + revoke cùng tx (khe giữa 2 writes cũ để lại
-    // version mới mà rows chưa revoke — dù version check đã cứu, tx vẫn đúng hơn).
-    await runDbTransaction(async (tx) => {
-      await tx.update(users).set({ tokenVersion: sql`${users.tokenVersion} + 1` }).where(and(eq(users.id, user.id), eq(users.parishId, user.parishId)))
-      await revokeAllSessionsWith(tx, user.id, user.parishId)
-    })
-  }
-  return successResponse(c, { success: true, message: 'Đăng xuất thành công, tất cả phiên đăng nhập đã được thu hồi' })
+  return successResponse(c, { success: true, serverConfirmed: false, sessionRevoked: false, message: 'Không có refresh credential để xác nhận thu hồi phiên trình duyệt' })
 })
 
 auth.get('/me', authMiddleware, async (c) => {
   const user = c.get('user') as JwtPayload
   const [full] = await db.select().from(users).where(and(eq(users.id, user.userId), eq(users.parishId, user.parishId))).limit(1)
   if (!full) return errorResponse(c, 'NOT_FOUND', 'Tài khoản không tồn tại', 404)
-  return successResponse(c, { id: full.id, username: full.username, fullName: full.fullName, phone: full.phone, role: full.role, status: full.status })
+  return successResponse(c, {
+    id: full.id,
+    username: full.username,
+    fullName: full.fullName,
+    phone: full.phone,
+    role: full.role,
+    status: full.status,
+    parishId: full.parishId,
+  })
 })
 
 const updateProfileSchema = z.object({

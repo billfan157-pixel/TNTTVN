@@ -20,7 +20,7 @@ interface AcademicYearState {
   error: string | null
   fetchAcademicYears: () => Promise<void>
   setCurrentYear: (year: string) => void
-  /** F7 (audit): Tạo năm học mới — POST lên server (best-effort khi online) + chuyển active local. */
+  /** Tạo năm học mới — chỉ chuyển active sau acknowledgement authoritative từ server. */
   createAcademicYear: (year: string) => Promise<void>
   /** ADR-017: Năm học hoạt động hợp lệ ('YYYY-YYYY', không bao giờ rỗng). */
   resolveActiveYear: () => string
@@ -72,29 +72,23 @@ export const useAcademicYearStore = create<AcademicYearState>()(
 
       setCurrentYear: (year: string) => set({ currentYear: year }),
 
-      // F7 (audit): Trước đây chỉ set local → các thiết bị khác không thấy năm học
-      // mới, điểm/điểm danh năm mới lệch year-scoping giữa máy. Giờ POST lên server
-      // (idempotent, best-effort: offline vẫn chuyển active local như cũ).
+      // Academic-year creation has no durable offline command contract. Selection
+      // and creation are separate actions: never announce/create local authority
+      // until the server has acknowledged the authoritative row.
       createAcademicYear: async (year: string) => {
         const normId = normalizeAcademicYear(year) || year
-        set({ currentYear: normId })
-        if (!isAuthenticated()) return
-        try {
-          const created = await api.createAcademicYear({ id: normId })
-          if (created?.id) {
-            const exists = get().academicYears.some((y) => normalizeAcademicYear(y.id) === normalizeAcademicYear(created.id))
-            if (!exists) {
-              set((state) => ({
-                academicYears: [
-                  created,
-                  ...state.academicYears.filter((y) => normalizeAcademicYear(y.id) !== normalizeAcademicYear(created.id)),
-                ] as AcademicYearItem[],
-              }))
-            }
-          }
-        } catch {
-          // offline/network error — năm học vẫn hoạt động local; sync kế tiếp sẽ pull
+        if (!isAuthenticated()) {
+          throw new Error('Cần kết nối và đăng nhập để tạo năm học mới')
         }
+        const created = await api.createAcademicYear({ id: normId })
+        if (!created?.id) throw new Error('Máy chủ không xác nhận năm học vừa tạo')
+        set((state) => ({
+          currentYear: created.id,
+          academicYears: [
+            created,
+            ...state.academicYears.filter((item) => normalizeAcademicYear(item.id) !== normalizeAcademicYear(created.id)),
+          ] as AcademicYearItem[],
+        }))
       },
 
       resolveActiveYear: () => resolveActiveAcademicYear(get().currentYear),

@@ -8,6 +8,7 @@ import { eq, and } from 'drizzle-orm'
 import type { ActorContext } from '../types/actor.js'
 import { getSuperAdminId, isSuperAdmin } from '../utils/protectedPrincipal.js'
 import { getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
+import { resolveJwtSecrets } from '../utils/jwtSecretPolicy.js'
 export { getSuperAdminId, isSuperAdmin } from '../utils/protectedPrincipal.js'
 
 // Compatibility exports for routes. Application services import the query
@@ -19,23 +20,9 @@ declare module 'hono' {
   }
 }
 
-const isTestEnv = process.env.NODE_ENV === 'test' || !!process.env.VITEST
-// ADR-016 (S17): Fallback secret CHỈ hợp lệ ở test/dev. Trước đây biểu thức
-// `|| true` làm ternary LUÔN đúng → prod thiếu JWT_SECRET vẫn chạy bằng secret
-// công khai "default-test-jwt-secret-key-32-chars-long" → ai cũng giả mạo được
-// token; throw ở dưới là dead code. Production giờ bắt buộc có JWT_SECRET.
-const rawJwtSecret = process.env.JWT_SECRET || (isTestEnv || process.env.NODE_ENV !== 'production' ? 'default-test-jwt-secret-key-32-chars-long' : '')
-if (!rawJwtSecret) {
-  throw new Error('JWT_SECRET environment variable is required')
-}
-// JWT_REFRESH_SECRET tách riêng khỏi access secret (defense-in-depth). Production BẮT BUỘC
-// set riêng — không fallback về JWT_SECRET; dev/test fallback về rawJwtSecret để chạy mặc định.
-const rawRefreshSecret = process.env.JWT_REFRESH_SECRET || (isTestEnv || process.env.NODE_ENV !== 'production' ? rawJwtSecret : '')
-if (!rawRefreshSecret) {
-  throw new Error('JWT_REFRESH_SECRET environment variable is required in production')
-}
-const JWT_SECRET: string = rawJwtSecret
-const JWT_REFRESH_SECRET: string = rawRefreshSecret
+// Dev/test keep a deterministic fallback. Production fails closed unless both
+// independent HS256 secrets satisfy the documented minimum strength policy.
+const { accessSecret: JWT_SECRET, refreshSecret: JWT_REFRESH_SECRET } = resolveJwtSecrets()
 
 const JWT_EXPIRES_IN = '15m'
 const REFRESH_EXPIRES_IN = '7d'

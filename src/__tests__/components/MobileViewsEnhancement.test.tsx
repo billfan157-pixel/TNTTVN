@@ -10,6 +10,7 @@ import { MobileAttendanceView } from '../../components/mobile/MobileAttendanceVi
 import { MobileAttendanceSummaryView } from '../../components/mobile/MobileAttendanceSummaryView'
 import { MobileLeaveRequests } from '../../components/mobile/MobileLeaveRequests'
 import { MobileBottomNav } from '../../components/mobile/MobileBottomNav'
+import { DesktopNotices } from '../../components/desktop/DesktopNotices'
 import { useAuthStore } from '../../stores/authStore'
 import { useNoticeStore } from '../../stores/noticeStore'
 import { useStudentStore } from '../../stores/studentStore'
@@ -22,13 +23,10 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     user: useAuthStore.getState().user,
     role: useAuthStore.getState().user?.role || 'phuta',
-    can: (action: string, ...roles: string[]) => {
+    can: (...roles: string[]) => {
       const u = useAuthStore.getState().user
       if (!u) return false
-      if (action === 'admin') return u.role === 'admin'
-      if (u.role === 'admin') return true
-      if (roles.length > 0) return roles.includes(u.role)
-      return false
+      return roles.includes(u.role)
     }
   })
 }))
@@ -143,7 +141,18 @@ describe('MobileViewsEnhancement Tests', () => {
       expect(screen.getByText('Sửa')).toBeInTheDocument()
     })
 
-    it('hides Add button and Edit button for non-admin users', () => {
+    it('shows Add button and Edit button for chunhiem users', () => {
+      useAuthStore.setState({
+        user: { id: 'cn-1', username: 'cn', fullName: 'Chủ nhiệm', role: 'chunhiem', status: 'ACTIVE', parishId: 'test-parish' }
+      })
+
+      render(<MobileNoticesView />)
+
+      expect(screen.getByText('Thêm')).toBeInTheDocument()
+      expect(screen.getByText('Sửa')).toBeInTheDocument()
+    })
+
+    it('hides Add button and Edit button for phuta users', () => {
       useAuthStore.setState({
         user: { id: 'glv-1', username: 'glv', fullName: 'GLV User', role: 'phuta', status: 'ACTIVE', parishId: 'test-parish' }
       })
@@ -152,6 +161,25 @@ describe('MobileViewsEnhancement Tests', () => {
 
       expect(screen.queryByText('Thêm')).not.toBeInTheDocument()
       expect(screen.queryByText('Sửa')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('DesktopNotices', () => {
+    it('matches server notice mutation roles for chunhiem and phuta', () => {
+      useAuthStore.setState({
+        user: { id: 'cn-desktop', username: 'cn-desktop', fullName: 'Chủ nhiệm', role: 'chunhiem', status: 'ACTIVE', parishId: 'test-parish' }
+      })
+      const { unmount } = render(<DesktopNotices />)
+      expect(screen.getByRole('button', { name: /Thêm Thông Báo/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Sửa' })).toBeInTheDocument()
+      unmount()
+
+      useAuthStore.setState({
+        user: { id: 'phuta-desktop', username: 'phuta-desktop', fullName: 'Phụ tá', role: 'phuta', status: 'ACTIVE', parishId: 'test-parish' }
+      })
+      render(<DesktopNotices />)
+      expect(screen.queryByRole('button', { name: /Thêm Thông Báo/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Sửa' })).not.toBeInTheDocument()
     })
   })
 

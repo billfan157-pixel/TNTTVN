@@ -10,7 +10,10 @@
 export function normalizeAcademicYear(rawYear?: string | null): string {
   if (!rawYear) return getCurrentAcademicYear()
   const normalized = rawYear.trim().replace(/\s*[-–—]\s*/g, '-')
-  return normalized || getCurrentAcademicYear()
+  // Persistence IDs may carry a prefix (for example `AY-2025-2026`) while
+  // reporting and grade facts use the canonical `2025-2026` value.
+  const canonicalPair = normalized.match(/(?:^|\D)(\d{4})-(\d{4})(?:\D|$)/)
+  return canonicalPair ? `${canonicalPair[1]}-${canonicalPair[2]}` : normalized || getCurrentAcademicYear()
 }
 
 /**

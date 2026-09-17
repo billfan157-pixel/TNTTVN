@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { DesktopReports } from '../../components/desktop/DesktopReports'
 import { useToastStore } from '../../stores/toastStore'
 import * as reportExporter from '../../services/reportExporter'
@@ -77,7 +77,8 @@ describe('DesktopReports Error Feedback', () => {
     useToastStore.setState({ toasts: [] })
   })
 
-  it('triggers toast error notification instead of confirm dialog when export fails', () => {
+  it('triggers toast error notification instead of confirm dialog when export fails', async () => {
+    vi.spyOn(reportExporter, 'buildBranchSummaryRows').mockResolvedValue([{ 'Phân Ngành': 'Ấu Nhi' }])
     // Force exportCsv to throw
     vi.spyOn(reportExporter, 'exportCsv').mockImplementation(() => {
       throw new Error('Disk write failure')
@@ -92,10 +93,12 @@ describe('DesktopReports Error Feedback', () => {
     fireEvent.click(exportCsvButtons[0])
 
     // Toast store should have received error toast
-    const toasts = useToastStore.getState().toasts
-    expect(toasts.length).toBe(1)
-    expect(toasts[0].message).toBe('Lỗi khi xuất báo cáo! Vui lòng thử lại.')
-    expect(toasts[0].type).toBe('error')
+    await waitFor(() => {
+      const toasts = useToastStore.getState().toasts
+      expect(toasts.length).toBe(1)
+      expect(toasts[0].message).toBe('Lỗi khi xuất báo cáo! Vui lòng thử lại.')
+      expect(toasts[0].type).toBe('error')
+    })
 
     // Confirm dialog should NOT be shown
     expect(screen.queryByRole('dialog', { name: /Lỗi xuất báo cáo/i })).toBeNull()

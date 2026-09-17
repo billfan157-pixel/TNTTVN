@@ -135,6 +135,40 @@ describe('Tier 2 — daily-entries ledger API', () => {
     expect(res.data.items[0].reason).toMatch(/quyền/)
   })
 
+  it('phuta của lớp được nhập và xóa daily entry cùng authoritative Grade projection', async () => {
+    const assignmentId = `asg-d-phuta-local-${PREFIX}`
+    const entryId = `DG-${PREFIX}-phuta-local`
+    await db.insert(catechistAssignments).values({
+      id: assignmentId,
+      userId: phutaOtherId,
+      classId,
+      roleInClass: 'phuta',
+      parishId,
+    })
+    try {
+      const saved = await jsonReq(dailyEntriesApp, '/batch', {
+        method: 'POST',
+        token: phutaOtherToken,
+        body: { entries: [entry(entryId, 7)] },
+      })
+      expect(saved.status).toBe(200)
+      expect(saved.data).toMatchObject({ saved: 1, errorCount: 0 })
+      expect(await db.select().from(assessmentEntries).where(and(
+        eq(assessmentEntries.parishId, parishId),
+        eq(assessmentEntries.id, entryId),
+      ))).toHaveLength(1)
+      const [projected] = await db.select().from(grades).where(and(
+        eq(grades.parishId, parishId),
+        eq(grades.studentId, studentId),
+      ))
+      expect(projected.scoreOralSource).toBe('daily_avg')
+
+      expect((await jsonReq(dailyEntriesApp, `/${entryId}`, { method: 'DELETE', token: phutaOtherToken })).status).toBe(200)
+    } finally {
+      await db.delete(catechistAssignments).where(eq(catechistAssignments.id, assignmentId))
+    }
+  })
+
   it('học kỳ khóa → item error, không ghi gì', async () => {
     await db.insert(semesterLocks).values({ id: `sml-d-${PREFIX}`, parishId, academicYear: yearId, semester: 1, isLocked: 1 }).onConflictDoNothing()
     try {

@@ -94,6 +94,7 @@ describe('Server JWT Refresh Token Rotation & Reuse Detection Tests', () => {
     // A-NEW-01 acceptance: refresh response KHÔNG trả refreshToken trong JSON.
     expect(body.data.refreshToken).toBeUndefined()
     expect(body.data.accessToken).toBeTruthy()
+    expect(body.data).toMatchObject({ userId, parishId })
     const freshCookie = extractRefreshCookie(res)!
     expect(freshCookie).not.toBe(first.refreshToken)
 
@@ -147,7 +148,7 @@ describe('Server JWT Refresh Token Rotation & Reuse Detection Tests', () => {
     expect(resA.status).toBe(401)
   })
 
-  it('logout KHÔNG có refreshToken → revoke toàn bộ + bump tokenVersion (backward compatible)', async () => {
+  it('logout without a refresh credential does not silently become global logout', async () => {
     const { accessToken } = await loginToken()
     const res = await authApp.request('/logout', {
       method: 'POST',
@@ -159,7 +160,7 @@ describe('Server JWT Refresh Token Rotation & Reuse Detection Tests', () => {
       method: 'GET',
       headers: { Authorization: `Bearer ${accessToken}` },
     })
-    expect(res2.status).toBe(401)
+    expect(res2.status).toBe(200)
   })
 
   it('A-NEW-01: body refreshToken bị IGNORE — chỉ cookie được chấp nhận; không cookie → 401', async () => {

@@ -5,7 +5,7 @@ vi.mock('../../services/notificationQueue.js', () => ({
 }))
 
 import { enqueueNotification } from '../../services/notificationQueue.js'
-import { notifyAbsence, notifyReportCard, notifySundayMassReminder, notifyClassReminder } from '../../services/smartNotifications.js'
+import { notifyAbsence, notifyBatchReportCards, notifyReportCard, notifySundayMassReminder, notifyClassReminder } from '../../services/smartNotifications.js'
 import { db } from '../../db/index.js'
 import { users, students, classes, branches, academicYears } from '../../db/schema.js'
 import { eq, and } from 'drizzle-orm'
@@ -107,6 +107,33 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
   it('notifyClassReminder targets parents in the requested class only', async () => {
     await notifyClassReminder(parishId, 'Lớp TN1', '15/01/2025')
     expect(allWebpushUserIds()).toEqual(expect.arrayContaining([parentThieuNhiId, parentAuNhiId]))
+  })
+
+  it('batch failure diagnostics do not log student name or class PII', async () => {
+    vi.mocked(enqueueNotification).mockRejectedValueOnce(new Error('queue unavailable'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const studentName = 'Tên Nhạy Cảm'
+    const className = 'Lớp Bí Mật'
+    try {
+      await notifyBatchReportCards(parishId, [{
+        studentId: `st-tn-${PREFIX}`,
+        studentName,
+        holyName: 'Giuse',
+        className,
+        score: 8,
+        rank: 'Khá',
+        attendanceRate: 90,
+        attendancePresent: 18,
+        attendanceTotal: 20,
+      }])
+      const rendered = JSON.stringify(errorSpy.mock.calls)
+      expect(rendered).not.toContain(studentName)
+      expect(rendered).not.toContain(className)
+      expect(rendered).toContain(`st-tn-${PREFIX}`)
+      expect(rendered).toContain('Error')
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('notifySundayMassReminder uses explicit parent targets on app push only', async () => {

@@ -16,6 +16,7 @@ import {
 } from '../lib/syncCoordinator'
 import { api, ApiError } from '../lib/api'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { setTenantScope } from '../lib/tenantScope'
 
 const OWNER = { userId: 'U-TEST', parishId: 'PARISH-TEST' }
 
@@ -27,6 +28,7 @@ async function readLastError(item: { lastError: string | null }): Promise<string
 
 beforeEach(async () => {
   localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
+  setTenantScope(OWNER)
   await initDB()
   const db = getDB()
   await db.syncQueue.clear()

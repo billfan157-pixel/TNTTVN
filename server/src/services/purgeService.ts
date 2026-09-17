@@ -5,6 +5,7 @@ import { auditLogs } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { writeSafetySnapshot, pruneSafetySnapshots } from './safetySnapshot.js'
 import { advanceClientResetVersion } from './clientDataGeneration.js'
+import type { AdminReauthProof } from './userService.js'
 
 export { PURGE_VERSION_KEY, DEFAULT_PURGE_VERSION } from './clientDataGeneration.js'
 
@@ -91,6 +92,7 @@ function computeChecksum(dataObj: any): string {
 interface PurgeSnapshotOptions {
   parishId: string
   userId: string
+  reauth: AdminReauthProof
 }
 
 /**
@@ -107,7 +109,7 @@ interface PurgeSnapshotOptions {
 export async function purgeParishData(
   options: PurgeSnapshotOptions,
 ): Promise<{ countsBefore: Record<string, number>; purgeVersion: number }> {
-  const { parishId, userId } = options
+  const { parishId, userId, reauth } = options
 
   const countsBefore: Record<string, number> = {}
   const snapshotData: Record<string, any[]> = {}
@@ -143,6 +145,7 @@ export async function purgeParishData(
   // đều đã bị xóa trong cùng transaction nên commit luôn hợp lệ (bảo hiểm kép cho thứ tự DELETE).
   // Verify nằm TRONG transaction: nếu bất kỳ bảng nào không về 0 → throw → rollback toàn bộ.
   const nextVersion = await db.transaction(async (tx) => {
+    await reauth(tx, userId, parishId, parishId, 'SYSTEM_PURGE_FAILED')
     try {
       await tx.run(sql`PRAGMA defer_foreign_keys = ON`)
     } catch { /* pragma không bắt buộc — thứ tự DELETE đã an toàn */ }

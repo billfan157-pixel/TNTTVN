@@ -75,4 +75,16 @@ describe('deployment and native privacy contracts', () => {
     expect(workflow).toContain("grep -qi '^content-security-policy:'")
     expect(workflow).toContain("grep -qi '^strict-transport-security:'")
   })
+
+  it('keeps the Render browser origin allowlist aligned with the production auth policy', () => {
+    const blueprint = read('render.yaml')
+    const clientOrigin = blueprint.match(/- key: CLIENT_ORIGIN\s+value:\s*([^\r\n]+)/)?.[1]
+
+    expect(clientOrigin?.split(',')).toEqual([
+      'https://tnttvn.vercel.app',
+      'capacitor://localhost',
+      'https://localhost',
+    ])
+    expect(clientOrigin).not.toContain('http://localhost')
+  })
 })

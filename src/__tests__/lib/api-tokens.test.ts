@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { setTokens, loadTokensFromStorage, clearTokens, getAccessToken, bootstrapAccessToken } from '../../lib/api'
+import { setTokens, loadTokensFromStorage, clearTokens, getAccessToken, bootstrapAccessToken, setNavigateToLogin } from '../../lib/api'
+import { setTenantScope } from '../../lib/tenantScope'
 
 // SECURITY_AUDIT_A01 + A-NEW-01/10 — client KHÔNG giữ refresh token ở BẤT KỲ ĐÂU trong JS
 // (không memory, không localStorage) — nguồn duy nhất là HttpOnly cookie.
@@ -10,10 +11,12 @@ describe('A01 + A-NEW-01 — token storage (client, cookie-only)', () => {
   beforeEach(() => {
     localStorage.clear()
     clearTokens()
+    setNavigateToLogin(() => {})
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    setTenantScope(null)
   })
 
   it('setTokens CHỈ giữ access token trong memory — KHÔNG ghi localStorage, KHÔNG có kênh nào để JS giữ refresh token', () => {
@@ -75,6 +78,23 @@ describe('A01 + A-NEW-01 — token storage (client, cookie-only)', () => {
     }))
 
     await expect(pending).resolves.toBe(false)
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it('accepts same-owner refresh but rejects a shared-cookie response for another tab account', async () => {
+    setTenantScope({ parishId: 'PARISH-A', userId: 'USER-A' })
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+        accessToken: 'same-owner', userId: 'USER-A', parishId: 'PARISH-A',
+      } }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: {
+        accessToken: 'other-owner', userId: 'USER-B', parishId: 'PARISH-B',
+      } }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+
+    await expect(bootstrapAccessToken()).resolves.toBe(true)
+    expect(getAccessToken()).toBe('same-owner')
+    clearTokens()
+    await expect(bootstrapAccessToken()).resolves.toBe(false)
     expect(getAccessToken()).toBeNull()
   })
 })

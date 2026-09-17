@@ -69,10 +69,13 @@ export function BiometricLockGate({ children }: { children: React.ReactNode }) {
 
   if (!enabled || !locked) return <>{children}</>
 
-  const recoverWithPassword = () => {
+  const recoverWithPassword = async () => {
     clearForPasswordRecovery(account)
-    useAuthStore.getState().logout()
-    window.location.assign('/login')
+    await useAuthStore.getState().logout()
+    // Keep the current document alive until revocation/cleanup completes and
+    // preserve any local-only logout warning on the login screen.
+    const { router } = await import('../../router')
+    await router.navigate({ to: '/login' })
   }
 
   return (

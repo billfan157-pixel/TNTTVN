@@ -1,6 +1,7 @@
 import { getDB } from './db'
 import { decryptQueueValue, encryptQueueValue } from './offlineCipher'
-import { isOwnOp } from '../stores/syncStore'
+import { isOpOwnedBy, isOwnOp } from '../stores/syncStore'
+import type { TenantScope } from './tenantScope'
 
 /**
  * REFACTOR-SYNC-1 (2026-08-24): tách từ `hooks/useSyncEngine.ts` (god-file 1029 dòng)
@@ -82,13 +83,13 @@ export async function promoteTransientFailedOps(): Promise<void> {
 }
 
 /** Sau khi notice create trả về server ID, remap trong tất cả pending ops đang dùng temp ID */
-export async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
+export async function remapNoticeIdInPendingOps(oldId: string, newId: string, owner?: TenantScope) {
   const db = getDB()
   const pending = await db.syncQueue
     .where('status')
     .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
-  for (const item of pending.filter(isOwnOp)) {
+  for (const item of pending.filter(item => owner ? isOpOwnedBy(item, owner) : isOwnOp(item))) {
     if (item.serverAcknowledgement) continue
     const payload = await parseQueuePayload(item.payload, true)
     if (!payload) continue
@@ -108,13 +109,13 @@ export async function remapNoticeIdInPendingOps(oldId: string, newId: string) {
 }
 
 /** Sau khi class create trả về server ID, remap classId trong tất cả pending ops đang dùng temp ID */
-export async function remapClassIdInPendingOps(oldId: string, newId: string) {
+export async function remapClassIdInPendingOps(oldId: string, newId: string, owner?: TenantScope) {
   const db = getDB()
   const raw = await db.syncQueue
     .where('status')
     .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
-  const pending = raw.filter(isOwnOp)
+  const pending = raw.filter(item => owner ? isOpOwnedBy(item, owner) : isOwnOp(item))
   for (const item of pending) {
     if (item.serverAcknowledgement) continue
     const payload = await parseQueuePayload(item.payload, true)
@@ -141,13 +142,13 @@ export async function remapClassIdInPendingOps(oldId: string, newId: string) {
 }
 
 /** Sau khi student create trả về server ID, remap trong tất cả pending ops đang dùng temp ID */
-export async function remapStudentIdInPendingOps(oldId: string, newId: string) {
+export async function remapStudentIdInPendingOps(oldId: string, newId: string, owner?: TenantScope) {
   const db = getDB()
   const raw = await db.syncQueue
     .where('status')
     .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
-  const pending = raw.filter(isOwnOp)
+  const pending = raw.filter(item => owner ? isOpOwnedBy(item, owner) : isOwnOp(item))
   for (const item of pending) {
     if (item.serverAcknowledgement) continue
     const payload = await parseQueuePayload(item.payload, true)
@@ -194,13 +195,13 @@ export async function remapStudentIdInPendingOps(oldId: string, newId: string) {
 }
 
 /** Sau khi exam session create trả về server ID, remap sessionId trong tất cả pending ops đang dùng temp ID */
-export async function remapExamSessionIdInPendingOps(oldId: string, newId: string) {
+export async function remapExamSessionIdInPendingOps(oldId: string, newId: string, owner?: TenantScope) {
   const db = getDB()
   const raw = await db.syncQueue
     .where('status')
     .anyOf(['pending', 'retrying', 'failed'])
     .toArray()
-  const pending = raw.filter(isOwnOp)
+  const pending = raw.filter(item => owner ? isOpOwnedBy(item, owner) : isOwnOp(item))
   for (const item of pending) {
     if (item.serverAcknowledgement) continue
     const payload = await parseQueuePayload(item.payload, true)

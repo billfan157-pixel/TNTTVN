@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const { mockApi, snapshotStore } = vi.hoisted(() => ({
   mockApi: {
     login: vi.fn(),
-    logout: vi.fn().mockResolvedValue(undefined),
+    logout: vi.fn().mockResolvedValue({ serverConfirmed: true }),
     changePassword: vi.fn(),
     me: vi.fn(),
   },
@@ -33,13 +33,19 @@ vi.mock('../../stores/resetStores', () => ({
 }))
 
 vi.mock('../../lib/tenantScope', () => ({
+  getTenantScope: vi.fn(() => null),
   setTenantScope: vi.fn(),
   rehydrateTenantStores: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../lib/syncSessionBoundary', () => ({
+  markSyncScopeInvalidated: vi.fn(),
+  quarantineInvalidatedSyncScope: vi.fn().mockResolvedValue(0),
+}))
+
 vi.mock('../../lib/db', () => ({
   AUTH_SNAPSHOT_KEY: 'parish_auth_user',
-  clearAuthSnapshot: vi.fn(() => snapshotStore.clear()),
+  clearAuthSnapshot: vi.fn(async () => snapshotStore.clear()),
   dexieStorage: {
     getItem: vi.fn(async (k: string) => snapshotStore.get(k) ?? null),
     setItem: vi.fn(async (k: string, v: string) => { snapshotStore.set(k, v) }),
@@ -129,7 +135,7 @@ describe('authStore — logout / setUser', () => {
     snapshotStore.set('parish_auth_user', JSON.stringify(fullUser))
     useAuthStore.setState({ user: fullUser as any, isAuthenticated: true })
 
-    useAuthStore.getState().logout()
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: true })
 
     expect(mockApi.logout).toHaveBeenCalled()
     expect(clearTokens).toHaveBeenCalled()

@@ -35,7 +35,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
       expect(localStorage.getItem('parish_current_user')).not.toBeNull()
     })
 
-    it('clears tokens and fails on 401 auth error', async () => {
+    it('clears the stale marker and fails on authoritative 401 refresh rejection', async () => {
       localStorage.setItem('parish_current_user', JSON.stringify({
         id: 'usr-1',
         username: 'glv1',
@@ -50,6 +50,7 @@ describe('Frontend Audit Fixes (FE-01 .. FE-06)', () => {
 
       const result = await bootstrapAccessToken()
       expect(result).toBe(false)
+      expect(localStorage.getItem('parish_current_user')).toBeNull()
     })
   })
 

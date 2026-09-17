@@ -4,7 +4,7 @@ import { students, classes, branches, academicYears, grades, attendance, promoti
 import { reportCardProjectionRepository } from '../../repositories/ReportCardProjectionRepository.js'
 import { classSummaryProjectionRepository } from '../../repositories/ClassSummaryProjectionRepository.js'
 import { getAcademicYearDateRange } from '../../services/academicYearService.js'
-import { getParishAttendancePolicy, getParishGradeWeights } from '../../services/parishSettingsService.js'
+import { getParishAttendancePolicy, getParishClassificationThresholds, getParishGradeWeights } from '../../services/parishSettingsService.js'
 import { reportingApplicationService } from '../../services/ReportingApplicationService.js'
 
 async function reportingContext(parishId: string, academicYear: string) {
@@ -13,6 +13,7 @@ async function reportingContext(parishId: string, academicYear: string) {
     academicYearRange: await getAcademicYearDateRange(parishId, academicYear),
     gradeWeights: await getParishGradeWeights(parishId),
     attendancePolicy: await getParishAttendancePolicy(parishId),
+    classificationThresholds: await getParishClassificationThresholds(parishId),
   }
 }
 
@@ -103,18 +104,23 @@ describe('Reporting CQRS Projection Repositories Micro-Step R2 Tests', () => {
     expect(reportCard?.student.className).toBe('Lớp Reporting')
     expect(reportCard?.grades.length).toBe(1)
     expect(reportCard?.grades[0].gpa).toBe(9.0)
+    expect(reportCard?.grades[0].classification).toBe('Xuất Sắc')
+    expect(reportCard?.yearSummary).toEqual({ gpa: 9, classification: 'Xuất Sắc' })
     expect(reportCard?.attendanceSummary.overallAttendanceRate).toBe(100.0)
     expect(reportCard?.promotion?.status).toBe('PROMOTED')
   })
 
   it('2. ClassSummaryProjectionRepository returns class roster summary (Pure CQRS SELECT)', async () => {
+    const context = await reportingContext(testParish, academicYear)
+    const reportClasses = await classSummaryProjectionRepository.listClasses(academicYear, testParish, context)
     const classSummary = await classSummaryProjectionRepository.getClassSummary(
       classId,
       academicYear,
       testParish,
-      await reportingContext(testParish, academicYear),
+      context,
     )
 
+    expect(reportClasses).toContainEqual({ id: classId, name: 'Lớp Reporting', branchId, academicYear })
     expect(classSummary).not.toBeNull()
     expect(classSummary?.className).toBe('Lớp Reporting')
     expect(classSummary?.totalStudents).toBe(1)

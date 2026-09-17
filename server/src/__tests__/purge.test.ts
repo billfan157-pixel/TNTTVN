@@ -5,7 +5,8 @@ import { generateTokens } from '../middleware/auth.js'
 import { db, client } from '../db/index.js'
 import { users, branches, auditLogs, systemSettings } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
-import { PURGE_TABLES, PURGE_VERSION_KEY, DEFAULT_PURGE_VERSION } from '../services/purgeService.js'
+import { PURGE_TABLES, PURGE_VERSION_KEY, DEFAULT_PURGE_VERSION, purgeParishData } from '../services/purgeService.js'
+import { AdminAuthorizationChangedError, captureAdminReauth } from '../services/userService.js'
 
 describe('Purge v2.4 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
   const parishId = 'parish-purge-test'
@@ -111,6 +112,32 @@ describe('Purge v2.4 — Xóa Toàn Bộ Dữ Liệu Giáo Xứ', () => {
     expect(res.status).toBe(400)
     const json = (await res.json()) as any
     expect(json.error.code).toBe('INVALID_CONFIRM_KEY')
+  })
+
+  it('rechecks admin authority inside the purge transaction before deleting rows', async () => {
+    const proof = await captureAdminReauth(
+      adminId,
+      ADMIN_PASSWORD,
+      parishId,
+      '127.0.0.1',
+      'Vitest',
+      parishId,
+      'SYSTEM_PURGE_FAILED',
+      1,
+    )
+    expect(proof).toBeTruthy()
+
+    // Deterministic interleaving: request admission and password verification
+    // completed, then the actor was locked before the destructive transaction.
+    await db.update(users).set({ status: 'LOCKED', tokenVersion: 2 }).where(and(eq(users.id, adminId), eq(users.parishId, parishId)))
+    try {
+      await expect(purgeParishData({ parishId, userId: adminId, reauth: proof! }))
+        .rejects.toBeInstanceOf(AdminAuthorizationChangedError)
+      const student = await client.execute(`SELECT count(*) AS n FROM students WHERE parish_id = ?`, [parishId])
+      expect(Number(((student.rows?.[0] as any)?.n) ?? 0)).toBe(1)
+    } finally {
+      await db.update(users).set({ status: 'ACTIVE', tokenVersion: 1 }).where(and(eq(users.id, adminId), eq(users.parishId, parishId)))
+    }
   })
 
   it('200 — purge thành công: 26 bảng về 0, bảng hệ thống giữ nguyên, purge_version tăng', async () => {

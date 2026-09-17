@@ -38,11 +38,13 @@ vi.mock('../../lib/db', () => ({
 }))
 
 const { useSyncStore } = await import('../../stores/syncStore')
+const { setTenantScope } = await import('../../lib/tenantScope')
 
 beforeEach(() => {
   useSyncStore.setState({ status: 'idle', pendingCount: 0, lastSyncAt: null, lastError: null })
   vi.clearAllMocks()
   localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
+  setTenantScope(OWNER)
 
   mockTable.where.mockReturnThis()
   mockTable.anyOf = vi.fn().mockReturnThis()

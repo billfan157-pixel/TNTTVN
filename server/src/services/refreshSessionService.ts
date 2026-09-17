@@ -4,6 +4,7 @@ import { db, runDbTransaction, type DbExecutor } from '../db/index.js'
 import { refreshTokens, users } from '../db/schema.js'
 import { generateTokens, verifyRefreshToken, isSuperAdmin } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
+import { getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
 
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -49,7 +50,7 @@ export async function issueTokensWithSession(user: AuthUserLike, tokenVersion: n
 }
 
 export type RefreshRotationResult =
-  | { status: 'ok'; accessToken: string; refreshToken: string }
+  | { status: 'ok'; accessToken: string; refreshToken: string; userId: string; parishId: string }
   | { status: 'rejected'; code: string; message: string }
 
 /**
@@ -122,15 +123,34 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
   // phải set lại trong tx). Conditional UPDATE `revoked_at IS NULL` là atomic claim:
   // đúng 1 request đồng thời claim được token; request thua → rowsAffected=0.
   return await runDbTransaction(async (tx) => {
+    // The earlier reads can predate a lock/reset/replay transaction. Never
+    // issue a successor from a snapshot whose authority has since changed.
+    const [live] = await tx.select().from(users).where(and(
+      eq(users.id, user.id), eq(users.parishId, user.parishId),
+    )).limit(1)
+    if (!live || live.deletedAt || live.tokenVersion !== user.tokenVersion || live.role !== user.role ||
+      live.status === 'INACTIVE' || (live.status === 'LOCKED' && !isSuperAdmin(live.id, live.parishId, live.role))) {
+      return { status: 'rejected', code: 'SESSION_INVALID', message: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại' }
+    }
     const res = await tx.update(refreshTokens)
       .set({ revokedAt: now, replacedBy: newId })
       .where(and(eq(refreshTokens.id, session.id), eq(refreshTokens.parishId, user.parishId), isNull(refreshTokens.revokedAt)))
       .run()
 
     if (res.rowsAffected !== 1) {
-      // RACE (2 tab/hai thiết bị refresh cùng lúc, window vài ms) — request thua claim.
-      // KHÔNG revoke-all/bump ở đây: session mới của request thắng còn hợp lệ.
-      return { status: 'rejected', code: 'SESSION_REUSE_DETECTED', message: 'Phát hiện refresh token bị tái sử dụng — vui lòng đăng nhập lại' }
+      // A concurrent claimant used the same bearer credential. The server cannot
+      // distinguish a benign second tab from a stolen-token replay, so contain
+      // both cases identically. The version CAS prevents racing losers from
+      // incrementing repeatedly; revocation commits with the winning increment.
+      await tx.update(users)
+        .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
+        .where(and(
+          eq(users.id, user.id),
+          eq(users.parishId, user.parishId),
+          eq(users.tokenVersion, user.tokenVersion),
+        ))
+      await revokeAllSessionsWith(tx, user.id, user.parishId)
+      return { status: 'rejected', code: 'SESSION_REUSE_DETECTED', message: 'Phát hiện refresh token bị tái sử dụng — đã thu hồi toàn bộ phiên đăng nhập' }
     }
 
     await tx.insert(refreshTokens).values({
@@ -140,14 +160,44 @@ export async function rotateRefreshSession(refreshToken: string): Promise<Refres
       tokenHash: hashRefreshToken(tokens.refreshToken),
       expiresAt: refreshExpiry(),
     })
-    return { status: 'ok', accessToken: tokens.accessToken, refreshToken: tokens.refreshToken }
+    return {
+      status: 'ok',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      userId: live.id,
+      parishId: live.parishId,
+    }
   })
 }
 
-export async function revokeSessionByTokenHash(tokenHash: string, parishId: string): Promise<void> {
-  await db.update(refreshTokens)
-    .set({ revokedAt: new Date().toISOString() })
-    .where(and(eq(refreshTokens.tokenHash, tokenHash), eq(refreshTokens.parishId, parishId)))
+export async function revokePresentedSessionByTokenHash(tokenHash: string): Promise<boolean> {
+  const deploymentParishId = getEnforcedDeploymentParishId()
+  return runDbTransaction(async tx => {
+    const [session] = await tx.select().from(refreshTokens).where(and(
+      eq(refreshTokens.tokenHash, tokenHash),
+      deploymentParishId ? eq(refreshTokens.parishId, deploymentParishId) : undefined,
+    )).limit(1)
+    if (!session) return false
+    // A refresh may have committed just before logout. Follow only this
+    // session's replacement chain, never unrelated device sessions.
+    let current: typeof session | undefined = session
+    const visited = new Set<string>()
+    const now = new Date().toISOString()
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id)
+      await tx.update(refreshTokens).set({ revokedAt: now }).where(and(
+        eq(refreshTokens.id, current.id), eq(refreshTokens.parishId, session.parishId),
+        eq(refreshTokens.userId, session.userId),
+      ))
+      if (!current.replacedBy) break
+      const [next] = await tx.select().from(refreshTokens).where(and(
+        eq(refreshTokens.id, current.replacedBy), eq(refreshTokens.parishId, session.parishId),
+        eq(refreshTokens.userId, session.userId),
+      )).limit(1)
+      current = next
+    }
+    return true
+  })
 }
 
 /**

@@ -91,11 +91,11 @@ studentsRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json',
       }
     }
 
-    const created = await createStudent(data, user.userId, user.parishId, ip, userAgent, data.idempotencyKey)
+    const created = await createStudent(data, user.userId, user.parishId, ip, userAgent, data.idempotencyKey, { role: user.role, epoch: user.tokenVersion })
     return successResponse(c, created, 201)
   } catch (err: any) {
     const message = err instanceof Error ? err.message : 'Lỗi tạo học sinh'
-    return errorResponse(c, err?.code || 'CREATE_FAILED', message, err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400)
+    return errorResponse(c, err?.code || 'CREATE_FAILED', message, err?.status || (err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400))
   }
 })
 
@@ -118,12 +118,12 @@ studentsRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('json
   }
 
   try {
-    const updated = await updateStudent(id, data, user.userId, user.parishId, ip, userAgent)
+    const updated = await updateStudent(id, data, user.userId, user.parishId, ip, userAgent, { role: user.role, epoch: user.tokenVersion })
     if (!updated) return errorResponse(c, 'NOT_FOUND', 'Học sinh không tồn tại', 404)
     return successResponse(c, updated)
   } catch (err: any) {
     const message = err instanceof Error ? err.message : 'Lỗi cập nhật học sinh'
-    return errorResponse(c, err?.code || 'UPDATE_FAILED', message, err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400)
+    return errorResponse(c, err?.code || 'UPDATE_FAILED', message, err?.status || (err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400))
   }
 })
 

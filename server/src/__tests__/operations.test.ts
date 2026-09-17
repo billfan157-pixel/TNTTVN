@@ -646,14 +646,48 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
 
     const planning = await data(await request(`/events/${event.id}/transition`, leaderToken, 'POST', { version: event.version, status: 'PLANNING' }))
     expect(planning.status).toBe('PLANNING')
-    for (const token of [parishLeaderToken, contributorToken]) {
-      expect((await request(`/events/${event.id}`, token)).status).toBe(200)
-      expect((await request(`/tasks/${task.id}`, token)).status).toBe(200)
-    }
+    expect((await request(`/events/${event.id}`, parishLeaderToken)).status).toBe(200)
+    expect((await request(`/tasks/${task.id}`, parishLeaderToken)).status).toBe(200)
+    // The pending task assignment grants task visibility needed to respond; it
+    // does not broaden into event-level visibility through ordinary membership.
+    expect((await request(`/events/${event.id}`, contributorToken)).status).toBe(403)
+    expect((await request(`/tasks/${task.id}`, contributorToken)).status).toBe(200)
     expect((await request(`/events/${event.id}`, ownerToken)).status).toBe(403)
     expect((await request(`/tasks/${task.id}`, ownerToken)).status).toBe(403)
     expect((await request(`/events/${event.id}`, committeeLeaderToken)).status).toBe(403)
     expect((await request(`/tasks/${task.id}`, committeeLeaderToken)).status).toBe(403)
+  })
+
+  it('does not turn an ordinary service term into Operations event or task read authority', async () => {
+    const event = await data(await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Sinh hoạt chỉ dành cho vai trò vận hành',
+      eventType: 'MEETING',
+      startsAt: '2026-10-09T08:00:00+07:00',
+      endsAt: '2026-10-09T10:00:00+07:00',
+      timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const task = await data(await request('/tasks', leaderToken, 'POST', {
+      eventId: event.id,
+      title: 'Chuẩn bị nội dung',
+    }))
+    await data(await request(`/events/${event.id}/transition`, leaderToken, 'POST', {
+      version: event.version,
+      status: 'PLANNING',
+    }))
+
+    // contributorId has a current term in branchId, but no authority-bearing
+    // position code and no role on these resources.
+    expect((await request(`/events/${event.id}`, contributorToken)).status).toBe(403)
+    expect((await request(`/tasks/${task.id}`, contributorToken)).status).toBe(403)
+    expect((await data(await request('/events?limit=500', contributorToken))).map((row: any) => row.id)).not.toContain(event.id)
+    expect((await data(await request('/tasks?limit=500', contributorToken))).map((row: any) => row.id)).not.toContain(task.id)
+
+    // Legitimate organizational and creator authority remains intact.
+    expect((await request(`/events/${event.id}`, leaderToken)).status).toBe(200)
+    expect((await request(`/tasks/${task.id}`, leaderToken)).status).toBe(200)
+    expect((await request(`/events/${event.id}`, parishLeaderToken)).status).toBe(200)
+    expect((await request(`/tasks/${task.id}`, parishLeaderToken)).status).toBe(200)
   })
 
   it('exposes business creation options and enforces Xu Doan versus unit scope', async () => {

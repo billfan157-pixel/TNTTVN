@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useSyncStore, migrateLegacyQueueUserIds } from '../stores/syncStore'
 import { processOperation } from '../lib/syncProcessor'
 import { api } from '../lib/api'
+import { setTenantScope } from '../lib/tenantScope'
 
 const mockTable: Record<string, any> = {
   put: vi.fn(),
@@ -56,6 +57,7 @@ describe('Offline Sync Remediation Verification (OS-01 to OS-04)', () => {
     useSyncStore.setState({ status: 'idle', pendingCount: 0, lastSyncAt: null, lastError: null })
     vi.clearAllMocks()
     localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
+    setTenantScope(OWNER)
 
     mockTable.where.mockReturnThis()
     mockTable.anyOf = vi.fn().mockReturnThis()
@@ -117,6 +119,7 @@ describe('Offline Sync Remediation Verification (OS-01 to OS-04)', () => {
 
   it('OFF-TENANT-1: legacy queue migration quarantines rows without guessing parish ownership', async () => {
     localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USER-MIGRATED', parishId: 'PARISH-A' }))
+    setTenantScope({ userId: 'USER-MIGRATED', parishId: 'PARISH-A' })
     mockTable.filter.mockReturnValue({
       toArray: vi.fn().mockResolvedValue([
         { id: 'OP-LEGACY-1', payload: '{}' },

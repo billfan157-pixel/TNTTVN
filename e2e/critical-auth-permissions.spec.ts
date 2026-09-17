@@ -33,8 +33,13 @@ test.describe('Critical authentication, session and authorization journeys', () 
     })
 
     await test.step('logout removes the local session and protected navigation fails closed', async () => {
+      const logoutResponse = page.waitForResponse(response => response.url().endsWith('/api/auth/logout'))
       await page.getByRole('button', { name: 'Đăng xuất' }).click()
+      const response = await logoutResponse
+      expect(response.status()).toBe(200)
+      expect((await response.json()).data.serverConfirmed).toBe(true)
       await expect(page).toHaveURL(/\/login$/)
+      expect((await page.context().cookies()).filter(cookie => cookie.name === 'parish_refresh')).toHaveLength(0)
       await expect.poll(() => page.evaluate(() => ({
         token: localStorage.getItem('parish_access_token'),
         marker: localStorage.getItem('parish_current_user'),
@@ -42,6 +47,42 @@ test.describe('Critical authentication, session and authorization journeys', () 
       await page.goto('/students')
       await expect(page).toHaveURL(/\/login$/)
     })
+  })
+
+  test('@critical two tabs queue refresh behind the same browser lock and keep a valid session', async ({ page, context }) => {
+    test.setTimeout(60000)
+    await loginThroughStaffPortal(page)
+    const second = await context.newPage()
+    await second.goto('/dashboard')
+    await expect(second.getByText('E2E Admin', { exact: true })).toBeVisible()
+    const control = await context.newPage()
+    await control.goto('/login')
+    // Hold the real browser lock so both reloads must queue, without timing sleeps.
+    await control.evaluate(() => new Promise<void>(ready => {
+      void navigator.locks.request('catevia-refresh-session', () => new Promise<void>(release => {
+        (window as unknown as { releaseAuthTestLock: () => void }).releaseAuthTestLock = release
+        ready()
+      }))
+    }))
+    const firstResponse = page.waitForResponse(r => r.url().endsWith('/api/auth/refresh'))
+    const secondResponse = second.waitForResponse(r => r.url().endsWith('/api/auth/refresh'))
+    const reloads = Promise.all([page.reload(), second.reload()])
+    try {
+      await expect.poll(() => control.evaluate(async () => {
+        const locks = await navigator.locks.query()
+        return locks.pending?.filter(lock => lock.name === 'catevia-refresh-session').length || 0
+      })).toBeGreaterThanOrEqual(2)
+    } finally {
+      await control.evaluate(() => (window as unknown as { releaseAuthTestLock: () => void }).releaseAuthTestLock())
+    }
+    await reloads
+    expect((await firstResponse).status()).toBe(200)
+    expect((await secondResponse).status()).toBe(200)
+    await expect(page.getByText('E2E Admin', { exact: true })).toBeVisible()
+    await expect(second.getByText('E2E Admin', { exact: true })).toBeVisible()
+    expect((await page.request.post('/api/auth/refresh')).status()).toBe(200)
+    await control.close()
+    await second.close()
   })
 
   test('@critical @mobile parent portal returns only linked children and cannot use staff APIs', async ({ page }) => {

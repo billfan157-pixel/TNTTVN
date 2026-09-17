@@ -6,6 +6,7 @@ import { processOperation, getBackoffMs } from '../lib/syncProcessor'
 import * as syncService from '../lib/syncService'
 import { api, ApiError } from '../lib/api'
 import { decryptQueueValue } from '../lib/offlineCipher'
+import { setTenantScope } from '../lib/tenantScope'
 
 // A-NEW-32: payload trong queue giờ được mã hóa (AAD 'syncQueue') — test parse
 // payload thật phải giải mã trước (dual-format vẫn trả nguyên legacy plaintext).
@@ -24,6 +25,7 @@ async function resetDB() {
   useSyncStore.getState().setLastError(null)
   useSyncStore.getState().setLastSync('')
   localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', parishId: 'PARISH-TEST' }))
+  setTenantScope({ userId: 'U-TEST', parishId: 'PARISH-TEST' })
 }
 
 function mockAllApiMethods() {

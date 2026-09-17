@@ -28,7 +28,7 @@ export interface ParishSettings {
   currentSemester: 1 | 2
 }
 
-const DEFAULT_SETTINGS: ParishSettings = {
+export const DEFAULT_SETTINGS: ParishSettings = {
   parishName: 'Giáo Xứ Gia Tôn',
   dioceseName: 'Giáo Phận Xuân Lộc',
   gradeWeights: DEFAULT_GRADE_WEIGHTS,

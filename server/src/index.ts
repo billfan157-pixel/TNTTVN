@@ -195,7 +195,6 @@ try {
   console.error('[startup] Configuration/database/deployment parish readiness check failed:', err)
   throw err
 }
-
 // Initial bootstrap is also part of the serving boundary. seedIfEmpty() writes the
 // required admin/config/permissions atomically; if it fails (including missing or
 // weak SEED_ADMIN_PASSWORD on a fresh DB), do not bind HTTP or start workers.
@@ -237,6 +236,18 @@ try {
 // → mật khẩu user đặt qua UI bị reset về SEED_ADMIN_PASSWORD sau mỗi restart/deploy
 // (lỗi "sai mật khẩu" dù pass cũ vẫn đúng). Việc tạo admin ban đầu đã do seedIfEmpty()
 // lo (chỉ chạy khi DB trống) — block này thừa và nguy hiểm. Không còn reset vô tình.
+
+// Durable delivery recovery and scheduler registration are part of readiness.
+// Complete them before bind so /health or real traffic cannot observe a
+// partially initialized runtime. Scheduler initializers only register timers;
+// they do not run an unbounded startup tick.
+await initNotificationQueue()
+initSundayReminderScheduler()
+initOperationsReminderScheduler()
+initOperationsEventLifecycleScheduler()
+initOperationsTaskDispatchScheduler()
+initOperationsManagerReminderScheduler()
+initBackupScheduler()
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST })
 console.log(`Server running at http://${HOST}:${PORT}`)
@@ -320,14 +331,3 @@ if (process.env.NODE_ENV !== 'test') {
     void gracefulShutdown('uncaughtException', 1)
   })
 }
-
-// Phase 2 (outbox convergence): notificationQueue là delivery engine duy nhất —
-// outbox worker/subscribers đã gỡ (bảng outbox_messages giữ dormant, không xóa
-// destructive). Telegram đã retire; queue chỉ dispatch Web/Native Push.
-await initNotificationQueue()
-initSundayReminderScheduler()
-initOperationsReminderScheduler()
-initOperationsEventLifecycleScheduler()
-initOperationsTaskDispatchScheduler()
-initOperationsManagerReminderScheduler()
-initBackupScheduler()

@@ -1,7 +1,7 @@
 import type { DbExecutor } from '../db/index.js'
 import { students, classes, grades, attendance, promotionRecords, gradeOverrides, academicYearSnapshots } from '../db/schema.js'
 import { eq, and, isNull, gte, lte, inArray } from 'drizzle-orm'
-import { computeWeightedGpa, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
+import { computeWeightedGpa, getClassificationLabel, type ClassificationThresholds, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import { academicReportSnapshotSchema, historicalEvidenceRequired, parseHistoricalEvidence, type FinalizationPolicy } from '../utils/academicYearHistory.js'
 
@@ -10,6 +10,7 @@ export interface ReportingProjectionContext {
   executor: DbExecutor
   gradeWeights: GradeWeightsConfig
   attendancePolicy: { excusedWeight: number }
+  classificationThresholds: ClassificationThresholds
   academicYearRange: { startDate: string; endDate: string }
 }
 
@@ -31,8 +32,14 @@ export interface ReportCardDTO {
     score1Period?: number | null
     scoreMidterm?: number | null
     scoreFinal?: number | null
+    scoreDaoDuc?: number | null
     gpa?: number | null
+    classification?: string | null
   }>
+  yearSummary: {
+    gpa: number | null
+    classification: string | null
+  }
   attendanceSummary: {
     massPresentCount: number
     massTotalCount: number
@@ -60,7 +67,7 @@ export class ReportCardProjectionRepository {
     parishId: string,
     context: ReportingProjectionContext,
   ): Promise<ReportCardDTO | null> {
-    const { executor, gradeWeights, attendancePolicy, academicYearRange } = context
+    const { executor, gradeWeights, attendancePolicy, classificationThresholds, academicYearRange } = context
     // 1. Fetch Student Profile (excluding soft-deleted)
     const [studentRow] = await executor
       .select({
@@ -95,7 +102,12 @@ export class ReportCardProjectionRepository {
       )).limit(1)
       return {
         student: { ...studentRow, className: sourceClass.name }, academicYear,
-        grades: frozen.grades, attendanceSummary: frozen.attendanceSummary,
+        grades: frozen.grades.map(grade => ({
+          ...grade,
+          classification: grade.gpa === null ? null : getClassificationLabel(grade.gpa, policy.classificationThresholds),
+        })),
+        yearSummary: { gpa: snapshot.yearGpa, classification: snapshot.classification },
+        attendanceSummary: frozen.attendanceSummary,
         promotion: promotion ? {
           status: promotion.finalDecision, gpa: promotion.gpaSnapshot, attendanceRate: promotion.attendanceSnapshot,
           isOverridden: !!promotion.isOverridden, overrideReason: promotion.overrideReason, approvedAt: promotion.approvedAt,
@@ -142,9 +154,18 @@ export class ReportCardProjectionRepository {
         score1Period: effectiveGrade.score1Period,
         scoreMidterm: effectiveGrade.scoreMidterm,
         scoreFinal: effectiveGrade.scoreFinal,
+        scoreDaoDuc: effectiveGrade.scoreDaoDuc,
         gpa,
+        classification: gpa === null ? null : getClassificationLabel(gpa, classificationThresholds),
       }
     })
+
+    const semesterGpas = formattedGrades.flatMap((grade) => typeof grade.gpa === 'number' ? [grade.gpa] : [])
+    const rounding = Number(gradeWeights.roundingDecimal ?? 1)
+    const factor = Math.pow(10, rounding)
+    const yearGpa = semesterGpas.length > 0
+      ? Math.round((semesterGpas.reduce((sum, value) => sum + value, 0) / semesterGpas.length) * factor) / factor
+      : null
 
     // 3. Fetch Attendance Summary — ADR-017 (F2): chỉ đếm attendance trong năm
     // học đang xét (trước đây đếm all-time → % lệch với client ReportViewModelFactory).
@@ -193,6 +214,10 @@ export class ReportCardProjectionRepository {
       student: studentRow,
       academicYear,
       grades: formattedGrades,
+      yearSummary: {
+        gpa: yearGpa,
+        classification: yearGpa === null ? null : getClassificationLabel(yearGpa, classificationThresholds),
+      },
       attendanceSummary: {
         massPresentCount: massPresent,
         massTotalCount: massRows.length,

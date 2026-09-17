@@ -13,7 +13,7 @@ export interface SyncQueueItem {
   entityId: string
   operation: 'CREATE' | 'UPDATE' | 'DELETE'
   payload: string
-  /** Encrypted committed CREATE response retained until local ID remap succeeds. */
+  /** Encrypted committed server result retained until owner-bound local reconciliation succeeds. */
   serverAcknowledgement?: string
   retryCount: number
   lastError: string | null
@@ -46,8 +46,12 @@ const STORE_KEYS = [
 export const AUTH_SNAPSHOT_KEY = 'parish_auth_user'
 
 /** Xóa snapshot đăng nhập mã hóa khi session chết (401 → redirect / logout). */
-export function clearAuthSnapshot(): void {
-  dexieStorage.removeItem(AUTH_SNAPSHOT_KEY).catch(() => {})
+export async function clearAuthSnapshot(): Promise<void> {
+  const scopedKey = scopedStorageKey(AUTH_SNAPSHOT_KEY)
+  if (!scopedKey) return
+  // Remove the legacy fallback too; capture the key before the first await.
+  localStorage.removeItem(scopedKey)
+  await DB.stores.delete(scopedKey)
 }
 
 const DB = new Dexie('ParishDB') as Dexie & {

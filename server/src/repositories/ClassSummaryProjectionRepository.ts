@@ -3,6 +3,14 @@ import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import type { ReportingProjectionContext } from './ReportCardProjectionRepository.js'
 import { historicalEvidenceRequired } from '../utils/academicYearHistory.js'
+import { normalizeAcademicYear } from '../utils/academicYear.js'
+
+export interface ReportClassDTO {
+  id: string
+  name: string
+  branchId: string | null
+  academicYear: string
+}
 
 export interface ClassStudentSummaryDTO {
   studentId: string
@@ -17,6 +25,7 @@ export interface ClassStudentSummaryDTO {
 export interface ClassSummaryDTO {
   classId: string
   className: string
+  branchId: string | null
   academicYear: string
   totalStudents: number
   promotedCount: number
@@ -28,6 +37,30 @@ export interface ClassSummaryDTO {
 }
 
 export class ClassSummaryProjectionRepository {
+  public async listClasses(
+    academicYear: string,
+    parishId: string,
+    context: ReportingProjectionContext,
+  ): Promise<ReportClassDTO[]> {
+    if (context.finalizedYear) {
+      return context.finalizedYear.policy.classes.map((item) => ({
+        id: item.id,
+        name: item.name,
+        branchId: item.branchId || null,
+        academicYear,
+      }))
+    }
+    const rows = await context.executor.select({
+      id: classes.id,
+      name: classes.name,
+      branchId: classes.branchId,
+      academicYear: classes.academicYearId,
+    }).from(classes).where(and(eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+    return rows
+      .filter((item) => normalizeAcademicYear(item.academicYear) === academicYear)
+      .map((item) => ({ ...item, branchId: item.branchId || null, academicYear }))
+  }
+
   /**
    * CQRS Read Projection: Fetch Class Academic & Attendance Roster Summary
    */
@@ -74,7 +107,7 @@ export class ClassSummaryProjectionRepository {
         }
       })
       return {
-        classId, className: sourceClass.name, academicYear, totalStudents: roster.length,
+        classId, className: sourceClass.name, branchId: sourceClass.branchId || null, academicYear, totalStudents: roster.length,
         promotedCount: roster.filter(s => ['PROMOTED', 'GRADUATED', 'CONDITIONALLY_PROMOTED'].includes(s.promotionStatus || '')).length,
         retainedCount: roster.filter(s => s.promotionStatus === 'RETAINED').length,
         transferredCount: roster.filter(s => s.promotionStatus === 'TRANSFERRED').length,
@@ -94,6 +127,7 @@ export class ClassSummaryProjectionRepository {
       return {
         classId,
         className: classRow.name,
+        branchId: classRow.branchId || null,
         academicYear,
         totalStudents: 0,
         promotedCount: 0,
@@ -229,6 +263,7 @@ export class ClassSummaryProjectionRepository {
     return {
       classId,
       className: classRow.name,
+      branchId: classRow.branchId || null,
       academicYear,
       totalStudents: total,
       promotedCount,

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from 'vitest'
 import { getStudents, getStudentById, createStudent, updateStudent, deleteStudent } from '../../services/studentService.js'
 import { db } from '../../db/index.js'
-import { students, branches, academicYears, classes, auditLogs } from '../../db/schema.js'
+import { students, branches, academicYears, classes, auditLogs, users, catechistAssignments } from '../../db/schema.js'
 import { and, eq, inArray } from 'drizzle-orm'
 
 const mockGenCode = vi.hoisted(() => vi.fn())
@@ -119,6 +119,94 @@ describe('Server studentService Layer Unit Tests', () => {
       classId: 'AU2',
       membershipChangeReason: 'Sửa lớp do nhập nhầm hồ sơ',
     })
+  })
+
+  it('rechecks current assignment plus actual source and target class inside student mutations', async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const userId = `USR-ST-AUTH-${suffix}`
+    const assignmentId = `ASG-ST-AUTH-${suffix}`
+    let studentId: string | undefined
+    await db.insert(users).values({
+      id: userId,
+      username: `st_auth_${suffix}`,
+      fullName: 'Chủ nhiệm transaction test',
+      passwordHash: 'hash',
+      role: 'chunhiem',
+      status: 'ACTIVE',
+      tokenVersion: 1,
+      parishId: 'gia-ton',
+    })
+    await db.insert(catechistAssignments).values({
+      id: assignmentId,
+      userId,
+      classId: 'AU1',
+      roleInClass: 'chunhiem',
+      parishId: 'gia-ton',
+    })
+    const studentData = {
+      holyName: 'Tôma',
+      fullName: 'Học viên authority boundary',
+      gender: 'Nam' as const,
+      dateOfBirth: '2016-05-10',
+      parentName: 'Phụ huynh',
+      parentPhone: '0901112233',
+      address: 'Giáo xứ',
+      branch: 'AuNhi' as const,
+      classId: 'AU1',
+      status: 'Đang học' as const,
+    }
+
+    try {
+      // The route-time scope could have admitted AU1, but the assignment is
+      // revoked before the service transaction begins.
+      await db.delete(catechistAssignments).where(eq(catechistAssignments.id, assignmentId))
+      await expect(createStudent(
+        studentData,
+        userId,
+        'gia-ton',
+        '127.0.0.1',
+        'Vitest',
+        undefined,
+        { role: 'chunhiem', epoch: 1 },
+      )).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' })
+
+      await db.insert(catechistAssignments).values({
+        id: assignmentId,
+        userId,
+        classId: 'AU1',
+        roleInClass: 'chunhiem',
+        parishId: 'gia-ton',
+      })
+      const created = await createStudent(
+        studentData,
+        userId,
+        'gia-ton',
+        '127.0.0.1',
+        'Vitest',
+        undefined,
+        { role: 'chunhiem', epoch: 1 },
+      )
+      studentId = created.id
+
+      // Simulate a class substitution after an earlier route read: the service
+      // must authorize the class actually persisted when its transaction runs.
+      await db.update(students).set({ classId: 'AU2' }).where(eq(students.id, created.id))
+      await expect(updateStudent(
+        created.id,
+        { fullName: 'Không được ghi sau khi đổi lớp' },
+        userId,
+        'gia-ton',
+        '127.0.0.1',
+        'Vitest',
+        { role: 'chunhiem', epoch: 1 },
+      )).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' })
+      expect((await getStudentById(created.id, 'gia-ton'))?.fullName).toBe(studentData.fullName)
+    } finally {
+      if (studentId) await db.delete(students).where(eq(students.id, studentId))
+      await db.delete(catechistAssignments).where(eq(catechistAssignments.id, assignmentId))
+      await db.delete(auditLogs).where(eq(auditLogs.userId, userId))
+      await db.delete(users).where(eq(users.id, userId))
+    }
   })
 
   it('createStudent với cùng idempotencyKey → trả về student đã tạo, không tạo trùng (finding #3)', async () => {
@@ -416,6 +504,7 @@ describe('Server studentService Layer Unit Tests', () => {
       academicYearRange: { startDate: '2025-08-01', endDate: '2026-07-31' },
       gradeWeights: {},
       attendancePolicy: { excusedWeight: 1 },
+      classificationThresholds: { xuatSac: 9, gioi: 8, kha: 6.5, trungBinh: 5 },
     }
     const classSummaryRepo = new ClassSummaryProjectionRepository()
     const summary = await classSummaryRepo.getClassSummary('AU1', '2025-2026', 'gia-ton', projectionContext)

@@ -476,9 +476,6 @@ function decideOperationsAuthorization(
   const positionTitles = snapshot.currentTerms.map(term => term.positionTitle)
   const unitIds = [...new Set(snapshot.currentTerms.flatMap(term => term.unitId ? descendantIds(snapshot.units, term.unitId) : []))]
   const requestedUnitId = resource.resourceUnitId
-  const scopeMember = Boolean(resource.event && resource.event.status !== 'DRAFT' && requestedUnitId && snapshot.currentTerms.some(term =>
-    Boolean(term.unitId && descendantIds(snapshot.units, requestedUnitId).includes(term.unitId))
-  ))
   const parishLeader = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
   const parishDeputy = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_DEPUTY' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
   const parishSecretary = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_SECRETARY' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
@@ -492,7 +489,6 @@ function decideOperationsAuthorization(
   if (parishDeputy && PARISH_OFFICE_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
   if (parishSecretary && PARISH_SECRETARY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
   if (unitLeader && UNIT_LEADER_OR_DEPUTY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  if (scopeMember && (capability === 'operations.event.view' || capability === 'operations.task.view')) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles: [...operationRoles, 'SCOPE_MEMBER'] }
   return deny('POSITION_SCOPE', positionTitles, unitIds, operationRoles)
 }
 
@@ -545,6 +541,34 @@ export async function resolveOperationsUserAuthorization(
   )).limit(1)
   if (!target || !STAFF_ROLES.has(target.role)) return deny('ACCOUNT_ROLE')
   return resolveOperationsAuthorization({ userId: target.id, role: target.role, parishId }, capability, { ...scope, parishId }, executor)
+}
+
+/**
+ * Delayed assignment/dispatch work must recheck whether a target is still an
+ * actionable staff member in the resource's organizational scope. Eligibility
+ * to receive an invitation is deliberately not Operations read authority.
+ */
+export async function isOperationsTargetActionableForResource(
+  parishId: string,
+  userId: string,
+  scope: Omit<OperationsScope, 'parishId'>,
+  executor: DbExecutor = db,
+): Promise<boolean> {
+  const [target] = await executor.select({ id: users.id, role: users.role }).from(users).where(and(
+    eq(users.parishId, parishId),
+    eq(users.id, userId),
+    inArray(users.role, ['admin', 'chunhiem', 'phuta']),
+    eq(users.status, 'ACTIVE'),
+    isNull(users.deletedAt),
+  )).limit(1)
+  if (!target) return false
+  const resource = await loadResource(executor, parishId, { ...scope, parishId })
+  if (!resource) return false
+  if (!resource.resourceUnitId) return true
+  const snapshot = await loadAuthorizationSnapshot(executor, { userId: target.id, role: target.role, parishId })
+  if (!snapshot.personId) return false
+  const resourceUnitIds = new Set(descendantIds(snapshot.units, resource.resourceUnitId))
+  return snapshot.currentTerms.some(term => Boolean(term.unitId && resourceUnitIds.has(term.unitId)))
 }
 
 const authorizationByExecutor = new WeakMap<object, OperationsDecision>()

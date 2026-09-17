@@ -11,7 +11,7 @@ import { Button } from '../common/ui/Button';
 export const MobileNoticesView: React.FC = () => {
   const notices = useNoticeStore(s => s.notices);
   const { can } = useAuth();
-  const canManageNotices = can('admin');
+  const canManageNotices = can('admin', 'chunhiem');
 
   const [showModal, setShowModal] = useState(false);
   const [editingNotice, setEditingNotice] = useState<ParishNotice | null>(null);

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { getDB, initDB } from '../lib/db'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { migrateLegacyQueueOwnership, useSyncStore } from '../stores/syncStore'
+import { getTenantScope, setTenantScope } from '../lib/tenantScope'
 
 const USER_ID = 'SHARED-USER-ID'
 const PARISH_A = 'PARISH-A'
@@ -10,6 +11,7 @@ const PARISH_B = 'PARISH-B'
 
 function activate(parishId: string) {
   localStorage.setItem('parish_current_user', JSON.stringify({ id: USER_ID, parishId }))
+  setTenantScope({ parishId, userId: USER_ID })
 }
 
 describe('OFF-TENANT-1 durable sync ownership', () => {
@@ -48,6 +50,30 @@ describe('OFF-TENANT-1 durable sync ownership', () => {
     expect(new Set(all.map(item => `${item.parishId}:${item.userId}`))).toEqual(
       new Set([`${PARISH_A}:${USER_ID}`, `${PARISH_B}:${USER_ID}`]),
     )
+  })
+
+  it('does not adopt another tab account from the shared marker', async () => {
+    const store = useSyncStore.getState()
+    const aId = await store.addOp({
+      entity: 'student',
+      entityId: 'A-ONLY',
+      operation: 'UPDATE',
+      payload: JSON.stringify({ fullName: 'A' }),
+    })
+
+    // Another tab rewrites shared localStorage. This document's in-memory scope
+    // and transport continuity must remain A until an explicit local transition.
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: USER_ID, parishId: PARISH_B }))
+    expect(getTenantScope()).toMatchObject({ parishId: PARISH_A, userId: USER_ID })
+    expect((await store.getPendingOps()).map(op => op.id)).toEqual([aId])
+
+    const secondAId = await store.addOp({
+      entity: 'notice',
+      entityId: 'A-NOTICE',
+      operation: 'DELETE',
+      payload: JSON.stringify({ id: 'A-NOTICE' }),
+    })
+    expect((await getDB().syncQueue.get(secondAId))?.parishId).toBe(PARISH_A)
   })
 
   it('does not update or remove an operation owned by another parish', async () => {

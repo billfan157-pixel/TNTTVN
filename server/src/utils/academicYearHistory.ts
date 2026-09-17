@@ -14,7 +14,10 @@ export const finalizationPolicySchema = z.object({
   promotionPolicy: z.object({ minGpa: z.number().min(0).max(10), minAttendance: z.number().min(0).max(100) }),
   classificationThresholds: z.object({ xuatSac: z.number(), gioi: z.number(), kha: z.number(), trungBinh: z.number() }),
   range: z.object({ startDate: z.string().min(1), endDate: z.string().min(1) }),
-  classes: z.array(z.object({ id: z.string().min(1), name: z.string() })),
+  // branchId was added after the initial v1 rollout. It is optional when
+  // parsing legacy evidence, but branch-based historical outputs must fail
+  // closed when it is absent instead of reading the mutable class row.
+  classes: z.array(z.object({ id: z.string().min(1), name: z.string(), branchId: z.string().min(1).optional() })),
 })
 export type FinalizationPolicy = z.infer<typeof finalizationPolicySchema>
 
@@ -24,7 +27,7 @@ export const academicReportSnapshotSchema = z.object({
   grades: z.array(z.object({
     semester: z.union([z.literal(1), z.literal(2)]),
     scoreOral: score, score15m: score, score1Period: score,
-    scoreMidterm: score, scoreFinal: score, gpa: score,
+    scoreMidterm: score, scoreFinal: score, scoreDaoDuc: score.optional(), gpa: score,
   })),
   attendanceSummary: z.object({
     massPresentCount: count, massTotalCount: count,

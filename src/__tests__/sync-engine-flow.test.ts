@@ -20,6 +20,7 @@ import { api, ApiError } from '../lib/api'
 import * as syncService from '../lib/syncService'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { setTenantScope } from '../lib/tenantScope'
+import { readPersistedSyncResult } from '../lib/syncSessionBoundary'
 import type { GradeRecord, AttendanceRecord } from '../types'
 
 // A-NEW-32: payload queue mã hóa (AAD 'syncQueue') — parse qua decrypt (dual-format).
@@ -131,7 +132,10 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
     expect(retained.status).toBe('retrying')
     expect(retained.serverAcknowledgement).toBeTruthy()
     expect(retained.serverAcknowledgement).not.toContain('ST-CANONICAL-ACK')
-    expect(JSON.parse((await decryptQueueValue(retained.serverAcknowledgement!))!).id).toBe('ST-CANONICAL-ACK')
+    expect(await readPersistedSyncResult(retained)).toMatchObject({
+      ok: true,
+      data: { id: 'ST-CANONICAL-ACK' },
+    })
     expect((await readPayload((await queue.get(childId))!)).studentId).toBe('ST-TEMP-ACK')
     expect(api.batchUpsertGrades).not.toHaveBeenCalled()
     // Simulate loss of ephemeral projection; durable queue survives.

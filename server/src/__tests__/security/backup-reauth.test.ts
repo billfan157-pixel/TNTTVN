@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import bcrypt from 'bcryptjs'
 import { createHash } from 'crypto'
 import backupRouter from '../../routes/backup.js'
@@ -6,6 +6,7 @@ import { db } from '../../db/index.js'
 import { users, students, classes, branches, academicYears, auditLogs } from '../../db/schema.js'
 import { generateTokens } from '../../middleware/auth.js'
 import { eq } from 'drizzle-orm'
+import * as safetySnapshot from '../../services/safetySnapshot.js'
 
 /**
  * A07 (2026-08-10): RE-AUTHENTICATION cho /api/backup/export + /api/backup/restore.
@@ -199,6 +200,26 @@ describe('A07 — Backup Export/Restore Re-Authentication', () => {
     expect(res.status).toBe(400)
     expect(await studentCount()).toBe(countBefore)
     expect(await auditActions()).not.toContain('RESTORE_BACKUP')
+  })
+
+  it('rechecks admin authority in the restore transaction after safety preflight', async () => {
+    const countBefore = await studentCount()
+    const safetyWrite = vi.spyOn(safetySnapshot, 'writeSafetySnapshot').mockImplementationOnce(async () => {
+      // Deterministic interleaving after request admission/reauth and before the
+      // transaction that replaces parish data.
+      await db.update(users).set({ status: 'LOCKED', tokenVersion: 2 }).where(eq(users.id, ADMIN_ID))
+      return 'synthetic-safety-snapshot'
+    })
+    try {
+      const res = await restoreRequest({ ...buildRestorePayload(), adminPassword: ADMIN_PASSWORD })
+      expect(res.status).toBe(401)
+      const json = (await res.json()) as any
+      expect(json.error?.code).toBe('SESSION_INVALID')
+      expect(await studentCount()).toBe(countBefore)
+    } finally {
+      safetyWrite.mockRestore()
+      await db.update(users).set({ status: 'ACTIVE', tokenVersion: 1 }).where(eq(users.id, ADMIN_ID))
+    }
   })
 
   it('7. restore đúng mật khẩu + checksum → 200, dữ liệu THAY THẾ đúng + audit RESTORE_BACKUP', async () => {

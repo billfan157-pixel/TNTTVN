@@ -1,20 +1,20 @@
-import { request, setTokens } from './core'
+import { request, setTokens, withRefreshSessionLock } from './core'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const authApi = {
   login: (username: string, password: string) =>
-    request<{
+    withRefreshSessionLock(() => request<{
       user: { id: string; username: string; fullName: string; phone?: string | null; role: string; status: string; parishId: string; mustChangePassword?: number }
       accessToken: string
-    }>('POST', '/auth/login', { username, password }),
+    }>('POST', '/auth/login', { username, password })),
 
   // ADR-045 (2026-08-16): GET /auth/me — rebuild snapshot đăng nhập (PII) khi
   // snapshot mã hóa local bị thiếu/hỏng (Dexie purge, khóa rotate, LAN không có crypto).
   me: () =>
-    request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string }>('GET', '/auth/me'),
+    request<{ id: string; username: string; fullName: string; phone: string | null; role: string; status: string; parishId: string }>('GET', '/auth/me'),
 
   changePassword: async (currentPassword: string, newPassword: string) => {
-    const response = await request<{ success: boolean; accessToken: string }>('POST', '/auth/change-password', { currentPassword, newPassword })
+    const response = await withRefreshSessionLock(() => request<{ success: boolean; accessToken: string }>('POST', '/auth/change-password', { currentPassword, newPassword }))
     // Server đã hủy tokenVersion cũ và cấp token mới cùng response. Cập nhật
     // ngay memory token để phiên Settings/force-change không phải chờ 401+refresh.
     setTokens(response.accessToken)
@@ -52,5 +52,5 @@ export const authApi = {
 
   // A-NEW-01 (2026-08-10): JS không giữ refresh token nữa → logout không gửi body token;
   // server revoke session qua HttpOnly cookie (credentials: 'include' đã bật sẵn).
-  logout: () => request<{ success: boolean }>('POST', '/auth/logout', {}),
+  logout: () => withRefreshSessionLock(() => request<{ success: boolean; serverConfirmed: boolean }>('POST', '/auth/logout', {})),
 }

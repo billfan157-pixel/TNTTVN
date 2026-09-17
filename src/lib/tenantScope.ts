@@ -3,7 +3,16 @@ export interface TenantScope {
   userId: string
 }
 
+export interface TenantScopeSnapshot extends TenantScope {
+  revision: number
+}
+
 let currentScope: TenantScope | null = null
+let currentScopeRevision = 0
+
+function sameScope(left: TenantScope | null, right: TenantScope | null): boolean {
+  return left?.parishId === right?.parishId && left?.userId === right?.userId
+}
 
 export function getTenantScope(): TenantScope | null {
   return currentScope
@@ -12,6 +21,22 @@ export function getTenantScope(): TenantScope | null {
 export function getTenantScopeKey(): string | null {
   if (!currentScope) return null
   return `${currentScope.parishId}:${currentScope.userId}`
+}
+
+/**
+ * Capture the document-local owner of asynchronous work. The revision prevents
+ * an A -> B -> A transition from reviving work started by A's earlier session.
+ */
+export function captureTenantScope(): TenantScopeSnapshot | null {
+  if (!currentScope) return null
+  return { ...currentScope, revision: currentScopeRevision }
+}
+
+export function isTenantScopeCurrent(snapshot: TenantScopeSnapshot | null): snapshot is TenantScopeSnapshot {
+  return Boolean(snapshot
+    && snapshot.revision === currentScopeRevision
+    && currentScope?.parishId === snapshot.parishId
+    && currentScope?.userId === snapshot.userId)
 }
 
 export function scopedStorageKey(name: string): string | null {
@@ -23,6 +48,7 @@ export function setTenantScope(scope: TenantScope | null): void {
   if (scope && (!scope.parishId.trim() || !scope.userId.trim())) {
     throw new Error('Invalid tenant scope')
   }
+  if (!sameScope(currentScope, scope)) currentScopeRevision++
   currentScope = scope
 }
 

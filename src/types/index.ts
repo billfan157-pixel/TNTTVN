@@ -437,8 +437,14 @@ export interface ReportCardDTO {
     score1Period?: number | null;
     scoreMidterm?: number | null;
     scoreFinal?: number | null;
+    scoreDaoDuc?: number | null;
     gpa?: number | null;
+    classification?: string | null;
   }>;
+  yearSummary: {
+    gpa: number | null;
+    classification: string | null;
+  };
   attendanceSummary: {
     massPresentCount: number;
     massTotalCount: number;
@@ -454,6 +460,37 @@ export interface ReportCardDTO {
     overrideReason?: string | null;
     approvedAt?: string | null;
   } | null;
+}
+
+export interface ClassStudentSummaryDTO {
+  studentId: string;
+  code: string;
+  holyName?: string | null;
+  fullName: string;
+  gpa: number;
+  attendanceRate: number;
+  promotionStatus?: string | null;
+}
+
+export interface ClassSummaryDTO {
+  classId: string;
+  className: string;
+  branchId: string | null;
+  academicYear: string;
+  totalStudents: number;
+  promotedCount: number;
+  retainedCount: number;
+  transferredCount: number;
+  averageGpa: number;
+  averageAttendanceRate: number;
+  students: ClassStudentSummaryDTO[];
+}
+
+export interface ReportClassDTO {
+  id: string;
+  name: string;
+  branchId: string | null;
+  academicYear: string;
 }
 
 export * from './finance'

@@ -46,7 +46,7 @@ describe('Server Auth Routes Handler Tests', () => {
     expect(res.status).toBe(401)
   })
 
-  it('POST /logout invalidates tokenVersion', async () => {
+  it('POST /logout without a refresh credential never becomes an implicit global logout', async () => {
     const { accessToken } = generateTokens({ userId, username: 'logout_user', role: 'chunhiem', parishId, tokenVersion: 1 })
 
     const res = await authApp.request('/logout', {
@@ -56,12 +56,13 @@ describe('Server Auth Routes Handler Tests', () => {
     expect(res.status).toBe(200)
     const json = (await res.json()) as any
     expect(json.success).toBe(true)
+    expect(json.data).toMatchObject({ serverConfirmed: false, sessionRevoked: false })
 
-    // Second request with original token must be rejected because tokenVersion incremented to 2
+    // Global revocation belongs to the explicit force-logout command.
     const res2 = await authApp.request('/me', {
       method: 'GET',
       headers: { Authorization: `Bearer ${accessToken}` },
     })
-    expect(res2.status).toBe(401)
+    expect(res2.status).toBe(200)
   })
 })

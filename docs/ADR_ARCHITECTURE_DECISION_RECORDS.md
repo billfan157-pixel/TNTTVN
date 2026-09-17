@@ -270,7 +270,7 @@ The offline sync engine (`useSyncEngine` → `syncStore.ts` → `syncProcessor.t
 ### Decision
 Harden the sync pipeline per the following rules (annotated in code as `ADR-016`):
 1. **Per-user queue scoping (S19/OS-02)** — the sync queue is isolated by `userId`; `isOwnOp` is fail-closed (`item.userId === currentUserId`), preventing ops from a logged-out user from syncing under another user's session on shared devices. One-time `migrateLegacyQueueUserIds` stamps legacy items.
-2. **Temp-ID remap before dependent sync (S4/S24, XD-07)** — parent CREATEs complete first with `idempotencyKey`; encrypted `serverAcknowledgement` stays on the owner-scoped queue row until remap succeeds, then the parent is retired. Recovery replays this durable response without resending CREATE, independently of temp roster presence. Before ACK persistence, retry still uses the original idempotency key. Parse/storage failures propagate and stop dependent sends. Committed ACK rows are excluded from enqueue deduplication, compaction and pruning; pending/retrying/failed dependent payloads are remapped, without auto-promoting permanent failures. No new IndexedDB index/table is needed for this optional encrypted field. Actual browser-kill/quota/concurrent-enqueue qualification remains separate from synthetic fault tests.
+2. **Temp-ID remap before dependent sync (S4/S24, XD-07; amended 2026-09-17)** — parent CREATEs complete first with `idempotencyKey`; encrypted `serverAcknowledgement` stays on the owner-scoped queue row until remap succeeds, then the parent is retired. Since the amendment, the same field journals every successful sync result before local apply, not only parent CREATE ACKs. Recovery replays the durable result without resending a committed mutation, independently of temp roster presence. Before receipt persistence, retry still uses the original idempotency key. Parse/storage failures propagate and stop dependent sends. Committed receipt rows are excluded from enqueue deduplication, compaction and pruning; pending/retrying/failed dependent payloads are remapped, without auto-promoting permanent failures. No new IndexedDB index/table is needed for this optional encrypted field; legacy raw CREATE ACK remains readable. Actual browser-kill/quota/concurrent-enqueue qualification remains separate from synthetic fault tests.
 3. **Safe Queue Compaction (OS-01)** — `CREATE` + `DELETE` pairs are only canceled if `CREATE` is unsent local-only (`pending`, `retryCount` 0). If `CREATE` has retried (`retrying`), keep BOTH `CREATE` and `DELETE` so Phase 1.5 retries `CREATE` with `idempotencyKey` (server dedupe), remaps Temp ID to Real ID, and Phase 3 executes `DELETE` with real ID (zero lost mutation).
 4. **Idempotency Key Standardization (OS-01)** — `idempotencyKey` is passed consistently for Student, Class, Notice (with server-side schema & unique index migration), and Exam.
 5. **Per-request zod batch isolation (S13)** — each op is validated independently inside the sync request; one schema failure is returned per-op without discarding the remaining operations.
@@ -961,10 +961,17 @@ Yêu cầu giữ: guard router/sync phải đọc đồng bộ; offline reload v
 
 **Chia 2 tầng:**
 
-1. **Marker** (`parish_current_user`, localStorage) — CHỈ `{ id, role, parishId }`, **không PII**. Router guard (`router.tsx:39,52`), `api.isAuthenticated()`, `syncStore.getCurrentUserId()` tiếp tục đọc đồng bộ như cũ (tất cả chỉ cần id/role/parishId).
+1. **Marker** (`parish_current_user`, localStorage) — CHỈ `{ id, role, parishId }`, **không PII**. Theo quyết định gốc, router guard (`router.tsx:39,52`), `api.isAuthenticated()` và `syncStore.getCurrentUserId()` cùng đọc marker đồng bộ; phần sync authority đã được supersede bởi amendment 2026-09-17 bên dưới.
 2. **Snapshot** (`parish_auth_user`, IndexedDB qua `dexieStorage`) — bản đầy đủ (username, fullName, phone, role, status, parishId, mustChangePassword) **mã hóa AES-256-GCM** tại-rest (khóa non-extractable, AAD `stores:<scopedKey>`, tenant-scoped theo `{parishId}:{userId}` — cùng cơ chế offlineCipher A-NEW-24/44/45).
 
 **Thứ tự đọc** (`loadFromStorage`): marker → `setTenantScope` (bắt buộc để tính key scoped) → đọc snapshot mã hóa → decrypt. **Snapshot thiếu/hỏng** (Dexie bị purge, khóa rotate, LAN HTTP không có `crypto.subtle`) → nếu online: bootstrap refresh + `GET /auth/me` (client method `api.me()` mới) → rebuild snapshot; nếu offline → logout sạch. **Persistence fail-safe**: lỗi ghi Dexie không làm hỏng login (marker vẫn đủ cho guard); login **await** ghi snapshot (reload ngay sau login không rơi vào đường rebuild), setUser/changePassword fire-and-forget. Mọi đường session chết (`logout()`, `redirectToLogin()` — 401) đều dọn cả marker lẫn snapshot (không để PII mã hóa mồ côi).
+
+### Amendment 2026-09-17 — Document-local owner continuity
+
+- Marker vẫn là bootstrap/UX guard không-PII, nhưng không còn là authority cho queue, transport hoặc reconciliation. `tenantScope` trong từng document giữ exact owner `parishId:userId` cùng monotonic revision; `syncStore` fail closed nếu scope thiếu hoặc đổi.
+- `/auth/refresh` trả `{accessToken,userId,parishId}` và `/auth/me` trả `parishId`. Client chỉ cài token/rebuild snapshot khi server identity khớp document-local owner, nên một tab đổi account không cấp authority mới cho async work của tab cũ.
+- Mỗi logical request/sync flow capture owner ban đầu. Retry giữ owner đó; owner đổi trong backoff thì abort thay vì resend bằng credential mới. Sau server commit, response được mã hóa vào `serverAcknowledgement` của queue row owner gốc trước apply/remap/conflict; late response của A không mutate B và A có thể reconcile receipt khi quay lại mà không resend mù.
+- Không thêm table/index hoặc offline workflow mới. Optional receipt field hiện có được tổng quát hóa và vẫn đọc legacy raw CREATE ACK.
 
 ### Matrix (SECURITY profile)
 
@@ -3880,4 +3887,35 @@ Migrations `256` (position-code CHECK rebuild + scope/overlap triggers for new c
 
 - Trưởng Xứ đoàn chỉ đứng tên organizer event Xứ đoàn: `isActiveUnitLeader` bỏ bypass xứ đoàn trưởng, message/code giữ `400 ORGANIZER_MUST_BE_UNIT_LEADER` cho cả `POST /events`, template instantiate và `PUT /events/:id` đổi organizer. Trưởng Xứ đoàn giữ blanket tạo event chuyên môn nhưng phải chỉ định đúng Trưởng Ban/Trưởng Ngành của unit (creation-options vốn chỉ liệt kê unit leaders nên picker không đổi). Hai test cũ dựa vào hành vi cũ (assignment-scope parish-wide, public projection) được chuyển sang organizer là Trưởng ngành.
 - `COMPLETED` là trạng thái cuối: `manualEventTransition` ném `EVENT_COMPLETED_TERMINAL` cho mọi chuyển tiếp từ COMPLETED (kể cả lùi có lý do), route map `409` với message tiếng Việt, UI gỡ `COMPLETED` khỏi `previousEventStatus` nên không còn nút lùi. Retrospective/follow-up sau hoàn tất không đổi (command riêng, không phải transition). Đóng 2 câu hỏi mở product: Trưởng xứ không làm organizer chuyên môn; COMPLETED không lùi được.
+
+---
+
+## ADR-113: Current Command Boundaries and Official Academic Output Authority (2026-09-17)
+
+**Status: APPROVED / IMPLEMENTED IN CURRENT WORKING TREE. Severity: D3. Profiles: ARCHITECTURE + DATA INTEGRITY. Reversibility: R1; no schema migration.**
+
+### Context and source evidence
+
+Audit #01 found two documentation/implementation mismatches. First, ADR-011/013 described one uniformly strict route → application service → abstract repository architecture, while reachable production code intentionally uses several profiles. Operations already delegates transaction, idempotency receipt and replay to `runIdempotentOperationsCommand`, but keeps resource-specific application orchestration in its route callback; a limited legacy set of routes calls `runDbTransaction` directly. Second, server Reporting already selected frozen finalization evidence, while staff print/export surfaces could rebuild the same official historical output from mutable Zustand/Dexie class, grade, attendance and settings state.
+
+### Decision
+
+1. **Command-boundary profiles are explicit.** A named application service remains preferred for new commands and extracted reusable use cases. Operations is an approved receipt-service profile: the route-local callback is its application-command composition boundary, while `runIdempotentOperationsCommand` exclusively owns begin/commit/rollback, request hashing, durable receipt and duplicate replay. Five direct Operations `db.transaction` sites are read-only query snapshots. This is an intentional modular-monolith exception, not permission for arbitrary route-owned transactions.
+2. **Legacy direct transaction ownership is closed, not normalized as ideal.** The exact route allowlist in `architectureBoundaries.test.ts` may continue to call `runDbTransaction`; no new route module may do so without current-truth evidence and an ADR/test update. Refactoring an allowlisted path is change-driven and must preserve authorization, tenant scope, OCC, idempotency and audit semantics.
+3. **Dependency rule scope is corrected.** Domain remains framework/DB-free; services cannot depend on HTTP middleware outside the recorded auth-infrastructure allowlist; repositories cannot depend on services; the composition root exclusively owns process lifecycle. Application services may depend on concrete Drizzle adapters in this modular monolith. ADR-007/011/013 remain historical direction, but ADR-113 supersedes their absolute claims that all routes are transport-only, every transaction must be initiated by a class-shaped application service, or services depend only on abstract repositories.
+4. **Official academic output has one authority.** `ReportingApplicationService` resolves authorization, tenant, year state and projection inputs in one server transaction. Open years use current server facts. `FINALIZED|PROMOTED|ARCHIVED` years use the captured finalization policy, class inventory/source cohort and per-student report snapshot; current class/settings/client cache are never substitutes. The official client gateway has no Zustand/Dexie fallback and all materially relevant report-card, class gradebook, CSV/XLSX, HTML and PDF surfaces consume its DTOs. Missing historical evidence fails closed.
+5. **Academic-year creation is server-acknowledged.** Choosing a local current year is not creation. Because no durable offline create command exists, the client updates its year inventory/current selection and reports success only after `POST /api/classes/academic-years` returns a valid authoritative row.
+
+### Automated governance
+
+`architectureBoundaries.test.ts` now ratchets the legacy route transaction allowlist, Operations receipt-service usage/direct transaction count, Reporting repository read-only semantics, official client output dependencies and the Parish Events write tombstone. Existing gates continue to protect domain purity, service→middleware and repository→service direction, composition-root lifecycle and store→hook dependency. `check-architecture-inventory.mjs` verifies backend plus frontend page/component/store counts and the current context-map backend inventory.
+
+These source-shape gates do not prove domain correctness, transaction atomicity or authorization by themselves; focused behavior/integration tests remain required. No generic service extraction, microservice, materialized report table, new offline queue or historical backfill is introduced.
+
+### Compatibility and residual risk
+
+- Current/open-year report semantics and current authorization/class scope remain server-owned. Historical identity/contact fields that are not academic facts may still come from the current profile for presentation, but cannot change grades, class label, cohort, GPA, classification, attendance or promotion evidence.
+- Legacy finalized rows missing newly captured branch evidence cannot produce a branch-wide export and must be reconciled explicitly. They are not silently inferred from current classes.
+- The static transaction allowlist does not classify every line inside a callback. Behavior tests and review must still verify authorization, OCC, audit and idempotency for each changed command.
+- No production/device/E2E certification is inferred from local type, architecture and focused regression gates.
 

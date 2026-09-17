@@ -1,11 +1,8 @@
-import { useStudentStore } from '../stores/studentStore'
-import { useGradeStore } from '../stores/gradeStore'
-import { useAttendanceStore } from '../stores/attendanceStore'
 import { useAcademicYearStore } from '../stores/academicYearStore'
 import { BRANCHES } from '../constants/branches'
-import { ReportViewModelFactory } from '../utils/reportViewModelFactory'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../utils/academicYear'
 import { loadXlsx } from '../lib/xlsxLoader'
+import { fetchOfficialAcademicYearReports, type OfficialClassReport } from './officialReporting'
 
 export type ExportRow = Record<string, string | number>
 
@@ -13,15 +10,17 @@ export type ExportRow = Record<string, string | number>
  * Bảng thống kê học lực theo phân ngành (khớp UI DesktopReports):
  * đếm số học sinh theo xếp loại của học kỳ đã chọn.
  */
-export function buildBranchSummaryRows(semester: 1 | 2): ExportRow[] {
-  const students = useStudentStore.getState().students
-  const calculateStudentAvg = useGradeStore.getState().calculateStudentAvg
+export async function buildBranchSummaryRows(semester: 1 | 2): Promise<ExportRow[]> {
+  const year = normalizeAcademicYear(useAcademicYearStore.getState().currentYear) || getCurrentAcademicYear()
+  const classReports = await fetchOfficialAcademicYearReports(year)
 
   return Object.values(BRANCHES).map((b) => {
-    const branchStudents = students.filter((s) => !s.deletedAt && s.branch === b.id)
+    const branchStudents = classReports
+      .filter((report) => report.classInfo.branchId === b.id)
+      .flatMap((report) => report.reportCards)
     let xs = 0, gi = 0, kh = 0, tb = 0, ye = 0
-    for (const s of branchStudents) {
-      const label = calculateStudentAvg(s.id, semester).label
+    for (const report of branchStudents) {
+      const label = report.grades.find((grade) => grade.semester === semester)?.classification
       if (label === 'Xuất Sắc') xs++
       else if (label === 'Giỏi') gi++
       else if (label === 'Khá') kh++
@@ -31,7 +30,7 @@ export function buildBranchSummaryRows(semester: 1 | 2): ExportRow[] {
     return {
       'Phân Ngành': b.name,
       'Số Thiếu Nhi': branchStudents.length,
-      'Xuất Sắc (≥9.0)': xs,
+      'Xuất Sắc': xs,
       'Giỏi': gi,
       'Khá': kh,
       'Trung Bình': tb,
@@ -42,32 +41,35 @@ export function buildBranchSummaryRows(semester: 1 | 2): ExportRow[] {
 
 /**
  * Báo cáo chi tiết từng học sinh: GPA HK1/HK2/cả năm, xếp loại, chuyên cần —
- * tái sử dụng ReportViewModelFactory (SSOT với phiếu điểm in).
+ * dùng trực tiếp server ReportCardDTO; không tính lại từ client store.
  */
-export function buildStudentDetailRows(): ExportRow[] {
-  const students = useStudentStore.getState().students
-  const grades = useGradeStore.getState().grades
-  const attendance = useAttendanceStore.getState().attendance
+export async function buildStudentDetailRows(): Promise<ExportRow[]> {
   const year = normalizeAcademicYear(useAcademicYearStore.getState().currentYear) || getCurrentAcademicYear()
+  const classReports = await fetchOfficialAcademicYearReports(year)
 
+  return buildStudentDetailRowsFromReports(classReports)
+}
+
+/** Pure export projection used by every student-detail CSV/XLSX caller. */
+export function buildStudentDetailRowsFromReports(classReports: OfficialClassReport[]): ExportRow[] {
   const rows: ExportRow[] = []
-  for (const s of students) {
-    if (s.deletedAt) continue
-    const vm = ReportViewModelFactory.createStudentViewModel(s, grades, attendance, { academicYear: year })
-    rows.push({
-      'Mã Học Sinh': s.code,
-      'Thánh Danh': vm.student.holyName,
-      'Họ Tên': vm.student.fullName,
-      'Lớp': vm.student.className,
-      'Phân Ngành': BRANCHES[s.branch]?.name ?? s.branch,
-      'HK1': vm.grades[0]?.gpaLabel ?? '-',
-      'HK2': vm.grades[1]?.gpaLabel ?? '-',
-      'ĐTB Cả Năm': vm.summary.gpaLabel,
-      'Xếp Loại': vm.summary.classification,
-      'Chuyên Cần (%)': typeof vm.summary.attendanceRate === 'number'
-        ? vm.summary.attendanceRate.toFixed(1)
-        : '-',
-    })
+  for (const classReport of classReports) {
+    for (const report of classReport.reportCards) {
+      const semester1 = report.grades.find((grade) => grade.semester === 1)
+      const semester2 = report.grades.find((grade) => grade.semester === 2)
+      rows.push({
+        'Mã Học Sinh': report.student.code,
+        'Thánh Danh': report.student.holyName || '',
+        'Họ Tên': report.student.fullName,
+        'Lớp': report.student.className || classReport.summary.className,
+        'Phân Ngành': BRANCHES[classReport.classInfo.branchId as keyof typeof BRANCHES]?.name ?? classReport.classInfo.branchId,
+        'HK1': semester1?.gpa ?? '-',
+        'HK2': semester2?.gpa ?? '-',
+        'ĐTB Cả Năm': report.yearSummary.gpa ?? '-',
+        'Xếp Loại': report.yearSummary.classification || 'Chưa có',
+        'Chuyên Cần (%)': report.attendanceSummary.overallAttendanceRate.toFixed(1),
+      })
+    }
   }
   return rows.sort(
     (a, b) =>
@@ -75,6 +77,21 @@ export function buildStudentDetailRows(): ExportRow[] {
       String(a['Lớp']).localeCompare(String(b['Lớp'])) ||
       String(a['Họ Tên']).localeCompare(String(b['Họ Tên'])),
   )
+}
+
+/** Deterministic CSV payload; browser download is only a transport wrapper. */
+export function buildCsvContent(rows: ExportRow[]): string {
+  const headers = rows.length > 0 ? Object.keys(rows[0]) : []
+  const lines = [
+    headers.join(','),
+    ...rows.map((r) =>
+      headers.map((h) => {
+        const value = String(r[h] ?? '')
+        return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+      }).join(','),
+    ),
+  ]
+  return '\uFEFF' + lines.join('\n')
 }
 
 function triggerDownload(blob: Blob, filename: string): void {
@@ -92,17 +109,7 @@ function triggerDownload(blob: Blob, filename: string): void {
 
 /** Xuất CSV (kèm BOM UTF-8 để Excel mở đúng tiếng Việt). */
 export function exportCsv(filename: string, rows: ExportRow[]): void {
-  const headers = rows.length > 0 ? Object.keys(rows[0]) : []
-  const lines = [
-    headers.join(','),
-    ...rows.map((r) =>
-      headers.map((h) => {
-        const value = String(r[h] ?? '')
-        return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
-      }).join(','),
-    ),
-  ]
-  triggerDownload(new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }), filename.endsWith('.csv') ? filename : `${filename}.csv`)
+  triggerDownload(new Blob([buildCsvContent(rows)], { type: 'text/csv;charset=utf-8' }), filename.endsWith('.csv') ? filename : `${filename}.csv`)
 }
 
 /** Xuất Excel (.xlsx) qua lazy-loaded xlsx (PERF-XLSX-1) — chunk chỉ tải khi export. */

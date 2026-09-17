@@ -22,6 +22,20 @@ function pickString(value: unknown, maxLen = 300): string | undefined {
   return value.slice(0, maxLen)
 }
 
+/** CSP URI fields may contain signed verification parameters or other PII. */
+function sanitizeUri(value: unknown): string | undefined {
+  const picked = pickString(value, 2048)
+  if (!picked) return undefined
+  try {
+    const parsed = new URL(picked)
+    if (!['http:', 'https:'].includes(parsed.protocol)) return `${parsed.protocol}//redacted`
+    return `${parsed.origin}${parsed.pathname}`.slice(0, 300)
+  } catch {
+    // CSP keywords such as inline/eval remain useful; arbitrary values do not.
+    return ['inline', 'eval', 'self', 'none'].includes(picked) ? picked : 'redacted'
+  }
+}
+
 cspReportRouter.post('/', async (c) => {
   try {
     const body = (await c.req.json().catch(() => null)) as CspReportBody | null
@@ -31,22 +45,25 @@ cspReportRouter.post('/', async (c) => {
         level: 'WARN',
         type: 'CSP_VIOLATION',
         timestamp: new Date().toISOString(),
-        documentUri: pickString(report['document-uri']),
+        documentUri: sanitizeUri(report['document-uri']),
         violatedDirective: pickString(report['violated-directive']),
         effectiveDirective: pickString(report['effective-directive']),
-        blockedUri: pickString(report['blocked-uri']),
-        sourceFile: pickString(report['source-file']),
+        blockedUri: sanitizeUri(report['blocked-uri']),
+        sourceFile: sanitizeUri(report['source-file']),
         lineNumber: typeof report['line-number'] === 'number' ? report['line-number'] : undefined,
         disposition: pickString(report.disposition),
       }))
     } else {
-      // Report-to style hoặc payload lạ — vẫn ghi nhận dạng thô đã cắt ngắn.
-      const raw = JSON.stringify(body).slice(0, 1000)
+      // Report-to style hoặc payload lạ: record shape only. Values may contain
+      // signed URLs, student identifiers, request bodies or injected secrets.
       console.warn(JSON.stringify({
         level: 'WARN',
         type: 'CSP_VIOLATION_RAW',
         timestamp: new Date().toISOString(),
-        raw,
+        payloadType: Array.isArray(body) ? 'array' : body === null ? 'null' : typeof body,
+        topLevelKeyCount: body && typeof body === 'object' && !Array.isArray(body)
+          ? Object.keys(body).length
+          : undefined,
       }))
     }
   } catch {

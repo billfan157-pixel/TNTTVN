@@ -144,6 +144,29 @@ or an intentional requirement change
 → update the correct side
 ```
 
+### Rule-Change Approval
+
+AI may change documentation and rules (AGENTS.md branches, `.agents` docs and
+rules, project docs), but before editing or adding any of them it must present
+the change to the project owner in clear, understandable terms:
+
+- what will change;
+- why the change is needed;
+- which invariant, behavior, or workflow is affected;
+- what evidence supports it.
+
+Proceed with the edit only after the project owner confirms — unless the
+owner explicitly waives the presentation for that specific change.
+
+If AI holds clear, concrete evidence that a rule or document is outdated,
+incorrect, or contradicts verified behavior, it may proactively ask the
+project owner whether they want it updated — presenting the evidence plainly.
+No edit happens without the owner's confirmation.
+
+AI must not edit skills (`.agents/skills/*/SKILL.md`). A skill changes only
+by the project owner's own hand. If AI believes a skill needs changing, it
+presents the proposal and the evidence to the owner, then stops.
+
 ## 1.4 Delivery Contract
 
 For implementation work, report:

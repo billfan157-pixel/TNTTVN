@@ -17,7 +17,7 @@ import {
 } from '../db/schema.js'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { adminReauthRateLimiter } from '../middleware/security.js'
-import { verifyAdminReauth } from '../services/userService.js'
+import { AdminAuthorizationChangedError, captureAdminReauth, verifyAdminReauth } from '../services/userService.js'
 import { errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { generateId } from '../utils/id.js'
@@ -355,10 +355,10 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  // A07: re-authentication TRƯỚC khi chạm dữ liệu — sai mật khẩu → 401 (audit
-  // RESTORE_BACKUP_FAILED ghi bởi verifyAdminReauth), KHÔNG xóa gì cả.
-  const reauthOk = await verifyAdminReauth(user.userId, payload.adminPassword, user.parishId, ip, userAgent, user.parishId, 'RESTORE_BACKUP_FAILED')
-  if (!reauthOk) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
+  // Capture credentials before preflight/safety work, then revalidate the exact
+  // account authority again inside the destructive transaction.
+  const reauth = await captureAdminReauth(user.userId, payload.adminPassword, user.parishId, ip, userAgent, user.parishId, 'RESTORE_BACKUP_FAILED', user.tokenVersion)
+  if (!reauth) return errorResponse(c, 'INVALID_ADMIN_PASSWORD', 'Mật khẩu xác nhận Admin không chính xác', 401)
 
   try {
 
@@ -538,6 +538,7 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
     // nên rủi ro SQLITE_BUSY cao; helper set busy_timeout ngay trong tx + retry
     // SQLITE_BUSY với backoff → restore không chết oan dưới concurrency.
     const purgeVersion = await runDbTransaction(async (tx) => {
+      await reauth(tx, user.userId, user.parishId, user.parishId, 'RESTORE_BACKUP_FAILED')
       await assertJsonRestoreLifecycleSafe(tx, user.parishId)
       await assertJsonRestoreDependencySafe(tx, user.parishId, includeQuestionBank)
       // ── 1. Xóa trạng thái hiện tại của parish (con → cha; gồm các bảng phái
@@ -670,6 +671,9 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       userAgent,
       parishId: user.parishId,
     }).catch(() => {})
+    if (err instanceof AdminAuthorizationChangedError) {
+      return errorResponse(c, 'SESSION_INVALID', err.message, 401)
+    }
     if (err?.status === 409 && typeof err?.code === 'string') {
       return errorResponse(c, err.code, err.message, 409)
     }

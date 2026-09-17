@@ -19,7 +19,10 @@ async function fixture() {
   const year = '2025-2026', nextYear = '2026-2027'
   const actor = { userId: 'admin', parishId, role: 'admin' as const }
   await db.insert(users).values({ id: 'admin', parishId, username: 'history', fullName: 'Synthetic Admin', passwordHash: 'hash', role: 'admin' })
-  await db.insert(branches).values({ id: 'AuNhi', parishId, name: 'Ấu Nhi', scarfColor: 'green', ageMin: 7, ageMax: 10 })
+  await db.insert(branches).values([
+    { id: 'AuNhi', parishId, name: 'Ấu Nhi', scarfColor: 'green', ageMin: 7, ageMax: 10 },
+    { id: 'ThieuNhi', parishId, name: 'Thiếu Nhi', scarfColor: 'blue', ageMin: 10, ageMax: 13 },
+  ])
   await db.insert(academicYears).values([
     { id: year, parishId, startDate: '2025-08-01', endDate: '2026-07-31' },
     { id: nextYear, parishId, startDate: '2026-08-01', endDate: '2027-07-31' },
@@ -37,7 +40,7 @@ async function fixture() {
   }
   const changePolicy = async () => db.insert(systemSettings).values({
     key: 'parish_system_settings', parishId,
-    value: JSON.stringify({ gradeWeights: { weightOral: 3, weightFinal: 1, roundingDecimal: 2 }, attendancePolicy: { excusedWeight: 0 }, promotionPolicy: { minGpa: 10, minAttendance: 100 } }),
+    value: JSON.stringify({ gradeWeights: { weightOral: 3, weightFinal: 1, roundingDecimal: 2, xuatSacThreshold: 10, gioiThreshold: 9, khaThreshold: 8, trungBinhThreshold: 7 }, attendancePolicy: { excusedWeight: 0 }, promotionPolicy: { minGpa: 10, minAttendance: 100 } }),
   })
   return { parishId, year, nextYear, actor, finish, changePolicy }
 }
@@ -48,6 +51,7 @@ describe('XD-02/03 historical policy and cohort', () => {
     await f.finish()
     const before = await reporting.getStudentReportCard(f.actor, 'student', f.year)
     expect(before?.grades[0].gpa).toBe(7)
+    expect(before?.yearSummary).toEqual({ gpa: 7, classification: 'Khá' })
     await f.changePolicy()
     expect((await promotion.evaluateStudentWithData({ studentId: 'student', academicYear: f.year, parishId: f.parishId })).status).toBe('PROMOTED')
     expect((await reporting.getStudentReportCard(f.actor, 'student', f.year))?.attendanceSummary.overallAttendanceRate).toBe(100)
@@ -56,10 +60,16 @@ describe('XD-02/03 historical policy and cohort', () => {
       expect((await lifecycle.promoteYear(f.year, f.nextYear, 'admin', f.parishId)).unresolvedCount).toBe(1)
     } finally { fail.mockRestore() }
     expect((await lifecycle.retryPromotion(f.year, 'admin', f.parishId)).unresolvedCount).toBe(0)
-    await db.update(classes).set({ name: 'Renamed' }).where(eq(classes.parishId, f.parishId))
+    await db.update(classes).set({ name: 'Renamed', branchId: 'ThieuNhi', academicYearId: f.nextYear }).where(and(eq(classes.parishId, f.parishId), eq(classes.id, 'old')))
+    await db.update(grades).set({ scoreOral: 0, scoreFinal: 0 }).where(eq(grades.parishId, f.parishId))
+    await db.update(attendance).set({ status: 'Present' }).where(eq(attendance.parishId, f.parishId))
     const report = await reporting.getStudentReportCard(f.actor, 'student', f.year)
     expect(report?.grades).toEqual(before?.grades)
+    expect(report?.yearSummary).toEqual(before?.yearSummary)
     expect(report?.student.className).toBe('Ấu Nhi 1')
+    expect(await reporting.listClasses(f.actor, f.year)).toEqual([
+      { id: 'old', name: 'Ấu Nhi 1', branchId: 'AuNhi', academicYear: f.year },
+    ])
     const [profile] = await db.select().from(students).where(eq(students.parishId, f.parishId))
     await db.insert(students).values({ ...profile, id: 'late', code: 'LATE', classId: 'old' })
     expect(await reporting.getStudentReportCard(f.actor, 'late', f.year)).toBeNull()
@@ -121,6 +131,7 @@ describe('XD-02/03 historical policy and cohort', () => {
     await f.changePolicy()
     const report = await reporting.getStudentReportCard(f.actor, 'student', f.year)
     expect(report?.grades[0].gpa).toBe(9)
+    expect(report?.yearSummary).toEqual({ gpa: 9, classification: 'Giỏi' })
     expect(report?.attendanceSummary.overallAttendanceRate).toBe(0)
   })
 

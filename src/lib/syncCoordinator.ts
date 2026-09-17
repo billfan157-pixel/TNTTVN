@@ -14,7 +14,13 @@ import { useAcademicYearStore } from '../stores/academicYearStore'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
-import { getTenantScope } from '../lib/tenantScope'
+import { captureTenantScope, getTenantScope, type TenantScopeSnapshot } from '../lib/tenantScope'
+import {
+  isSyncOwnerCurrent,
+  persistSyncResultForOwner,
+  quarantineMarkedSyncScopes,
+  readPersistedSyncResult,
+} from '../lib/syncSessionBoundary'
 import {
   captureSyncCursorScope,
   readSyncCursor,
@@ -108,16 +114,40 @@ export async function markFailedExamResultOp(op: SyncQueueItem, error?: string):
 
 async function processClaimedOperation(op: SyncQueueItem) {
   try {
-    if (op.serverAcknowledgement && op.operation === 'CREATE') {
-      const raw = await decryptQueueValue(op.serverAcknowledgement)
-      if (!raw) throw new Error('Cannot read committed CREATE acknowledgement')
-      return { ok: true, data: JSON.parse(raw) } as Awaited<ReturnType<typeof processOperation>>
+    if (op.serverAcknowledgement) {
+      const retained = await readPersistedSyncResult(op)
+      if (retained) return retained as Awaited<ReturnType<typeof processOperation>>
     }
     return await processOperation(op)
   } catch (error) {
     await useSyncStore.getState().updateOp(op.id, {
       status: 'retrying',
       lastError: (error as Error).message || 'Sync operation interrupted before acknowledgement',
+    })
+    throw error
+  }
+}
+
+class SyncOwnerChangedError extends Error {
+  constructor() {
+    super('Sync owner changed while an operation was in flight')
+  }
+}
+
+function requireFlowOwner(owner: TenantScopeSnapshot, op?: SyncQueueItem): void {
+  if (!isSyncOwnerCurrent(owner, op)) throw new SyncOwnerChangedError()
+}
+
+async function journalSuccessfulResult(op: SyncQueueItem, result: Awaited<ReturnType<typeof processOperation>>): Promise<void> {
+  if (!result.ok) return
+  try {
+    await persistSyncResultForOwner(op, result)
+  } catch (error) {
+    // The server may have committed. Re-arm the original row so its stable
+    // idempotency key can recover; never strand it in processing.
+    await useSyncStore.getState().updateOp(op.id, {
+      status: 'retrying',
+      lastError: 'Server response could not be retained locally; retry required',
     })
     throw error
   }
@@ -176,10 +206,21 @@ export async function runSyncFlow(leaseHeld = false) {
     return
   }
 
+
+  const flowOwner = captureTenantScope()
+  if (!flowOwner) {
+    store.setStatus('idle')
+    return
+  }
+
   store.setStatus('syncing')
   store.setLastError(null)
 
   try {
+    // AUTH-P1-003: a queue created under a server-revoked session must never
+    // cross a later login boundary. Finish any interrupted quarantine before
+    // reading or claiming durable mutations.
+    await quarantineMarkedSyncScopes()
     // OS-02: Migration 1 lần cho legacy queue items của user hiện tại
     await migrateLegacyQueueOwnership()
     // A browser/process can stop after a durable op was claimed but before its
@@ -221,11 +262,14 @@ export async function runSyncFlow(leaseHeld = false) {
       }
       const op = await store.claimOp(queuedOp.id)
       if (!op) continue
+      requireFlowOwner(flowOwner, op)
       const result = await processClaimedOperation(op)
+      await journalSuccessfulResult(op, result)
       await new Promise(r => setTimeout(r, 200))
+      requireFlowOwner(flowOwner, op)
 
       if (result.ok) {
-        await acknowledgeCreatedParent(op, result.data)
+        await acknowledgeCreatedParent(op, result.data, flowOwner)
         // SYNC-CONFLICT-1: CREATE student/class/exam không còn nhánh isConflict —
         // business 409 (vd CLASS_CODE_EXISTS) giờ là permanent-fail (xử lý ở
         // nhánh else bên dưới), op giữ payload để user xử lý tường minh.
@@ -267,8 +311,8 @@ export async function runSyncFlow(leaseHeld = false) {
     ops = await store.getPendingOps()
 
     // ─── Phase 2: Group batchable ops (grade/attendance UPDATEs) ───
-    const gradeUpdateOps = ops.filter(o => o.entity === 'grade' && o.operation === 'UPDATE')
-    const attendanceUpdateOps = ops.filter(o => o.entity === 'attendance' && o.operation === 'UPDATE')
+    const gradeUpdateOps = ops.filter(o => o.entity === 'grade' && o.operation === 'UPDATE' && !o.serverAcknowledgement)
+    const attendanceUpdateOps = ops.filter(o => o.entity === 'attendance' && o.operation === 'UPDATE' && !o.serverAcknowledgement)
     // ADR-016 (offline-sync audit #3): filter theo set các CREATE parent đã xử lý ở
     // Phase 1.5 — trước đây `!createOps.includes(o)` so sánh object identity với
     // array cũ nên op re-fetch từ Dexie (luôn là object mới) lọt qua → CREATE bị
@@ -305,7 +349,7 @@ export async function runSyncFlow(leaseHeld = false) {
       }
       if (validOps.length > 0 && payloads.length > 0) {
         try {
-          await flushGradeBatchWithIsolation(payloads, validOps, store, syncState)
+          await flushGradeBatchWithIsolation(payloads, validOps, store, syncState, flowOwner)
         } catch (error) {
           for (const op of validOps) {
             await store.updateOp(op.id, { status: 'retrying', lastError: (error as Error).message || 'Grade batch sync interrupted' })
@@ -337,7 +381,7 @@ export async function runSyncFlow(leaseHeld = false) {
         try { firstPayload = await parseQueuePayload(batch[0].payload) } catch {}
         // ADR-016 (sync-fix): 400 validation → cách ly record lỗi, không retry cả batch.
         try {
-          await flushAttendanceBatchWithIsolation(batch, firstPayload, store, syncState)
+          await flushAttendanceBatchWithIsolation(batch, firstPayload, store, syncState, flowOwner)
         } catch (error) {
           for (const op of batch) {
             await store.updateOp(op.id, { status: 'retrying', lastError: (error as Error).message || 'Attendance batch sync interrupted' })
@@ -360,29 +404,33 @@ export async function runSyncFlow(leaseHeld = false) {
 
       const op = await store.claimOp(ops[0].id)
       if (!op) {
-        ops = (await store.getPendingOps()).filter(o => o.entity !== 'grade' && o.entity !== 'attendance')
+        ops = ops.slice(1)
         continue
       }
+      requireFlowOwner(flowOwner, op)
       const result = await processClaimedOperation(op)
+      await journalSuccessfulResult(op, result)
       await new Promise(r => setTimeout(r, 200))
+      requireFlowOwner(flowOwner, op)
 
       if (result.ok) {
         if (result.isConflict && result.data) {
           // SYNC-CONFLICT-1: 409 VERSION_CONFLICT (grade/attendance) có bản ghi server
           // → F9 merge field-level + re-queue thay vì server-wins thầm lặng.
           syncState.mergedConflictCount++
-          await resolveConflictWithMerge(op, result.data)
+          await resolveConflictWithMerge(op, result.data, flowOwner)
         } else {
           if (op.operation === 'CREATE') {
-            await acknowledgeCreatedParent(op, result.data)
+            await acknowledgeCreatedParent(op, result.data, flowOwner)
           } else {
-            await store.removeOp(op.id)
             if (result.data) {
             // ADR-016 (S24): AWAIT remap (audit finding #9) — trước đây fire-and-forget
             // nên student/class CREATE được remap trong cùng cycle này, các op sau
             // trong Phase 3 vẫn đọc queue cũ với temp ID.
-              await applyServerResultAsync(op, result.data)
+              await applyServerResultAsync(op, result.data, flowOwner)
             }
+            requireFlowOwner(flowOwner, op)
+            await store.removeOp(op.id)
           }
         }
       } else if (result.isAuthError || result.error?.includes('Auth expired') || result.error?.includes('Unauthorized')) {
@@ -421,7 +469,7 @@ export async function runSyncFlow(leaseHeld = false) {
         await markFailedExamResultOp(op, result.error)
       }
 
-      ops = (await store.getPendingOps()).filter(o => o.entity !== 'grade' && o.entity !== 'attendance')
+      ops = ops.slice(1)
     }
 
     const s = useSyncStore.getState()
@@ -453,6 +501,9 @@ export async function runSyncFlow(leaseHeld = false) {
       }
     }
   } catch (err) {
+    if (err instanceof SyncOwnerChangedError || /Sync owner changed|sync owner changed|Tenant owner changed/i.test((err as Error)?.message || '')) {
+      return
+    }
     const s = useSyncStore.getState()
     if (isNetworkError(err)) {
       s.setStatus('offline')

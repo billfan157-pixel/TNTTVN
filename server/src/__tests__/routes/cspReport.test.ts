@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { Hono } from 'hono'
 import cspReportRouter from '../../routes/cspReport.js'
 
@@ -8,6 +8,8 @@ const app = new Hono()
 app.route('/api/csp-report', cspReportRouter)
 
 describe('OBS-1: CSP violation report collector', () => {
+  afterEach(() => vi.restoreAllMocks())
+
   it('POST báo cáo chuẩn (csp-report) → 204', async () => {
     const res = await app.request('/api/csp-report', {
       method: 'POST',
@@ -42,5 +44,39 @@ describe('OBS-1: CSP violation report collector', () => {
   it('POST body rỗng → vẫn 204', async () => {
     const res = await app.request('/api/csp-report', { method: 'POST' })
     expect(res.status).toBe(204)
+  })
+
+  it('redacts signed verification queries and arbitrary payload values from logs', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const secret = 'student-child-123-signature-secret'
+
+    const standard = await app.request('/api/csp-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/csp-report' },
+      body: JSON.stringify({
+        'csp-report': {
+          'document-uri': `https://tnttvn.vercel.app/verify?studentId=child-123&sig=${secret}`,
+          'violated-directive': 'script-src',
+          'blocked-uri': `https://cdn.example/script.js?token=${secret}`,
+          'source-file': `https://tnttvn.vercel.app/assets/app.js?debug=${secret}`,
+        },
+      }),
+    })
+    expect(standard.status).toBe(204)
+
+    const unknown = await app.request('/api/csp-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: `student name ${secret}`, authorization: `Bearer ${secret}` }),
+    })
+    expect(unknown.status).toBe(204)
+
+    const logs = warn.mock.calls.flat().join('\n')
+    expect(logs).toContain('https://tnttvn.vercel.app/verify')
+    expect(logs).toContain('https://cdn.example/script.js')
+    expect(logs).not.toContain('studentId=')
+    expect(logs).not.toContain('token=')
+    expect(logs).not.toContain(secret)
+    expect(logs).not.toContain('student name')
   })
 })

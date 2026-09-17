@@ -11,6 +11,7 @@ export interface ExportGradebookOptions {
   className?: string
   semester: number
   academicYear?: string
+  authoritativeResults?: Record<string, { gpa: number | null; classification: string | null }>
 }
 
 /**
@@ -31,6 +32,7 @@ export function exportGradebookToExcel({
   className = 'Tất cả các lớp',
   semester,
   academicYear: academicYearProp,
+  authoritativeResults,
 }: ExportGradebookOptions) {
   // ADR-017 (F4): Năm học chuẩn hóa 'YYYY-YYYY' — trước đây '' (chưa chọn năm)
   // hoặc 'YYYY - YYYY' làm tên file/header sai hoặc rỗng.
@@ -54,7 +56,11 @@ export function exportGradebookToExcel({
       scoreMidterm: rec.scoreMidterm ?? null,
       scoreFinal: rec.scoreFinal ?? null,
     }
-    const avgResult = calculateGradeAverage(gradeInput, gradeWeights)
+    const calculated = calculateGradeAverage(gradeInput, gradeWeights)
+    const authoritative = authoritativeResults?.[student.id]
+    const avgResult = authoritative
+      ? { score: authoritative.gpa, label: authoritative.classification || '' }
+      : calculated
 
     return {
       stt: index + 1,

@@ -23,6 +23,10 @@ describe('normalizeAcademicYear Utility Unit Tests (Fix F15)', () => {
     expect(normalizeAcademicYear('2025 — 2026')).toBe('2025-2026')
   })
 
+  it('normalizes prefixed persistence IDs to the canonical reporting year', () => {
+    expect(normalizeAcademicYear('AY-2025-2026')).toBe('2025-2026')
+  })
+
   it('provides default fallback for null or undefined input', () => {
     // UTIL-DRIFT-1: fallback động theo năm hiện tại (quy ước tháng 8), không hardcode.
     const current = getCurrentAcademicYear()

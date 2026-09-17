@@ -243,9 +243,10 @@ describe('Batch Print / PDF Export System Test Suite', () => {
       student: { id: 'ST-001', code: 'TN001', holyName: 'Phê-rô', fullName: 'Nguyễn Văn <Script>Alert("X")</Script>', className: 'Lớp 1' },
       academicYear: '2025 - 2026',
       grades: [
-        { semester: 1, scoreOral: 8, score15m: 9, score1Period: 8, scoreMidterm: 9, scoreFinal: 10, gpa: 9.0 },
-        { semester: 2, scoreOral: 7, score15m: 8, score1Period: 9, scoreMidterm: 8, scoreFinal: 9, gpa: 8.4 },
+        { semester: 1, scoreOral: 8, score15m: 9, score1Period: 8, scoreMidterm: 9, scoreFinal: 10, scoreDaoDuc: 9, gpa: 9.0, classification: 'Xếp loại đã chốt HK1' },
+        { semester: 2, scoreOral: 7, score15m: 8, score1Period: 9, scoreMidterm: 8, scoreFinal: 9, scoreDaoDuc: 8, gpa: 8.4, classification: 'Xếp loại đã chốt HK2' },
       ],
+      yearSummary: { gpa: 8.7, classification: 'Giỏi' },
       attendanceSummary: {
         massPresentCount: 20, massTotalCount: 22,
         catechismPresentCount: 18, catechismTotalCount: 20,
@@ -258,6 +259,8 @@ describe('Batch Print / PDF Export System Test Suite', () => {
     expect(html).toContain('PHIẾU KẾT QUẢ HỌC TẬP GIÁO LÝ')
     expect(html).toContain('Phê-rô')
     expect(html).toContain('Học Kỳ 1')
+    expect(html).toContain('Xếp loại đã chốt HK1')
+    expect(html).toContain('Cả năm: <strong>8.7</strong> — <strong>Giỏi</strong>')
     expect(html).toContain('Được lên lớp')
     // XSS: dữ liệu user bị escape, không xuất hiện raw <Script>
     expect(html).not.toContain('Nguyễn Văn <Script>')

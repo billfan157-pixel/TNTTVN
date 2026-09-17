@@ -520,7 +520,7 @@ export class AcademicYearLifecycleService {
       const finalizationPolicy = JSON.stringify(finalizationPolicySchema.parse({
         version: 1, capturedAt: now, gradeWeights: weights, attendancePolicy,
         promotionPolicy: policy, classificationThresholds: thresholds, range,
-        classes: classRows.map(c => ({ id: c.id, name: c.name })),
+        classes: classRows.map(c => ({ id: c.id, name: c.name, branchId: c.branchId })),
       }))
 
       for (const student of studentRows) {
@@ -566,6 +566,7 @@ export class AcademicYearLifecycleService {
               semester: g.semester, scoreOral: effective.scoreOral ?? null,
               score15m: effective.score15m ?? null, score1Period: effective.score1Period ?? null,
               scoreMidterm: effective.scoreMidterm ?? null, scoreFinal: effective.scoreFinal ?? null,
+              scoreDaoDuc: effective.scoreDaoDuc ?? null,
               gpa: effectiveGpa(g),
             }
           }),

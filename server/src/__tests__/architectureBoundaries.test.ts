@@ -13,6 +13,7 @@ const REPOSITORY_DIR = join(SERVER_SRC_DIR, 'repositories')
 const ROUTE_DIR = join(SERVER_SRC_DIR, 'routes')
 const SERVICE_DIR = join(SERVER_SRC_DIR, 'services')
 const CLIENT_STORE_DIR = join(SERVER_SRC_DIR, '..', '..', 'src', 'stores')
+const CLIENT_SRC_DIR = join(SERVER_SRC_DIR, '..', '..', 'src')
 
 const ALLOWED_RUNTIME_SPECIFIERS = new Set([
   '../utils/phone.js', // pure, không DB/HTTP
@@ -100,6 +101,24 @@ describe('Phase 3 — domain dependency gate', () => {
     expect(source).not.toMatch(/server\.close\s*\(\s*\(\s*\)\s*=>\s*process\.exit/)
   })
 
+  it('ARCH-P2-004: required recovery and workers initialize before HTTP bind', () => {
+    const source = readFileSync(join(SERVER_SRC_DIR, 'index.ts'), 'utf8')
+    const bind = source.indexOf('const server = serve(')
+    expect(bind).toBeGreaterThan(-1)
+    for (const startupCall of [
+      'await initNotificationQueue()',
+      'initSundayReminderScheduler()',
+      'initOperationsReminderScheduler()',
+      'initOperationsEventLifecycleScheduler()',
+      'initOperationsTaskDispatchScheduler()',
+      'initOperationsManagerReminderScheduler()',
+      'initBackupScheduler()',
+    ]) {
+      expect(source.indexOf(startupCall), startupCall).toBeGreaterThan(-1)
+      expect(source.indexOf(startupCall), startupCall).toBeLessThan(bind)
+    }
+  })
+
   it('T3: client stores do not import React hooks', () => {
     const violations: string[] = []
     for (const file of readdirSync(CLIENT_STORE_DIR).filter((name) => name.endsWith('.ts'))) {
@@ -109,5 +128,71 @@ describe('Phase 3 — domain dependency gate', () => {
       }
     }
     expect(violations).toEqual([])
+  })
+
+  it('ARCH-P2-003: new route modules cannot introduce direct transaction ownership', () => {
+    // These are explicit legacy/application-command boundaries, not proof that
+    // every route follows the same profile. The ratchet prevents the exception
+    // set from growing while extraction remains change-driven.
+    const approvedRouteCommandBoundaries = new Set([
+      'attendance.ts', 'auth.ts', 'backup.ts', 'grades.ts', 'leaveRequests.ts',
+      'notifications.ts', 'semesterLocks.ts', 'settings.ts', 'verification.ts',
+    ])
+    const violations: string[] = []
+    for (const file of readdirSync(ROUTE_DIR).filter((name) => name.endsWith('.ts'))) {
+      const source = readFileSync(join(ROUTE_DIR, file), 'utf8')
+      const ownsTransaction = /\brunDbTransaction\s*\(/.test(source)
+      if (ownsTransaction && !approvedRouteCommandBoundaries.has(file)) violations.push(file)
+    }
+    expect(violations).toEqual([])
+  })
+
+  it('ARCH-P2-001: Operations mutations delegate transaction lifecycle and receipt ownership', () => {
+    const source = readFileSync(join(ROUTE_DIR, 'operations.ts'), 'utf8')
+    expect(source).toContain('runIdempotentOperationsCommand')
+    expect(source).not.toMatch(/\brunDbTransaction\s*\(/)
+    // Five read-only authorization/readiness/detail snapshots remain explicit
+    // composition dependencies; they are not mutation boundaries. Ratchet the
+    // count so a new direct transaction requires an architecture decision.
+    expect(source.match(/\bdb\.transaction\s*\(/g)).toHaveLength(5)
+    expect(source).toMatch(/db\.transaction\(tx => listOperationsCandidates/)
+  })
+
+  it('ARCH-P1-001: reporting projections remain read-only and transport has no persistence edge', () => {
+    const route = readFileSync(join(ROUTE_DIR, 'reporting.ts'), 'utf8')
+    expect(runtimeImports(route).some((specifier) => specifier.startsWith('../db/'))).toBe(false)
+    for (const file of ['ReportCardProjectionRepository.ts', 'ClassSummaryProjectionRepository.ts']) {
+      const source = readFileSync(join(REPOSITORY_DIR, file), 'utf8')
+      expect(source, file).not.toMatch(/\.(?:insert|update|delete)\s*\(/)
+    }
+  })
+
+  it('ARCH-P1-001: official client report surfaces cannot recalculate from grade/attendance stores', () => {
+    const files = [
+      'components/common/PrintReportModal.tsx',
+      'components/common/StudentReportModal.tsx',
+      'components/desktop/DesktopReports.tsx',
+      'components/mobile/MobileReportsView.tsx',
+      'services/reportExporter.ts',
+      'services/officialReporting.ts',
+    ]
+    const violations: string[] = []
+    for (const relative of files) {
+      const source = readFileSync(join(CLIENT_SRC_DIR, relative), 'utf8')
+      if (/stores\/(?:gradeStore|attendanceStore)/.test(source)
+        || /ReportViewModelFactory\.createStudentViewModel/.test(source)
+        || /generate(?:StudentReportCard|ClassGradebook)HTML/.test(source)) {
+        violations.push(relative)
+      }
+    }
+    const pdfSource = readFileSync(join(CLIENT_SRC_DIR, 'utils/pdfGenerator.ts'), 'utf8')
+    expect(pdfSource).not.toContain('getClassificationLabel(g.gpa')
+    expect(violations).toEqual([])
+  })
+
+  it('ARCH-P2-001: Parish Events transport cannot regain calendar write authority', () => {
+    const source = readFileSync(join(ROUTE_DIR, 'parishEvents.ts'), 'utf8')
+    expect(source).toContain('CALENDAR_READ_ONLY')
+    expect(source).not.toMatch(/\b(?:tx|db)\.(?:insert|update|delete)\s*\(/)
   })
 })

@@ -1,4 +1,4 @@
-import type { Student, GradeRecord, AttendanceRecord } from '../types'
+import type { Student, GradeRecord, AttendanceRecord, ReportCardDTO } from '../types'
 import type { StudentReportCardViewModel, BatchReportViewModel, GradeRowViewModel } from '../types/reportViewModel'
 import { calculateGradeAverage, calculateAttendanceRate, calculateYearlyGpa, countAttendancePresent, getClassificationLabel, type GradeWeightsConfig } from './grades'
 import { normalizeAcademicYear, getCurrentAcademicYear } from './academicYear'
@@ -17,6 +17,76 @@ export interface CreateReportViewModelParams {
 }
 
 export class ReportViewModelFactory {
+  /**
+   * Builds a printable/viewable model from the server CQRS projection without
+   * recalculating GPA, classification, class membership or attendance from
+   * mutable client state. Current profile contact fields remain presentation
+   * data only and never influence academic results.
+   */
+  public static createOfficialStudentViewModel(
+    report: ReportCardDTO,
+    profile?: Pick<Student, 'parentName' | 'parentPhone'>,
+    options?: { parishName?: string; dioceseName?: string },
+  ): StudentReportCardViewModel {
+    const gradeBySemester = new Map(report.grades.map((grade) => [grade.semester, grade]))
+    const format = (value: number | null | undefined): string => value === null || value === undefined ? '-' : String(value)
+    const gradeRows: GradeRowViewModel[] = [1, 2].map((semester) => {
+      const grade = gradeBySemester.get(semester)
+      return {
+        semesterLabel: `Học Kỳ ${semester}`,
+        scoreOral: format(grade?.scoreOral),
+        score15m: format(grade?.score15m),
+        score1Period: format(grade?.score1Period),
+        scoreMidterm: format(grade?.scoreMidterm),
+        scoreFinal: format(grade?.scoreFinal),
+        scoreDaoDuc: format(grade?.scoreDaoDuc),
+        gpaLabel: format(grade?.gpa),
+        classification: grade?.classification || 'Chưa có',
+      }
+    })
+    const attendance = report.attendanceSummary
+    const massAbsent = Math.max(0, attendance.massTotalCount - attendance.massPresentCount)
+    const catechismAbsent = Math.max(0, attendance.catechismTotalCount - attendance.catechismPresentCount)
+    const totalPresent = attendance.massPresentCount + attendance.catechismPresentCount
+    const totalCount = attendance.massTotalCount + attendance.catechismTotalCount
+
+    return {
+      student: {
+        id: report.student.id,
+        code: report.student.code,
+        holyName: report.student.holyName || '',
+        fullName: report.student.fullName,
+        dateOfBirth: report.student.dateOfBirth || '',
+        className: report.student.className || '',
+        parentName: profile?.parentName || '',
+        parentPhone: profile?.parentPhone || '',
+      },
+      summary: {
+        gpa: report.yearSummary.gpa,
+        gpaLabel: format(report.yearSummary.gpa),
+        attendanceRate: attendance.overallAttendanceRate,
+        presentMassCount: attendance.massPresentCount,
+        totalMassCount: attendance.massTotalCount,
+        classification: report.yearSummary.classification || 'Chưa có',
+        attendanceDetails: {
+          rate: attendance.overallAttendanceRate,
+          presentCount: totalPresent,
+          absentCount: massAbsent + catechismAbsent,
+          totalCount,
+          sundayMass: { present: attendance.massPresentCount, absent: massAbsent, total: attendance.massTotalCount },
+          catechism: { present: attendance.catechismPresentCount, absent: catechismAbsent, total: attendance.catechismTotalCount },
+          adoration: { present: 0, absent: 0, total: 0 },
+        },
+      },
+      grades: Object.freeze(gradeRows),
+      options: {
+        academicYear: report.academicYear,
+        parishName: options?.parishName || useSettingsStore.getState().settings.parishName || 'Giáo Xứ Gia Tôn',
+        dioceseName: options?.dioceseName || useSettingsStore.getState().settings.dioceseName || 'Giáo Phận Xuân Lộc',
+      },
+    }
+  }
+
   public static createStudentViewModel(
     student: Student,
     grades: readonly GradeRecord[],

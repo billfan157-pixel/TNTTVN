@@ -6,6 +6,7 @@ import { redactStudentForAudit } from '../utils/auditRedact.js'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
 import { resolveMembershipBranch } from './studentMembershipPolicy.js'
+import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 
 type StudentInsert = InferInsertModel<typeof students>
 
@@ -96,8 +97,8 @@ export async function getStudentById(id: string, parishId: string) {
   return student || null
 }
 
-async function getAcademicYearPrefix(classId: string, parishId: string): Promise<string> {
-  const [result] = await db
+async function getAcademicYearPrefix(classId: string, parishId: string, executor: DbExecutor = db): Promise<string> {
+  const [result] = await executor
     .select({ startDate: academicYears.startDate, deletedAt: classes.deletedAt })
     .from(classes)
     .leftJoin(academicYears, eq(classes.academicYearId, academicYears.id))
@@ -184,6 +185,7 @@ export async function createStudent(
   ip: string,
   userAgent: string,
   idempotencyKey?: string,
+  expected?: AcademicWriteExpectation,
 ) {
   const input = rawData as Record<string, unknown>
   const data = pickStudentWritable(input)
@@ -212,15 +214,18 @@ export async function createStudent(
   validateDateOfBirth(data.dateOfBirth)
 
   const id = generateId('ST')
-  const year = await getAcademicYearPrefix(data.classId, parishId)
   const now = new Date().toISOString()
 
   // Transaction retry: generate code AND insert within same transaction
   // to eliminate TOCTOU race between SELECT (availability check) and INSERT.
   for (let attempt = 0; attempt < 12; attempt++) {
-    const code = `TN${year}${generateStudentCodeSuffix()}`
     try {
       return await runDbTransaction(async (tx) => {
+        if (!(await checkAcademicWriteAccess(userId, parishId, data.classId, tx, expected, ['admin', 'chunhiem']))) {
+          throw Object.assign(new Error('Bạn không được phân công lớp này'), { status: 403, code: 'FORBIDDEN' })
+        }
+        const year = await getAcademicYearPrefix(data.classId, parishId, tx)
+        const code = `TN${year}${generateStudentCodeSuffix()}`
         const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
         await tx.insert(students).values({
           holyName: data.holyName,
@@ -285,9 +290,13 @@ export async function createStudent(
     }
   }
   // Last resort: include timestamp fragment (vẫn GIỮ idempotencyKey — IDEM-F3)
-  const fallbackNum = Date.now() % 1_000_000
-  const code = `TN${year}${String(fallbackNum).padStart(6, '0')}`
   return await runDbTransaction(async (tx) => {
+    if (!(await checkAcademicWriteAccess(userId, parishId, data.classId, tx, expected, ['admin', 'chunhiem']))) {
+      throw Object.assign(new Error('Bạn không được phân công lớp này'), { status: 403, code: 'FORBIDDEN' })
+    }
+    const year = await getAcademicYearPrefix(data.classId, parishId, tx)
+    const fallbackNum = Date.now() % 1_000_000
+    const code = `TN${year}${String(fallbackNum).padStart(6, '0')}`
     const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
     await tx.insert(students).values({
       holyName: data.holyName,
@@ -345,42 +354,48 @@ export async function updateStudent(
   parishId: string,
   ip: string,
   userAgent: string,
+  expected?: AcademicWriteExpectation,
 ) {
-  const existing = await getStudentById(id, parishId)
-  if (!existing) return null
-
   const input = rawData as Record<string, unknown>
   const data = pickStudentWritable(input)
-  if (Object.keys(data).length === 0) {
-    return existing
-  }
   if (data.dateOfBirth !== undefined) {
     validateDateOfBirth(data.dateOfBirth)
   }
-
-  if (data.classId && data.classId !== existing.classId) {
-    await getAcademicYearPrefix(data.classId, parishId)
-  }
-
-  const changesMembership = (data.classId !== undefined && data.classId !== existing.classId)
-    || (data.branch !== undefined && data.branch !== existing.branch)
   const membershipChangeReason = typeof input.membershipChangeReason === 'string'
     ? input.membershipChangeReason.trim()
     : ''
-  if (changesMembership && membershipChangeReason.length < 5) {
-    throw Object.assign(
-      new Error('Bắt buộc nhập lý do khi điều chỉnh lớp hoặc phân ngành của học viên'),
-      { code: 'MEMBERSHIP_CHANGE_REASON_REQUIRED' },
-    )
-  }
 
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const [existing] = await tx.select().from(students).where(and(
+      eq(students.id, id), eq(students.parishId, parishId), isNull(students.deletedAt),
+    )).limit(1)
+    if (!existing) return null
+    const targetClassId = data.classId ?? existing.classId
+    const authorizedSource = await checkAcademicWriteAccess(userId, parishId, existing.classId, tx, expected, ['admin', 'chunhiem'])
+    const authorizedTarget = targetClassId === existing.classId
+      ? authorizedSource
+      : await checkAcademicWriteAccess(userId, parishId, targetClassId, tx, expected, ['admin', 'chunhiem'])
+    if (!authorizedSource || !authorizedTarget) {
+      throw Object.assign(new Error('Bạn không có quyền sửa học sinh trong lớp nguồn hoặc lớp đích'), { status: 403, code: 'FORBIDDEN' })
+    }
+    if (Object.keys(data).length === 0) return existing
+    if (data.classId !== undefined && data.classId !== existing.classId) {
+      await getAcademicYearPrefix(data.classId, parishId, tx)
+    }
+    const changesMembership = (data.classId !== undefined && data.classId !== existing.classId)
+      || (data.branch !== undefined && data.branch !== existing.branch)
+    if (changesMembership && membershipChangeReason.length < 5) {
+      throw Object.assign(
+        new Error('Bắt buộc nhập lý do khi điều chỉnh lớp hoặc phân ngành của học viên'),
+        { code: 'MEMBERSHIP_CHANGE_REASON_REQUIRED' },
+      )
+    }
     const touchesMembership = data.classId !== undefined || data.branch !== undefined
     const updateData = touchesMembership
       ? {
           ...data,
-          branch: await resolveMembershipBranch(tx, parishId, data.classId || existing.classId, data.branch),
+          branch: await resolveMembershipBranch(tx, parishId, data.classId ?? existing.classId, data.branch),
         }
       : data
     await tx

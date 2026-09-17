@@ -1,9 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
-import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { BRANCHES } from '../../constants/branches';
-import { useClassStore } from '../../stores/classStore';
+import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { Printer, FileText, BarChart2, FileSpreadsheet, Database, Download, Search } from 'lucide-react';
 import type { Student } from '../../types';
 import { PageHeader } from '../common/PageHeader';
@@ -22,6 +21,8 @@ import {
   exportXlsx,
   exportFilename,
 } from '../../services/reportExporter';
+import { fetchOfficialAcademicYearReports, type OfficialClassReport } from '../../services/officialReporting';
+import { getCurrentAcademicYear, normalizeAcademicYear } from '../../utils/academicYear';
 
 interface DesktopReportsProps {
   onPrintReport: (student: Student) => void;
@@ -32,45 +33,76 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   const isAdmin = can('admin');
   const canPrint = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
-  const calculateStudentAvg = useGradeStore(s => s.calculateStudentAvg);
-  const findClassById = useClassStore(s => s.findClassById);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
+  const currentYear = useAcademicYearStore(s => s.currentYear);
 
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printReportType, setPrintReportType] = useState<import('../../utils/pdfGenerator').ReportType | undefined>(undefined);
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [studentQuery, setStudentQuery] = useState('');
+  const [officialReports, setOfficialReports] = useState<OfficialClassReport[]>([]);
+  const [officialError, setOfficialError] = useState<string | null>(null);
+  const [isOfficialLoading, setIsOfficialLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const year = normalizeAcademicYear(currentYear) || getCurrentAcademicYear();
+    setOfficialReports([]);
+    setOfficialError(null);
+    setIsOfficialLoading(true);
+    void fetchOfficialAcademicYearReports(year).then(reports => {
+      if (active) {
+        setOfficialReports(reports);
+        setIsOfficialLoading(false);
+      }
+    }).catch(err => {
+      if (active) {
+        setOfficialError(err instanceof Error ? err.message : 'Không thể tải dữ liệu báo cáo chính thức');
+        setIsOfficialLoading(false);
+      }
+    });
+    return () => { active = false; };
+  }, [currentYear]);
+
+  const officialByStudentId = useMemo(() => new Map(
+    officialReports.flatMap(classReport => classReport.reportCards.map(report => [report.student.id, {
+      report,
+      className: classReport.summary.className,
+    }] as const)),
+  ), [officialReports]);
+  const officialStudentCount = officialByStudentId.size;
 
   // Quick-print: tìm kiếm thay vì cap cứng 9 học sinh đầu tiên
   const QUICK_PRINT_LIMIT = 12;
   const matchedStudents = useMemo(() => {
     const q = studentQuery.trim().toLowerCase();
+    const eligible = students.filter(s => officialByStudentId.has(s.id));
     const base = q
-      ? students.filter(s =>
+      ? eligible.filter(s =>
           s.fullName.toLowerCase().includes(q) ||
           (s.holyName || '').toLowerCase().includes(q))
-      : students;
+      : eligible;
     return base.slice(0, QUICK_PRINT_LIMIT);
-  }, [students, studentQuery]);
+  }, [officialByStudentId, students, studentQuery]);
 
   const openPrintModal = (type?: import('../../utils/pdfGenerator').ReportType) => {
     setPrintReportType(type);
     setIsPrintModalOpen(true);
   };
 
-  const handleExport = (kind: 'branch' | 'students', format: 'csv' | 'xlsx') => {
+  const handleExport = async (kind: 'branch' | 'students', format: 'csv' | 'xlsx') => {
     try {
       if (kind === 'branch') {
-        const rows = buildBranchSummaryRows(selectedSemester);
+        const rows = await buildBranchSummaryRows(selectedSemester);
         const filename = exportFilename('BaoCao_ThongKe_PhanNganh_HK' + selectedSemester);
         if (format === 'csv') exportCsv(filename, rows);
-        else void exportXlsx(filename, 'Thống kê phân ngành', rows).catch(console.error);
+        else await exportXlsx(filename, 'Thống kê phân ngành', rows);
       } else {
-        const rows = buildStudentDetailRows();
+        const rows = await buildStudentDetailRows();
         const filename = exportFilename('BaoCao_ChiTiet_HocSinh');
         if (format === 'csv') exportCsv(filename, rows);
-        else void exportXlsx(filename, 'Chi tiết học sinh', rows).catch(console.error);
+        else await exportXlsx(filename, 'Chi tiết học sinh', rows);
       }
     } catch (err) {
       useToastStore.getState().addToast('Lỗi khi xuất báo cáo! Vui lòng thử lại.', 'error');
@@ -116,6 +148,8 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
         <h3 className="text-base font-extrabold text-parish-primary mb-4 flex items-center gap-2 h-6">
           <BarChart2 size={20} className="text-parish-primary" /> Bảng Thống Kê Học Lực Theo Phân Ngành (Học Kỳ {selectedSemester})
         </h3>
+        {isOfficialLoading && <div className="mb-3 rounded-lg border border-parish-info/30 bg-parish-info-bg p-3 text-xs font-semibold text-parish-info">Đang tải dữ liệu báo cáo chính thức từ máy chủ…</div>}
+        {officialError && <div className="mb-3 rounded-lg border border-parish-danger/30 bg-parish-danger-bg p-3 text-xs font-semibold text-parish-danger">{officialError}. Không dùng dữ liệu cục bộ thay thế.</div>}
         <div className="overflow-x-auto rounded-xl border border-surface-border min-w-0">
           <table className="w-full border-collapse text-sm text-center table-fixed min-w-0 bg-surface-card text-text-main">
             <colgroup>
@@ -131,7 +165,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
               <tr className="bg-surface-app text-text-muted border-b-2 border-surface-border text-xs font-bold uppercase tracking-wider">
                 <th className="py-2.5 px-3 text-left" scope="col">Phân Ngành</th>
                 <th className="py-2.5 px-3" scope="col">Số TN</th>
-                <th className="py-2.5 px-3" scope="col">XS (≥9.0)</th>
+                <th className="py-2.5 px-3" scope="col">Xuất Sắc</th>
                 <th className="py-2.5 px-3" scope="col">Giỏi</th>
                 <th className="py-2.5 px-3" scope="col">Khá</th>
                 <th className="py-2.5 px-3" scope="col">TB</th>
@@ -140,16 +174,15 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
             </thead>
             <tbody className="bg-surface-card">
               {Object.values(BRANCHES).map(b => {
-                const branchStudents = students.filter(s => s.branch === b.id);
-                let xs = 0, g = 0, k = 0, tb = 0, y = 0;
-                branchStudents.forEach(s => {
-                  const res = calculateStudentAvg(s.id, selectedSemester);
-                  if (res.label === 'Xuất Sắc') xs++;
-                  else if (res.label === 'Giỏi') g++;
-                  else if (res.label === 'Khá') k++;
-                  else if (res.label === 'Trung Bình') tb++;
-                  else if (res.label === 'Yếu') y++;
-                });
+                const branchCards = officialReports
+                  .filter(report => report.classInfo.branchId === b.id)
+                  .flatMap(report => report.reportCards);
+                const labels = branchCards.map(report => report.grades.find(grade => grade.semester === selectedSemester)?.classification);
+                const xs = labels.filter(label => label === 'Xuất Sắc').length;
+                const g = labels.filter(label => label === 'Giỏi').length;
+                const k = labels.filter(label => label === 'Khá').length;
+                const tb = labels.filter(label => label === 'Trung Bình').length;
+                const y = labels.filter(label => label === 'Yếu').length;
                 return (
                   <tr key={b.id} className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                     <td className="py-2.5 px-3 font-bold text-left">
@@ -157,7 +190,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
                         {b.name}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-text-main">{branchStudents.length}</td>
+                    <td className="py-2.5 px-3 font-bold text-text-main">{branchCards.length}</td>
                     <td className="py-2.5 px-3 text-parish-success font-extrabold">{xs}</td>
                     <td className="py-2.5 px-3 text-sky-700 font-extrabold">{g}</td>
                     <td className="py-2.5 px-3 text-parish-secondary font-extrabold">{k}</td>
@@ -213,7 +246,9 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
         <h3 className="text-base font-extrabold text-parish-primary mb-4 flex items-center gap-2 h-6">
           <FileText size={20} className="text-parish-secondary" /> In Trực Tiếp Kết Quả Học Tập Cá Nhân
         </h3>
-        {students.length === 0 ? (
+        {isOfficialLoading ? (
+          <div className="p-8 text-center text-sm text-text-muted">Đang tải danh sách báo cáo chính thức…</div>
+        ) : officialStudentCount === 0 ? (
           <EmptyState
             icon={FileText}
             title="Chưa có dữ liệu học sinh"
@@ -241,18 +276,18 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
             ) : (
               <>
                 <p className="text-xs text-text-muted mb-3">
-                  Hiển thị {matchedStudents.length} / {students.length} học sinh{studentQuery.trim() ? ' (kết quả tìm kiếm)' : ' — nhập để tìm nhanh'}
+                  Hiển thị {matchedStudents.length} / {officialStudentCount} học sinh{studentQuery.trim() ? ' (kết quả tìm kiếm)' : ' — nhập để tìm nhanh'}
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {matchedStudents.map(s => {
-                    const cls = findClassById(s.classId);
-                    const avg = calculateStudentAvg(s.id, selectedSemester);
+                    const official = officialByStudentId.get(s.id)!;
+                    const grade = official.report.grades.find(item => item.semester === selectedSemester);
                     return (
                       <div key={s.id} className="entity-card app-panel--interactive p-4 flex justify-between items-center min-w-0">
                         <div className="min-w-0 overflow-hidden">
                           <StudentName holyName={s.holyName} fullName={s.fullName} size="sm" />
                           <div className="text-xs text-text-muted mt-1 truncate">
-                            {cls?.name} • ĐTB: <strong className="text-parish-primary">{avg.score ?? '-'}</strong> ({avg.label})
+                            {official.className} • ĐTB: <strong className="text-parish-primary">{grade?.gpa ?? '-'}</strong> ({grade?.classification || 'Chưa có'})
                           </div>
                         </div>
                         {canPrint && (

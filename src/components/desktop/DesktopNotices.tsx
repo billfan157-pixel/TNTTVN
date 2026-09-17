@@ -6,6 +6,7 @@ import { EmptyState } from '../../components/common/StateFeedback';
 import { Bell, AlertCircle, Calendar, User, Plus } from 'lucide-react';
 import { formatDateVi } from '../../utils/formatDate';
 import { useState } from 'react';
+import { useAuth } from '../../hooks/useAuth';
 
 const priorityClass: Record<string, string> = {
   urgent: 'bg-parish-danger-bg text-parish-danger border-parish-danger-bg',
@@ -21,6 +22,8 @@ const priorityLabel: Record<string, string> = {
 
 export function DesktopNotices() {
   const notices = useNoticeStore(s => s.notices);
+  const { can } = useAuth();
+  const canManageNotices = can('admin', 'chunhiem');
   const [showModal, setShowModal] = useState(false);
   const [editingNotice, setEditingNotice] = useState<import('../../types').ParishNotice | null>(null);
 
@@ -36,12 +39,14 @@ export function DesktopNotices() {
             <span className="badge badge-primary">
               {notices.length} thông báo
             </span>
-            <button
-              className="btn btn-primary"
-              onClick={() => { setEditingNotice(null); setShowModal(true); }}
-            >
-              <Plus size={16} /> Thêm Thông Báo
-            </button>
+            {canManageNotices && (
+              <button
+                className="btn btn-primary"
+                onClick={() => { setEditingNotice(null); setShowModal(true); }}
+              >
+                <Plus size={16} /> Thêm Thông Báo
+              </button>
+            )}
           </>
         }
       />
@@ -74,8 +79,8 @@ export function DesktopNotices() {
                       icon={Bell}
                       title="Chưa có thông báo nào"
                       description="Hiện tại chưa có thông báo nào được đăng tải. Hãy tạo thông báo đầu tiên!"
-                      actionLabel="Thêm thông báo mới"
-                      onAction={() => { setEditingNotice(null); setShowModal(true); }}
+                      actionLabel={canManageNotices ? 'Thêm thông báo mới' : undefined}
+                      onAction={canManageNotices ? () => { setEditingNotice(null); setShowModal(true); } : undefined}
                     />
                   </td>
                 </tr>
@@ -111,13 +116,15 @@ export function DesktopNotices() {
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => { setEditingNotice(notice); setShowModal(true); }}
-                          title="Chỉnh sửa"
-                        >
-                          Sửa
-                        </button>
+                        {canManageNotices && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => { setEditingNotice(notice); setShowModal(true); }}
+                            title="Chỉnh sửa"
+                          >
+                            Sửa
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

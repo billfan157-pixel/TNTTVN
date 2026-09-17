@@ -3,12 +3,13 @@ import type { ReportCardDTO } from '../repositories/ReportCardProjectionReposito
 import type { ReportingProjectionContext } from '../repositories/ReportCardProjectionRepository.js'
 import { classSummaryProjectionRepository, ClassSummaryProjectionRepository } from '../repositories/ClassSummaryProjectionRepository.js'
 import type { ClassSummaryDTO } from '../repositories/ClassSummaryProjectionRepository.js'
+import type { ReportClassDTO } from '../repositories/ClassSummaryProjectionRepository.js'
 import { createCanAccessStudentSpecification } from './policyAdapters.js'
 import { checkUserClassAccess } from './classAccessQueryService.js'
 import type { ActorContext } from '../types/actor.js'
 import { runDbTransaction, type DbTransaction } from '../db/index.js'
 import { getAcademicYearDateRange, getFinalizedYearContext } from './academicYearService.js'
-import { getParishAttendancePolicy, getParishGradeWeights } from './parishSettingsService.js'
+import { getParishAttendancePolicy, getParishClassificationThresholds, getParishGradeWeights } from './parishSettingsService.js'
 
 export class ReportingApplicationService {
   private reportCardRepo: ReportCardProjectionRepository
@@ -32,12 +33,15 @@ export class ReportingApplicationService {
     const finalizedYear = await getFinalizedYearContext(parishId, academicYear, tx)
     if (finalizedYear) return {
       executor: tx, finalizedYear, academicYearRange: finalizedYear.policy.range,
-      gradeWeights: finalizedYear.policy.gradeWeights, attendancePolicy: finalizedYear.policy.attendancePolicy,
+      gradeWeights: finalizedYear.policy.gradeWeights,
+      attendancePolicy: finalizedYear.policy.attendancePolicy,
+      classificationThresholds: finalizedYear.policy.classificationThresholds,
     }
     const academicYearRange = await getAcademicYearDateRange(parishId, academicYear, tx)
     const gradeWeights = await getParishGradeWeights(parishId, tx)
     const attendancePolicy = await getParishAttendancePolicy(parishId, tx)
-    return { executor: tx, academicYearRange, gradeWeights, attendancePolicy }
+    const classificationThresholds = await getParishClassificationThresholds(parishId, tx)
+    return { executor: tx, academicYearRange, gradeWeights, attendancePolicy, classificationThresholds }
   }
 
   /**
@@ -63,6 +67,22 @@ export class ReportingApplicationService {
   /**
    * CQRS Read Service: Generate Class Academic & Attendance Summary Report
    */
+  public async listClasses(
+    user: ActorContext,
+    academicYear: string,
+  ): Promise<ReportClassDTO[]> {
+    return runDbTransaction(async (tx) => {
+      const context = await this.createProjectionContext(tx, user.parishId, academicYear)
+      const classes = await this.classSummaryRepo.listClasses(academicYear, user.parishId, context)
+      if (user.role === 'admin') return classes
+      const authorized: ReportClassDTO[] = []
+      for (const item of classes) {
+        if (await checkUserClassAccess(user.userId, user.parishId, item.id, tx)) authorized.push(item)
+      }
+      return authorized
+    })
+  }
+
   public async getClassSummary(
     user: ActorContext,
     classId: string,

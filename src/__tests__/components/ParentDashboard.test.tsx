@@ -40,6 +40,7 @@ const mockReport: ReportCardDTO = {
     { semester: 1, scoreOral: 8, score15m: 7, score1Period: 8, scoreMidterm: 8, scoreFinal: 9, gpa: 8.2 },
     { semester: 2, scoreOral: 9, score15m: 8, score1Period: 9, scoreMidterm: 9, scoreFinal: 10, gpa: 9.1 },
   ],
+  yearSummary: { gpa: 8.7, classification: 'Giỏi' },
   attendanceSummary: { massPresentCount: 18, massTotalCount: 20, catechismPresentCount: 19, catechismTotalCount: 20, overallAttendanceRate: 92.5 },
   promotion: { status: 'PROMOTED', gpa: 8.65, attendanceRate: 92.5, isOverridden: false },
 }

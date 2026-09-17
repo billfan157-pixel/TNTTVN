@@ -502,6 +502,6 @@ declare module '@tanstack/react-router' {
 
 // Set up the API client to navigate to login on 401
 setNavigateToLogin(() => {
-  useAuthStore.getState().logout()
+  useAuthStore.getState().logout({ serverRejected: true })
   router.navigate({ to: '/login' })
 })

@@ -14,7 +14,7 @@ async function projectDailyGrade(tx: DbTransaction, entry: { studentId: string; 
   const field = DAILY_FIELDS[entry.scoreType as DailyEntryScoreType]
   const [grade] = await tx.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, entry.studentId), eq(grades.academicYear, entry.academicYear), eq(grades.semester, entry.semester))).limit(1)
   // upsertGrade computes the value from the ledger and preserves overrides.
-  await upsertGrade({ studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, version: grade?.version, [field]: null, [`${field}_source`]: 'daily_avg' }, userId, parishId, ip, userAgent, tx, allowedClassIds, expected)
+  await upsertGrade({ studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, version: grade?.version, [field]: null, [`${field}_source`]: 'daily_avg' }, userId, parishId, ip, userAgent, tx, allowedClassIds, expected, ['admin', 'chunhiem', 'phuta'])
 }
 
 /**

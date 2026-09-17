@@ -3,8 +3,9 @@ import type { Role } from '../types'
 import { setTokens, clearTokens, loadTokensFromStorage, bootstrapAccessToken, api } from '../lib/api'
 import { initPushSubscription, disablePushSubscription, isNativePushAvailable } from '../lib/pushManager'
 import { resetAllStoresToDefault } from './resetStores'
-import { rehydrateTenantStores, setTenantScope } from '../lib/tenantScope'
+import { getTenantScope, rehydrateTenantStores, setTenantScope } from '../lib/tenantScope'
 import { AUTH_SNAPSHOT_KEY, clearAuthSnapshot, dexieStorage } from '../lib/db'
+import { markSyncScopeInvalidated, quarantineInvalidatedSyncScope, type SyncOwnerScope } from '../lib/syncSessionBoundary'
 
 export interface AuthUser {
   id: string
@@ -26,12 +27,24 @@ interface AuthState {
   requiresPasswordChange: boolean
 
   login: (username: string, password: string) => Promise<boolean>
-  logout: () => void
+  logout: (options?: LogoutOptions) => Promise<LogoutResult>
   setUser: (user: AuthUser) => void
   clearError: () => void
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>
   loadFromStorage: () => Promise<void>
 }
+
+export interface LogoutResult {
+  serverConfirmed: boolean
+  snapshotCleared: boolean
+}
+
+export interface LogoutOptions {
+  serverRejected?: boolean
+  scope?: SyncOwnerScope
+}
+
+let logoutInFlight: Promise<LogoutResult> | null = null
 
 // ADR-045 (2026-08-16): chia 2 tầng persist cho session state:
 // 1) MARKER (parish_current_user) — CHỈ { id, role, parishId }, không chứa PII,
@@ -141,7 +154,7 @@ async function persistAuth(user: AuthUser): Promise<void> {
 
 function clearAuth(): void {
   clearMarker()
-  clearAuthSnapshot()
+  void clearAuthSnapshot().catch(() => {})
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -153,6 +166,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   requiresPasswordChange: false,
 
   login: async (username: string, password: string) => {
+    if (logoutInFlight) await logoutInFlight
     set({ isLoading: true, error: null, authReady: false })
     try {
       const res = await api.login(username, password)
@@ -178,17 +192,59 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  logout: () => {
-    api.logout().catch(() => {})
+  logout: (options = {}) => {
+    if (logoutInFlight) return logoutInFlight
+    const activeUser = get().user
+    const activeScope = getTenantScope()
+    const invalidatedScope = options.serverRejected
+      ? options.scope || (activeUser ? { parishId: activeUser.parishId, userId: activeUser.id } : activeScope)
+      : null
+    if (invalidatedScope) markSyncScopeInvalidated(invalidatedScope)
     disablePushSubscription().catch(console.warn)
     clearTokens()
-    setTenantScope(null)
-    clearAuth()
-    resetAllStoresToDefault().catch(console.error)
-    set({ user: null, isAuthenticated: false, authReady: true, requiresPasswordChange: false, error: null })
+    clearMarker()
+    set({ user: null, isAuthenticated: false, isLoading: true, authReady: true, requiresPasswordChange: false, error: null })
+
+    logoutInFlight = (async () => {
+      // Start after clearTokens, so transport observes the post-logout identity
+      // generation. Attach rejection handling immediately, even during cleanup.
+      const serverResult = Promise.resolve().then(() => api.logout()).then(
+        result => result?.serverConfirmed === true,
+        () => false,
+      )
+      let queueQuarantined = true
+      if (invalidatedScope) {
+        try {
+          await quarantineInvalidatedSyncScope(invalidatedScope)
+        } catch {
+          // The durable invalidation marker remains. runSyncFlow will retry the
+          // quarantine and fail before sending anything if IndexedDB still fails.
+          queueQuarantined = false
+        }
+      }
+      let snapshotCleared = true
+      try {
+        // Its physical key requires the outgoing tenant scope.
+        await clearAuthSnapshot()
+      } catch {
+        snapshotCleared = false
+      }
+      await resetAllStoresToDefault().catch(console.error)
+      setTenantScope(null)
+      const serverConfirmed = await serverResult
+      const warnings = [
+        ...(!serverConfirmed ? ['Đã đăng xuất trên thiết bị này, nhưng chưa xác nhận được thu hồi phiên trên máy chủ.'] : []),
+        ...(!snapshotCleared ? ['Không thể xác nhận xóa dữ liệu phiên cục bộ đã mã hóa.'] : []),
+        ...(!queueQuarantined ? ['Các thay đổi offline của phiên đã bị thu hồi đang bị khóa và chưa thể hoàn tất cách ly.'] : []),
+      ]
+      set({ isLoading: false, error: warnings.length ? warnings.join(' ') : null })
+      return { serverConfirmed, snapshotCleared }
+    })().finally(() => { logoutInFlight = null })
+    return logoutInFlight
   },
 
   setUser: (user: AuthUser) => {
+    if (logoutInFlight) throw new Error('Cannot activate user while logout is pending')
     if (!user.parishId) throw new Error('Cannot activate user without parishId')
     setTenantScope({ parishId: user.parishId, userId: user.id })
     void persistAuth(user)
@@ -216,6 +272,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   loadFromStorage: async () => {
+    if (logoutInFlight) await logoutInFlight
     set({ authReady: false })
     loadTokensFromStorage()
     // ADR-045: đọc marker trước (localStorage, đồng bộ) — guard luôn chạy được kể cả
@@ -238,6 +295,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     try {
       let user = await loadSnapshot()
+      if (user && (user.id !== marker.id || user.parishId !== marker.parishId)) {
+        // The marker is cross-tab shared. Never activate a snapshot that was
+        // loaded under a different document owner.
+        user = null
+      }
       if (!user) {
         // Snapshot mã hóa thiếu/hỏng: Dexie bị purge, khóa rotate, hoặc LAN HTTP
         // không có crypto.subtle → thử rebuild từ server qua GET /auth/me.
@@ -250,6 +312,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
         const refreshed = await bootstrapAccessToken()
         if (!refreshed) {
+          if (logoutInFlight) await logoutInFlight
           clearAuth()
           setTenantScope(null)
           set({ user: null, isAuthenticated: false, authReady: true })
@@ -257,7 +320,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
         try {
           const me = await api.me()
-          user = toAuthUser({ ...me, parishId: marker.parishId })
+          user = toAuthUser(me)
+          if (user.id !== marker.id || user.parishId !== marker.parishId) {
+            throw new Error('Authenticated server identity does not match this document owner')
+          }
         } catch {
           clearAuth()
           setTenantScope(null)
@@ -269,6 +335,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const refreshed = await bootstrapAccessToken()
       if (!refreshed && !isOffline()) {
+        if (logoutInFlight) await logoutInFlight
         clearAuth()
         setTenantScope(null)
         set({ user: null, isAuthenticated: false, authReady: true })

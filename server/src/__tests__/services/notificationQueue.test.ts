@@ -104,6 +104,20 @@ describe('notificationQueue web/native delivery and Telegram retirement', () => 
     ), { timeout: 3000 })
   })
 
+  it('propagates durable recovery failures so startup cannot bind as healthy', async () => {
+    const updateSpy = vi.spyOn(db as any, 'update').mockImplementationOnce(() => {
+      throw new Error('synthetic recovery failure')
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { recoverQueueFromDb } = await import('../../services/notificationQueue.js')
+      await expect(recoverQueueFromDb()).rejects.toThrow('synthetic recovery failure')
+    } finally {
+      updateSpy.mockRestore()
+      errorSpy.mockRestore()
+    }
+  })
+
   it('fails closed on malformed persisted target JSON instead of broadcasting', async () => {
     const id = generateId('NOT')
     await db.insert(notifications).values({

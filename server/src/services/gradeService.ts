@@ -11,6 +11,7 @@ import { normalizeAcademicYear, getCurrentAcademicYear } from '../utils/academic
 import { getCurrentPolicyVersionId } from './parishSettingsService.js'
 import { VersionConflictError } from '../domain/errors.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
+import type { ActorRole } from '../types/actor.js'
 
 // Phase 2 (error-ownership): canonical definition sống ở domain/errors.ts.
 // Re-export giữ tương thích cho callers/tests cũ (cùng 1 class identity,
@@ -109,7 +110,7 @@ function collectManualOverrideEntries(data: GradeData): { scoreField: ScoreField
   return entries
 }
 
-export async function upsertGrade(input: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null, expected?: AcademicWriteExpectation) {
+export async function upsertGrade(input: GradeData, userId: string, parishId: string, ip: string, userAgent: string, externalTx?: DbTransaction, allowedClassIds?: string[] | null, expected?: AcademicWriteExpectation, writeRoles: readonly ActorRole[] = ['admin', 'chunhiem']) {
   // Phase 2 (outbox convergence): manual entries thuần theo data (không DB) để
   // notify post-commit — chỉ khi service sở hữu tx (externalTx thì caller
   // commit, không notify ở đây để tránh phantom alert khi rollback).
@@ -143,7 +144,7 @@ export async function upsertGrade(input: GradeData, userId: string, parishId: st
     // đây route check từng item trước khi chạy batch, học sinh chuyển lớp giữa
     // check và write vẫn bị ghi nhầm.
     if ((allowedClassIds && !allowedClassIds.includes(student.classId))
-      || !(await checkAcademicWriteAccess(userId, parishId, student.classId, tx, expected, ['admin', 'chunhiem']))) {
+      || !(await checkAcademicWriteAccess(userId, parishId, student.classId, tx, expected, writeRoles))) {
       const err = new Error('Bạn không có quyền nhập điểm cho thiếu nhi này') as any
       err.status = 403
       throw err

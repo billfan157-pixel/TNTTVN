@@ -49,11 +49,12 @@ describe('RE-AUDIT: login lockout TOCTOU — failedAttempts lost update dưới 
     const statuses = attempts.map((r) => r.status)
     console.log(`lockout-race: statuses = [${statuses.join(', ')}]`)
 
-    const [row] = await db.select({ status: users.status, failedAttempts: users.failedAttempts }).from(users).where(eq(users.id, userId))
+    const [row] = await db.select({ status: users.status, failedAttempts: users.failedAttempts, tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, userId))
     console.log(`lockout-race: final failedAttempts = ${row?.failedAttempts}, status = ${row?.status}`)
 
     // Không race: 10 lần sai liên tiếp → failedAttempts = 10, status = LOCKED (threshold 5)
     expect(row?.failedAttempts).toBe(10)
     expect(row?.status).toBe('LOCKED')
+    expect(row?.tokenVersion).toBe(2)
   }, 30000)
 })

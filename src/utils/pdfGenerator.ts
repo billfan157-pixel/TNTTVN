@@ -1,6 +1,6 @@
 import type { Student, GradeRecord, AttendanceRecord, ReportCardDTO } from '../types'
 import type { StudentReportCardViewModel, BatchReportViewModel } from '../types/reportViewModel'
-import { escapeHtml, calculateGradeAverage, calculateAttendanceRate, countAttendancePresent, roundToDecimal, getClassificationLabel, type GradeWeightsConfig } from './grades'
+import { escapeHtml, calculateGradeAverage, calculateAttendanceRate, countAttendancePresent, roundToDecimal, type GradeWeightsConfig } from './grades'
 import { normalizeAcademicYear, getCurrentAcademicYear } from './academicYear'
 import { ReportViewModelFactory } from './reportViewModelFactory'
 import { ReportExportService } from '../services/reportExportService'
@@ -315,8 +315,9 @@ export function generateParentReportCardHTML(report: ReportCardDTO, options?: Re
         <td>${fmt(g.score1Period)}</td>
         <td>${fmt(g.scoreMidterm)}</td>
         <td>${fmt(g.scoreFinal)}</td>
+        <td>${fmt(g.scoreDaoDuc)}</td>
         <td><strong>${fmt(g.gpa)}</strong></td>
-        <td>${escapeHtml(getClassificationLabel(g.gpa ?? 0))}</td>
+        <td>${escapeHtml(g.classification || 'Chưa có')}</td>
       </tr>
     `
     )
@@ -354,13 +355,14 @@ export function generateParentReportCardHTML(report: ReportCardDTO, options?: Re
         </div>
         <table>
           <thead>
-            <tr><th>Học Kỳ</th><th>Điểm Miệng</th><th>15 Phút</th><th>1 Tiết</th><th>Giữa Kỳ</th><th>Thi HK</th><th>ĐTB Học Kỳ</th><th>Xếp Loại</th></tr>
+            <tr><th>Học Kỳ</th><th>Điểm Miệng</th><th>15 Phút</th><th>1 Tiết</th><th>Giữa Kỳ</th><th>Thi HK</th><th>Đạo Đức</th><th>ĐTB Học Kỳ</th><th>Xếp Loại</th></tr>
           </thead>
           <tbody>
             ${gradeRowsHtml}
           </tbody>
         </table>
         <div class="summary" style="margin-top: 15px; background: #F1F5F9; padding: 10px; border-radius: 6px; border: 1px solid #CBD5E1; text-align: center;">
+          Cả năm: <strong>${fmt(report.yearSummary.gpa)}</strong> — <strong>${escapeHtml(report.yearSummary.classification || 'Chưa có')}</strong><br />
           Chuyên cần: <strong>${fmt(report.attendanceSummary.overallAttendanceRate)}%</strong>
           (Lễ: ${fmt(report.attendanceSummary.massPresentCount)}/${fmt(report.attendanceSummary.massTotalCount)} — Giáo lý: ${fmt(report.attendanceSummary.catechismPresentCount)}/${fmt(report.attendanceSummary.catechismTotalCount)})${promotionLine}
         </div>
@@ -373,6 +375,79 @@ export function generateParentReportCardHTML(report: ReportCardDTO, options?: Re
     </body>
     </html>
   `
+}
+
+export function generateOfficialBatchReportCardsHTML(
+  reports: ReportCardDTO[],
+  profiles: Map<string, Pick<Student, 'parentName' | 'parentPhone'>>,
+  classInfo?: { id: string; name: string },
+  options?: ReportOptions,
+): string {
+  const viewModels = reports.map((report) => ReportViewModelFactory.createOfficialStudentViewModel(
+    report,
+    profiles.get(report.student.id),
+    { parishName: options?.parishName, dioceseName: options?.dioceseName },
+  ))
+  return generateBatchReportCardsHTML({ classInfo, reports: Object.freeze(viewModels) })
+}
+
+export function generateOfficialClassGradebookHTML(
+  reports: ReportCardDTO[],
+  className: string,
+  profiles: Map<string, Pick<Student, 'parentPhone'>>,
+  options?: ReportOptions,
+): string {
+  const year = normalizeAcademicYear(options?.academicYear || reports[0]?.academicYear || getCurrentAcademicYear())
+  const rows = reports.map((report, index) => {
+    const semester1 = report.grades.find((grade) => grade.semester === 1)
+    const semester2 = report.grades.find((grade) => grade.semester === 2)
+    const fmt = (value: number | null | undefined) => value === null || value === undefined ? '-' : escapeHtml(String(value))
+    return `
+      <tr>
+        <td style="text-align:center;">${index + 1}</td>
+        <td>${escapeHtml(report.student.code)}</td>
+        <td><strong>${escapeHtml(report.student.holyName || '')}</strong> ${escapeHtml(report.student.fullName)}</td>
+        <td style="text-align:center;">${escapeHtml(report.student.gender || '')}</td>
+        <td style="text-align:center;">${escapeHtml(report.student.dateOfBirth || '')}</td>
+        <td style="text-align:center;">${fmt(semester1?.gpa)}</td>
+        <td style="text-align:center;">${fmt(semester2?.gpa)}</td>
+        <td style="text-align:center;font-weight:bold;color:#1E3A8A;">${fmt(report.yearSummary.gpa)}</td>
+        <td style="text-align:center;">${fmt(report.attendanceSummary.overallAttendanceRate)}%</td>
+        <td style="font-size:11px;">${escapeHtml(profiles.get(report.student.id)?.parentPhone || '')}</td>
+      </tr>`
+  }).join('')
+
+  return `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="utf-8" />
+      <title>Sổ Điểm Lớp ${escapeHtml(className)}</title>
+      <style>
+        @page { size: A4 landscape; margin: 15mm; }
+        body { font-family: Arial, sans-serif; color: #1E293B; margin: 0; padding: 20px; font-size: 12px; }
+        .header { display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1E3A8A;padding-bottom:10px;margin-bottom:20px; }
+        .header h1 { font-size:18px;color:#1E3A8A;margin:0;text-transform:uppercase; }
+        table { width:100%;border-collapse:collapse;margin-top:10px; }
+        th, td { border:1px solid #CBD5E1;padding:6px 8px;font-size:11px; }
+        th { background-color:#F1F5F9;color:#1E3A8A;text-transform:uppercase;font-size:10px; }
+        ${buildWatermarkBlock(resolveParishName(options))}
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div style="display:flex;align-items:center;gap:14px;">
+          ${parishLogoImgHtml(52)}
+          <div><div style="font-size:11px;font-weight:700;color:#1E3A8A;text-transform:uppercase;">${escapeHtml(resolveParishName(options))}</div><h1>SỔ ĐIỂM GIÁO LÝ</h1></div>
+        </div>
+        <div style="font-size:11px;color:#64748B;">Lớp: <strong>${escapeHtml(className)}</strong> · Năm học: <strong>${escapeHtml(year)}</strong></div>
+      </div>
+      <table>
+        <thead><tr><th>STT</th><th>Mã TN</th><th>Họ và Tên Thiếu Nhi</th><th>Phái</th><th>Ngày Sinh</th><th>ĐTB HK1</th><th>ĐTB HK2</th><th>ĐTB Cả Năm</th><th>Chuyên Cần</th><th>SĐT Phụ Huynh</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </body>
+    </html>`
 }
 
 /**

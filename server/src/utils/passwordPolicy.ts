@@ -1,20 +1,63 @@
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
 
-// A-NEW-19 (2026-08-11): chính sách mật khẩu tập trung.
-// - BCRYPT_COST = 12: OWASP khuyến nghị 12+ cho production (10 là tối thiểu/legacy).
-//   bcryptjs pure JS: cost 12 ≈ 550ms/compare (benchmark local) — chấp nhận được vì
-//   login hiếm + loginRateLimiter 10/60s/IP giới hạn DoS surface.
-// - DUMMY_PASSWORD_HASH: precompute lúc boot — consumeDummyPassword() làm cho thời gian
-//   response của login "user không tồn tại" ≈ "user tồn tại nhưng sai mật khẩu"
-//   (cả 2 đều chạy bcrypt.compare ~cùng cost) → đóng timing oracle username enumeration.
-//   Đã kiểm chứng: trước fix gap ≈ 126ms vs <1ms; sau fix gap ≈ 0 (cùng cost 12).
+// Current password-write policy. Legacy cost-10 hashes upgrade on successful
+// login; rejected logins normalize their bcrypt work separately below.
 export const BCRYPT_COST = 12
 
 const dummyPasswordHash = bcrypt.hashSync(randomBytes(16).toString('hex'), BCRYPT_COST)
+const legacyDummyPasswordHash = bcrypt.hashSync(randomBytes(16).toString('hex'), 10)
 
 export async function consumeDummyPassword(password: string): Promise<void> {
   await bcrypt.compare(password, dummyPasswordHash)
+}
+
+/**
+ * Consume the same approximate bcrypt work for every rejected login category.
+ * Cost 10 is one work unit and cost 12 is four units, so the target is five:
+ * one cost-12 plus one cost-10 comparison. Existing hashes contribute their
+ * own work and only the missing budget is added.
+ */
+async function consumeRejectedLoginRemainder(password: string, actualRounds?: number): Promise<void> {
+  if (actualRounds === 12) {
+    await bcrypt.compare(password, legacyDummyPasswordHash)
+    return
+  }
+  if (actualRounds === 11) {
+    await bcrypt.compare(password, legacyDummyPasswordHash)
+    await bcrypt.compare(password, legacyDummyPasswordHash)
+    await bcrypt.compare(password, legacyDummyPasswordHash)
+    return
+  }
+  if (actualRounds === 10) {
+    await bcrypt.compare(password, dummyPasswordHash)
+    return
+  }
+  // Unknown user/status and unusually cheap legacy/test hashes receive the
+  // complete target budget. Hashes above policy are not padded further.
+  if (actualRounds === undefined || actualRounds < 10) {
+    await bcrypt.compare(password, dummyPasswordHash)
+    await bcrypt.compare(password, legacyDummyPasswordHash)
+  }
+}
+
+export async function consumeRejectedLogin(password: string): Promise<void> {
+  await consumeRejectedLoginRemainder(password)
+}
+
+export async function verifyLoginPassword(password: string, passwordHash: string): Promise<boolean> {
+  const valid = await bcrypt.compare(password, passwordHash)
+  if (valid) return true
+
+  let rounds: number | undefined
+  try {
+    const parsed = bcrypt.getRounds(passwordHash)
+    rounds = Number.isFinite(parsed) ? parsed : undefined
+  } catch {
+    rounds = undefined
+  }
+  await consumeRejectedLoginRemainder(password, rounds)
+  return false
 }
 
 export function isLegacyCostHash(hash: string): boolean {

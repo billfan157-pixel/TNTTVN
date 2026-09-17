@@ -1,4 +1,9 @@
 import type { MigrationDefinition } from './migrationRunner.js'
+import { getDeploymentParishId } from '../utils/deploymentParish.js'
+
+// Migration 261 repairs the only historical seed that wrote a tenant literal.
+// The value is validated as a deployment slug before any migration executes.
+const deploymentParishId = getDeploymentParishId()
 
 export const MIGRATIONS: MigrationDefinition[] = [
   { version: '20240728-001', sql: `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'` },
@@ -2517,5 +2522,40 @@ BEGIN
     WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1
   ) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_SCOPE') END;
 END;
+` },
+  { version: '20260917-261', sql: `
+-- A fresh non-default deployment previously received these four rows under
+-- literal parish "gia-ton" in migration 120 and then failed the single-parish
+-- preflight before seed/HTTP/workers. Repair only that exact, pre-seed shape.
+-- If gia-ton has a user, finance activity, or a modified seed row, leave it in
+-- place so the existing preflight continues to fail closed for operator review.
+CREATE TABLE migration_261_legacy_fund_guard(marker INTEGER PRIMARY KEY);
+INSERT INTO migration_261_legacy_fund_guard(marker)
+SELECT 1
+WHERE '${deploymentParishId}' <> 'gia-ton'
+  AND NOT EXISTS (SELECT 1 FROM users WHERE parish_id = 'gia-ton')
+  AND NOT EXISTS (SELECT 1 FROM financial_transactions WHERE parish_id = 'gia-ton')
+  AND (SELECT COUNT(*) FROM funds WHERE parish_id = 'gia-ton') = 4
+  AND (SELECT COUNT(*) FROM funds WHERE parish_id = 'gia-ton' AND (
+    (id = 'FND-001-GENERAL' AND code = 'GENERAL' AND name = 'Quỹ Chung Xứ Đoàn')
+    OR (id = 'FND-002-CHARITY' AND code = 'CHARITY' AND name = 'Quỹ Bác Ái')
+    OR (id = 'FND-003-CAMP' AND code = 'CAMP' AND name = 'Quỹ Trại Hè & Sự Kiện')
+    OR (id = 'FND-004-LEADERS' AND code = 'LEADERS' AND name = 'Quỹ Huynh Trưởng')
+  )) = 4;
+
+INSERT OR IGNORE INTO funds (id, parish_id, name, code, description, initial_balance, is_default, is_active)
+SELECT id, '${deploymentParishId}', name, code, description, initial_balance, is_default, is_active
+FROM (
+  SELECT 'FND-001-GENERAL' AS id, 'Quỹ Chung Xứ Đoàn' AS name, 'GENERAL' AS code, 'Quỹ hoạt động chính của Xứ Đoàn TNTT' AS description, 0 AS initial_balance, 1 AS is_default, 1 AS is_active
+  UNION ALL SELECT 'FND-002-CHARITY', 'Quỹ Bác Ái', 'CHARITY', 'Quỹ hỗ trợ thiếu nhi khó khăn và bác ái mùa Chay', 0, 0, 1
+  UNION ALL SELECT 'FND-003-CAMP', 'Quỹ Trại Hè & Sự Kiện', 'CAMP', 'Quỹ tổ chức sa mạc huấn luyện, trại hè và các ngày lễ lớn', 0, 0, 1
+  UNION ALL SELECT 'FND-004-LEADERS', 'Quỹ Huynh Trưởng', 'LEADERS', 'Quỹ sinh hoạt và đào tạo Ban Huynh Trưởng', 0, 0, 1
+)
+WHERE EXISTS (SELECT 1 FROM migration_261_legacy_fund_guard);
+
+DELETE FROM funds
+WHERE parish_id = 'gia-ton'
+  AND EXISTS (SELECT 1 FROM migration_261_legacy_fund_guard);
+DROP TABLE migration_261_legacy_fund_guard;
 ` },
 ]

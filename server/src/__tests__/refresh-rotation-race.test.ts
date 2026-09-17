@@ -74,7 +74,11 @@ describe('A-NEW-13: refresh rotation client-mutex is not enough — server race'
     const active = await db.select().from(refreshTokens)
       .where(eq(refreshTokens.parishId, parishId))
     const activeCount = active.filter((s) => s.revokedAt === null).length
-    expect(activeCount).toBe(1)
+    expect(activeCount).toBe(0)
+    const winner = await ok[0].json() as { data: { accessToken: string } }
+    expect((await authApp.request('/me', {
+      headers: { Authorization: `Bearer ${winner.data.accessToken}` },
+    })).status).toBe(401)
 
     if (rejected.length > 0) {
       const bodies = await Promise.all(rejected.map((r) => r.json().catch(() => null)))

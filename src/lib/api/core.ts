@@ -1,6 +1,15 @@
 // Phase 3: transport core tách từ lib/api.ts (verbatim + export request/newIdempotencyKey/
 // API_BASE/refreshAccessToken/withDeadline cho domain modules). Auth/refresh/retry/envelope giữ nguyên.
 import { clearAuthSnapshot } from '../db'
+import { captureTenantScope, isTenantScopeCurrent, type TenantScopeSnapshot } from '../tenantScope'
+// All tabs share the HttpOnly cookie. The server still rejects replay from
+// clients that cannot coordinate through this origin's Web Locks.
+export async function withRefreshSessionLock<T>(operation: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request('catevia-refresh-session', { mode: 'exclusive' }, operation)
+  }
+  return operation()
+}
 
 // SECURITY (2026-08-11) — A-NEW-10 hardening: access token CHỈ tồn tại trong MEMORY.
 // Trước đây persist ở localStorage (parish_access_token) → XSS cùng origin đọc được
@@ -111,7 +120,10 @@ export async function refreshAccessToken(): Promise<RefreshResult> {
   // If a refresh is already in progress, wait for it
   if (refreshPromise) return refreshPromise
 
-  refreshPromise = doRefresh()
+  const generation = authSessionGeneration
+  refreshPromise = withRefreshSessionLock(() =>
+    generation === authSessionGeneration ? doRefresh() : Promise.resolve('auth_failed' as const),
+  )
   try {
     return await refreshPromise
   } finally {
@@ -121,6 +133,7 @@ export async function refreshAccessToken(): Promise<RefreshResult> {
 
 async function doRefresh(): Promise<RefreshResult> {
   const refreshSessionGeneration = authSessionGeneration
+  const refreshOwner = captureTenantScope()
   // A01 Phase 1 + A-NEW-01/02: token chỉ nằm trong HttpOnly cookie (credentials:
   // 'include' gửi kèm). KHÔNG gửi refresh token trong body — JS không có token này.
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -133,6 +146,7 @@ async function doRefresh(): Promise<RefreshResult> {
       credentials: 'include',
       signal: AbortSignal.timeout(REFRESH_REQUEST_TIMEOUT_MS),
     })
+    if (authSessionGeneration !== refreshSessionGeneration) return 'auth_failed'
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         clearTokens()
@@ -145,6 +159,16 @@ async function doRefresh(): Promise<RefreshResult> {
     // Logout/account switch won the race: never let a stale refresh response
     // resurrect the old browser session.
     if (authSessionGeneration !== refreshSessionGeneration) return 'auth_failed'
+    // Refresh cookies are origin-wide while tenant scope is document-local.
+    // Reject a token rotated for a different account by another tab.
+    if (refreshOwner && (
+      !isTenantScopeCurrent(refreshOwner) ||
+      tokens.userId !== refreshOwner.userId ||
+      tokens.parishId !== refreshOwner.parishId
+    )) {
+      clearTokens()
+      return 'auth_failed'
+    }
 
     const wasUnauthenticated = accessToken === null
     accessToken = tokens.accessToken
@@ -160,7 +184,7 @@ function redirectToLogin() {
   clearTokens()
   // ADR-045: snapshot mã hóa (PII) cũng phải dọn — tránh PII mồ côi trong Dexie
   // khi session chết bất ngờ (401) mà không qua authStore.logout().
-  clearAuthSnapshot()
+  void clearAuthSnapshot().catch(() => {})
   try {
     localStorage.removeItem('parish_current_user')
   } catch {
@@ -190,6 +214,7 @@ function redirectToLogin() {
 export async function bootstrapAccessToken(): Promise<boolean> {
   if (accessToken) return true
   const res = await refreshAccessToken()
+  if (res === 'auth_failed') redirectToLogin()
   return res === 'success'
 }
 
@@ -259,6 +284,28 @@ function requestAbortedError(path: string): ApiError {
   return new ApiError(0, 'Request superseded — a newer selection replaced it', path, 'REQUEST_ABORTED')
 }
 
+interface RequestContinuity {
+  generation: number
+  owner: TenantScopeSnapshot | null
+}
+
+function captureRequestContinuity(): RequestContinuity {
+  return { generation: authSessionGeneration, owner: captureTenantScope() }
+}
+
+function assertRequestContinuity(expected: RequestContinuity, path: string): void {
+  // Explicit logout intentionally tears down local identity before the cookie
+  // revocation response arrives. Its acknowledgement cannot authorize or
+  // mutate tenant data, so it is the sole owner-continuity exception.
+  if (path === '/auth/logout') return
+  const ownerStillCurrent = expected.owner
+    ? isTenantScopeCurrent(expected.owner)
+    : captureTenantScope() === null
+  if (authSessionGeneration !== expected.generation || !ownerStillCurrent) {
+    throw new ApiError(401, 'Authentication owner changed while request was in flight', path)
+  }
+}
+
 /**
  * Core request function with:
  * - JWT auto-refresh with mutex (prevents concurrent refresh race)
@@ -267,7 +314,7 @@ function requestAbortedError(path: string): ApiError {
  * - Optional caller abort signal (P1-4): aborts superseded detail loads early
  *   instead of letting them run to the transport timeout.
  */
-export async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false, externalSignal?: AbortSignal): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false, externalSignal?: AbortSignal, expectedContinuity?: RequestContinuity): Promise<T> {
   // SECURITY (2026-08-11): KHÔNG nạp access token từ localStorage — memory-only.
   // Nếu memory rỗng (sau reload), caller phải gọi bootstrapAccessToken() trước
   // (xem authStore.loadFromStorage / main.tsx). Refresh token nguồn duy nhất là
@@ -290,12 +337,16 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     }
   }
 
+  // Capture once for the whole logical request. A recursive retry must keep
+  // the original owner instead of adopting ambient auth after backoff.
+  const continuity = expectedContinuity || captureRequestContinuity()
+  assertRequestContinuity(continuity, path)
+
   const url = `${API_BASE}${path}`
   const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData
   const headers: Record<string, string> = { ...(isMultipart ? {} : { 'Content-Type': 'application/json' }), ...(customHeaders || {}) }
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
   const serializedBody = body === undefined ? undefined : isMultipart ? body : JSON.stringify(body)
-  let requestSessionGeneration = authSessionGeneration
   const timeoutMs = responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS
 
   let res: Response
@@ -310,9 +361,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
       signal: combineWithTimeout(externalSignal, timeoutMs),
     })
   } catch {
-    if (authSessionGeneration !== requestSessionGeneration) {
-      throw new ApiError(401, 'Authentication session changed while request was in flight', path)
-    }
+    assertRequestContinuity(continuity, path)
     // P1-4: a caller-aborted (superseded) request must neither retry nor
     // masquerade as a network/offline failure.
     if (externalSignal?.aborted) {
@@ -321,14 +370,13 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     // Network error — A12: chỉ retry method idempotent (hoặc có Idempotency-Key)
     if (canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
       await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
-      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal)
+      assertRequestContinuity(continuity, path)
+      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, continuity)
     }
     throw new ApiError(0, 'Network error — unable to reach server', path)
   }
 
-  if (authSessionGeneration !== requestSessionGeneration) {
-    throw new ApiError(401, 'Authentication session changed while request was in flight', path)
-  }
+  assertRequestContinuity(continuity, path)
 
   // Handle 401 with mutex refresh or redirect to login (trừ auth routes như /auth/login, /auth/refresh)
   if (res.status === 401 && !isAuthRoute) {
@@ -336,15 +384,13 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     // sau reload cookie vẫn hiệu lực).
     const refreshRes = await refreshAccessToken()
     if (refreshRes === 'success') {
+      assertRequestContinuity(continuity, path)
       headers['Authorization'] = `Bearer ${accessToken}`
-      requestSessionGeneration = authSessionGeneration
       if (externalSignal?.aborted) {
         throw requestAbortedError(path)
       }
       res = await fetch(url, { method, headers, body: serializedBody, credentials: 'include', signal: combineWithTimeout(externalSignal, timeoutMs) })
-      if (authSessionGeneration !== requestSessionGeneration) {
-        throw new ApiError(401, 'Authentication session changed while request was in flight', path)
-      }
+      assertRequestContinuity(continuity, path)
       if (externalSignal?.aborted) {
         throw requestAbortedError(path)
       }
@@ -364,7 +410,8 @@ export async function request<T>(method: string, path: string, body?: unknown, r
       throw requestAbortedError(path)
     }
     await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
-    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal)
+    assertRequestContinuity(continuity, path)
+    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, continuity)
   }
 
   if (!res.ok) {
@@ -374,9 +421,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
       throw new ApiError(res.status, BACKEND_UNAVAILABLE_MESSAGE, path)
     }
     const text = await res.text().catch(() => '')
-    if (authSessionGeneration !== requestSessionGeneration) {
-      throw new ApiError(401, 'Authentication session changed while request was in flight', path)
-    }
+    assertRequestContinuity(continuity, path)
     let details: any = undefined
     let issues: any[] | undefined
     let customMessage: string | undefined
@@ -421,15 +466,11 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   if (res.status === 204) return undefined as T
   if (responseType === 'blob') {
     const blob = await res.blob()
-    if (authSessionGeneration !== requestSessionGeneration) {
-      throw new ApiError(401, 'Authentication session changed while request was in flight', path)
-    }
+    assertRequestContinuity(continuity, path)
     return blob as T
   }
   const json = await res.json()
-  if (authSessionGeneration !== requestSessionGeneration) {
-    throw new ApiError(401, 'Authentication session changed while request was in flight', path)
-  }
+  assertRequestContinuity(continuity, path)
   // AUDIT-F8 fix (2026-08-22): keepEnvelope=true dành cho endpoint phân trang
   // (paginatedResponse) — caller cần cả `meta` (total/totalPages) chứ không chỉ
   // `data`. Trước đây envelope luôn bị bóc → AuditLogPage nhận mảng trần, đọc
@@ -493,4 +534,4 @@ export const httpFetch = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
-}
+}

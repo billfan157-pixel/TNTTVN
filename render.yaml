@@ -26,7 +26,7 @@ services:
         value: Asia/Ho_Chi_Minh
       # CORS cho SPA trên Vercel + Native Capacitor (originPolicy.ts allowlist).
       - key: CLIENT_ORIGIN
-        value: https://tnttvn.vercel.app,capacitor://localhost,https://localhost,http://localhost
+        value: https://tnttvn.vercel.app,capacitor://localhost,https://localhost
       # ─── DB (Turso) ───
       - key: TURSO_URL
         sync: false
