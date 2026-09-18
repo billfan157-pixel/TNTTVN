@@ -186,7 +186,7 @@ more-specific AGENTS.md
 
 Repository rules/skills refine this root contract for their relevant domain.
 
-Skills do not override explicit approved product requirements.
+Skills do not override applicable product decision authority (§1.6).
 
 Keep the root AGENTS.md:
 
