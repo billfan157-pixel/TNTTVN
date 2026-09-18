@@ -197,3 +197,36 @@ Keep the root AGENTS.md:
 
 Move detailed methodology and domain-specific rules into skills, scoped rules,
 or authoritative documentation instead of growing the entry file indefinitely.
+
+## 1.6 Product Decision Authority
+
+"Product decision authority" means the source authorized to decide intended
+Catevia behavior. Subject to the instruction precedence above, it may be:
+
+- an explicit current user/product-owner requirement;
+- an already-approved current normative business rule;
+- an applicable current ADR or other repository-owned normative decision.
+
+It does **not** require a separate human reviewer, product manager, or
+organizational role from the person requesting the work.
+
+Agents may investigate current behavior, surface trade-offs, and recommend a
+design. They must not self-authorize a material change to a protected invariant
+when intended product behavior remains unresolved.
+
+When a skill marks a decision `BLOCKING`, that means the affected
+implementation branch requires product decision authority before it can proceed
+safely. It does not mean a separate reviewer must exist.
+
+Keep decision authority separate from verification:
+
+```text
+product decision authority
+→ defines WHAT behavior is intended
+
+verification
+→ proves WHETHER the implementation satisfies that behavior
+```
+
+A product-authorized decision does not waive fresh verification, and passing
+tests do not create product authority for an otherwise unresolved requirement.
