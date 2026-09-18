@@ -197,7 +197,8 @@ For each relevant invariant classify:
 
 Do not list irrelevant invariants.
 
-An intentional protected-invariant change requires explicit product authority.
+An intentional protected-invariant change requires explicit product decision
+authority as defined in `operating-contract.md` §1.6.
 
 Complexity that protects an invariant is not technical debt merely because it
 is difficult to understand.

@@ -13,8 +13,8 @@ For every task:
 3. Load only the skills and repository context required for that task
    (`skill-router.md`, `context-router.md`).
 4. Inspect relevant current implementation before making material claims or edits.
-5. Preserve protected Catevia invariants (`protected-invariants.md`) unless an
-   explicit approved requirement intentionally changes one.
+5. Preserve protected Catevia invariants (`protected-invariants.md`) unless
+   explicit product decision authority (§1.6) intentionally changes one.
 6. Make the minimum sufficient change (§1.1).
 7. Verify claims against the final change state (§1.2).
 8. Update authoritative documentation only when the truth owned by that document changed
@@ -200,15 +200,26 @@ or authoritative documentation instead of growing the entry file indefinitely.
 
 ## 1.6 Product Decision Authority
 
-"Product decision authority" means the source authorized to decide intended
-Catevia behavior. Subject to the instruction precedence above, it may be:
+"Product decision authority" means evidence that is authorized to define
+intended Catevia behavior. Subject to the instruction precedence above, it may
+come from:
 
-- an explicit current user/product-owner requirement;
-- an already-approved current normative business rule;
-- an applicable current ADR or other repository-owned normative decision.
+- an explicit current user/product-owner statement that specifies or approves
+  the intended behavior;
+- a current approved normative business rule;
+- an applicable active ADR or other repository-owned normative decision within
+  its documented scope.
 
-It does **not** require a separate human reviewer, product manager, or
-organizational role from the person requesting the work.
+A question, request for options, hypothetical, or agent recommendation is not
+product authorization by itself.
+
+If candidate authority sources conflict, are ambiguously scoped, or may have
+been superseded, do not choose whichever is most convenient. Re-establish the
+applicable normative truth through `catevia-current-truth` / Change Impact and
+treat the decision as unresolved until the conflict is resolved.
+
+Product decision authority does **not** require a separate human reviewer,
+product manager, or organizational role from the person requesting the work.
 
 Agents may investigate current behavior, surface trade-offs, and recommend a
 design. They must not self-authorize a material change to a protected invariant
