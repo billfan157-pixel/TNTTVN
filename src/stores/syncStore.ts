@@ -22,7 +22,7 @@ interface SyncState {
   getPendingOps: () => Promise<SyncQueueItem[]>
   claimOp: (id: string) => Promise<SyncQueueItem | null>
   recoverStaleProcessingOps: (maxAgeMs?: number) => Promise<number>
-  addOp: (op: Omit<SyncQueueItem, 'id' | 'retryCount' | 'lastError' | 'createdAt' | 'updatedAt' | 'status' | 'deviceId'>) => Promise<string>
+  addOp: (op: Omit<SyncQueueItem, 'id' | 'retryCount' | 'lastError' | 'createdAt' | 'updatedAt' | 'status' | 'deviceId'>, options?: { preservePendingGradeIntent?: boolean }) => Promise<string>
   updateOp: (id: string, changes: Partial<SyncQueueItem>) => Promise<void>
   removeOp: (id: string) => Promise<void>
   compactQueue: () => Promise<void>
@@ -234,7 +234,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     return stale.length
   },
 
-  addOp: async (op) => {
+  addOp: async (op, options) => {
     const owner = captureTenantScope()
     if (!owner) throw new Error('Cannot queue sync operation without an active tenant owner')
     const { userId, parishId } = owner
@@ -261,6 +261,39 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
 
     let returnId = id
+    if ((op.entity === 'grade' || op.entity === 'notice') && op.operation === 'UPDATE') {
+      // Grade/notice payloads are patches. Merge pending intent outside the IDB
+      // transaction, then CAS the encrypted source row inside it. Concurrent
+      // tabs/enqueues must never discard fields or overwrite processing rows.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const siblings = await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray()
+        const dup = siblings.find(row => isOpOwnedBy(row, owner) && row.entity === op.entity
+          && row.entityId === op.entityId && row.operation === 'UPDATE' && !row.serverAcknowledgement)
+        const decoded = dup ? await decryptQueueValue(dup.payload) : null
+        if (dup && !decoded) throw new Error('Cannot merge unreadable queued intent')
+        const previous = decoded ? JSON.parse(decoded) : null
+        const incoming = JSON.parse(op.payload)
+        const merged = previous ? { ...(options?.preservePendingGradeIntent
+          ? { ...incoming, ...previous, version: incoming.version }
+          : { ...previous, ...incoming }),
+          ...(op.entity === 'grade' ? { _syncGradePatch: previous._syncGradePatch === true && incoming._syncGradePatch === true } : {}) } : incoming
+        const encoded = await encryptQueueValue(JSON.stringify(merged))
+        const committed = await db.transaction('rw', db.syncQueue, async () => {
+          if (!isTenantScopeCurrent(owner)) throw new Error('Tenant owner changed while queueing patch')
+          const current = (await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray())
+            .find(row => isOpOwnedBy(row, owner) && row.entity === op.entity && row.entityId === op.entityId
+              && row.operation === 'UPDATE' && !row.serverAcknowledgement)
+          if (JSON.stringify(current) !== JSON.stringify(dup)) return false
+          if (current) {
+            await db.syncQueue.update(current.id, { payload: encoded, updatedAt: now })
+            returnId = current.id
+          } else await db.syncQueue.put({ ...item, payload: encoded })
+          return true
+        })
+        if (committed) { await get().refreshCount(); return returnId }
+      }
+      throw new Error('Patch queue changed concurrently; retry saving the edit')
+    }
     const runAdd = async () => {
       await db.syncQueue.put(item)
       const siblings = await db.syncQueue
@@ -397,6 +430,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   compactQueue: async () => {
+    const owner = captureTenantScope()
+    if (!owner) return
     const db = getDB()
     const pendingRaw = await db.syncQueue
       .where('status')
@@ -457,7 +492,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         // Nếu CREATE đã/đang retrying -> Giữ CẢ CREATE VÀ DELETE để Phase 1.5 retry CREATE (dedupe),
         // remap Temp ID -> Real ID, rồi Phase 3 thực thi DELETE với ID thật server-side.
         const createOp = ops.find((o) => o.operation === 'CREATE')!
-        const isUnsentLocalOnly = createOp.status === 'pending' && (createOp.retryCount || 0) === 0
+        const isUnsentLocalOnly = createOp.status === 'pending'
+          && (createOp.retryCount || 0) === 0
+          && !createOp.lastError
         if (isUnsentLocalOnly) {
           toRemove.push(...ops.map((o) => o.id))
         } else {
@@ -474,7 +511,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
       if (hasCreate) {
         const createOp = ops.find((o) => o.operation === 'CREATE')!
-        const merged = await ops.reduce(async (accP, o) => {
+        const isUnsentLocalOnly = createOp.status === 'pending'
+          && (createOp.retryCount || 0) === 0
+          && !createOp.lastError
+        const updates = ops.filter((o) => o.operation === 'UPDATE')
+        const mergeOps = isUnsentLocalOnly ? ops : updates
+        const merged = await mergeOps.reduce(async (accP, o) => {
           const acc = await accP
           try {
             const raw = await decryptQueueValue(o.payload)
@@ -485,11 +527,25 @@ export const useSyncStore = create<SyncState>((set, get) => ({
             return acc
           }
         }, Promise.resolve({} as Record<string, unknown>))
-        toRemove.push(...ops.filter((o) => o.id !== createOp.id).map((o) => o.id))
-        toUpdate.push({
-          id: createOp.id,
-          op: { ...createOp, operation: 'CREATE', payload: JSON.stringify(merged) },
-        })
+        if (isUnsentLocalOnly) {
+          // No request could have committed yet, so folding local edits into
+          // the create preserves intent without changing an issued request.
+          toRemove.push(...ops.filter((o) => o.id !== createOp.id).map((o) => o.id))
+          toUpdate.push({
+            id: createOp.id,
+            op: { ...createOp, operation: 'CREATE', payload: JSON.stringify(merged) },
+          })
+        } else if (updates.length > 0) {
+          // Once CREATE may have reached the server its payload is immutable.
+          // Keep it byte-for-byte replayable and compact later edits into a
+          // separate UPDATE that will be remapped after create acknowledgement.
+          const lastUpdate = updates[updates.length - 1]
+          toRemove.push(...updates.filter((o) => o.id !== lastUpdate.id).map((o) => o.id))
+          toUpdate.push({
+            id: lastUpdate.id,
+            op: { ...lastUpdate, operation: 'UPDATE', payload: JSON.stringify(merged) },
+          })
+        }
         continue
       }
 
@@ -505,11 +561,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           const raw = await decryptQueueValue(o.payload)
           if (raw === null) return acc
           const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-          return { ...acc, ...parsed }
+          return { ...acc, ...parsed, ...(o.entity === 'grade'
+            ? { _syncGradePatch: acc._syncGradePatch === true && parsed._syncGradePatch === true } : {}) }
         } catch {
           return acc
         }
-      }, Promise.resolve({} as Record<string, unknown>))
+      }, Promise.resolve((lastOp.entity === 'grade' ? { _syncGradePatch: true } : {}) as Record<string, unknown>))
       toRemove.push(...ops.filter((o) => o.id !== lastOp.id).map((o) => o.id))
       toUpdate.push({
         id: lastOp.id,
@@ -529,6 +586,13 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
     // OS-04: Atomic Dexie Transaction (chứa thuần túy các lệnh IndexedDB)
     const runCompact = async () => {
+      // Crypto intentionally runs outside IndexedDB transactions. Validate its
+      // input snapshot under the write lock before retiring any durable intent.
+      if (!isTenantScopeCurrent(owner)) return
+      const current = (await db.syncQueue.where('status').anyOf(['pending', 'retrying']).toArray())
+        .filter(item => isOpOwnedBy(item, owner))
+      const before = new Map(pending.map(item => [item.id, JSON.stringify(item)]))
+      if (current.length !== before.size || current.some(item => before.get(item.id) !== JSON.stringify(item))) return
       for (const id of toRemove) {
         await db.syncQueue.delete(id)
       }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore, getCurrentAcademicYear } from '../../stores/gradeStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -26,6 +26,7 @@ const SCORE_TYPES: { id: DailyScoreType; label: string; color: string }[] = [
 ]
 
 export const DesktopDailyGradeEntry: React.FC = () => {
+  const savingEntries = useRef(new Set<string>())
   const { can } = useAuth()
   const canEdit = can('admin', 'chunhiem', 'phuta')
   const students = useStudentStore(s => s.students)
@@ -83,7 +84,8 @@ export const DesktopDailyGradeEntry: React.FC = () => {
     return false
   }
 
-  const handleAddScore = (studentId: string, rowIdx?: number) => {
+  const handleAddScore = async (studentId: string, rowIdx?: number) => {
+    if (savingEntries.current.has(studentId)) return
     const raw = inputValues[studentId]
     if (!raw || raw.trim() === '') return
     const val = parseFloat(raw.replace(',', '.'))
@@ -93,18 +95,23 @@ export const DesktopDailyGradeEntry: React.FC = () => {
       return
     }
     const clamped = Math.round(val * 10) / 10
-    addEntry(studentId, activeScoreType, clamped, selectedSemester)
-    hapticFeedback.medium()
-    setInputValues(prev => ({ ...prev, [studentId]: '' }))
+    savingEntries.current.add(studentId)
+    try {
+      await addEntry(studentId, activeScoreType, clamped, selectedSemester)
+      hapticFeedback.medium()
+      setInputValues(prev => ({ ...prev, [studentId]: '' }))
 
-    const student = filteredStudents.find(s => s.id === studentId)
-    if (student) {
-      setSrAnnouncement(`Đã thêm điểm ${activeLabel} ${clamped} cho ${student.fullName}`)
-    }
+      const student = filteredStudents.find(s => s.id === studentId)
+      if (student) {
+        setSrAnnouncement(`Đã thêm điểm ${activeLabel} ${clamped} cho ${student.fullName}`)
+      }
 
-    if (rowIdx !== undefined) {
-      focusDailyRow(rowIdx + 1)
-    }
+      if (rowIdx !== undefined) {
+        focusDailyRow(rowIdx + 1)
+      }
+    } catch {
+      useToastStore.getState().addToast('Chưa lưu được điểm trên thiết bị. Hãy thử lại.', 'error')
+    } finally { savingEntries.current.delete(studentId) }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIdx: number, studentId: string) => {
@@ -141,9 +148,13 @@ export const DesktopDailyGradeEntry: React.FC = () => {
       variant: 'danger',
     })
     if (ok) {
-      removeEntry(entryId)
-      hapticFeedback.light()
-      setSrAnnouncement(`Đã xóa điểm ${value} của ${studentName}`)
+      try {
+        await removeEntry(entryId)
+        hapticFeedback.light()
+        setSrAnnouncement(`Đã xóa điểm ${value} của ${studentName}`)
+      } catch {
+        useToastStore.getState().addToast('Chưa lưu được thao tác xóa điểm. Hãy thử lại.', 'error')
+      }
     }
   }
 

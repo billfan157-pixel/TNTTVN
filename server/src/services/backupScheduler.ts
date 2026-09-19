@@ -24,7 +24,9 @@ function getRetentionCount(): number {
 }
 
 function getTargetHour(): number {
-  return Number(process.env.AUTO_BACKUP_HOUR) || 2 // 02:00 AM default
+  const raw = process.env.AUTO_BACKUP_HOUR
+  const hour = raw?.trim() ? Number(raw) : 2
+  return Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 2
 }
 
 let timer: NodeJS.Timeout | null = null
@@ -75,8 +77,14 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
     // the main SQLite file: committed pages may still live in WAL. Write to a
     // unique partial path and publish the artifact only after VACUUM succeeds.
     const normalizedPartial = path.resolve(partialFile).replace(/\\/g, '/').replace(/'/g, "''")
+    let artifact: Buffer
     try {
       await client.execute(`VACUUM INTO '${normalizedPartial}'`)
+      // DR-P2-002: read the completed artifact from its partial path BEFORE
+      // publishing. The blob write must never touch the published file in
+      // place — a failed rewrite under the final name would leave a
+      // completed-looking but corrupted backup.
+      artifact = fs.readFileSync(partialFile)
       fs.renameSync(partialFile, destFile)
     } catch (vacuumErr: any) {
       try {
@@ -90,8 +98,7 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
     console.log(`[BACKUP SUCCESS] Automatic backup created at ${destFile}`)
 
     // 3. Đẩy lên blob storage (R2 nếu cấu hình, fallback local — ADR-041).
-    const buf = fs.readFileSync(destFile)
-    await putObject(`backups/${path.basename(destFile)}`, buf, 'application/x-sqlite3')
+    await putObject(`backups/${path.basename(destFile)}`, artifact, 'application/x-sqlite3')
 
     // 4. Retention policy: Keep only last retentionCount files (qua abstraction).
     await enforceRetention(retentionCount)
@@ -121,10 +128,18 @@ async function enforceRetention(retentionCount: number): Promise<void> {
 
 /**
  * Scheduled check for automated daily backup.
+ *
+ * DR-P2-003: the target hour is the primary window, but any check at or after
+ * the window still runs a catch-up backup when the last successful marker
+ * predates today — a missed window (process down, host asleep or crashed
+ * through the whole target hour) must not leave the day without a backup.
+ * A marker equal to today means the daily backup already succeeded, whatever
+ * hour it happened at. Checks before the target hour never fire, so a fresh
+ * day still waits for its scheduled window.
  */
 export async function runAutoBackupCheck(now: Date = new Date()): Promise<boolean> {
-  const currentHour = now.getHours()
-  if (currentHour !== getTargetHour()) return false
+  if (process.env.AUTO_BACKUP_ENABLED === 'false') return false
+  if (now.getHours() < getTargetHour()) return false
 
   const today = dateKey(now)
   const parishId = getParishId()
@@ -162,6 +177,35 @@ export async function runAutoBackupCheck(now: Date = new Date()): Promise<boolea
   } catch (err) {
     console.error('[BACKUP CHECK ERROR]', err)
     return false
+  }
+}
+
+/**
+ * DR-P2-003: operational freshness signal for the daily backup. Reads the
+ * durable success marker only — a schedule that fired without a completed
+ * backup never counts as fresh.
+ */
+export async function getAutoBackupStatus(now: Date = new Date()): Promise<{
+  enabled: boolean
+  lastAutoBackupDate: string | null
+  isCurrent: boolean
+  overdue: boolean
+}> {
+  const enabled = process.env.AUTO_BACKUP_ENABLED !== 'false'
+  try {
+    const [marker] = await db
+      .select()
+      .from(systemSettings)
+      .where(and(eq(systemSettings.key, MARKER_KEY), eq(systemSettings.parishId, getParishId())))
+      .limit(1)
+    const lastAutoBackupDate = marker?.value ?? null
+    const deadline = new Date(now)
+    if (now.getHours() < getTargetHour()) deadline.setDate(deadline.getDate() - 1)
+    const validDate = lastAutoBackupDate !== null && /^\d{4}-\d{2}-\d{2}$/.test(lastAutoBackupDate)
+    const isCurrent = validDate && lastAutoBackupDate >= dateKey(deadline) && lastAutoBackupDate <= dateKey(now)
+    return { enabled, lastAutoBackupDate, isCurrent, overdue: enabled && !isCurrent }
+  } catch {
+    return { enabled, lastAutoBackupDate: null, isCurrent: false, overdue: enabled }
   }
 }
 

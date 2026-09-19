@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  X,
 } from 'lucide-react'
 import { useFinanceStore, type LedgerFilters } from '../stores/financeStore'
 import { useAuthStore } from '../stores/authStore'
@@ -201,13 +202,13 @@ export const FinancePage: React.FC = () => {
         title="Quản Lý Quỹ & Thu Chi Xứ Đoàn"
         description="Hệ thống kế toán & quản trị ngân quỹ Thiếu Nhi Thánh Thể minh bạch, chuẩn mực"
         actions={
-          <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 items-center">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none snap-x snap-mandatory py-1 max-w-full sm:flex-wrap sm:overflow-visible" style={{ WebkitOverflowScrolling: 'touch' }}>
             <Button
               onClick={() => handleOpenTx('INCOME')}
               variant="plain"
               size="sm"
               leadingIcon={<ArrowDownRight aria-hidden="true" className="w-4 h-4" />}
-              className="min-h-[40px]"
+              className="shrink-0 snap-start min-h-[44px] sm:min-h-[40px]"
               style={{ background: 'var(--color-finance-income)', color: 'var(--color-text-inverse)' }}
             >
               Tạo Phiếu Thu
@@ -217,7 +218,7 @@ export const FinancePage: React.FC = () => {
               variant="plain"
               size="sm"
               leadingIcon={<ArrowUpRight aria-hidden="true" className="w-4 h-4" />}
-              className="min-h-[40px]"
+              className="shrink-0 snap-start min-h-[44px] sm:min-h-[40px]"
               style={{ background: 'var(--color-finance-expense)', color: 'var(--color-text-inverse)' }}
             >
               Tạo Phiếu Chi
@@ -227,7 +228,7 @@ export const FinancePage: React.FC = () => {
               variant="plain"
               size="sm"
               leadingIcon={<ArrowRightLeft aria-hidden="true" className="w-4 h-4" />}
-              className="min-h-[40px]"
+              className="shrink-0 snap-start min-h-[44px] sm:min-h-[40px]"
               style={{ background: 'var(--color-finance-transfer)', color: 'var(--color-text-inverse)' }}
             >
               Chuyển Quỹ
@@ -237,7 +238,7 @@ export const FinancePage: React.FC = () => {
               variant="primary"
               size="sm"
               leadingIcon={<Users aria-hidden="true" className="w-4 h-4" />}
-              className="min-h-[40px]"
+              className="shrink-0 snap-start min-h-[44px] sm:min-h-[40px]"
             >
               Thu Niên Liễm
             </Button>
@@ -246,7 +247,7 @@ export const FinancePage: React.FC = () => {
               variant="secondary"
               size="sm"
               leadingIcon={<Layers aria-hidden="true" className="w-4 h-4" />}
-              className="min-h-[40px]"
+              className="shrink-0 snap-start min-h-[44px] sm:min-h-[40px]"
             >
               Quản Lý Quỹ
             </Button>
@@ -461,7 +462,7 @@ export const FinancePage: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Search Input */}
-            <div className="relative">
+            <div className="relative flex-1 sm:flex-initial">
               <TextInput
                 aria-label="Tìm kiếm sổ quỹ giao dịch"
                 type="text"
@@ -469,8 +470,19 @@ export const FinancePage: React.FC = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Tìm mã phiếu, người nộp/nhận, danh mục..."
                 density="sm"
+                className="w-full sm:w-[260px] pr-8"
               />
               <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-2.5 pointer-events-none" />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-main"
+                  aria-label="Xóa từ khóa tìm kiếm"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Date Range Filter */}

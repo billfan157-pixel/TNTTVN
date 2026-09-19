@@ -60,16 +60,18 @@ export const useStudentStore = create<StudentState>()(
         if (!isAuthenticated()) return
         set({ isLoading: true, error: null })
         try {
-          let remote = await api.getStudents({ updatedAfter, updatedBefore, page: safePage, limit: safeLimit })
+          const keyset = !!updatedAfter && page === undefined
+          let afterId = keyset ? '' : undefined
+          let remote = await api.getStudents({ updatedAfter, updatedBefore, page: safePage, limit: safeLimit, afterId })
           let data = Array.isArray(remote?.data) ? remote.data : []
           const total = typeof remote?.total === 'number' ? remote.total : data.length
-          // A delta window is bounded by the server watermark, so offset pages
-          // remain stable for the duration of this pull. Read every page before
-          // returning success; otherwise advancing the cursor could skip rows.
-          if (updatedAfter && page === undefined) {
-            const pageCount = Math.ceil(total / safeLimit)
-            for (let nextPage = 2; nextPage <= pageCount; nextPage++) {
-              remote = await api.getStudents({ updatedAfter, updatedBefore, page: nextPage, limit: safeLimit })
+          // Do not use shrinking totals/OFFSET for a mutable delta window.
+          if (keyset) {
+            while (remote.data.length === safeLimit) {
+              const nextId = remote.data[remote.data.length - 1]?.id
+              if (typeof nextId !== 'string' || nextId <= (afterId || '')) throw new Error('Student delta cursor did not advance')
+              afterId = nextId
+              remote = await api.getStudents({ updatedAfter, updatedBefore, limit: safeLimit, afterId })
               data = data.concat(Array.isArray(remote?.data) ? remote.data : [])
             }
           }

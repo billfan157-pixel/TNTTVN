@@ -54,7 +54,7 @@ export function successResponse(arg1: any, arg2?: any, arg3?: any) {
   return { success: true as const, data: arg1 }
 }
 
-export function errorResponse(arg1: any, arg2?: any, arg3?: any, arg4?: any) {
+export function errorResponse(arg1: any, arg2?: any, arg3?: any, arg4?: any, arg5?: any) {
   if (arg1 && typeof arg1 === 'object' && 'json' in arg1 && typeof arg1.json === 'function') {
     let message = 'An error occurred'
     let status = 400
@@ -86,6 +86,7 @@ export function errorResponse(arg1: any, arg2?: any, arg3?: any, arg4?: any) {
       error: {
         code: code || (status === 403 ? 'FORBIDDEN' : status === 401 ? 'UNAUTHORIZED' : status === 404 ? 'NOT_FOUND' : 'ERROR'),
         message,
+        ...(arg5 === undefined ? {} : { details: arg5 }),
       }
     }, status as any)
   }

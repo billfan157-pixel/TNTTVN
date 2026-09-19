@@ -22,6 +22,7 @@ import {
   ExamResultVersionConflictError,
   ExamAccessError,
 } from '../services/examService.js'
+import { CreateIdempotencyConflictError } from '../services/createIdempotency.js'
 
 const examsRouter = new Hono()
 examsRouter.use('*', authMiddleware)
@@ -254,6 +255,9 @@ const resultsSchema = z.object({
 })
 
 function handleServiceError(c: any, err: any) {
+  if (err instanceof CreateIdempotencyConflictError) {
+    return errorResponse(c, err.code, err.message, err.status, { existing: err.existing })
+  }
   if (err instanceof ExamNotFoundError) return errorResponse(c, 'NOT_FOUND', err.message, 404)
   if (err instanceof ExamStateError) return errorResponse(c, 'STATE_TRANSITION_INVALID', err.message, 409)
   if (err instanceof ExamMutationConflictError) return errorResponse(c, 'IDEMPOTENCY_CONFLICT', err.message, 409)

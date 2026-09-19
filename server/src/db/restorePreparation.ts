@@ -1,7 +1,7 @@
 import type { Client } from '@libsql/client'
 import { applyBootstrapSchema } from './bootstrapSchema.js'
 import { applyMigrations } from './migrationRunner.js'
-import { MIGRATIONS } from './migrations.js'
+import { MIGRATIONS, MIGRATION_DEPLOYMENT_PARISH_ID } from './migrations.js'
 import { applyDefensiveSync } from './defensiveSync.js'
 import { applyIndices } from './bootstrapIndices.js'
 import { assertDatabaseReady } from './schemaHealth.js'
@@ -15,9 +15,13 @@ export async function prepareEmptyRestoreTarget(client: Client): Promise<void> {
   await applyDefensiveSync(client)
   await applyIndices(client)
 
-  // Migration 120 creates four default funds. They are not restored data.
-  // Validate all freshly seeded application content before removing only those
-  // seeds; new/unexpected seeds fail closed and require code/operator review.
+  // Migration 120 creates four default funds under the literal seed parish
+  // 'gia-ton'; migration 261 re-seeds them under the deployment parish when it
+  // differs. They are not restored data. Validate against the exact parish the
+  // migrations themselves seeded for (module-load capture — never diverges from
+  // what applyMigrations just produced), then remove only those seeds;
+  // new/unexpected seeds fail closed and require code/operator review.
+  const deploymentParishId = MIGRATION_DEPLOYMENT_PARISH_ID
   const tableNames = (await listTables()).rows.map(row => String(row.name))
   const tx = await client.transaction('write')
   try {
@@ -29,14 +33,17 @@ export async function prepareEmptyRestoreTarget(client: Client): Promise<void> {
     }
     const funds = await tx.execute('SELECT id, parish_id, code, initial_balance, is_default, is_active FROM funds ORDER BY id')
     const expected = [
-      ['FND-001-GENERAL', 'gia-ton', 'GENERAL', 0, 1, 1],
-      ['FND-002-CHARITY', 'gia-ton', 'CHARITY', 0, 0, 1],
-      ['FND-003-CAMP', 'gia-ton', 'CAMP', 0, 0, 1],
-      ['FND-004-LEADERS', 'gia-ton', 'LEADERS', 0, 0, 1],
+      ['FND-001-GENERAL', deploymentParishId, 'GENERAL', 0, 1, 1],
+      ['FND-002-CHARITY', deploymentParishId, 'CHARITY', 0, 0, 1],
+      ['FND-003-CAMP', deploymentParishId, 'CAMP', 0, 0, 1],
+      ['FND-004-LEADERS', deploymentParishId, 'LEADERS', 0, 0, 1],
     ]
     const actual = funds.rows.map(row => [row.id, row.parish_id, row.code, Number(row.initial_balance), Number(row.is_default), Number(row.is_active)])
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('Unexpected default funds during fresh target preparation')
-    await tx.execute("DELETE FROM funds WHERE parish_id = 'gia-ton' AND id IN ('FND-001-GENERAL','FND-002-CHARITY','FND-003-CAMP','FND-004-LEADERS')")
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Unexpected default funds during fresh target preparation (expected seeds for deployment parish ${deploymentParishId})`)
+    await tx.execute({
+      sql: "DELETE FROM funds WHERE parish_id = ? AND id IN ('FND-001-GENERAL','FND-002-CHARITY','FND-003-CAMP','FND-004-LEADERS')",
+      args: [deploymentParishId],
+    })
     await tx.commit()
   } catch (err) {
     try { await tx.rollback() } catch { /* already closed */ }

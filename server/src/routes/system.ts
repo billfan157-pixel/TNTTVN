@@ -7,6 +7,7 @@ import { successResponse, errorResponse } from '../utils/response.js'
 import { client } from '../db/index.js'
 import { purgeParishData, PURGE_CONFIRM_KEY, DEFAULT_PURGE_VERSION } from '../services/purgeService.js'
 import { AdminAuthorizationChangedError, captureAdminReauth } from '../services/userService.js'
+import { SafetySnapshotStaleError } from '../services/safetySnapshot.js'
 
 const systemRouter = new Hono()
 
@@ -57,6 +58,9 @@ systemRouter.post('/purge', roleMiddleware('admin'), purgeRateLimiter, zValidato
     console.error('PURGE FAILED:', err)
     if (err instanceof AdminAuthorizationChangedError) {
       return errorResponse(c, 'SESSION_INVALID', err.message, 401)
+    }
+    if (err instanceof SafetySnapshotStaleError) {
+      return errorResponse(c, err.code, err.message, err.status)
     }
     return errorResponse(c, 'PURGE_FAILED', err?.message || 'Xóa dữ liệu thất bại', 400)
   }

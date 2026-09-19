@@ -5,6 +5,9 @@ import { getDeploymentParishId } from '../utils/deploymentParish.js'
 // The value is validated as a deployment slug before any migration executes.
 const deploymentParishId = getDeploymentParishId()
 
+/** The parish the seed repair migrations actually targeted (captured at module load). */
+export const MIGRATION_DEPLOYMENT_PARISH_ID = deploymentParishId
+
 export const MIGRATIONS: MigrationDefinition[] = [
   { version: '20240728-001', sql: `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'` },
   { version: '20240728-002', sql: `ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1` },

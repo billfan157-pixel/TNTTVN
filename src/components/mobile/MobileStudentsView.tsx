@@ -16,10 +16,11 @@ const PromotionPanel = lazyWithRetry<React.FC<{
 import { 
   Phone, UserPlus, Search, Edit3, 
   Trash2, Printer, Upload, ChevronLeft, ChevronRight, CheckSquare,
-  Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA
+  Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA, X
 } from 'lucide-react';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
-import { SkeletonTable } from '../common/StateFeedback';
+import { SkeletonTable, NoResultState } from '../common/StateFeedback';
+import { StudentName } from '../common/StudentName';
 import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
 import { TabPanel, Tabs } from '../common/ui/SelectionControls';
@@ -233,18 +234,29 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           />
           {/* Search & Actions — responsive: search full width + actions row */}
       <div className="flex flex-col gap-2.5">
-        <label className="relative flex-1 block" aria-label="Tìm thiếu nhi">
+        <div className="relative flex-1 block">
           <Search size={16} className="text-text-placeholder absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <TextInput
-            type="search"
+            aria-label="Tìm thiếu nhi"
+            type="text"
             inputMode="search"
             placeholder="Tìm tên thánh, họ tên hoặc mã..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pr-3 min-h-[44px] rounded-xl text-sm"
-            style={{ paddingLeft: '40px' }}
+            className="w-full min-h-[44px] rounded-xl text-sm"
+            style={{ paddingLeft: '40px', paddingRight: searchQuery ? '42px' : '12px' }}
           />
-        </label>
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-text-muted hover:text-text-main active:scale-95 transition-transform"
+              aria-label="Xóa tìm kiếm"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
         {managementActionCount > 0 && <div className={`grid gap-1.5 sm:gap-2 ${
           managementActionCount === 4 ? 'grid-cols-4' : managementActionCount === 3 ? 'grid-cols-3' : managementActionCount === 2 ? 'grid-cols-2' : 'grid-cols-1'
         }`}>
@@ -371,9 +383,10 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       <>
       <div className="flex flex-col gap-3">
         {pagedStudents.length === 0 ? (
-          <div className="bg-surface-card rounded-2xl text-text-muted text-center p-8">
-            Không tìm thấy thiếu nhi nào trong lớp này.
-          </div>
+          <NoResultState
+            title="Không tìm thấy thiếu nhi"
+            description="Không tìm thấy thiếu nhi nào trong lớp này hoặc khớp với từ khóa tìm kiếm."
+          />
         ) : (
           pagedStudents.map(s => {
             const branch = BRANCHES[s.branch];
@@ -386,7 +399,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 className={`entity-card p-4 flex flex-col gap-3 relative overflow-hidden ${selectedIds.has(s.id) ? 'ring-2 ring-[var(--color-parish-danger)] ring-offset-0 border-[var(--color-parish-danger)]' : ''}`}
               >
                 {selectionMode && (
-                  <label className="absolute top-3 left-3 flex items-center justify-center w-6 h-6 rounded-md border bg-surface-card cursor-pointer has-[input:checked]:bg-[var(--color-parish-danger)] has-[input:checked]:border-[var(--color-parish-danger)] has-[input:checked]:text-text-inverse transition-colors">
+                  <label className="absolute top-3 left-3 flex items-center justify-center w-6 h-6 rounded-md border bg-surface-card cursor-pointer has-[input:checked]:bg-[var(--color-parish-danger)] has-[input:checked]:border-[var(--color-parish-danger)] has-[input:checked]:text-text-inverse transition-colors after:absolute after:-inset-2.5 after:content-['']">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(s.id)}
@@ -399,12 +412,12 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                 )}
                 <div className={`flex justify-between items-start ${selectionMode ? 'pl-8' : ''}`}>
                   <div className="min-w-0 overflow-hidden">
-                    <div className="text-amber-950 dark:text-amber-400 text-xs font-bold truncate">
-                      {s.holyName || '—'}
-                    </div>
-                    <div className="text-text-main text-[15px] font-extrabold truncate">
-                      {s.fullName}
-                    </div>
+                    <StudentName
+                      holyName={s.holyName}
+                      fullName={s.fullName}
+                      size="base"
+                      layout="stacked"
+                    />
                     <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="badge shrink-0" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
                         {branch?.name}

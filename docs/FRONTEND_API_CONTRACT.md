@@ -222,8 +222,8 @@ Client: `src/lib/api.ts` (`purgeAllData`, `probePurgeVersion`) · UI: `src/compo
 - Xóa rows của 26 bảng nghiệp vụ trong hợp đồng Purge v2.4 trong 1 transaction (FK order + `PRAGMA defer_foreign_keys`), scope `parish_id`; gồm `password_reset_requests`, `feedback_messages`, và `exam_result_mutations` xóa trước result/session; KHÔNG drop bảng, KHÔNG xóa function/trigger.
 - Giữ nguyên: `users`, `branches`, `permissions`, `role_permissions`, `audit_logs`, `push_subscriptions`, `native_push_tokens`, `system_settings`.
 - Snapshot v3.1 (26 bảng) tự ghi file trước khi xóa; audit log `SYSTEM_PURGE` ghi counts.
-- Sau thành công: client gọi `resetClientData(purgeVersion)` → xóa sạch Dexie + localStorage + đăng xuất. Các thiết bị khác bị `fetchAllData` phát hiện version chênh lệch → tự reset + đăng xuất (chống ghost data).
-- **A-NEW-47 (2026-08-13)**: `fetchAllData` chỉ reset khi device ĐÃ TỪNG sync (có key `parish_purge_version` trong localStorage). Device mới/chưa có key chỉ **ghi baseline** `purge_version` hiện tại, KHÔNG wipe, KHÔNG logout — tránh đá user ra khỏi phiên hợp lệ khi `purge_version` server cao hơn từ các lần purge lịch sử (production hiện là 4). Device cũ có key < server version vẫn bị reset (ghost data).
+- Sau thành công: client gọi `resetClientData(purgeVersion)` → xóa sạch Dexie + localStorage + đăng xuất. Các thiết bị khác kiểm generation trước push queue và trước pull; version tăng dẫn tới reset + đăng xuất theo cùng contract.
+- Push queue yêu cầu probe generation thành công; probe lỗi/không có evidence thì chưa gửi mutation và giữ queue. Thiết bị chưa có `parish_purge_version` chỉ ghi baseline khi không có command unsettled thuộc owner hiện tại; nếu có thì áp dụng reset, không nhận generation mới để replay command cũ. Đây không phải server-side transaction fence cho purge xảy ra đồng thời sau preflight.
 - Sau purge, quy trình bắt đầu lại: Tạo Năm Học → (khóa HK1 mặc định mở vì `semester_locks` đã purge) → Tạo Lớp hoặc Import Excel (tự tạo lớp qua `suggestedNewClasses`) → Nhập điểm / Điểm danh.
 
 ### Audit log action convention (2026-08-12 — AUDIT-FIX)
@@ -704,10 +704,16 @@ Fast path ADR-066 xử lý các row create hợp lệ theo chunk 40 trong transa
 | Method/path | Contract |
 | :--- | :--- |
 | `GET /api/sync/watermark` | Auth bắt buộc; trả `{ serverTime: ISO-8601, cursorVersion: 1 }`. `serverTime` là upper bound của một chu kỳ pull, không chứa PII và không nhận parish/user scope từ client. |
-| `GET /api/students?updatedAfter=&updatedBefore=&page=&limit=` | Khi có `updatedAfter`, trả cả active rows và soft-delete tombstone trong cửa sổ; thứ tự `(updated_at,id)` tăng dần. `updatedBefore` là watermark server của chu kỳ. Full pull không trả tombstone. |
+| `GET /api/students?updatedAfter=&updatedBefore=&afterId=&page=&limit=` | Khi có `updatedAfter`, trả active rows và soft-delete tombstone trong cửa sổ; `updatedBefore` là watermark server. Có `afterId` (kể cả chuỗi rỗng ở trang đầu): keyset theo `id` tăng dần, chỉ trả `id > afterId`, bỏ OFFSET. Không có `afterId`: giữ pagination cũ theo `(updated_at,id)` và `page`. Full pull không trả tombstone. |
 | `GET /api/classes?updatedAfter=&updatedBefore=` | Cùng snapshot/tombstone contract với students; vẫn áp tenant và class-scope server-side. |
 
 Client chỉ ghi cursor Dexie scope `parishId:userId` sau khi students/classes/grades/attendance/notices đều hoàn tất. Store pull trong sync engine chạy fail-fast; lỗi một trang không được biến thành mảng rỗng thành công. Reload sử dụng cursor bền nếu có; thiếu cursor hoặc local roster rỗng thì full bootstrap/repair. Các entity hard-delete chưa có tombstone riêng được phục hồi qua full pull định kỳ/repair, không được suy là changefeed hoàn chỉnh.
+
+Student delta không có `page` explicit dùng `afterId=''` rồi ID cuối trang trước, dừng khi trang ngắn hơn `limit`; không dùng `total` đang thay đổi để tính OFFSET/số trang. Row đã đọc chuyển ra ngoài watermark không làm dịch vị trí row chưa đọc; row vừa sửa sẽ thuộc cửa sổ kế tiếp. Cursor không tiến hoặc trang lỗi làm pull thất bại.
+
+Mutation admission/retry theo ADR-016: owner fence nằm trước dispatch và sau async preparation; compaction chỉ commit khi snapshot vẫn khớp; complete exam chờ mọi result ACK/reconciliation. Grade queue chứa edit-intent (không phải full cached row), legacy conflict cần review. Daily-entry UI chờ durable enqueue; notice CREATE giữ nguyên key qua direct/fallback và update không vượt pending command cùng owner.
+
+`POST /api/grades` và `/api/grades/batch` giữ ngữ nghĩa partial update qua cả validation: trường điểm không gửi không được chuyển thành `null` hoặc xóa điểm hiện có. `null`/chuỗi rỗng tường minh vẫn là yêu cầu xóa, chịu policy bảo vệ nguồn điểm, quyền ghi, semester lock và OCC hiện tại. Conflict legacy bị giữ để review không được tính hoặc thông báo là đã hợp nhất thành công.
 
 `GET /api/notices?updatedAfter=<ISO>&limit=10000` áp cùng deletion contract: full pull chỉ trả notice active; incremental pull có thể trả `{ id, ..., deletedAt }` để client xóa projection. Notice DELETE là idempotent đối với tombstone đã tồn tại. Khi audience đổi từ `all|parents` sang `staff`, server lưu `parent_revoked_at` và trả phụ huynh một tombstone đã xóa `title/content/author`; notice được tạo staff-only không có marker và không xuất hiện trong parent delta. Client phải lọc pending queue theo exact `parishId:userId`; row không có đủ ownership không được dùng để giữ cache.
 

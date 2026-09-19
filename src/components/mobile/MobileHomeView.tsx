@@ -14,6 +14,7 @@ import {
   Bell, Users, Award, TrendingUp, ChevronRight, AlertCircle, Sparkles
 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
+import { EmptyState } from '../common/StateFeedback';
 import { MobileLiturgicalWidget } from './MobileLiturgicalWidget';
 
 interface MobileHomeViewProps {
@@ -181,7 +182,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
 
           <button
             type="button"
-            onClick={() => { if ('vibrate' in navigator) try { navigator.vibrate(6); } catch {}; onNavigateTab('attendance'); }}
+            onClick={() => { if ('vibrate' in navigator) try { navigator.vibrate(6); } catch {}; onNavigateTab('leave-requests'); }}
             className="mobile-quick-action mobile-quick-action--purple touch-manipulation"
             aria-label="Thao tác nhanh: Duyệt nghỉ"
           >
@@ -319,7 +320,12 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
             </div>
           ))}
           {notices.length === 0 && (
-            <div className="text-center py-4 text-xs text-text-muted">Không có thông báo mới.</div>
+            <EmptyState
+              icon={Bell}
+              title="Không có thông báo mới"
+              description="Chưa có thông báo nào từ giáo xứ."
+              className="py-4"
+            />
           )}
         </div>
       </div>

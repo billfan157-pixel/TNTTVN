@@ -159,5 +159,8 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
     )!
     expect(restoredCell.value).toBe('9.4')
     expect(screen.getByText(/Bản nháp vẫn còn trên màn hình/i)).toBeInTheDocument()
+    const saved = batchSaveGrades.mock.calls[0][0][0]
+    expect(saved).toMatchObject({ studentId: 'st-01', scoreOral: 9.4, scoreOral_source: 'manual' })
+    expect(saved).not.toHaveProperty('score15m')
   })
 })

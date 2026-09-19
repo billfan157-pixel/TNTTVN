@@ -3,6 +3,7 @@ import type { Client } from '@libsql/client'
 import { existsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { getDbConfig } from './dbConfig.js'
+import { assertNotRecoveryQuarantined } from './recoveryQuarantine.js'
 
 export const dbConfig = getDbConfig()
 const { isRemote, url, authToken, dbPath } = dbConfig
@@ -19,6 +20,13 @@ export const client: Client = createClient(
     ? { url, authToken }
     : { url },
 )
+
+try {
+  await assertNotRecoveryQuarantined(client)
+} catch (error) {
+  client.close()
+  throw error
+}
 
 await client.execute('PRAGMA foreign_keys=ON')
 

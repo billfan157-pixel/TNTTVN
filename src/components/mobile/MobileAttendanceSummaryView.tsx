@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   ChevronRight,
   BarChart2,
+  X,
 } from 'lucide-react'
 import { SubpageHeader } from '../common/SubpageHeader'
 import { useStudentStore } from '../../stores/studentStore'
@@ -193,10 +194,10 @@ export const MobileAttendanceSummaryView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-1 rounded-full text-xs font-bold"
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-text-muted hover:text-text-main rounded-full active:scale-95 transition-transform"
                 aria-label="Xóa tìm kiếm"
               >
-                ✕
+                <X size={16} />
               </button>
             )}
           </div>

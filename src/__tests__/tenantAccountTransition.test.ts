@@ -54,7 +54,18 @@ describe('TENANT-P1-001 account transition live-state boundary', () => {
     expect(useLeaveRequestStore.getState()).toMatchObject({ requests: [], pendingCount: 0 })
     expect(usePromotionStore.getState().evaluationMap).toEqual({})
     expect(useUIStore.getState()).toMatchObject({ isReportModalOpen: false, studentForReport: null })
-    expect(await dexieStorage.getItem('parish_store_exams')).toBeNull()
+    // Zustand persistence may race the explicit delete by writing the newly
+    // reset state. Both absence and a sanitized empty snapshot satisfy the
+    // boundary; any retained A entity must still fail this regression.
+    const persistedExamState = await dexieStorage.getItem('parish_store_exams')
+    if (persistedExamState !== null) {
+      expect(JSON.parse(persistedExamState).state).toMatchObject({
+        sessions: [], selectedSessionId: null, results: [], queuedResultMutations: {},
+      })
+      expect(persistedExamState).not.toContain('EXAM-A')
+      expect(persistedExamState).not.toContain('RESULT-A')
+      expect(persistedExamState).not.toContain('MUT-A')
+    }
     expect(await dexieStorage.getItem('parish_store_theme')).not.toBeNull()
     expect(await db.syncQueue.get(queueId)).toMatchObject({ userId: 'USER-A', parishId: 'PARISH-A', status: 'pending' })
 

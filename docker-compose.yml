@@ -17,6 +17,7 @@ services:
       # (fallback mặc định cũ bị lộ trong repo = ai cũng ký giả token được).
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required — set it in .env}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required — set it in .env}
+      - REPORT_HMAC_SECRET=${REPORT_HMAC_SECRET:?REPORT_HMAC_SECRET is required for production report signing}
       # Chỉ bắt buộc khi DB trống. Truyền empty cho DB đã khởi tạo để compose không
       # chặn restart; seedIfEmpty() sẽ fail-closed nếu DB trống mà giá trị thiếu/yếu.
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:-}

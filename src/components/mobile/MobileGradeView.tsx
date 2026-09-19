@@ -42,7 +42,6 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
   const setSelectedSemester = useFilterStore(s => s.setSelectedSemester)
   const classes = useClassStore(s => s.classes)
   const { restricted: semesterRestricted, openSemester } = useSemesterAccess()
-  const effectiveSemester: 1 | 2 = semesterRestricted ? openSemester : selectedSemester
 
   const filteredStudents = useMemo(() => selectedClassId === 'all'
     ? students
@@ -60,18 +59,12 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
 
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
-      <section className="mobile-filter-panel mobile-sticky-under-topbar">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="min-w-0">
-            <div className="text-sm font-extrabold text-parish-primary truncate">Bảng Điểm Giáo Lý</div>
-            <div className="text-[11px] text-text-muted mt-0.5 truncate">{selectedClassLabel} · HK {effectiveSemester}</div>
-          </div>
-          <Badge tone="neutral" className="text-[10px] shrink-0">{filteredStudents.length} em</Badge>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 snap-x" style={{ WebkitOverflowScrolling: 'touch' }}>
-          {/* Class chips: admin only — GLV only sees their assigned classes */}
-          {role === 'admin' && (
-            <>
+      <section className="mobile-filter-panel mobile-sticky-under-topbar py-2 px-3">
+        <h2 className="sr-only">Bảng Điểm Giáo Lý</h2>
+        <div className="flex items-center justify-between gap-2 overflow-x-auto scrollbar-none snap-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Class chips: admin only — GLV only sees their assigned classes */}
+            {role === 'admin' ? (
               <FilterChips
                 ariaLabel="Lọc theo lớp"
                 items={classItems}
@@ -80,24 +73,29 @@ export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }
                 className="shrink-0"
                 appearance="pills"
               />
-              <span aria-hidden="true" className="w-px bg-surface-border shrink-0" />
-            </>
-          )}
-          {semesterRestricted ? (
-            <span className="shrink-0 min-h-[44px] rounded-full px-4 inline-flex items-center bg-parish-primary text-text-inverse text-xs font-extrabold">HK {openSemester === 2 ? 'II' : 'I'}</span>
-          ) : (
-            <FilterChips
-              ariaLabel="Lọc theo học kỳ"
-              items={[
-                { value: '1', label: 'HK I' },
-                { value: '2', label: 'HK II' },
-              ]}
-              value={semesterValue}
-              onValueChange={(value) => setSelectedSemester(Number(value) as 1 | 2)}
-              className="shrink-0"
-              appearance="pills"
-            />
-          )}
+            ) : (
+              <span className="text-xs font-bold text-text-main px-3 py-1.5 rounded-full bg-surface-hover border border-surface-border truncate max-w-[150px]">
+                {selectedClassLabel}
+              </span>
+            )}
+            <span aria-hidden="true" className="w-px h-5 bg-surface-border shrink-0" />
+            {semesterRestricted ? (
+              <span className="shrink-0 min-h-[44px] rounded-full px-4 inline-flex items-center bg-parish-primary text-text-inverse text-xs font-extrabold">HK {openSemester === 2 ? 'II' : 'I'}</span>
+            ) : (
+              <FilterChips
+                ariaLabel="Lọc theo học kỳ"
+                items={[
+                  { value: '1', label: 'HK I' },
+                  { value: '2', label: 'HK II' },
+                ]}
+                value={semesterValue}
+                onValueChange={(value) => setSelectedSemester(Number(value) as 1 | 2)}
+                className="shrink-0"
+                appearance="pills"
+              />
+            )}
+          </div>
+          <Badge tone="neutral" className="text-[10px] shrink-0 font-bold">{filteredStudents.length} em</Badge>
         </div>
       </section>
 

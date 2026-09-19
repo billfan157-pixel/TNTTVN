@@ -12,6 +12,7 @@ import { exportGradebookToExcel } from '../../utils/excelExporter'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { StudentName } from '../common/StudentName'
 import { SubpageHeader } from '../common/SubpageHeader'
+import { NoResultState } from '../common/StateFeedback'
 import { hapticFeedback } from '../../utils/haptics'
 import type { GradeRecord, Student } from '../../types'
 
@@ -151,7 +152,7 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
       </SubpageHeader>
 
       {filteredStudents.length === 0 ? (
-        <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Không có thiếu nhi trong bộ lọc hiện tại.</div>
+        <NoResultState title="Không có thiếu nhi" description="Không có thiếu nhi trong bộ lọc hiện tại." />
       ) : filteredStudents.map(student => {
         const grade = getStudentGrade(student.id, effectiveSemester)
         const avg = calculateStudentAvg(student.id, effectiveSemester)

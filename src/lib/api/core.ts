@@ -315,6 +315,7 @@ function assertRequestContinuity(expected: RequestContinuity, path: string): voi
  *   instead of letting them run to the transport timeout.
  */
 export async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false, externalSignal?: AbortSignal, expectedContinuity?: RequestContinuity): Promise<T> {
+  const continuity = expectedContinuity || captureRequestContinuity()
   // SECURITY (2026-08-11): KHÔNG nạp access token từ localStorage — memory-only.
   // Nếu memory rỗng (sau reload), caller phải gọi bootstrapAccessToken() trước
   // (xem authStore.loadFromStorage / main.tsx). Refresh token nguồn duy nhất là
@@ -339,7 +340,6 @@ export async function request<T>(method: string, path: string, body?: unknown, r
 
   // Capture once for the whole logical request. A recursive retry must keep
   // the original owner instead of adopting ambient auth after backoff.
-  const continuity = expectedContinuity || captureRequestContinuity()
   assertRequestContinuity(continuity, path)
 
   const url = `${API_BASE}${path}`

@@ -15,9 +15,9 @@
   --mobile-top-safe-area: env(safe-area-inset-top, 0px);
   --mobile-action-gap: 12px;
   --mobile-action-bar-height: 68px;
-  --mobile-topbar-control-height: 52px;
-  --mobile-topbar-padding-start: 13px;
-  --mobile-topbar-padding-end: 15px;
+  --mobile-topbar-control-height: 44px;
+  --mobile-topbar-padding-start: 10px;
+  --mobile-topbar-padding-end: 10px;
   --mobile-topbar-clearance: calc(
     var(--mobile-topbar-control-height)
     + var(--mobile-topbar-padding-start)
@@ -158,6 +158,35 @@
   .app-modal-layer--nested button,
   .app-modal-layer--nested [role='button'] {
     min-height: 44px;
+  }
+
+  .mobile-app-shell button[data-compact-touch],
+  .mobile-app-shell [role='button'][data-compact-touch],
+  .responsive-page-shell button[data-compact-touch],
+  .responsive-page-shell [role='button'][data-compact-touch],
+  .app-modal-layer button[data-compact-touch],
+  .app-modal-layer [role='button'][data-compact-touch],
+  .app-modal-layer--nested button[data-compact-touch],
+  .app-modal-layer--nested [role='button'][data-compact-touch] {
+    min-height: unset;
+  }
+
+  /* Compact controls retain physical touch target via pseudo-element without stretching layout */
+  .mobile-app-shell button[data-compact-touch],
+  .mobile-app-shell [role='button'][data-compact-touch] {
+    position: relative;
+  }
+
+  .mobile-app-shell button[data-compact-touch]::after,
+  .mobile-app-shell [role='button'][data-compact-touch]::after {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    min-height: 44px;
+    transform: translateY(-50%);
+    content: '';
+    pointer-events: auto;
   }
 
   /* Compact icon controls need the same physical target without widening
@@ -626,10 +655,34 @@
   background: color-mix(in srgb, white 28%, transparent);
 }
 
+.mobile-top-bar__back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-nav);
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: transform var(--motion-standard) var(--mobile-ease-out), background-color var(--motion-standard) var(--mobile-ease-out);
+}
+
+.mobile-top-bar__back-btn:active {
+  transform: scale(0.95);
+  background: color-mix(in srgb, white 28%, transparent);
+}
+
 @media (max-width: 380px) {
   :root {
     --mobile-content-gutter: 12px;
-    --mobile-topbar-control-height: 44px;
+    --mobile-topbar-control-height: 40px;
   }
 
   .mobile-bottom-nav {
@@ -1093,8 +1146,8 @@
   }
 
   .mobile-top-bar__brand-mark {
-    width: 52px;
-    height: 52px;
+    width: 44px;
+    height: 44px;
     border-radius: var(--radius-nav);
     border-color: #DBEAFE;
     background: #FFFFFF;
@@ -1116,9 +1169,9 @@
 
   .mobile-top-bar h1 {
     margin: 0;
-    font-size: clamp(18px, 5vw, 21px);
+    font-size: clamp(17px, 4.8vw, 20px);
     font-weight: 850;
-    line-height: 1.08;
+    line-height: 1.1;
   }
 
   .mobile-top-bar p {
@@ -1128,11 +1181,11 @@
   }
 
   .mobile-sheet-trigger {
-    flex: 0 0 46px;
-    width: 46px;
-    height: 46px;
-    min-width: 46px;
-    min-height: 46px;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: var(--radius-nav);
     background: rgba(255, 255, 255, 0.16);
@@ -1153,16 +1206,17 @@
   }
 
   .mobile-top-bar__brand-mark {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
   }
 
+  .mobile-top-bar__back-btn,
   .mobile-sheet-trigger {
-    flex-basis: 44px;
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    flex-basis: 40px;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
   }
 }
 

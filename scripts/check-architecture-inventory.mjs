@@ -73,21 +73,32 @@ for (const [key, pattern] of Object.entries(documentedPatterns)) {
 }
 
 const contextMap = fs.readFileSync(path.join(repoRoot, 'docs/AI_CONTEXT_MAP.md'), 'utf8')
-const contextPatterns = {
-  routes: /server\/src\/routes\/\*\.ts` \((\d+) routes\)/,
-  services: /services\/\s+─ (\d+) business logic application services/,
-  tables: /server\/src\/db\/schema\.ts` \((\d+) tables\)/,
+// Inventory has one documentation owner: Architecture. The context map routes
+// readers to it instead of maintaining a second set of independently stale counts.
+if (!contextMap.includes('(./02_ARCHITECTURE.md#1-current-architecture)')) {
+  problems.push('AI_CONTEXT_MAP must link to the canonical Architecture inventory')
 }
-for (const [key, pattern] of Object.entries(contextPatterns)) {
-  const match = contextMap.match(pattern)
-  if (!match) {
-    problems.push(`docs/AI_CONTEXT_MAP.md does not expose the ${key} inventory field`)
-    continue
+const domainSections = [...contextMap.matchAll(/^## Domain: (.+)\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)]
+if (domainSections.length === 0) problems.push('AI_CONTEXT_MAP has no domain navigation sections')
+const navigationFields = [
+  'Current authority',
+  'Current canonical docs',
+  'Current implementation entrypoints',
+  'Current important invariants',
+  'Current unresolved items',
+]
+for (const [, domain, body] of domainSections) {
+  for (const field of navigationFields) {
+    const entries = body.match(new RegExp(`^- \\*\\*${field}:\\*\\* +\\S.+$`, 'gm')) || []
+    if (entries.length !== 1) problems.push(`AI_CONTEXT_MAP ${domain}: expected one ${field} field`)
   }
-  const documented = Number(match[1])
-  if (documented !== sourceInventory[key]) {
-    problems.push(`AI_CONTEXT_MAP ${key}: documented=${documented}, source=${sourceInventory[key]}`)
-  }
+}
+// Check the map's actual local entrypoints, including source files and directories.
+// Audit findings and dated verification results remain in their owning documents.
+for (const [, href] of contextMap.matchAll(/\[[^\]\n]+\]\(([^)\s]+)\)/g)) {
+  if (href.startsWith('#') || /^[a-z][a-z\d+.-]*:/i.test(href)) continue
+  const target = path.resolve(repoRoot, 'docs', decodeURIComponent(href.split('#')[0]))
+  if (!fs.existsSync(target)) problems.push(`AI_CONTEXT_MAP broken local link: ${href}`)
 }
 
 if (problems.length > 0) {

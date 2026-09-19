@@ -36,7 +36,7 @@ import { isSyncOwnerCurrent, persistSyncResultForOwner } from './syncSessionBoun
  *      version server → cycle kế tiếp server chấp nhận, chỉnh sửa local thắng đúng field đó.
  * An toàn lặp: server version là version hiện hành nên op kế tiếp không conflict nữa.
  */
-const GRADE_SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'] as const
+const GRADE_SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc', 'comments'] as const
 const ATTENDANCE_FIELDS = ['status', 'note'] as const
 
 function requireSyncOwner(op: SyncQueueItem, owner?: TenantScopeSnapshot): TenantScopeSnapshot {
@@ -60,7 +60,7 @@ function mergeRecordWithLocalEdits(
 }
 
 /** F9: Xử lý conflict batch grade/attendance — merge rồi re-queue thay vì server-wins. */
-export async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: any, owner?: TenantScopeSnapshot): Promise<void> {
+export async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: any, owner?: TenantScopeSnapshot): Promise<boolean> {
   const expectedOwner = requireSyncOwner(op, owner)
   const store = useSyncStore.getState()
   const entity = (op.entity || '').toLowerCase()
@@ -72,8 +72,24 @@ export async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: 
   }
   requireSyncOwner(op, expectedOwner)
 
+  if (entity === 'grade' && localPayload._syncGradePatch !== true) {
+    // Legacy full snapshots cannot tell us which fields were actually edited.
+    // Keep both evidence and command; do not manufacture new manual authority.
+    await store.addConflict({ entity, entityId: op.entityId, operation: 'UPDATE', localValue: op.payload, serverValue: JSON.stringify(serverRecord) })
+    requireSyncOwner(op, expectedOwner)
+    await store.updateOp(op.id, { status: 'failed', serverAcknowledgement: undefined,
+      lastError: 'Client error 409: Legacy grade conflict requires review; original intent retained.' })
+    return false
+  }
   const fields = entity === 'grade' ? GRADE_SCORE_FIELDS : entity === 'attendance' ? ATTENDANCE_FIELDS : []
   const merged = mergeRecordWithLocalEdits(localPayload, serverRecord, fields)
+  if (entity === 'grade') {
+    for (const field of GRADE_SCORE_FIELDS) {
+      if (localPayload[field] !== undefined && localPayload[`${field}_source`] !== undefined) {
+        merged[`${field}_source`] = localPayload[`${field}_source`]
+      }
+    }
+  }
 
   // Keep an encrypted, user-scoped diagnostic record. The engine has already
   // merged local edited fields over the latest server base and retries with the
@@ -91,16 +107,25 @@ export async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: 
   }
 
   requireSyncOwner(op, expectedOwner)
-  await applyServerResultAsync(op, merged, expectedOwner)
-  requireSyncOwner(op, expectedOwner)
-  await store.addOp({
+  const retryId = await store.addOp({
     entity: entity as SyncQueueItem['entity'],
     entityId: String(merged.id || op.entityId),
     operation: 'UPDATE',
-    payload: JSON.stringify(merged),
-  })
+    payload: JSON.stringify(entity === 'grade'
+      ? { ...localPayload, id: serverRecord.id, version: serverRecord.version }
+      : merged),
+  }, { preservePendingGradeIntent: entity === 'grade' })
+  requireSyncOwner(op, expectedOwner)
+  const retry = await getDB().syncQueue.get(retryId)
+  const retryPayload = retry ? await parseQueuePayload(retry.payload, true) : null
+  requireSyncOwner(op, expectedOwner)
+  // An edit enqueued while this request was in flight is newer than the
+  // conflicted command. Project the retained retry, not the old response.
+  await applyServerResultAsync(op, retryPayload && entity === 'grade'
+    ? { ...merged, ...retryPayload } : merged, expectedOwner)
   requireSyncOwner(op, expectedOwner)
   await store.removeOp(op.id)
+  return true
 }
 
 /**
@@ -113,24 +138,30 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any,
   const entity = (op.entity || '').toLowerCase()
 
   try {
-    if (entity === 'student' && serverData?.id && serverData.id !== op.entityId) {
+    if (entity === 'student' && serverData?.id) {
       const studentStore = useStudentStore.getState()
       const oldId = op.entityId!
       const newId = serverData.id
-      studentStore.replaceStudentId(oldId, serverData)
-      // ADR-016 (S4): AWAIT remap so Phase 2 sees the real studentId.
-      await remapStudentIdInPendingOps(oldId, newId, expectedOwner)
-      requireSyncOwner(op, expectedOwner)
+      if (newId !== oldId) {
+        studentStore.replaceStudentId(oldId, serverData)
+        // ADR-016 (S4): AWAIT remap so Phase 2 sees the real studentId.
+        await remapStudentIdInPendingOps(oldId, newId, expectedOwner)
+        requireSyncOwner(op, expectedOwner)
+      } else {
+        studentStore.reconcileImportedStudents([{ action: 'updated', student: serverData }])
+      }
     }
 
-    if (entity === 'class' && serverData?.id && serverData.id !== op.entityId) {
+    if (entity === 'class' && serverData?.id) {
       const classStore = useClassStore.getState()
       const oldClassId = op.entityId!
       const newClassId = serverData.id
       classStore.replaceClassId(oldClassId, serverData)
-      // ADR-016 (S4): AWAIT remap so Phase 2 sees the real classId.
-      await remapClassIdInPendingOps(oldClassId, newClassId, expectedOwner)
-      requireSyncOwner(op, expectedOwner)
+      if (newClassId !== oldClassId) {
+        // ADR-016 (S4): AWAIT remap so Phase 2 sees the real classId.
+        await remapClassIdInPendingOps(oldClassId, newClassId, expectedOwner)
+        requireSyncOwner(op, expectedOwner)
+      }
     }
 
     if ((entity === 'exam' || entity === 'exams') && serverData?.id && serverData.id !== op.entityId) {
@@ -337,10 +368,9 @@ async function applyUpsertBatchResults(
       requireSyncOwner(op, expectedOwner)
       await store.removeOp(op.id)
     } else if (item.status === 'conflict') {
-      state.mergedConflictCount++
       // F9: merge field-level + re-queue thay vì server-wins.
       if (item.currentGrade && typeof item.currentGrade === 'object') {
-        await resolveConflictWithMerge(op, item.currentGrade, expectedOwner)
+        if (await resolveConflictWithMerge(op, item.currentGrade, expectedOwner)) state.mergedConflictCount++
       } else {
         if (item.currentGrade) await applyServerResultAsync(op, item.currentGrade, expectedOwner)
         requireSyncOwner(op, expectedOwner)
@@ -371,11 +401,13 @@ export async function flushGradeBatchWithIsolation(
 ): Promise<void> {
   let pending = payloads.slice()
   let pendingOps = validOps.slice()
+  const expectedOwner = owner || captureTenantScope() || undefined
 
   while (pending.length > 0) {
     try {
+      for (const op of pendingOps) requireSyncOwner(op, expectedOwner)
       const batchRes = await api.batchUpsertGrades(pending)
-      await applyUpsertBatchResults(batchRes.results || [], pendingOps, store, state, owner)
+      await applyUpsertBatchResults(batchRes.results || [], pendingOps, store, state, expectedOwner)
       return
     } catch (err) {
       const bad = extractZodBadIndexes(err, 'grades', pendingOps.length)
@@ -398,8 +430,9 @@ export async function flushGradeBatchWithIsolation(
         for (let i = 0; i < pendingOps.length; i++) {
           const op = pendingOps[i]
           try {
+            requireSyncOwner(op, expectedOwner)
             const r = await api.upsertGrade(pending[i])
-            await applyUpsertBatchResults([{ studentId: op.entityId, status: 'saved', record: r }], [op], store, state, owner)
+            await applyUpsertBatchResults([{ studentId: op.entityId, status: 'saved', record: r }], [op], store, state, expectedOwner)
           } catch (e2) {
             const rc = (op.retryCount || 0) + 1
             const msg = e2 instanceof ApiError ? `Client error ${e2.status}: ${e2.message}` : String(e2)
@@ -431,6 +464,7 @@ export async function flushAttendanceBatchWithIsolation(
 ): Promise<void> {
   let pending = batch.slice()
   let first = firstPayload
+  const expectedBatchOwner = owner || captureTenantScope() || undefined
   while (pending.length > 0) {
     const records = pending.map(async op => {
       try {
@@ -446,6 +480,7 @@ export async function flushAttendanceBatchWithIsolation(
     })
     try {
       const resolvedRecords = await Promise.all(records)
+      for (const op of pending) requireSyncOwner(op, expectedBatchOwner)
       const batchRes = await api.batchUpsertAttendance(first.date, first.type, resolvedRecords)
       const results = batchRes.results || []
       for (let i = 0; i < results.length; i++) {
@@ -462,7 +497,7 @@ export async function flushAttendanceBatchWithIsolation(
         const item = results[i]
         const op = pending[i]
         if (!op) continue
-        const expectedOwner = requireSyncOwner(op, owner)
+        const expectedOwner = requireSyncOwner(op, expectedBatchOwner)
         // 'skipped' = idempotent no-op (version không đổi) — vẫn coi là thành công.
         if (item.status === 'saved' || item.status === 'skipped') {
           // ADR-016 (S24): AWAIT remap trước khi op sau trong Phase 3 đọc queue.
@@ -470,8 +505,7 @@ export async function flushAttendanceBatchWithIsolation(
           requireSyncOwner(op, expectedOwner)
           await store.removeOp(op.id)
         } else if (item.status === 'conflict' && item.record) {
-          state.mergedConflictCount++
-          await resolveConflictWithMerge(op, item.record, expectedOwner)
+          if (await resolveConflictWithMerge(op, item.record, expectedOwner)) state.mergedConflictCount++
         } else {
           const rc = (op.retryCount || 0) + 1
           await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: item.reason || item.status })
@@ -499,9 +533,10 @@ export async function flushAttendanceBatchWithIsolation(
           try {
             let p: any = {}
             try { p = await parseQueuePayload(op.payload) } catch {}
+            requireSyncOwner(op, expectedBatchOwner)
             const r = await api.upsertAttendance(p)
             await persistSyncResultForOwner(op, { ok: true, data: r })
-            const expectedOwner = requireSyncOwner(op, owner)
+            const expectedOwner = requireSyncOwner(op, expectedBatchOwner)
             if (r?.id) await applyServerResultAsync(op, r, expectedOwner)
             requireSyncOwner(op, expectedOwner)
             await store.removeOp(op.id)

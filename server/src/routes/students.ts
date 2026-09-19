@@ -17,6 +17,7 @@ import { db } from '../db/index.js'
 import { classes } from '../db/schema.js'
 import { and, eq, isNull } from 'drizzle-orm'
 import { isValidIsoDate } from '../utils/date.js'
+import { CreateIdempotencyConflictError } from '../services/createIdempotency.js'
 
 const studentsRouter = new Hono()
 studentsRouter.use('*', authMiddleware)
@@ -56,7 +57,7 @@ studentsRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) 
   const limit = Math.min(10000, Math.max(1, parseInt(c.req.query('limit') || '50', 10)))
   // Roster read scope is parish-wide for all staff. Class assignments still
   // gate every write route below and all grade/attendance/exam operations.
-  const result = await getStudents(user.parishId, updatedAfter, limit, page, updatedBefore)
+  const result = await getStudents(user.parishId, updatedAfter, limit, page, updatedBefore, c.req.query('afterId'))
   return listResponse(c, result.data, result.total)
 })
 
@@ -95,6 +96,9 @@ studentsRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json',
     return successResponse(c, created, 201)
   } catch (err: any) {
     const message = err instanceof Error ? err.message : 'Lỗi tạo học sinh'
+    if (err instanceof CreateIdempotencyConflictError) {
+      return errorResponse(c, err.code, err.message, err.status, { existing: err.existing })
+    }
     return errorResponse(c, err?.code || 'CREATE_FAILED', message, err?.status || (err?.code === 'BRANCH_CLASS_MISMATCH' ? 409 : 400))
   }
 })

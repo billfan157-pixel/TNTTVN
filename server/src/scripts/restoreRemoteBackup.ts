@@ -3,11 +3,13 @@ import { createHash } from 'crypto'
 import { getObject } from '../services/blobStorage.js'
 import { decryptLogicalSnapshot, restoreLogicalSnapshot } from '../services/remoteBackup.js'
 import { assertDatabaseReady } from '../db/schemaHealth.js'
+import { assertDeploymentParishConfiguration } from '../utils/deploymentParish.js'
 
 const objectKey = process.argv[2]
 const targetUrl = process.env.RESTORE_DATABASE_URL
 const targetToken = process.env.RESTORE_DATABASE_AUTH_TOKEN
 const targetConfirmation = process.env.RESTORE_TARGET_FINGERPRINT
+const parishId = assertDeploymentParishConfiguration()
 
 function normalizeDatabaseUrl(value: string): string {
   const url = new URL(value)
@@ -45,7 +47,7 @@ try {
   const decryptMs = Date.now() - decryptStartedAt
 
   const restoreStartedAt = Date.now()
-  const result = await restoreLogicalSnapshot(target, snapshot)
+  const result = await restoreLogicalSnapshot(target, snapshot, { parishId, targetFingerprint: fingerprint })
   const restoreMs = Date.now() - restoreStartedAt
 
   const readinessStartedAt = Date.now()
@@ -53,6 +55,11 @@ try {
   const readinessMs = Date.now() - readinessStartedAt
   console.log(JSON.stringify({
     status: 'verified',
+    purpose: 'isolated-data-fidelity-drill',
+    cutoverReady: false,
+    quarantined: result.quarantined,
+    metadataDelta: 'One system_settings recovery quarantine marker; restoredRows excludes this marker, tableCounts includes it',
+    requiredCutoverGates: ['traffic-and-worker-quarantine', 'credential-and-session-invalidation', 'client-generation-and-offline-reconciliation', 'delivery-reconciliation', 'owner-approval'],
     targetFingerprint: fingerprint,
     sourceCreatedAt: snapshot.createdAt,
     restoredRows: result.restoredRows,

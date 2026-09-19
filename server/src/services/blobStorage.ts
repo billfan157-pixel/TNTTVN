@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 import {
   S3Client,
   PutObjectCommand,
@@ -65,6 +66,20 @@ function initR2(): boolean {
 
 export const isR2Enabled = initR2()
 
+/** Windows can transiently EPERM/EBUSY a rename while AV/indexer still holds the fresh file. */
+async function renameWithRetry(from: string, to: string, attempts = 4): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.renameSync(from, to)
+      return
+    } catch (err: any) {
+      const transient = err?.code === 'EPERM' || err?.code === 'EBUSY' || err?.code === 'EACCES'
+      if (!transient || attempt >= attempts - 1) throw err
+      await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt))
+    }
+  }
+}
+
 export async function putObject(
   key: string,
   body: Buffer | string,
@@ -87,7 +102,22 @@ export async function putObject(
   const filePath = resolveLocalPath(key)
   const dir = path.dirname(filePath)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(filePath, buf)
+  // DR-P2-002: a failed or interrupted write must never leave corrupted bytes
+  // under the final key. Write to a unique temp file in the same directory and
+  // rename onto the final name; readers only ever see a complete object.
+  const tempPath = `${filePath}.tmp-${randomUUID()}`
+  try {
+    fs.writeFileSync(tempPath, buf, key.startsWith('safety/') ? { mode: 0o600 } : undefined)
+    if (key.startsWith('safety/')) tryChmod600(tempPath)
+    await renameWithRetry(tempPath, filePath)
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath)
+    } catch (cleanupErr) {
+      console.warn(`[BLOB WARNING] Failed to remove incomplete object ${tempPath}:`, cleanupErr)
+    }
+    throw err
+  }
   if (key.startsWith('safety/')) tryChmod600(filePath)
 }
 
@@ -139,7 +169,7 @@ export async function listObjects(prefix: string): Promise<StoredObject[]> {
       ? getBackupDir()
       : process.env.BLOB_LOCAL_DIR || path.join(process.cwd(), 'blobs')
   if (!fs.existsSync(dirPrefix)) return []
-  return fs.readdirSync(dirPrefix).map((name) => {
+  return fs.readdirSync(dirPrefix).filter(name => !/\.(?:tmp|partial)-/.test(name)).map((name) => {
     const p = path.join(dirPrefix, name)
     const st = fs.statSync(p)
     return { key: `${prefix}${name}`, size: st.size, lastModified: st.mtimeMs }

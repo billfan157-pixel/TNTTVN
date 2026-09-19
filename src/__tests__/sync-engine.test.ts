@@ -240,6 +240,24 @@ describe('Sync Engine — Queue Compaction', () => {
     expect(payload.fullName).toBe('Updated')
   })
 
+  it('keeps a possibly-sent CREATE immutable and compacts later edits into UPDATE', async () => {
+    const createId = await syncService.syncCreateStudent({ id: 'ST-C1-SENT', fullName: 'Initial' } as any)
+    await useSyncStore.getState().updateOp(createId, {
+      status: 'retrying',
+      lastError: 'Response lost after request dispatch',
+    })
+    await syncService.syncUpdateStudent('ST-C1-SENT', { fullName: 'Updated', parentPhone: '0909' })
+
+    await useSyncStore.getState().compactQueue()
+
+    const pending = (await useSyncStore.getState().getPendingOps())
+      .filter(op => op.entityId === 'ST-C1-SENT')
+    expect(pending).toHaveLength(2)
+    expect(pending.map(op => op.operation)).toEqual(['CREATE', 'UPDATE'])
+    expect(await readPayload(pending[0])).toMatchObject({ fullName: 'Initial' })
+    expect(await readPayload(pending[1])).toMatchObject({ fullName: 'Updated', parentPhone: '0909' })
+  })
+
   it('compacts CREATE + DELETE → removes all', async () => {
     await syncService.syncCreateStudent({ id: 'ST-C2', fullName: 'Temp' } as any)
     await syncService.syncDeleteStudent('ST-C2')

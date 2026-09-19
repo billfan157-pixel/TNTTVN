@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   normalizeAcademicYear,
+  toCanonicalReportingYear,
   parseAcademicYear,
   computeAcademicYearDateRange,
   getCurrentAcademicYear,
@@ -23,8 +24,19 @@ describe('normalizeAcademicYear Utility Unit Tests (Fix F15)', () => {
     expect(normalizeAcademicYear('2025 — 2026')).toBe('2025-2026')
   })
 
-  it('normalizes prefixed persistence IDs to the canonical reporting year', () => {
-    expect(normalizeAcademicYear('AY-2025-2026')).toBe('2025-2026')
+  it('preserves prefixed persistence IDs unchanged (REG-AY-1: identity of legacy rows)', () => {
+    // Prefixed IDs are legitimate persisted identities (classes, grades, locks);
+    // stripping them hides/strands legacy facts. Canonicalization is a separate
+    // reporting concern (see toCanonicalReportingYear).
+    expect(normalizeAcademicYear('AY-2025-2026')).toBe('AY-2025-2026')
+    expect(normalizeAcademicYear(' AY-2025 - 2026 ')).toBe('AY-2025-2026')
+  })
+
+  it('extracts canonical reporting year from prefixed persistence IDs', () => {
+    expect(toCanonicalReportingYear('AY-2025-2026')).toBe('2025-2026')
+    expect(toCanonicalReportingYear('2025-2026')).toBe('2025-2026')
+    expect(toCanonicalReportingYear('2025 - 2026')).toBe('2025-2026')
+    expect(toCanonicalReportingYear('12025-2026')).toBe('12025-2026')
   })
 
   it('provides default fallback for null or undefined input', () => {

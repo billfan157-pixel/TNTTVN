@@ -90,6 +90,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   // thay vì toàn bộ lớp; đồng thời flush phần chưa kịp lưu khi unmount/chuyển lớp
   // để debounce 2s cũ (hủy bằng clearTimeout khi rời trang) không làm mất điểm.
   const dirtyIdsRef = useRef<Set<string>>(new Set());
+  const dirtyFieldsRef = useRef(new Map<string, Set<keyof GradeRecord>>());
 
   const saveDirtyGrades = useCallback(async (): Promise<boolean> => {
     const ids = new Set(dirtyIdsRef.current);
@@ -99,7 +100,16 @@ export const DesktopGradeMatrix: React.FC = () => {
     ids.forEach(id => {
       const rec = matrixDataRef.current[id];
       if (rec) {
-        records.push(rec as GradeRecord);
+        const patch: Partial<GradeRecord> = {
+          id: rec.id, studentId: rec.studentId, semester: rec.semester,
+          academicYear: rec.academicYear, version: rec.version,
+        };
+        for (const field of dirtyFieldsRef.current.get(id) || []) {
+          Object.assign(patch, { [field]: rec[field] });
+          const source = `${field}_source` as keyof GradeRecord;
+          if (rec[source] !== undefined) Object.assign(patch, { [source]: rec[source] });
+        }
+        records.push(patch as GradeRecord);
         snapshots.set(id, rec);
       }
     });
@@ -109,7 +119,10 @@ export const DesktopGradeMatrix: React.FC = () => {
       // A newer edit to the same student may arrive while Dexie is writing.
       // Clear only the exact snapshot that received a durable acknowledgement.
       ids.forEach(id => {
-        if (matrixDataRef.current[id] === snapshots.get(id)) dirtyIdsRef.current.delete(id);
+        if (matrixDataRef.current[id] === snapshots.get(id)) {
+          dirtyIdsRef.current.delete(id);
+          dirtyFieldsRef.current.delete(id);
+        }
       });
       const hasRemainingDrafts = dirtyIdsRef.current.size > 0;
       setIsDirty(hasRemainingDrafts);
@@ -162,6 +175,7 @@ export const DesktopGradeMatrix: React.FC = () => {
     };
     const activateNextContext = () => {
       dirtyIdsRef.current.clear();
+      dirtyFieldsRef.current.clear();
       const initialData: Record<string, Partial<GradeRecord>> = {};
       students.forEach(s => {
         const g = grades.find(gr => gr.studentId === s.id && gr.semester === selectedSemester && normalizeAcademicYear(gr.academicYear) === matrixAcademicYear);
@@ -231,6 +245,9 @@ export const DesktopGradeMatrix: React.FC = () => {
 
   const updateField = useCallback((studentId: string, field: keyof GradeRecord, val: any) => {
     dirtyIdsRef.current.add(studentId);
+    const fields = dirtyFieldsRef.current.get(studentId) || new Set<keyof GradeRecord>();
+    fields.add(field);
+    dirtyFieldsRef.current.set(studentId, fields);
     setMatrixData(prev => {
       const current = prev[studentId] || { studentId, semester: selectedSemester, academicYear: matrixAcademicYear };
       return {

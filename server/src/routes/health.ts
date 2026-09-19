@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { db } from '../db/index.js'
 import { sql } from 'drizzle-orm'
 import { metricsRegistry } from '../middleware/metrics.js'
+import { getAutoBackupStatus } from '../services/backupScheduler.js'
 
 const healthRouter = new Hono()
 
@@ -67,6 +68,7 @@ healthRouter.get('/ready', async (c) => {
 
     return c.json({
       status: 'ready',
+      backup: await getAutoBackupStatus(),
       database: 'connected',
       latencyMs,
       timestamp: new Date().toISOString(),
@@ -84,10 +86,11 @@ healthRouter.get('/ready', async (c) => {
 /**
  * Metrics Endpoint: Exposes Prometheus-compatible operational metrics
  */
-healthRouter.get('/metrics', (c) => {
+healthRouter.get('/metrics', async (c) => {
   if (!opsAuth(c)) return c.text('Forbidden', 403)
   c.header('Content-Type', 'text/plain; version=0.0.4')
-  return c.text(metricsRegistry.toPrometheusFormat())
+  const backup = await getAutoBackupStatus()
+  return c.text(`${metricsRegistry.toPrometheusFormat()}\n# HELP catevia_backup_overdue Scheduled backup is overdue (durable marker, not artifact certification)\n# TYPE catevia_backup_overdue gauge\ncatevia_backup_overdue ${backup.overdue ? 1 : 0}\n`)
 })
 
 export default healthRouter

@@ -5,6 +5,7 @@ import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { mapClassAssignmentConstraintError, validateClassAssignmentReplacement } from './classAssignmentPolicy.js'
 import { getClassDependencyBlockers } from './classDependencyService.js'
+import { assertCreateReplayMatches, createIntentHash, readCreateIntentHash } from './createIdempotency.js'
 
 type CreateClassData = Pick<InferInsertModel<typeof classes>, 'code' | 'name' | 'branchId' | 'academicYearId' | 'room' | 'idempotencyKey'>
 type UpdateClassData = Partial<CreateClassData>
@@ -104,24 +105,42 @@ export async function getClassById(id: string, parishId: string) {
 }
 
 export async function createClass(data: CreateClassData, userId: string, parishId: string, ip: string, userAgent: string, idempotencyKey?: string) {
-  // Idempotency check: nếu key đã tồn tại (từ request trước bị timeout), trả về class đã tạo
-  if (idempotencyKey) {
-    const [existing] = await db
-      .select()
-      .from(classes)
-      .where(and(
-        eq(classes.idempotencyKey, idempotencyKey),
-        eq(classes.parishId, parishId),
-        isNull(classes.deletedAt),
-      ))
-      .limit(1)
-    if (existing) return existing
-  }
-
   const id = generateId('CLS')
   const now = new Date().toISOString()
+  const requestedIntent = {
+    code: data.code,
+    name: data.name,
+    branchId: data.branchId,
+    academicYearId: data.academicYearId,
+    room: data.room ?? null,
+  }
+  const requestedIntentHash = createIntentHash(requestedIntent)
 
   return await runDbTransaction(async (tx) => {
+    // The lookup shares the write transaction with the insert. A replay may
+    // return the winner only when the create intent is identical.
+    if (idempotencyKey) {
+      const [existing] = await tx
+        .select()
+        .from(classes)
+        .where(and(
+          eq(classes.idempotencyKey, idempotencyKey),
+          eq(classes.parishId, parishId),
+          isNull(classes.deletedAt),
+        ))
+        .limit(1)
+      if (existing) {
+        const persistedHash = await readCreateIntentHash(tx, parishId, 'class', existing.id, 'CREATE')
+        return assertCreateReplayMatches(existing, {
+          code: existing.code,
+          name: existing.name,
+          branchId: existing.branchId,
+          academicYearId: existing.academicYearId,
+          room: existing.room ?? null,
+        }, requestedIntent, persistedHash)
+      }
+    }
+
     await tx.insert(classes).values({
       id,
       code: data.code,
@@ -142,7 +161,7 @@ export async function createClass(data: CreateClassData, userId: string, parishI
       action: 'CREATE',
       entityType: 'class',
       entityId: id,
-      newValue: JSON.stringify(data),
+      newValue: JSON.stringify({ ...data, createIntentHash: requestedIntentHash }),
       ip,
       userAgent,
       parishId,
@@ -154,16 +173,15 @@ export async function createClass(data: CreateClassData, userId: string, parishI
 }
 
 export async function updateClass(id: string, data: UpdateClassData, userId: string, parishId: string, ip: string, userAgent: string) {
-  const [existing] = await db
-    .select()
-    .from(classes)
-    .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
-    .limit(1)
-
-  if (!existing) return null
-
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(classes)
+      .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      .limit(1)
+    if (!existing) return null
+
     const changesStructure = (data.branchId !== undefined && data.branchId !== existing.branchId)
       || (data.academicYearId !== undefined && data.academicYearId !== existing.academicYearId)
     if (changesStructure) {
@@ -194,7 +212,7 @@ export async function updateClass(id: string, data: UpdateClassData, userId: str
         updatedBy: userId,
         updatedAt: now,
       })
-      .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
+      .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
 
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),
@@ -215,16 +233,15 @@ export async function updateClass(id: string, data: UpdateClassData, userId: str
 }
 
 export async function deleteClass(id: string, userId: string, parishId: string, ip: string, userAgent: string) {
-  const [existing] = await db
-    .select()
-    .from(classes)
-    .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
-    .limit(1)
-
-  if (!existing) return false
-
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(classes)
+      .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
+      .limit(1)
+    if (!existing) return false
+
     const blockers = await getClassDependencyBlockers(tx, id, parishId)
     if (blockers.length > 0) {
       throw Object.assign(
@@ -235,7 +252,7 @@ export async function deleteClass(id: string, userId: string, parishId: string, 
 
     await tx.update(classes)
       .set({ deletedAt: now, updatedAt: now, updatedBy: userId })
-      .where(and(eq(classes.id, id), eq(classes.parishId, parishId)))
+      .where(and(eq(classes.id, id), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
 
     await tx.update(mappingMemory)
       .set({ isActive: 0 })

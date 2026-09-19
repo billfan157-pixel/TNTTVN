@@ -41,6 +41,9 @@ describe('AUTH-P2-002 production JWT configuration', () => {
 
   it('enforces policy while loading the real auth middleware, before it can handle traffic', async () => {
     vi.stubEnv('NODE_ENV', 'production')
+    // Satisfy the independent production parish prerequisite so this import
+    // reaches the JWT guard. Keep it local: global scope disables multi-parish tests.
+    vi.stubEnv('DEPLOYMENT_PARISH_ID', 'gia-ton')
     vi.stubEnv('JWT_SECRET', 'too-short')
     vi.stubEnv('JWT_REFRESH_SECRET', refresh)
     vi.resetModules()

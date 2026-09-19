@@ -9,7 +9,7 @@ import backupRouter from '../routes/backup.js'
 import { writeSafetySnapshot } from '../services/safetySnapshot.js'
 import { DEFAULT_PURGE_VERSION, PURGE_VERSION_KEY } from '../services/purgeService.js'
 
-vi.mock('../services/safetySnapshot.js', () => ({ writeSafetySnapshot: vi.fn().mockResolvedValue('synthetic-safety'), pruneSafetySnapshots: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../services/safetySnapshot.js', async importOriginal => ({ ...await importOriginal<typeof import('../services/safetySnapshot.js')>(), writeSafetySnapshot: vi.fn().mockResolvedValue('synthetic-safety'), pruneSafetySnapshots: vi.fn().mockResolvedValue(undefined) }))
 let sequence = 0
 async function fixture() {
   const parishId = `restore-lifecycle-${Date.now()}-${++sequence}`
@@ -40,6 +40,28 @@ describe('XD-09 partial JSON restore lifecycle preflight', () => {
   beforeEach(async () => {
     await client.execute({ sql: 'DELETE FROM rate_limits WHERE key = ?', args: ['admin-reauth:unknown'] })
     vi.mocked(writeSafetySnapshot).mockClear()
+  })
+  it.each(['update', 'insert', 'delete'] as const)('aborts before replacing data when a %s commits during safety publication', async change => {
+    const f = await fixture()
+    let committed: unknown
+    vi.mocked(writeSafetySnapshot).mockImplementationOnce(async () => {
+      if (change === 'update') await db.update(students).set({ fullName: 'Concurrent edit' }).where(eq(students.parishId, f.parishId))
+      if (change === 'insert') {
+        const [student] = await db.select().from(students).where(eq(students.parishId, f.parishId))
+        await db.insert(students).values({ ...student, id: 'new', code: 'NEW' })
+      }
+      if (change === 'delete') await db.delete(students).where(eq(students.parishId, f.parishId))
+      committed = await db.select().from(students).where(eq(students.parishId, f.parishId))
+      return 'synthetic-safety'
+    })
+    const response = await f.restore()
+    expect(response.status).toBe(409)
+    expect((await response.json() as { error: { code: string } }).error.code).toBe('SAFETY_SNAPSHOT_STALE')
+    expect(await db.select().from(students).where(eq(students.parishId, f.parishId))).toEqual(committed)
+    expect(await db.select().from(systemSettings).where(and(eq(systemSettings.parishId, f.parishId), eq(systemSettings.key, PURGE_VERSION_KEY)))).toHaveLength(0)
+    expect(await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, f.parishId), eq(auditLogs.action, 'RESTORE_BACKUP')))).toHaveLength(0)
+    // A new explicit attempt captures the changed state and may proceed.
+    expect((await f.restore()).status).toBe(200)
   })
   it.each(['FINALIZED', 'PROMOTED', 'ARCHIVED', 'snapshot-only'] as const)('rejects protected state before safety-write or destructive operations (%s)', async mode => {
     const f = await fixture()

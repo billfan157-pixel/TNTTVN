@@ -3,6 +3,8 @@ import { useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   Activity,
   ChevronDown,
+  ChevronLeft,
+  Home,
   LogOut,
   Menu,
   Monitor,
@@ -72,6 +74,23 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
   const summary = isParent ? 'Theo dõi việc học của gia đình' : activeWorkspace === 'organization' ? 'Xứ Đoàn Đức Mẹ Fatima' : `Niên học ${academicYearDisplay} · ${students.length} thiếu nhi`
   const accessibleWorkspaces = getAccessibleWorkspaces(currentUser?.role)
 
+  const isChildRoute = React.useMemo(() => {
+    const rootPaths = activeWorkspace === 'organization'
+      ? ['/parish', '/calendar', '/operations', '/notices', '/parish-profile']
+      : activeWorkspace === 'parent'
+        ? ['/parent']
+        : ['/dashboard', '/attendance', '/grades', '/students', '/reports']
+    return !rootPaths.includes(location.pathname)
+  }, [activeWorkspace, location.pathname])
+
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      window.history.back()
+    } else {
+      navigate({ to: WORKSPACE_DEFINITIONS[activeWorkspace]?.landingPath || '/dashboard' })
+    }
+  }
+
   useEffect(() => {
     setIsOpen(false)
   }, [location.pathname])
@@ -86,9 +105,21 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
       <header className="mobile-top-bar">
         <div className="mobile-top-bar__content">
           <div className="mobile-top-bar__identity">
-            <div className="mobile-top-bar__brand-mark">
-              <img src={logo} alt="Logo Xứ Đoàn Đức Mẹ Fatima" className="mobile-top-bar__logo" />
-            </div>
+            {isChildRoute ? (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="mobile-top-bar__back-btn shrink-0"
+                aria-label="Quay lại trang trước"
+                title="Quay lại"
+              >
+                <ChevronLeft size={22} />
+              </button>
+            ) : (
+              <div className="mobile-top-bar__brand-mark">
+                <img src={logo} alt="Logo Xứ Đoàn Đức Mẹ Fatima" className="mobile-top-bar__logo" />
+              </div>
+            )}
             <div className="mobile-top-bar__copy">
               <div className="mobile-top-bar__eyebrow">{eyebrow}</div>
               <h1>{title}</h1>
@@ -200,6 +231,27 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold uppercase tracking-wider text-white/60 px-1">Công cụ & Tiện ích</span>
                 <div className="mobile-control-tiles">
+                  {/* Return to Primary Workspace Home */}
+                  <button
+                    type="button"
+                    className="mobile-control-tile"
+                    onClick={() => {
+                      navigate({ to: activeWorkspace === 'organization' ? '/parish' : '/dashboard' })
+                      closeMenu()
+                    }}
+                    aria-label={activeWorkspace === 'organization' ? 'Về trang Tổng Quan Xứ' : 'Về Trang Chủ Học Vụ'}
+                  >
+                    <span className="mobile-control-tile__icon">
+                      <Home size={17} className="text-amber-300" />
+                    </span>
+                    <span className="mobile-control-tile__content">
+                      <strong className="mobile-control-tile__title">
+                        {activeWorkspace === 'organization' ? 'Tổng Quan Xứ' : 'Trang Chủ Học Vụ'}
+                      </strong>
+                      <span className="mobile-control-tile__desc">Về màn hình chính</span>
+                    </span>
+                  </button>
+
                   {/* Wave 0/1: Công Việc is org bottom-nav primary; overflow holds demoted org surfaces + utilities */}
                   {canRoleAccessRoute('/catechists', currentUser?.role) && (
                     <button

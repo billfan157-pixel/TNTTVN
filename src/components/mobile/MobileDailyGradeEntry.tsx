@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { BarChart3, CheckCircle2, Clock3, Plus, Trash2 } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { BarChart3, CheckCircle2, Clock3, Plus, Trash2, Zap } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore, getCurrentAcademicYear } from '../../stores/gradeStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
@@ -11,7 +11,9 @@ import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import type { DailyScoreType, Student } from '../../types'
 import { StudentName } from '../common/StudentName'
 import { SubpageHeader } from '../common/SubpageHeader'
+import { NoResultState } from '../common/StateFeedback'
 import { hapticFeedback } from '../../utils/haptics'
+import { useToastStore } from '../../stores/toastStore'
 
 const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string }> = [
   { id: 'oral', label: 'Điểm miệng', short: 'Miệng' },
@@ -26,6 +28,7 @@ interface MobileDailyGradeEntryProps {
 }
 
 export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ onViewReport }) => {
+  const savingEntries = useRef(new Set<string>())
   const { can } = useAuth()
   const canEdit = can('admin', 'chunhiem', 'phuta')
   const students = useStudentStore(s => s.students)
@@ -54,6 +57,9 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [srAnnouncement, setSrAnnouncement] = useState<string>('')
+  const [autoAdvance, setAutoAdvance] = useState<boolean>(true)
+  const [focusTargetStudentId, setFocusTargetStudentId] = useState<string | null>(null)
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   const filteredStudents = useMemo(() => (
     selectedClassId === 'all'
@@ -63,6 +69,22 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
   const activeTypeLabel = SCORE_TYPES.find(item => item.id === activeType)?.label || ''
   const activeEntries = useMemo(() => entries.filter(entry => entry.scoreType === activeType && entry.semester === selectedSemester && filteredStudents.some(student => student.id === entry.studentId)), [entries, activeType, selectedSemester, filteredStudents])
+
+  // Focus effect for sequential grading
+  useEffect(() => {
+    if (focusTargetStudentId && expanded.has(focusTargetStudentId)) {
+      const inputEl = inputRefs.current.get(focusTargetStudentId)
+      if (inputEl) {
+        inputEl.focus()
+        try {
+          inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        } catch {
+          // ignore scroll errors in mock environments
+        }
+        setFocusTargetStudentId(null)
+      }
+    }
+  }, [focusTargetStudentId, expanded])
 
   const stats = useMemo(() => {
     if (!activeEntries.length) return null
@@ -84,18 +106,45 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
     return counts
   }, [entries, filteredStudents, selectedSemester])
 
-  const addScoreValue = (student: Student, scoreValue: number) => {
+  const advanceToNextStudent = (currentStudentId: string) => {
+    const currentIndex = filteredStudents.findIndex(s => s.id === currentStudentId)
+    if (currentIndex >= 0 && currentIndex < filteredStudents.length - 1) {
+      const nextStudent = filteredStudents[currentIndex + 1]
+      setExpanded(previous => {
+        const next = new Set(previous)
+        next.delete(currentStudentId)
+        next.add(nextStudent.id)
+        return next
+      })
+      setFocusTargetStudentId(nextStudent.id)
+      setSrAnnouncement(`Đã chuyển sang ${nextStudent.fullName}`)
+    } else if (currentIndex === filteredStudents.length - 1) {
+      setSrAnnouncement('Đã hoàn tất danh sách thiếu nhi trong lớp!')
+    }
+  }
+
+  const addScoreValue = async (student: Student, scoreValue: number, shouldAdvance = autoAdvance) => {
+    if (savingEntries.current.has(student.id)) return
     if (!Number.isFinite(scoreValue) || scoreValue < 0 || scoreValue > 10) {
       hapticFeedback.error()
       return
     }
-    addEntry(student.id, activeType, scoreValue, selectedSemester)
-    hapticFeedback.success()
-    setInputValues(previous => ({ ...previous, [student.id]: '' }))
-    setSrAnnouncement(`Đã thêm ${activeTypeLabel} ${scoreValue} cho ${student.fullName}`)
+    savingEntries.current.add(student.id)
+    try {
+      await addEntry(student.id, activeType, scoreValue, selectedSemester)
+      hapticFeedback.success()
+      setInputValues(previous => ({ ...previous, [student.id]: '' }))
+      setSrAnnouncement(`Đã thêm ${activeTypeLabel} ${scoreValue} cho ${student.fullName}`)
+      if (shouldAdvance) {
+        advanceToNextStudent(student.id)
+      }
+    } catch {
+      hapticFeedback.error()
+      useToastStore.getState().addToast('Chưa lưu được điểm trên thiết bị. Hãy thử lại.', 'error')
+    } finally { savingEntries.current.delete(student.id) }
   }
 
-  const addScore = (student: Student) => {
+  const addScore = (student: Student, shouldAdvance = autoAdvance) => {
     const key = student.id
     const raw = (inputValues[key] || '').replace(',', '.').trim()
     const score = Number(raw)
@@ -103,7 +152,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
       hapticFeedback.error()
       return
     }
-    addScoreValue(student, score)
+    addScoreValue(student, score, shouldAdvance)
   }
 
   const toggleExpanded = (studentId: string) => {
@@ -128,6 +177,27 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
         title="Nhập Điểm Hằng Ngày"
         meta={<span>{activeTypeLabel} · HK {semesterRestricted ? (openSemester === 2 ? 'II' : 'I') : selectedSemester} · {filteredStudents.length} em</span>}
         ariaLabel="Bảng chọn loại điểm hằng ngày"
+        actions={
+          canEdit ? (
+            <button
+              type="button"
+              onClick={() => {
+                setAutoAdvance(previous => !previous)
+                hapticFeedback.light()
+              }}
+              className={`h-9 w-9 flex items-center justify-center rounded-xl border transition-colors ${
+                autoAdvance
+                  ? 'bg-parish-primary-light text-parish-primary border-parish-primary/30 shadow-xs'
+                  : 'bg-surface-card text-text-muted border-surface-border opacity-70'
+              }`}
+              title={autoAdvance ? 'Tự chuyển em kế tiếp: Bật' : 'Tự chuyển em kế tiếp: Tắt'}
+              aria-label={autoAdvance ? 'Tự chuyển em kế tiếp: Bật' : 'Tự chuyển em kế tiếp: Tắt'}
+              aria-pressed={autoAdvance}
+            >
+              <Zap size={16} className={autoAdvance ? 'text-parish-primary fill-parish-primary/20' : 'text-text-muted'} />
+            </button>
+          ) : undefined
+        }
       >
         <div className="grade-segmented-group" role="tablist" aria-label="Chọn loại điểm kiểm tra">
           {SCORE_TYPES.map(type => {
@@ -141,6 +211,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                 aria-selected={isActive}
                 onClick={() => { setActiveType(type.id); hapticFeedback.light(); }}
                 className={`grade-segmented-item ${isActive ? 'is-active' : ''}`}
+                data-compact-touch
               >
                 <span>{type.short}</span>
                 {count > 0 && <span className="count-badge tabular-nums">{count}</span>}
@@ -170,7 +241,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
       )}
 
       {filteredStudents.length === 0 ? (
-        <div className="bg-surface-card rounded-2xl border border-surface-border p-8 text-center text-sm text-text-muted">Không có thiếu nhi trong lớp hiện tại.</div>
+        <NoResultState title="Không có thiếu nhi" description="Không có thiếu nhi trong lớp hiện tại." />
       ) : filteredStudents.map(student => {
         const studentEntries = getEntriesForStudent(student.id, selectedSemester, activeType)
         // Tier 2: bài thi máy cùng cột — read-only, nhãn rõ, không nút xóa.
@@ -205,10 +276,14 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                         {canEdit && (
                           <button
                             type="button"
-                            onClick={() => {
-                              removeEntry(entry.id)
-                              hapticFeedback.warning()
-                              setSrAnnouncement(`Đã xóa điểm ${entry.value} của ${student.fullName}`)
+                            onClick={async () => {
+                              try {
+                                await removeEntry(entry.id)
+                                hapticFeedback.warning()
+                                setSrAnnouncement(`Đã xóa điểm ${entry.value} của ${student.fullName}`)
+                              } catch {
+                                useToastStore.getState().addToast('Chưa lưu được thao tác xóa điểm. Hãy thử lại.', 'error')
+                              }
                             }}
                             className="relative p-1 text-rose-600 after:absolute after:-inset-2.5 after:content-[''] active:text-rose-700"
                             aria-label={`Xóa điểm ${entry.value}`}
@@ -257,6 +332,10 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
 
                     <div className="flex gap-2">
                       <input
+                        ref={element => {
+                          if (element) inputRefs.current.set(student.id, element)
+                          else inputRefs.current.delete(student.id)
+                        }}
                         value={inputValues[student.id] || ''}
                         onChange={event => setInputValues(previous => ({ ...previous, [student.id]: event.target.value }))}
                         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addScore(student) } }}

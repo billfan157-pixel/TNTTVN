@@ -21,7 +21,7 @@ import { AdminAuthorizationChangedError, captureAdminReauth, verifyAdminReauth }
 import { errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { generateId } from '../utils/id.js'
-import { writeSafetySnapshot, pruneSafetySnapshots } from '../services/safetySnapshot.js'
+import { writeSafetySnapshot, pruneSafetySnapshots, safetySnapshotDigest, assertSafetySnapshotUnchanged } from '../services/safetySnapshot.js'
 import { advanceClientResetVersion } from '../services/clientDataGeneration.js'
 
 const backupRouter = new Hono()
@@ -83,6 +83,24 @@ async function assertJsonRestoreDependencySafe(executor: DbExecutor, parishId: s
       { code: 'RESTORE_UNSUPPORTED_DEPENDENCIES', status: 409 },
     )
   }
+}
+
+/** Same profile for the coherent capture and the in-transaction stale-state check.
+ * The dependency/lifecycle guards still exclude facts this partial format cannot
+ * restore. Do not use a global executor from either capture.
+ */
+async function captureRestoreSafetyData(executor: DbExecutor, parishId: string): Promise<Record<string, unknown[]>> {
+  const tables = {
+    students, grades, attendance, classes, semesterLocks, gradeOverrides,
+    promotionRecords, questionBankItems, questionBankVersions, examBlueprints,
+    examBlueprintRules, examSessions, examQuestionSnapshots, examResults,
+    attendanceSessions, academicYearSnapshots, catechistAssignments,
+  }
+  const data: Record<string, unknown[]> = {}
+  for (const [name, table] of Object.entries(tables)) {
+    data[name] = await executor.select().from(table).where(eq(table.parishId, parishId))
+  }
+  return data
 }
 
 backupRouter.use('/*', authMiddleware)
@@ -232,6 +250,21 @@ backupRouter.post('/export', roleMiddleware('admin'), adminReauthRateLimiter, zV
     const dateStr = exportedAt.split('T')[0]
     const fileName = `parish-lms-backup-${dateStr}.json`
 
+    // Capture once before sending bytes. The same transaction owns every
+    // table/page; slow download clients never hold a database transaction open.
+    const data = await runDbTransaction(async tx => {
+      const tables = {
+        students, grades, attendance, classes, semesterLocks, gradeOverrides,
+        promotionSnapshots: promotionRecords, questionBankItems, questionBankVersions,
+        examBlueprints, examBlueprintRules, examSessions, examQuestionSnapshots, examResults,
+      }
+      const captured: Record<string, unknown[]> = {}
+      for (const [name, table] of Object.entries(tables)) {
+        captured[name] = await tx.select().from(table).where(eq(table.parishId, user.parishId)).orderBy(table.id)
+      }
+      return captured
+    })
+
     c.header('Content-Type', 'application/json')
     c.header('Content-Disposition', `attachment; filename="${fileName}"`)
 
@@ -248,74 +281,24 @@ backupRouter.post('/export', roleMiddleware('admin'), adminReauthRateLimiter, zV
 
       const counts: Record<string, number> = {}
 
-      async function streamTable(tableName: string, query: any, isFirst: boolean) {
+      async function streamTable(tableName: string, rows: unknown[], isFirst: boolean) {
         if (!isFirst) await writeData(',')
         await writeData(`${JSON.stringify(tableName)}:[`)
         
-        let offset = 0
-        const limit = 2000
         let firstRow = true
-        let count = 0
-        
-        while (true) {
-          const batch = await query.limit(limit).offset(offset)
-          if (batch.length === 0) break
-          for (const row of batch) {
-            if (!firstRow) await writeData(',')
-            await writeData(JSON.stringify(row))
-            firstRow = false
-            count++
-          }
-          offset += limit
+        for (const row of rows) {
+          if (!firstRow) await writeData(',')
+          await writeData(JSON.stringify(row))
+          firstRow = false
         }
         await writeData(']')
-        counts[tableName] = count
+        counts[tableName] = rows.length
       }
 
-      await streamTable('students', db.select().from(students).where(eq(students.parishId, user.parishId)), true)
-      await streamTable('grades', db.select().from(grades).where(eq(grades.parishId, user.parishId)), false)
-      await streamTable('attendance', db.select().from(attendance).where(eq(attendance.parishId, user.parishId)), false)
-      await streamTable('classes', db.select().from(classes).where(eq(classes.parishId, user.parishId)), false)
-      await streamTable('semesterLocks', db.select().from(semesterLocks).where(eq(semesterLocks.parishId, user.parishId)), false)
-      
-      const overrideQuery = db.select({
-        id: gradeOverrides.id,
-        gradeId: gradeOverrides.gradeId,
-        parishId: gradeOverrides.parishId,
-        scoreField: gradeOverrides.scoreField,
-        manualValue: gradeOverrides.manualValue,
-        reasonCode: gradeOverrides.reasonCode,
-        reasonNote: gradeOverrides.reasonNote,
-        overriddenBy: gradeOverrides.overriddenBy,
-        overriddenAt: gradeOverrides.overriddenAt,
-        version: gradeOverrides.version,
-        deletedAt: gradeOverrides.deletedAt,
-        createdAt: gradeOverrides.createdAt,
-        updatedAt: gradeOverrides.updatedAt,
-      }).from(gradeOverrides).where(eq(gradeOverrides.parishId, user.parishId))
-      await streamTable('gradeOverrides', overrideQuery, false)
-      
-      await streamTable('promotionSnapshots', db.select().from(promotionRecords).where(eq(promotionRecords.parishId, user.parishId)), false)
-      await streamTable('questionBankItems', db.select().from(questionBankItems).where(eq(questionBankItems.parishId, user.parishId)), false)
-      await streamTable('questionBankVersions', db.select().from(questionBankVersions).where(eq(questionBankVersions.parishId, user.parishId)), false)
-      await streamTable('examBlueprints', db.select().from(examBlueprints).where(eq(examBlueprints.parishId, user.parishId)), false)
-      await streamTable('examBlueprintRules', db.select().from(examBlueprintRules).where(eq(examBlueprintRules.parishId, user.parishId)), false)
-      await streamTable('examSessions', db.select().from(examSessions).where(eq(examSessions.parishId, user.parishId)), false)
-      await streamTable('examQuestionSnapshots', db.select().from(examQuestionSnapshots).where(eq(examQuestionSnapshots.parishId, user.parishId)), false)
-      
-      const sessionRecords = await db.select({id: examSessions.id}).from(examSessions).where(eq(examSessions.parishId, user.parishId))
-      const sessionIds = sessionRecords.map(s => s.id)
-      
-      if (sessionIds.length > 0) {
-        await streamTable('examResults', db.select().from(examResults).where(and(
-          eq(examResults.parishId, user.parishId),
-          inArray(examResults.examSessionId, sessionIds),
-        )), false)
-      } else {
-        await streamTable('examResults', db.select().from(examResults).where(and(
-          eq(examResults.parishId, user.parishId),
-          eq(examResults.id, '__none__'),
-        )), false)
+      let isFirst = true
+      for (const [name, rows] of Object.entries(data)) {
+        await streamTable(name, rows, isFirst)
+        isFirst = false
       }
 
       await writeData('}') // end of data
@@ -433,55 +416,10 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
     // 2. Pre-Restore Auto-Safety Backup — A20: fail-closed. KHÔNG .catch(() => [])
     // như trước: không đọc được dữ liệu hiện tại → không thể tạo bản rollback →
     // ABORT restore (thay vì ghi file safety RỖNG + restore tiếp).
-    let safetyData: Record<string, unknown>
+    let expectedSafetyDigest: string
     try {
-      const currentStudents = await db.select().from(students).where(eq(students.parishId, user.parishId))
-      const currentGrades = await db.select().from(grades).where(eq(grades.parishId, user.parishId))
-      const currentAttendance = await db.select().from(attendance).where(eq(attendance.parishId, user.parishId))
-      const currentClasses = await db.select().from(classes).where(eq(classes.parishId, user.parishId))
-      const currentLocks = await db.select().from(semesterLocks).where(eq(semesterLocks.parishId, user.parishId))
-      const currentOverrides = await db.select().from(gradeOverrides).where(eq(gradeOverrides.parishId, user.parishId))
-      const currentPromotions = await db.select().from(promotionRecords).where(eq(promotionRecords.parishId, user.parishId))
-      const currentQuestionBankItems = await db.select().from(questionBankItems).where(eq(questionBankItems.parishId, user.parishId))
-      const currentQuestionBankVersions = await db.select().from(questionBankVersions).where(eq(questionBankVersions.parishId, user.parishId))
-      const currentExamBlueprints = await db.select().from(examBlueprints).where(eq(examBlueprints.parishId, user.parishId))
-      const currentExamBlueprintRules = await db.select().from(examBlueprintRules).where(eq(examBlueprintRules.parishId, user.parishId))
-      const currentExamSessions = await db.select().from(examSessions).where(eq(examSessions.parishId, user.parishId))
-      const currentExamQuestionSnapshots = await db.select().from(examQuestionSnapshots).where(eq(examQuestionSnapshots.parishId, user.parishId))
-      const currentSessionIds = currentExamSessions.map((s) => s.id)
-      const currentExamResults = currentSessionIds.length > 0
-        ? await db.select().from(examResults).where(and(
-            eq(examResults.parishId, user.parishId),
-            inArray(examResults.examSessionId, currentSessionIds),
-          ))
-        : []
-      const currentAttendanceSessions = await db.select().from(attendanceSessions).where(eq(attendanceSessions.parishId, user.parishId))
-      const currentYearSnapshots = await db.select().from(academicYearSnapshots).where(eq(academicYearSnapshots.parishId, user.parishId))
-      const currentAssignments = await db.select().from(catechistAssignments).where(eq(catechistAssignments.parishId, user.parishId))
-
-      // A-NEW-37 + Question Bank: snapshot ĐỦ 17 bảng mà restore hiện đại có thể xóa
-      // (trước đây chỉ 4: students/grades/attendance/classes — file "safety" thiếu
-      // các bảng còn lại nên
-      // không thể khôi phục tay toàn bộ state trước restore).
-      safetyData = {
-        students: currentStudents,
-        grades: currentGrades,
-        attendance: currentAttendance,
-        classes: currentClasses,
-        semesterLocks: currentLocks,
-        gradeOverrides: currentOverrides,
-        promotionRecords: currentPromotions,
-        questionBankItems: currentQuestionBankItems,
-        questionBankVersions: currentQuestionBankVersions,
-        examBlueprints: currentExamBlueprints,
-        examBlueprintRules: currentExamBlueprintRules,
-        examSessions: currentExamSessions,
-        examQuestionSnapshots: currentExamQuestionSnapshots,
-        examResults: currentExamResults,
-        attendanceSessions: currentAttendanceSessions,
-        academicYearSnapshots: currentYearSnapshots,
-        catechistAssignments: currentAssignments,
-      }
+      const safetyData = await runDbTransaction(tx => captureRestoreSafetyData(tx, user.parishId))
+      expectedSafetyDigest = safetySnapshotDigest(safetyData)
 
       const safetyPayload = {
         type: 'AUTO_SAFETY_SNAPSHOT',
@@ -541,6 +479,7 @@ backupRouter.post('/restore', roleMiddleware('admin'), adminReauthRateLimiter, z
       await reauth(tx, user.userId, user.parishId, user.parishId, 'RESTORE_BACKUP_FAILED')
       await assertJsonRestoreLifecycleSafe(tx, user.parishId)
       await assertJsonRestoreDependencySafe(tx, user.parishId, includeQuestionBank)
+      assertSafetySnapshotUnchanged(expectedSafetyDigest, await captureRestoreSafetyData(tx, user.parishId))
       // ── 1. Xóa trạng thái hiện tại của parish (con → cha; gồm các bảng phái
       //    sinh FK-restrict KHÔNG nằm trong payload để không chặn việc xóa:
       //    catechistAssignments, academicYearSnapshots, attendanceSessions —

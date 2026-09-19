@@ -185,7 +185,9 @@ describe('syncStore', () => {
 
   it('compactQueue merges payloads after CREATE', async () => {
     mockTable.toArray.mockResolvedValue([
-      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: JSON.stringify({ fullName: 'A' }), createdAt: '2025-01-01T00:00:00Z', ...OWNER },
+      // Only an explicitly unsent CREATE (pending, never dispatched) may absorb a
+      // later UPDATE; a CREATE that may have reached the server is kept intact.
+      { id: 'OP-1', entity: 'student', entityId: 'ST-001', operation: 'CREATE', payload: JSON.stringify({ fullName: 'A' }), status: 'pending', retryCount: 0, createdAt: '2025-01-01T00:00:00Z', ...OWNER },
       { id: 'OP-2', entity: 'student', entityId: 'ST-001', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'A B' }), createdAt: '2025-01-02T00:00:00Z', ...OWNER },
     ])
     mockTable.count.mockResolvedValue(1)

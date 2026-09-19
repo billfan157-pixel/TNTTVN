@@ -16,6 +16,7 @@ import {
   Sparkles,
   Layers,
   Loader2,
+  X,
 } from 'lucide-react';
 import type { Student } from '../../types';
 import type { ReportType } from '../../utils/pdfGenerator';
@@ -92,10 +93,10 @@ const GradeDistributionBar: React.FC<GradeDistributionBarProps> = ({
         {pEx > 0 && <div style={{ width: `${pEx}%` }} className="h-full bg-emerald-500 transition-[width] duration-500" title={`Xuất Sắc: ${excellent} em (${pEx.toFixed(1)}%)`} />}
         {pGood > 0 && <div style={{ width: `${pGood}%` }} className="h-full bg-sky-500 transition-[width] duration-500" title={`Giỏi: ${good} em (${pGood.toFixed(1)}%)`} />}
         {pFair > 0 && <div style={{ width: `${pFair}%` }} className="h-full bg-amber-500 transition-[width] duration-500" title={`Khá: ${fair} em (${pFair.toFixed(1)}%)`} />}
-        {pAvg > 0 && <div style={{ width: `${pAvg}%` }} className="h-full bg-slate-400 dark:bg-slate-600 transition-[width] duration-500" title={`Trung Bình: ${average} em (${pAvg.toFixed(1)}%)`} />}
+        {pAvg > 0 && <div style={{ width: `${pAvg}%` }} className="h-full bg-text-muted/50 dark:bg-text-muted/60 transition-[width] duration-500" title={`Trung Bình: ${average} em (${pAvg.toFixed(1)}%)`} />}
         {pWeak > 0 && <div style={{ width: `${pWeak}%` }} className="h-full bg-rose-500 transition-[width] duration-500" title={`Cần Cố Gắng: ${weak} em (${pWeak.toFixed(1)}%)`} />}
       </div>
-      <div className="flex items-center justify-between text-2xs text-text-muted font-medium px-0.5">
+      <div className="flex items-center justify-between text-xs font-semibold text-text-muted px-0.5">
         <span className="text-emerald-700 dark:text-emerald-400 font-bold">XS+Giỏi: {Math.round(pEx + pGood)}%</span>
         <span className="text-amber-700 dark:text-amber-400 font-bold">Khá: {Math.round(pFair)}%</span>
         <span className="text-text-muted">TB: {Math.round(pAvg)}%</span>
@@ -396,10 +397,10 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
                   triggerHaptic(6);
                   setSearchQuery('');
                 }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-1 text-xs font-bold"
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-text-muted hover:text-text-main rounded-full active:scale-95 transition-transform"
                 aria-label="Xóa nội dung tìm kiếm"
               >
-                ✕
+                <X size={16} />
               </button>
             )}
           </div>

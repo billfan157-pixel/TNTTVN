@@ -420,7 +420,7 @@ Verification: `design-system-lint.mjs` mở rộng rule (text<11px trong desktop
 ## 6. Gates & compliance
 
 - **ADR check:** PASS/CONDITIONAL — kế hoạch phù hợp hướng ADR-030 (DS SSOT) + ADR-055 (shared primitives); ModalShell migration hoàn tất điều mà Pha 3.1 cũ tuyên bố sai; **không CONFLICT phát hiện**. Nếu P0.6 chọn server-side filtering → cập nhật `FRONTEND_API_CONTRACT.md` trước khi làm.
-- **Source-of-truth updates bắt buộc khi implement:** `03_DESIGN_SYSTEM.md` (thêm §13 Desktop Layout, cập nhật §12), `AI_CONTEXT_MAP.md` (entry changelog), `ADR_ARCHITECTURE_DECISION_RECORDS.md` (ADR mới nếu P0.6 đổi API contract), `SECURITY_AUDIT_LOG.md` (confirm gates cho account actions).
+- **Source-of-truth updates khi implement:** cập nhật `03_DESIGN_SYSTEM.md`, `ADR_ARCHITECTURE_DECISION_RECORDS.md` và `SECURITY_AUDIT_LOG.md` khi phần truth do từng tài liệu sở hữu thay đổi. [AI Context Map](./AI_CONTEXT_MAP.md#domain-ui-workspaces-and-device) chỉ cập nhật authority/entrypoint/liên kết khi cần; ghi lịch sử thực thi và verification trong tài liệu kế hoạch này, không thêm changelog vào map.
 - **Business-rule items CONDITIONAL** (cần owner xác nhận intent): A13 (class selector 3 nơi — có chủ đích convenience?), A14 (/leave-requests highlight attendance), Pha 2.3 orphan-route strategy (redirect vs promote).
 
 ## 7. Verification record của chính audit này

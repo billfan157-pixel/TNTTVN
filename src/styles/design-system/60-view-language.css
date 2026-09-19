@@ -1559,6 +1559,29 @@
   .page-header__actions::-webkit-scrollbar { display: none; }
 }
 
+/* Mobile Shell PageHeader deduplication:
+   MobileTopBar already owns screen identity (eyebrow, title, subtitle).
+   Inside .mobile-app-shell, PageHeader identity is hidden to avoid duplicate titles
+   and save 80-140px vertical space; only action controls are preserved as a clean rail. */
+.mobile-app-shell .page-header__identity {
+  display: none;
+}
+
+.mobile-app-shell .page-header--card {
+  padding: 4px 0 6px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.mobile-app-shell .page-header:not(:has(.page-header__actions)) {
+  display: none;
+}
+
+.mobile-app-shell .page-header__actions {
+  width: 100%;
+}
+
 @media (min-width: 1024px) {
   .page-header-container {
     flex-direction: row;

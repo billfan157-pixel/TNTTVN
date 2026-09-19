@@ -68,6 +68,25 @@ function stripGradeMeta(g: Record<string, unknown>): Record<string, unknown> {
   return out
 }
 
+/** Callers supply edited fields, never a cached row. Do not diff against the
+ * optimistic cache: a failed durable enqueue leaves that same draft visible. */
+function gradeMutation(input: Partial<GradeRecord>, result: GradeRecord, previous?: GradeRecord): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    id: result.id, studentId: result.studentId, semester: result.semester,
+    academicYear: result.academicYear, version: previous?.version,
+    _syncGradePatch: true,
+  }
+  const fields = [...SCORE_FIELDS, 'comments'] as const
+  for (const field of fields) {
+    if (input[field] === undefined) continue
+    const source = `${field}_source` as keyof GradeRecord
+    patch[field] = result[field]
+    const sourceValue = result[source] !== undefined ? result[source] : input[source]
+    if (field !== 'comments' && sourceValue !== undefined) patch[source] = sourceValue
+  }
+  return stripGradeMeta(patch)
+}
+
 /**
  * Năm học tự động tính theo ngày hiện tại (năm học bắt đầu từ tháng 8), luôn ở
  * định dạng chuẩn 'YYYY-YYYY' (ADR-017). Trước đây trả 'YYYY - YYYY' khiến
@@ -120,12 +139,14 @@ export const useGradeStore = create<GradeState>()(
 
       upsertGrade: async (gradeData, skipSync) => {
         let grade!: GradeRecord
+        let previous: GradeRecord | undefined
         set((state) => {
           const academicYear = gradeData.academicYear || getCurrentAcademicYear()
           const existingIndex = state.grades.findIndex(
             g => g.studentId === gradeData.studentId && g.semester === gradeData.semester && matchAcademicYear(g.academicYear, academicYear)
           )
           if (existingIndex >= 0) {
+            previous = state.grades[existingIndex]
             grade = { ...state.grades[existingIndex], ...gradeData }
             return { grades: state.grades.map((g, i) => i === existingIndex ? grade : g), error: null }
           }
@@ -157,10 +178,12 @@ export const useGradeStore = create<GradeState>()(
 
         if (skipSync) return
         try {
-          await syncService.syncUpsertGrade(stripGradeMeta(grade as unknown as Record<string, unknown>))
+          await syncService.syncUpsertGrade(gradeMutation(gradeData, grade, previous))
           void triggerSyncFlow()
         } catch (err) {
           Sentry.captureException(err)
+          // ADR-109: reject the acknowledgement but keep the local draft — the UI draft
+          // stays the owner until an encrypted Dexie queue transaction commits.
           set({ error: 'Không thể lưu điểm trên thiết bị. Thay đổi vẫn cần được thử lại.' })
           throw err
         }
@@ -225,7 +248,7 @@ export const useGradeStore = create<GradeState>()(
             updated.push(grade)
             gradeMap.set(key, { grade, index: newIdx })
           }
-          batch.push(stripGradeMeta(grade as unknown as Record<string, unknown>))
+          batch.push(gradeMutation(gradeData, grade, match?.grade))
           }
           return { grades: updated, error: null }
         })
@@ -236,6 +259,7 @@ export const useGradeStore = create<GradeState>()(
           void triggerSyncFlow()
         } catch (err) {
           Sentry.captureException(err)
+          // ADR-109: same contract as upsertGrade — reject, but keep every local draft row.
           set({ error: 'Không thể lưu bảng điểm trên thiết bị. Các dòng thay đổi vẫn cần được thử lại.' })
           throw err
         }

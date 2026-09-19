@@ -9,11 +9,24 @@
  */
 export function normalizeAcademicYear(rawYear?: string | null): string {
   if (!rawYear) return getCurrentAcademicYear()
-  const normalized = rawYear.trim().replace(/\s*[-–—]\s*/g, '-')
-  // Persistence IDs may carry a prefix (for example `AY-2025-2026`) while
-  // reporting and grade facts use the canonical `2025-2026` value.
+  // Identity-preserving normalization: persisted academic-year IDs (classes,
+  // grades, semester locks) may carry a legacy prefix (e.g. `AY-2025-2026`).
+  // Writers/readers must keep that exact identity or existing facts become
+  // unreachable (REG-AY-1, 2026-09-17: stripping prefixes here rejected
+  // updates to legacy prefixed grades and hid them from completeness checks).
+  return rawYear.trim().replace(/\s*[-–—]\s*/g, '-') || getCurrentAcademicYear()
+}
+
+/**
+ * Extracts the canonical `YYYY-YYYY` reporting label from a possibly prefixed
+ * persistence ID (e.g. `AY-2025-2026` → `2025-2026`). ONLY for display/label
+ * comparisons against canonical reporting years — never for looking up or
+ * writing persisted records, which must preserve their exact identity.
+ */
+export function toCanonicalReportingYear(rawYear: string | null | undefined): string {
+  const normalized = normalizeAcademicYear(rawYear)
   const canonicalPair = normalized.match(/(?:^|\D)(\d{4})-(\d{4})(?:\D|$)/)
-  return canonicalPair ? `${canonicalPair[1]}-${canonicalPair[2]}` : normalized || getCurrentAcademicYear()
+  return canonicalPair ? `${canonicalPair[1]}-${canonicalPair[2]}` : normalized
 }
 
 /**

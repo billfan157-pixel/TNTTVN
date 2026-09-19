@@ -8,7 +8,8 @@
 | Concern | Inspect first |
 | ------- | ------------- |
 | Architecture / module boundaries | `docs/02_ARCHITECTURE.md` + relevant ADR |
-| Recent project context | Search `docs/AI_CONTEXT_MAP.md` by feature/domain/date |
+| Current domain context | Select the domain in `docs/AI_CONTEXT_MAP.md`, then follow its authority, canonical docs and implementation links |
+| Implementation history / audit evidence | Follow the domain's linked audit/implementation document or Git history; dated results are not current verification |
 | Business behavior | Relevant `docs/BUSINESS_RULES.md` section |
 | Architecture decisions | Search `docs/ADR_ARCHITECTURE_DECISION_RECORDS.md` |
 | API contract | `docs/FRONTEND_API_CONTRACT.md` + current client/server implementation |

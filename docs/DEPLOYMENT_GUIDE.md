@@ -37,7 +37,7 @@ This document is the **Canonical Single Source of Truth (SSOT)** for Docker pack
 
 ## 2. CONTAINERIZED SYSTEM ARCHITECTURE (`docker-compose.yml`)
 
-The production deployment consists of two containerized services orchestrated via Docker Compose:
+The repository's self-hosted topology consists of two services orchestrated via Docker Compose. The current hosted deployment uses Render/Turso/Vercel (§7); do not assume Compose describes that runtime.
 
 ```text
 Incoming HTTP/HTTPS (Port 80 / 443)
@@ -53,7 +53,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 [app service] Node 22-Alpine
        ├── Hono REST Server (Bound to 0.0.0.0:3001)
        ├── SQLite DB Database (@libsql/client WAL mode)
-       └── Background Cron Daemon (crond running scripts/backup-db.js)
+       └── In-process backup scheduler (server/src/services/backupScheduler.ts)
 ```
 
 ---
@@ -105,7 +105,7 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 ### 4.1 Server (`Dockerfile`)
 - **Base Image**: `node:22-alpine`
 - **Build Stage**: Installs dependencies, compiles TypeScript (`npm run build:server`), sets `outDir: dist`.
-- **Production Stage**: Runs `scripts/entrypoint.sh` which initializes environment variables for cron, executes startup backup, starts `crond`, and launches `node dist/index.js`.
+- **Production Stage**: `scripts/entrypoint.sh` repairs `/app/data` ownership and executes `su-exec appuser:appgroup node server/dist/index.js`. It does not run cron or a startup backup. The Node composition root registers the in-process backup scheduler after startup readiness.
 - **ADR-051/106 startup contract**: DB migrations and executable-schema readiness must pass; then a read-only dynamic scan rejects every table containing null/foreign `parish_id`. Initial seed (only when DB is empty) uses `DEPLOYMENT_PARISH_ID`, commits atomically and is followed by the same scope check. All gates complete before HTTP/background workers; no automatic data rewrite or purge occurs.
 
 ### 4.2 Web Frontend (`Dockerfile.web`)
@@ -117,11 +117,11 @@ Incoming HTTP/HTTPS (Port 80 / 443)
 
 ## 5. AUTOMATED SQLITE BACKUP & GRACEFUL SHUTDOWN
 
-### 5.1 Automated Backup Script (`scripts/backup-db.js`)
-- Runs daily via container cron (`crond`).
-- Performs a safe copy of `parish.db` using atomic read-write streams.
-- Default DB source: `server/data/parish.db` (override with `DB_PATH`); default destination `./backups` (override with `BACKUP_DIR`).
-- Retention Policy: Keeps the last 5 backup copies in `BACKUP_DIR` and automatically purges older archives.
+### 5.1 Scheduler and standalone SQLite backup
+- `server/src/services/backupScheduler.ts` checks every minute while the process is running. The target is host-local hour `AUTO_BACKUP_HOUR` (0–23, default 2); a check after the missed window catches up when today's successful marker is absent. Failed runs leave the marker unchanged and retry on a later tick. `AUTO_BACKUP_ENABLED=false` disables scheduling.
+- Local SQLite uses `VACUUM INTO` → unique partial file → atomic rename, never raw file copy. Local blob publication also uses a temporary file + rename; incomplete `.partial-*`/`.tmp-*` objects are excluded from listing/retention. A failed post-publish storage operation does not truncate the published SQLite artifact. This is not a power-loss/fsync durability guarantee.
+- The standalone `scripts/backup-db.mjs` is an explicit manual SQLite command, not an installed cron job. DB source defaults to `server/data/parish.db` (`DB_PATH` override); destination defaults to `./backups` (`BACKUP_DIR` override). Turso uses encrypted logical backup to R2, not this SQLite command (§9).
+- Retention keeps the configured number of complete artifacts (default 5). Protected `/ready` includes `backup.enabled/lastAutoBackupDate/isCurrent/overdue`; protected `/metrics` includes `catevia_backup_overdue`. Both require `OPS_TOKEN`. Before the target hour, yesterday's success is current. The marker signals scheduled-run freshness, not proof the stored object remains usable; it does not change public liveness or force restart loops.
 
 ### 5.2 Graceful Shutdown Handler (`server/src/index.ts`)
 - Listens for `SIGTERM` and `SIGINT` signals from Docker / Railway.
@@ -140,7 +140,7 @@ docker-compose up -d --build
 docker-compose logs -f app
 
 # Trigger immediate manual database backup
-docker-compose exec app node scripts/backup-db.js
+docker-compose exec app node /usr/local/bin/backup-db.mjs
 ```
 
 ---
@@ -192,7 +192,7 @@ Browser/PWA (https://tnttvn.vercel.app)
 ### 7.3 Legacy — Railway (SUPERSEDED, không còn hoạt động)
 
 - Domain cũ `tnttvn-production.up.railway.app` trả 404 nền tảng (`x-railway-fallback: true`, "Application not found") từ 2026-08-24 do hết hạn gói.
-- Chẩn đoán chi tiết + dấu hiệu nhận biết: xem git history DEPLOYMENT_GUIDE trước 2026-08-25 và ADR/API-DIAG trong AI_CONTEXT_MAP.
+- Chẩn đoán lịch sử: xem Git history của tài liệu này trước 2026-08-25. Cơ chế nhận diện phản hồi backend không khả dụng: [API transport](../src/lib/api/core.ts) và [regression tests](../src/lib/__tests__/apiBackendUnavailable.test.ts).
 - Nếu quay lại Railway: resume service + giữ nguyên kiến trúc SQLite volume, hoàn tác rewrite vercel.json về domain Railway.
 
 ## 7-BIS. [DEPRECATED] RAILWAY DEPLOYMENT NOTES (2026-08-15 → 2026-08-24)
@@ -278,7 +278,7 @@ Contract snapshot/unique partial/rename/no raw-copy fallback cũng áp dụng ch
 Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction, snapshot toàn bộ bảng ứng dụng, ghi row count + SHA-256, gzip rồi mã hóa AES-256-GCM bằng `BACKUP_ENCRYPTION_KEY` trước khi upload `backups/turso-*.json.gz.enc` lên R2. Thiếu key/R2 hoặc upload lỗi → run thất bại và marker ngày không được ghi.
 
 ### 9.2 Các Phương Thức Kích Hoạt
-1. **Tự Động Nội Bộ (In-Process Scheduler - INF-02)**: Khởi động tự động cùng server Node.js (`backupScheduler.ts`), mặc định thực hiện sao lưu vào 02:00 AM hàng ngày và đánh dấu marker `auto_backup_last_date` trong `system_settings`. Tắt bằng `AUTO_BACKUP_ENABLED=false`.
+1. **Tự Động Nội Bộ (In-Process Scheduler - INF-02)**: Đăng ký cùng server Node.js (`backupScheduler.ts`), kiểm tra mỗi phút, mặc định từ 02:00 giờ host; chạy bù nếu lỡ cửa sổ và chưa có marker thành công trong ngày. Chỉ ghi `auto_backup_last_date` trong `system_settings` sau khi backup thành công. Tắt bằng `AUTO_BACKUP_ENABLED=false`. Không có tiến trình cron hay startup backup riêng.
 2. **Thủ Công / CLI (INF-01)**:
    ```bash
    npm run db:backup # Chạy node scripts/backup-db.mjs
@@ -294,11 +294,35 @@ Turso remote không hỗ trợ copy file/VACUUM. Scheduler mở read transaction
 1. Tạo DB Turso cô lập, hoàn toàn mới và không chứa application table.
 2. Set `RESTORE_DATABASE_URL`, `RESTORE_DATABASE_AUTH_TOKEN`, `BACKUP_ENCRYPTION_KEY`, đủ `R2_*`, và `ALLOW_BACKUP_RESTORE=true`. `RESTORE_DATABASE_URL` phải khác `TURSO_URL`.
 3. Chuẩn hóa URL bằng cách bỏ query/hash/trailing slash, lowercase protocol/host; tính SHA-256 và set đúng giá trị vào `RESTORE_TARGET_FINGERPRINT`. Đây là xác nhận target lần hai, không dùng fingerprint của source/production.
-4. Chạy `npm --prefix server run db:prepare:restore-target`. Command dùng cùng fingerprint/production guard, từ chối target đã có application table, áp bootstrap + migrations + indices. Sau đó kiểm đúng 4 default-fund seeds do migration 120 vừa tạo, xóa riêng chúng trong transaction và bắt buộc `assertDatabaseReady` pass. Bất kỳ seed/data ngoài dự kiến đều dừng; không dùng prepare làm công cụ xóa target cũ.
+4. Chạy `npm --prefix server run db:prepare:restore-target` với `DEPLOYMENT_PARISH_ID` đúng deployment nguồn. Command dùng cùng fingerprint/production guard, từ chối target đã có application table, áp bootstrap + migrations + indices. Sau đó kiểm đúng 4 default-fund seeds theo parish mà migration 261 đã chọn (cùng giá trị capture của migration module), xóa riêng chúng trong transaction và bắt buộc `assertDatabaseReady` pass. Bất kỳ seed/data ngoài dự kiến đều dừng; không dùng prepare làm công cụ xóa target cũ.
 5. Chạy `npm --prefix server run db:restore:remote -- backups/<object-key>` trên target vừa chuẩn bị. CLI từ chối nếu bất kỳ table snapshot nào đã có dữ liệu (trừ `schema_migrations`) hoặc tập bảng/cột không khớp chính xác ở cả hai chiều. Backup schema cũ/thiếu bảng cần recovery/migration procedure riêng; không tự thêm phần thiếu từ trạng thái hiện tại.
-6. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, per-table row counts và nội dung từng dòng khớp (không phụ thuộc thứ tự SELECT), `foreignKeyViolations=0` và `assertDatabaseReady` pass. Manifest ghi riêng `phaseDurationMs.download/decrypt/restore/readiness`; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi. Sau đó mới đăng nhập smoke/đối chiếu bảng trọng yếu. Test full-schema local giữ policy/cohort/report/receipt qua finalize→promote→archive→encrypt→restore không thay thế drill R2→Turso thật, key recovery hoặc approval cutover.
+6. Chỉ coi restore local gate thành công khi manifest JSON trả `status=verified`, `quarantined=true`, per-table row counts và nội dung từng dòng khớp (không phụ thuộc thứ tự SELECT), `foreignKeyViolations=0` và `assertDatabaseReady` pass. Ngoại lệ metadata duy nhất được khai báo/kiểm tra là một dòng `system_settings.__recovery_quarantine` mới: `restoredRows` chỉ đếm rows nguồn, `tableCounts` gồm cả marker. Manifest ghi riêng `phaseDurationMs.download/decrypt/restore/readiness`; RTO/RPO chỉ ghi sau khi owner phê duyệt measurement và phạm vi. Đối chiếu bảng bằng kết nối CLI cô lập; chưa được khởi động ứng dụng/đăng nhập smoke cho đến khi hoàn tất quy trình cutover bên dưới. Test full-schema local giữ policy/cohort/report/receipt qua finalize→promote→archive→encrypt→restore không thay thế drill R2→Turso thật, key recovery hoặc approval cutover.
 
 CLI có hard guard từ chối target URL trùng production. Post-commit validation failure không tự rollback toàn target, vì vậy luôn discard target lỗi và tạo target mới; tuyệt đối không sửa chữa/cutover target đó. Không bypass guard và không dùng công cụ này thay cho quy trình cutover/approval riêng.
+
+Full logical restore nạp lại **facts**, không replay lệnh nghiệp vụ: bên trong cùng write transaction, đọc định nghĩa trigger từ schema của target đã migrate, tạm gỡ trigger, nạp rows, rồi tạo lại và đối chiếu chính xác toàn bộ định nghĩa trigger trước commit. Không lấy SQL trigger từ backup. Lỗi load/recreate → rollback cả rows và thay đổi trigger; guard target rỗng, checksum, table/column match, CHECK/unique constraints, content readback, FK và readiness vẫn áp dụng. Cơ chế này giữ được lịch sử Operations có organizer hiện đã bị khóa và tránh phụ thuộc thứ tự nạp `operation_events/users`, `operation_tasks/operation_workstreams`; sau restore, trigger vẫn bảo vệ các lệnh ghi bình thường. Regression local với Operations có dữ liệu không thay thế drill Turso/R2 thực tế.
+
+### Cutover after database rewind — separate mandatory approval
+
+`status=verified` from restore certifies data fidelity only. The manifest explicitly returns `purpose=isolated-data-fidelity-drill`, `cutoverReady=false` and required gates. The CLI does not revoke sessions, advance client generation, reconcile delivery, or approve cutover. Do not point a normal application instance at a restored DB just because the manifest is verified.
+
+The current remote restore CLI always writes a new `__recovery_quarantine` setting in the **same transaction** as the restored facts, after reinstating target triggers. Failure to write the marker rolls back the restore. A post-commit readback failure or lost CLI acknowledgement leaves the committed target quarantined. Readback verifies every source row plus this one declared metadata row; it does not claim a byte-identical database. A source snapshot already containing a quarantine marker is rejected by this CLI.
+
+The application's shared DB connection checks marker presence before bootstrap/migrations, seeding, maintenance, worker registration and HTTP bind. Any marker, including malformed content or a different parish, aborts startup with `RECOVERY_QUARANTINED`; a database query error also aborts. There is no environment bypass, API release action or automated release command. This fence applies to the current application and current logical-restore CLI: it cannot retroactively mark older restores, detect a raw SQLite/provider rewind, stop an already-running process, or constrain an older binary/direct SQL connection. Isolated empty targets and infrastructure ingress/egress restrictions remain mandatory.
+
+The recovery owner must record evidence for each gate before any traffic switch:
+
+1. **Quarantine:** keep source and target URLs/fingerprints explicit; freeze intake to the old deployment when the owner approves the outage. Keep the restored target isolated, with no ordinary application process, public ingress or provider egress. Startup normally recovers notification delivery and registers business schedulers before HTTP; `AUTO_BACKUP_ENABLED=false` alone is **not** worker quarantine. Use CLI-only inspection while quarantined; do not invent a global worker-disable flag.
+2. **Identity:** inventory account disables, password/role changes and recovery tickets after the snapshot; restored account rows can themselves rewind security decisions. Reconcile those decisions on the isolated target under an approved, audited procedure. Revoke all restored refresh sessions and rotate both access/refresh JWT secrets to fresh independent values on every serving instance before exposure. Incrementing restored `token_version` alone cannot guarantee invalidation of tokens from a later timeline. Keep report-signing and backup-encryption key recovery separate; do not casually rotate keys needed to validate historical reports or decrypt backups. Prove pre-rewind access/refresh credentials fail and an approved current account can log in.
+3. **Clients:** record the highest pre-cutover `purge_version` from the source/operational evidence, then establish a strictly greater safe-integer generation on the target with an approved, tenant-scoped transaction. Incrementing only the restored value is insufficient. If a reliable upper bound is unavailable, stop: do not guess a timestamp or generation. Quarantine pending device work for owner review before any reset; generation reset can clear queues as well as caches. Verify a returning device cannot dispatch old work, clears/re-establishes cursors and cache, and performs a full pull. A fresh-device login smoke alone is insufficient. Devices that cannot complete this gate remain offline/quarantined.
+4. **Delivery and automation:** compare restored pending/leased notifications, Operations reminders/dispatch state, Sunday reminders and outbox intent against provider/operational evidence after the snapshot. Do not blanket-replay, blanket-delete or mark uncertain delivery as sent. Approve each reconciliation outcome before allowing worker egress; if delivery evidence is missing, retain quarantine. Restore cannot establish exactly-once external delivery.
+5. **Release:** retain the immutable original artifact and exact release/schema manifest; record target integrity/readiness, identity/client/delivery checks, owner approval and a rollback/forward-recovery decision. Once new writes reach the target, switching back to the old DB is another reconciliation event, not a safe automatic rollback. Re-enable ingress and workers only after every applicable gate passes.
+
+Quarantine enforcement is implemented; reconciliation and release remain an operator contract, **not an implemented end-to-end cutover controller or evidence of a completed production drill**. Do not remove the marker merely to make startup pass. A reviewed release procedure must retain the quarantine evidence and prove all gates above before removing the fence. No production mutation is authorized by the restore CLI. Missing approvals, high-water marks, device evidence or delivery evidence keep cutover blocked.
+
+### Partial academic JSON export
+
+`POST /api/backup/export` remains admin + password re-authenticated, parish-scoped, and limited to the existing 14-table `2.1-question-bank` profile. All rows are materialized in one database transaction, ordered by ID, before response headers/bytes are sent. Download streaming then uses only the captured data, preserves counts/SHA-256, and holds no database transaction across network backpressure. Capture failure returns an error instead of a partial success-shaped download. This removes cross-page/table snapshot drift; it is still not a full-platform backup. Memory grows with the captured profile and large-dataset/remote-transaction capacity remains a deployment qualification gate.
 
 ### 9.3.1 Operations migration rehearsal trên backup SQLite
 

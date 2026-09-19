@@ -7,6 +7,19 @@ function read(relativePath: string): string {
 }
 
 describe('deployment and native privacy contracts', () => {
+  it('requires the dedicated report signing secret when reconstructing production with Compose', () => {
+    expect(read('docker-compose.yml')).toContain('REPORT_HMAC_SECRET=${REPORT_HMAC_SECRET:?')
+    expect(read('server/src/utils/hmacSigner.ts')).toContain('REPORT_HMAC_SECRET is required in production')
+  })
+
+  it('never presents a successful exact-data restore as cutover approval', () => {
+    const script = read('server/src/scripts/restoreRemoteBackup.ts')
+    expect(script).toContain("purpose: 'isolated-data-fidelity-drill'")
+    expect(script).toContain('cutoverReady: false')
+    expect(script).toContain("'credential-and-session-invalidation'")
+    expect(script).toContain("'client-generation-and-offline-reconciliation'")
+    expect(script).toContain("'delivery-reconciliation'")
+  })
   it('serves the web shell with a CSP-compatible pre-paint theme script', () => {
     const html = read('index.html')
     expect(html).toContain('<script src="/theme-boot.js"></script>')

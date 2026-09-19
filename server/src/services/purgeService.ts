@@ -1,9 +1,9 @@
 import { createHash } from 'crypto'
 import { sql } from 'drizzle-orm'
-import { db, client } from '../db/index.js'
+import { runDbTransaction, type DbExecutor } from '../db/index.js'
 import { auditLogs } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
-import { writeSafetySnapshot, pruneSafetySnapshots } from './safetySnapshot.js'
+import { writeSafetySnapshot, pruneSafetySnapshots, safetySnapshotDigest, assertSafetySnapshotUnchanged } from './safetySnapshot.js'
 import { advanceClientResetVersion } from './clientDataGeneration.js'
 import type { AdminReauthProof } from './userService.js'
 
@@ -49,6 +49,23 @@ export const PURGE_TABLES = [
 ] as const
 
 export type PurgeTableName = (typeof PURGE_TABLES)[number]
+
+// Snapshot coverage includes the FK delete closure, without granting any new
+// explicit deletion authority. In particular manual assessment entries remain
+// protected by their student RESTRICT FK and still cause the purge to roll back.
+export const PURGE_SNAPSHOT_TABLES = [
+  ...PURGE_TABLES,
+  'assessment_entries', 'exam_finalizations', 'exam_finalization_items',
+  'leave_requests', 'student_fee_records',
+] as const
+
+async function capturePurgeSafetyData(executor: DbExecutor, parishId: string): Promise<Record<string, unknown[]>> {
+  const data: Record<string, unknown[]> = {}
+  for (const name of PURGE_SNAPSHOT_TABLES) {
+    data[name] = await executor.all(sql`SELECT * FROM ${sql.raw(name)} WHERE parish_id = ${parishId}`)
+  }
+  return data
+}
 
 // Thứ tự DELETE con-trước-cha-trước (an toàn ngay cả khi không dùng defer_foreign_keys).
 const DELETE_ORDER: PurgeTableName[] = [
@@ -102,7 +119,8 @@ interface PurgeSnapshotOptions {
  * - Không DROP bảng / không xóa function / trigger / schema — chỉ DELETE rows.
  * - DELETE scope theo parish_id (toàn bộ 31 bảng trong danh sách — P4: grade_overrides/outbox_messages
  *   đã có cột parish_id từ migration 096/097, không còn special-case join).
- * - Snapshot v3.2 (31 bảng, SHA256 checksum) ghi file trước khi xóa.
+ * - Snapshot v3.3 includes explicit deletes and cascade coverage; unchanged-state
+ *   verification inside the delete transaction binds the file to destroyed data.
  * - purge_version tăng 1 → client khác phát hiện ghost data và tự reset.
  * - auditLogs ghi 1 entry 'SYSTEM_PURGE' kèm counts trước-khi-xóa.
  */
@@ -111,22 +129,14 @@ export async function purgeParishData(
 ): Promise<{ countsBefore: Record<string, number>; purgeVersion: number }> {
   const { parishId, userId, reauth } = options
 
-  const countsBefore: Record<string, number> = {}
-  const snapshotData: Record<string, any[]> = {}
-
-  // 1. Đếm + snapshot toàn bộ dữ liệu trước khi xóa (v3.2: đủ 31 bảng, scope theo parish).
-  for (const name of DELETE_ORDER) {
-    const rows = (await client.execute(
-      `SELECT * FROM ${name} WHERE parish_id = ?`,
-      [parishId],
-    )).rows as any[]
-    snapshotData[name] = rows
-    countsBefore[name] = rows.length
-  }
+  // One coherent capture; blob publication happens after releasing the DB lock.
+  const snapshotData = await runDbTransaction(tx => capturePurgeSafetyData(tx, parishId))
+  const expectedDigest = safetySnapshotDigest(snapshotData)
+  const countsBefore = Object.fromEntries(Object.entries(snapshotData).map(([name, rows]) => [name, rows.length]))
 
   const snapshotPayload = {
     type: 'PURGE_SAFETY_SNAPSHOT',
-    version: '3.2',
+    version: '3.3',
     parishId,
     exportedBy: userId,
     exportedAt: new Date().toISOString(),
@@ -144,8 +154,9 @@ export async function purgeParishData(
   // PRAGMA defer_foreign_keys: FK chỉ được kiểm tra tại commit — vì mọi row reference
   // đều đã bị xóa trong cùng transaction nên commit luôn hợp lệ (bảo hiểm kép cho thứ tự DELETE).
   // Verify nằm TRONG transaction: nếu bất kỳ bảng nào không về 0 → throw → rollback toàn bộ.
-  const nextVersion = await db.transaction(async (tx) => {
+  const nextVersion = await runDbTransaction(async (tx) => {
     await reauth(tx, userId, parishId, parishId, 'SYSTEM_PURGE_FAILED')
+    assertSafetySnapshotUnchanged(expectedDigest, await capturePurgeSafetyData(tx, parishId))
     try {
       await tx.run(sql`PRAGMA defer_foreign_keys = ON`)
     } catch { /* pragma không bắt buộc — thứ tự DELETE đã an toàn */ }

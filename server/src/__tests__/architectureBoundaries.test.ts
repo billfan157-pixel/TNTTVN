@@ -103,7 +103,11 @@ describe('Phase 3 — domain dependency gate', () => {
 
   it('ARCH-P2-004: required recovery and workers initialize before HTTP bind', () => {
     const source = readFileSync(join(SERVER_SRC_DIR, 'index.ts'), 'utf8')
-    const bind = source.indexOf('const server = serve(')
+    // WATCH-RESTART (2026-09-19): the composition root now binds through
+    // createAdaptorServer() + an awaited server.listen() (with an EADDRINUSE
+    // retry for the dev watcher) instead of serve(). Assert ordering against the
+    // first listen() call — still the single HTTP bind point in the process.
+    const bind = source.indexOf('server.listen(')
     expect(bind).toBeGreaterThan(-1)
     for (const startupCall of [
       'await initNotificationQueue()',

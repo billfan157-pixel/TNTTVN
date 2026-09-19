@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useDailyGradeStore } from '../../stores/dailyGradeStore'
 import { useGradeStore } from '../../stores/gradeStore'
+import { setTenantScope } from '../../lib/tenantScope'
 import * as syncService from '../../lib/syncService'
 
 vi.mock('../../lib/db', () => ({
@@ -30,15 +31,18 @@ vi.mock('../../stores/academicYearStore', () => ({
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 
+afterEach(() => setTenantScope(null))
+
 beforeEach(() => {
+  setTenantScope({ userId: 'DAILY-TEST', parishId: 'gia-ton' })
   useDailyGradeStore.setState({ entries: [], serverEntries: [] })
   useGradeStore.setState({ grades: [] })
   vi.clearAllMocks()
 })
 
 describe('DailyGradeStore', () => {
-  it('adds a daily grade entry with auto-generated id and date', () => {
-    useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+  it('adds a daily grade entry with auto-generated id and date', async () => {
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
     const entries = useDailyGradeStore.getState().entries
     expect(entries).toHaveLength(1)
     expect(entries[0].studentId).toBe('ST-001')
@@ -49,50 +53,50 @@ describe('DailyGradeStore', () => {
     expect(entries[0].date).toBeTruthy()
   })
 
-  it('clamps value between 0 and 10', () => {
-    useDailyGradeStore.getState().addEntry('ST-001', 'oral', 15, 1)
+  it('clamps value between 0 and 10', async () => {
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 15, 1)
     expect(useDailyGradeStore.getState().entries[0].value).toBe(10)
-    useDailyGradeStore.getState().addEntry('ST-001', 'oral', -5, 1)
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', -5, 1)
     expect(useDailyGradeStore.getState().entries[1].value).toBe(0)
   })
 
-  it('removes an entry by id', () => {
-    useDailyGradeStore.getState().addEntry('ST-001', 'oral', 7, 1)
+  it('removes an entry by id', async () => {
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 7, 1)
     const id = useDailyGradeStore.getState().entries[0].id
-    useDailyGradeStore.getState().removeEntry(id)
+    await useDailyGradeStore.getState().removeEntry(id)
     expect(useDailyGradeStore.getState().entries).toHaveLength(0)
   })
 
-  it('computes average correctly', () => {
+  it('computes average correctly', async () => {
     const store = useDailyGradeStore.getState()
-    store.addEntry('ST-001', 'oral', 8, 1)
-    store.addEntry('ST-001', 'oral', 6, 1)
-    store.addEntry('ST-001', 'oral', 10, 1)
-    store.addEntry('ST-001', 'oral', 7, 1)
+    await store.addEntry('ST-001', 'oral', 8, 1)
+    await store.addEntry('ST-001', 'oral', 6, 1)
+    await store.addEntry('ST-001', 'oral', 10, 1)
+    await store.addEntry('ST-001', 'oral', 7, 1)
     const avg = store.getAverageForStudent('ST-001', 1, 'oral')
     expect(avg).toBe(7.8)
   })
 
-  it('returns null for no entries', () => {
+  it('returns null for no entries', async () => {
     const avg = useDailyGradeStore.getState().getAverageForStudent('ST-999', 1, 'oral')
     expect(avg).toBeNull()
   })
 
-  it('filters entries by score type', () => {
+  it('filters entries by score type', async () => {
     const store = useDailyGradeStore.getState()
-    store.addEntry('ST-001', 'oral', 8, 1)
-    store.addEntry('ST-001', '15m', 9, 1)
-    store.addEntry('ST-001', 'oral', 7, 1)
+    await store.addEntry('ST-001', 'oral', 8, 1)
+    await store.addEntry('ST-001', '15m', 9, 1)
+    await store.addEntry('ST-001', 'oral', 7, 1)
     const oralEntries = store.getEntriesForStudent('ST-001', 1, 'oral')
     expect(oralEntries).toHaveLength(2)
     const allEntries = store.getEntriesForStudent('ST-001', 1)
     expect(allEntries).toHaveLength(3)
   })
 
-  it('does not mix semesters', () => {
+  it('does not mix semesters', async () => {
     const store = useDailyGradeStore.getState()
-    store.addEntry('ST-001', 'oral', 8, 1)
-    store.addEntry('ST-001', 'oral', 9, 2)
+    await store.addEntry('ST-001', 'oral', 8, 1)
+    await store.addEntry('ST-001', 'oral', 9, 2)
     const sem1 = store.getEntriesForStudent('ST-001', 1, 'oral')
     expect(sem1).toHaveLength(1)
     expect(sem1[0].value).toBe(8)
@@ -101,7 +105,7 @@ describe('DailyGradeStore', () => {
     expect(sem2[0].value).toBe(9)
   })
 
-  it('syncAllToGradeStore pushes averages to gradeStore independently', () => {
+  it('syncAllToGradeStore pushes averages to gradeStore independently', async () => {
     useDailyGradeStore.setState({
       entries: [
         { id: 'DG-1', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 8, date: '2025-01-01', createdAt: '2025-01-01T00:00:00Z' },
@@ -121,7 +125,7 @@ describe('DailyGradeStore', () => {
     expect(grade!.score15m_source).toBe('daily_avg')
   })
 
-  it('syncAllToGradeStore filters by specific studentIds', () => {
+  it('syncAllToGradeStore filters by specific studentIds', async () => {
     useDailyGradeStore.setState({
       entries: [
         { id: 'DG-5', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 8, date: '2025-01-01', createdAt: '2025-01-01T00:00:00Z' },
@@ -134,23 +138,23 @@ describe('DailyGradeStore', () => {
     expect(useGradeStore.getState().getStudentGrade('ST-002', 1)).toBeUndefined()
   })
 
-  it('addEntry triggers syncAllToGradeStore automatically', () => {
+  it('addEntry triggers syncAllToGradeStore automatically', async () => {
     const spy = vi.spyOn(useDailyGradeStore.getState(), 'syncAllToGradeStore')
-    useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('removeEntry triggers syncAllToGradeStore', () => {
-    useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+  it('removeEntry triggers syncAllToGradeStore', async () => {
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
     const id = useDailyGradeStore.getState().entries[0].id
     const spy = vi.spyOn(useDailyGradeStore.getState(), 'syncAllToGradeStore')
-    useDailyGradeStore.getState().removeEntry(id)
+    await useDailyGradeStore.getState().removeEntry(id)
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
 
-  it('setEntries replaces all entries', () => {
+  it('setEntries replaces all entries', async () => {
     useDailyGradeStore.getState().setEntries([
       { id: 'DG-1', studentId: 'ST-001', academicYear: '2025 - 2026', semester: 1, scoreType: 'oral', value: 8, date: '2025-01-01', createdAt: '2025-01-01T00:00:00Z' },
     ])
@@ -167,7 +171,7 @@ describe('DailyGradeStore', () => {
       } as never, true)
     }
 
-    it('display path (skipSync) không enqueue và không null-out daily_avg server khi thiếu entries', () => {
+    it('display path (skipSync) không enqueue và không null-out daily_avg server khi thiếu entries', async () => {
       seedGrade({ scoreOral: 8, scoreOral_source: 'daily_avg', score15m: 7, score15m_source: 'daily_avg' })
       useDailyGradeStore.setState({
         entries: [
@@ -186,10 +190,10 @@ describe('DailyGradeStore', () => {
       expect((grade as unknown as Record<string, unknown>)?.['score15m_source']).toBe('daily_avg')
     })
 
-    it('addEntry chỉ project đúng cột, giữ nguyên cột daily_avg server khác', () => {
+    it('addEntry chỉ project đúng cột, giữ nguyên cột daily_avg server khác', async () => {
       seedGrade({ score15m: 7, score15m_source: 'daily_avg' })
 
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
 
       expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
       const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
@@ -199,22 +203,22 @@ describe('DailyGradeStore', () => {
       expect((grade as unknown as Record<string, unknown>)?.['score15m_source']).toBe('daily_avg')
     })
 
-    it('removeEntry cuối preview null và chỉ enqueue ledger delete, không ghi Grade', () => {
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+    it('removeEntry cuối preview null và chỉ enqueue ledger delete, không ghi Grade', async () => {
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
       vi.clearAllMocks()
       const id = useDailyGradeStore.getState().entries[0].id
 
-      useDailyGradeStore.getState().removeEntry(id)
+      await useDailyGradeStore.getState().removeEntry(id)
 
       expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
       const grade = useGradeStore.getState().getStudentGrade('ST-001', 1)
       expect(grade?.scoreOral).toBeNull()
     })
 
-    it('không tạo grade row rỗng khi field bị guard manual', () => {
+    it('không tạo grade row rỗng khi field bị guard manual', async () => {
       seedGrade({ scoreOral: 9, scoreOral_source: 'manual' })
 
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 6, 1)
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 6, 1)
 
       expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
       expect(useGradeStore.getState().grades).toHaveLength(1)
@@ -223,19 +227,19 @@ describe('DailyGradeStore', () => {
   })
 
   describe('Tier 2 — ledger sync wiring', () => {
-    it('XD-08: preview averages known server machine entries and local attempts without double-counting IDs', () => {
+    it('XD-08: preview averages known server machine entries and local attempts without double-counting IDs', async () => {
       const academicYear = '2025 - 2026'
       useDailyGradeStore.setState({ entries: [{ id: 'manual', studentId: 'ST-001', academicYear, semester: 1, scoreType: 'oral', value: 8, date: '2025-10-01', createdAt: '' }], serverEntries: [
         { id: 'manual', studentId: 'ST-001', academicYear, semester: 1, scoreType: 'oral', value: 8, date: '2025-10-01', origin: 'manual', examSessionId: null },
         { id: 'machine', studentId: 'ST-001', academicYear, semester: 1, scoreType: 'oral', value: 6, date: null, origin: 'machine', examSessionId: 'exam' },
       ] })
       expect(useDailyGradeStore.getState().getAverageForStudent('ST-001', 1, 'oral')).toBe(7)
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 10, 1)
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 10, 1)
       expect(useDailyGradeStore.getState().getAverageForStudent('ST-001', 1, 'oral')).toBe(8)
       expect(vi.mocked(syncService.syncUpsertGrade)).not.toHaveBeenCalled()
     })
     it('addEntry enqueue daily_entry CREATE trước grade projection', async () => {
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
       await Promise.resolve()
 
       expect(vi.mocked(syncService.syncUpsertDailyEntry)).toHaveBeenCalledTimes(1)
@@ -250,11 +254,11 @@ describe('DailyGradeStore', () => {
     })
 
     it('removeEntry enqueue daily_entry DELETE', async () => {
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
       const id = useDailyGradeStore.getState().entries[0].id
       vi.clearAllMocks()
 
-      useDailyGradeStore.getState().removeEntry(id)
+      await useDailyGradeStore.getState().removeEntry(id)
       await Promise.resolve()
 
       expect(vi.mocked(syncService.syncDeleteDailyEntry)).toHaveBeenCalledWith(id)
@@ -279,7 +283,7 @@ describe('DailyGradeStore', () => {
     it('fetchDailyEntries lỗi (offline) → giữ entries local', async () => {
       const { api } = await import('../../lib/api')
       vi.mocked(api.getDailyEntries).mockRejectedValue(new Error('Network offline'))
-      useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+      await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
 
       await useDailyGradeStore.getState().fetchDailyEntries({ classId: 'CL-1', semester: 1 })
 

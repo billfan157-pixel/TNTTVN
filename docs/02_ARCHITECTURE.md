@@ -1,6 +1,6 @@
 # System Architecture & Layer Boundaries
 
-> Version: 3.7 | Last reviewed: 2026-09-17 | Status: ✅ Current | Prerequisites: none
+> Version: 3.8 | Last reviewed: 2026-09-18 | Status: ✅ Current | Prerequisites: none
 
 ---
 
@@ -29,7 +29,7 @@
 │  Auth: JWT (access 15m, refresh 7d), bcrypt, RBAC enforced       │
 │  Routes: 32 route modules under server/src/routes/                │
 │  Repositories: 6 (2 projection read models + 4 Drizzle write)    │
-│  Services: 58 under server/src/services/                          │
+│  Services: 59 under server/src/services/                          │
 │  Domain: 13 under server/src/domain/                              │
 │  Middleware: 4 (auth, security, logger, metrics)                  │
 │  DB: SQLite/Turso via @libsql/client, Drizzle ORM (73 tables)    │
@@ -57,8 +57,8 @@
 - **Native Biometric App Lock (ADR-085, 2026-08-31)** — `BiometricLockGate` nằm ngoài `RouterProvider`: cold start có preference hợp lệ sẽ không mount protected route cho tới khi native OS xác minh thành công. `@aparajita/capacitor-biometric-auth` 10 dùng LocalAuthentication/BiometricPrompt cho Face ID, Touch ID, Android face/fingerprint; `@capacitor/app` khóa lại khi app chuyển inactive, kiểm tra lại strong-biometry availability rồi tự gọi prompt khi active. Preference chỉ là marker `enabled` scope theo `parishId:userId`; không chứa PII, credential, ảnh hoặc biometric template. Tắt khóa cũng cần biometric; nếu sensor mất enrollment/lockout, recovery duy nhất trong lock screen là xóa marker + logout client state rồi đăng nhập lại bằng mật khẩu. App lock là local privacy barrier, **không phải** server MFA/passkey và không thay JWT/refresh/RBAC/tenant authority. Web/PWA không giả lập biometric lock.
 - **Offline Sync Engine (`syncCoordinator` + `useSyncEngine`)** — `syncCoordinator.ts` sở hữu imperative 4-phase push + delta pull; `syncTrigger.ts` là seam không import store/hook để store chỉ phát yêu cầu; React hook chỉ đăng ký runner và sở hữu online/offline/timer lifecycle. Architecture gate cấm store import hook (ADR-105):
   - Store mutation phải hoàn tất ghi operation vào Dexie trước khi gọi `runSyncFlow`; grade/attendance dùng promise chaining để sync engine không đọc queue quá sớm.
-  1. **Phase 1 — Compact & Flush**: merge duplicate ops in the queue, then flush batched UPDATEs. Safe compaction rule: `CREATE` + `DELETE` pairs only canceled if `CREATE` is unsent local-only (`pending` status, `retryCount` 0). If `CREATE` has retried, keep BOTH `CREATE` and `DELETE` so Phase 1.5 retries `CREATE` with `idempotencyKey`, remaps Temp ID to Server Real ID, and Phase 3 executes `DELETE` with real ID (zero lost mutation).
-  2. **Phase 1.5 — Parent CREATEs first**: parent entities (student/class/notice/exam) are created with `idempotencyKey` and client temp IDs remapped to server IDs BEFORE dependents sync.
+  1. **Phase 1 — Compact & Flush**: merge duplicate ops in the queue, then flush batched UPDATEs. Safe compaction rule: `CREATE` + `DELETE` pairs only canceled if `CREATE` is provably unsent local-only (`pending`, `retryCount` 0, no prior error). If `CREATE` may have been sent, keep BOTH `CREATE` and `DELETE` so Phase 1.5 retries the immutable original `CREATE`, remaps Temp ID to Server Real ID, and Phase 3 executes `DELETE` with real ID. Likewise, only an unsent `CREATE` may absorb later UPDATE payloads; once dispatch is possible, later edits remain a separate UPDATE.
+  2. **Phase 1.5 — Parent CREATEs first**: student/class/exam CREATEs run before their dependent queue edges; notice CREATE has no dependent edge and runs in the individual phase. All four use a stable `idempotencyKey`, and temp IDs are remapped before a dependent operation can dispatch. Server replay is payload-bound by a one-way normalized create-intent fingerprint (no plaintext payload copy) committed in the CREATE audit transaction, so later legitimate UPDATEs do not change replay identity: the same key plus the same original intent returns the current canonical row; the same key with different intent returns explicit `IDEMPOTENCY_CONFLICT`, never silent success. Rows predating the fingerprint use normalized-row compatibility. A legacy student/class/notice queue row that proves a prior dispatch may recover the canonical ACK and retain its folded local intent as a remapped UPDATE; legacy exam CREATEs similarly extract only the already-supported folded lifecycle/result action before remap. A fresh collision or unsupported mutation fails closed.
   3. **Phase 2 — Group batchable ops**: grade/attendance UPDATEs grouped into batch requests.
   4. **Phase 3 — Individual ops**: student/class/notice/exam CREATE, DELETE and non-UPDATE ops processed one-by-one.
   Then **Pull Delta** (`fetchAllData`) refreshes client state.

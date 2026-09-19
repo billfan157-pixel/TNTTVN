@@ -1,6 +1,7 @@
 import { api, ApiError } from './api'
 import { decryptQueueValue } from './offlineCipher'
 import * as Sentry from '@sentry/react'
+import { isTenantScopeCurrent, type TenantScopeSnapshot } from './tenantScope'
 
 /**
  * Maximum retries for server/client errors (ApiError: 4xx, 5xx, etc.).
@@ -56,6 +57,7 @@ export interface SyncItem {
   payload?: any
   clientTimestamp?: number
   retryCount?: number
+  lastError?: string | null
 }
 
 export interface SyncProcessResult {
@@ -63,11 +65,13 @@ export interface SyncProcessResult {
   recoverable?: boolean
   isAuthError?: boolean
   isConflict?: boolean
+  /** A pre-hardening queue folded a later supported UPDATE into a possibly-sent CREATE. */
+  preserveFoldedUpdate?: boolean
   error?: string
   data?: any
 }
 
-export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessResult> {
+export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSnapshot): Promise<SyncProcessResult> {
   const entityType = (item.entityType || item.type || item.entity || '').toLowerCase()
   const action = (item.action || item.operation || '').toLowerCase()
   // A-NEW-32: payload syncQueue được mã hóa tại-rest (AAD 'syncQueue') — giải mã
@@ -84,6 +88,10 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
   const data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData
   const targetId = item.entityId || item.id || data.id || data.studentId
   const retryCount = item.retryCount || 0
+
+  // The coordinator's owner predates async decryption. Transport alone cannot
+  // catch a switch that happened before the request function was entered.
+  if (owner && !isTenantScopeCurrent(owner)) throw new Error('Sync owner changed before dispatch')
 
   try {
     switch (entityType) {
@@ -165,7 +173,12 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
             ...data,
             idempotencyKey: item.entityId || data.id || undefined,
           })
-          return { ok: true, data: created }
+          // Exam lifecycle/result UPDATEs are action commands, not CREATE
+          // fields. Their presence is direct evidence of old compaction even
+          // when the merged row was still unsent.
+          const hasLegacyFoldedUpdate = ['save_results', 'remove_result', 'complete', 'reopen']
+            .includes(String(data.action || ''))
+          return { ok: true, data: created, preserveFoldedUpdate: hasLegacyFoldedUpdate || undefined }
         } else if (action === 'update') {
           const targetSessionId = data.sessionId || targetId
           if (data.action === 'save_results') {
@@ -249,6 +262,22 @@ export async function processSyncQueueItem(item: SyncItem): Promise<SyncProcessR
         //    giữ nguyên payload, hiện rõ trong SystemDiagnostics (Retry sau khi xử lý
         //    nguyên nhân / Remove nếu bỏ qua) — quyết định của user là tường minh.
         const conflictData = (err as any).details
+        const isParentCreate = action === 'create'
+          && ['student', 'class', 'classes', 'notice', 'notices'].includes(entityType)
+        const isCreatePayloadMismatch = isParentCreate
+          && err.code === 'IDEMPOTENCY_CONFLICT'
+          && !!conflictData?.existing
+        // Compatibility for durable rows compacted by older clients: only a
+        // CREATE with evidence of a previous send may use the authoritative
+        // winner to recover its ACK. The coordinator first retains the changed
+        // local intent as an UPDATE, then performs the normal owner-bound remap.
+        if (isCreatePayloadMismatch && (retryCount > 0 || !!item.lastError)) {
+          return {
+            ok: true,
+            data: conflictData.existing,
+            preserveFoldedUpdate: true,
+          }
+        }
         const isVersionConflict = (entityType === 'grade' || entityType === 'attendance') && !!conflictData
         if (isVersionConflict) {
           Sentry.captureMessage(`[Sync] Version conflict on ${entityType}/${targetId} — F9 merge`, 'warning')

@@ -364,7 +364,7 @@ export const MobileLeaveRequests: React.FC = () => {
       {reviewingRequest && (
         <ModalPortal>
         <div
-          className="app-modal-layer fixed inset-0 flex items-end justify-center bg-black/50 backdrop-blur-xs animate-in fade-in duration-200"
+          className="modal-overlay app-modal-layer"
           onClick={() => setReviewingRequest(null)}
           role="presentation"
         >
@@ -374,12 +374,12 @@ export const MobileLeaveRequests: React.FC = () => {
             aria-modal="true"
             aria-labelledby={titleId}
             aria-busy={submittingReview}
-            className="bg-surface-card border border-surface-border rounded-t-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 pb-[env(safe-area-inset-bottom)]"
+            className="modal-content modal-content--shell w-full max-w-md overflow-hidden !p-0"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Grab handle */}
-            <div className="flex justify-center pt-2.5">
-              <div className="w-10 h-1 rounded-full bg-surface-border" />
+            <div className="flex justify-center pt-2.5 pb-1 bg-surface-card select-none" aria-hidden="true">
+              <div className="sheet-grabber !mb-0" />
             </div>
 
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-surface-border">

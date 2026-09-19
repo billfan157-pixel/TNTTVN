@@ -7,6 +7,9 @@ import { normalizeAcademicYear } from '../utils/grades'
 import { useAcademicYearStore } from './academicYearStore'
 import { api } from '../lib/api'
 import { syncUpsertDailyEntry, syncDeleteDailyEntry } from '../lib/syncService'
+import { captureTenantScope, isTenantScopeCurrent } from '../lib/tenantScope'
+import { requestSync } from '../lib/syncTrigger'
+import * as Sentry from '@sentry/react'
 
 function getActiveAcademicYear(): string {
   const storeYear = useAcademicYearStore.getState().currentYear
@@ -21,8 +24,8 @@ function getActiveAcademicYear(): string {
 interface DailyGradeState {
   entries: DailyGradeEntry[]
   setEntries: (entries: DailyGradeEntry[]) => void
-  addEntry: (studentId: string, scoreType: DailyScoreType, value: number, semester: 1 | 2, date?: string) => void
-  removeEntry: (id: string) => void
+  addEntry: (studentId: string, scoreType: DailyScoreType, value: number, semester: 1 | 2, date?: string) => Promise<void>
+  removeEntry: (id: string) => Promise<void>
   getEntriesForStudent: (studentId: string, semester: 1 | 2, scoreType?: DailyScoreType) => DailyGradeEntry[]
   getAverageForStudent: (studentId: string, semester: 1 | 2, scoreType: DailyScoreType) => number | null
   syncAllToGradeStore: (studentIds?: string[], semester?: 1 | 2, opts?: SyncProjectionOpts) => void
@@ -59,7 +62,9 @@ export const useDailyGradeStore = create<DailyGradeState>()(
       serverEntries: [],
       setEntries: (entries) => set({ entries }),
 
-      addEntry: (studentId, scoreType, value, semester, date) => {
+      addEntry: async (studentId, scoreType, value, semester, date) => {
+        const owner = captureTenantScope()
+        if (!owner) throw new Error('Không có phiên nhập điểm hợp lệ.')
         const entry: DailyGradeEntry = {
           id: `DG-${Date.now()}-${Math.random().toString(36).substr(2, 10)}`,
           studentId,
@@ -70,10 +75,9 @@ export const useDailyGradeStore = create<DailyGradeState>()(
           date: date || toDateString(new Date()),
           createdAt: new Date().toISOString(),
         }
-        set((state) => ({ entries: [...state.entries, entry] }))
         // The durable ledger mutation is the only write. Grade is projected
         // by the server atomically; local Grade below is a preview only.
-        void syncUpsertDailyEntry({
+        await syncUpsertDailyEntry({
           id: entry.id,
           studentId,
           academicYear: entry.academicYear,
@@ -81,21 +85,28 @@ export const useDailyGradeStore = create<DailyGradeState>()(
           scoreType,
           value: entry.value,
           date: entry.date,
-        }).catch(err => console.warn('[dailyGradeStore] enqueue entry failed:', err))
+        })
+        if (!isTenantScopeCurrent(owner)) throw new Error('Phiên nhập điểm đã thay đổi; dữ liệu đã lưu thuộc phiên cũ.')
+        set((state) => ({ entries: [...state.entries, entry] }))
         get().syncAllToGradeStore([studentId], semester, { scoreTypes: [scoreType] })
+        void requestSync().catch(error => Sentry.captureException(error))
       },
 
-      removeEntry: (id) => {
+      removeEntry: async (id) => {
+        const owner = captureTenantScope()
+        if (!owner) throw new Error('Không có phiên nhập điểm hợp lệ.')
         const entry = get().entries.find(e => e.id === id)
         if (entry) {
+          await syncDeleteDailyEntry(entry.id)
+          if (!isTenantScopeCurrent(owner)) throw new Error('Phiên nhập điểm đã thay đổi.')
           set((state) => ({
             entries: state.entries.filter(e => e.id !== id),
             serverEntries: state.serverEntries.filter(e => e.id !== id),
           }))
           // Tier 2: xóa ledger-row server (chỉ dòng tay) + projection local.
           // Add-then-remove khi offline được compact hủy cả cặp (không trace server).
-          void syncDeleteDailyEntry(entry.id).catch(err => console.warn('[dailyGradeStore] enqueue entry delete failed:', err))
           get().syncAllToGradeStore([entry.studentId], entry.semester, { scoreTypes: [entry.scoreType] })
+          void requestSync().catch(error => Sentry.captureException(error))
         }
       },
 

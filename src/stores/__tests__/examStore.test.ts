@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { getDB } from '../../lib/db'
+import { setTenantScope } from '../../lib/tenantScope'
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }))
 
@@ -59,7 +61,9 @@ function setGradeSource(studentId: string, semester: 1 | 2, field: string, sourc
   } as any, true)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await getDB().syncQueue.clear()
+  setTenantScope({ userId: 'usr-1', parishId: 'gia-ton' })
   localStorage.setItem('parish_current_user', JSON.stringify({ id: 'usr-1', parishId: 'gia-ton' }))
   useExamStore.setState({
     sessions: [],
@@ -77,6 +81,14 @@ beforeEach(() => {
   setOffline(false)
   vi.restoreAllMocks()
   vi.clearAllMocks()
+})
+
+afterEach(async () => {
+  await getDB().syncQueue.clear()
+  setTenantScope(null)
+  localStorage.removeItem('parish_current_user')
+  setOffline(false)
+  vi.restoreAllMocks()
 })
 
 describe('examStore — finalize flow (conflict matrix §6)', () => {

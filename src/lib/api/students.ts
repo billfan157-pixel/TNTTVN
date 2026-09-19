@@ -3,10 +3,11 @@ import type { Student } from '../../types'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const studentsApi = {
-  getStudents: (params?: { updatedAfter?: string; updatedBefore?: string; limit?: number; page?: number }) => {
+  getStudents: (params?: { updatedAfter?: string; updatedBefore?: string; limit?: number; page?: number; afterId?: string }) => {
     const qs = new URLSearchParams()
     if (params?.updatedAfter) qs.set('updatedAfter', params.updatedAfter)
     if (params?.updatedBefore) qs.set('updatedBefore', params.updatedBefore)
+    if (params?.afterId !== undefined) qs.set('afterId', params.afterId)
     if (params?.limit) qs.set('limit', String(params.limit))
     if (params?.page) qs.set('page', String(params.page))
     const q = qs.toString()

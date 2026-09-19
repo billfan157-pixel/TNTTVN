@@ -1,4 +1,4 @@
-import { serve } from '@hono/node-server'
+import { createAdaptorServer } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { bodyLimit } from 'hono/body-limit'
@@ -249,7 +249,47 @@ initOperationsTaskDispatchScheduler()
 initOperationsManagerReminderScheduler()
 initBackupScheduler()
 
-const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST })
+// WATCH-RESTART (2026-09-19): chu kỳ restart của `tsx --watch` (dev) giết child
+// cũ; trên Windows socket :PORT có thể còn bị giữ vài giây (teardown/TIME_WAIT)
+// nên child mới bind dính EADDRINUSE. `serve()` không gắn error listener → lỗi
+// nổ thành uncaughtException, child chết và watcher rơi vào "Waiting for file
+// changes" — backend nằm CHẾT cho đến lần lưu file kế tiếp (triệu chứng: 502
+// khi đăng nhập dù terminal dev vẫn mở). Bind chủ động qua createAdaptorServer
+// kèm retry ngắn để chu kỳ restart tự lành; hết số lần thử vẫn fail-closed.
+const BIND_RETRY_LIMIT = 20
+const BIND_RETRY_DELAY_MS = 500
+
+const server = createAdaptorServer({ fetch: app.fetch })
+if (process.env.NODE_ENV === 'test') {
+  // Test giữ nguyên hành vi fail-fast, không retry.
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.once('listening', () => resolve())
+    server.listen(PORT, HOST)
+  })
+} else {
+  let bound = false
+  for (let attempt = 1; !bound; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onListening = () => { cleanup(); resolve() }
+        const onError = (err: NodeJS.ErrnoException) => { cleanup(); reject(err) }
+        const cleanup = () => {
+          server.off('listening', onListening)
+          server.off('error', onError)
+        }
+        server.once('listening', onListening)
+        server.once('error', onError)
+        server.listen(PORT, HOST)
+      })
+      bound = true
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'EADDRINUSE' || attempt >= BIND_RETRY_LIMIT) throw err
+      console.warn(`[startup] Port ${PORT} still held (EADDRINUSE) — retry ${attempt}/${BIND_RETRY_LIMIT} in ${BIND_RETRY_DELAY_MS}ms`)
+      await new Promise((resolve) => setTimeout(resolve, BIND_RETRY_DELAY_MS))
+    }
+  }
+}
 console.log(`Server running at http://${HOST}:${PORT}`)
 const stopImportRollbackCleanup = startImportRollbackSnapshotCleanup(60 * 60 * 1000, false)
 

@@ -207,6 +207,52 @@ describe('syncProcessor', () => {
       expect(result.error).toContain('Xung đột dữ liệu máy chủ')
     })
 
+    it('recovers an idempotency payload mismatch only when CREATE was possibly sent', async () => {
+      const mismatch = new ApiError(409, 'Create payload mismatch', '/students')
+      ;(mismatch as any).code = 'IDEMPOTENCY_CONFLICT'
+      ;(mismatch as any).details = { existing: { id: 'ST-SERVER-1' } }
+      vi.mocked(api.createStudent).mockRejectedValue(mismatch)
+
+      const result = await processOperation({
+        entity: 'student', operation: 'create', entityId: 'ST-TEMP-1',
+        payload: JSON.stringify({ fullName: 'Edited' }), retryCount: 1,
+      })
+
+      expect(result).toMatchObject({
+        ok: true,
+        preserveFoldedUpdate: true,
+        data: { id: 'ST-SERVER-1' },
+      })
+    })
+
+    it('fails closed on a fresh CREATE idempotency payload mismatch', async () => {
+      const mismatch = new ApiError(409, 'Create payload mismatch', '/students')
+      ;(mismatch as any).code = 'IDEMPOTENCY_CONFLICT'
+      ;(mismatch as any).details = { existing: { id: 'ST-SERVER-1' } }
+      vi.mocked(api.createStudent).mockRejectedValue(mismatch)
+
+      const result = await processOperation({
+        entity: 'student', operation: 'create', entityId: 'ST-TEMP-1',
+        payload: JSON.stringify({ fullName: 'Unexpected collision' }), retryCount: 0,
+      })
+
+      expect(result).toMatchObject({ ok: false, recoverable: false })
+      expect(result.preserveFoldedUpdate).toBeUndefined()
+    })
+
+    it('marks a legacy folded exam lifecycle command for preservation after CREATE', async () => {
+      vi.mocked(api.createExam).mockResolvedValue({ id: 'EX-SERVER-1' })
+      const result = await processOperation({
+        entity: 'exam', operation: 'create', entityId: 'EX-TEMP-1',
+        payload: JSON.stringify({
+          classId: 'CLASS-1', subject: 'Giáo lý', scoreType: '15m', semester: 1,
+          action: 'complete', sessionId: 'EX-TEMP-1',
+        }),
+        retryCount: 1,
+      })
+      expect(result).toMatchObject({ ok: true, preserveFoldedUpdate: true, data: { id: 'EX-SERVER-1' } })
+    })
+
     it('SYNC-CONFLICT-1: grade 409 KHÔNG kèm bản ghi server → permanent-fail (không merge mù)', async () => {
       const noRecordErr = new ApiError(409, 'Version conflict', '/grades')
       vi.mocked(api.upsertGrade).mockRejectedValue(noRecordErr)

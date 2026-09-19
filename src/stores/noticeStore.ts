@@ -10,6 +10,12 @@ import { generateId } from '../lib/id'
 import * as Sentry from '@sentry/react'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { isOwnOp } from './syncStore'
+import { captureTenantScope, isTenantScopeCurrent } from '../lib/tenantScope'
+
+async function hasUnsettledNotice(id: string): Promise<boolean> {
+  const rows = await getDB().syncQueue.where('status').anyOf(['pending', 'retrying', 'processing', 'failed']).toArray()
+  return rows.some(row => isOwnOp(row) && row.entity === 'notice' && row.entityId === id)
+}
 
 async function getPendingNoticeIds(): Promise<Set<string>> {
   try {
@@ -45,6 +51,16 @@ interface NoticeState {
 }
 
 const activeNoticeSubmissions = new Set<string>()
+const activeNoticeUpdates = new Map<string, Promise<ParishNotice>>()
+
+async function serializeNoticeUpdate(key: string, update: () => Promise<ParishNotice>): Promise<ParishNotice> {
+  const previous = activeNoticeUpdates.get(key)
+  const current = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(update)
+  activeNoticeUpdates.set(key, current)
+  try { return await current } finally {
+    if (activeNoticeUpdates.get(key) === current) activeNoticeUpdates.delete(key)
+  }
+}
 
 export const useNoticeStore = create<NoticeState>()(
   persist(
@@ -95,6 +111,7 @@ export const useNoticeStore = create<NoticeState>()(
 
       createNotice: async (data) => {
         const localId = generateId('NC')
+        const intent = { ...data, idempotencyKey: localId }
         const submissionKey = `${data.title}_${(data as any).targetAudience || 'all'}_${data.targetBranch || 'All'}_${data.date}`
         if (activeNoticeSubmissions.has(submissionKey)) {
           console.warn('[noticeStore] Blocked duplicate createNotice call in flight:', submissionKey)
@@ -103,7 +120,7 @@ export const useNoticeStore = create<NoticeState>()(
         activeNoticeSubmissions.add(submissionKey)
 
         try {
-          const created = await api.createNotice(data)
+          const created = await api.createNotice(intent)
           await get().fetchNotices()
           return created
         } catch (err: any) {
@@ -114,7 +131,7 @@ export const useNoticeStore = create<NoticeState>()(
           const now = new Date().toISOString()
           const offlineNotice: ParishNotice = {
             id: localId,
-            ...data,
+            ...intent,
             createdAt: now,
             updatedAt: now,
           }
@@ -128,22 +145,38 @@ export const useNoticeStore = create<NoticeState>()(
       },
 
       updateNotice: async (id, data) => {
+        const owner = captureTenantScope()
+        if (!owner) throw new Error('Cannot update notice without an active owner')
+        return serializeNoticeUpdate(`${owner.parishId}:${owner.userId}:${owner.revision}:${id}`, async () => {
+        if (!isTenantScopeCurrent(owner)) throw new Error('Notice owner changed')
+        const pending = await hasUnsettledNotice(id)
+        if (!isTenantScopeCurrent(owner)) throw new Error('Notice owner changed')
+        if (pending) {
+          await syncUpdateNotice(id, data)
+          if (!isTenantScopeCurrent(owner)) throw new Error('Notice owner changed')
+          set(state => ({ notices: state.notices.map(row => row.id === id ? { ...row, ...data } : row) }))
+          runSyncFlow()
+          return { id, ...data } as ParishNotice
+        }
         try {
           const updated = await api.updateNotice(id, data)
+          if (!isTenantScopeCurrent(owner)) throw new Error('Notice owner changed')
           await get().fetchNotices()
           return updated
         } catch (err: any) {
           const isNetwork = err instanceof TypeError
             || (err?.message && (String(err.message).includes('Network error') || String(err.message).includes('failed to fetch')))
           if (!isNetwork) throw err
-
+          if (!isTenantScopeCurrent(owner)) throw new Error('Notice owner changed')
+          await syncUpdateNotice(id, data)
+          if (!isTenantScopeCurrent(owner)) throw new Error('Notice owner changed')
           set((state) => ({
             notices: state.notices.map((n) => (n.id === id ? { ...n, ...data } : n)),
           }))
-          await syncUpdateNotice(id, data)
           runSyncFlow()
           return { id, ...data } as ParishNotice
         }
+        })
       },
 
       replaceNoticeId: (oldId, serverNotice) =>

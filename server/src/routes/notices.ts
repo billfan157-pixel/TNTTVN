@@ -7,6 +7,7 @@ import { listResponse, successResponse, errorResponse } from '../utils/response.
 import { getClientIp } from '../utils/ip.js'
 import { getNotices, createNotice, updateNotice, deleteNotice } from '../services/noticeService.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { CreateIdempotencyConflictError } from '../services/createIdempotency.js'
 
 const noticesRouter = new Hono()
 noticesRouter.use('*', authMiddleware)
@@ -37,8 +38,15 @@ noticesRouter.post('/', roleMiddleware('admin', 'chunhiem'), zValidator('json', 
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
 
-  const created = await createNotice(data, user.userId, user.parishId, ip, userAgent)
-  return successResponse(c, created, 201)
+  try {
+    const created = await createNotice(data, user.userId, user.parishId, ip, userAgent)
+    return successResponse(c, created, 201)
+  } catch (err) {
+    if (err instanceof CreateIdempotencyConflictError) {
+      return errorResponse(c, err.code, err.message, err.status, { existing: err.existing })
+    }
+    throw err
+  }
 })
 
 noticesRouter.put('/:id', roleMiddleware('admin', 'chunhiem'), zValidator('json', noticeSchema.partial()), async (c) => {

@@ -9,7 +9,7 @@
 
 ## I. TỔNG QUAN CƠ CHẾ HIỆN TẠI (TÓM TẮT)
 
-Kiến trúc quét chấm điểm hiện tại (chi tiết: mục `EXAM-SCAN-V4-PERF` trong `docs/AI_CONTEXT_MAP.md`, bảng `Exam Features` trong `docs/FRONTEND_API_CONTRACT.md`, ADR-023/024/025/043/048/062):
+Kiến trúc tại revision nghiên cứu (chi tiết: bảng `Exam Features` trong [API contract](./FRONTEND_API_CONTRACT.md), ADR-023/024/025/043/048/062 trong [ADRs](./ADR_ARCHITECTURE_DECISION_RECORDS.md)). Khi cần source hiện hành, bắt đầu từ [Exams & OMR context map](./AI_CONTEXT_MAP.md#domain-exams-and-omr):
 
 ```
 [Giấy in] ← AnswerSheetModal/ExamPaperModal (T3/T2 25 module; TE 21 module + Code128 dải cuối + 4 marker)

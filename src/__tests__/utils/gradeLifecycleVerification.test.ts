@@ -7,6 +7,7 @@ import { useSyncStore } from '../../stores/syncStore'
 import { upsertGrade, getGrades } from '../../../server/src/services/gradeService'
 import { db } from '../../../server/src/db/index'
 import { grades, academicYears, assessmentEntries } from '../../../server/src/db/schema'
+import { setTenantScope } from '../../lib/tenantScope'
 
 describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
   beforeAll(async () => {
@@ -23,6 +24,9 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
   beforeEach(() => {
     useGradeStore.setState({ grades: [], error: null })
     useDailyGradeStore.setState({ entries: [] })
+    // The durable daily ledger requires an authenticated document-local owner
+    // (tenant scope), exactly as authStore establishes it after login/restore.
+    setTenantScope({ userId: 'USR-E2E-TEST', parishId: 'parish-test-e2e-1' })
     vi.clearAllMocks()
   })
 
@@ -133,7 +137,7 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
       expect(saved.scoreFinal_source).toBe('excel_import')
     })
 
-    it('DailyGradeStore respects manual source protection after reload/sync', () => {
+    it('DailyGradeStore respects manual source protection after reload/sync', async () => {
       const activeAY = getCurrentAcademicYear()
       // Set a grade in gradeStore that has scoreOral_source = 'manual'
       useGradeStore.setState({
@@ -161,8 +165,10 @@ describe('Comprehensive End-to-End Grade Lifecycle Verification', () => {
         }],
       })
 
-      // Add a daily grade entry for ST-M1 with value = 6.0
-      useDailyGradeStore.getState().addEntry('ST-M1', 'oral', 6.0, 1)
+      // Add a daily grade entry for ST-M1 with value = 6.0. Await it: the entry
+      // only becomes local truth after its encrypted queue write commits, and the
+      // projection below therefore runs before these assertions.
+      await useDailyGradeStore.getState().addEntry('ST-M1', 'oral', 6.0, 1)
 
       // Verify that syncAllToGradeStore did NOT overwrite manual score 9.0 with daily average 6.0
       const currentGrade = useGradeStore.getState().getStudentGrade('ST-M1', 1)

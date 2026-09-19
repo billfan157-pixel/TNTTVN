@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { db } from '../db/index.js'
+import { db, runDbTransaction } from '../db/index.js'
 import {
   auditLogs,
   catechistAssignments,
@@ -235,18 +235,18 @@ export async function updateFeedbackStatus(
   status: FeedbackStatus,
   user: JwtPayload,
 ): Promise<FeedbackMessageDTO> {
-  const [existing] = await db.select().from(feedbackMessages).where(and(
-    eq(feedbackMessages.parishId, user.parishId),
-    eq(feedbackMessages.id, id),
-  )).limit(1)
-  if (!existing) throw new FeedbackError('FEEDBACK_NOT_FOUND', 'Thư góp ý không tồn tại', 404)
-
-  const canReceive = (user.role === 'admin' && existing.targetType === 'PARISH')
-    || (user.role === 'chunhiem' && existing.targetType === 'HOMEROOM_TEACHER' && existing.targetUserId === user.userId)
-  if (!canReceive) throw new FeedbackError('FEEDBACK_FORBIDDEN', 'Bạn không có quyền xử lý thư này', 403)
-
   const now = new Date().toISOString()
-  const updated = await db.transaction(async tx => {
+  const updated = await runDbTransaction(async tx => {
+    const [existing] = await tx.select().from(feedbackMessages).where(and(
+      eq(feedbackMessages.parishId, user.parishId),
+      eq(feedbackMessages.id, id),
+    )).limit(1)
+    if (!existing) throw new FeedbackError('FEEDBACK_NOT_FOUND', 'Thư góp ý không tồn tại', 404)
+
+    const canReceive = (user.role === 'admin' && existing.targetType === 'PARISH')
+      || (user.role === 'chunhiem' && existing.targetType === 'HOMEROOM_TEACHER' && existing.targetUserId === user.userId)
+    if (!canReceive) throw new FeedbackError('FEEDBACK_FORBIDDEN', 'Bạn không có quyền xử lý thư này', 403)
+
     const [row] = await tx.update(feedbackMessages).set({
       status,
       readAt: status === 'READ' ? existing.readAt ?? now : existing.readAt,

@@ -11,6 +11,7 @@ import { db } from '../db/index.js'
 import { academicYears } from '../db/schema.js'
 import { normalizeAcademicYear, computeAcademicYearDateRange, parseAcademicYear } from '../utils/academicYear.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { CreateIdempotencyConflictError } from '../services/createIdempotency.js'
 
 const classesRouter = new Hono()
 classesRouter.use('*', authMiddleware)
@@ -219,6 +220,9 @@ classesRouter.post('/', roleMiddleware('admin'), zValidator('json', classSchema)
     // ERR-F6 (audit 2026-08-21): ràng buộc DB phải trả 4xx rõ nghĩa thay vì
     // lộ 500 INTERNAL qua app.onError.
     const msg = String(err?.message || '')
+    if (err instanceof CreateIdempotencyConflictError) {
+      return errorResponse(c, err.code, err.message, err.status, { existing: err.existing })
+    }
     if (msg.includes('UNIQUE constraint failed')) {
       return errorResponse(c, 'CLASS_CODE_EXISTS', 'Mã lớp đã tồn tại trong năm học này', 409)
     }

@@ -112,13 +112,13 @@ export async function markFailedExamResultOp(op: SyncQueueItem, error?: string):
   }
 }
 
-async function processClaimedOperation(op: SyncQueueItem) {
+async function processClaimedOperation(op: SyncQueueItem, owner: TenantScopeSnapshot) {
   try {
     if (op.serverAcknowledgement) {
       const retained = await readPersistedSyncResult(op)
       if (retained) return retained as Awaited<ReturnType<typeof processOperation>>
     }
-    return await processOperation(op)
+    return await processOperation(op, owner)
   } catch (error) {
     await useSyncStore.getState().updateOp(op.id, {
       status: 'retrying',
@@ -148,6 +148,63 @@ async function journalSuccessfulResult(op: SyncQueueItem, result: Awaited<Return
     await useSyncStore.getState().updateOp(op.id, {
       status: 'retrying',
       lastError: 'Server response could not be retained locally; retry required',
+    })
+    throw error
+  }
+}
+
+async function preserveLegacyCreateEdits(op: SyncQueueItem): Promise<void> {
+  const store = useSyncStore.getState()
+  try {
+    let raw: unknown = op.payload
+    if (typeof raw === 'string') raw = await decryptQueueValue(raw)
+    if (raw === null) throw new Error('Legacy CREATE payload could not be recovered')
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Legacy CREATE payload is not a valid object')
+    }
+
+    const source = parsed as Record<string, unknown>
+    let desired: Record<string, unknown>
+    if (op.entity === 'exam') {
+      const action = String(source.action || '')
+      const allowedKeys = action === 'save_results'
+        ? ['action', 'sessionId', 'scores']
+        : action === 'remove_result'
+          ? ['action', 'sessionId', 'studentId']
+          : ['complete', 'reopen'].includes(action)
+            ? ['action', 'sessionId']
+            : []
+      if (allowedKeys.length === 0) throw new Error('Legacy exam CREATE has no supported folded update')
+      if (action === 'save_results' && !Array.isArray(source.scores)) {
+        throw new Error('Legacy exam CREATE has an invalid folded save_results payload')
+      }
+      if (action === 'remove_result' && !source.studentId) {
+        throw new Error('Legacy exam CREATE has an invalid folded remove_result payload')
+      }
+      desired = Object.fromEntries(allowedKeys.map(key => [key, source[key]]))
+      desired.sessionId = desired.sessionId || op.entityId
+    } else {
+      desired = { ...source }
+      for (const key of [
+        'id', 'code', 'parishId', 'idempotencyKey', 'createdAt', 'createdBy',
+        'updatedAt', 'updatedBy', 'deletedAt',
+      ]) delete desired[key]
+    }
+
+    await store.addOp({
+      entity: op.entity,
+      entityId: op.entityId,
+      operation: 'UPDATE',
+      payload: JSON.stringify(desired),
+    })
+  } catch (error) {
+    // The server-side winner is already known and journaled. Re-arm the
+    // original owner-bound row so recovery can be retried without another
+    // untracked CREATE or a stranded processing lease.
+    await store.updateOp(op.id, {
+      status: 'retrying',
+      lastError: 'Legacy CREATE edits could not be retained before acknowledgement',
     })
     throw error
   }
@@ -217,6 +274,12 @@ export async function runSyncFlow(leaseHeld = false) {
   store.setLastError(null)
 
   try {
+    if (!await verifyClientDataGeneration(true)) {
+      store.setStatus('failed')
+      store.setLastError('Chưa xác minh được phiên dữ liệu máy chủ; giữ hàng đợi, chưa gửi thay đổi.')
+      return
+    }
+    requireFlowOwner(flowOwner)
     // AUTH-P1-003: a queue created under a server-revoked session must never
     // cross a later login boundary. Finish any interrupted quarantine before
     // reading or claiming durable mutations.
@@ -263,12 +326,15 @@ export async function runSyncFlow(leaseHeld = false) {
       const op = await store.claimOp(queuedOp.id)
       if (!op) continue
       requireFlowOwner(flowOwner, op)
-      const result = await processClaimedOperation(op)
+      const result = await processClaimedOperation(op, flowOwner)
       await journalSuccessfulResult(op, result)
       await new Promise(r => setTimeout(r, 200))
       requireFlowOwner(flowOwner, op)
 
       if (result.ok) {
+        if (result.preserveFoldedUpdate) {
+          await preserveLegacyCreateEdits(op)
+        }
         await acknowledgeCreatedParent(op, result.data, flowOwner)
         // SYNC-CONFLICT-1: CREATE student/class/exam không còn nhánh isConflict —
         // business 409 (vd CLASS_CODE_EXISTS) giờ là permanent-fail (xử lý ở
@@ -402,13 +468,42 @@ export async function runSyncFlow(leaseHeld = false) {
         return
       }
 
+      const candidate = ops[0]
+      if (candidate.entity === 'notice' && !candidate.serverAcknowledgement) {
+        const unsettled = await getOwnUnsettledSyncOperations()
+        requireFlowOwner(flowOwner, candidate)
+        if (unsettled.some(item => item.id !== candidate.id && item.entity === 'notice'
+          && item.entityId === candidate.entityId && item.createdAt <= candidate.createdAt
+          && (item.status === 'retrying' || item.status === 'processing' || item.status === 'failed'))) {
+          store.setLastError('Thông báo đang chờ xử lý thay đổi trước đó trước khi gửi thay đổi mới.')
+          ops = ops.slice(1)
+          continue
+        }
+      }
+      if (candidate.entity === 'exam' && candidate.operation === 'UPDATE' && !candidate.serverAcknowledgement) {
+        const payload = await parseQueuePayload(candidate.payload, true)
+        requireFlowOwner(flowOwner, candidate)
+        if (payload.action === 'complete') {
+          const sessionId = String(payload.sessionId || candidate.entityId)
+          const unsettled = await getOwnUnsettledSyncOperations()
+          requireFlowOwner(flowOwner, candidate)
+          // Pending, in-flight, failed and unreconciled ACKs all block closure.
+          // Ordering alone is insufficient after a predecessor's network error.
+          if (unsettled.some(item => item.entity === 'exam_result'
+            && item.entityId.startsWith(`${sessionId}::result::`))) {
+            store.setLastError('Phiên chấm đang chờ đồng bộ đủ kết quả trước khi hoàn tất.')
+            ops = ops.slice(1)
+            continue
+          }
+        }
+      }
       const op = await store.claimOp(ops[0].id)
       if (!op) {
         ops = ops.slice(1)
         continue
       }
       requireFlowOwner(flowOwner, op)
-      const result = await processClaimedOperation(op)
+      const result = await processClaimedOperation(op, flowOwner)
       await journalSuccessfulResult(op, result)
       await new Promise(r => setTimeout(r, 200))
       requireFlowOwner(flowOwner, op)
@@ -417,10 +512,12 @@ export async function runSyncFlow(leaseHeld = false) {
         if (result.isConflict && result.data) {
           // SYNC-CONFLICT-1: 409 VERSION_CONFLICT (grade/attendance) có bản ghi server
           // → F9 merge field-level + re-queue thay vì server-wins thầm lặng.
-          syncState.mergedConflictCount++
-          await resolveConflictWithMerge(op, result.data, flowOwner)
+          if (await resolveConflictWithMerge(op, result.data, flowOwner)) syncState.mergedConflictCount++
         } else {
           if (op.operation === 'CREATE') {
+            if (result.preserveFoldedUpdate) {
+              await preserveLegacyCreateEdits(op)
+            }
             await acknowledgeCreatedParent(op, result.data, flowOwner)
           } else {
             if (result.data) {
@@ -514,13 +611,8 @@ export async function runSyncFlow(leaseHeld = false) {
   }
 }
 
-export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string; ok: boolean }> {
-  try {
-    if (!isAuthenticated()) return { queryTime: '', ok: false }
-
-    const persistedCursor = incremental ? await readSyncCursor() : null
-    const lastSync = persistedCursor || undefined
-
+export async function verifyClientDataGeneration(requireEvidence = false): Promise<boolean> {
+  const owner = captureTenantScope()
     // PURGE v2.3 (ghost data): nếu server đã purge (purge_version > bản local) thì toàn bộ
     // dữ liệu offline của thiết bị này là GHOST DATA → reset sạch + đăng xuất ngay,
     // trước khi pull delta để tránh khôi phục lại dữ liệu đã xóa.
@@ -534,14 +626,16 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
     // báo lỗi qua sync store và chờ retry ở cycle sau.
     try {
       const purgeVersion = await api.probePurgeVersion()
+      if (!owner || !isSyncOwnerCurrent(owner)) return false
       const hasLocalPurgeKey = localStorage.getItem(PURGE_VERSION_KEY) !== null
       if (purgeVersion === null) {
-        // probe fail → giữ hành vi cũ: bỏ qua check, pull delta bình thường
+        if (requireEvidence) return false
       } else if (!hasLocalPurgeKey) {
         // A truly clean device can adopt the current generation as baseline.
         // A legacy/offline device with an owned queue is not clean: accepting a
         // new baseline would let pre-purge/restore intent replay into the new DB.
         const unsettled = await getOwnUnsettledSyncOperations()
+        if (!isSyncOwnerCurrent(owner)) return false
         if (unsettled.length > 0) {
           try {
             await resetClientData(purgeVersion)
@@ -551,10 +645,10 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
               'Không thể cách ly thay đổi cũ sau khi dữ liệu giáo xứ được thay thế — hãy thử lại trước khi đồng bộ.'
             )
             useSyncStore.getState().setStatus('failed')
-            return { queryTime: '', ok: false }
+            return false
           }
           window.location.href = '/login'
-          return { queryTime: '', ok: false }
+          return false
         }
         try { localStorage.setItem(PURGE_VERSION_KEY, String(purgeVersion)) } catch {}
       } else if (purgeVersion > getLocalPurgeVersion()) {
@@ -566,14 +660,26 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
             'Không thể xóa dữ liệu cục bộ sau purge của giáo xứ — thử lại. Nếu vẫn lỗi, hãy xóa dữ liệu trình duyệt.'
           )
           useSyncStore.getState().setStatus('failed')
-          return { queryTime: '', ok: false }
+          return false
         }
         window.location.href = '/login'
-        return { queryTime: '', ok: false }
+        return false
       }
     } catch {
-      // Mạng lỗi / server không phản hồi → bỏ qua check, pull delta vẫn chạy bình thường.
+      if (requireEvidence) return false
     }
+
+  return !!owner && isSyncOwnerCurrent(owner)
+}
+
+export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string; ok: boolean }> {
+  try {
+    if (!isAuthenticated()) return { queryTime: '', ok: false }
+
+    const persistedCursor = incremental ? await readSyncCursor() : null
+    const lastSync = persistedCursor || undefined
+
+    if (!await verifyClientDataGeneration()) return { queryTime: '', ok: false }
 
     const { serverTime: queryTime } = await api.getSyncWatermark()
     const { useAuthStore } = await import('../stores/authStore')

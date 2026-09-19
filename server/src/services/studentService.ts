@@ -1,12 +1,13 @@
 import { db, runDbTransaction, type DbExecutor } from '../db/index.js'
 import { students, auditLogs, classes, academicYears } from '../db/schema.js'
-import { eq, and, gte, lte, isNull, inArray, sql, asc } from 'drizzle-orm'
+import { eq, and, gt, gte, lte, isNull, inArray, sql, asc } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { redactStudentForAudit } from '../utils/auditRedact.js'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
 import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
+import { assertCreateReplayMatches, createIntentHash, readCreateIntentHash } from './createIdempotency.js'
 
 type StudentInsert = InferInsertModel<typeof students>
 
@@ -47,7 +48,7 @@ function pickStudentWritable(data: Record<string, unknown>): CreateStudentData {
   return out as CreateStudentData
 }
 
-export async function getStudents(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1, updatedBefore?: string) {
+export async function getStudents(parishId: string, updatedAfter?: string, limit: number = 50, page: number = 1, updatedBefore?: string, afterId?: string) {
   const conditions = [eq(students.parishId, parishId)]
   // Full snapshots contain active rows only. Incremental windows deliberately
   // include soft-deleted rows as tombstones so clients can evict ghost records.
@@ -56,9 +57,13 @@ export async function getStudents(parishId: string, updatedAfter?: string, limit
     conditions.push(gte(students.updatedAt, updatedAfter))
   }
   if (updatedBefore) conditions.push(lte(students.updatedAt, updatedBefore))
-  const offset = (page - 1) * limit
+  // IDs are immutable. Moving a row beyond the watermark cannot shift the
+  // remaining page like OFFSET does. Legacy page callers retain their order.
+  if (afterId !== undefined) conditions.push(gt(students.id, afterId))
+  const offset = afterId === undefined ? (page - 1) * limit : 0
+  const order = afterId === undefined ? [asc(students.updatedAt), asc(students.id)] : [asc(students.id)]
   const [data, [{ total }]] = await Promise.all([
-    db.select().from(students).where(and(...conditions)).orderBy(asc(students.updatedAt), asc(students.id)).limit(limit).offset(offset),
+    db.select().from(students).where(and(...conditions)).orderBy(...order).limit(limit).offset(offset),
     db.select({ total: sql<number>`count(*)` }).from(students).where(and(...conditions)),
   ])
   return { data, total: Number(total) }
@@ -178,6 +183,68 @@ export function isIdempotencyKeyViolation(err: unknown): boolean {
   return isUniqueViolation(err) && collectErrorMessages(err).includes('idempotency_key')
 }
 
+function studentCreateIntent(data: CreateStudentData, membershipBranch: string) {
+  return {
+    holyName: data.holyName,
+    fullName: data.fullName,
+    gender: data.gender ?? 'Nam',
+    dateOfBirth: data.dateOfBirth ?? '',
+    baptismDate: data.baptismDate ?? null,
+    firstCommunionDate: data.firstCommunionDate ?? null,
+    confirmationDate: data.confirmationDate ?? null,
+    parentName: data.parentName ?? '',
+    parentPhone: data.parentPhone ?? '',
+    address: data.address ?? '',
+    branch: membershipBranch,
+    classId: data.classId,
+    avatarUrl: data.avatarUrl ?? null,
+    status: data.status ?? 'Đang học',
+    notes: data.notes ?? null,
+  }
+}
+
+async function assertStudentCreateReplay(
+  executor: DbExecutor,
+  existing: typeof students.$inferSelect,
+  data: CreateStudentData,
+  userId: string,
+  parishId: string,
+  expected?: AcademicWriteExpectation,
+) {
+  // Authorize the persisted row before returning it or exposing it in conflict
+  // details. If the requested class differs, require access to that class too.
+  const canAccessExisting = await checkAcademicWriteAccess(
+    userId, parishId, existing.classId, executor, expected, ['admin', 'chunhiem'],
+  )
+  const canAccessRequested = data.classId === existing.classId
+    ? canAccessExisting
+    : await checkAcademicWriteAccess(userId, parishId, data.classId, executor, expected, ['admin', 'chunhiem'])
+  if (!canAccessExisting || !canAccessRequested) {
+    throw Object.assign(new Error('Bạn không được phân công lớp này'), { status: 403, code: 'FORBIDDEN' })
+  }
+
+  const membershipBranch = await resolveMembershipBranch(executor, parishId, data.classId, data.branch)
+  const requestedIntent = studentCreateIntent(data, membershipBranch)
+  const persistedHash = await readCreateIntentHash(executor, parishId, 'student', existing.id, 'CREATE')
+  return assertCreateReplayMatches(existing, {
+    holyName: existing.holyName,
+    fullName: existing.fullName,
+    gender: existing.gender,
+    dateOfBirth: existing.dateOfBirth,
+    baptismDate: existing.baptismDate ?? null,
+    firstCommunionDate: existing.firstCommunionDate ?? null,
+    confirmationDate: existing.confirmationDate ?? null,
+    parentName: existing.parentName,
+    parentPhone: existing.parentPhone,
+    address: existing.address,
+    branch: existing.branch,
+    classId: existing.classId,
+    avatarUrl: existing.avatarUrl ?? null,
+    status: existing.status,
+    notes: existing.notes ?? null,
+  }, requestedIntent, persistedHash)
+}
+
 export async function createStudent(
   rawData: CreateStudentData | Record<string, unknown>,
   userId: string,
@@ -190,21 +257,6 @@ export async function createStudent(
   const input = rawData as Record<string, unknown>
   const data = pickStudentWritable(input)
 
-  // ADR-016 (offline-sync audit #3): nếu request trước bị timeout nhưng thật ra đã
-  // insert (client retry cùng key), trả về student đã tạo thay vì tạo trùng.
-  if (idempotencyKey) {
-    const [existing] = await db
-      .select()
-      .from(students)
-      .where(and(
-        eq(students.idempotencyKey, idempotencyKey),
-        eq(students.parishId, parishId),
-        isNull(students.deletedAt),
-      ))
-      .limit(1)
-    if (existing) return existing
-  }
-
   if (!data.classId) {
     throw new Error('classId is required')
   }
@@ -212,6 +264,26 @@ export async function createStudent(
     throw new Error('holyName and fullName are required')
   }
   validateDateOfBirth(data.dateOfBirth)
+
+  // ADR-016 (offline-sync audit #3): nếu request trước bị timeout nhưng thật ra đã
+  // insert (client retry cùng key), chỉ trả về student đã tạo khi payload khớp.
+  if (idempotencyKey) {
+    const replay = await runDbTransaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(students)
+        .where(and(
+          eq(students.idempotencyKey, idempotencyKey),
+          eq(students.parishId, parishId),
+          isNull(students.deletedAt),
+        ))
+        .limit(1)
+      return existing
+        ? await assertStudentCreateReplay(tx, existing, data, userId, parishId, expected)
+        : null
+    })
+    if (replay) return replay
+  }
 
   const id = generateId('ST')
   const now = new Date().toISOString()
@@ -227,6 +299,7 @@ export async function createStudent(
         const year = await getAcademicYearPrefix(data.classId, parishId, tx)
         const code = `TN${year}${generateStudentCodeSuffix()}`
         const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
+        const requestedIntentHash = createIntentHash(studentCreateIntent(data, membershipBranch))
         await tx.insert(students).values({
           holyName: data.holyName,
           fullName: data.fullName,
@@ -259,7 +332,10 @@ export async function createStudent(
           action: 'CREATE',
           entityType: 'student',
           entityId: id,
-          newValue: JSON.stringify(redactStudentForAudit(data)),
+          newValue: JSON.stringify({
+            ...(redactStudentForAudit(data) as Record<string, unknown>),
+            createIntentHash: requestedIntentHash,
+          }),
           ip,
           userAgent,
           parishId,
@@ -283,7 +359,9 @@ export async function createStudent(
           .from(students)
           .where(and(eq(students.idempotencyKey, idempotencyKey), eq(students.parishId, parishId)))
           .limit(1)
-        if (winner && !winner.deletedAt) return winner
+        if (winner && !winner.deletedAt) {
+          return await assertStudentCreateReplay(db, winner, data, userId, parishId, expected)
+        }
         throw new Error('Idempotency key đã được sử dụng cho học sinh khác')
       }
       if (!isUniqueViolation(err)) throw err
@@ -298,6 +376,7 @@ export async function createStudent(
     const fallbackNum = Date.now() % 1_000_000
     const code = `TN${year}${String(fallbackNum).padStart(6, '0')}`
     const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
+    const requestedIntentHash = createIntentHash(studentCreateIntent(data, membershipBranch))
     await tx.insert(students).values({
       holyName: data.holyName,
       fullName: data.fullName,
@@ -330,7 +409,10 @@ export async function createStudent(
       action: 'CREATE',
       entityType: 'student',
       entityId: id,
-      newValue: JSON.stringify(redactStudentForAudit(data)),
+      newValue: JSON.stringify({
+        ...(redactStudentForAudit(data) as Record<string, unknown>),
+        createIntentHash: requestedIntentHash,
+      }),
       ip,
       userAgent,
       parishId,
@@ -434,15 +516,19 @@ export async function updateStudent(
 }
 
 export async function deleteStudent(id: string, userId: string, parishId: string, ip: string, userAgent: string) {
-  const existing = await getStudentById(id, parishId)
-  if (!existing) return false
-
   const now = new Date().toISOString()
   return await runDbTransaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(students)
+      .where(and(eq(students.id, id), eq(students.parishId, parishId), isNull(students.deletedAt)))
+      .limit(1)
+    if (!existing) return false
+
     await tx
       .update(students)
       .set({ deletedAt: now, updatedAt: now, updatedBy: userId })
-      .where(and(eq(students.id, id), eq(students.parishId, parishId)))
+      .where(and(eq(students.id, id), eq(students.parishId, parishId), isNull(students.deletedAt)))
 
     await tx.insert(auditLogs).values({
       id: generateId('AUD'),

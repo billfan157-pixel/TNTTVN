@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { client } from '../db/index.js'
 import { rehearseOperationsMigrations } from '../db/operationsMigrationRehearsal.js'
+import { MIGRATIONS } from '../db/migrations.js'
 
 const directory = mkdtempSync(join(tmpdir(), 'catevia-operations-rehearsal-test-'))
 const sourceBackup = join(directory, 'finalized-backup.sqlite')
@@ -39,7 +40,7 @@ describe('Operations migration and recovery rehearsal', () => {
     expect(manifest.status).toBe('verified')
     expect(manifest.sourceBackup).toBe('finalized-backup.sqlite')
     expect(manifest.sourceUnchanged).toBe(true)
-    expect(manifest.migrationMarkers.latest).toBe('20260912-260')
+    expect(manifest.migrationMarkers.latest).toBe(MIGRATIONS.map(migration => migration.version).sort().at(-1))
     expect(manifest.migrationMarkers.after).toBeGreaterThanOrEqual(manifest.migrationMarkers.before)
     const eventTable = manifest.operationTables.find(table => table.table === 'operation_events')
     expect(eventTable?.rowsBefore).toBeGreaterThanOrEqual(1)

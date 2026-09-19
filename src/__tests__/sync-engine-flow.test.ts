@@ -42,9 +42,11 @@ async function resetDB() {
   localStorage.setItem('parish_access_token', 'test-token')
   localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', parishId: 'PARISH-TEST' }))
   setTenantScope({ userId: 'U-TEST', parishId: 'PARISH-TEST' })
+  localStorage.setItem('parish_purge_version', '1')
 }
 
 function mockAllApiMethods() {
+  vi.spyOn(api, 'probePurgeVersion').mockResolvedValue(1)
   vi.spyOn(api, 'createStudent').mockResolvedValue({ id: 'mock' })
   vi.spyOn(api, 'updateStudent').mockResolvedValue({})
   vi.spyOn(api, 'deleteStudent').mockResolvedValue({ success: true })
@@ -60,6 +62,8 @@ function mockAllApiMethods() {
   vi.spyOn(api, 'getClasses').mockResolvedValue([])
   vi.spyOn(api, 'getClassBranches').mockResolvedValue([])
   vi.spyOn(api, 'getClassAcademicYears').mockResolvedValue([])
+  vi.spyOn(api, 'createExam').mockResolvedValue({ id: 'EX-MOCK' })
+  vi.spyOn(api, 'completeExam').mockResolvedValue({ id: 'EX-MOCK', status: 'completed' })
 }
 
 function mkGrade(overrides: Partial<GradeRecord> & { id: string; studentId: string; semester: 1 | 2 }): GradeRecord {
@@ -189,6 +193,88 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
     await runSyncFlow()
     expect(api.createStudent).not.toHaveBeenCalled()
     expect((await getDB().syncQueue.get(parentId))?.serverAcknowledgement).toBeTruthy()
+  })
+
+  it('recovers a legacy post-send CREATE payload mismatch as ACK then canonical UPDATE', async () => {
+    const tempId = 'ST-TEMP-LEGACY-MISMATCH'
+    const parentId = await syncService.syncCreateStudent({
+      id: tempId,
+      fullName: 'Edited after timeout',
+      holyName: 'Phêrô',
+      branch: 'AuNhi',
+      classId: 'AU2',
+    } as any)
+    await useSyncStore.getState().updateOp(parentId, {
+      status: 'retrying',
+      lastError: 'Legacy response was lost after dispatch',
+    })
+    useStudentStore.getState().setStudents([{
+      id: tempId,
+      fullName: 'Edited after timeout',
+      holyName: 'Phêrô',
+      branch: 'AuNhi',
+      classId: 'AU2',
+      parishId: 'PARISH-TEST',
+    } as any])
+
+    const conflict = new ApiError(409, 'Idempotency key payload mismatch', '/students', 'IDEMPOTENCY_CONFLICT')
+    ;(conflict as any).details = {
+      existing: {
+        id: 'ST-CANONICAL-LEGACY',
+        fullName: 'Original committed name',
+        holyName: 'Phêrô',
+        branch: 'AuNhi',
+        classId: 'AU2',
+        parishId: 'PARISH-TEST',
+      },
+    }
+    vi.mocked(api.createStudent).mockRejectedValue(conflict)
+    vi.mocked(api.updateStudent).mockResolvedValue({
+      id: 'ST-CANONICAL-LEGACY',
+      fullName: 'Edited after timeout',
+      holyName: 'Phêrô',
+      branch: 'AuNhi',
+      classId: 'AU2',
+      parishId: 'PARISH-TEST',
+    } as any)
+
+    await runSyncFlow()
+
+    expect(api.createStudent).toHaveBeenCalledTimes(1)
+    expect(api.updateStudent).toHaveBeenCalledWith(
+      'ST-CANONICAL-LEGACY',
+      expect.objectContaining({ fullName: 'Edited after timeout' }),
+    )
+    expect(await getDB().syncQueue.toArray()).toHaveLength(0)
+    expect(useStudentStore.getState().students).toEqual([
+      expect.objectContaining({ id: 'ST-CANONICAL-LEGACY', fullName: 'Edited after timeout' }),
+    ])
+  })
+
+  it('preserves a legacy exam lifecycle UPDATE folded into a possibly-sent CREATE', async () => {
+    const tempId = 'EX-TEMP-LEGACY-FOLDED'
+    const createPayload = {
+      id: tempId,
+      classId: 'AU2',
+      subject: 'Giáo lý',
+      scoreType: '15m',
+      semester: 1,
+      academicYear: '2026-2027',
+    }
+    const parentId = await syncService.syncCreateExam(createPayload)
+    await useSyncStore.getState().updateOp(parentId, {
+      status: 'retrying',
+      lastError: 'Legacy response was lost after dispatch',
+      payload: JSON.stringify({ ...createPayload, action: 'complete', sessionId: tempId }),
+    })
+    vi.mocked(api.createExam).mockResolvedValue({ ...createPayload, id: 'EX-CANONICAL-LEGACY', status: 'draft' })
+    vi.mocked(api.completeExam).mockResolvedValue({ ...createPayload, id: 'EX-CANONICAL-LEGACY', status: 'completed' })
+
+    await runSyncFlow()
+
+    expect(api.createExam).toHaveBeenCalledTimes(1)
+    expect(api.completeExam).toHaveBeenCalledWith('EX-CANONICAL-LEGACY')
+    expect(await getDB().syncQueue.toArray()).toHaveLength(0)
   })
 
   it('op lỗi network (ApiError status 0) → status retrying, KHÔNG kẹt syncing, cycle sau retry được', async () => {
@@ -333,7 +419,14 @@ describe('Sync Engine — conflict field-level merge (audit F9)', () => {
   it('grade conflict → giữ chỉnh sửa local trên field đã đổi, giữ server trên field khác, re-queue với version server', async () => {
     useGradeStore.getState().upsertGrade({ studentId: 'ST-9', semester: 1, scoreFinal: 8 }, true)
     const before = useGradeStore.getState().grades.find(g => g.studentId === 'ST-9' && g.semester === 1)
-    syncService.syncUpsertGrade({ id: before!.id, studentId: 'ST-9', semester: 1, scoreFinal: 8 })
+    syncService.syncUpsertGrade({
+      id: before!.id, studentId: 'ST-9', semester: 1, scoreFinal: 8,
+      // Grade queue payloads are field patches: the store marks every intent it
+      // owns with _syncGradePatch. A legacy full snapshot is intentionally NOT
+      // field-merged on conflict (see resolveConflictWithMerge): it fails closed
+      // into the review inbox instead of inventing manual-override authority.
+      _syncGradePatch: true,
+    })
     await waitForQueueSize(1)
 
     // Server đã bị thiết bị khác sửa: scoreFinal 9, scoreOral 7, version 3.
@@ -363,7 +456,8 @@ describe('Sync Engine — conflict field-level merge (audit F9)', () => {
     const payload = await readPayload(requeued!)
     expect(payload.version).toBe(3)
     expect(payload.scoreFinal).toBe(8)
-    expect(payload.scoreOral).toBe(7)
+    // The local projection includes server oral=7; the retry owns only final.
+    expect(payload).not.toHaveProperty('scoreOral')
   })
 
   it('attendance conflict → merge status local + re-queue, không server-wins', async () => {

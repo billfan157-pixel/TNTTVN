@@ -156,7 +156,7 @@ export const MobileCalendarView: React.FC = () => {
         {/* Day of Week Headers */}
         <div className="grid grid-cols-7 gap-1 text-center pb-1 border-b border-surface-border text-[11px] font-extrabold text-text-muted">
           {dayHeaders.map((dh, idx) => (
-            <div key={dh} className={idx === 0 ? 'text-rose-600' : ''}>
+            <div key={dh} className={idx === 0 ? 'text-rose-600 dark:text-rose-400' : ''}>
               {dh}
             </div>
           ))}
@@ -193,7 +193,7 @@ export const MobileCalendarView: React.FC = () => {
                     isToday
                       ? 'bg-parish-primary text-white rounded-md w-5 h-4 flex items-center justify-center font-bold text-[11px]'
                       : dayItem.isSunday
-                      ? 'text-rose-600 font-extrabold'
+                      ? 'text-rose-600 dark:text-rose-400 font-extrabold'
                       : 'text-text-main font-semibold'
                   }`}
                 >
@@ -344,13 +344,14 @@ export const MobileCalendarView: React.FC = () => {
 
         <div className="flex flex-col gap-1.5">
           {upcomingSolemnities.map((sol) => (
-            <div
+            <button
               key={sol.date}
+              type="button"
               onClick={() => {
                 setSelectedDay(sol)
                 setCurrentDate(new Date(sol.date))
               }}
-              className="p-2 rounded-xl bg-surface-app border border-surface-border flex items-center justify-between text-xs"
+              className="w-full text-left p-2.5 rounded-xl bg-surface-app border border-surface-border flex items-center justify-between text-xs hover:bg-surface-hover transition-colors min-h-[44px]"
             >
               <div>
                 <strong className="text-text-main block">{sol.title}</strong>
@@ -363,10 +364,10 @@ export const MobileCalendarView: React.FC = () => {
                 </span>
               </div>
               <span
-                className="w-2.5 h-2.5 rounded-full"
+                className="w-2.5 h-2.5 rounded-full shrink-0 ml-2"
                 style={{ backgroundColor: (LITURGICAL_COLORS[sol.color] || LITURGICAL_COLORS.WHITE).hex }}
               />
-            </div>
+            </button>
           ))}
         </div>
       </div>

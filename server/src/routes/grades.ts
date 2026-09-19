@@ -20,7 +20,10 @@ const gradesRouter = new Hono()
 gradesRouter.use('*', authMiddleware)
 
 const scorePreprocess = z.preprocess((val) => {
-  if (val === '' || val === undefined || val === null) return null
+  // A missing PATCH field is not a clear command. Keep explicit null/blank
+  // compatible with existing clients without nulling untouched score columns.
+  if (val === undefined) return undefined
+  if (val === '' || val === null) return null
   if (typeof val === 'string') {
     const parsed = parseFloat(val.replace(',', '.'))
     return isNaN(parsed) ? null : parsed

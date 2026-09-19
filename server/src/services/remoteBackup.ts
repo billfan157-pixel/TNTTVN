@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 import { gzipSync, gunzipSync } from 'zlib'
 import type { Client, InStatement, ResultSet } from '@libsql/client'
 import { isR2Enabled, putObject } from './blobStorage.js'
+import { createRecoveryQuarantine, RECOVERY_QUARANTINE_KEY, type RecoveryQuarantineTarget } from '../db/recoveryQuarantine.js'
 
 const BACKUP_FORMAT = 'tnttvn-logical-backup-v1'
 const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -27,6 +28,7 @@ export interface LogicalRestoreResult {
   restoredRows: number
   tableCounts: Record<string, number>
   foreignKeyViolations: number
+  quarantined?: true
 }
 
 interface EncryptedBackupEnvelope {
@@ -160,8 +162,18 @@ export async function createAndStoreRemoteBackup(client: Client): Promise<{ obje
 }
 
 /** Restore is intentionally generic but must only be called against an isolated drill/target DB. */
-export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBackupSnapshot): Promise<LogicalRestoreResult> {
+export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBackupSnapshot, quarantineTarget?: RecoveryQuarantineTarget): Promise<LogicalRestoreResult> {
   verifyLogicalSnapshot(snapshot)
+  const quarantine = quarantineTarget ? createRecoveryQuarantine(quarantineTarget, snapshot.checksum) : null
+  const settings = snapshot.tables.find(table => table.name === 'system_settings')
+  if (quarantine) {
+    if (!settings || Object.keys(quarantine).some(column => !settings.columns.includes(column))) {
+      throw new Error('Recovery quarantine requires the current system_settings schema')
+    }
+    if (settings.rows.some(row => row[settings.columns.indexOf('key')] === RECOVERY_QUARANTINE_KEY)) {
+      throw new Error('Snapshot is already recovery-quarantined; it is not a released recovery source')
+    }
+  }
   const targetTables = await client.execute(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%'",
   )
@@ -188,6 +200,17 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
   await client.execute('PRAGMA foreign_keys=OFF')
   const tx = await client.transaction('write')
   try {
+    // A snapshot restores facts, not new business commands. Cross-table guards
+    // depend on rows loaded later (and may reject valid historical inactive
+    // references); ordering inserts cannot solve that. Suspend ONLY the trusted
+    // target's triggers, transactionally, and reinstate their exact definitions
+    // before commit. Rollback also restores the schema on any load/DDL failure.
+    // Preserve registration order as well as definitions; do not reorder guards.
+    const triggers = await tx.execute("SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' ORDER BY rowid")
+    for (const trigger of triggers.rows) {
+      if (typeof trigger.sql !== 'string' || !trigger.sql.trim()) throw new Error('Restore target has an unreadable trigger definition')
+      await tx.execute(`DROP TRIGGER ${quoteIdentifier(String(trigger.name))}`)
+    }
     for (const table of [...snapshot.tables].reverse()) await tx.execute(`DELETE FROM ${quoteIdentifier(table.name)}`)
     let restored = 0
     for (const table of snapshot.tables) {
@@ -198,14 +221,32 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
         restored++
       }
     }
+    for (const trigger of triggers.rows) await tx.execute(String(trigger.sql))
+    const reinstated = await tx.execute("SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' ORDER BY rowid")
+    if (JSON.stringify(reinstated.rows.map(row => [row.name, row.sql])) !== JSON.stringify(triggers.rows.map(row => [row.name, row.sql]))) {
+      throw new Error('Restore target trigger definitions were not reinstated exactly')
+    }
+    // Commit the quarantine in the SAME transaction as restored identities,
+    // refresh sessions and jobs. A crash after commit cannot expose an unmarked
+    // rewind. This is the sole declared metadata delta from snapshot contents.
+    if (quarantine) {
+      const columns = Object.keys(quarantine)
+      await tx.execute({
+        sql: `INSERT INTO system_settings (${columns.map(quoteIdentifier).join(',')}) VALUES (${columns.map(() => '?').join(',')})`,
+        args: Object.values(quarantine),
+      })
+    }
     await tx.commit()
 
     const tableCounts: Record<string, number> = {}
     for (const table of snapshot.tables) {
+      const expected = quarantine && table.name === 'system_settings'
+        ? [...table.rows, table.columns.map(column => quarantine[column as keyof typeof quarantine])]
+        : table.rows
       const count = await client.execute(`SELECT count(*) AS count FROM ${quoteIdentifier(table.name)}`)
       const actual = Number(count.rows[0]?.count ?? 0)
-      if (actual !== table.rows.length) {
-        throw new Error(`Post-restore row count mismatch for ${table.name}: expected ${table.rows.length}, got ${actual}; discard this target`)
+      if (actual !== expected.length) {
+        throw new Error(`Post-restore row count mismatch for ${table.name}: expected ${expected.length}, got ${actual}; discard this target`)
       }
       tableCounts[table.name] = actual
       // Counts alone miss coercion/trigger corruption of historical policy,
@@ -213,7 +254,7 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
       // without relying on SQLite's unspecified SELECT order; never log contents.
       const readback = await client.execute(`SELECT * FROM ${quoteIdentifier(table.name)}`)
       const actualRows = readback.rows.map(row => JSON.stringify(table.columns.map(column => encodeCell(row[column])))).sort()
-      const expectedRows = table.rows.map(row => JSON.stringify(row)).sort()
+      const expectedRows = expected.map(row => JSON.stringify(row)).sort()
       if (actualRows.some((row, index) => row !== expectedRows[index])) {
         throw new Error(`Post-restore content mismatch for ${table.name}; discard this target`)
       }
@@ -222,7 +263,7 @@ export async function restoreLogicalSnapshot(client: Client, snapshot: LogicalBa
     if (foreignKeyCheck.rows.length > 0) {
       throw new Error(`Post-restore foreign_key_check reported ${foreignKeyCheck.rows.length} violation(s); discard this target`)
     }
-    return { restoredRows: restored, tableCounts, foreignKeyViolations: 0 }
+    return { restoredRows: restored, tableCounts, foreignKeyViolations: 0, ...(quarantine ? { quarantined: true as const } : {}) }
   } catch (error) {
     try { await tx.rollback() } catch { /* transaction may already be closed */ }
     throw error

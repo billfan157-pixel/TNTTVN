@@ -1,5 +1,7 @@
 import 'fake-indexeddb/auto'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { getDB } from '../../lib/db'
+import { setTenantScope } from '../../lib/tenantScope'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
@@ -7,7 +9,9 @@ import { useNoticeStore } from '../../stores/noticeStore'
 import { attendanceApiClient } from '../../lib/api/attendance'
 
 describe('Zustand State Stores Unit Tests', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await getDB().syncQueue.clear()
+    setTenantScope({ userId: 'USR-STORE-TEST', parishId: 'gia-ton' })
     localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-STORE-TEST', parishId: 'gia-ton' }))
     useStudentStore.setState({ students: [] })
     useGradeStore.setState({ grades: [] })
@@ -15,9 +19,16 @@ describe('Zustand State Stores Unit Tests', () => {
     useNoticeStore.setState({ notices: [] })
   })
 
-  it('addStudent adds a new student to studentStore', () => {
+  afterEach(async () => {
+    await getDB().syncQueue.clear()
+    setTenantScope(null)
+    localStorage.removeItem('parish_current_user')
+    vi.restoreAllMocks()
+  })
+
+  it('addStudent adds a new student to studentStore', async () => {
     const store = useStudentStore.getState()
-    store.addStudent({
+    await store.addStudent({
       fullName: 'Nguyễn Văn A',
       holyName: 'Phêrô',
       gender: 'Nam',
@@ -33,7 +44,7 @@ describe('Zustand State Stores Unit Tests', () => {
     expect(useStudentStore.getState().students[0].fullName).toBe('Nguyễn Văn A')
   })
 
-  it('updateStudent modifies existing student in studentStore', () => {
+  it('updateStudent modifies existing student in studentStore', async () => {
     useStudentStore.setState({
       students: [
         {
@@ -53,13 +64,16 @@ describe('Zustand State Stores Unit Tests', () => {
       ],
     })
     const store = useStudentStore.getState()
-    store.updateStudent('ST-001', { fullName: 'Trần Văn B (Đã sửa)' })
+    // ADR-109/durable-first: the mutation is not acknowledged until its Dexie
+    // queue write commits; leaving it un-awaited rejects after afterEach resets
+    // the tenant scope.
+    await store.updateStudent('ST-001', { fullName: 'Trần Văn B (Đã sửa)' })
     expect(useStudentStore.getState().students[0].fullName).toBe('Trần Văn B (Đã sửa)')
   })
 
-  it('upsertGrade adds and calculates average score correctly in gradeStore', () => {
+  it('upsertGrade adds and calculates average score correctly in gradeStore', async () => {
     const store = useGradeStore.getState()
-    store.upsertGrade({
+    await store.upsertGrade({
       studentId: 'ST-001',
       semester: 1,
       scoreOral: 9,

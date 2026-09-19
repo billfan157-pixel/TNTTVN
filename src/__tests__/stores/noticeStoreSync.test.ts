@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { setTenantScope } from '../../lib/tenantScope'
 import { useNoticeStore } from '../../stores/noticeStore'
 import { api, ApiError } from '../../lib/api'
 import { processOperation } from '../../lib/syncProcessor'
@@ -54,7 +55,16 @@ vi.mock('@sentry/react', () => ({ captureException: vi.fn() }))
 beforeEach(() => {
   useNoticeStore.setState({ notices: [], loading: false })
   vi.clearAllMocks()
+  setTenantScope({ userId: 'U-TEST', parishId: 'P-TEST' })
+  mockSyncQueue.where.mockReturnValue({
+    anyOf: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+  })
   localStorage.setItem('parish_current_user', '{"id":"U-TEST","parishId":"P-TEST"}')
+})
+
+afterEach(() => {
+  setTenantScope(null)
+  localStorage.removeItem('parish_current_user')
 })
 
 describe('Task 2 — noticeStore Sync Pipeline Verification', () => {

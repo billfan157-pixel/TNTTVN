@@ -3,7 +3,7 @@ import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm'
 import { computeWeightedGpa } from '../utils/gradeCalculation.js'
 import type { ReportingProjectionContext } from './ReportCardProjectionRepository.js'
 import { historicalEvidenceRequired } from '../utils/academicYearHistory.js'
-import { normalizeAcademicYear } from '../utils/academicYear.js'
+import { toCanonicalReportingYear } from '../utils/academicYear.js'
 
 export interface ReportClassDTO {
   id: string
@@ -57,7 +57,10 @@ export class ClassSummaryProjectionRepository {
       academicYear: classes.academicYearId,
     }).from(classes).where(and(eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     return rows
-      .filter((item) => normalizeAcademicYear(item.academicYear) === academicYear)
+      // Label-only comparison: legacy prefixed class IDs (e.g. `AY-2025-2026`)
+      // map to the canonical reporting year for display grouping; the row's
+      // persisted identity is untouched.
+      .filter((item) => toCanonicalReportingYear(item.academicYear) === academicYear)
       .map((item) => ({ ...item, branchId: item.branchId || null, academicYear }))
   }
 

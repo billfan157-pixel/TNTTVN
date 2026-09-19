@@ -4,6 +4,7 @@ import { eq, and, desc, gte, or, isNull, isNotNull } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { notifyParishNotice } from './smartNotifications.js'
+import { assertCreateReplayMatches, createIntentHash, readCreateIntentHash } from './createIdempotency.js'
 
 type CreateNoticeData = Pick<InferInsertModel<typeof notices>, 'title' | 'content' | 'date' | 'author' | 'priority' | 'targetBranch' | 'targetAudience' | 'idempotencyKey'>
 
@@ -49,6 +50,16 @@ export async function getNotices(parishId: string, updatedAfter?: string, limit:
 }
 
 export async function createNotice(data: CreateNoticeData, userId: string, parishId: string, ip: string, userAgent: string) {
+  const requestedIntent = {
+    title: data.title,
+    content: data.content,
+    date: data.date,
+    author: data.author,
+    priority: data.priority ?? 'normal',
+    targetBranch: data.targetBranch ?? null,
+    targetAudience: data.targetAudience ?? 'all',
+  }
+  const requestedIntentHash = createIntentHash(requestedIntent)
   const result = await runDbTransaction(async (tx) => {
     if (data.idempotencyKey) {
       const [existing] = await tx
@@ -56,7 +67,19 @@ export async function createNotice(data: CreateNoticeData, userId: string, paris
         .from(notices)
         .where(and(eq(notices.idempotencyKey, data.idempotencyKey), eq(notices.parishId, parishId)))
         .limit(1)
-      if (existing) return { notice: existing, created: false }
+      if (existing) {
+        const persistedHash = await readCreateIntentHash(tx, parishId, 'notice', existing.id, 'CREATE')
+        const notice = assertCreateReplayMatches(existing, {
+          title: existing.title,
+          content: existing.content,
+          date: existing.date,
+          author: existing.author,
+          priority: existing.priority,
+          targetBranch: existing.targetBranch ?? null,
+          targetAudience: existing.targetAudience ?? 'all',
+        }, requestedIntent, persistedHash)
+        return { notice, created: false }
+      }
     }
 
     const id = generateId('NC')
@@ -82,6 +105,7 @@ export async function createNotice(data: CreateNoticeData, userId: string, paris
         targetBranch: data.targetBranch,
         targetAudience: data.targetAudience,
         date: data.date,
+        createIntentHash: requestedIntentHash,
       }),
       ip,
       userAgent,

@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore'
 import * as syncService from '../../lib/syncService'
 import * as syncTrigger from '../../lib/syncTrigger'
 import { api, ApiError } from '../../lib/api'
+import { setTenantScope } from '../../lib/tenantScope'
 
 vi.mock('../../lib/api', () => ({
   api: {
@@ -67,6 +68,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   useAuthStore.setState({ user: { id: 'U-TEST', username: 'test', fullName: 'Test', role: 'admin', status: 'ACTIVE', parishId: 'p1' }, isAuthenticated: true, authReady: true })
   localStorage.setItem('parish_current_user', '{"id":"U-TEST","parishId":"p1"}')
+  // OFF-TENANT-1: pending-op ownership is exact-scope (parishId + userId) from the
+  // document-local tenant scope, exactly as authStore establishes it after login.
+  setTenantScope({ userId: 'U-TEST', parishId: 'p1' })
 })
 
 describe('Task 1 — classStore Sync & Race Condition Verification', () => {

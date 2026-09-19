@@ -9,6 +9,7 @@ import { upsertGrade } from './gradeService.js'
 import { getActiveAcademicYearId } from './academicYearService.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 import type { ActorRole } from '../types/actor.js'
+import { assertCreateReplayMatches, createIntentHash, normalizeJsonCreateField, readCreateIntentHash } from './createIdempotency.js'
 
 async function assertExamWriter(tx: DbExecutor, userId: string, parishId: string, classId: string,
   expected?: AcademicWriteExpectation, roles: readonly ActorRole[] = ['admin', 'chunhiem', 'phuta']) {
@@ -390,6 +391,44 @@ async function withSqliteBusyRetry<T>(operation: () => Promise<T>, maxAttempts =
 }
 
 export async function createExamSession(data: ExamSessionData, userId: string, parishId: string, ip: string, userAgent: string, expected?: AcademicWriteExpectation) {
+  // When the caller omits academicYear, preserve the historical server default
+  // but do not make a later active-year change turn an otherwise identical
+  // replay into a false mismatch.
+  const explicitYear = data.academicYear ? normalizeAcademicYear(data.academicYear) : null
+  const requestedAnswerVariants = data.answerVariants
+    ?? (data.answerKey ? JSON.stringify({ A: JSON.parse(data.answerKey) }) : null)
+  const requestedIntent = {
+    classId: data.classId,
+    subject: data.subject,
+    scoreType: data.scoreType,
+    maxScore: data.maxScore ?? 10,
+    semester: data.semester,
+    ...(explicitYear ? { academicYear: explicitYear } : {}),
+    examType: data.examType ?? 'written',
+    questionCount: data.questionCount ?? null,
+    answerKey: normalizeJsonCreateField(data.answerKey),
+    answerVariants: normalizeJsonCreateField(requestedAnswerVariants),
+    questions: normalizeJsonCreateField(data.questions),
+  }
+
+  const assertReplay = async (executor: DbExecutor, existing: typeof examSessions.$inferSelect) => {
+    await assertExamWriter(executor, userId, parishId, existing.classId, expected)
+    const persistedHash = await readCreateIntentHash(executor, parishId, 'exam_session', existing.id, 'EXAM_CREATE')
+    return assertCreateReplayMatches(existing, {
+      classId: existing.classId,
+      subject: existing.subject,
+      scoreType: existing.scoreType,
+      maxScore: existing.maxScore,
+      semester: existing.semester,
+      ...(data.academicYear ? { academicYear: existing.academicYear } : {}),
+      examType: existing.examType,
+      questionCount: existing.questionCount ?? null,
+      answerKey: normalizeJsonCreateField(existing.answerKey),
+      answerVariants: normalizeJsonCreateField(existing.answerVariants),
+      questions: normalizeJsonCreateField(existing.questions),
+    }, requestedIntent, persistedHash)
+  }
+
   if (data.idempotencyKey) {
     const existing = await db
       .select()
@@ -397,8 +436,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
       .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
       .limit(1)
     if (existing.length > 0) {
-      await assertExamWriter(db, userId, parishId, existing[0].classId, expected)
-      return existing[0]
+      return await assertReplay(db, existing[0])
     }
   }
 
@@ -407,7 +445,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
   // BUSINESS_RULES "Tạo phiên chấm" quy tắc 2 và getOpenSemester), KHÔNG còn
   // theo lịch tháng 8. Client luôn gửi năm hoạt động; fallback này cho API call
   // trực tiếp để điểm finalize không rơi nhầm năm.
-  const normYear = data.academicYear ? normalizeAcademicYear(data.academicYear) : await getActiveAcademicYearId(parishId)
+  const normYear = explicitYear ?? await getActiveAcademicYearId(parishId)
   const id = generateId('EXS')
   const now = new Date().toISOString()
 
@@ -434,7 +472,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
     examType: data.examType ?? 'written',
     questionCount: data.questionCount ?? null,
     answerKey: data.answerKey ?? null,
-    answerVariants: data.answerVariants ?? (data.answerKey ? JSON.stringify({ A: JSON.parse(data.answerKey) }) : null),
+    answerVariants: requestedAnswerVariants,
     questions: data.questions ?? null,
     idempotencyKey: data.idempotencyKey ?? undefined,
     status: 'draft' as const,
@@ -456,7 +494,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
         entityType: 'exam_session',
         entityId: id,
         oldValue: null,
-        newValue: JSON.stringify(row),
+        newValue: JSON.stringify({ ...row, createIntentHash: createIntentHash(requestedIntent) }),
       })
     })
   } catch (err) {
@@ -471,8 +509,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
         .where(and(eq(examSessions.idempotencyKey, data.idempotencyKey), eq(examSessions.parishId, parishId)))
         .limit(1)
       if (winner) {
-        await assertExamWriter(db, userId, parishId, winner.classId, expected)
-        return winner
+        return await assertReplay(db, winner)
       }
     }
     throw err

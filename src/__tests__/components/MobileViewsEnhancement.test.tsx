@@ -9,6 +9,7 @@ import { MobileHomeView } from '../../components/mobile/MobileHomeView'
 import { MobileAttendanceView } from '../../components/mobile/MobileAttendanceView'
 import { MobileAttendanceSummaryView } from '../../components/mobile/MobileAttendanceSummaryView'
 import { MobileLeaveRequests } from '../../components/mobile/MobileLeaveRequests'
+import { MobileCalendarView } from '../../components/mobile/MobileCalendarView'
 import { MobileBottomNav } from '../../components/mobile/MobileBottomNav'
 import { DesktopNotices } from '../../components/desktop/DesktopNotices'
 import { useAuthStore } from '../../stores/authStore'
@@ -250,6 +251,26 @@ describe('MobileViewsEnhancement Tests', () => {
       // Confirm dialog should appear
       expect(screen.getByText(/Bạn có chắc chắn muốn gửi kết quả học tập cho/i)).toBeInTheDocument()
     })
+
+    it('clears search query when 1-tap clear button is clicked', () => {
+      useFilterStore.setState({ searchQuery: 'Maria' })
+      render(
+        <MobileStudentsView
+          workspace="students"
+          onWorkspaceChange={vi.fn()}
+          onViewClassStudents={vi.fn()}
+          onEditStudent={vi.fn()}
+          onViewReport={vi.fn()}
+          onPrintReport={vi.fn()}
+        />
+      )
+
+      const clearBtn = screen.getByRole('button', { name: 'Xóa tìm kiếm' })
+      expect(clearBtn).toBeInTheDocument()
+
+      fireEvent.click(clearBtn)
+      expect(useFilterStore.getState().searchQuery).toBe('')
+    })
   })
 
   it('keeps a GLV class selection while they stay on the roster route', () => {
@@ -400,6 +421,36 @@ describe('MobileViewsEnhancement Tests', () => {
       expect(container.querySelector('.mobile-home-hero')).toBeInTheDocument()
       expect(container.querySelectorAll('.mobile-quick-action')).toHaveLength(4)
       expect(screen.getByRole('button', { name: /mở lịch phụng vụ/i })).toBeInTheDocument()
+    })
+
+    it('deep-links Duyệt nghỉ quick action to leave-requests tab/route', () => {
+      const handleNavigateTab = vi.fn()
+      render(
+        <MobileHomeView
+          onNavigateTab={handleNavigateTab}
+          onOpenAddStudent={vi.fn()}
+        />
+      )
+
+      const duyetNghiBtn = screen.getByRole('button', { name: /thao tác nhanh: duyệt nghỉ/i })
+      expect(duyetNghiBtn).toBeInTheDocument()
+
+      fireEvent.click(duyetNghiBtn)
+      expect(handleNavigateTab).toHaveBeenCalledWith('leave-requests')
+    })
+  })
+
+  describe('MobileCalendarView', () => {
+    it('renders upcoming solemnities as accessible button elements', () => {
+      render(<MobileCalendarView />)
+
+      const solemnityHeading = screen.getByText(/Lễ Trọng Sắp Tới/i)
+      expect(solemnityHeading).toBeInTheDocument()
+
+      const solemnityButtons = screen.getAllByRole('button').filter(btn =>
+        btn.className.includes('bg-surface-app')
+      )
+      expect(solemnityButtons.length).toBeGreaterThan(0)
     })
   })
 })
