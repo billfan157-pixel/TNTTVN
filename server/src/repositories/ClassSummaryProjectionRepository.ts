@@ -1,8 +1,9 @@
-import { students, classes, grades, attendance, promotionRecords, academicYearSnapshots } from '../db/schema.js'
+import { students, classes, grades, attendance, promotionRecords, academicYearSnapshots, gradeOverrides } from '../db/schema.js'
 import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm'
-import { computeWeightedGpa } from '../utils/gradeCalculation.js'
+import { computeWeightedGpa, getClassificationLabel } from '../utils/gradeCalculation.js'
+import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
 import type { ReportingProjectionContext } from './ReportCardProjectionRepository.js'
-import { historicalEvidenceRequired } from '../utils/academicYearHistory.js'
+import { academicReportSnapshotSchema, historicalEvidenceRequired, parseHistoricalEvidence } from '../utils/academicYearHistory.js'
 import { toCanonicalReportingYear } from '../utils/academicYear.js'
 
 export interface ReportClassDTO {
@@ -17,9 +18,23 @@ export interface ClassStudentSummaryDTO {
   code: string
   holyName?: string | null
   fullName: string
+  gender?: string | null
+  dateOfBirth?: string | null
   gpa: number
   attendanceRate: number
+  classification?: string | null
   promotionStatus?: string | null
+  grades?: Array<{
+    semester: number
+    scoreOral?: number | null
+    score15m?: number | null
+    score1Period?: number | null
+    scoreMidterm?: number | null
+    scoreFinal?: number | null
+    scoreDaoDuc?: number | null
+    gpa?: number | null
+    classification?: string | null
+  }>
 }
 
 export interface ClassSummaryDTO {
@@ -73,7 +88,7 @@ export class ClassSummaryProjectionRepository {
     parishId: string,
     context: ReportingProjectionContext,
   ): Promise<ClassSummaryDTO | null> {
-    const { executor, gradeWeights, attendancePolicy, academicYearRange } = context
+    const { executor, gradeWeights, attendancePolicy, classificationThresholds, academicYearRange } = context
     // 1. Fetch Class Info
     const [classRow] = await executor
       .select()
@@ -103,10 +118,29 @@ export class ClassSummaryProjectionRepository {
       const roster: ClassStudentSummaryDTO[] = profiles.map(s => {
         const snapshot = cohort.find(row => row.studentId === s.id)!
         if (snapshot.attendanceRate === null) throw historicalEvidenceRequired()
+        const frozen = parseHistoricalEvidence(academicReportSnapshotSchema, snapshot.reportSnapshot)
         return {
-          studentId: s.id, code: s.code, holyName: s.holyName, fullName: s.fullName,
-          gpa: snapshot.yearGpa ?? 0, attendanceRate: snapshot.attendanceRate,
+          studentId: s.id,
+          code: s.code,
+          holyName: s.holyName,
+          fullName: s.fullName,
+          gender: s.gender,
+          dateOfBirth: s.dateOfBirth,
+          gpa: snapshot.yearGpa ?? 0,
+          attendanceRate: snapshot.attendanceRate,
+          classification: snapshot.classification ?? (snapshot.yearGpa !== null ? getClassificationLabel(snapshot.yearGpa, policy.classificationThresholds) : null),
           promotionStatus: promotions.find(p => p.studentId === s.id)?.finalDecision ?? snapshot.promotionStatus,
+          grades: (frozen.grades || []).map(grade => ({
+            semester: grade.semester,
+            scoreOral: grade.scoreOral ?? null,
+            score15m: grade.score15m ?? null,
+            score1Period: grade.score1Period ?? null,
+            scoreMidterm: grade.scoreMidterm ?? null,
+            scoreFinal: grade.scoreFinal ?? null,
+            scoreDaoDuc: grade.scoreDaoDuc ?? null,
+            gpa: grade.gpa ?? null,
+            classification: grade.gpa === null || grade.gpa === undefined ? null : getClassificationLabel(grade.gpa, policy.classificationThresholds),
+          })),
         }
       })
       return {
@@ -159,6 +193,25 @@ export class ClassSummaryProjectionRepository {
           eq(grades.parishId, parishId)
         )
       )
+
+    const gradeIds = allGrades.map((g) => g.id)
+    const allOverrides = gradeIds.length > 0 ? await executor
+      .select()
+      .from(gradeOverrides)
+      .where(
+        and(
+          inArray(gradeOverrides.gradeId, gradeIds),
+          eq(gradeOverrides.parishId, parishId),
+          isNull(gradeOverrides.deletedAt)
+        )
+      ) : []
+
+    const overridesByGradeId = new Map<string, typeof allOverrides>()
+    for (const o of allOverrides) {
+      const list = overridesByGradeId.get(o.gradeId) || []
+      list.push(o)
+      overridesByGradeId.set(o.gradeId, list)
+    }
 
     // ADR-017 (F2): Attendance giới hạn theo năm học đang xét — trước đây đếm
     // all-time làm lệch tỷ lệ chuyên cần trong báo cáo lớp.
@@ -214,15 +267,31 @@ export class ClassSummaryProjectionRepository {
     for (const s of studentRows) {
       const gradeRows = gradesByStudent.get(s.id) || []
       let studentGpas: number[] = []
+      const studentGrades: NonNullable<ClassStudentSummaryDTO['grades']> = []
+
       for (const g of gradeRows) {
-        const semesterGpa = computeWeightedGpa(g, gradeWeights)
+        const gradeOverridesList = overridesByGradeId.get(g.id) || []
+        const effectiveGrade = applyOverridesToGrade(g as any, gradeOverridesList as any[])
+        const semesterGpa = computeWeightedGpa(effectiveGrade as any, gradeWeights)
         if (typeof semesterGpa === 'number') studentGpas.push(semesterGpa)
+        studentGrades.push({
+          semester: effectiveGrade.semester!,
+          scoreOral: effectiveGrade.scoreOral ?? null,
+          score15m: effectiveGrade.score15m ?? null,
+          score1Period: effectiveGrade.score1Period ?? null,
+          scoreMidterm: effectiveGrade.scoreMidterm ?? null,
+          scoreFinal: effectiveGrade.scoreFinal ?? null,
+          scoreDaoDuc: effectiveGrade.scoreDaoDuc ?? null,
+          gpa: semesterGpa,
+          classification: semesterGpa === null ? null : getClassificationLabel(semesterGpa, classificationThresholds),
+        })
       }
       // F4: Làm tròn theo roundingDecimal của parish — trước đây toFixed(2) cứng
       // (8.89) lệch với mọi nơi khác (0.1) và với client (roundingDecimal settings).
       const rounding = Number(gradeWeights.roundingDecimal ?? 1)
       const gpaFactor = Math.pow(10, rounding)
       const gpa = studentGpas.length > 0 ? Math.round((studentGpas.reduce((a, b) => a + b, 0) / studentGpas.length) * gpaFactor) / gpaFactor : 0.0
+      const classification = studentGpas.length > 0 ? getClassificationLabel(gpa, classificationThresholds) : null
 
       const attRows = attendanceByStudent.get(s.id) || []
       // F3: Rate dùng excusedWeight từ attendancePolicy (khớp ReportCardProjection).
@@ -253,9 +322,13 @@ export class ClassSummaryProjectionRepository {
         code: s.code,
         holyName: s.holyName,
         fullName: s.fullName,
+        gender: s.gender,
+        dateOfBirth: s.dateOfBirth,
         gpa,
         attendanceRate: attRate,
+        classification,
         promotionStatus: status,
+        grades: studentGrades,
       })
     }
 

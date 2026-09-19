@@ -88,7 +88,7 @@ Panel "Xét Lên Lớp" (`PromotionPanel`) **chỉ hoạt động khi có kết 
 - `gpa`/`attendanceRate` client gửi BẮT BUỘC lấy từ `GET /api/promotion/evaluate/:studentId` (authoritative); lệch → 409 `DATA_MISMATCH`.
 - Move được áp lại cho item `skipped` khi chạy lần 2 (idempotent hội tụ).
 - **Completion khác approval (XD-01):** `/promotion/approve` chỉ lưu quyết định, không chứng minh chuyển lớp. Year reconciliation/list/retry/archive chỉ công nhận active/latest record có `completed_at` và `completed_target_year_id` khớp target đã persist. Receipt và audit `COMPLETE_PROMOTION` commit cùng membership move; GRADUATED/TRANSFERRED có thể hoàn tất với no-move tường minh. Thiếu lớp đích cho trường hợp cần chuyển → unresolved/error, archive bị chặn. Receipt lịch sử không bị suy lại từ class pointer hiện tại. Legacy thiếu receipt không tự backfill.
-- Không dùng hàng đợi generic `PUT /students/:id` để thăng tiến: khi offline UI phải giữ nguyên dữ liệu và yêu cầu kết nối lại. `PUT /students/:id` chỉ cho correction hồ sơ/membership có lý do audit tường minh, không thay thế promotion snapshot.
+- Không dùng hàng đợi generic `PUT /students/:id` để thăng tiến: khi offline UI phải giữ nguyên dữ liệu và yêu cầu kết nối lại. `PUT /students/:id` chỉ cho correction hồ sơ/membership có lý do audit tường minh, không thay thế promotion snapshot. Server thực thi: `PUT` đổi `classId` sang niên khóa khác bị từ chối `409 CROSS_ACADEMIC_YEAR_TRANSFER_DISALLOWED`; tạo/chuyển học sinh vào lớp thuộc niên khóa đã khóa/chốt bị từ chối `409 ACADEMIC_YEAR_INVALID` (áp dụng cả tạo lớp mới qua `POST /api/classes`).
 
 ---
 

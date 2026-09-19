@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { StudentModal } from '../../components/common/StudentModal'
+import { StudentModal, STUDENT_PARENT_PHONE_RE } from '../../components/common/StudentModal'
 
 const studentStoreMocks = vi.hoisted(() => ({
   addStudent: vi.fn(),
@@ -172,5 +172,56 @@ describe('StudentModal Component', () => {
         membershipChangeReason: 'Điều chỉnh do xếp nhầm lớp',
       }),
     ))
+  })
+
+  describe('A8-04 parent phone validation (mirrors backend +84/0 rule)', () => {
+    it.each([
+      '0901234567',
+      '02838123456',
+      '+84901234567',
+      '+849012345678',
+    ])('accepts backend-valid phone %s', (phone) => {
+      expect(STUDENT_PARENT_PHONE_RE.test(phone)).toBe(true)
+    })
+
+    it.each([
+      '123',
+      '090123456',
+      '090123456789',
+      'abc0901234567',
+      '+850901234567',
+    ])('rejects invalid phone %s', (phone) => {
+      expect(STUDENT_PARENT_PHONE_RE.test(phone)).toBe(false)
+    })
+
+    it('submits an edit for a student previously stored with +84 phone (no untouched-field deadlock)', async () => {
+      const onClose = vi.fn()
+      render(<StudentModal isOpen={true} onClose={onClose} studentToEdit={{
+        id: 'ST-1', fullName: 'Test', holyName: 'Phero', gender: 'Nam', dateOfBirth: '2015-01-01',
+        parentName: 'Phụ huynh', parentPhone: '+84901234567',
+        branch: 'AuNhi', classId: 'AU1', status: 'Đang học',
+      } as any} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Lưu Thay Đổi/i }))
+
+      await waitFor(() => expect(studentStoreMocks.updateStudent).toHaveBeenCalledWith(
+        'ST-1',
+        expect.objectContaining({ parentPhone: '+84901234567' }),
+      ))
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('blocks submit with a hint for a truly invalid phone', () => {
+      render(<StudentModal isOpen={true} onClose={vi.fn()} studentToEdit={{
+        id: 'ST-1', fullName: 'Test', holyName: 'Phero', gender: 'Nam', dateOfBirth: '2015-01-01',
+        branch: 'AuNhi', classId: 'AU1', status: 'Đang học',
+      } as any} />)
+
+      fireEvent.change(screen.getByLabelText('Số Điện Thoại Phụ Huynh'), { target: { value: '123' } })
+      fireEvent.click(screen.getByRole('button', { name: /Lưu Thay Đổi/i }))
+
+      expect(screen.getByText('Số điện thoại gồm 10-11 chữ số (bắt đầu bằng 0) hoặc định dạng +84.')).toBeDefined()
+      expect(studentStoreMocks.updateStudent).not.toHaveBeenCalled()
+    })
   })
 })

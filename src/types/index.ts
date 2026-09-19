@@ -467,9 +467,23 @@ export interface ClassStudentSummaryDTO {
   code: string;
   holyName?: string | null;
   fullName: string;
+  gender?: string | null;
+  dateOfBirth?: string | null;
   gpa: number;
   attendanceRate: number;
+  classification?: string | null;
   promotionStatus?: string | null;
+  grades?: Array<{
+    semester: number;
+    scoreOral?: number | null;
+    score15m?: number | null;
+    score1Period?: number | null;
+    scoreMidterm?: number | null;
+    scoreFinal?: number | null;
+    scoreDaoDuc?: number | null;
+    gpa?: number | null;
+    classification?: string | null;
+  }>;
 }
 
 export interface ClassSummaryDTO {

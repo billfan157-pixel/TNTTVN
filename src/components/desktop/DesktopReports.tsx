@@ -65,6 +65,15 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
     return () => { active = false; };
   }, [currentYear]);
 
+  useEffect(() => {
+    if (typeof useStudentStore.getState === 'function') {
+      const state = useStudentStore.getState();
+      if (state?.students?.length === 0 && typeof state?.fetchStudents === 'function') {
+        void state.fetchStudents();
+      }
+    }
+  }, []);
+
   const officialByStudentId = useMemo(() => new Map(
     officialReports.flatMap(classReport => classReport.reportCards.map(report => [report.student.id, {
       report,
@@ -73,18 +82,42 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   ), [officialReports]);
   const officialStudentCount = officialByStudentId.size;
 
+  const mergedStudents = useMemo(() => {
+    const studentMap = new Map(students.map(s => [s.id, s]));
+    return officialReports.flatMap(classReport =>
+      classReport.reportCards.map(report => {
+        const existing = studentMap.get(report.student.id);
+        if (existing) return existing;
+        return {
+          id: report.student.id,
+          code: report.student.code,
+          holyName: report.student.holyName || '',
+          fullName: report.student.fullName,
+          gender: (report.student.gender === 'Nữ' ? 'Nữ' : 'Nam') as 'Nam' | 'Nữ',
+          dateOfBirth: report.student.dateOfBirth || '',
+          parentName: '',
+          parentPhone: '',
+          address: '',
+          branch: (classReport.classInfo.branchId as any) || 'AuNhi',
+          classId: classReport.classInfo.id,
+          status: 'Đang học',
+        } as Student;
+      })
+    );
+  }, [officialReports, students]);
+
   // Quick-print: tìm kiếm thay vì cap cứng 9 học sinh đầu tiên
   const QUICK_PRINT_LIMIT = 12;
   const matchedStudents = useMemo(() => {
     const q = studentQuery.trim().toLowerCase();
-    const eligible = students.filter(s => officialByStudentId.has(s.id));
+    const eligible = mergedStudents.filter(s => officialByStudentId.has(s.id));
     const base = q
       ? eligible.filter(s =>
           s.fullName.toLowerCase().includes(q) ||
           (s.holyName || '').toLowerCase().includes(q))
       : eligible;
     return base.slice(0, QUICK_PRINT_LIMIT);
-  }, [officialByStudentId, students, studentQuery]);
+  }, [officialByStudentId, mergedStudents, studentQuery]);
 
   const openPrintModal = (type?: import('../../utils/pdfGenerator').ReportType) => {
     setPrintReportType(type);
@@ -104,6 +137,7 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
         if (format === 'csv') exportCsv(filename, rows);
         else await exportXlsx(filename, 'Chi tiết học sinh', rows);
       }
+      useToastStore.getState().addToast(`Đã xuất file ${format.toUpperCase()} thành công!`, 'success');
     } catch (err) {
       useToastStore.getState().addToast('Lỗi khi xuất báo cáo! Vui lòng thử lại.', 'error');
       console.error('[DesktopReports] export failed:', err);

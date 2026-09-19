@@ -62,4 +62,52 @@ describe('officialReporting server-authoritative gateway', () => {
     expect(getClassSummaryMock).toHaveBeenCalledTimes(1)
     expect(getClassSummaryMock).toHaveBeenCalledWith('old-class', '2025-2026')
   })
+
+  it('synthesizes reportCards directly without N+1 HTTP calls when summary includes embedded grades', async () => {
+    getClassSummaryMock.mockResolvedValue({
+      classId: 'live-class',
+      className: 'Live Class',
+      branchId: 'AuNhi',
+      academicYear: '2026-2027',
+      totalStudents: 1,
+      promotedCount: 1,
+      retainedCount: 0,
+      transferredCount: 0,
+      averageGpa: 8.5,
+      averageAttendanceRate: 98,
+      students: [{
+        studentId: 'student-live',
+        code: 'TN-2',
+        holyName: 'Maria',
+        fullName: 'Live Student',
+        gender: 'Nữ',
+        dateOfBirth: '2015-05-10',
+        gpa: 8.5,
+        attendanceRate: 98,
+        classification: 'Giỏi',
+        promotionStatus: 'PROMOTED',
+        grades: [{
+          semester: 1,
+          scoreOral: 8,
+          score15m: 9,
+          score1Period: 8.5,
+          scoreMidterm: null,
+          scoreFinal: 9,
+          scoreDaoDuc: 10,
+          gpa: 8.5,
+          classification: 'Giỏi',
+        }],
+      }],
+    })
+
+    const result = await fetchOfficialClassReport('live-class', '2026-2027')
+
+    expect(getStudentReportCardMock).not.toHaveBeenCalled()
+    expect(result.reportCards).toHaveLength(1)
+    expect(result.reportCards[0].student.id).toBe('student-live')
+    expect(result.reportCards[0].yearSummary.classification).toBe('Giỏi')
+    expect(result.reportCards[0].yearSummary.gpa).toBe(8.5)
+    expect(result.reportCards[0].grades[0].scoreFinal).toBe(9)
+    expect(result.reportCards[0].promotion?.status).toBe('PROMOTED')
+  })
 })

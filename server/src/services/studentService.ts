@@ -6,6 +6,7 @@ import { redactStudentForAudit } from '../utils/auditRedact.js'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateStudentCodeSuffix } from './studentCodeGenerator.js'
 import { resolveMembershipBranch } from './studentMembershipPolicy.js'
+import { isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 import { assertCreateReplayMatches, createIntentHash, readCreateIntentHash } from './createIdempotency.js'
 
@@ -104,7 +105,15 @@ export async function getStudentById(id: string, parishId: string) {
 
 async function getAcademicYearPrefix(classId: string, parishId: string, executor: DbExecutor = db): Promise<string> {
   const [result] = await executor
-    .select({ startDate: academicYears.startDate, deletedAt: classes.deletedAt })
+    .select({
+      startDate: academicYears.startDate,
+      deletedAt: classes.deletedAt,
+      // A8-02 (audit 2026-09-19): every student write path resolves through
+      // this helper, so the closed-year gate here covers createStudent,
+      // updateStudent transfers, and sync replays in one place.
+      isLocked: academicYears.isLocked,
+      status: academicYears.status,
+    })
     .from(classes)
     .leftJoin(academicYears, eq(classes.academicYearId, academicYears.id))
     .where(and(eq(classes.id, classId), eq(classes.parishId, parishId)))
@@ -118,8 +127,11 @@ async function getAcademicYearPrefix(classId: string, parishId: string, executor
     throw new Error(`Class has been deleted: ${classId}`)
   }
 
-  if (!result.startDate) {
-    throw new Error(`Academic year not set for class: ${classId}`)
+  if (!result.startDate || isAcademicYearClosedForWrite(result)) {
+    throw Object.assign(
+      new Error('Không thể xếp học sinh vào lớp thuộc niên khóa đã khóa/chốt'),
+      { code: 'ACADEMIC_YEAR_INVALID', status: 409 },
+    )
   }
 
   const year = new Date(result.startDate).getFullYear()
@@ -463,7 +475,33 @@ export async function updateStudent(
     }
     if (Object.keys(data).length === 0) return existing
     if (data.classId !== undefined && data.classId !== existing.classId) {
+      // A8-02: target must live in an open, non-terminal year (also validates
+      // target existence with the legacy 'Class not found' error). Checked
+      // first so a move into a locked year reports ACADEMIC_YEAR_INVALID
+      // rather than the cross-year code below.
       await getAcademicYearPrefix(data.classId, parishId, tx)
+      // A8-03 (audit 2026-09-19): generic updates must stay intra-year.
+      // Cross-year moves bypass promotion eligibility, snapshots and audit
+      // trail — they are only permitted through the promotion workflow,
+      // which writes students.classId directly and never passes here.
+      const [sourceClass] = await tx
+        .select({ academicYearId: classes.academicYearId })
+        .from(classes)
+        .where(and(eq(classes.id, existing.classId), eq(classes.parishId, parishId)))
+        .limit(1)
+      if (!sourceClass) throw new Error(`Class not found: ${existing.classId}`)
+      const [targetClass] = await tx
+        .select({ academicYearId: classes.academicYearId })
+        .from(classes)
+        .where(and(eq(classes.id, data.classId), eq(classes.parishId, parishId)))
+        .limit(1)
+      if (!targetClass) throw new Error(`Class not found: ${data.classId}`)
+      if (sourceClass.academicYearId !== targetClass.academicYearId) {
+        throw Object.assign(
+          new Error('Không thể chuyển học sinh sang niên khóa khác qua cập nhật lớp. Vui lòng sử dụng quy trình Xét Lên Lớp.'),
+          { code: 'CROSS_ACADEMIC_YEAR_TRANSFER_DISALLOWED', status: 409 },
+        )
+      }
     }
     const changesMembership = (data.classId !== undefined && data.classId !== existing.classId)
       || (data.branch !== undefined && data.branch !== existing.branch)

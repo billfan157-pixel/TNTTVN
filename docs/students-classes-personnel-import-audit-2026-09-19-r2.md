@@ -104,7 +104,7 @@ erDiagram
 Fresh evidence confirms the following core architectural strengths across current HEAD:
 
 ### S1 — Normalized Duplicate Matching with Diacritic Resilience
-- **Mechanism:** `server/src/services/importService.ts` (`detectDuplicates`) chunks import rows by `dateOfBirth`, queries candidate pools using parish and DOB, and normalizes full names (stripping diacritics, lowercase, removing punctuation) before computing similarity scores.
+- **Mechanism:** `server/src/services/importService.ts` (`detectDuplicates`) chunks import rows by both `dateOfBirth` (`CHUNK_DOB = 50`) and parent phone (`CHUNK_PHONE = 50`), queries candidate pools using parish and DOB/phone, and normalizes full names via `normalizeName` (NFD → strip diacritics → lowercase → remove punctuation → collapse whitespace) before computing similarity scores.
 - **Evidence:** Probe test verifies that variants such as `nguyen van anh` vs `Nguyễn Văn Ánh` sharing DOB and parish are reliably detected as duplicates.
 - **Verification:** PASS in historical probe.
 
@@ -166,7 +166,7 @@ Fresh evidence confirms the following core architectural strengths across curren
 - **Verification:** PASS in repository tests.
 
 ### S9 — Client-Side Optimistic Rollback & Resilient Sync
-- **Mechanism:** `src/stores/studentStore.ts` reverts optimistic additions if Dexie enqueue fails. In `src/lib/syncApply.ts`, permanent server rejections (4xx) invoke `reconcilePermanentlyRejectedStudentOp` to quarantine failed operations and synchronize UI state.
+- **Mechanism:** `src/stores/studentStore.ts` saves pre-mutation state before attempting Dexie queue insertion; if the enqueue fails, the catch block filters out the optimistic student, cleanly reverting the UI. In `src/lib/syncApply.ts`, permanent server rejections (4xx) invoke `reconcilePermanentlyRejectedStudentOp` to **discard** the untrusted optimistic UI projection by calling `studentStore.discardOptimisticStudent(op.entityId)`. The actual quarantine of the failed queue payload for diagnostics is handled at the sync engine level, not by this function.
 - **Verification:** PASS in store tests.
 
 ---
@@ -185,8 +185,10 @@ Fresh evidence confirms the following core architectural strengths across curren
 ```
 
 ### Finding A8-01 — P1: Class Creation Permitted in Locked or Archived Academic Years
-- **Location:** `server/src/routes/classes.ts:207-215`, `server/src/services/classService.ts:107-173`.
-- **Trigger Path:** Admin calls `POST /api/classes` with `{ academicYearId: "<locked_or_archived_year>" }`.
+- **Location:** `server/src/routes/classes.ts:207-215`, `server/src/services/classService.ts:107-173`, `server/src/services/importService.ts:~1198` (auto-class-creation).
+- **Trigger Path:**
+  1. Admin calls `POST /api/classes` with `{ academicYearId: "<locked_or_archived_year>" }`.
+  2. *(Verification addendum 2026-09-19)* Admin imports a roster via `importService.ts` targeting a locked/archived academic year — auto-class-creation only checks if the academic year exists (`if (!ay) throw ...`), but does **not** verify `ay.isLocked` or `ay.status`.
 - **Expected Invariant:** Classes cannot be created inside academic years that are locked (`isLocked === 1`) or finalized/archived (`status IN ('FINALIZED', 'ARCHIVED', 'PROMOTED')`).
 - **Observed Behavior:**
   - In `server/src/routes/classes.ts`, the check only verifies if *any* academic year exists in the parish:
@@ -198,6 +200,7 @@ Fresh evidence confirms the following core architectural strengths across curren
       .limit(1)
     ```
   - In `server/src/services/classService.ts:createClass`, it inserts directly without checking `targetYear.isLocked` or `targetYear.status`.
+  - In `server/src/services/importService.ts` (auto-class-creation ~line 1198), the import flow only verifies the academic year exists but does **not** query `isLocked` or `status` — extending the same vulnerability to the batch import path.
   - Contrast with `updateClass` (lines 195-202), which explicitly checks:
     ```typescript
     if (!targetYear || targetYear.isLocked || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(targetYear.status)) {
@@ -205,7 +208,7 @@ Fresh evidence confirms the following core architectural strengths across curren
     }
     ```
 - **Reproduced Evidence:** In `scripts/audits/students-classes-personnel-import-2026-09-19.probe.ts` (Test A8-01): `createClass` successfully created a class inside an academic year with `isLocked: 1` and `status: 'ARCHIVED'`, whereas `updateClass` threw `ACADEMIC_YEAR_INVALID`.
-- **Blast Radius:** Roster fragmentation, phantom classes appearing in archived years, distorted year-end statistics.
+- **Blast Radius:** Roster fragmentation, phantom classes appearing in archived years, distorted year-end statistics. Import-path bypass extends risk to bulk operations by parish secretaries.
 
 ---
 
@@ -214,6 +217,7 @@ Fresh evidence confirms the following core architectural strengths across curren
 - **Trigger Path:**
   1. `POST /api/students` with `classId` pointing to a class in a locked/archived academic year.
   2. `PUT /api/students/:id` with `classId` pointing to a class in a locked/archived academic year and `membershipChangeReason.length >= 5`.
+  3. *(Verification addendum 2026-09-19)* `PUT /api/students/:id` modifying profile attributes (name, phone, etc.) of a student already enrolled in a locked-year class — `updateStudent` never checks the existing class's year lock status, so profile edits within finalized years are also unrestricted.
 - **Expected Invariant:** Enrollment and student movement must be restricted to active, non-locked academic years.
 - **Observed Behavior:**
   - `studentService.ts` relies on helper `getAcademicYearPrefix(classId, parishId, tx)`:
@@ -328,15 +332,17 @@ All 15 findings and 5 conditional risks from `docs/students-classes-personnel-im
 ## 10. Cross-Entry-Path Inconsistencies
 
 ```text
-┌──────────────────────────────┬──────────────────┬──────────────────┬──────────────────┐
-│ Feature / Rule               │ Manual CRUD      │ Excel Import     │ Sync Queue       │
-├──────────────────────────────┼──────────────────┼──────────────────┼──────────────────┤
-│ Phone format regex           │ Strict 10-digit* │ +84 or 10-11 dig │ +84 or 10-11 dig │
-│ Academic Year Lock check     │ Missing (A8-02)  │ Enforced (year)  │ Missing (A8-02)  │
-│ Intra-year transfer reason   │ Requires >= 5 ch │ Handled in modal │ Replayed in queue│
-│ Membership branch alignment  │ Enforced         │ Enforced         │ Enforced         │
-└──────────────────────────────┴──────────────────┴──────────────────┴──────────────────┘
+┌───────────────────────────────────┬──────────────────┬──────────────────┬──────────────────┐
+│ Feature / Rule                    │ Manual CRUD      │ Excel Import     │ Sync Queue       │
+├───────────────────────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│ Phone format regex                │ Strict 10-digit* │ +84 or 10-11 dig │ +84 or 10-11 dig │
+│ AY Lock: student enrollment      │ Missing (A8-02)  │ Enforced (year)  │ Missing (A8-02)  │
+│ AY Lock: class creation          │ Missing (A8-01)  │ Missing (A8-01)† │ N/A              │
+│ Intra-year transfer reason        │ Requires >= 5 ch │ Handled in modal │ Replayed in queue│
+│ Membership branch alignment       │ Enforced         │ Enforced         │ Enforced         │
+└───────────────────────────────────┴──────────────────┴──────────────────┴──────────────────┘
 * Frontend StudentModal only; backend accepts +84/11 digits.
+† Verification addendum: importService auto-class-creation only checks year existence, not isLocked/status.
 ```
 
 ---
@@ -419,6 +425,7 @@ All 15 findings and 5 conditional risks from `docs/students-classes-personnel-im
        throw Object.assign(new Error('Không thể tạo lớp trong niên khóa đã khóa/lưu trữ'), { code: 'ACADEMIC_YEAR_INVALID' })
      }
      ```
+   - *(Verification addendum)* Also apply the same guard in `server/src/services/importService.ts` auto-class-creation (~line 1198): before inserting a new class during roster import, verify that the target academic year is not locked or in a terminal state.
 2. **Fix A8-02 (Student Enrollment in Locked Year):**
    - In `server/src/services/studentService.ts` (`getAcademicYearPrefix` or dedicated validator):
    - Check `academicYears.isLocked === 0` and status is active before allowing `createStudent` or `updateStudent` into the target class.
@@ -448,3 +455,11 @@ All 15 findings and 5 conditional risks from `docs/students-classes-personnel-im
 - **Auditor:** DeepMind Agentic Coding Assistant (`Antigravity`)
 - **Verification Suite:** Vitest v4.1.10 (14/14 historical probe tests PASS; 4/4 new finding probe tests PASS)
 - **Status:** Audit Completed. No production code modified. Ready for review.
+
+### Verification Addendum (2026-09-19T21:33+07:00)
+Independent deep verification performed via 5 parallel research subagents cross-referencing every audit claim against current source code. All claims confirmed. Five addenda applied:
+- **V-01:** A8-01 expanded — `importService.ts` auto-class-creation also bypasses academic year lock. Cross-Entry-Path table and remediation plan updated.
+- **V-02:** S1 expanded — `detectDuplicates` also chunks by parent phone (`CHUNK_PHONE = 50`), not just DOB.
+- **V-03:** S5 already corrected in prior revision (10th check is `users`/`auditLogs` parent-link, not `studentChanges`).
+- **V-04:** S9 precision — `reconcilePermanentlyRejectedStudentOp` discards optimistic UI projection; actual queue-level quarantine is at the sync engine level.
+- **V-05:** A8-02 expanded — profile modifications within locked years also unrestricted (3rd trigger path added).

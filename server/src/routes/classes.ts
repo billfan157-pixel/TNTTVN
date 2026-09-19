@@ -248,6 +248,8 @@ classesRouter.put('/:id', roleMiddleware('admin'), zValidator('json', classSchem
     return successResponse(c, updated)
   } catch (err: any) {
     const msg = String(err?.message || '')
+    if (err?.code === 'CLASS_STRUCTURE_LOCKED') return errorResponse(c, err.code, err.message, 409)
+    if (err?.code === 'ACADEMIC_YEAR_INVALID') return errorResponse(c, err.code, err.message, err?.status || 409)
     if (msg.includes('UNIQUE constraint failed')) {
       return errorResponse(c, 'CLASS_CODE_EXISTS', 'Mã lớp đã tồn tại trong năm học này', 409)
     }

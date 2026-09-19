@@ -1,7 +1,7 @@
 import { db, type DbExecutor } from '../db/index.js'
 import { academicYears } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
-import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademicYear, resolveAcademicYear, resolveSemester } from '../utils/academicYear.js'
+import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademicYear, resolveAcademicYear, resolveSemester, isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
 import { finalizationPolicySchema, historicalEvidenceRequired, parseHistoricalEvidence } from '../utils/academicYearHistory.js'
 
@@ -11,7 +11,7 @@ export async function getFinalizedYearContext(parishId: string, academicYear: st
   const matches = rows.filter(row => normalizeAcademicYear(row.id) === normalizeAcademicYear(academicYear))
   if (matches.length > 1) throw historicalEvidenceRequired()
   const year = matches[0]
-  if (!year || (year.isLocked !== 1 && !['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status))) return null
+  if (!year || !isAcademicYearClosedForWrite(year)) return null
   return { yearId: year.id, policy: parseHistoricalEvidence(finalizationPolicySchema, year.finalizationPolicy) }
 }
 
@@ -28,7 +28,7 @@ export async function isAttendanceDateLocked(parishId: string, date: string, exe
     const range = year.startDate && year.endDate ? year : computeAcademicYearDateRange(year.id)
     return range.startDate <= date && date <= range.endDate
   })
-  if (candidates.some(year => year.isLocked === 1 || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status || ''))) return true
+  if (candidates.some(year => isAcademicYearClosedForWrite(year))) return true
   const ids = new Set([resolveAcademicYear(date), ...candidates.map(year => year.id)])
   for (const id of ids) {
     if (await drizzleSemesterLockRepository.isLocked(id, resolveSemester(date), parishId, executor)) return true

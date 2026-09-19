@@ -12,8 +12,11 @@ import { useAuth } from '../../hooks/useAuth';
 import { ModalPortal } from './ModalPortal';
 
 // ADR-026 tiện ích (2026-08-22): admin tạo nhanh tài khoản phụ huynh ngay trong
-// modal học sinh khi đã nhập đủ Tên PH + SĐT (10 số) — dùng chung POST /users
+// modal học sinh khi đã nhập đủ Tên PH + SĐT — dùng chung POST /users
 // (username = SĐT chuẩn hóa, temp password trả 1 lần, FORCE_PASSWORD_CHANGE).
+// A8-04: SĐT hợp lệ = 10-11 số bắt đầu 0 hoặc định dạng +84 (khớp backend).
+export const STUDENT_PARENT_PHONE_RE = /^(\+84|0)\d{9,10}$/;
+export const STUDENT_PARENT_PHONE_HINT = 'Số điện thoại gồm 10-11 chữ số (bắt đầu bằng 0) hoặc định dạng +84.';
 type ParentAccountState =
   | { status: 'idle' }
   | { status: 'creating' }
@@ -56,7 +59,13 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   const isAdmin = currentUser?.role === 'admin';
   const [parentAccount, setParentAccount] = useState<ParentAccountState>({ status: 'idle' });
 
-  const parentPhoneValid = /^[0-9]{10}$/.test(formData.parentPhone.trim());
+  // A8-04 (audit 2026-09-19): mirror the backend/import rule (plus-84 or
+  // leading-zero, 10-11 digits) from server routes/students.ts and the import
+  // PHONE_RE. The previous 10-digit-only rule blocked editing students
+  // imported with international or 11-digit numbers. Parent-account creation
+  // stays safe: createUser normalizes to 0-form server-side before deriving
+  // the username.
+  const parentPhoneValid = STUDENT_PARENT_PHONE_RE.test(formData.parentPhone.trim());
   const parentAccountReady = isAdmin && parentPhoneValid && formData.parentName.trim().length >= 2;
 
   const handleCreateParentAccount = async () => {
@@ -210,8 +219,8 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         if (new Date(value) > new Date()) return 'Ngày sinh không thể ở tương lai.';
         return '';
       case 'parentPhone':
-        if (value.trim() && !/^[0-9]{10}$/.test(value.trim())) {
-          return 'Số điện thoại phải gồm 10 chữ số.';
+        if (value.trim() && !STUDENT_PARENT_PHONE_RE.test(value.trim())) {
+          return STUDENT_PARENT_PHONE_HINT;
         }
         return '';
       default:
@@ -532,7 +541,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                   className="btn btn-secondary btn-sm"
                   disabled={!parentAccountReady || parentAccount.status === 'creating'}
                   onClick={handleCreateParentAccount}
-                  title={!parentPhoneValid ? 'Nhập SĐT phụ huynh đúng 10 số để bật nút' : !formData.parentName.trim() ? 'Nhập Tên Phụ Huynh trước' : 'Tạo tài khoản đăng nhập cho phụ huynh (username = SĐT)'}
+                  title={!parentPhoneValid ? 'Nhập SĐT phụ huynh hợp lệ (10-11 số hoặc +84) để bật nút' : !formData.parentName.trim() ? 'Nhập Tên Phụ Huynh trước' : 'Tạo tài khoản đăng nhập cho phụ huynh (username = SĐT)'}
                 >
                   {parentAccount.status === 'creating' ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
                   <span>Tạo Tài Khoản Phụ Huynh</span>

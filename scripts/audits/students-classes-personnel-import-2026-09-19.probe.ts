@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '../../server/src/db/index.js'
 import {
   academicYears,
@@ -22,7 +22,6 @@ const yearLocked = `year-locked-${suffix}`
 const year2025 = `year-2025-${suffix}`
 const year2026 = `year-2026-${suffix}`
 const adminId = `admin-${suffix}`
-const classLocked = `class-locked-${suffix}`
 const class2025 = `class-2025-${suffix}`
 const class2026 = `class-2026-${suffix}`
 
@@ -111,28 +110,28 @@ afterAll(async () => {
   await cleanupParish(parishId)
 })
 
-describe('Audit #08: Students, Classes, Personnel, Import - Finding Verification Probe', () => {
-  it('A8-01: classService.createClass allows creating a new class into a locked/archived academic year without rejection', async () => {
-    // createClass does not check targetYear.isLocked or targetYear.status
-    const created = await createClass(
-      {
-        code: `LOCKED-${suffix}`,
-        name: 'Lớp Niên Khóa Đã Khóa',
-        branchId: branchAu,
-        academicYearId: yearLocked,
-        room: '000',
-      },
-      adminId,
-      parishId,
-      '127.0.0.1',
-      'audit-agent',
-    )
+describe('Audit #08: Students, Classes, Personnel, Import - Post-fix Regression', () => {
+  it('A8-01 (fixed): classService.createClass rejects a locked/archived academic year', async () => {
+    // createClass now enforces the same closed-year gate as updateClass.
+    await expect(
+      createClass(
+        {
+          code: `LOCKED-${suffix}`,
+          name: 'Lớp Niên Khóa Đã Khóa',
+          branchId: branchAu,
+          academicYearId: yearLocked,
+          room: '000',
+        },
+        adminId,
+        parishId,
+        '127.0.0.1',
+        'audit-agent',
+      ),
+    ).rejects.toMatchObject({
+      code: 'ACADEMIC_YEAR_INVALID',
+    })
 
-    expect(created).toBeDefined()
-    expect(created.id).toBeDefined()
-    expect(created.academicYearId).toBe(yearLocked)
-
-    // Contrast with updateClass: changing academic year to the locked year IS blocked with ACADEMIC_YEAR_INVALID
+    // Contrast retained: changing academic year to the locked year IS blocked with ACADEMIC_YEAR_INVALID
     await expect(
       updateClass(
         class2025,
@@ -145,45 +144,74 @@ describe('Audit #08: Students, Classes, Personnel, Import - Finding Verification
     ).rejects.toMatchObject({
       code: 'ACADEMIC_YEAR_INVALID',
     })
+
+    // Control: creating into an OPEN year still succeeds.
+    const created = await createClass(
+      {
+        code: `OPEN-${suffix}`,
+        name: 'Lớp Niên Khóa Mở',
+        branchId: branchAu,
+        academicYearId: year2025,
+        room: '100',
+      },
+      adminId,
+      parishId,
+      '127.0.0.1',
+      'audit-agent',
+    )
+    expect(created).toBeDefined()
+    expect(created.academicYearId).toBe(year2025)
   })
 
-  it('A8-02: studentService.createStudent and updateStudent allow assigning/moving students into classes of locked academic years', async () => {
-    // 1. First ensure a class exists in yearLocked
-    const lockedClass = await createClass(
+  it('A8-02 (fixed): studentService rejects enrollment/transfer into classes of locked academic years', async () => {
+    // Fixture bypasses the writer (raw insert) — the gate under test lives in
+    // the student writer, not in fixture setup.
+    const lockedClassId = `class-locked-direct-${suffix}`
+    const openSiblingClassId = `class-2025b-${suffix}`
+    await db.insert(classes).values([
       {
-        code: `CLS-LCK-${suffix}`,
-        name: 'Lớp Khóa Kiểm Thử',
+        id: lockedClassId,
+        parishId,
+        code: `LCK-${suffix}`,
+        name: 'Lớp Khóa (fixture)',
         branchId: branchAu,
         academicYearId: yearLocked,
         room: '001',
+        updatedBy: adminId,
       },
-      adminId,
-      parishId,
-      '127.0.0.1',
-      'audit-agent',
-    )
-
-    // 2. Create a student directly into the class that belongs to yearLocked
-    const newStudentInLocked = await createStudent(
       {
-        holyName: 'Giuse',
-        fullName: 'Nguyễn Văn Khóa',
-        gender: 'Nam',
-        dateOfBirth: '2016-01-01',
-        parentName: 'Phụ huynh',
-        parentPhone: '0901234567',
-        branch: 'AuNhi',
-        classId: lockedClass.id,
+        id: openSiblingClassId,
+        parishId,
+        code: `AU1B-${suffix}`,
+        name: 'Ấu 1B (2025)',
+        branchId: branchAu,
+        academicYearId: year2025,
+        room: '103',
+        updatedBy: adminId,
       },
-      adminId,
-      parishId,
-      '127.0.0.1',
-      'audit-agent',
-    )
-    expect(newStudentInLocked).toBeDefined()
-    expect(newStudentInLocked.classId).toBe(lockedClass.id)
+    ])
 
-    // 3. Take an existing student in class2025 and transfer into lockedClass via updateStudent
+    // 1. Creating a student directly into the locked-year class is rejected.
+    await expect(
+      createStudent(
+        {
+          holyName: 'Giuse',
+          fullName: 'Nguyễn Văn Khóa',
+          gender: 'Nam',
+          dateOfBirth: '2016-01-01',
+          parentName: 'Phụ huynh',
+          parentPhone: '0901234567',
+          branch: 'AuNhi',
+          classId: lockedClassId,
+        },
+        adminId,
+        parishId,
+        '127.0.0.1',
+        'audit-agent',
+      ),
+    ).rejects.toMatchObject({ code: 'ACADEMIC_YEAR_INVALID' })
+
+    // 2. Transferring an active student into the locked class is rejected.
     const activeStudent = await createStudent(
       {
         holyName: 'Maria',
@@ -201,22 +229,36 @@ describe('Audit #08: Students, Classes, Personnel, Import - Finding Verification
       'audit-agent',
     )
 
-    const updated = await updateStudent(
+    await expect(
+      updateStudent(
+        activeStudent.id,
+        {
+          classId: lockedClassId,
+          membershipChangeReason: 'Chuyển về lớp cũ đã khóa sổ',
+        },
+        adminId,
+        parishId,
+        '127.0.0.1',
+        'audit-agent',
+      ),
+    ).rejects.toMatchObject({ code: 'ACADEMIC_YEAR_INVALID' })
+
+    // 3. Control: intra-year transfer into an OPEN class still succeeds.
+    const moved = await updateStudent(
       activeStudent.id,
       {
-        classId: lockedClass.id,
-        membershipChangeReason: 'Chuyển về lớp cũ đã khóa sổ',
+        classId: openSiblingClassId,
+        membershipChangeReason: 'Chuyển lớp trong cùng niên khóa',
       },
       adminId,
       parishId,
       '127.0.0.1',
       'audit-agent',
     )
-    expect(updated).toBeDefined()
-    expect(updated?.classId).toBe(lockedClass.id)
+    expect(moved?.classId).toBe(openSiblingClassId)
   })
 
-  it('A8-03: studentService.updateStudent allows moving a student across academic years, bypassing formal promotion', async () => {
+  it('A8-03 (fixed): studentService.updateStudent rejects cross-year transfers; promotion stays the only path', async () => {
     const studentForPromotionBypass = await createStudent(
       {
         holyName: 'Phêrô',
@@ -236,23 +278,32 @@ describe('Audit #08: Students, Classes, Personnel, Import - Finding Verification
 
     expect(studentForPromotionBypass.classId).toBe(class2025)
 
-    // Move student directly from class2025 (year2025) to class2026 (year2026) using generic updateStudent
-    const movedStudent = await updateStudent(
-      studentForPromotionBypass.id,
-      {
-        classId: class2026,
-        membershipChangeReason: 'Chuyển thẳng sang lớp năm sau không qua xét duyệt',
-      },
-      adminId,
-      parishId,
-      '127.0.0.1',
-      'audit-agent',
-    )
+    // Direct cross-year move via generic update is rejected with a dedicated code.
+    await expect(
+      updateStudent(
+        studentForPromotionBypass.id,
+        {
+          classId: class2026,
+          membershipChangeReason: 'Chuyển thẳng sang lớp năm sau không qua xét duyệt',
+        },
+        adminId,
+        parishId,
+        '127.0.0.1',
+        'audit-agent',
+      ),
+    ).rejects.toMatchObject({ code: 'CROSS_ACADEMIC_YEAR_TRANSFER_DISALLOWED' })
 
-    expect(movedStudent).toBeDefined()
-    expect(movedStudent?.classId).toBe(class2026)
+    // The student was not moved.
+    const [row] = await db
+      .select()
+      .from(students)
+      .where(and(
+        eq(students.id, studentForPromotionBypass.id),
+        eq(students.parishId, parishId),
+      ))
+    expect(row.classId).toBe(class2025)
 
-    // Verify: No promotion record was created for this student in the promotion_records table!
+    // And no promotion record was fabricated by the rejected attempt.
     const promoRecords = await db
       .select()
       .from(promotionRecords)
@@ -264,27 +315,19 @@ describe('Audit #08: Students, Classes, Personnel, Import - Finding Verification
     expect(promoRecords.length).toBe(0)
   })
 
-  it('A8-04: Phone validation regex mismatch between frontend StudentModal and backend import/API', () => {
-    const backendRegex = /^(\+84|0)\d{9,10}$/ // Used in server/src/routes/students.ts:39 & importService.ts:322
-    const frontendModalRegex = /^[0-9]{10}$/  // Used in src/components/common/StudentModal.tsx:213
+  it('A8-04 (fixed): StudentModal validation mirrors the backend/import phone rule', async () => {
+    // Source-level assertion: the strict 10-digit-only pattern must be gone
+    // from the modal and replaced by the aligned rule. Runtime behavior is
+    // covered by src/__tests__/components/StudentModal.test.tsx (A8-04 block).
+    const { readFileSync } = await import('node:fs')
+    const modalSrc = readFileSync('src/components/common/StudentModal.tsx', 'utf8')
+    expect(modalSrc).not.toMatch(/\/\^\[0-9\]\{10\}\$\//)
+    expect(modalSrc).toContain('^(\\+84|0)\\d{9,10}$')
 
-    const testPhones = [
-      { phone: '+84901234567', desc: 'Vietnamese international format +84 (9 digits after)' },
-      { phone: '+849012345678', desc: 'Vietnamese international format +84 (10 digits after)' },
-      { phone: '0901234567', desc: 'Standard 10-digit mobile' },
-      { phone: '02838123456', desc: '11-digit landline / traditional prefix' },
-    ]
-
-    // 1. Both accept standard 10-digit
-    expect(backendRegex.test('0901234567')).toBe(true)
-    expect(frontendModalRegex.test('0901234567')).toBe(true)
-
-    // 2. Backend accepts +84 format, frontend StudentModal rejects it
-    expect(backendRegex.test('+84901234567')).toBe(true)
-    expect(frontendModalRegex.test('+84901234567')).toBe(false)
-
-    // 3. Backend accepts 11-digit format, frontend StudentModal rejects it
-    expect(backendRegex.test('02838123456')).toBe(true)
-    expect(frontendModalRegex.test('02838123456')).toBe(false)
+    const aligned = /^(\+84|0)\d{9,10}$/
+    expect(aligned.test('0901234567')).toBe(true)
+    expect(aligned.test('+84901234567')).toBe(true)
+    expect(aligned.test('02838123456')).toBe(true)
+    expect(aligned.test('123')).toBe(false)
   })
 })

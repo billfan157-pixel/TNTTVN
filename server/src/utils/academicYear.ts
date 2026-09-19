@@ -71,6 +71,27 @@ export function parseAcademicYear(year: string): { startYear: number; endYear: n
 }
 
 /**
+ * A8 lifecycle hardening (audit 2026-09-19): canonical closed-for-write
+ * predicate for academic years. A year is closed when it is locked
+ * (`is_locked = 1`, set at finalization) or in a terminal lifecycle state.
+ * Semester locks (`SEMESTER_1_LOCKED`, `SEMESTER_2_OPEN`, `SEMESTER_2_LOCKED`)
+ * are deliberately NOT terminal — in-year operations must keep working.
+ * SSOT: every writer gate (class create/update, student create/transfer,
+ * roster import year selection, finance frozen-year reads) must resolve
+ * through this predicate instead of inlining its own variant.
+ */
+export const TERMINAL_ACADEMIC_YEAR_STATUSES = ['FINALIZED', 'PROMOTED', 'ARCHIVED'] as const
+
+export interface AcademicYearWriteState {
+  isLocked?: number | null
+  status?: string | null
+}
+
+export function isAcademicYearClosedForWrite(year: AcademicYearWriteState): boolean {
+  return year.isLocked === 1 || TERMINAL_ACADEMIC_YEAR_STATUSES.includes((year.status || '') as (typeof TERMINAL_ACADEMIC_YEAR_STATUSES)[number])
+}
+
+/**
  * ADR-017 (F2): Date range mặc định của một năm học ('2025-2026' → 2025-08-01
  * … 2026-07-31, quy ước tháng 8) — dùng để giới hạn attendance theo năm học
  * khi không có row academic_years khớp. Năm không parse được → range rộng

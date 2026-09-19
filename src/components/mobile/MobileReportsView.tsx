@@ -147,6 +147,15 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
     return () => { active = false; };
   }, [currentYear]);
 
+  useEffect(() => {
+    if (typeof useStudentStore.getState === 'function') {
+      const state = useStudentStore.getState();
+      if (state?.students?.length === 0 && typeof state?.fetchStudents === 'function') {
+        void state.fetchStudents();
+      }
+    }
+  }, []);
+
   const officialByStudentId = useMemo(() => new Map(
     officialReports.flatMap(classReport => classReport.reportCards.map(report => [report.student.id, {
       report,
@@ -155,16 +164,42 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
     }] as const)),
   ), [officialReports]);
   const officialStudentCount = officialByStudentId.size;
+
+  const mergedStudents = useMemo(() => {
+    const studentMap = new Map(students.map(s => [s.id, s]));
+    return officialReports.flatMap(classReport =>
+      classReport.reportCards.map(report => {
+        const existing = studentMap.get(report.student.id);
+        if (existing) return existing;
+        return {
+          id: report.student.id,
+          code: report.student.code,
+          holyName: report.student.holyName || '',
+          fullName: report.student.fullName,
+          gender: (report.student.gender === 'Nữ' ? 'Nữ' : 'Nam') as 'Nam' | 'Nữ',
+          dateOfBirth: report.student.dateOfBirth || '',
+          parentName: '',
+          parentPhone: '',
+          address: '',
+          branch: (classReport.classInfo.branchId as any) || 'AuNhi',
+          classId: classReport.classInfo.id,
+          status: 'Đang học',
+        } as Student;
+      })
+    );
+  }, [officialReports, students]);
+
   const classList = useMemo(() => officialReports.map(report => ({
     id: report.classInfo.id,
     name: report.summary.className,
+    totalStudents: report.summary.totalStudents,
   })).sort((a, b) => a.name.localeCompare(b.name, 'vi')), [officialReports]);
 
   const classStudents = useMemo(() => {
     return selectedClassId === 'all'
-      ? students.filter(s => !s.deletedAt && officialByStudentId.has(s.id))
-      : students.filter(s => !s.deletedAt && officialByStudentId.get(s.id)?.classId === selectedClassId);
-  }, [officialByStudentId, students, selectedClassId]);
+      ? mergedStudents.filter(s => !s.deletedAt && officialByStudentId.has(s.id))
+      : mergedStudents.filter(s => !s.deletedAt && officialByStudentId.get(s.id)?.classId === selectedClassId);
+  }, [officialByStudentId, mergedStudents, selectedClassId]);
 
   const filteredStudents = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase('vi');
@@ -369,7 +404,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
             >
               <option value="all">Tất cả các lớp ({officialStudentCount} em)</option>
               {classList.map(c => {
-                const count = students.filter(s => !s.deletedAt && s.classId === c.id).length;
+                const count = c.totalStudents ?? mergedStudents.filter(s => !s.deletedAt && s.classId === c.id).length;
                 return (
                   <option key={c.id} value={c.id}>
                     {c.name} ({count} em)

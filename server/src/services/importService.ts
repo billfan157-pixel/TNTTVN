@@ -9,6 +9,7 @@ import { getClasses } from './classService.js'
 import { getClassDependencyBlockers } from './classDependencyService.js'
 import { resolveMembershipBranch, resolveStudentBranch, STUDENT_BRANCHES, type StudentBranch } from './studentMembershipPolicy.js'
 import { phoneMatchVariants } from '../utils/phone.js'
+import { isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 
 interface ImportRow {
   rowIndex: number
@@ -343,20 +344,46 @@ async function requireImportAcademicYear(parishId: string, academicYearId: strin
   }
 
   const [academicYear] = await db
-    .select({ id: academicYears.id })
+    .select({ id: academicYears.id, isLocked: academicYears.isLocked, status: academicYears.status })
     .from(academicYears)
     .where(and(
       eq(academicYears.parishId, parishId),
       eq(academicYears.id, academicYearId),
-      eq(academicYears.isLocked, 0),
     ))
     .limit(1)
-  if (academicYear) return academicYear.id
+  // A8 hardening: canonical closed-for-write predicate (lock OR terminal
+  // status) instead of the previous isLocked-only check.
+  if (academicYear && !isAcademicYearClosedForWrite(academicYear)) return academicYear.id
 
   throw Object.assign(
     new Error('Niên khóa đã chọn không tồn tại, đã khóa hoặc không thuộc giáo xứ hiện tại.'),
     { code: 'ACADEMIC_YEAR_INVALID' },
   )
+}
+
+/**
+ * V-01 TOCTOU close (audit 2026-09-19 addendum): the import year is validated
+ * once up front, but a long import may still be running when an admin
+ * finalizes the year. Every write transaction below re-checks year liveness
+ * at commit time so no class/student lands in a newly locked year.
+ * Fail-closed with a clear message; row/chunk catch blocks convert it to
+ * per-row errors so the batch stops visibly instead of half-committing.
+ */
+async function assertImportYearStillOpen(tx: DbTransaction, parishId: string, academicYearId: string): Promise<void> {
+  const [year] = await tx
+    .select({ id: academicYears.id, isLocked: academicYears.isLocked, status: academicYears.status })
+    .from(academicYears)
+    .where(and(
+      eq(academicYears.parishId, parishId),
+      eq(academicYears.id, academicYearId),
+    ))
+    .limit(1)
+  if (!year || isAcademicYearClosedForWrite(year)) {
+    throw Object.assign(
+      new Error('Niên khóa import đã bị khóa/chốt trong lúc xử lý; hãy chọn niên khóa đang mở và chạy lại.'),
+      { code: 'ACADEMIC_YEAR_INVALID' },
+    )
+  }
 }
 
 function levenshtein(a: string, b: string): number {
@@ -1197,12 +1224,17 @@ export async function importStudents(
       let ayId = nc.academicYearId
       if (ayId) {
         const [ay] = await tx
-          .select({ id: academicYears.id })
+          .select({ id: academicYears.id, isLocked: academicYears.isLocked, status: academicYears.status })
           .from(academicYears)
           .where(and(eq(academicYears.id, ayId), eq(academicYears.parishId, parishId)))
           .limit(1)
         if (!ay) {
           throw Object.assign(new Error(`Niên khóa "${ayId}" không tồn tại trong giáo xứ`), { code: 'ACADEMIC_YEAR_INVALID' })
+        }
+        // V-01: the target year was validated open up front, but re-check at
+        // write time — it may have been finalized since validation.
+        if (isAcademicYearClosedForWrite(ay)) {
+          throw Object.assign(new Error(`Niên khóa "${ayId}" đã bị khóa/chốt; không thể tạo lớp trong lượt import`), { code: 'ACADEMIC_YEAR_INVALID' })
         }
       }
       await tx.insert(classes).values({
@@ -1402,6 +1434,9 @@ export async function importStudents(
     try {
       await db.transaction(async (tx) => {
         const chunkClassIds = [...new Set(chunk.map(item => item.student.classId))]
+        // V-01: commit-time year liveness — closes the validate-then-write
+        // window for long imports finalized mid-flight.
+        await assertImportYearStillOpen(tx, parishId, academicYearId)
         const activeTargets = await tx.select({ id: classes.id, branchId: classes.branchId, branchName: branches.name })
           .from(classes)
           .leftJoin(branches, and(eq(branches.id, classes.branchId), eq(branches.parishId, classes.parishId)))
@@ -1458,6 +1493,8 @@ export async function importStudents(
 
       await db.transaction(async (tx) => {
         const dup = dupMap.get(row.rowIndex)
+        // V-01: same commit-time year liveness as the fast-create chunks.
+        await assertImportYearStillOpen(tx, parishId, academicYearId)
         // Server-authoritative fail-closed policy: a missing/tampered duplicate
         // decision can never silently create or overwrite a student.
         const dupAction = dup ? (duplicateActions[String(row.rowIndex)] || 'skip') : 'create'
@@ -1922,6 +1959,15 @@ async function hasStudentActivityAfterImport(
     () => tx.select({ id: financialTransactions.id }).from(financialTransactions).where(and(
       eq(financialTransactions.studentId, studentId), eq(financialTransactions.parishId, parishId),
       gte(financialTransactions.createdAt, appliedAt),
+    )).limit(1),
+    // A8-05 (audit 2026-09-19 follow-up): lễ phục vụ assignments created
+    // after the import are downstream activity too. Without this guard, undo
+    // of a `created` row unconditionally deleted them, silently losing
+    // post-import service history. Pre-existing assignments (created before
+    // appliedAt) still flow through snapshot restore below.
+    () => tx.select({ id: serviceAssignments.id }).from(serviceAssignments).where(and(
+      eq(serviceAssignments.studentId, studentId), eq(serviceAssignments.parishId, parishId),
+      gte(serviceAssignments.createdAt, appliedAt),
     )).limit(1),
   ]
   for (const check of checks) {

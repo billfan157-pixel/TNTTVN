@@ -12,7 +12,6 @@
     "dev:client": "vite",
     "dev:server": "npm --prefix server run dev",
     "dev:all": "node scripts/dev-all.mjs",
-    "prebuild": "node -e \"import('node:fs').then(fs => fs.rmSync('node_modules/.vite',{recursive:true,force:true})).catch(() => {})\"",
     "build:server": "cd server && tsc",
     "build": "tsc -b && npm run build:server && vite build",
     "build:frontend": "tsc -b && vite build",

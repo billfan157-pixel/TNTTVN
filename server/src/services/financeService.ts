@@ -10,7 +10,7 @@ import {
   academicYearSnapshots,
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
-import { getCurrentAcademicYear, normalizeAcademicYear } from '../utils/academicYear.js'
+import { getCurrentAcademicYear, normalizeAcademicYear, isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 import type {
   TransactionType,
   FeeStatus,
@@ -307,7 +307,7 @@ export async function listClassFeeRecords(
     if (!cls) return []
     const [year] = await tx.select().from(academicYears).where(and(eq(academicYears.id, cls.academicYearId), eq(academicYears.parishId, parishId))).limit(1)
     const matchesClassYear = normalizeAcademicYear(cls.academicYearId) === normalizeAcademicYear(academicYear)
-    const frozen = year && (year.isLocked === 1 || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(year.status))
+    const frozen = !!year && isAcademicYearClosedForWrite(year)
     const cohort = frozen && matchesClassYear ? await tx.select({ studentId: academicYearSnapshots.studentId }).from(academicYearSnapshots).where(and(
       eq(academicYearSnapshots.parishId, parishId), eq(academicYearSnapshots.academicYearId, year.id),
       eq(academicYearSnapshots.sourceClassId, classId),

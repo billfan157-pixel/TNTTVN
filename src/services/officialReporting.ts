@@ -14,6 +14,26 @@ export async function fetchOfficialReportClasses(academicYear: string): Promise<
   return api.getReportClasses(normalizeAcademicYear(academicYear))
 }
 
+async function pMap<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+  concurrency = 5,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let currentIndex = 0
+
+  async function worker() {
+    while (currentIndex < items.length) {
+      const idx = currentIndex++
+      results[idx] = await fn(items[idx], idx)
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
+  await Promise.all(workers)
+  return results
+}
+
 /**
  * Official academic output gateway.
  *
@@ -28,9 +48,65 @@ export async function fetchOfficialClassReport(
 ): Promise<OfficialClassReport> {
   const year = normalizeAcademicYear(academicYear)
   const summary = await api.getClassSummary(classId, year)
-  const reportCards = await Promise.all(
-    summary.students.map((student) => api.getStudentReportCard(student.studentId, year)),
-  )
+
+  // Check if students already have embedded grades and classification from enriched backend projection
+  const canSynthesize = summary.students.length > 0 && summary.students.every((s) => s.grades !== undefined)
+  let reportCards: ReportCardDTO[]
+
+  if (canSynthesize) {
+    reportCards = summary.students.map((student) => ({
+      student: {
+        id: student.studentId,
+        code: student.code,
+        holyName: student.holyName,
+        fullName: student.fullName,
+        gender: student.gender ?? null,
+        dateOfBirth: student.dateOfBirth ?? null,
+        className: summary.className,
+      },
+      academicYear: year,
+      grades: (student.grades || []).map((g) => ({
+        semester: g.semester,
+        scoreOral: g.scoreOral ?? null,
+        score15m: g.score15m ?? null,
+        score1Period: g.score1Period ?? null,
+        scoreMidterm: g.scoreMidterm ?? null,
+        scoreFinal: g.scoreFinal ?? null,
+        scoreDaoDuc: g.scoreDaoDuc ?? null,
+        gpa: g.gpa ?? null,
+        classification: g.classification ?? null,
+      })),
+      yearSummary: {
+        gpa: student.gpa ?? null,
+        classification: student.classification ?? null,
+      },
+      attendanceSummary: {
+        massPresentCount: 0,
+        massTotalCount: 0,
+        catechismPresentCount: 0,
+        catechismTotalCount: 0,
+        overallAttendanceRate: student.attendanceRate ?? 100,
+      },
+      promotion: student.promotionStatus
+        ? {
+            status: student.promotionStatus,
+            gpa: student.gpa,
+            attendanceRate: student.attendanceRate,
+            isOverridden: false,
+          }
+        : null,
+    }))
+  } else if (summary.students.length === 0) {
+    reportCards = []
+  } else {
+    // Fallback if grades were not embedded (e.g. legacy endpoint or mock in unit tests)
+    reportCards = await pMap(
+      summary.students,
+      (student) => api.getStudentReportCard(student.studentId, year),
+      5,
+    )
+  }
+
   return {
     classInfo: {
       ...(classInfo || { id: classId, name: summary.className, branchId: summary.branchId, academicYear: year }),
@@ -50,8 +126,10 @@ export async function fetchOfficialAcademicYearReports(academicYear: string): Pr
   const year = normalizeAcademicYear(academicYear)
   const authorizedClasses = await fetchOfficialReportClasses(year)
 
-  const reports = await Promise.all(
-    authorizedClasses.map((item) => fetchOfficialClassReport(item.id, year, item)),
+  const reports = await pMap(
+    authorizedClasses,
+    (item) => fetchOfficialClassReport(item.id, year, item),
+    5,
   )
   if (reports.some((item) => !item.classInfo.branchId)) {
     throw new Error('Dữ liệu lịch sử thiếu phân ngành đã chốt; không thể dùng lớp hiện tại để thay thế.')

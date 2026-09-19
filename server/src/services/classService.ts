@@ -3,6 +3,7 @@ import { classes, branches, academicYears, auditLogs, users, catechistAssignment
 import { eq, and, desc, isNull, inArray, like, or, sql, gte, lte, asc } from 'drizzle-orm'
 import type { InferInsertModel } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
+import { isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 import { mapClassAssignmentConstraintError, validateClassAssignmentReplacement } from './classAssignmentPolicy.js'
 import { getClassDependencyBlockers } from './classDependencyService.js'
 import { assertCreateReplayMatches, createIntentHash, readCreateIntentHash } from './createIdempotency.js'
@@ -141,6 +142,19 @@ export async function createClass(data: CreateClassData, userId: string, parishI
       }
     }
 
+    // A8-01 (audit 2026-09-19): forbid creating classes inside locked or
+    // terminal academic years — mirrors the updateClass structural gate below.
+    // The check lives in the writer (not the route) so every entry path,
+    // including sync replays, is covered. Route POST / maps the code to 409.
+    const [targetYear] = await tx
+      .select({ id: academicYears.id, isLocked: academicYears.isLocked, status: academicYears.status })
+      .from(academicYears)
+      .where(and(eq(academicYears.id, data.academicYearId), eq(academicYears.parishId, parishId)))
+      .limit(1)
+    if (!targetYear || isAcademicYearClosedForWrite(targetYear)) {
+      throw Object.assign(new Error('Không thể tạo lớp trong niên khóa đã khóa/chốt hoặc không tồn tại'), { code: 'ACADEMIC_YEAR_INVALID', status: 409 })
+    }
+
     await tx.insert(classes).values({
       id,
       code: data.code,
@@ -197,7 +211,7 @@ export async function updateClass(id: string, data: UpdateClassData, userId: str
         .from(academicYears)
         .where(and(eq(academicYears.id, targetAcademicYearId), eq(academicYears.parishId, parishId)))
         .limit(1)
-      if (!targetYear || targetYear.isLocked || ['FINALIZED', 'PROMOTED', 'ARCHIVED'].includes(targetYear.status)) {
+      if (!targetYear || isAcademicYearClosedForWrite(targetYear)) {
         throw Object.assign(new Error('Không thể chuyển lớp vào niên khóa đã khóa/chốt hoặc không tồn tại'), { code: 'ACADEMIC_YEAR_INVALID' })
       }
     }
