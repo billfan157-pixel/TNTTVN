@@ -168,7 +168,10 @@ it('U-21: Trưởng Xứ đoàn bổ nhiệm Trưởng Mảng ngoài LIVE bằng
   await screen.findByText('Bổ nhiệm Trưởng Mảng')
   fireEvent.change(screen.getByLabelText('Trưởng Mảng mới'), { target: { value: 'person:person-1' } })
   fireEvent.change(screen.getByLabelText('Lý do bổ nhiệm Trưởng Mảng'), { target: { value: 'Nhận Mảng phụng vụ' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Bổ nhiệm ngay' }))
+  // Guard against silent no-op clicks: the submit gate must be satisfied.
+  const appointButton = screen.getByRole('button', { name: 'Bổ nhiệm ngay' })
+  await waitFor(() => expect(appointButton).toBeEnabled())
+  fireEvent.click(appointButton)
   await waitFor(() => expect(operationsApi.replaceWorkstreamLead).toHaveBeenCalledWith('g', {
     version: 5,
     currentLeadMemberId: null,
