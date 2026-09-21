@@ -13,6 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # gitleaks-action v2 uploads results.sarif as a workflow artifact;
+      # without actions:write the upload 403s and fails the job even when
+      # the scan itself finds no leaks.
+      actions: write
     steps:
       - uses: actions/checkout@v5
         with:
