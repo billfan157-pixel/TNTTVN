@@ -21,7 +21,8 @@ import { useAuth } from '../../hooks/useAuth';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { useSyncStore } from '../../stores/syncStore';
 import { GradeFormulaConfigModal } from './GradeFormulaConfigModal';
-import { exportGradebookToExcel } from '../../utils/excelExporter';
+import { exportOfficialGradebook } from '../../services/reportExporter';
+import { useToastStore } from '../../stores/toastStore';
 import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { PageHeader } from '../common/PageHeader';
@@ -67,6 +68,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editRevision, setEditRevision] = useState(0);
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
+  const [isExporting, setIsExporting] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -391,15 +393,20 @@ export const DesktopGradeMatrix: React.FC = () => {
     return () => clearTimeout(timer);
   }, [isDirty, editRevision, saveDirtyGrades]);
 
-  const handleExportExcel = () => {
-    const className = classList.find(c => c.id === selectedClassId)?.name || 'TatCaLop';
-    exportGradebookToExcel({
-      students: filteredStudents,
-      matrixData,
-      className,
-      semester: selectedSemester,
-      academicYear: matrixAcademicYear
-    });
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      await exportOfficialGradebook({
+        classId: selectedClassId,
+        semester: selectedSemester,
+        academicYear: matrixAcademicYear,
+      });
+      useToastStore.getState().addToast('Đã xuất bảng điểm chính thức từ máy chủ.', 'success');
+    } catch (error) {
+      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Không thể xuất bảng điểm chính thức.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const tableData: RowData[] = useMemo(() => {
@@ -597,13 +604,14 @@ export const DesktopGradeMatrix: React.FC = () => {
                 Import
               </Button>
               <Button
-                onClick={handleExportExcel}
+                onClick={() => { void handleExportExcel() }}
+                disabled={isExporting}
                 variant="plain"
                 size="sm"
                 leadingIcon={<Download aria-hidden="true" size={14} />}
                 className="px-4 bg-parish-success text-text-inverse font-bold text-xs rounded-xl shadow-md hover:bg-parish-success-hover"
               >
-                Export
+                {isExporting ? 'Đang xuất…' : 'Export'}
               </Button>
             </div>
           </>

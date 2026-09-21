@@ -22,6 +22,7 @@ export interface TemplateContext {
   scoreField?: string
   manualValue?: number | string
   reasonCode?: string
+  classId?: string
 }
 
 const TEMPLATE_VARIABLES: Record<string, keyof TemplateContext> = {

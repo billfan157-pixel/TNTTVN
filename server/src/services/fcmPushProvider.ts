@@ -82,7 +82,7 @@ async function sendOne(
   authorization: string,
   token: string,
   payload: AppPushPayload,
-): Promise<{ ok: boolean; dead: boolean }> {
+): Promise<{ ok: boolean; dead: boolean; errorReason?: string }> {
   const response = await fetch(
     `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`,
     {
@@ -106,22 +106,32 @@ async function sendOne(
   let errorBody: unknown = null
   try { errorBody = await response.json() } catch {}
   const code = fcmErrorCode(errorBody)
+  console.warn(`[fcmPushProvider] delivery rejected (${response.status}):`, {
+    errorCode: code || 'unknown',
+    tokenPrefix: `${token.slice(0, 8)}...`,
+  })
   // INVALID_ARGUMENT can describe the message payload itself; only the
   // provider-confirmed UNREGISTERED state is safe for destructive cleanup.
-  return { ok: false, dead: code === 'UNREGISTERED' }
+  return {
+    ok: false,
+    dead: code === 'UNREGISTERED',
+    errorReason: `FCM:${response.status}:${code || 'REJECTED'}`,
+  }
 }
 
 export async function sendFcmPush(tokens: string[], payload: AppPushPayload): Promise<NativeProviderResult> {
-  if (tokens.length === 0) return { sent: 0, failed: 0, deadTokens: [] }
+  if (tokens.length === 0) return { sent: 0, failed: 0, deadTokens: [], successfulTokens: [] }
   const account = serviceAccount()
   const authorization = await accessToken(account)
-  const responses: Array<{ ok: boolean; dead: boolean }> = []
+  const responses: Array<{ ok: boolean; dead: boolean; errorReason?: string }> = []
   for (let offset = 0; offset < tokens.length; offset += FCM_CONCURRENCY) {
     responses.push(...await Promise.all(
       tokens.slice(offset, offset + FCM_CONCURRENCY).map(token => sendOne(account, authorization, token, payload)),
     ))
   }
   const deadTokens = responses.flatMap((response, index) => response.dead ? [tokens[index]] : [])
-  const sent = responses.filter(response => response.ok).length
-  return { sent, failed: responses.length - sent, deadTokens }
+  const successfulTokens = responses.flatMap((response, index) => response.ok ? [tokens[index]] : [])
+  const sent = successfulTokens.length
+  const lastProviderError = responses.find(r => r.errorReason)?.errorReason
+  return { sent, failed: responses.length - sent, deadTokens, successfulTokens, lastProviderError }
 }

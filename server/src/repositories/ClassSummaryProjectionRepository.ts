@@ -2,7 +2,7 @@ import { students, classes, grades, attendance, promotionRecords, academicYearSn
 import { eq, and, isNull, inArray, gte, lte } from 'drizzle-orm'
 import { computeWeightedGpa, getClassificationLabel } from '../utils/gradeCalculation.js'
 import { applyOverridesToGrade } from '../domain/GradeAggregate.js'
-import type { ReportingProjectionContext } from './ReportCardProjectionRepository.js'
+import type { ReportCardDTO, ReportingProjectionContext } from './ReportCardProjectionRepository.js'
 import { academicReportSnapshotSchema, historicalEvidenceRequired, parseHistoricalEvidence } from '../utils/academicYearHistory.js'
 import { toCanonicalReportingYear } from '../utils/academicYear.js'
 
@@ -20,10 +20,12 @@ export interface ClassStudentSummaryDTO {
   fullName: string
   gender?: string | null
   dateOfBirth?: string | null
-  gpa: number
+  gpa: number | null
   attendanceRate: number
+  attendanceSummary: ReportCardDTO['attendanceSummary']
   classification?: string | null
   promotionStatus?: string | null
+  promotion: ReportCardDTO['promotion']
   grades?: Array<{
     semester: number
     scoreOral?: number | null
@@ -119,6 +121,7 @@ export class ClassSummaryProjectionRepository {
         const snapshot = cohort.find(row => row.studentId === s.id)!
         if (snapshot.attendanceRate === null) throw historicalEvidenceRequired()
         const frozen = parseHistoricalEvidence(academicReportSnapshotSchema, snapshot.reportSnapshot)
+        const promotion = promotions.find(p => p.studentId === s.id)
         return {
           studentId: s.id,
           code: s.code,
@@ -126,10 +129,19 @@ export class ClassSummaryProjectionRepository {
           fullName: s.fullName,
           gender: s.gender,
           dateOfBirth: s.dateOfBirth,
-          gpa: snapshot.yearGpa ?? 0,
+          gpa: snapshot.yearGpa,
           attendanceRate: snapshot.attendanceRate,
-          classification: snapshot.classification ?? (snapshot.yearGpa !== null ? getClassificationLabel(snapshot.yearGpa, policy.classificationThresholds) : null),
-          promotionStatus: promotions.find(p => p.studentId === s.id)?.finalDecision ?? snapshot.promotionStatus,
+          attendanceSummary: frozen.attendanceSummary,
+          classification: snapshot.classification,
+          promotionStatus: promotion?.finalDecision ?? snapshot.promotionStatus,
+          promotion: promotion ? {
+            status: promotion.finalDecision,
+            gpa: promotion.gpaSnapshot,
+            attendanceRate: promotion.attendanceSnapshot,
+            isOverridden: !!promotion.isOverridden,
+            overrideReason: promotion.overrideReason,
+            approvedAt: promotion.approvedAt,
+          } : null,
           grades: (frozen.grades || []).map(grade => ({
             semester: grade.semester,
             scoreOral: grade.scoreOral ?? null,
@@ -148,7 +160,10 @@ export class ClassSummaryProjectionRepository {
         promotedCount: roster.filter(s => ['PROMOTED', 'GRADUATED', 'CONDITIONALLY_PROMOTED'].includes(s.promotionStatus || '')).length,
         retainedCount: roster.filter(s => s.promotionStatus === 'RETAINED').length,
         transferredCount: roster.filter(s => s.promotionStatus === 'TRANSFERRED').length,
-        averageGpa: roster.length ? Number((roster.reduce((sum, s) => sum + s.gpa, 0) / roster.length).toFixed(2)) : 0,
+        averageGpa: (() => {
+          const values = roster.flatMap(s => typeof s.gpa === 'number' ? [s.gpa] : [])
+          return values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2)) : 0
+        })(),
         averageAttendanceRate: roster.length ? Number((roster.reduce((sum, s) => sum + s.attendanceRate, 0) / roster.length).toFixed(1)) : 100,
         students: roster,
       }
@@ -259,6 +274,7 @@ export class ClassSummaryProjectionRepository {
 
     const roster: ClassStudentSummaryDTO[] = []
     let totalGpaSum = 0
+    let gpaStudentCount = 0
     let totalAttendanceSum = 0
     let promotedCount = 0
     let retainedCount = 0
@@ -290,10 +306,13 @@ export class ClassSummaryProjectionRepository {
       // (8.89) lệch với mọi nơi khác (0.1) và với client (roundingDecimal settings).
       const rounding = Number(gradeWeights.roundingDecimal ?? 1)
       const gpaFactor = Math.pow(10, rounding)
-      const gpa = studentGpas.length > 0 ? Math.round((studentGpas.reduce((a, b) => a + b, 0) / studentGpas.length) * gpaFactor) / gpaFactor : 0.0
-      const classification = studentGpas.length > 0 ? getClassificationLabel(gpa, classificationThresholds) : null
+      const gpa = studentGpas.length > 0 ? Math.round((studentGpas.reduce((a, b) => a + b, 0) / studentGpas.length) * gpaFactor) / gpaFactor : null
+      const classification = gpa !== null ? getClassificationLabel(gpa, classificationThresholds) : null
 
       const attRows = attendanceByStudent.get(s.id) || []
+      const massRows = attRows.filter(a => a.type === 'SundayMass')
+      const catechismRows = attRows.filter(a => a.type === 'CatechismClass')
+      const rawPresentCount = (rows: typeof attRows) => rows.filter(a => a.status === 'Present' || a.status === 'AbsentExcused').length
       // F3: Rate dùng excusedWeight từ attendancePolicy (khớp ReportCardProjection).
       const presentCount = attRows.reduce((acc, a) => {
         if (a.status === 'Present') return acc + 1
@@ -314,7 +333,10 @@ export class ClassSummaryProjectionRepository {
         transferredCount++
       }
 
-      totalGpaSum += gpa
+      if (gpa !== null) {
+        totalGpaSum += gpa
+        gpaStudentCount++
+      }
       totalAttendanceSum += attRate
 
       roster.push({
@@ -326,14 +348,29 @@ export class ClassSummaryProjectionRepository {
         dateOfBirth: s.dateOfBirth,
         gpa,
         attendanceRate: attRate,
+        attendanceSummary: {
+          massPresentCount: rawPresentCount(massRows),
+          massTotalCount: massRows.length,
+          catechismPresentCount: rawPresentCount(catechismRows),
+          catechismTotalCount: catechismRows.length,
+          overallAttendanceRate: attRate,
+        },
         classification,
         promotionStatus: status,
+        promotion: prm ? {
+          status: prm.finalDecision,
+          gpa: prm.gpaSnapshot,
+          attendanceRate: prm.attendanceSnapshot,
+          isOverridden: !!prm.isOverridden,
+          overrideReason: prm.overrideReason,
+          approvedAt: prm.approvedAt,
+        } : null,
         grades: studentGrades,
       })
     }
 
     const total = studentRows.length
-    const averageGpa = total > 0 ? Number((totalGpaSum / total).toFixed(2)) : 0.0
+    const averageGpa = gpaStudentCount > 0 ? Number((totalGpaSum / gpaStudentCount).toFixed(2)) : 0.0
     const averageAttendanceRate = total > 0 ? Number((totalAttendanceSum / total).toFixed(1)) : 100.0
 
     return {

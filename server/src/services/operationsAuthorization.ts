@@ -57,6 +57,12 @@ export type OperationsAuthorizationResource = {
   task?: { id: string; workstreamId: string | null; operationEventId: string | null; scopeUnitId?: string | null }
   workstream?: { id: string; sourceUnitId: string | null; operationEventId: string | null }
   event?: { id: string; scopeUnitId: string | null; eventScopeType?: string | null; organizerUserId: string | null; organizerPersonId: string | null; status: string; createdBy: string }
+  /**
+   * U-21: id các Mảng đang hoạt động của `event`, chỉ set khi resource được xét ở
+   * cấp event (không có `workstream`/`task`). Cần để nhận ra Field Lead của event —
+   * ở cấp event, `snapshot.workstreamRoles` không tự đối chiếu được với event nào.
+   */
+  eventWorkstreamIds?: string[]
   resourceUnitId: string | null
 }
 
@@ -90,26 +96,48 @@ const ADMIN_OVERRIDE_CAPABILITIES = new Set<OperationsCapability>([
   'operations.workstream.create', 'operations.workstream.manage', 'operations.workstream.assign_lead',
   'operations.workstream.mark_ready',
 ])
-const PARISH_LEADER_CAPABILITIES = new Set(ADMIN_OVERRIDE_CAPABILITIES)
-const PARISH_OFFICE_CAPABILITIES = new Set<OperationsCapability>([
-  'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.event.transition',
-  'operations.event.cancel', 'operations.task.view',
-  'operations.task.create', 'operations.task.manage', 'operations.task.assign', 'operations.task.reassign',
-  'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
-  'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
+/**
+ * Target Authorization Model (được duyệt):
+ * - Trưởng/Phó/Thư ký Xứ đoàn: View toàn xứ, Create Event Xứ đoàn (scope NULL),
+ *   Manage chỉ qua resource role, Delegate người (assign/reassign/assign_lead) KHÔNG
+ *   qua position scope (Trưởng Xứ đoàn chỉ giữ override khi đồng thời là admin override).
+ * - Trưởng Ban/Ngành: đầy đủ trong unit (kể cả delegate trong unit).
+ * - Phó Ban/Ngành: giữ create/manage theo policy hiện tại, KHÔNG delegate.
+ */
+const PARISH_VIEW_CAPABILITIES = new Set<OperationsCapability>([
+  'operations.event.view', 'operations.task.view',
 ])
-/** Thư ký: đọc toàn xứ + tạo Event Xứ đoàn; mọi quyền khác trên event/task của
- * người khác đều không có — quyền trên event/task mình tạo đi qua role
- * EVENT_CREATOR (operationRoleAllows), không qua position scope. */
-const PARISH_SECRETARY_CAPABILITIES = new Set<OperationsCapability>([
-  'operations.event.view', 'operations.task.view', 'operations.event.create',
-])
-const UNIT_LEADER_OR_DEPUTY_CAPABILITIES = new Set<OperationsCapability>([
+const UNIT_LEADER_CAPABILITIES = new Set<OperationsCapability>([
   'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.task.view',
   'operations.task.create', 'operations.task.manage', 'operations.task.assign', 'operations.task.reassign',
   'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
   'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
 ])
+/**
+ * Phó Ban/Ngành: giữ create/manage theo policy hiện tại; U-20 (2026-09-21,
+ * product-approved) cho thêm assign/reassign TRONG unit của mình để Phó điều
+ * phối được thành viên — target vẫn bị khoá unit/descendants bởi
+ * `assertOperationsTargetWithinAuthority`, và Phó vẫn KHÔNG được assign_lead.
+ */
+const UNIT_DEPUTY_CAPABILITIES = new Set<OperationsCapability>([
+  'operations.event.view', 'operations.event.create', 'operations.event.manage', 'operations.task.view',
+  'operations.task.create', 'operations.task.manage',
+  'operations.task.assign', 'operations.task.reassign',
+  'operations.task.comment', 'operations.workstream.create', 'operations.workstream.manage',
+  'operations.workstream.mark_ready',
+])
+const DELEGATE_CAPABILITIES = new Set<OperationsCapability>([
+  'operations.task.assign', 'operations.task.reassign', 'operations.workstream.assign_lead',
+])
+
+/**
+ * U-20 (2026-09-21, product-approved — Gói A): trong event XỨ ĐOÀN, cấu trúc
+ * EVENT → MẢNG → TASK là ba tầng trách nhiệm. Việc tạo/sửa task bên trong một
+ * Mảng thuộc Ban/Ngành sở hữu Mảng, nên hai capability này bị chốt ở tầng Mảng
+ * (xem nhánh chặn trong `decideOperationsAuthorization`) thay vì rơi vào tay
+ * người điều phối Mảng.
+ */
+const FIELD_TASK_LAYER_CAPABILITIES = new Set<OperationsCapability>(['operations.task.create', 'operations.task.manage'])
 
 function deny(reason: OperationsDecision['reason'], positionTitles: string[] = [], unitIds: string[] = [], operationRoles: string[] = []): OperationsDecision {
   return { allowed: false, reason, positionTitles, unitIds, operationRoles }
@@ -146,8 +174,17 @@ async function loadResource(executor: DbExecutor, parishId: string, scope: Opera
       .where(and(eq(operationEvents.parishId, parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
     if (!event) return null
   }
+  // U-21: ở cấp event, nạp id các Mảng để nhận ra Field Lead của event (Truong Mảng
+  // phải mở được event chứa Mảng của mình). Chỉ một query, chỉ khi scope là event.
+  let eventWorkstreamIds: string[] | undefined
+  if (event && !task && !workstream) {
+    const fieldRows = await executor.select({ id: operationWorkstreams.id }).from(operationWorkstreams).where(and(
+      eq(operationWorkstreams.parishId, parishId), eq(operationWorkstreams.operationEventId, event.id), isNull(operationWorkstreams.deletedAt),
+    ))
+    eventWorkstreamIds = fieldRows.map(row => row.id)
+  }
 
-  return { parishId, task, workstream, event, resourceUnitId: scope.resourceUnitId ?? task?.scopeUnitId ?? workstream?.sourceUnitId ?? event?.scopeUnitId ?? null }
+  return { parishId, task, workstream, event, eventWorkstreamIds, resourceUnitId: scope.resourceUnitId ?? task?.scopeUnitId ?? workstream?.sourceUnitId ?? event?.scopeUnitId ?? null }
 }
 
 async function loadAuthorizationSnapshot(executor: DbExecutor, actor: ActorContext): Promise<OperationsAuthorizationSnapshot> {
@@ -225,6 +262,34 @@ function descendantIds(units: Array<{ id: string; parentId: string | null }>, ro
   return result
 }
 
+/**
+ * U-20: Trưởng Ban/Ngành đang hiệu lực của `unitId` (hoặc của một unit cha bao
+ * trùm nó — cùng semantics với nhánh unit bên dưới). Dùng cho tầng Mảng của event
+ * Xứ đoàn: task trong Mảng thuộc Ban/Ngành sở hữu Mảng.
+ */
+function isUnitLeaderFor(unitId: string | null, snapshot: OperationsAuthorizationSnapshot): boolean {
+  if (!unitId) return false
+  const unitsById = new Map(snapshot.units.map(unit => [unit.id, unit]))
+  return snapshot.currentTerms.some(term => {
+    if (!term.unitId || !descendantIds(snapshot.units, term.unitId).includes(unitId)) return false
+    const unitType = unitsById.get(term.unitId)?.unitType
+    return (unitType === 'BRANCH' && term.positionCode === 'BRANCH_LEADER')
+      || (unitType === 'COMMITTEE' && term.positionCode === 'COMMITTEE_LEADER')
+  })
+}
+
+/** U-20: Phó Ban/Ngành đang hiệu lực của `unitId` (hoặc unit cha bao trùm nó). */
+function isUnitDeputyFor(unitId: string | null, snapshot: OperationsAuthorizationSnapshot): boolean {
+  if (!unitId) return false
+  const unitsById = new Map(snapshot.units.map(unit => [unit.id, unit]))
+  return snapshot.currentTerms.some(term => {
+    if (!term.unitId || !descendantIds(snapshot.units, term.unitId).includes(unitId)) return false
+    const unitType = unitsById.get(term.unitId)?.unitType
+    return (unitType === 'BRANCH' && term.positionCode === 'BRANCH_DEPUTY')
+      || (unitType === 'COMMITTEE' && term.positionCode === 'COMMITTEE_DEPUTY')
+  })
+}
+
 async function resolveTargetAuthority(
   actor: ActorContext,
   capability: OperationsCapability,
@@ -241,11 +306,10 @@ async function resolveTargetAuthority(
   if (!decision.allowed) {
     throw Object.assign(new Error('Bạn không có quyền Operations trong phạm vi này.'), { status: 403, code: 'FORBIDDEN', decision })
   }
-  // Thư ký không còn parish-wide: đọc toàn xứ đi qua capability view,
-  // còn target-scope (phân công/lead) phải thỏa unit như mọi actor khác.
+  // Target model đã duyệt: delegate người KHÔNG còn parish-wide cho
+  // Trưởng/Phó Xứ đoàn. Chỉ technical admin override mới bypass kiểm tra
+  // target-scope. Đọc toàn xứ đi qua capability view riêng, không qua cờ này.
   const parishWide = (actor.role === 'admin' && isOperationsAdminMutationOverrideEnabled())
-    || snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER')
-    || snapshot.currentTerms.some(term => term.positionCode === 'PARISH_DEPUTY')
   return { resource, snapshot, parishWide, decision }
 }
 
@@ -410,27 +474,39 @@ export async function listOperationsCandidates(
 }
 
 function operationRoleAllows(capability: OperationsCapability, roles: string[]): boolean {
-  if (capability === 'operations.event.view') return roles.length > 0
+  if (capability === 'operations.event.view' || capability === 'operations.task.view') return roles.length > 0
   // Personal task authority is additive: being a manager must neither grant
   // it implicitly nor mask an independently accepted task assignment.
   if (capability === 'operations.task.execute') return roles.includes('TASK_OWNER') || roles.includes('TASK_CONTRIBUTOR')
+  // ACCEPTED assignees may comment on their task; pending assignees view only.
+  if (capability === 'operations.task.comment') {
+    return roles.includes('EVENT_CREATOR') || roles.includes('EVENT_ORGANIZER')
+      || roles.includes('WORKSTREAM_LEAD') || roles.includes('TASK_OWNER') || roles.includes('TASK_CONTRIBUTOR')
+  }
+  // Target model: Creator/Organizer/Lead manage nội dung nhưng KHÔNG tự động
+  // delegate người. Delegate chỉ qua position scope của Trưởng unit hiện hành
+  // (hoặc admin override). Vì vậy assign/reassign/assign_lead bị loại khỏi role.
   if (roles.includes('EVENT_ORGANIZER') || roles.includes('EVENT_CREATOR')) {
     return new Set<OperationsCapability>([
       'operations.event.view', 'operations.event.manage', 'operations.event.transition', 'operations.event.cancel',
       'operations.event.override_readiness', 'operations.task.view', 'operations.task.create', 'operations.task.manage',
-      'operations.task.assign', 'operations.task.reassign', 'operations.task.comment', 'operations.workstream.create',
-      'operations.workstream.manage', 'operations.workstream.assign_lead', 'operations.workstream.mark_ready',
+      'operations.task.comment', 'operations.workstream.create',
+      'operations.workstream.manage', 'operations.workstream.mark_ready',
     ]).has(capability)
   }
   if (roles.includes('WORKSTREAM_LEAD')) {
     return new Set<OperationsCapability>([
       'operations.event.view', 'operations.task.view', 'operations.task.create', 'operations.task.manage',
-      'operations.task.assign', 'operations.task.reassign', 'operations.task.comment', 'operations.workstream.manage',
+      'operations.task.comment', 'operations.workstream.manage',
       'operations.workstream.mark_ready',
     ]).has(capability)
   }
-  if (capability === 'operations.task.comment' || capability === 'operations.task.view') return roles.length > 0
   return false
+}
+
+/** XU_DOAN graph = event thuộc Xứ đoàn (`scope_unit_id` NULL), độc lập với việc event có Mảng hay không. */
+function isXuDoanGraphResource(resource: OperationsAuthorizationResource): boolean {
+  return Boolean(resource.event && (resource.event.eventScopeType ?? (resource.event.scopeUnitId ? 'UNIT' : 'XU_DOAN')) === 'XU_DOAN')
 }
 
 function decideOperationsAuthorization(
@@ -440,8 +516,24 @@ function decideOperationsAuthorization(
   snapshot: OperationsAuthorizationSnapshot,
 ): OperationsDecision {
   if (resource.parishId !== actor.parishId) return deny('ACCOUNT_ROLE')
+  const isXuDoanGraph = isXuDoanGraphResource(resource)
+  // DRAFT: mặc định chỉ creator (+admin) được thấy. Văn phòng xứ View toàn xứ
+  // nên được xem DRAFT. Trưởng Xứ đoàn còn được manage nội dung DRAFT Xứ đoàn
+  // (không delegate) để tiếp quản event do Phó/Thư ký/admin tạo.
   if (resource.event?.status === 'DRAFT' && actor.role !== 'admin' && resource.event.createdBy !== actor.userId) {
-    return deny('OPERATION_ROLE')
+    const isParishOfficeViewer = snapshot.currentTerms.some(term =>
+      (term.positionCode === 'PARISH_LEADER' || term.positionCode === 'PARISH_DEPUTY' || term.positionCode === 'PARISH_SECRETARY'),
+    )
+    const isView = capability === 'operations.event.view' || capability === 'operations.task.view'
+    if (isView && isParishOfficeViewer) {
+      // Cho qua để nhánh position bên dưới xét view toàn xứ.
+    } else if (isXuDoanGraph && !DELEGATE_CAPABILITIES.has(capability) && capability !== 'operations.task.execute') {
+      const isParishLeaderDraft = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER')
+      if (!isParishLeaderDraft) return deny('OPERATION_ROLE')
+      // Trưởng Xứ đoàn được qua để nhánh position xét manage Xứ đoàn bên dưới.
+    } else {
+      return deny('OPERATION_ROLE')
+    }
   }
   const operationRoles: string[] = []
   if (resource.event?.createdBy === actor.userId) operationRoles.push('EVENT_CREATOR')
@@ -458,6 +550,20 @@ function decideOperationsAuthorization(
     operationRoles.push(...assignments
       .filter(row => row.acknowledgementStatus === 'ACCEPTED')
       .map(row => `TASK_${row.role}`))
+  }
+  // U-20 (2026-09-21, product-approved — Gói A): event XỨ ĐOÀN → MẢNG → TASK là
+  // ba tầng trách nhiệm. Trưởng/Phó Xứ đoàn và Thư ký dừng ở cấp điều phối Mảng;
+  // task bên trong một Mảng thuộc Ban/Ngành sở hữu Mảng. Chốt tại đây — trước mọi
+  // nhánh role/position — nên EVENT_ORGANIZER (organizer Xứ đoàn luôn là Xứ đoàn
+  // trưởng) và EVENT_CREATOR (Phó/Thư ký tạo event) không còn là đường vòng.
+  // Quyền tạo/sửa đến từ Trưởng/Phó Ban-Ngành của đúng unit sở hữu Mảng, hoặc
+  // chính WORKSTREAM_LEAD của Mảng đó; admin override giữ nguyên.
+  if (isXuDoanGraph && resource.workstream && FIELD_TASK_LAYER_CAPABILITIES.has(capability)) {
+    const holdsFieldLayerAuthority = operationRoles.includes('WORKSTREAM_LEAD')
+      || isUnitLeaderFor(resource.workstream.sourceUnitId, snapshot)
+      || isUnitDeputyFor(resource.workstream.sourceUnitId, snapshot)
+    const hasAdminOverride = actor.role === 'admin' && isOperationsAdminMutationOverrideEnabled() && ADMIN_OVERRIDE_CAPABILITIES.has(capability)
+    if (!holdsFieldLayerAuthority && !hasAdminOverride) return deny('POSITION_SCOPE', [], [], operationRoles)
   }
   if (operationRoleAllows(capability, operationRoles)) {
     return { allowed: true, reason: 'OPERATION_ROLE', positionTitles: [], unitIds: [], operationRoles }
@@ -479,16 +585,45 @@ function decideOperationsAuthorization(
   const parishLeader = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_LEADER' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
   const parishDeputy = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_DEPUTY' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
   const parishSecretary = snapshot.currentTerms.some(term => term.positionCode === 'PARISH_SECRETARY' && (!term.unitId || unitsById.get(term.unitId)?.unitType === 'BOARD'))
-  const unitLeader = requestedUnitId !== null && snapshot.currentTerms.some(term => {
-    if (!term.unitId || !descendantIds(snapshot.units, term.unitId).includes(requestedUnitId)) return false
-    const unitType = unitsById.get(term.unitId)?.unitType
-    return (unitType === 'BRANCH' && (term.positionCode === 'BRANCH_LEADER' || term.positionCode === 'BRANCH_DEPUTY'))
-      || (unitType === 'COMMITTEE' && (term.positionCode === 'COMMITTEE_LEADER' || term.positionCode === 'COMMITTEE_DEPUTY'))
-  })
-  if (parishLeader && PARISH_LEADER_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  if (parishDeputy && PARISH_OFFICE_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  if (parishSecretary && PARISH_SECRETARY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
-  if (unitLeader && UNIT_LEADER_OR_DEPUTY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+  const isParishOffice = parishLeader || parishDeputy || parishSecretary
+  // Khóa theo yêu cầu: Trưởng Xứ đoàn chỉ tạo event Xứ đoàn (scope NULL) +
+  // task độc lập (standalone, không event/workstream); Phó/Thư ký chỉ tạo
+  // Event Xứ đoàn. Trưởng Xứ đoàn được sửa nội dung event Xứ đoàn (kể cả do
+  // Phó/Thư ký/admin tạo) nhưng KHÔNG delegate người — ngoại lệ duy nhất là bổ
+  // nhiệm Field Lead cho Mảng của event Xứ đoàn (U-20). Mọi manage/delegate khác
+  // chỉ qua resource role hoặc term unit kiêm nhiệm ở nhánh unit bên dưới.
+  if (isParishOffice) {
+    if (PARISH_VIEW_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+    if (capability === 'operations.event.create' && requestedUnitId === null) {
+      // Cả Trưởng/Phó/Thư ký đều được tạo Event Xứ đoàn.
+      return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+    }
+    if (parishLeader && capability === 'operations.event.publish_public') {
+      return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+    }
+    if (parishLeader && capability === 'operations.task.create' && !resource.event && !resource.workstream && !resource.task) {
+      // Task độc lập (standalone): không event/workstream, scope từ unit picker.
+      return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+    }
+    if (parishLeader && capability === 'operations.workstream.assign_lead' && isXuDoanGraph && resource.workstream?.sourceUnitId) {
+      // U-20 (Gói A, 2026-09-21): Trưởng Xứ đoàn bổ nhiệm Field Lead cho Mảng của
+      // event Xứ đoàn. Target vẫn bị ép đúng Trưởng Ban/Ngành đương nhiệm của đơn
+      // vị sở hữu Mảng vì route luôn chạy `assertWorkstreamLeadEligibility` cho
+      // non-admin; Mảng thiếu sourceUnitId (legacy) không mở đường này. Delegate
+      // khác của Trưởng Xứ đoàn vẫn bị chặn ở nhánh dưới.
+      return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+    }
+    if (parishLeader && isXuDoanGraph && !DELEGATE_CAPABILITIES.has(capability) && capability !== 'operations.task.execute') {
+      // Sửa nội dung Xứ đoàn (event/task/workstream manage, transition, cancel,
+      // comment, mark_ready...) cho event Xứ đoàn dù do Phó/Thư ký/admin tạo.
+      // Delegate người và execute cá nhân vẫn bị chặn ở đây.
+      return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+    }
+  }
+  const unitLeader = isUnitLeaderFor(requestedUnitId, snapshot)
+  const unitDeputy = isUnitDeputyFor(requestedUnitId, snapshot)
+  if (unitLeader && UNIT_LEADER_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
+  if (unitDeputy && UNIT_DEPUTY_CAPABILITIES.has(capability)) return { allowed: true, reason: 'POSITION_SCOPE', positionTitles, unitIds, operationRoles }
   return deny('POSITION_SCOPE', positionTitles, unitIds, operationRoles)
 }
 
@@ -606,5 +741,31 @@ export async function getOperationsCallerPermissions(actor: ActorContext, scope:
   const resource = await loadResource(executor, actor.parishId, scope)
   if (!resource) return Object.fromEntries(capabilities.map(capability => [capability, false]))
   const snapshot = await loadAuthorizationSnapshot(executor, actor)
-  return Object.fromEntries(capabilities.map(capability => [capability, decideOperationsAuthorization(actor, capability, resource, snapshot).allowed]))
+  const permissions: Record<string, boolean> = Object.fromEntries(
+    capabilities.map(capability => [capability, decideOperationsAuthorization(actor, capability, resource, snapshot).allowed]),
+  )
+  // U-20 (2026-09-21, Gói A): trong event Xứ đoàn task chỉ tồn tại bên trong một
+  // Mảng (`TASK_WORKSTREAM_REQUIRED`), nên câu hỏi "tạo được task trong event này
+  // không?" thực chất là "có ít nhất một Mảng của event mà caller có quyền tầng
+  // Mảng hay không". Chưa có Mảng (hoặc không Mảng nào thuộc quyền) ⇒ false, để UI
+  // không mời người điều phối Mảng một hành động mà command path sẽ từ chối.
+  // Map này chỉ là UX: mọi command vẫn tự kiểm capability trên resource thật.
+  if (scope.eventId && !scope.workstreamId && !scope.taskId && isXuDoanGraphResource(resource)) {
+    const fields = await executor.select({
+      id: operationWorkstreams.id,
+      sourceUnitId: operationWorkstreams.sourceUnitId,
+      operationEventId: operationWorkstreams.operationEventId,
+    }).from(operationWorkstreams).where(and(
+      eq(operationWorkstreams.parishId, actor.parishId),
+      eq(operationWorkstreams.operationEventId, scope.eventId),
+      isNull(operationWorkstreams.deletedAt),
+    ))
+    permissions['operations.task.create'] = fields.some(field => decideOperationsAuthorization(
+      actor,
+      'operations.task.create',
+      { ...resource, workstream: field, resourceUnitId: field.sourceUnitId },
+      snapshot,
+    ).allowed)
+  }
+  return permissions
 }

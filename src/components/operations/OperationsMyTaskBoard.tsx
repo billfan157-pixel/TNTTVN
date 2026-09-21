@@ -126,13 +126,13 @@ export function OperationsMyTaskBoard({
       {/* Quick Filter Chips — intentionally hand-rolled, not DS FilterChips:
           DS pills are 32px/grouped 30px tall, below the 44px mobile touch
           invariant; these keep role=group + aria-pressed + min-h-44. (B5) */}
-      <div className="flex flex-wrap gap-1.5 px-3 py-2 bg-surface-ground/40 border-b border-surface-border" role="group" aria-label="Lọc công việc theo trạng thái">
+      <div className="flex items-center gap-1.5 px-3 py-2 bg-surface-ground/40 border-b border-surface-border overflow-x-auto no-scrollbar flex-nowrap" role="group" aria-label="Lọc công việc theo trạng thái">
         {myTaskFilterOptions.map(opt => (
           <button
             key={opt.key}
             type="button"
             aria-pressed={myTaskFilter === opt.key}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors min-h-[44px] sm:min-h-0 inline-flex items-center justify-center mobile-touch-target ${
+            className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors min-h-[44px] sm:min-h-0 inline-flex items-center justify-center mobile-touch-target ${
               myTaskFilter === opt.key
                 ? 'bg-parish-primary text-text-inverse shadow-xs'
                 : 'bg-surface-card text-text-muted hover:text-text-main border border-surface-border hover:bg-surface-hover'

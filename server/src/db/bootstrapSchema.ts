@@ -197,6 +197,7 @@ export const BOOTSTRAP_DDL = `
     lease_owner TEXT,
     lease_expires_at TEXT,
     next_attempt_at TEXT,
+    delivered_endpoints TEXT,
     parish_id TEXT NOT NULL DEFAULT 'gia-ton',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -237,13 +238,15 @@ export const BOOTSTRAP_DDL = `
   );
 
   CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     endpoint TEXT NOT NULL UNIQUE,
     p256dh TEXT NOT NULL,
     auth TEXT NOT NULL,
-    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    user_id TEXT,
     parish_id TEXT NOT NULL DEFAULT 'gia-ton',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (parish_id, id),
+    FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS native_push_tokens (

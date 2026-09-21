@@ -178,8 +178,8 @@ export function renderStudentReportCardBody(vm: StudentReportCardViewModel): str
 
       <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #CBD5E1; padding-top: 15px;">
         <div style="font-size: 11px; color: #475569; max-width: 320px;">
-          <p style="margin: 0 0 4px 0; font-weight: bold; color: #1E3A8A;">Xác thực Kết Quả Học Tập (QR Verification)</p>
-          <p style="margin: 0; line-height: 1.4;">Quét mã QR bên cạnh để kiểm tra tính nguyên vẹn của kết quả học tập hệ thống Brave Davinci.</p>
+          <p style="margin: 0 0 4px 0; font-weight: bold; color: #1E3A8A;">Mã tham chiếu báo cáo</p>
+          <p style="margin: 0; line-height: 1.4;">Mã QR này chỉ chứa định danh tham chiếu; không phải chữ ký số và không xác nhận tính toàn vẹn của điểm số, bản in hoặc việc cấp chứng nhận.</p>
         </div>
         <div style="background: #FFFFFF; padding: 6px; border: 1px solid #CBD5E1; border-radius: 6px; text-align: center;">
           ${(() => {

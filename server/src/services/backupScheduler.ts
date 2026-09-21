@@ -7,6 +7,7 @@ import { and, eq } from 'drizzle-orm'
 import { putObject, listObjects, deleteObject } from './blobStorage.js'
 import { createAndStoreRemoteBackup } from './remoteBackup.js'
 import { getDeploymentParishId } from '../utils/deploymentParish.js'
+import { tryChmod600 } from '../utils/safetyDir.js'
 
 const CHECK_INTERVAL_MS = 60 * 1000 // Check every minute
 const MARKER_KEY = 'auto_backup_last_date'
@@ -85,6 +86,10 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
       // place — a failed rewrite under the final name would leave a
       // completed-looking but corrupted backup.
       artifact = fs.readFileSync(partialFile)
+      // NEW-F-02 (AUDIT04 unknowns closure): the local artifact holds the full
+      // parish DB — restrict it like safety/ files. chmod before rename so the
+      // published file keeps the restrictive mode (rename preserves the inode).
+      tryChmod600(partialFile)
       fs.renameSync(partialFile, destFile)
     } catch (vacuumErr: any) {
       try {

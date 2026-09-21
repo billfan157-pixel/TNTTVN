@@ -43,19 +43,19 @@ try {
 
       const parentRecipients = await count(tx, `
         SELECT COUNT(DISTINCT id) AS count FROM users
-        WHERE parish_id = ? AND role = 'phuhuynh' AND status != 'INACTIVE' AND deleted_at IS NULL
+        WHERE parish_id = ? AND role = 'phuhuynh' AND status = 'ACTIVE' AND deleted_at IS NULL
       `, parishId)
       const webPushSubscriptions = await count(tx, `
         SELECT COUNT(DISTINCT ps.id) AS count
         FROM push_subscriptions ps
         JOIN users u ON u.parish_id = ps.parish_id AND u.id = ps.user_id
-        WHERE ps.parish_id = ? AND u.role = 'phuhuynh' AND u.status != 'INACTIVE' AND u.deleted_at IS NULL
+        WHERE ps.parish_id = ? AND u.role = 'phuhuynh' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
       `, parishId)
       const nativePushTokens = await count(tx, `
         SELECT COUNT(DISTINCT n.id) AS count
         FROM native_push_tokens n
         JOIN users u ON u.parish_id = n.parish_id AND u.id = n.user_id
-        WHERE n.parish_id = ? AND u.role = 'phuhuynh' AND u.status != 'INACTIVE' AND u.deleted_at IS NULL
+        WHERE n.parish_id = ? AND u.role = 'phuhuynh' AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
       `, parishId)
       parishes.push({
         parishRef: parishReference(parishId),

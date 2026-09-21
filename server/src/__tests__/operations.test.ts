@@ -365,6 +365,34 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await data(await request(`/workstreams/${workstream.id}`, adminToken))).members).toEqual([])
   })
 
+  it('deletes workstream cleanly when empty, and rejects deletion when active tasks exist', async () => {
+    const workstream = await data(await request('/workstreams', adminToken, 'POST', { name: 'Mảng thử nghiệm xóa', sourceUnitId: branchId }))
+    // Deleting with version mismatch fails with 409
+    expect((await request(`/workstreams/${workstream.id}`, adminToken, 'DELETE', { version: 999 })).status).toBe(409)
+
+    // Creating an active task under this workstream blocks deletion
+    const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Việc trong mảng', workstreamId: workstream.id }))
+    const blockedDelete = await request(`/workstreams/${workstream.id}`, adminToken, 'DELETE', { version: 1 })
+    const blockedJson = await blockedDelete.json() as any
+    expect(blockedJson.error.code).toBe('WORKSTREAM_NOT_EMPTY')
+    expect(blockedJson.error.message).toContain('nhiệm vụ đang thực hiện')
+
+    // Cancelling the task unblocks deletion
+    const assigned = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))
+    await request(`/tasks/${task.id}/acknowledge`, ownerToken, 'POST', { assignmentId: assigned.assignment.id, version: 1, status: 'ACCEPTED' })
+    const cancelled = await request(`/tasks/${task.id}/transition`, ownerToken, 'POST', { version: assigned.taskVersion, status: 'CANCELLED', cancellationReason: 'Không cần nữa' })
+    expect(cancelled.status).toBe(200)
+
+    const deleteRes = await request(`/workstreams/${workstream.id}`, adminToken, 'DELETE', { version: 1 })
+    expect(deleteRes.status).toBe(200)
+
+    // The workstream is soft-deleted and inaccessible
+    const [deletedRow] = await db.select().from(operationWorkstreams).where(and(eq(operationWorkstreams.parishId, parishA), eq(operationWorkstreams.id, workstream.id)))
+    expect(deletedRow?.deletedAt).toBeTruthy()
+    const listRes = await data(await request('/workstreams?limit=100', adminToken))
+    expect(listRes.some((w: any) => w.id === workstream.id)).toBe(false)
+  })
+
   it('reopens acknowledgement when task content changes, but not for scheduling metadata', async () => {
     const task = await data(await request('/tasks', adminToken, 'POST', { title: 'Review content' }))
     const owner = await data(await request(`/tasks/${task.id}/assign`, adminToken, 'POST', { version: 1, userId: ownerId, assignmentRole: 'OWNER' }))

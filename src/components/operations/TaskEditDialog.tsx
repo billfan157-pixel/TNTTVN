@@ -59,9 +59,48 @@ export function TaskEditDialog({
           <label className="flex items-center gap-2 text-sm text-text-main">
             <input type="checkbox" checked={draft.isRequired} disabled={saving} onChange={event => onDraftChange({ isRequired: event.target.checked })} /> Nhiệm vụ bắt buộc
           </label>
-          <TextInput aria-label="Hạn nhiệm vụ" className="w-full" type="datetime-local" value={draft.dueAt} disabled={saving} onChange={event => onDraftChange({ dueAt: event.target.value })} />
-          <TextInput aria-label="Bắt đầu ca nhiệm vụ" className="w-full" type="datetime-local" value={draft.scheduledStartAt} disabled={saving} onChange={event => onDraftChange({ scheduledStartAt: event.target.value })} />
-          <TextInput aria-label="Kết thúc ca nhiệm vụ" className="w-full" type="datetime-local" value={draft.scheduledEndAt} disabled={saving} onChange={event => onDraftChange({ scheduledEndAt: event.target.value })} />
+          <div className="sm:col-span-2">
+            <label htmlFor="edit-task-due-at" className="mb-1 block text-xs font-semibold text-text-main">
+              Hạn hoàn thành
+            </label>
+            <TextInput
+              id="edit-task-due-at"
+              aria-label="Hạn nhiệm vụ"
+              className="w-full"
+              type="datetime-local"
+              value={draft.dueAt}
+              disabled={saving}
+              onChange={event => onDraftChange({ dueAt: event.target.value })}
+            />
+          </div>
+          <div>
+            <label htmlFor="edit-task-start-at" className="mb-1 block text-xs font-semibold text-text-main">
+              Bắt đầu ca
+            </label>
+            <TextInput
+              id="edit-task-start-at"
+              aria-label="Bắt đầu ca nhiệm vụ"
+              className="w-full"
+              type="datetime-local"
+              value={draft.scheduledStartAt}
+              disabled={saving}
+              onChange={event => onDraftChange({ scheduledStartAt: event.target.value })}
+            />
+          </div>
+          <div>
+            <label htmlFor="edit-task-end-at" className="mb-1 block text-xs font-semibold text-text-main">
+              Kết thúc ca
+            </label>
+            <TextInput
+              id="edit-task-end-at"
+              aria-label="Kết thúc ca nhiệm vụ"
+              className="w-full"
+              type="datetime-local"
+              value={draft.scheduledEndAt}
+              disabled={saving}
+              onChange={event => onDraftChange({ scheduledEndAt: event.target.value })}
+            />
+          </div>
         </div>
         <p className="m-0 text-xs text-text-muted">Máy chủ quyết định thay đổi nào là quan trọng: sửa tên, mô tả, mức bắt buộc, hạn hoặc ca nhiệm vụ sẽ yêu cầu người đã nhận việc xác nhận lại. Đổi ưu tiên không làm mất xác nhận cũ.</p>
         {scheduleInvalid && <p className="m-0 text-xs text-parish-danger">Ca nhiệm vụ phải có đủ giờ bắt đầu và kết thúc, giờ kết thúc phải sau giờ bắt đầu.</p>}

@@ -50,7 +50,23 @@ export async function fetchOfficialClassReport(
   const summary = await api.getClassSummary(classId, year)
 
   // Check if students already have embedded grades and classification from enriched backend projection
-  const canSynthesize = summary.students.length > 0 && summary.students.every((s) => s.grades !== undefined)
+  const canSynthesize = summary.students.length > 0 && summary.students.every((s) => {
+    const attendance = s.attendanceSummary
+    const promotion = s.promotion
+    return Array.isArray(s.grades)
+      && attendance != null
+      && typeof attendance.massPresentCount === 'number'
+      && typeof attendance.massTotalCount === 'number'
+      && typeof attendance.catechismPresentCount === 'number'
+      && typeof attendance.catechismTotalCount === 'number'
+      && typeof attendance.overallAttendanceRate === 'number'
+      && Object.prototype.hasOwnProperty.call(s, 'promotion')
+      && (promotion === null || (promotion != null
+        && typeof promotion.status === 'string'
+        && typeof promotion.gpa === 'number'
+        && typeof promotion.attendanceRate === 'number'
+        && typeof promotion.isOverridden === 'boolean'))
+  })
   let reportCards: ReportCardDTO[]
 
   if (canSynthesize) {
@@ -80,21 +96,8 @@ export async function fetchOfficialClassReport(
         gpa: student.gpa ?? null,
         classification: student.classification ?? null,
       },
-      attendanceSummary: {
-        massPresentCount: 0,
-        massTotalCount: 0,
-        catechismPresentCount: 0,
-        catechismTotalCount: 0,
-        overallAttendanceRate: student.attendanceRate ?? 100,
-      },
-      promotion: student.promotionStatus
-        ? {
-            status: student.promotionStatus,
-            gpa: student.gpa,
-            attendanceRate: student.attendanceRate,
-            isOverridden: false,
-          }
-        : null,
+      attendanceSummary: { ...student.attendanceSummary },
+      promotion: student.promotion ? { ...student.promotion } : null,
     }))
   } else if (summary.students.length === 0) {
     reportCards = []

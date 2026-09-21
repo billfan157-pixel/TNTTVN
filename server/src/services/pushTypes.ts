@@ -8,4 +8,6 @@ export interface NativeProviderResult {
   sent: number
   failed: number
   deadTokens: string[]
+  successfulTokens?: string[]
+  lastProviderError?: string
 }

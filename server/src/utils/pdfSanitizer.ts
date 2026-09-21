@@ -2,9 +2,9 @@
  * A-NEW-42 (2026-08-13): Bộ lọc và vệ sinh HTML cho dịch vụ xuất PDF (Puppeteer).
  * 
  * Phòng chống SSRF (Server-Side Request Forgery) và LFI (Local File Inclusion):
- * 1. Chặn đọc file cục bộ qua giao thức `file://` (ví dụ file:///etc/passwd).
- * 2. Chặn kết nối tới IP nội bộ (localhost, 127.0.0.1, 169.254.169.254, 10.x, 192.168.x, 172.16-31.x).
- * 3. Chặn mã độc script, iframe, object, embed và inline event handlers.
+ * 1. Mẫu PDF là self-contained: URL ngoài `data:` / `about:blank` bị thay thế.
+ * 2. Browser request interception trong pdfService từ chối mọi outbound request.
+ * 3. Loại script, iframe, object, embed và inline event handlers.
  */
 
 function isPrivateIpOctets(a: number, b: number): boolean {
@@ -78,7 +78,9 @@ export function isInternalOrLocalUrl(urlStr: string): boolean {
     if (protocol === 'data:' || protocol === 'about:') return false
     if (protocol !== 'http:' && protocol !== 'https:') return true
 
-    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    // URL treats `localhost.` as a distinct hostname string even though DNS
+    // resolves it to loopback. Canonicalize terminal dots before comparing.
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
 
     if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
       return true
@@ -93,6 +95,23 @@ export function isInternalOrLocalUrl(urlStr: string): boolean {
   } catch {
     // URL không hợp lệ hoặc tương đối nhưng chứa file: hoặc IP local
     return trimmed.toLowerCase().includes('file:') || trimmed.toLowerCase().includes('localhost') || trimmed.toLowerCase().includes('127.0.0.1')
+  }
+}
+
+/**
+ * Official report templates are self-contained (inline CSS/SVG/data images).
+ * The PDF browser therefore has no valid reason to reach the network. Keep
+ * this allowlist deliberately tiny so an incomplete private-host classifier,
+ * DNS rebinding, redirects, or unusual address encodings cannot become SSRF.
+ */
+export function isAllowedPdfResourceUrl(urlStr: string): boolean {
+  if (!urlStr || typeof urlStr !== 'string') return false
+  try {
+    const parsed = new URL(urlStr.trim())
+    const protocol = parsed.protocol.toLowerCase()
+    return protocol === 'data:' || (protocol === 'about:' && parsed.href.toLowerCase() === 'about:blank')
+  } catch {
+    return false
   }
 }
 
@@ -114,21 +133,21 @@ export function sanitizePDFHTML(html: string): string {
   // 2. Loại bỏ inline event handlers (onload, onerror,...)
   sanitized = sanitized.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
 
-  // 3. Thay thế các đường dẫn file:// hoặc local IP trong thuộc tính src/href/action/data
+  // 3. Thay thế mọi đường dẫn ngoài allowlist trong thuộc tính src/href/action/data
   sanitized = sanitized.replace(/(src|href|action|data)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (match, attr, val1, val2, val3) => {
     const urlVal = (val1 || val2 || val3 || '').trim()
     if (!urlVal) return match
 
-    if (isInternalOrLocalUrl(urlVal)) {
+    if (!isAllowedPdfResourceUrl(urlVal)) {
       return `${attr}="about:blank"`
     }
     return match
   })
 
-  // 4. Thay thế url(...) trong CSS inline nếu trỏ đến file:// hoặc local IP
+  // 4. Thay thế mọi url(...) ngoài allowlist trong CSS inline
   sanitized = sanitized.replace(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]+))\s*\)/gi, (match, val1, val2, val3) => {
     const urlVal = (val1 || val2 || val3 || '').trim()
-    if (isInternalOrLocalUrl(urlVal)) {
+    if (!isAllowedPdfResourceUrl(urlVal)) {
       return 'url("about:blank")'
     }
     return match

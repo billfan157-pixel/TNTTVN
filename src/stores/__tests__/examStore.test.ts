@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getDB } from '../../lib/db'
 import { setTenantScope } from '../../lib/tenantScope'
+import { decryptQueueValue } from '../../lib/offlineCipher'
 
 vi.mock('@sentry/react', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }))
 
@@ -43,6 +44,7 @@ function mkResult(studentId: string, score: number, overrides: Partial<ExamResul
     examSessionId: 'EXS-test-1',
     studentId,
     score,
+    resultVersion: 1,
     source: 'qr_scan',
     createdAt: new Date().toISOString(),
     studentCode: `HS-${studentId}`,
@@ -69,6 +71,7 @@ beforeEach(async () => {
     sessions: [],
     selectedSessionId: null,
     results: [],
+    cachedResultsBySession: {},
     loading: false,
     saving: false,
     finalizing: false,
@@ -89,6 +92,89 @@ afterEach(async () => {
   localStorage.removeItem('parish_current_user')
   setOffline(false)
   vi.restoreAllMocks()
+})
+
+describe('exam result durable intent boundaries', () => {
+  async function queuedScores() {
+    const rows = (await getDB().syncQueue.toArray()).filter(row => row.entity === 'exam_result')
+    return Promise.all(rows.map(async row => ({ row, payload: JSON.parse((await decryptQueueValue(row.payload))!) as {
+      action: string; score: Record<string, unknown>
+    } })))
+  }
+
+  it('preserves OMR answers and version when an unsent mixed scan is followed by an essay edit', async () => {
+    setOffline(true)
+    useExamStore.setState({ sessions: [mkSession({ examType: 'mixed', questionCount: 1 })], selectedSessionId: 'EXS-test-1' })
+    expect(await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 2, source: 'omr', answers: '{"1":"A"}', scanMetadata: '{"detectionStatus":"accepted"}', examVersion: 'B' }])).not.toBeNull()
+    expect(await useExamStore.getState().saveScores([{ studentId: 'ST-1', score: 4, essayScore: 4, source: 'quick_entry' }])).not.toBeNull()
+    const queued = await queuedScores()
+    expect(queued).toHaveLength(1)
+    expect(queued[0].payload.score).toMatchObject({ essayScore: 4, answers: '{"1":"A"}', examVersion: 'B', source: 'omr' })
+    expect(useExamStore.getState().results[0].answers).toEqual({ 1: 'A' })
+  })
+
+  it('preserves an unsent essay score when the mixed scan arrives later', async () => {
+    setOffline(true)
+    useExamStore.setState({ sessions: [mkSession({ examType: 'mixed', questionCount: 1 })], selectedSessionId: 'EXS-test-1' })
+    await useExamStore.getState().saveScores([{ studentId: 'ST-1', score: 4, essayScore: 4, source: 'quick_entry' }])
+    await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 2, source: 'omr', answers: '{"1":"A"}', scanMetadata: '{"detectionStatus":"accepted"}', examVersion: 'B' }])
+    const queued = await queuedScores()
+    expect(queued).toHaveLength(1)
+    expect(queued[0].payload.score).toMatchObject({ essayScore: 4, answers: '{"1":"A"}', examVersion: 'B', source: 'omr' })
+  })
+
+  it('keeps an issued scan immutable and chains the complete essay command after its receipt', async () => {
+    setOffline(true)
+    useExamStore.setState({ sessions: [mkSession({ examType: 'mixed', questionCount: 1 })], selectedSessionId: 'EXS-test-1' })
+    await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 2, source: 'omr', answers: '{"1":"A"}', examVersion: 'B' }])
+    const [first] = await queuedScores()
+    await getDB().syncQueue.update(first.row.id, { status: 'retrying' })
+    await useExamStore.getState().saveScores([{ studentId: 'ST-1', score: 4, essayScore: 4, source: 'quick_entry' }])
+    const queued = await queuedScores()
+    expect(queued).toHaveLength(2)
+    expect(queued.find(item => item.row.id === first.row.id)?.payload.score).toEqual(first.payload.score)
+    const successor = queued.find(item => item.row.id !== first.row.id)!
+    expect(successor.payload.score).toMatchObject({ afterMutationId: first.payload.score.clientMutationId, essayScore: 4, answers: '{"1":"A"}', examVersion: 'B' })
+  })
+
+  it('does not bypass an unsettled durable result when the UI ledger is empty', async () => {
+    setOffline(true)
+    useExamStore.setState({ sessions: [mkSession()], selectedSessionId: 'EXS-test-1' })
+    await useExamStore.getState().saveScores([{ studentId: 'ST-1', score: 6, source: 'quick_entry' }])
+    useExamStore.setState({ queuedResultMutations: {} })
+    setOffline(false)
+    const direct = vi.spyOn(api, 'completeExam')
+    expect(await useExamStore.getState().completeAndFinalize()).not.toBeNull()
+    expect(direct).not.toHaveBeenCalled()
+    expect((await getDB().syncQueue.toArray()).some(row => row.entity === 'exam' && row.operation === 'UPDATE')).toBe(true)
+  })
+
+  it('does not finalize while a score command is still being persisted', async () => {
+    useExamStore.setState({ sessions: [mkSession()], selectedSessionId: 'EXS-test-1', saving: true })
+    const direct = vi.spyOn(api, 'completeExam')
+    expect(await useExamStore.getState().completeAndFinalize()).toBeNull()
+    expect(direct).not.toHaveBeenCalled()
+    expect(useExamStore.getState().error).toContain('Đang lưu kết quả')
+  })
+
+  it('does not accept a score or delete after completion has acquired the local mutex', async () => {
+    useExamStore.setState({ sessions: [mkSession()], selectedSessionId: 'EXS-test-1', results: [mkResult('ST-1', 8)], finalizing: true })
+    expect(await useExamStore.getState().saveScores([{ studentId: 'ST-1', score: 9 }])).toBeNull()
+    expect(await useExamStore.getState().queueScores([{ studentId: 'ST-1', score: 9 }])).toBeNull()
+    expect(await useExamStore.getState().removeResult('ST-1')).toBe(false)
+    expect((await getDB().syncQueue.count())).toBe(0)
+  })
+
+  it('keeps session-specific results when selecting the same or another session offline', async () => {
+    setOffline(true)
+    useExamStore.setState({ sessions: [mkSession(), mkSession({ id: 'EXS-test-2' })], selectedSessionId: 'EXS-test-1', results: [mkResult('ST-1', 8)] })
+    await useExamStore.getState().selectSession('EXS-test-1')
+    expect(useExamStore.getState().results.map(row => row.studentId)).toEqual(['ST-1'])
+    await useExamStore.getState().selectSession('EXS-test-2')
+    expect(useExamStore.getState().results).toEqual([])
+    await useExamStore.getState().selectSession('EXS-test-1')
+    expect(useExamStore.getState().results.map(row => row.studentId)).toEqual(['ST-1'])
+  })
 })
 
 describe('examStore — finalize flow (conflict matrix §6)', () => {
@@ -348,13 +434,13 @@ describe('examStore — saveScores & session management', () => {
   })
 
   it('removeResult gọi API xóa đúng studentId và refresh', async () => {
-    const removeSpy = vi.spyOn(api, 'removeExamResult').mockResolvedValue({ deleted: true })
+    const removeSpy = vi.spyOn(api, 'removeExamResult').mockResolvedValue({ deleted: true, studentId: 'ST-1', resultId: 'EXR-ST-1' })
     const refreshSpy = vi.spyOn(api, 'getExamResults').mockResolvedValue({ session: mkSession(), results: [mkResult('ST-2', 9)] })
 
-    useExamStore.setState({ selectedSessionId: 'EXS-test-1' })
+    useExamStore.setState({ selectedSessionId: 'EXS-test-1', results: [mkResult('ST-1', 8)] })
     const ok = await useExamStore.getState().removeResult('ST-1')
 
-    expect(removeSpy).toHaveBeenCalledWith('EXS-test-1', 'ST-1')
+    expect(removeSpy).toHaveBeenCalledWith('EXS-test-1', 'ST-1', expect.objectContaining({ expectedResultId: 'EXR-ST-1', expectedResultVersion: 1 }))
     expect(refreshSpy).toHaveBeenCalled()
     expect(ok).toBe(true)
     expect(useExamStore.getState().results.map(r => r.studentId)).toEqual(['ST-2'])
@@ -363,7 +449,7 @@ describe('examStore — saveScores & session management', () => {
   it('removeResult lỗi → error set, trả false', async () => {
     vi.spyOn(api, 'removeExamResult').mockRejectedValue(new Error('Lỗi xóa'))
 
-    useExamStore.setState({ selectedSessionId: 'EXS-test-1' })
+    useExamStore.setState({ selectedSessionId: 'EXS-test-1', results: [mkResult('ST-1', 8)] })
     const ok = await useExamStore.getState().removeResult('ST-1')
 
     expect(ok).toBe(false)
@@ -434,7 +520,7 @@ describe('examStore — Phase 3 offline path (ADR-023)', () => {
     const ok = await useExamStore.getState().removeResult('ST-1')
 
     expect(apiSpy).not.toHaveBeenCalled()
-    expect(syncSpy).toHaveBeenCalledWith('EXS-test-1', 'ST-1')
+    expect(syncSpy).toHaveBeenCalledWith('EXS-test-1', 'ST-1', expect.objectContaining({ expectedResultId: 'EXR-ST-1', expectedResultVersion: 1 }))
     expect(ok).toBe(true)
     expect(useExamStore.getState().results.map(r => r.studentId)).toEqual(['ST-2'])
   })

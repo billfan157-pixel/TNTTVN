@@ -121,9 +121,9 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
             </div>
           )}
 
-          {/* QR Code for verification */}
+          {/* Unsigned reference code; this is deliberately not presented as verification. */}
           <div className="print-only mt-4 mb-4 flex flex-col items-center gap-2">
-            <div className="text-xs text-text-muted">Mã xác thực chứng chỉ</div>
+            <div className="text-xs text-text-muted">Mã tham chiếu nội bộ — không xác thực nội dung</div>
             <div dangerouslySetInnerHTML={{ __html: qrSvg }} style={{ width: '80px', height: '80px' }} />
             <div className="text-[10px] font-mono text-text-muted">{certId}</div>
           </div>

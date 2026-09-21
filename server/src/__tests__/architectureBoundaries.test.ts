@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -192,6 +192,21 @@ describe('Phase 3 — domain dependency gate', () => {
     const pdfSource = readFileSync(join(CLIENT_SRC_DIR, 'utils/pdfGenerator.ts'), 'utf8')
     expect(pdfSource).not.toContain('getClassificationLabel(g.gpa')
     expect(violations).toEqual([])
+  })
+
+  it('ARCH-P1-001: reachable gradebook exports cross the official Reporting gateway', () => {
+    for (const relative of [
+      'components/desktop/DesktopGradeMatrix.tsx',
+      'components/mobile/MobileGradeBoard.tsx',
+      'components/mobile/MobileGradeMatrix.tsx',
+      'components/common/PrintReportModal.tsx',
+    ]) {
+      const source = readFileSync(join(CLIENT_SRC_DIR, relative), 'utf8')
+      expect(source, relative).toContain('exportOfficialGradebook')
+      expect(source, relative).not.toContain('exportGradebookToExcel')
+      expect(source, relative).not.toContain('utils/excelExporter')
+    }
+    expect(existsSync(join(CLIENT_SRC_DIR, 'utils/excelExporter.ts'))).toBe(false)
   })
 
   it('ARCH-P2-001: Parish Events transport cannot regain calendar write authority', () => {

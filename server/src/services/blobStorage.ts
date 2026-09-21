@@ -20,7 +20,8 @@ import { getSafetyBackupDir, tryChmod600 } from '../utils/safetyDir.js'
  *
  * Quy ước key prefix:
  * - `safety/...`   → local: getSafetyBackupDir()  (chứa PII → chmod 0600)
- * - `backups/...`  → local: getBackupDir()
+ * - `backups/...`  → local: getBackupDir()        (full DB, chứa PII → chmod 0600,
+ *                                                   NEW-F-02 AUDIT04-unknowns closure)
  * - khác           → local: BLOB_LOCAL_DIR (mặc định cwd/blobs)
  */
 
@@ -32,6 +33,14 @@ export interface StoredObject {
 
 let s3: S3Client | null = null
 let r2Bucket: string | null = null
+
+/**
+ * Objects that hold full parish PII at rest. On local filesystems both the temp
+ * write and the final file get mode 0600 (no-op on platforms without POSIX modes).
+ */
+function isPrivatePiiKey(key: string): boolean {
+  return key.startsWith('safety/') || key.startsWith('backups/')
+}
 
 function getBackupDir(): string {
   return process.env.BACKUP_DIR || path.join(process.cwd(), 'backups')
@@ -107,8 +116,8 @@ export async function putObject(
   // rename onto the final name; readers only ever see a complete object.
   const tempPath = `${filePath}.tmp-${randomUUID()}`
   try {
-    fs.writeFileSync(tempPath, buf, key.startsWith('safety/') ? { mode: 0o600 } : undefined)
-    if (key.startsWith('safety/')) tryChmod600(tempPath)
+    fs.writeFileSync(tempPath, buf, isPrivatePiiKey(key) ? { mode: 0o600 } : undefined)
+    if (isPrivatePiiKey(key)) tryChmod600(tempPath)
     await renameWithRetry(tempPath, filePath)
   } catch (err) {
     try {
@@ -118,7 +127,7 @@ export async function putObject(
     }
     throw err
   }
-  if (key.startsWith('safety/')) tryChmod600(filePath)
+  if (isPrivatePiiKey(key)) tryChmod600(filePath)
 }
 
 export async function getObject(key: string): Promise<Buffer | null> {

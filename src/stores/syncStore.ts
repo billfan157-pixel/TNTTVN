@@ -6,6 +6,42 @@ import { captureTenantScope, getTenantScope, isTenantScopeCurrent, type TenantSc
 
 export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'retrying' | 'failed'
 
+type ExamResultQueuePayload = {
+  action: 'save_result'
+  sessionId: string
+  score: Record<string, unknown>
+}
+
+/** A pending result has never been issued, so complementary mixed components
+ * may be folded into one complete command. An issued/retrying command must
+ * keep its original bytes for receipt replay. */
+function mergePendingExamResult(
+  previous: ExamResultQueuePayload,
+  incoming: ExamResultQueuePayload,
+): ExamResultQueuePayload | null {
+  if (previous.action !== 'save_result' || incoming.action !== 'save_result'
+    || previous.sessionId !== incoming.sessionId
+    || previous.score.studentId !== incoming.score.studentId) return null
+  const oldVersion = previous.score.expectedResultVersion ?? 0
+  const newVersion = incoming.score.expectedResultVersion ?? 0
+  if (oldVersion !== newVersion) return null
+  const oldScore = previous.score
+  const newScore = incoming.score
+  const combined = { ...newScore }
+  if (newScore.answers !== undefined && newScore.essayScore === undefined && oldScore.essayScore !== undefined) {
+    combined.essayScore = oldScore.essayScore
+  }
+  if (newScore.essayScore !== undefined && newScore.answers === undefined && oldScore.answers !== undefined) {
+    // An essay edit omits the scan component; omission is not a clear command.
+    for (const field of ['answers', 'source', 'examVersion', 'scanMetadata', 'attemptFingerprint', 'capturedAt']) {
+      if (oldScore[field] !== undefined) combined[field] = oldScore[field]
+    }
+  }
+  combined.expectedResultVersion = oldScore.expectedResultVersion ?? newScore.expectedResultVersion
+  if (oldScore.afterMutationId && !newScore.afterMutationId) combined.afterMutationId = oldScore.afterMutationId
+  return { ...incoming, score: combined }
+}
+
 interface SyncState {
   status: SyncStatus
   pendingCount: number
@@ -261,6 +297,47 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
 
     let returnId = id
+    if (op.entity === 'exam_result' && op.operation === 'UPDATE') {
+      // Only compact commands that have never been sent. A retrying command
+      // may already have committed and its hash/receipt must remain stable.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const related = (await db.syncQueue.where('status').anyOf(['pending', 'processing', 'retrying', 'failed']).toArray())
+          .filter(row => isOpOwnedBy(row, owner) && row.entity === op.entity && row.entityId === op.entityId)
+        if (related.some(row => row.status === 'failed')) throw new Error('Exam result has a failed intent; resolve it before saving another edit')
+        const dup = related.length === 1 && related[0].status === 'pending'
+          && related[0].operation === 'UPDATE' && !related[0].serverAcknowledgement ? related[0] : undefined
+        const latest = [...related].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).at(-1)
+        const decoded = latest ? await decryptQueueValue(latest.payload) : null
+        if (latest && !decoded) throw new Error('Cannot read preceding exam result intent')
+        const previous = decoded ? JSON.parse(decoded) as ExamResultQueuePayload : null
+        const incoming = JSON.parse(op.payload) as ExamResultQueuePayload
+        const merged = previous ? mergePendingExamResult(previous, incoming) : null
+        if (latest && !merged && incoming.action === 'save_result') throw new Error('Cannot safely combine the preceding exam result intent')
+        if (latest && !dup && merged) {
+          const predecessorId = previous?.score.clientMutationId
+          if (typeof predecessorId !== 'string' || !predecessorId) throw new Error('Preceding exam result has no mutation receipt identity')
+          merged.score.afterMutationId = predecessorId
+        }
+        const encoded = merged ? await encryptQueueValue(JSON.stringify(merged)) : null
+        const committed = await db.transaction('rw', db.syncQueue, async () => {
+          if (!isTenantScopeCurrent(owner)) throw new Error('Tenant owner changed while queueing exam result')
+          const current = (await db.syncQueue.where('status').anyOf(['pending', 'processing', 'retrying', 'failed']).toArray())
+            .filter(row => isOpOwnedBy(row, owner) && row.entity === op.entity && row.entityId === op.entityId)
+          if (JSON.stringify(current) !== JSON.stringify(related)) return false
+          if (dup && merged && encoded) {
+            await db.syncQueue.update(dup.id, { payload: encoded, updatedAt: now })
+            returnId = dup.id
+          } else {
+            const nextCreatedAt = latest && latest.createdAt >= now
+              ? new Date(Date.parse(latest.createdAt) + 1).toISOString() : now
+            await db.syncQueue.put({ ...item, payload: encoded ?? item.payload, createdAt: nextCreatedAt, updatedAt: nextCreatedAt })
+          }
+          return true
+        })
+        if (committed) { await get().refreshCount(); return returnId }
+      }
+      throw new Error('Exam result queue changed concurrently; retry saving the edit')
+    }
     if ((op.entity === 'grade' || op.entity === 'notice') && op.operation === 'UPDATE') {
       // Grade/notice payloads are patches. Merge pending intent outside the IDB
       // transaction, then CAS the encrypted source row inside it. Concurrent
@@ -471,6 +548,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     for (const op of pending) {
       if (op.serverAcknowledgement) continue // committed parent is a recovery journal, never compact it
       if (discardedExamResultIds.has(op.id)) continue
+      if (op.entity === 'exam_result') continue // command semantics are handled at enqueue; never shallow-merge here
       const key = `${op.entity}:${op.entityId}`
       if (!groups.has(key)) groups.set(key, [])
       groups.get(key)!.push(op)

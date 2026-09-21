@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { canCreateEventTask, manualEventTransition, preparationAcceptanceReadiness, reserveInvitationAt } from '../domain/OperationsEventLifecycle.js'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import type { DbTransaction } from '../db/transactions.js'
@@ -63,8 +63,13 @@ const workstreamCreateSchema = z.object({
   description: z.string().trim().max(3000).nullable().optional(),
   sourceUnitId: nullableId,
   isRequired: z.boolean().optional().default(false),
+  autoAssignLeader: z.boolean().optional().default(false),
 })
-const workstreamUpdateSchema = workstreamCreateSchema.omit({ eventId: true }).partial().extend({ version: z.number().int().min(1) })
+const workstreamUpdateSchema = workstreamCreateSchema.omit({ eventId: true, autoAssignLeader: true }).partial().extend({ version: z.number().int().min(1) })
+const workstreamDeleteSchema = z.object({
+  version: z.number().int().min(1),
+  reason: z.string().trim().max(2000).optional(),
+})
 const workstreamMemberSchema = exactTarget({
   version: z.number().int().min(1),
   userId: nullableId,
@@ -597,6 +602,35 @@ async function isActiveUnitLeader(tx: DbTransaction, parishId: string, scopeUnit
 }
 
 /**
+ * Name-only display resolution for Operations event rows (list + detail).
+ * The workspace must answer "who created / who is responsible for this event"
+ * without shipping account internals to the client and without a per-row detail
+ * fetch; resolution stays server-side and same-parish, so a person organizer
+ * without an account also shows a name. Ids are chunked (a page may hold up to
+ * 500 events → up to two account ids per row) to stay inside the SQLite
+ * bind-variable limit, mirroring the /tasks list reader.
+ */
+async function loadOperationsDisplayNames(parishId: string, input: { userIds?: Array<string | null | undefined>; personIds?: Array<string | null | undefined> }) {
+  const chunkIds = (values: Array<string | null | undefined>) => {
+    const unique = [...new Set(values.filter((value): value is string => Boolean(value)))]
+    const chunks: string[][] = []
+    for (let index = 0; index < unique.length; index += 400) chunks.push(unique.slice(index, index + 400))
+    return chunks
+  }
+  const [accountRows, personRows] = await Promise.all([
+    Promise.all(chunkIds(input.userIds ?? []).map(ids => db.select({ id: users.id, fullName: users.fullName }).from(users)
+      .where(and(eq(users.parishId, parishId), inArray(users.id, ids))))),
+    Promise.all(chunkIds(input.personIds ?? []).map(ids => db.select({ id: parishPeople.id, fullName: parishPeople.fullName }).from(parishPeople)
+      .where(and(eq(parishPeople.parishId, parishId), inArray(parishPeople.id, ids))))),
+  ])
+  return {
+    accountNameById: new Map(accountRows.flat().map(row => [row.id, row.fullName])),
+    personNameById: new Map(personRows.flat().map(row => [row.id, row.fullName])),
+  }
+}
+
+
+/**
  * Shared creator≠organizer resolution for event creation paths (POST /events,
  * template instantiate). Returns the organizer to persist; throws 400/403 for
  * business actors when the organizer rule is violated. ADMIN keeps a
@@ -989,10 +1023,11 @@ operationsRouter.get('/creation-options', async c => {
     const isParishLeader = myTerms.some(term => term.positionCode === 'PARISH_LEADER' && isBoardUnit(term.unitId))
     const isParishOffice = isParishLeader || myTerms.some(term => (term.positionCode === 'PARISH_SECRETARY' || term.positionCode === 'PARISH_DEPUTY') && isBoardUnit(term.unitId))
     const canCreateXuDoanEvent = isAdmin || isParishOffice
-    // Phó Xứ đoàn và Thư ký chỉ tạo Event Xứ đoàn, không tạo Event chuyên môn
-    // hay Task độc lập (menu unit bên dưới ẩn hẳn với họ; capability +
-    // organizer rules ở route cũng chặn tương ứng nếu gọi trực tiếp).
-    const canCreateUnitEventBlanket = isAdmin || isParishLeader
+    // Khóa: Trưởng/Phó/Thư ký chỉ tạo Event Xứ đoàn, không tạo Event chuyên môn.
+    // Trưởng Xứ đoàn giữ thêm task độc lập (standalone) ở mọi Ban/Ngành qua
+    // menu unit bên dưới; Phó/Thư ký không có task độc lập.
+    const canCreateUnitEventBlanket = isAdmin
+    const canCreateStandaloneTaskBlanket = isAdmin || isParishLeader
     // Active leaders with actionable staff accounts, for organizer pickers.
     const leaderTerms = await db.select({
       positionCode: parishServiceTerms.positionCode, unitId: parishServiceTerms.unitId,
@@ -1023,15 +1058,16 @@ operationsRouter.get('/creation-options', async c => {
           || myCodes.has(unit.unitType === 'BRANCH' ? 'BRANCH_DEPUTY' : 'COMMITTEE_DEPUTY')
         )
         const canCreateEvent = canCreateUnitEventBlanket || holdsUnitRole
+        const canCreateTask = canCreateStandaloneTaskBlanket || holdsUnitRole
         return {
           id: unit.id, name: unit.name, unitType: unit.unitType,
-          canCreateEvent, canCreateTask: canCreateEvent, organizers,
+          canCreateEvent, canCreateTask, organizers,
           myRole: holdsUnitRole
             ? (myCodes.has(wanted) ? wanted : (unit.unitType === 'BRANCH' ? 'BRANCH_DEPUTY' : 'COMMITTEE_DEPUTY'))
             : null,
         }
       })
-      .filter(option => option.canCreateEvent)
+      .filter(option => option.canCreateEvent || option.canCreateTask)
     return successResponse(c, { canCreateXuDoanEvent, xuDoanOrganizers, units: unitOptions })
   } catch (error) { return handleError(c, error) }
 })
@@ -1294,6 +1330,9 @@ operationsRouter.get('/events', zValidator('query', eventListQuerySchema), async
     // Two-phase read: decide visibility on narrow auth columns first so only
     // the requested page is hydrated as full rows. Total still reflects every
     // visible row because per-row authorization cannot be pushed into SQL.
+    // U-19b: one "now" snapshot per request keeps the schedule ordering stable
+    // across the two phases.
+    const nowIso = new Date().toISOString()
     const narrow = await db.select({
       id: operationEvents.id,
       scopeUnitId: operationEvents.scopeUnitId,
@@ -1301,7 +1340,17 @@ operationsRouter.get('/events', zValidator('query', eventListQuerySchema), async
       organizerPersonId: operationEvents.organizerPersonId,
       status: operationEvents.status,
       createdBy: operationEvents.createdBy,
-    }).from(operationEvents).where(and(...filters)).orderBy(desc(operationEvents.startsAt), asc(operationEvents.id))
+    }).from(operationEvents).where(and(...filters)).orderBy(
+      // U-19b (2026-09-21): "sự kiện sắp diễn ra xếp trước". Events that have not
+      // ended yet lead, ordered by start ascending (nearest first); events that
+      // already ended follow, most recent first. Paging therefore keeps the
+      // imminent events on page 1 instead of stranding them behind far-future
+      // rows (the client applies the same rule to cached/offline rows).
+      sql`CASE WHEN ${operationEvents.endsAt} >= ${nowIso} THEN 0 ELSE 1 END`,
+      sql`CASE WHEN ${operationEvents.endsAt} >= ${nowIso} THEN ${operationEvents.startsAt} END`,
+      desc(operationEvents.startsAt),
+      asc(operationEvents.id),
+    )
     const decisions = await resolveOperationsAuthorizationBatch(user, 'operations.event.view', narrow.map(row => ({
       parishId: user.parishId,
       event: { id: row.id, scopeUnitId: row.scopeUnitId, organizerUserId: row.organizerUserId, organizerPersonId: row.organizerPersonId, status: row.status, createdBy: row.createdBy },
@@ -1314,7 +1363,21 @@ operationsRouter.get('/events', zValidator('query', eventListQuerySchema), async
     ))
     const rowsById = new Map(pageRows.map(row => [row.id, row]))
     const visible = pageIds.map(id => rowsById.get(id)).filter((row): row is typeof pageRows[number] => Boolean(row))
-    return paginatedResponse(c, visible, { page, limit, total: visibleIds.length })
+    // Creator/organizer display names ride along with the page rows so the
+    // "Sự Kiện & Công Việc Đang Diễn Ra" pane can show who created and who is
+    // responsible for each event instead of raw ids.
+    const names = await loadOperationsDisplayNames(user.parishId, {
+      userIds: visible.flatMap(row => [row.createdBy, row.organizerUserId]),
+      personIds: visible.map(row => row.organizerPersonId),
+    })
+    const rows = visible.map(row => ({
+      ...row,
+      createdByName: names.accountNameById.get(row.createdBy) ?? null,
+      organizerName: row.organizerUserId
+        ? names.accountNameById.get(row.organizerUserId) ?? null
+        : row.organizerPersonId ? names.personNameById.get(row.organizerPersonId) ?? null : null,
+    }))
+    return paginatedResponse(c, rows, { page, limit, total: visibleIds.length })
   } catch (error) { return handleError(c, error) }
 })
 
@@ -1444,21 +1507,21 @@ operationsRouter.get('/events/:id', async c => {
       readiness(tx, user.parishId, eventId),
       closureReadiness(tx, user.parishId, eventId),
     ]))
-    // Organizer display name for the detail header (privacy-safe: name only,
-    // resolved server-side so person organizers without accounts also show).
-    let organizer: { userId: string | null; personId: string | null; displayName: string | null } = {
-      userId: event.organizerUserId, personId: event.organizerPersonId, displayName: null,
+    // Organizer + creator display names for the detail header (privacy-safe: name
+    // only, resolved server-side so person organizers without accounts also show).
+    const names = await loadOperationsDisplayNames(user.parishId, {
+      userIds: [event.createdBy, event.organizerUserId],
+      personIds: [event.organizerPersonId],
+    })
+    const organizer: { userId: string | null; personId: string | null; displayName: string | null } = {
+      userId: event.organizerUserId,
+      personId: event.organizerPersonId,
+      displayName: event.organizerUserId
+        ? names.accountNameById.get(event.organizerUserId) ?? null
+        : event.organizerPersonId ? names.personNameById.get(event.organizerPersonId) ?? null : null,
     }
-    if (event.organizerUserId) {
-      const [account] = await db.select({ fullName: users.fullName }).from(users)
-        .where(and(eq(users.parishId, user.parishId), eq(users.id, event.organizerUserId))).limit(1)
-      organizer.displayName = account?.fullName ?? null
-    } else if (event.organizerPersonId) {
-      const [person] = await db.select({ fullName: parishPeople.fullName }).from(parishPeople)
-        .where(and(eq(parishPeople.parishId, user.parishId), eq(parishPeople.id, event.organizerPersonId))).limit(1)
-      organizer.displayName = person?.fullName ?? null
-    }
-    return successResponse(c, { event, organizer, retrospective: retrospectiveRows[0] ?? null, workstreams, tasks, participants, assignees: assignees.map(row => row.assignment), readiness: readinessState, closure: closureState, permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, eventId }) })
+    const creator = { userId: event.createdBy, displayName: names.accountNameById.get(event.createdBy) ?? null }
+    return successResponse(c, { event, organizer, creator, retrospective: retrospectiveRows[0] ?? null, workstreams, tasks, participants, assignees: assignees.map(row => row.assignment), readiness: readinessState, closure: closureState, permissions: await getOperationsCallerPermissions(user, { parishId: user.parishId, eventId }) })
   } catch (error) { return handleError(c, error) }
 })
 
@@ -2043,9 +2106,11 @@ operationsRouter.post('/workstreams', zValidator('json', workstreamCreateSchema)
       }
       await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, eventId: body.eventId, resourceUnitId: body.sourceUnitId }, tx)
       if (body.sourceUnitId && event && body.sourceUnitId !== event.scopeUnitId) {
-        // An event-local organizer may structure work inside the event scope,
-        // but cannot use that role to publish authority into another unit.
-        await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, resourceUnitId: body.sourceUnitId }, tx)
+        // An event creator/organizer may structure Fields inside their own event
+        // (Xứ đoàn event accepts Fields from any unit); cross-unit smuggling
+        // into UNIT events is still blocked by the V2 check below. Giữ eventId
+        // trong scope để vai trò creator được xét, thay vì đòi position unit.
+        await assertOperationsCapability(user, 'operations.workstream.create', { parishId: user.parishId, eventId: body.eventId, resourceUnitId: body.sourceUnitId }, tx)
       }
       // Scope coherence (V2 hardening): a Field pinned to a UNIT event must
       // belong to that event's unit unless the caller holds true-scope or
@@ -2056,7 +2121,61 @@ operationsRouter.post('/workstreams', zValidator('json', workstreamCreateSchema)
       }
       await assertScopeUnit(tx, user.parishId, body.sourceUnitId)
       const now = new Date().toISOString(); const row = { id: generateId('WS'), parishId: user.parishId, operationEventId: body.eventId ?? null, sourceUnitId: body.sourceUnitId ?? null, name: body.name, description: body.description ?? null, status: 'PLANNING' as const, blockedReason: null, isRequired: body.isRequired, leaderPersonId: null, leaderUserId: null, version: 1, createdBy: user.userId, updatedBy: user.userId, createdAt: now, updatedAt: now, deletedAt: null }
-      await tx.insert(operationWorkstreams).values(row); await audit(tx, user, c, 'CREATE', 'operation_workstream', row.id, undefined, row); return row
+      await tx.insert(operationWorkstreams).values(row); await audit(tx, user, c, 'CREATE', 'operation_workstream', row.id, undefined, row)
+      if (body.autoAssignLeader && body.sourceUnitId) {
+        const [unit] = await tx.select({ unitType: parishOrganizationUnits.unitType }).from(parishOrganizationUnits)
+          .where(and(eq(parishOrganizationUnits.parishId, user.parishId), eq(parishOrganizationUnits.id, body.sourceUnitId), isNull(parishOrganizationUnits.deletedAt))).limit(1)
+        if (unit) {
+          const wantedCode = unit.unitType === 'BRANCH' ? 'BRANCH_LEADER' : unit.unitType === 'COMMITTEE' ? 'COMMITTEE_LEADER' : null
+          if (wantedCode) {
+            const today = parishCalendarDate()
+            const [leader] = await tx.select({
+              personId: parishPeople.id,
+              userId: parishPeople.linkedUserId,
+            }).from(parishServiceTerms)
+              .innerJoin(parishPeople, and(eq(parishPeople.parishId, parishServiceTerms.parishId), eq(parishPeople.id, parishServiceTerms.personId)))
+              .innerJoin(users, and(eq(users.parishId, parishPeople.parishId), eq(users.id, parishPeople.linkedUserId)))
+              .where(and(
+                eq(parishServiceTerms.parishId, user.parishId),
+                eq(parishServiceTerms.unitId, body.sourceUnitId),
+                eq(parishServiceTerms.positionCode, wantedCode),
+                isNull(parishServiceTerms.deletedAt),
+                lte(parishServiceTerms.startDate, today),
+                or(isNull(parishServiceTerms.endDate), gte(parishServiceTerms.endDate, today)),
+                eq(parishPeople.serviceStatus, 'ACTIVE'),
+                isNull(parishPeople.deletedAt),
+                inArray(users.role, ['admin', 'chunhiem', 'phuta']),
+                eq(users.status, 'ACTIVE'),
+                isNull(users.deletedAt),
+              )).limit(1)
+            if (leader && (leader.userId || leader.personId)) {
+              const memberRow = {
+                id: generateId('OWM'),
+                parishId: user.parishId,
+                workstreamId: row.id,
+                userId: leader.userId ?? null,
+                personId: leader.personId ?? null,
+                operationRole: 'WORKSTREAM_LEAD' as const,
+                assignedBy: user.userId,
+                assignedAt: now,
+                startsAt: null,
+                endsAt: null,
+                version: 1,
+                removedAt: null,
+              }
+              await tx.insert(operationWorkstreamMembers).values(memberRow)
+              await audit(tx, user, c, 'ASSIGN_MEMBER', 'operation_workstream', row.id, undefined, {
+                memberId: memberRow.id,
+                operationRole: memberRow.operationRole,
+                userId: memberRow.userId,
+                personId: memberRow.personId,
+                reason: 'Mặc định theo Trưởng Ban/Ngành đương nhiệm',
+              })
+            }
+          }
+        }
+      }
+      return row
     })
     return commandResponse(c, result, true)
   } catch (error) { return handleError(c, error) }
@@ -2095,6 +2214,69 @@ operationsRouter.put('/workstreams/:id', zValidator('json', workstreamUpdateSche
     return commandResponse(c, result)
   } catch (error) { return handleError(c, error) }
 })
+
+const handleWorkstreamDelete = async (c: any) => {
+  const user = actor(c); const workstreamId = c.req.param('id'); const body = c.req.valid('json')
+  try {
+    const result = await runIdempotentOperationsCommand(user, key(c), 'operations.workstream.delete', { workstreamId, ...body }, async tx => {
+      const [existing] = await tx.select().from(operationWorkstreams).where(and(
+        eq(operationWorkstreams.parishId, user.parishId),
+        eq(operationWorkstreams.id, workstreamId),
+        isNull(operationWorkstreams.deletedAt),
+      )).limit(1)
+      if (!existing) throw Object.assign(new Error('Không tìm thấy workstream.'), { status: 404 })
+      await assertOperationsCapability(user, 'operations.workstream.manage', { parishId: user.parishId, workstreamId }, tx)
+      if (existing.version !== body.version) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', existing)
+      await assertWorkstreamEventAcceptsMutation(tx, user.parishId, existing.operationEventId, 'xóa workstream')
+      if (existing.operationEventId) {
+        const eventStatus = await workstreamEventStatus(tx, user.parishId, existing.operationEventId)
+        if (eventStatus === 'LIVE') {
+          throw Object.assign(new Error('Không thể xóa Mảng khi sự kiện đang diễn ra (LIVE).'), { status: 409, code: 'EVENT_LIVE_IMMUTABLE' })
+        }
+      }
+      const activeTasks = await tx.select({ id: operationTasks.id }).from(operationTasks).where(and(
+        eq(operationTasks.parishId, user.parishId),
+        eq(operationTasks.workstreamId, workstreamId),
+        isNull(operationTasks.deletedAt),
+        ne(operationTasks.status, 'CANCELLED'),
+      ))
+      if (activeTasks.length > 0) {
+        throw Object.assign(new Error(`Không thể xóa Mảng khi còn ${activeTasks.length} nhiệm vụ đang thực hiện bên trong. Hãy xóa hoặc chuyển nhiệm vụ sang Mảng khác trước.`), { status: 400, code: 'WORKSTREAM_NOT_EMPTY' })
+      }
+      const now = new Date().toISOString()
+      await tx.update(operationTasks).set({ workstreamId: null, updatedAt: now }).where(and(
+        eq(operationTasks.parishId, user.parishId),
+        eq(operationTasks.workstreamId, workstreamId),
+      ))
+      const [changed] = await tx.update(operationWorkstreams).set({
+        deletedAt: now,
+        version: existing.version + 1,
+        updatedBy: user.userId,
+        updatedAt: now,
+      }).where(and(
+        eq(operationWorkstreams.parishId, user.parishId),
+        eq(operationWorkstreams.id, workstreamId),
+        eq(operationWorkstreams.version, body.version),
+      )).returning()
+      if (!changed) throw new VersionConflictError('Workstream đã bị thay đổi bởi người khác.', existing)
+      await tx.update(operationWorkstreamMembers).set({
+        removedAt: now,
+      }).where(and(
+        eq(operationWorkstreamMembers.parishId, user.parishId),
+        eq(operationWorkstreamMembers.workstreamId, workstreamId),
+        isNull(operationWorkstreamMembers.removedAt),
+      ))
+      await audit(tx, user, c, 'DELETE', 'operation_workstream', workstreamId, existing, {
+        deletedAt: now,
+        reason: body.reason ?? null,
+      })
+      return { id: workstreamId, parishId: user.parishId, deletedAt: now }
+    })
+    return commandResponse(c, result)
+  } catch (error) { return handleError(c, error) }
+}
+operationsRouter.delete('/workstreams/:id', zValidator('json', workstreamDeleteSchema), handleWorkstreamDelete)
+operationsRouter.post('/workstreams/:id/delete', zValidator('json', workstreamDeleteSchema), handleWorkstreamDelete)
 
 operationsRouter.post('/workstreams/:id/members', zValidator('json', workstreamMemberSchema), async c => {
   const user = actor(c); const workstreamId = c.req.param('id'); const body = c.req.valid('json')
@@ -2419,11 +2601,19 @@ operationsRouter.post('/tasks', zValidator('json', taskCreateSchema), async c =>
       const eventId = body.eventId ?? workstream?.operationEventId ?? null
       if (body.eventId && workstream && workstream.operationEventId !== body.eventId) throw Object.assign(new Error('Task và workstream không cùng operation event.'), { status: 400 })
       let eventScopeUnitId: string | null = null
+      let eventScopeType: string | null = null
       if (eventId) {
-        const [event] = await tx.select({ id: operationEvents.id, status: operationEvents.status, scopeUnitId: operationEvents.scopeUnitId }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
+        const [event] = await tx.select({ id: operationEvents.id, status: operationEvents.status, scopeUnitId: operationEvents.scopeUnitId, eventScopeType: operationEvents.eventScopeType }).from(operationEvents).where(and(eq(operationEvents.parishId, user.parishId), eq(operationEvents.id, eventId), isNull(operationEvents.deletedAt))).limit(1)
         if (!event) throw Object.assign(new Error('Không tìm thấy operation event.'), { status: 404 })
         if (!canCreateEventTask(event.status)) throw Object.assign(new Error('Chỉ tạo task khi sự kiện ở Nháp, Kế hoạch, Chuẩn bị hoặc Sẵn sàng.'), { status: 409, code: 'EVENT_IMMUTABLE' })
         eventScopeUnitId = event.scopeUnitId
+        eventScopeType = event.eventScopeType ?? (event.scopeUnitId ? 'UNIT' : 'XU_DOAN')
+        // Target model: task trong event Xứ đoàn bắt buộc thuộc Mảng.
+        // Task cũ không Mảng được grandfather (chỉ chặn tạo mới).
+        // Admin giữ đường tương thích cho fixture/e2e cũ (như FIELD_SCOPE_REQUIRED).
+        if (eventScopeType === 'XU_DOAN' && !body.workstreamId && user.role !== 'admin') {
+          throw Object.assign(new Error('Task trong sự kiện Xứ đoàn phải thuộc một Mảng phụ trách.'), { status: 400, code: 'TASK_WORKSTREAM_REQUIRED' })
+        }
       }
       // O7-A: standalone task scope nullable chuyển tiếp; ưu tiên scopeUnitId gửi lên, fallback workstream/event.
       const resolvedScopeUnitId = body.scopeUnitId ?? workstream?.sourceUnitId ?? eventScopeUnitId ?? null

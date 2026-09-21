@@ -469,10 +469,12 @@ export interface ClassStudentSummaryDTO {
   fullName: string;
   gender?: string | null;
   dateOfBirth?: string | null;
-  gpa: number;
+  gpa: number | null;
   attendanceRate: number;
+  attendanceSummary: ReportCardDTO['attendanceSummary'];
   classification?: string | null;
   promotionStatus?: string | null;
+  promotion: ReportCardDTO['promotion'];
   grades?: Array<{
     semester: number;
     scoreOral?: number | null;

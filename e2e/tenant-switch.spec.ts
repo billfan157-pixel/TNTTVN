@@ -106,6 +106,11 @@ test.describe('Frontend tenant transition and cache isolation', () => {
       localStorage.setItem('parish_current_user', JSON.stringify(user))
       history.replaceState(null, '', '/students')
     }, users.B)
+    // addInitScript chạy lại trên MỌI navigation — không re-seed B ở đây thì
+    // script seed A ban đầu sẽ ghi đè marker về A khi reload, mô phỏng nhầm
+    // xung đột "marker A vs token B" (app chủ động fail-closed → logout đúng
+    // theo ràng buộc ownership AUDIT04-002).
+    await seedUser(page, 'B')
     await page.reload()
 
     await page.getByRole('button', { name: 'Xem danh sách lớp Class Only B' }).click()
@@ -134,6 +139,8 @@ test.describe('Frontend tenant transition and cache isolation', () => {
     await page.route((url) => new URL(url).pathname === '/api/students', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) })
     })
+    // Xem chú thích test đầu: re-seed B để init script A không ghi đè marker khi reload.
+    await seedUser(page, 'B')
     await page.reload()
 
     await expect(page.getByText('Student Only A')).not.toBeVisible()
@@ -160,6 +167,9 @@ test.describe('Frontend tenant transition and cache isolation', () => {
       history.replaceState(null, '', '/students')
     }, users.B)
     apiOffline = true
+    // Re-seed B cho cả reload offline lẫn reload online phía sau (init script A
+    // chạy lại trên mọi navigation — xem chú thích test đầu).
+    await seedUser(page, 'B')
     await page.reload()
 
     await expect(page.getByText('Student Only A')).not.toBeVisible()

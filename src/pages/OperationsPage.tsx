@@ -70,6 +70,7 @@ import { formatEventInstant, isTaskScheduleInvalid, operationsOfflineBannerText,
 
 type EventModalTab = 'tasks' | 'workstreams' | 'participants' | 'reminders' | 'templates' | 'retrospective'
 type TaskStatusFilter = 'ALL' | 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED' | 'ARCHIVED'
+type OperationsMobileTab = 'my-tasks' | 'events' | 'inbox' | 'utilities'
 
 export default function OperationsPage() {
   // One selector per slice: a store update (e.g. marking one reminder read)
@@ -89,6 +90,7 @@ export default function OperationsPage() {
   const cacheSavedAt = useOperationsStore(s => s.cacheSavedAt)
   const mode = useEffectiveMode()
   const isMobileLayout = mode === 'mobile'
+  const [mobileTab, setMobileTab] = useState<OperationsMobileTab>('my-tasks')
   // W2.9: "Tải thêm" needs its own spinner — the global `loading` also covers
   // initial fetch and background refetch, so users couldn't tell a page load
   // from a whole-list refresh. (W3.2: events moved into OperationsEventList,
@@ -347,9 +349,12 @@ export default function OperationsPage() {
   const myTasksSectionRef = useRef<HTMLElement | null>(null)
   const activateKpiFilter = useCallback((filter: MyTaskFilter) => {
     setMyTaskFilter(filter)
+    if (isMobileLayout) {
+      setMobileTab('my-tasks')
+    }
     const el = myTasksSectionRef.current
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [])
+  }, [isMobileLayout])
   // W1.2: resolve reminder context (which event/task is being announced).
   // The tasks slice is mine=true and reminders only exist for resources the
   // recipient may view (server re-gated at create AND due-time), so titles are
@@ -410,7 +415,7 @@ export default function OperationsPage() {
       value: 'tasks',
       label: (
         <span className="flex items-center gap-1.5">
-          <span>Nhiệm vụ &amp; Phân công</span>
+          <span>{isXuDoanEvent ? 'Nhiệm vụ chi tiết' : 'Nhiệm vụ'}</span>
           <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
             {selectedEvent.tasks.length}
           </span>
@@ -422,7 +427,7 @@ export default function OperationsPage() {
       value: 'workstreams' as EventModalTab,
       label: (
         <span className="flex items-center gap-1.5">
-          <span>{isXuDoanEvent ? 'Mảng phụ trách' : 'Nhóm công tác'}</span>
+          <span>{isXuDoanEvent ? 'Mảng & Ban/Ngành' : 'Nhóm công tác'}</span>
           <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
             {selectedEvent.workstreams.length}
           </span>
@@ -752,33 +757,45 @@ export default function OperationsPage() {
   // W3.1: memoized section element — with a stable overviewCards this re-renders
   // only when the cards data or the pressed-filter highlight actually change.
   const kpiStrip = useMemo(() => (
-    <section aria-label="Tổng quan công việc" className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+    <section aria-label="Tổng quan công việc" className={isMobileLayout ? "grid grid-cols-2 gap-2.5" : "grid grid-cols-2 gap-3.5 lg:grid-cols-4"}>
       {overviewCards.map(({ label, sublabel, value, Icon, tone, filterKey }) => {
         // W1.3: filterable cards are real buttons (aria-pressed + keyboard);
         // non-filterable cards stay static. Surface as="button" renders a
         // <button> through the same card primitive, keeping DS visuals.
-        const cardClass = `p-4 rounded-2xl border shadow-xs text-left transition-colors ${
-          filterKey && myTaskFilter === filterKey
+        const isEventsCard = isMobileLayout && label === 'Sự kiện'
+        const isSelected = filterKey
+          ? myTaskFilter === filterKey && (!isMobileLayout || mobileTab === 'my-tasks')
+          : isEventsCard && mobileTab === 'events'
+        const isClickable = Boolean(filterKey || isEventsCard)
+        const cardClass = `p-3.5 sm:p-4 rounded-2xl border shadow-xs text-left transition-colors ${
+          isSelected
             ? 'border-parish-primary ring-2 ring-parish-primary/20 bg-parish-primary-light/10'
-            : 'border-surface-border hover:border-surface-border/80'
+            : 'border-surface-border hover:border-surface-border/80 active:scale-[0.98]'
         }`
+        const handleCardClick = () => {
+          if (filterKey) {
+            activateKpiFilter(filterKey)
+          } else if (isEventsCard) {
+            setMobileTab('events')
+          }
+        }
         return (
           <Surface
             key={label}
             variant="card"
-            {...(filterKey
+            {...(isClickable
               ? {
                   as: 'button' as const,
                   type: 'button' as const,
-                  'aria-pressed': myTaskFilter === filterKey,
-                  onClick: () => activateKpiFilter(filterKey),
+                  'aria-pressed': isSelected,
+                  onClick: handleCardClick,
                   className: cardClass,
                 }
-              : { className: `p-4 rounded-2xl border shadow-xs ${filterKey ? '' : 'border-surface-border'}` })}
+              : { className: `p-3.5 sm:p-4 rounded-2xl border shadow-xs border-surface-border` })}
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">{label}</span>
-              <div className={`icon-container rounded-xl ${
+              <span className="text-xs font-bold uppercase tracking-wider text-text-muted truncate mr-1">{label}</span>
+              <div className={`icon-container rounded-xl shrink-0 ${
                 tone === 'primary' ? 'bg-parish-primary-light text-parish-primary' :
                 tone === 'teal' ? 'bg-parish-success-bg text-parish-success' :
                 tone === 'warning' ? 'bg-parish-warning-bg text-parish-warning' :
@@ -788,15 +805,49 @@ export default function OperationsPage() {
               </div>
             </div>
             <span className="block mb-0 mt-2 text-2xl font-black text-text-main">{value}</span>
-            <span className="block mt-1 text-xs text-text-muted">{sublabel}</span>
+            <span className="block mt-1 text-xs text-text-muted truncate">{sublabel}</span>
           </Surface>
         )
       })}
     </section>
-  ), [overviewCards, myTaskFilter, activateKpiFilter])
+  ), [overviewCards, myTaskFilter, activateKpiFilter, isMobileLayout, mobileTab])
 
   // W3.2: the events list moved to OperationsEventList (owns its search input,
   // W2.13 debounce, per-row pending marker and load-more busy).
+
+  const mobileNavTabs = useMemo<Array<{
+    id: OperationsMobileTab
+    label: string
+    icon: React.ReactNode
+    badge?: number
+    badgeTone?: 'danger' | 'neutral'
+  }>>(() => [
+    {
+      id: 'my-tasks',
+      label: 'Việc của tôi',
+      icon: <ShieldCheck className="h-4 w-4 shrink-0" />,
+      badge: activeTasksTotal,
+      badgeTone: pendingResponses > 0 ? 'danger' : 'neutral',
+    },
+    {
+      id: 'events',
+      label: 'Sự kiện',
+      icon: <Calendar className="h-4 w-4 shrink-0" />,
+      badge: eventTotal,
+    },
+    {
+      id: 'inbox',
+      label: 'Hộp thư',
+      icon: <Bell className="h-4 w-4 shrink-0" />,
+      badge: reminders.length + dispatchInvitations.length > 0 ? reminders.length + dispatchInvitations.length : undefined,
+      badgeTone: 'danger',
+    },
+    {
+      id: 'utilities',
+      label: 'Tiện ích',
+      icon: <Layers className="h-4 w-4 shrink-0" />,
+    },
+  ], [activeTasksTotal, pendingResponses, eventTotal, reminders.length, dispatchInvitations.length])
 
   const renderMyTasksSection = () => (
     <OperationsMyTaskBoard
@@ -911,11 +962,25 @@ export default function OperationsPage() {
   )
 
   if (loading && events.length === 0 && tasks.length === 0) {
-    return <DesktopAppShell width="wide"><SkeletonCardGrid count={5} /></DesktopAppShell>
+    return isMobileLayout ? (
+      <div className="mobile-screen mobile-screen--stack product-view"><SkeletonCardGrid count={3} /></div>
+    ) : (
+      <DesktopAppShell width="wide"><SkeletonCardGrid count={5} /></DesktopAppShell>
+    )
   }
 
-  return (
+  const pageContainer = (content: React.ReactNode) => isMobileLayout ? (
+    <div className="mobile-screen mobile-screen--stack product-view flex flex-col gap-3 pb-24">
+      {content}
+    </div>
+  ) : (
     <DesktopAppShell width="wide" className="flex flex-col gap-5">
+      {content}
+    </DesktopAppShell>
+  )
+
+  return pageContainer(
+    <>
       {isMobileLayout ? (
         <SubpageHeader
           icon={<ClipboardList size={16} aria-hidden="true" />}
@@ -1079,11 +1144,50 @@ export default function OperationsPage() {
       )}
       {isMobileLayout ? (
         <>
-          {renderInboxSection()}
-          {renderMyTasksSection()}
-          <OperationsEventList />
           {kpiStrip}
-          {renderUtilitiesSection()}
+
+          {/* Mobile Primary Segmented Navigation */}
+          <div className="view-tabs sticky top-0 z-10 bg-surface-sunken/95 backdrop-blur-sm p-1 rounded-xl border border-surface-border shadow-xs" role="tablist" aria-label="Phân hệ điều hành">
+            {mobileNavTabs.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={mobileTab === tab.id}
+                onClick={() => setMobileTab(tab.id)}
+                className={`view-tab flex-1 min-h-[44px] justify-center px-2 py-2 text-xs font-bold transition-colors ${
+                  mobileTab === tab.id ? 'is-active' : ''
+                }`}
+              >
+                {tab.icon}
+                <span className="truncate">{tab.label}</span>
+                {typeof tab.badge === 'number' && tab.badge > 0 && (
+                  <span className={`ml-1 rounded-full px-1.5 py-0.5 text-xs font-extrabold ${
+                    tab.badgeTone === 'danger'
+                      ? 'bg-parish-danger text-text-inverse'
+                      : mobileTab === tab.id
+                        ? 'bg-parish-primary-light text-parish-primary'
+                        : 'bg-surface-hover text-text-muted'
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className={mobileTab === 'my-tasks' ? 'block space-y-4' : 'hidden'}>
+            {renderMyTasksSection()}
+          </div>
+          <div className={mobileTab === 'events' ? 'block space-y-4' : 'hidden'}>
+            <OperationsEventList />
+          </div>
+          <div className={mobileTab === 'inbox' ? 'block space-y-4' : 'hidden'}>
+            {renderInboxSection()}
+          </div>
+          <div className={mobileTab === 'utilities' ? 'block space-y-4' : 'hidden'}>
+            {renderUtilitiesSection()}
+          </div>
         </>
       ) : (
         <>
@@ -1113,6 +1217,12 @@ export default function OperationsPage() {
               {selectedEvent.organizer?.displayName && (
                 <Badge tone="neutral" className="font-bold text-xs" title="Người chịu trách nhiệm điều hành sự kiện">
                   Phụ trách: {selectedEvent.organizer.displayName}
+                </Badge>
+              )}
+              {/* Creator ≠ organizer (O1): the header names both, name-only. */}
+              {selectedEvent.creator?.displayName && (
+                <Badge tone="neutral" className="font-bold text-xs" title="Tài khoản đã tạo sự kiện">
+                  Người tạo: {selectedEvent.creator.displayName}
                 </Badge>
               )}
               <Badge tone={statusTone(selectedEvent.event.status)} className="font-bold text-xs uppercase">
@@ -1259,6 +1369,8 @@ export default function OperationsPage() {
                   })
                 }}
                 onCancelTask={task => void handleTask(task, 'CANCELLED')}
+                creationOptions={creationOptions}
+                onSwitchToWorkstreamsTab={() => setEventModalTab('workstreams')}
               />
             </TabPanel>
 
@@ -1414,6 +1526,6 @@ export default function OperationsPage() {
           ))}
         </div>
       )}
-    </DesktopAppShell>
+    </>
   )
 }

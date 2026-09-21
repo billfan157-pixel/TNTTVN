@@ -1,5 +1,5 @@
 import { db } from '../db/index.js'
-import { systemSettings } from '../db/schema.js'
+import { systemSettings, notifications } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
 import { notifySundayMassReminder, getSundayMassTime } from './smartNotifications.js'
 import { assertDeploymentParishScope, getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
@@ -64,7 +64,28 @@ export async function runSundayReminderForParish(parishId: string, now: Date = n
   if (marker?.value === today) return 0
 
   const enqueued = await notifySundayMassReminder(parishId)
-  if (!enqueued) return 0
+  if (!enqueued) {
+    const deterministicId = `NOT-SUNDAY-REMINDER-${parishId}-${today}`
+    const [existing] = await db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(and(eq(notifications.parishId, parishId), eq(notifications.id, deterministicId)))
+      .limit(1)
+    if (existing) {
+      const nowIso = new Date().toISOString()
+      await db.insert(systemSettings).values({
+        key: MARKER_KEY,
+        value: today,
+        description: 'Ngày Chúa Nhật cuối cùng đã gửi reminder Thánh Lễ cho parish',
+        updatedAt: nowIso,
+        parishId,
+      }).onConflictDoUpdate({
+        target: [systemSettings.key, systemSettings.parishId],
+        set: { value: today, updatedAt: nowIso },
+      })
+    }
+    return 0
+  }
 
   const nowIso = new Date().toISOString()
   await db.insert(systemSettings).values({

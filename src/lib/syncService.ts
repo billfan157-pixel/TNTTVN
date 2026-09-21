@@ -15,6 +15,7 @@ export interface ExamResultSyncScore {
   attemptFingerprint?: string
   capturedAt?: string
   expectedResultVersion?: number
+  afterMutationId?: string
 }
 
 export interface QueuedExamResultMutation {
@@ -135,12 +136,19 @@ export async function syncSaveExamResults(
   return queued
 }
 
-export function syncRemoveExamResult(sessionId: string, studentId: string): Promise<string> {
+export interface ExamResultDeleteIntent {
+  clientMutationId: string
+  expectedResultId?: string
+  expectedResultVersion?: number
+  afterMutationId?: string
+}
+
+export function syncRemoveExamResult(sessionId: string, studentId: string, deletion: ExamResultDeleteIntent): Promise<string> {
   return enqueue(
     'exam_result',
     'UPDATE',
     examResultQueueEntityId(sessionId, studentId),
-    { action: 'remove_result', sessionId, studentId },
+    { action: 'remove_result', sessionId, studentId, deletion },
   )
 }
 

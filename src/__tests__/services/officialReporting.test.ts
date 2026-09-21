@@ -84,8 +84,23 @@ describe('officialReporting server-authoritative gateway', () => {
         dateOfBirth: '2015-05-10',
         gpa: 8.5,
         attendanceRate: 98,
+        attendanceSummary: {
+          massPresentCount: 18,
+          massTotalCount: 20,
+          catechismPresentCount: 9,
+          catechismTotalCount: 10,
+          overallAttendanceRate: 90,
+        },
         classification: 'Giỏi',
         promotionStatus: 'PROMOTED',
+        promotion: {
+          status: 'PROMOTED',
+          gpa: 8.5,
+          attendanceRate: 90,
+          isOverridden: true,
+          overrideReason: 'Quyết định mục vụ',
+          approvedAt: '2026-06-01T00:00:00.000Z',
+        },
         grades: [{
           semester: 1,
           scoreOral: 8,
@@ -108,6 +123,57 @@ describe('officialReporting server-authoritative gateway', () => {
     expect(result.reportCards[0].yearSummary.classification).toBe('Giỏi')
     expect(result.reportCards[0].yearSummary.gpa).toBe(8.5)
     expect(result.reportCards[0].grades[0].scoreFinal).toBe(9)
-    expect(result.reportCards[0].promotion?.status).toBe('PROMOTED')
+    expect(result.reportCards[0].attendanceSummary).toEqual({
+      massPresentCount: 18,
+      massTotalCount: 20,
+      catechismPresentCount: 9,
+      catechismTotalCount: 10,
+      overallAttendanceRate: 90,
+    })
+    expect(result.reportCards[0].promotion).toEqual({
+      status: 'PROMOTED',
+      gpa: 8.5,
+      attendanceRate: 90,
+      isOverridden: true,
+      overrideReason: 'Quyết định mục vụ',
+      approvedAt: '2026-06-01T00:00:00.000Z',
+    })
+  })
+
+  it('preserves null GPA and null promotion through the optimized class projection', async () => {
+    getClassSummaryMock.mockResolvedValue({
+      classId: 'live-class', className: 'Live Class', branchId: 'AuNhi', academicYear: '2026-2027',
+      totalStudents: 1, promotedCount: 0, retainedCount: 0, transferredCount: 0, averageGpa: 0, averageAttendanceRate: 100,
+      students: [{
+        studentId: 'student-no-grade', code: 'TN-3', fullName: 'No Grade', gpa: null,
+        attendanceRate: 100,
+        attendanceSummary: { massPresentCount: 0, massTotalCount: 0, catechismPresentCount: 0, catechismTotalCount: 0, overallAttendanceRate: 100 },
+        classification: null, promotionStatus: null, promotion: null, grades: [],
+      }],
+    })
+
+    const result = await fetchOfficialClassReport('live-class', '2026-2027')
+
+    expect(getStudentReportCardMock).not.toHaveBeenCalled()
+    expect(result.reportCards[0].yearSummary).toEqual({ gpa: null, classification: null })
+    expect(result.reportCards[0].promotion).toBeNull()
+  })
+
+  it('falls back to the individual report card when embedded attendance is incomplete', async () => {
+    getClassSummaryMock.mockResolvedValue({
+      classId: 'old-class', className: 'Old Class', branchId: 'AuNhi', academicYear: '2025-2026',
+      totalStudents: 1, promotedCount: 0, retainedCount: 0, transferredCount: 0, averageGpa: 8, averageAttendanceRate: 100,
+      students: [{
+        studentId: 'student-frozen', code: 'TN-1', fullName: 'Frozen Student', gpa: 8,
+        grades: [{ semester: 1, gpa: 8 }],
+        attendanceSummary: { overallAttendanceRate: 100 },
+        promotion: null,
+      }],
+    })
+
+    const result = await fetchOfficialClassReport('old-class', '2025-2026')
+
+    expect(getStudentReportCardMock).toHaveBeenCalledWith('student-frozen', '2025-2026')
+    expect(result.reportCards).toEqual([report])
   })
 })

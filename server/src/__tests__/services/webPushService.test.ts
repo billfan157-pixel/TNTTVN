@@ -80,7 +80,14 @@ describe('webPushService', () => {
     expect(parsed.title).toBe('Tiêu đề')
     expect(parsed.body).toBe('Nội dung')
     expect(parsed.url).toBe('/notices')
-    expect(result).toEqual({ configured: true, sent: 2, failed: 0, total: 2, removed: 0 })
+    expect(result).toEqual({
+      configured: true,
+      sent: 2,
+      failed: 0,
+      total: 2,
+      removed: 0,
+      successfulEndpoints: ['https://endpoint-a.example', 'https://endpoint-b.example'],
+    })
   })
 
   it('xóa subscription chết (404/410) nhưng giữ sub lỗi tạm thời (500)', async () => {
@@ -100,7 +107,15 @@ describe('webPushService', () => {
 
     const result = await sendWebPushToParish(parishId, { title: 'T', body: 'B' })
 
-    expect(result).toEqual({ configured: true, sent: 1, failed: 2, total: 3, removed: 1 })
+    expect(result).toEqual({
+      configured: true,
+      sent: 1,
+      failed: 2,
+      total: 3,
+      removed: 1,
+      successfulEndpoints: [alive],
+      lastProviderError: 'WEBPUSH:500:FAILED',
+    })
 
     const remaining = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.parishId, parishId))
     const endpoints = remaining.map((r) => r.endpoint)
@@ -112,7 +127,7 @@ describe('webPushService', () => {
   it('configured=true ngay cả khi không có subscription nào', async () => {
     const { sendWebPushToParish } = await import('../../services/webPushService.js')
     const result = await sendWebPushToParish(parishId, { title: 'T', body: 'B' })
-    expect(result).toEqual({ configured: true, sent: 0, failed: 0, total: 0, removed: 0 })
+    expect(result).toEqual({ configured: true, sent: 0, failed: 0, total: 0, removed: 0, successfulEndpoints: [] })
     expect(webPushMock.sendNotification).not.toHaveBeenCalled()
   })
 
@@ -126,7 +141,14 @@ describe('webPushService', () => {
 
     const result = await sendWebPushToParish(parishId, { title: 'T', body: 'B' })
 
-    expect(result).toEqual({ configured: true, sent: 1, failed: 0, total: 1, removed: 0 })
+    expect(result).toEqual({
+      configured: true,
+      sent: 1,
+      failed: 0,
+      total: 1,
+      removed: 0,
+      successfulEndpoints: ['https://endpoint-active.example'],
+    })
     expect(webPushMock.sendNotification).toHaveBeenCalledTimes(1)
     expect(webPushMock.sendNotification.mock.calls[0][0].endpoint).toBe('https://endpoint-active.example')
   })
@@ -143,14 +165,21 @@ describe('webPushService', () => {
     expect(webPushMock.sendNotification).toHaveBeenCalledTimes(1)
     const sentEndpoint = webPushMock.sendNotification.mock.calls[0][0].endpoint
     expect(sentEndpoint).toBe('https://endpoint-a.example')
-    expect(result).toEqual({ configured: true, sent: 1, failed: 0, total: 1, removed: 0 })
+    expect(result).toEqual({
+      configured: true,
+      sent: 1,
+      failed: 0,
+      total: 1,
+      removed: 0,
+      successfulEndpoints: ['https://endpoint-a.example'],
+    })
   })
 
   it('sendWebPushToUsers trả zero khi userIds rỗng (không đụng subscription nào)', async () => {
     const { sendWebPushToUsers } = await import('../../services/webPushService.js')
     await insertSub('https://endpoint-c.example', userOneId)
     const result = await sendWebPushToUsers(parishId, [], { title: 'T', body: 'B' })
-    expect(result).toEqual({ configured: true, sent: 0, failed: 0, total: 0, removed: 0 })
+    expect(result).toEqual({ configured: true, sent: 0, failed: 0, total: 0, removed: 0, successfulEndpoints: [] })
     expect(webPushMock.sendNotification).not.toHaveBeenCalled()
   })
 
@@ -167,10 +196,32 @@ describe('webPushService', () => {
 
     const result = await sendWebPushToUsers(parishId, [userOneId], { title: 'T', body: 'B' })
 
-    expect(result).toEqual({ configured: true, sent: 0, failed: 1, total: 1, removed: 1 })
+    expect(result).toEqual({
+      configured: true,
+      sent: 0,
+      failed: 1,
+      total: 1,
+      removed: 1,
+      successfulEndpoints: [],
+      lastProviderError: 'WEBPUSH:410:FAILED',
+    })
     const remaining = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.parishId, parishId))
     const endpoints = remaining.map((r) => r.endpoint)
     expect(endpoints).not.toContain(deadTarget)
     expect(endpoints).toContain(deadOutside)
+  })
+
+  it('sendWebPush loại trừ excludeEndpoints đã gửi thành công trước đó', async () => {
+    const { sendWebPushToParish } = await import('../../services/webPushService.js')
+    await insertSub('https://endpoint-already-delivered.example', userOneId)
+    await insertSub('https://endpoint-new.example', userTwoId)
+    webPushMock.sendNotification.mockResolvedValue(undefined as never)
+
+    const result = await sendWebPushToParish(parishId, { title: 'T', body: 'B' }, ['https://endpoint-already-delivered.example'])
+
+    expect(webPushMock.sendNotification).toHaveBeenCalledTimes(1)
+    expect(webPushMock.sendNotification.mock.calls[0][0].endpoint).toBe('https://endpoint-new.example')
+    expect(result.sent).toBe(1)
+    expect(result.successfulEndpoints).toEqual(['https://endpoint-new.example'])
   })
 })

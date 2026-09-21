@@ -224,6 +224,15 @@ describe('Batch Print / PDF Export System Test Suite', () => {
     expect(bodyHtml).toMatchSnapshot()
   })
 
+  it('6b. labels the unsigned QR as a non-verifying reference', () => {
+    const vm = ReportViewModelFactory.createStudentViewModel(mockStudents[0], mockGrades, mockAttendance, { academicYear: '2025 - 2026' })
+    const bodyHtml = renderStudentReportCardBody(vm)
+    expect(bodyHtml).toContain('Mã tham chiếu báo cáo')
+    expect(bodyHtml).toContain('không phải chữ ký số')
+    expect(bodyHtml).toContain('không xác nhận tính toàn vẹn của điểm số')
+    expect(bodyHtml).not.toContain('QR Verification')
+  })
+
   it('7. generateClassGradebookHTML calculates weighted semester GPA and yearly average correctly (Item 3)', () => {
     const html = generateClassGradebookHTML('CLS-AU1', mockStudents, mockGrades, mockAttendance, { academicYear: '2025 - 2026' })
     expect(html).toContain('SỔ ĐIỂM GIÁO LÝ')

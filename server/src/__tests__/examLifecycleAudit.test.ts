@@ -134,7 +134,10 @@ describe('EXAM-AUDIT F1–F6 (2026-08-21) — Exam Lifecycle hardening', () => {
 
     // Reopen → xóa kết quả st-aud-1 → re-finalize
     await jsonReq(`/${sessionId}/reopen`, { method: 'POST', token: adminToken })
-    const del = await jsonReq(`/${sessionId}/results/st-aud-1`, { method: 'DELETE', token: adminToken })
+    const [observed] = await db.select({ id: examResults.id, version: examResults.resultVersion }).from(examResults)
+      .where(and(eq(examResults.parishId, parishId), eq(examResults.examSessionId, sessionId), eq(examResults.studentId, 'st-aud-1')))
+    const deletion = new URLSearchParams({ expectedResultId: observed.id, expectedResultVersion: String(observed.version), clientMutationId: 'exam-lifecycle-delete-001' })
+    const del = await jsonReq(`/${sessionId}/results/st-aud-1?${deletion}`, { method: 'DELETE', token: adminToken })
     expect(del.status).toBe(200)
     const second = await jsonReq(`/${sessionId}/complete`, { method: 'POST', token: adminToken })
     expect(second.status).toBe(200)

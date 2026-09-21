@@ -499,7 +499,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
   it('creates and labels an event task with its selected lifecycle phase', async () => {
     selectedEvent = {
-      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4, scopeUnitId: 'UNIT-1', eventScopeType: 'UNIT' },
       workstreams: [], tasks: [{ ...assignedTask, phase: 'FOLLOW_UP', title: 'Đúc kết sau trại' }], assignees: [], readiness: { percent: 100, blockers: [] },
       permissions: { 'operations.task.create': true },
     }
@@ -512,7 +512,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
 
     await waitFor(() => expect(createTask).toHaveBeenCalledWith({
-      title: 'Phục vụ nghi thức', eventId: 'E1', workstreamId: null, scopeUnitId: null, dueAt: null, scheduledStartAt: null, scheduledEndAt: null, phase: 'EXECUTION', isRequired: true,
+      title: 'Phục vụ nghi thức', eventId: 'E1', workstreamId: null, scopeUnitId: 'UNIT-1', dueAt: null, scheduledStartAt: null, scheduledEndAt: null, phase: 'EXECUTION', isRequired: true,
     }, expect.any(String)))
   })
 
@@ -551,7 +551,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
   it('creates a task shift only with a valid start and end window', async () => {
     selectedEvent = {
-      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4, scopeUnitId: 'UNIT-1', eventScopeType: 'UNIT' },
       workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] },
       permissions: { 'operations.task.create': true },
     }
@@ -568,7 +568,7 @@ describe('OperationsPage mobile-safe action boundary', () => {
 
   it('reuses the idempotency key when retrying an unchanged task creation', async () => {
     selectedEvent = {
-      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4 },
+      event: { id: 'E1', parishId: 'parish-a', title: 'Trại hè', eventType: 'CAMP', startsAt: '2026-10-01T01:00:00Z', endsAt: '2026-10-01T03:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 4, scopeUnitId: 'UNIT-1', eventScopeType: 'UNIT' },
       workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] },
       permissions: { 'operations.task.create': true },
     }
@@ -738,12 +738,17 @@ describe('OperationsPage mobile-safe action boundary', () => {
       event: { id: 'EVT-100', parishId: 'parish-a', title: 'Hội Trại Sa Mạc 2026', eventType: 'CAMP', startsAt: '2026-10-01T08:00:00Z', endsAt: '2026-10-01T17:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', version: 1 },
       workstreams: [], tasks: [], assignees: [], readiness: { percent: 80, blockers: [] },
       permissions: {},
+      // U-19: creator ≠ organizer (O1) — the header names both.
+      organizer: { userId: 'user-leader', personId: null, displayName: 'Trưởng Xứ đoàn' },
+      creator: { userId: 'user-secretary', displayName: 'Thư ký Xứ đoàn' },
     }
     render(<OperationsPage />)
 
     // Verify ModalShell dialog layer is present
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Hội Trại Sa Mạc 2026' })).toBeInTheDocument()
+    expect(screen.getByText('Phụ trách: Trưởng Xứ đoàn')).toBeInTheDocument()
+    expect(screen.getByText('Người tạo: Thư ký Xứ đoàn')).toBeInTheDocument()
 
     // Clicking "Đóng chi tiết" closes the modal
     fireEvent.click(screen.getByRole('button', { name: 'Đóng chi tiết' }))
@@ -782,11 +787,25 @@ describe('OperationsPage mobile-safe action boundary', () => {
     const kpiStrip = screen.getByRole('region', { name: 'Tổng quan công việc' })
     const utilities = screen.getByRole('region', { name: 'Tiện ích điều hành' })
 
-    // DOM order in mobile must follow: Inbox -> My Tasks -> Events -> KPI -> Utilities
-    expect(inbox.compareDocumentPosition(myTasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // DOM order in mobile follows native glance & segmented hierarchy:
+    // KPI -> My Tasks -> Events -> Inbox -> Utilities
+    expect(kpiStrip.compareDocumentPosition(myTasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(myTasks.compareDocumentPosition(eventsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(eventsSection.compareDocumentPosition(kpiStrip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(kpiStrip.compareDocumentPosition(utilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(eventsSection.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(inbox.compareDocumentPosition(utilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // Primary mobile segmented navigation tabs
+    const navTabs = screen.getByRole('tablist', { name: 'Phân hệ điều hành' })
+    expect(navTabs).toBeInTheDocument()
+    const myTasksTab = within(navTabs).getByRole('tab', { name: /Việc của tôi/ })
+    const eventsTab = within(navTabs).getByRole('tab', { name: /Sự kiện/ })
+    expect(myTasksTab).toHaveAttribute('aria-selected', 'true')
+    expect(eventsTab).toHaveAttribute('aria-selected', 'false')
+
+    // Switching tabs changes active tab
+    fireEvent.click(eventsTab)
+    expect(eventsTab).toHaveAttribute('aria-selected', 'true')
+    expect(myTasksTab).toHaveAttribute('aria-selected', 'false')
 
     // Mobile utility accordion toggle
     const toggleBtn = screen.getByRole('button', { name: 'Mở tiện ích' })

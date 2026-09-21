@@ -27,6 +27,7 @@ export function getVapidPublicKey(): string {
   return process.env.VAPID_PUBLIC_KEY || ''
 }
 
+
 export interface WebPushPayload {
   title: string
   body: string
@@ -40,6 +41,8 @@ export interface WebPushSendResult {
   total: number
   /** Số subscription đã xóa vĩnh viễn (endpoint 404/410 — trình duyệt đã hủy). */
   removed: number
+  successfulEndpoints?: string[]
+  lastProviderError?: string
 }
 
 /**
@@ -50,16 +53,21 @@ export interface WebPushSendResult {
  * - Subscription chết (HTTP 404/410 = trình duyệt đã hủy/endpoint không còn
  *   tồn tại) bị xóa khỏi DB để không gửi mãi.
  */
-async function sendWebPush(parishId: string, payload: WebPushPayload, userIds?: string[]): Promise<WebPushSendResult> {
-  const notConfigured: WebPushSendResult = { configured: false, sent: 0, failed: 0, total: 0, removed: 0 }
+async function sendWebPush(
+  parishId: string,
+  payload: WebPushPayload,
+  userIds?: string[],
+  excludeEndpoints?: string[],
+): Promise<WebPushSendResult> {
+  const notConfigured: WebPushSendResult = { configured: false, sent: 0, failed: 0, total: 0, removed: 0, successfulEndpoints: [] }
   if (!ensureVapidDetails()) return notConfigured
-  if (userIds && userIds.length === 0) return { configured: true, sent: 0, failed: 0, total: 0, removed: 0 }
+  if (userIds && userIds.length === 0) return { configured: true, sent: 0, failed: 0, total: 0, removed: 0, successfulEndpoints: [] }
 
   let conditions = [eq(pushSubscriptions.parishId, parishId)]
   if (userIds) {
     conditions.push(inArray(pushSubscriptions.userId, userIds))
   }
-  const subs = await db.select({
+  const allSubs = await db.select({
     endpoint: pushSubscriptions.endpoint,
     p256dh: pushSubscriptions.p256dh,
     auth: pushSubscriptions.auth,
@@ -71,7 +79,10 @@ async function sendWebPush(parishId: string, payload: WebPushPayload, userIds?: 
     eq(users.status, 'ACTIVE'),
     isNull(users.deletedAt),
   ))
-  if (subs.length === 0) return { configured: true, sent: 0, failed: 0, total: 0, removed: 0 }
+
+  const excluded = new Set(excludeEndpoints || [])
+  const subs = allSubs.filter(sub => !excluded.has(sub.endpoint))
+  if (subs.length === 0) return { configured: true, sent: 0, failed: 0, total: allSubs.length, removed: 0, successfulEndpoints: [] }
 
   const results = await Promise.allSettled(
     subs.map((sub) =>
@@ -85,28 +96,48 @@ async function sendWebPush(parishId: string, payload: WebPushPayload, userIds?: 
   let sent = 0
   let failed = 0
   const deadEndpoints: string[] = []
+  const successfulEndpoints: string[] = []
+  let lastProviderError: string | undefined
+
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') {
       sent++
+      successfulEndpoints.push(subs[i].endpoint)
       return
     }
     failed++
-    const err = r.reason as { statusCode?: number } | undefined
-    if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+    const err = r.reason as { statusCode?: number; message?: string } | undefined
+    const statusCode = err?.statusCode || 0
+    if (statusCode === 404 || statusCode === 410) {
       deadEndpoints.push(subs[i].endpoint)
     }
+    lastProviderError = `WEBPUSH:${statusCode || 'ERR'}:${err?.message || 'FAILED'}`
+    console.warn(`[webPushService] delivery rejected (${statusCode}):`, {
+      message: err?.message || 'unknown error',
+      endpointPrefix: `${subs[i].endpoint.slice(0, 20)}...`,
+    })
   })
 
   if (deadEndpoints.length > 0) {
     await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.parishId, parishId), inArray(pushSubscriptions.endpoint, deadEndpoints)))
   }
 
-  return { configured: true, sent, failed, total: subs.length, removed: deadEndpoints.length }
+  const returnResult: WebPushSendResult = {
+    configured: true,
+    sent,
+    failed,
+    total: allSubs.length,
+    removed: deadEndpoints.length,
+    successfulEndpoints,
+  }
+  if (lastProviderError) {
+    returnResult.lastProviderError = lastProviderError
+  }
+  return returnResult
 }
 
-/** Gửi web push tới TOÀN BỘ subscription của một giáo xứ. */
-export async function sendWebPushToParish(parishId: string, payload: WebPushPayload): Promise<WebPushSendResult> {
-  return sendWebPush(parishId, payload)
+export async function sendWebPushToParish(parishId: string, payload: WebPushPayload, excludeEndpoints?: string[]): Promise<WebPushSendResult> {
+  return sendWebPush(parishId, payload, undefined, excludeEndpoints)
 }
 
 /**
@@ -114,6 +145,6 @@ export async function sendWebPushToParish(parishId: string, payload: WebPushPayl
  * ví dụ: phụ huynh trong một chi đoàn). Subscription không thuộc danh sách
  * userId (kể cả `userId = null` — sub cũ chưa gắn tài khoản) không bị đụng tới.
  */
-export async function sendWebPushToUsers(parishId: string, userIds: string[], payload: WebPushPayload): Promise<WebPushSendResult> {
-  return sendWebPush(parishId, payload, userIds)
+export async function sendWebPushToUsers(parishId: string, userIds: string[], payload: WebPushPayload, excludeEndpoints?: string[]): Promise<WebPushSendResult> {
+  return sendWebPush(parishId, payload, userIds, excludeEndpoints)
 }

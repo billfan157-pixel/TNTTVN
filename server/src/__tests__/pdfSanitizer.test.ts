@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isInternalOrLocalUrl, sanitizePDFHTML } from '../utils/pdfSanitizer.js'
+import { isAllowedPdfResourceUrl, isInternalOrLocalUrl, sanitizePDFHTML } from '../utils/pdfSanitizer.js'
 
 describe('PDF Sanitizer & SSRF/LFI Protection (A-NEW-42)', () => {
   describe('isInternalOrLocalUrl', () => {
@@ -10,6 +10,8 @@ describe('PDF Sanitizer & SSRF/LFI Protection (A-NEW-42)', () => {
 
     it('2. Chặn localhost & IPv4 loopback / private IP (SSRF)', () => {
       expect(isInternalOrLocalUrl('http://localhost')).toBe(true)
+      expect(isInternalOrLocalUrl('http://localhost.')).toBe(true)
+      expect(isInternalOrLocalUrl('http://LOCALHOST.:8080/api/health')).toBe(true)
       expect(isInternalOrLocalUrl('http://localhost:8080/api/health')).toBe(true)
       expect(isInternalOrLocalUrl('http://127.0.0.1/admin')).toBe(true)
       expect(isInternalOrLocalUrl('http://127.0.0.2')).toBe(true)
@@ -30,6 +32,15 @@ describe('PDF Sanitizer & SSRF/LFI Protection (A-NEW-42)', () => {
       expect(isInternalOrLocalUrl('data:image/png;base64,iVBORw0KGgo=')).toBe(false)
       expect(isInternalOrLocalUrl('about:blank')).toBe(false)
       expect(isInternalOrLocalUrl('https://example.com/logo.png')).toBe(false)
+    })
+
+    it('5. PDF renderer chỉ cho phép tài nguyên self-contained, không cho outbound HTTP(S)', () => {
+      expect(isAllowedPdfResourceUrl('data:image/png;base64,iVBORw0KGgo=')).toBe(true)
+      expect(isAllowedPdfResourceUrl('about:blank')).toBe(true)
+      expect(isAllowedPdfResourceUrl('https://example.com/logo.png')).toBe(false)
+      expect(isAllowedPdfResourceUrl('http://localhost.:8080/private')).toBe(false)
+      expect(isAllowedPdfResourceUrl('file:///etc/passwd')).toBe(false)
+      expect(isAllowedPdfResourceUrl('blob:https://example.com/abc')).toBe(false)
     })
   })
 
@@ -64,6 +75,14 @@ describe('PDF Sanitizer & SSRF/LFI Protection (A-NEW-42)', () => {
       const input = `<div style="color: red;"><h2>Phiếu điểm</h2><img src="data:image/png;base64,iVBORw0KGgo=" /></div>`
       const output = sanitizePDFHTML(input)
       expect(output).toBe(input)
+    })
+
+    it('5. Neutralize cả public HTTP(S) resource vì PDF chính thức không cần outbound network', () => {
+      const input = `<img src="https://example.com/logo.png" /><style>body{background:url('https://example.com/bg.png')}</style>`
+      const output = sanitizePDFHTML(input)
+      expect(output).not.toContain('https://example.com')
+      expect(output).toContain('src="about:blank"')
+      expect(output).toContain('url("about:blank")')
     })
   })
 })

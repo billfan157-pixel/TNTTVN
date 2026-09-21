@@ -450,6 +450,7 @@ export const notifications = sqliteTable('notifications', {
    leaseOwner: text('lease_owner'),
    leaseExpiresAt: text('lease_expires_at'),
    nextAttemptAt: text('next_attempt_at'),
+   deliveredEndpoints: text('delivered_endpoints'),
    parishId: text('parish_id').notNull().default('gia-ton'),
    createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   }, (table) => [

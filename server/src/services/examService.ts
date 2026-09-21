@@ -17,7 +17,7 @@ async function assertExamWriter(tx: DbExecutor, userId: string, parishId: string
     throw new ExamAccessError('Quyền thao tác phiên chấm đã thay đổi')
   }
 }
-import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
+import { generateExamVariantManifest, type ExamVariantManifestSet, type VariantQuestion } from './examVariantManifest.js'
 
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
@@ -36,6 +36,8 @@ export interface ExamResultMutationInput {
   capturedAt?: string
   /** Version read by the client. Required whenever this student already has a result. */
   expectedResultVersion?: number
+  /** An owned, previously queued save that must commit before this update. */
+  afterMutationId?: string
 }
 
 export interface ExamResultMutationAck {
@@ -45,6 +47,14 @@ export interface ExamResultMutationAck {
   clientScore: number
   serverScore: number
   resultVersion: number
+  resultId: string
+}
+
+export interface ExamResultDeleteExpectation {
+  clientMutationId: string
+  expectedResultId?: string
+  expectedResultVersion?: number
+  afterMutationId?: string
 }
 
 function hashExamResultMutation(sessionId: string, input: ExamResultMutationInput): string {
@@ -60,6 +70,7 @@ function hashExamResultMutation(sessionId: string, input: ExamResultMutationInpu
     attemptFingerprint: input.attemptFingerprint ?? null,
     capturedAt: input.capturedAt ?? null,
     expectedResultVersion: input.expectedResultVersion ?? null,
+    ...(input.afterMutationId ? { afterMutationId: input.afterMutationId } : {}),
   })).digest('hex')
 }
 
@@ -166,6 +177,37 @@ function parseMixedQuestionMeta(questionsJson: string | null | undefined): Map<n
     })
   }
   return meta.size > 0 ? meta : null
+}
+
+function hashExamResultDelete(sessionId: string, studentId: string, input: ExamResultDeleteExpectation): string {
+  return createHash('sha256').update(JSON.stringify({
+    action: 'delete_result', sessionId, studentId,
+    expectedResultId: input.expectedResultId ?? null,
+    expectedResultVersion: input.expectedResultVersion ?? null,
+    afterMutationId: input.afterMutationId ?? null,
+  })).digest('hex')
+}
+
+/** Resolve weights from the same immutable form as the selected answer key. */
+function resolveQuestionMetaForVersion(
+  session: Pick<typeof examSessions.$inferSelect, 'questions' | 'variantManifests' | 'questionCount'>,
+  version: ExamVersionCode,
+): Map<number, MixedQuestionMeta> {
+  let questionsJson = session.questions
+  if (session.variantManifests) {
+    let manifests: ExamVariantManifestSet
+    try { manifests = JSON.parse(session.variantManifests) as ExamVariantManifestSet }
+    catch { badRequest('Bộ mã đề của phiên bị lỗi JSON.') }
+    const variant = manifests.variants?.[version]
+    if (!variant?.questions) badRequest(`Thiếu nội dung bất biến cho mã đề ${version}.`)
+    questionsJson = JSON.stringify(variant.questions)
+  }
+  const meta = parseMixedQuestionMeta(questionsJson)
+  if (!meta || !session.questionCount || Array.from({ length: session.questionCount }, (_, index) => index + 1)
+    .some(index => meta.get(index)?.type !== 'multiple_choice')) {
+    badRequest(`Điểm câu hỏi của mã đề ${version} không hợp lệ.`)
+  }
+  return meta
 }
 
 /** Tổng điểm phần tự luận (trần nhập tay cho giáo viên). */
@@ -666,6 +708,31 @@ export async function upsertExamResults(
     if (allowedClassIds && !allowedClassIds.includes(session.classId)) {
       throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
     }
+    // A lost response may be retried after another writer completed the exam
+    // (or moved a student). Resolve only an entirely committed, identical
+    // command here; new writes still pass the live lifecycle/roster checks.
+    const replayItems: ExamResultMutationAck[] = []
+    for (const result of results) {
+      if (!result.clientMutationId) break
+      const [receipt] = await tx.select({ requestHash: examResultMutations.requestHash, responseJson: examResultMutations.responseJson })
+        .from(examResultMutations)
+        .where(and(eq(examResultMutations.parishId, parishId), eq(examResultMutations.userId, userId),
+          eq(examResultMutations.clientMutationId, result.clientMutationId)))
+        .limit(1)
+      if (!receipt) break
+      if (receipt.requestHash !== hashExamResultMutation(sessionId, result)) {
+        throw new ExamMutationConflictError('clientMutationId đã được dùng cho một payload khác.')
+      }
+      replayItems.push({ ...JSON.parse(receipt.responseJson) as ExamResultMutationAck, status: 'duplicate' })
+    }
+    if (replayItems.length === results.length) {
+      return {
+        session, saved: 0, upserted: 0, total: results.length,
+        adjustments: replayItems.filter(item => Math.abs(item.clientScore - item.serverScore) > 0.0001)
+          .map(item => ({ studentId: item.studentId, clientScore: item.clientScore, serverScore: item.serverScore })),
+        items: replayItems,
+      }
+    }
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
@@ -696,9 +763,10 @@ export async function upsertExamResults(
     const processedMutationIds: string[] = []
     const now = new Date().toISOString()
 
-    // EXAM-MIXED: meta câu hỏi + trần điểm tự luận được parse MỘT lần trước loop.
+    // The base form owns the essay ceiling. MC weights come from the selected
+    // immutable form, since B-H may move questions to different positions.
     const isMixed = session.examType === 'mixed'
-    const mixedMeta = isMixed ? parseMixedQuestionMeta(session.questions) : null
+    const mixedMeta = isMixed ? resolveQuestionMetaForVersion(session, 'A') : null
     if (isMixed && (!mixedMeta || !session.answerKey)) {
       badRequest('Phiên mixed thiếu ngân hàng câu hỏi/đáp án TN hợp lệ; không thể tách điểm trắc nghiệm và tự luận.')
     }
@@ -758,15 +826,36 @@ export async function upsertExamResults(
         ))
         .limit(1))[0]
 
+      let expectedResultVersion = r.expectedResultVersion
+      let expectedResultId: string | undefined
+      if (r.afterMutationId) {
+        if (r.afterMutationId === r.clientMutationId) badRequest('Lệnh kết quả không thể phụ thuộc chính nó.')
+        const [predecessor] = await tx.select({
+          examSessionId: examResultMutations.examSessionId, studentId: examResultMutations.studentId,
+          responseJson: examResultMutations.responseJson,
+        }).from(examResultMutations).where(and(eq(examResultMutations.parishId, parishId),
+          eq(examResultMutations.userId, userId), eq(examResultMutations.clientMutationId, r.afterMutationId))).limit(1)
+        if (!predecessor || predecessor.examSessionId !== sessionId || predecessor.studentId !== r.studentId) {
+          throw new ExamResultVersionConflictError('Lệnh kết quả trước đó chưa được xác nhận.', existingRow?.resultVersion ?? null, r.studentId)
+        }
+        const prior = JSON.parse(predecessor.responseJson) as Partial<ExamResultMutationAck>
+        if (!prior.resultId || !prior.resultVersion) {
+          throw new ExamResultVersionConflictError('Biên nhận trước thiếu định danh kết quả; hãy tải lại.', existingRow?.resultVersion ?? null, r.studentId)
+        }
+        expectedResultId = prior.resultId
+        expectedResultVersion = prior.resultVersion
+      }
+
       if (existingRow) {
-        if (r.expectedResultVersion === undefined || r.expectedResultVersion !== existingRow.resultVersion) {
+        if (expectedResultVersion === undefined || expectedResultVersion !== existingRow.resultVersion
+          || (expectedResultId !== undefined && expectedResultId !== existingRow.id)) {
           throw new ExamResultVersionConflictError(
             `Kết quả của học sinh đã thay đổi (server v${existingRow.resultVersion}); hãy tải lại trước khi ghi.`,
             existingRow.resultVersion,
             r.studentId,
           )
         }
-      } else if (r.expectedResultVersion !== undefined && r.expectedResultVersion !== 0) {
+      } else if (expectedResultId !== undefined || (expectedResultVersion !== undefined && expectedResultVersion !== 0)) {
         throw new ExamResultVersionConflictError(
           'Kết quả đã bị xóa hoặc chưa tồn tại; hãy tải lại phiên chấm.',
           null,
@@ -801,7 +890,15 @@ export async function upsertExamResults(
         const parsedAnswers = parseSubmittedAnswers(r.answers, mcQuestionCount)
         const versionAnswerKey = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, examVersion)
         if (!versionAnswerKey) badRequest(`Phiên chưa cấu hình đáp án cho mã đề ${examVersion}.`)
-        authoritativeScore = computeMultipleChoiceScore(parsedAnswers, versionAnswerKey, mcQuestionCount, session.maxScore)
+        if (session.sourceType === 'blueprint') {
+          const weightedMeta = resolveQuestionMetaForVersion(session, examVersion)
+          let answerKeyObj: Record<string, unknown>
+          try { answerKeyObj = JSON.parse(versionAnswerKey) as Record<string, unknown> }
+          catch { badRequest('Đáp án chuẩn của phiên bị lỗi JSON.') }
+          authoritativeScore = Math.min(computeMcEarnedPoints(parsedAnswers, answerKeyObj, weightedMeta, mcQuestionCount), session.maxScore)
+        } else {
+          authoritativeScore = computeMultipleChoiceScore(parsedAnswers, versionAnswerKey, mcQuestionCount, session.maxScore)
+        }
         if (Math.abs(authoritativeScore - r.score) > 0.0001) {
           adjustments.push({ studentId: r.studentId, clientScore: r.score, serverScore: authoritativeScore })
         }
@@ -817,7 +914,7 @@ export async function upsertExamResults(
           if (!versionAnswerKey) badRequest(`Phiên chưa cấu hình đáp án TN cho mã đề ${examVersion}.`)
           let answerKeyObj: Record<string, unknown>
           try { answerKeyObj = JSON.parse(versionAnswerKey) as Record<string, unknown> } catch { badRequest('Đáp án chuẩn của phiên bị lỗi JSON.') }
-          mcEarned = computeMcEarnedPoints(parsedAnswers, answerKeyObj, mixedMeta, mcQuestionCount)
+          mcEarned = computeMcEarnedPoints(parsedAnswers, answerKeyObj, resolveQuestionMetaForVersion(session, examVersion), mcQuestionCount)
         }
 
         const essayVal = typeof r.essayScore === 'number'
@@ -911,6 +1008,7 @@ export async function upsertExamResults(
         clientScore: r.score,
         serverScore: authoritativeScore,
         resultVersion: persisted.resultVersion,
+        resultId: persisted.id,
       }
       items.push(ack)
 
@@ -960,27 +1058,67 @@ export async function deleteExamResult(
   userAgent: string,
   allowedClassIds: string[] | null,
   expected?: AcademicWriteExpectation,
+  deletion?: ExamResultDeleteExpectation,
 ) {
-  return db.transaction(async (tx) => {
+  return withSqliteBusyRetry(() => db.transaction(async (tx) => {
+    // Serialize with save/finalize before reading the target and its receipt.
+    await tx.update(examSessions).set({ status: 'draft' }).where(and(
+      eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId), eq(examSessions.status, 'draft'),
+    ))
     const session = await assertSessionAccess(sessionId, parishId, allowedClassIds, tx)
     await assertExamWriter(tx, userId, parishId, session.classId, expected)
+    if (!deletion) badRequest('Thiếu phiên bản kết quả và mã lệnh xóa.')
+    const requestHash = hashExamResultDelete(sessionId, studentId, deletion)
+    const [receipt] = await tx.select({ requestHash: examResultMutations.requestHash, responseJson: examResultMutations.responseJson })
+      .from(examResultMutations).where(and(eq(examResultMutations.parishId, parishId),
+        eq(examResultMutations.userId, userId), eq(examResultMutations.clientMutationId, deletion.clientMutationId))).limit(1)
+    if (receipt) {
+      if (receipt.requestHash !== requestHash) throw new ExamMutationConflictError('clientMutationId đã được dùng cho một payload khác.')
+      return { ...JSON.parse(receipt.responseJson) as { deleted: boolean; studentId: string }, duplicate: true }
+    }
     if (session.status === 'completed') {
       throw new ExamStateError('Phiên chấm đã hoàn tất. Mở lại phiên (admin) trước khi sửa kết quả.')
     }
 
+    let expectedResultId = deletion.expectedResultId
+    let expectedResultVersion = deletion.expectedResultVersion
+    if (deletion.afterMutationId) {
+      const [predecessor] = await tx.select({
+        examSessionId: examResultMutations.examSessionId, studentId: examResultMutations.studentId,
+        responseJson: examResultMutations.responseJson,
+      }).from(examResultMutations).where(and(eq(examResultMutations.parishId, parishId),
+        eq(examResultMutations.userId, userId), eq(examResultMutations.clientMutationId, deletion.afterMutationId))).limit(1)
+      if (!predecessor || predecessor.examSessionId !== sessionId || predecessor.studentId !== studentId) {
+        throw new ExamResultVersionConflictError('Kết quả cần xóa chưa được máy chủ xác nhận.', null, studentId)
+      }
+      const prior = JSON.parse(predecessor.responseJson) as Partial<ExamResultMutationAck>
+      if (!prior.resultId || !prior.resultVersion) {
+        throw new ExamResultVersionConflictError('Thiếu định danh kết quả đã xác nhận; hãy tải lại trước khi xóa.', null, studentId)
+      }
+      expectedResultId = prior.resultId
+      expectedResultVersion = prior.resultVersion
+    }
+
     const [existing] = await tx
-      .select({ id: examResults.id, studentId: examResults.studentId, score: examResults.score, source: examResults.source })
+      .select({ id: examResults.id, studentId: examResults.studentId, score: examResults.score, source: examResults.source, resultVersion: examResults.resultVersion })
       .from(examResults)
       .where(and(eq(examResults.examSessionId, sessionId), eq(examResults.studentId, studentId), eq(examResults.parishId, parishId)))
       .limit(1)
 
-    if (!existing) {
-      const err = new Error('Không tìm thấy kết quả của thiếu nhi này trong phiên chấm') as any
-      err.status = 404
-      throw err
+    if (!existing || existing.id !== expectedResultId || existing.resultVersion !== expectedResultVersion) {
+      throw new ExamResultVersionConflictError('Kết quả đã thay đổi; hãy tải lại trước khi xóa.', existing?.resultVersion ?? null, studentId)
     }
 
-    await tx.delete(examResults).where(and(eq(examResults.id, existing.id), eq(examResults.parishId, parishId)))
+    const [deleted] = await tx.delete(examResults).where(and(eq(examResults.id, existing.id),
+      eq(examResults.parishId, parishId), eq(examResults.resultVersion, existing.resultVersion)))
+      .returning({ id: examResults.id })
+    if (!deleted) throw new ExamResultVersionConflictError('Kết quả vừa thay đổi; hãy tải lại trước khi xóa.', null, studentId)
+
+    const response = { deleted: true, studentId: existing.studentId, resultId: existing.id }
+    await tx.insert(examResultMutations).values({
+      clientMutationId: deletion.clientMutationId, parishId, userId, examSessionId: sessionId,
+      studentId, requestHash, responseJson: JSON.stringify(response), createdAt: new Date().toISOString(),
+    })
 
     await audit(tx, {
       userId, parishId, ip, userAgent,
@@ -991,8 +1129,8 @@ export async function deleteExamResult(
       newValue: null,
     })
 
-    return { deleted: true, studentId: existing.studentId }
-  })
+    return response
+  }))
 }
 
 export async function getExamResults(sessionId: string, parishId: string, allowedClassIds: string[] | null) {
@@ -1472,7 +1610,7 @@ export async function updateAnswerKeyAndRescore(
     // EXAM-MIXED: rescore phiên mixed = chấm lại phần TN theo trọng số câu hỏi,
     // CỘNG VỚI essay_score đã lưu (không mất điểm tự luận khi đổi đáp án).
     const isMixedRescore = sessionBefore.examType === 'mixed'
-    const mixedMeta = isMixedRescore ? parseMixedQuestionMeta(sessionBefore.questions) : null
+    const mixedMeta = isMixedRescore ? resolveQuestionMetaForVersion(sessionBefore, 'A') : null
     if (isMixedRescore && !mixedMeta) {
       badRequest('Phiên mixed thiếu ngân hàng câu hỏi hợp lệ; không thể chấm lại.')
     }
@@ -1509,7 +1647,7 @@ export async function updateAnswerKeyAndRescore(
           const v = answers[String(q)]
           numericAnswers[q] = v === 'A' || v === 'B' || v === 'C' || v === 'D' ? v : null
         }
-        const mcEarned = computeMcEarnedPoints(numericAnswers, answerKeyObj, mixedMeta, newQuestionCount)
+        const mcEarned = computeMcEarnedPoints(numericAnswers, answerKeyObj, resolveQuestionMetaForVersion(sessionBefore, normalizeExamVersion(result.examVersion)), newQuestionCount)
         newScore = Math.min(Math.round((mcEarned + (result.essayScore ?? 0)) * 100) / 100, maxScore)
       } else {
         let correctCount = 0
@@ -1585,7 +1723,7 @@ export async function updateAnswerVariantsAndRescore(
     // EXAM-MIXED: phần TN của đề mixed cũng hỗ trợ nhiều mã đề (chỉ áp dụng cho câu TN).
     if (session.examType !== 'multiple_choice' && session.examType !== 'mixed') badRequest('Chỉ phiên trắc nghiệm hoặc mixed mới có nhiều mã đề.')
     const isMixedVariants = session.examType === 'mixed'
-    const variantsMeta = isMixedVariants ? parseMixedQuestionMeta(session.questions) : null
+    const variantsMeta = isMixedVariants ? resolveQuestionMetaForVersion(session, 'A') : null
     if (isMixedVariants && !variantsMeta) badRequest('Phiên mixed thiếu ngân hàng câu hỏi hợp lệ; không thể chấm lại.')
 
     const variants = JSON.parse(answerVariantsJson) as Record<string, Record<string, string>>
@@ -1625,7 +1763,7 @@ export async function updateAnswerVariantsAndRescore(
           const v = answersMap[String(q)]
           numericAnswers[q] = v === 'A' || v === 'B' || v === 'C' || v === 'D' ? v : null
         }
-        const mcEarned = computeMcEarnedPoints(numericAnswers, variants[version], variantsMeta, questionCount)
+        const mcEarned = computeMcEarnedPoints(numericAnswers, variants[version], resolveQuestionMetaForVersion(session, version), questionCount)
         const newScore = Math.min(Math.round((mcEarned + (result.essayScore ?? 0)) * 100) / 100, session.maxScore)
         if (Math.abs(newScore - result.score) > 0.0001) {
           scoreChanges.push({ studentId: result.studentId, examVersion: version, oldScore: result.score, newScore })

@@ -24,7 +24,7 @@ export const examsApi = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
   generateExamVariantManifests: (id: string, variantCount: number) =>
     request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number }[]) => {
+  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number; afterMutationId?: string }[]) => {
     const capturedAt = new Date().toISOString()
     const withMutationIds = results.map(result => ({
       ...result,
@@ -48,10 +48,21 @@ export const examsApi = {
         clientScore: number
         serverScore: number
         resultVersion: number
+        resultId: string
       }>
     }>('POST', `/exams/${id}/results`, { results: withMutationIds }, 0, { 'Idempotency-Key': requestId })
   },
-  removeExamResult: (id: string, studentId: string) => request<{ deleted: boolean }>('DELETE', `/exams/${id}/results/${encodeURIComponent(studentId)}`),
+  removeExamResult: (id: string, studentId: string, expected: {
+    expectedResultId?: string; expectedResultVersion?: number; afterMutationId?: string; clientMutationId: string
+  }) => {
+    const query = new URLSearchParams({ clientMutationId: expected.clientMutationId })
+    if (expected.expectedResultId) query.set('expectedResultId', expected.expectedResultId)
+    if (expected.expectedResultVersion !== undefined) query.set('expectedResultVersion', String(expected.expectedResultVersion))
+    if (expected.afterMutationId) query.set('afterMutationId', expected.afterMutationId)
+    return request<{ deleted: boolean; studentId: string; resultId: string; duplicate?: boolean }>(
+      'DELETE', `/exams/${encodeURIComponent(id)}/results/${encodeURIComponent(studentId)}?${query}`,
+    )
+  },
   getExamResults: (id: string) => request<{ session: any; results: any[] }>('GET', `/exams/${id}/results`),
   completeExam: (id: string) => request<any>('POST', `/exams/${id}/complete`),
   reopenExam: (id: string) => request<any>('POST', `/exams/${id}/reopen`),

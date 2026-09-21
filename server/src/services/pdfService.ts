@@ -1,7 +1,7 @@
 import puppeteer from 'puppeteer'
 import type { Browser, PDFMargin } from 'puppeteer'
 
-import { sanitizePDFHTML, isInternalOrLocalUrl } from '../utils/pdfSanitizer.js'
+import { sanitizePDFHTML, isAllowedPdfResourceUrl } from '../utils/pdfSanitizer.js'
 
 let browser: Browser | null = null
 
@@ -24,31 +24,17 @@ export async function generatePDFFromHTML(
   const page = await b.newPage()
 
   try {
+    // PDF input is presentation-only; do not execute any script even if an
+    // unusual HTML/SVG encoding evades the string sanitizer.
+    await page.setJavaScriptEnabled(false)
     // A-NEW-42 (2026-08-13): Chặn đọc file cục bộ & SSRF qua Puppeteer Request Interception
     await page.setRequestInterception(true)
     page.on('request', (req) => {
-      const url = req.url().toLowerCase()
+      const url = req.url()
 
-      // Chặn mọi yêu cầu file:// (LFI)
-      if (url.startsWith('file:')) {
-        req.abort('accessdenied')
-        return
-      }
-
-      // Cho phép data: URIs (inline images/fonts base64)
-      if (url.startsWith('data:')) {
-        req.continue()
-        return
-      }
-
-      // Cho phép about: (main document/blank)
-      if (url.startsWith('about:')) {
-        req.continue()
-        return
-      }
-
-      // Chặn các request tới localhost / IP nội bộ (SSRF)
-      if (isInternalOrLocalUrl(url)) {
+      // Official PDF templates are self-contained. Deny every network/file/
+      // blob resource instead of trying to enumerate private address syntax.
+      if (!isAllowedPdfResourceUrl(url)) {
         req.abort('accessdenied')
         return
       }

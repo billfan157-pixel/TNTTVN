@@ -251,6 +251,7 @@ const resultsSchema = z.object({
     attemptFingerprint: z.string().trim().min(1).max(256).optional(),
     capturedAt: z.string().datetime({ offset: true }).optional(),
     expectedResultVersion: z.coerce.number().int().min(0).optional(),
+    afterMutationId: z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9._:-]+$/).optional(),
   })).min(1).max(1000),
 })
 
@@ -360,7 +361,18 @@ examsRouter.get('/:id/results', roleMiddleware('admin', 'chunhiem', 'phuta'), as
 })
 
 // ─── Xóa 1 kết quả (admin + chunhiem + phuta) — chỉ phiên draft ───
-examsRouter.delete('/:id/results/:studentId', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c) => {
+examsRouter.delete('/:id/results/:studentId', roleMiddleware('admin', 'chunhiem', 'phuta'),
+  zValidator('query', z.object({
+    clientMutationId: z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9._:-]+$/),
+    expectedResultId: z.string().trim().min(1).max(120).optional(),
+    expectedResultVersion: z.coerce.number().int().min(1).optional(),
+    afterMutationId: z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9._:-]+$/).optional(),
+  }).superRefine((value, ctx) => {
+    const hasDirectFields = Boolean(value.expectedResultId) || value.expectedResultVersion !== undefined
+    if (value.afterMutationId ? hasDirectFields : !value.expectedResultId || value.expectedResultVersion === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Cần đúng một định danh kết quả đã thấy hoặc mã lệnh lưu trước đó.' })
+    }
+  })), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
   const studentId = c.req.param('studentId')
@@ -369,7 +381,8 @@ examsRouter.delete('/:id/results/:studentId', roleMiddleware('admin', 'chunhiem'
 
   try {
     const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
-    const result = await deleteExamResult(sessionId, studentId, user.userId, user.parishId, ip, userAgent, allowedClassIds, { role: user.role, epoch: user.tokenVersion })
+    const result = await deleteExamResult(sessionId, studentId, user.userId, user.parishId, ip, userAgent, allowedClassIds,
+      { role: user.role, epoch: user.tokenVersion }, c.req.valid('query'))
     return successResponse(c, result)
   } catch (err) {
     return handleServiceError(c, err)

@@ -1,7 +1,7 @@
 import { enqueueNotification } from './notificationQueue.js'
 import { NOTIFICATION_TEMPLATES, buildContext, type TemplateContext } from './templateEngine.js'
 import { db } from '../db/index.js'
-import { users, students, classes, systemSettings } from '../db/schema.js'
+import { users, students, classes, systemSettings, notifications } from '../db/schema.js'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { normalizePhone, phoneMatchVariants } from '../utils/phone.js'
 
@@ -194,38 +194,48 @@ export async function notifyBatchReportCards(
   return sent
 }
 
-export async function notifySundayMassReminder(parishId: string): Promise<boolean> {
+export async function notifySundayMassReminder(parishId: string, dateStr?: string): Promise<boolean> {
+  const date = dateStr || new Date().toISOString().slice(0, 10)
+  const deterministicId = `NOT-SUNDAY-REMINDER-${parishId}-${date}`
+  const [existing] = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(and(eq(notifications.parishId, parishId), eq(notifications.id, deterministicId)))
+    .limit(1)
+  if (existing) return false
+
   const sundayMassTime = await getSundayMassTime(parishId)
   const ctx = buildContext({ sundayMassTime })
   const webpushUserIds = await resolveRecipients(() => getAllParentUserIds(parishId))
   if (webpushUserIds.length === 0) return false
-  await enqueueNotification('webpush', 'reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, undefined, { webpushUserIds })
+  await enqueueNotification('webpush', 'reminder', NOTIFICATION_TEMPLATES.sundayMassReminder, ctx, parishId, undefined, {
+    webpushUserIds,
+    id: deterministicId,
+  })
   return true
 }
 
-export async function notifyClassReminder(parishId: string, className: string, date: string, classId?: string): Promise<void> {
-  const ctx = buildContext({ className, date })
+export async function notifyClassReminder(parishId: string, className: string, date: string, classId?: string): Promise<boolean> {
+  const dateSlug = date.replace(/[^\w-]/g, '-')
+  const classSlug = (classId || className).replace(/[^\w-]/g, '-')
+  const deterministicId = `NOT-CLASS-REMINDER-${parishId}-${classSlug}-${dateSlug}`
+  const [existing] = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(and(eq(notifications.parishId, parishId), eq(notifications.id, deterministicId)))
+    .limit(1)
+  if (existing) return false
+
+  const ctx = buildContext({ className, date, ...(classId ? { classId } : {}) })
   const webpushUserIds = await resolveRecipients(() => classId
     ? getParentUserIdsForClassId(parishId, classId)
     : getParentUserIdsForClass(parishId, className))
-  await enqueueAppPush('reminder', NOTIFICATION_TEMPLATES.classReminder, ctx, parishId, webpushUserIds)
-}
-
-export async function notifyBatchAbsenceSummary(
-  parishId: string,
-  date: string,
-  totalAbsent: number,
-  totalStudents: number,
-  namesList: string
-): Promise<void> {
-  const ctx = buildContext({
-    date,
-    attendancePresent: totalAbsent,
-    attendanceTotal: totalStudents,
-    note: namesList,
+  if (webpushUserIds.length === 0) return false
+  await enqueueNotification('webpush', 'reminder', NOTIFICATION_TEMPLATES.classReminder, ctx, parishId, undefined, {
+    webpushUserIds,
+    id: deterministicId,
   })
-  const webpushUserIds = await resolveRecipients(() => getAllParentUserIds(parishId))
-  await enqueueAppPush('info', NOTIFICATION_TEMPLATES.batchAbsenceSummary, ctx, parishId, webpushUserIds)
+  return true
 }
 
 /**

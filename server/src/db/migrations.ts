@@ -2561,4 +2561,35 @@ WHERE parish_id = 'gia-ton'
   AND EXISTS (SELECT 1 FROM migration_261_legacy_fund_guard);
 DROP TABLE migration_261_legacy_fund_guard;
 ` },
+  { version: '20260921-262', sql: `
+ALTER TABLE notifications ADD COLUMN delivered_endpoints TEXT;
+UPDATE notifications
+SET recipient = 'Parent'
+WHERE (student_id IS NOT NULL OR channel = 'absence')
+  AND recipient NOT IN ('Parent', 'Parish Member', 'Parish Notice', 'System');
+UPDATE notifications
+SET recipient = 'Parish Member'
+WHERE channel = 'reminder'
+  AND recipient NOT IN ('Parent', 'Parish Member', 'Parish Notice', 'System');
+UPDATE notifications
+SET recipient = 'System'
+WHERE recipient NOT IN ('Parent', 'Parish Member', 'Parish Notice', 'System');
+CREATE TABLE "__new_push_subscriptions" (
+	"id" text NOT NULL,
+	"endpoint" text NOT NULL,
+	"p256dh" text NOT NULL,
+	"auth" text NOT NULL,
+	"user_id" text,
+	"parish_id" text DEFAULT 'gia-ton' NOT NULL,
+	"created_at" text NOT NULL,
+	PRIMARY KEY("parish_id", "id"),
+	FOREIGN KEY ("parish_id","user_id") REFERENCES "users"("parish_id","id") ON UPDATE no action ON DELETE CASCADE
+);
+INSERT INTO "__new_push_subscriptions"("id", "endpoint", "p256dh", "auth", "user_id", "parish_id", "created_at") SELECT "id", "endpoint", "p256dh", "auth", "user_id", "parish_id", "created_at" FROM "push_subscriptions";
+DROP TABLE "push_subscriptions";
+ALTER TABLE "__new_push_subscriptions" RENAME TO "push_subscriptions";
+CREATE UNIQUE INDEX "push_subscriptions_endpoint_unique" ON "push_subscriptions" ("endpoint");
+CREATE INDEX "idx_push_subscriptions_parish_id" ON "push_subscriptions" ("parish_id");
+CREATE INDEX "idx_push_subscriptions_user_id" ON "push_subscriptions" ("user_id");
+` },
 ]

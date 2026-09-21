@@ -35,7 +35,7 @@ export type GradeResult = GradePolicyResult
 /**
  * Single source of truth for academic classification labels/thresholds.
  * Shared by calculateGradeAverage, reportViewModelFactory, pdfGenerator,
- * and excelExporter so thresholds never drift between screens.
+ * and official Reporting projections so thresholds never drift between screens.
  */
 export function getClassificationLabel(avg: number, config: GradeWeightsConfig = DEFAULT_GRADE_WEIGHTS): string {
   return new GradePolicyEngine(config).getClassificationLabel(avg)

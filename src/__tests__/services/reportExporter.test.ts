@@ -3,18 +3,23 @@ import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { getCurrentAcademicYear } from '../../utils/academicYear'
 import {
   buildBranchSummaryRows,
+  buildCsvContent,
+  buildOfficialGradebookRowsFromReports,
   buildStudentDetailRows,
   exportCsv,
+  exportOfficialGradebook,
   exportXlsx,
   exportFilename,
 } from '../../services/reportExporter'
 
-const { fetchOfficialAcademicYearReportsMock } = vi.hoisted(() => ({
+const { fetchOfficialAcademicYearReportsMock, fetchOfficialClassReportMock } = vi.hoisted(() => ({
   fetchOfficialAcademicYearReportsMock: vi.fn(),
+  fetchOfficialClassReportMock: vi.fn(),
 }))
 
 vi.mock('../../services/officialReporting', () => ({
   fetchOfficialAcademicYearReports: (...args: unknown[]) => fetchOfficialAcademicYearReportsMock(...args),
+  fetchOfficialClassReport: (...args: unknown[]) => fetchOfficialClassReportMock(...args),
 }))
 
 const { xlsxMock } = vi.hoisted(() => ({
@@ -50,6 +55,9 @@ describe('reportExporter (Báo Cáo Nâng Cao & Xuất File)', () => {
   beforeEach(() => {
     useAcademicYearStore.setState({ currentYear: activeAY, academicYears: [] })
     fetchOfficialAcademicYearReportsMock.mockReset()
+    fetchOfficialClassReportMock.mockReset()
+    xlsxMock.writeFile.mockClear()
+    xlsxMock.utils.json_to_sheet.mockClear()
   })
 
   afterEach(() => {
@@ -121,8 +129,71 @@ describe('reportExporter (Báo Cáo Nâng Cao & Xuất File)', () => {
     expect(bytes[1]).toBe(0xBB)
     expect(bytes[2]).toBe(0xBF)
     const text = new TextDecoder('utf-8').decode(buf)
-    expect(text).toContain('Phân Ngành,Số Thiếu Nhi')
-    expect(text).toContain('"Ấu Nhi, Nhỏ",1')
+    expect(text).toContain('"Phân Ngành","Số Thiếu Nhi"')
+    expect(text).toContain('"Ấu Nhi, Nhỏ","1"')
+  })
+
+  it.each(['=1+1', '+cmd', '-2+3', '@SUM(A1)', '\t=1+1', '＝1+1'])(
+    'buildCsvContent forces formula-looking value %s to text',
+    (value) => {
+      const csv = buildCsvContent([{ 'Họ Tên': value }])
+      expect(csv).toContain(`"\t${value}"`)
+    },
+  )
+
+  it('buildOfficialGradebookRowsFromReports uses only canonical report DTO fields', () => {
+    const official = report('ST-1', '=FORMULA', 'Nguyễn Văn A', 9, 8, 'Xuất Sắc')
+    official.student.className = 'Lớp đã chốt'
+    ;(official.student as any).gender = 'Nam'
+    ;(official.student as any).dateOfBirth = '2015-01-01'
+    ;(official.grades[0] as any) = {
+      semester: 1,
+      scoreOral: 9,
+      score15m: 8,
+      score1Period: 7,
+      scoreMidterm: 8.5,
+      scoreFinal: 9.5,
+      scoreDaoDuc: 10,
+      gpa: 9,
+      classification: 'Xuất Sắc',
+    }
+
+    const rows = buildOfficialGradebookRowsFromReports([
+      { classInfo: { id: 'TN1', name: 'Lớp đã chốt', branchId: 'ThieuNhi', academicYear: activeAY }, summary: { className: 'Lớp đã chốt' }, reportCards: [official] },
+    ] as any, 1)
+
+    expect(rows).toEqual([expect.objectContaining({
+      'Mã TN': '=FORMULA',
+      'Lớp': 'Lớp đã chốt',
+      'Miệng': 9,
+      'ĐTB': 9,
+      'Xếp Loại': 'Xuất Sắc',
+    })])
+  })
+
+  it('exports one class only after its authorized Reporting response', async () => {
+    fetchOfficialClassReportMock.mockResolvedValue({
+      classInfo: { id: 'TN1', name: 'Lớp 1', branchId: 'ThieuNhi', academicYear: activeAY },
+      summary: { className: 'Lớp 1' },
+      reportCards: [report('ST-1', 'TN001', 'Server Student', 9, 8, 'Xuất Sắc')],
+    })
+
+    await exportOfficialGradebook({ classId: 'TN1', academicYear: activeAY, semester: 1 })
+
+    expect(fetchOfficialClassReportMock).toHaveBeenCalledWith('TN1', activeAY)
+    expect(fetchOfficialAcademicYearReportsMock).not.toHaveBeenCalled()
+    expect(xlsxMock.utils.json_to_sheet).toHaveBeenCalledWith([expect.objectContaining({
+      'Mã TN': 'TN001', 'Họ và Tên': 'Server Student', 'ĐTB': 9,
+    })])
+    expect(xlsxMock.writeFile).toHaveBeenCalledOnce()
+  })
+
+  it('does not emit a workbook when Reporting denies or cannot provide the class', async () => {
+    fetchOfficialClassReportMock.mockRejectedValue(Object.assign(new Error('Forbidden'), { status: 403 }))
+
+    await expect(exportOfficialGradebook({ classId: 'TN1', academicYear: activeAY, semester: 1 }))
+      .rejects.toMatchObject({ status: 403 })
+    expect(xlsxMock.writeFile).not.toHaveBeenCalled()
   })
 
   it('exportXlsx tạo workbook qua thư viện xlsx', async () => {

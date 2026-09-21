@@ -75,6 +75,13 @@ describe('XD-02/03 historical policy and cohort', () => {
     expect(await reporting.getStudentReportCard(f.actor, 'late', f.year)).toBeNull()
     const summary = await reporting.getClassSummary(f.actor, 'old', f.year)
     expect(summary).toMatchObject({ totalStudents: 1, averageGpa: 7, averageAttendanceRate: 100, className: 'Ấu Nhi 1' })
+    expect(summary?.students[0]).toMatchObject({
+      gpa: report?.yearSummary.gpa,
+      classification: report?.yearSummary.classification,
+      attendanceSummary: report?.attendanceSummary,
+      promotion: report?.promotion,
+      grades: report?.grades,
+    })
     expect(await reporting.getClassSummary(f.actor, 'new', f.year)).toBeNull()
     expect((await lifecycle.archiveYear(f.year, 'admin', f.parishId)).status).toBe('ARCHIVED')
     expect((await reporting.getClassSummary(f.actor, 'old', f.year))?.totalStudents).toBe(1)

@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import { Users } from 'lucide-react'
-import { Button, Select, TextInput } from '../common/ui'
+import { Badge, Button, Select, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
-import type { OperationEventDetail } from '../../lib/api/operations'
+import type { OperationEventDetail, OperationsCreationOptions } from '../../lib/api/operations'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { useOperationsStore } from '../../stores/operationsStore'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
-import { isClosedEvent, isTerminalTask, toIso } from './operationsViewHelpers'
+import { canUseFieldTasks, fieldLayerUnitIds, isClosedEvent, isTerminalTask, toIso } from './operationsViewHelpers'
 
 /** In-event assignment form with local draft state. */
-export function TaskAssignForm({ detail }: { detail: OperationEventDetail }) {
+export function TaskAssignForm({ detail, creationOptions }: { detail: OperationEventDetail; creationOptions?: OperationsCreationOptions | null }) {
   const isOnline = useOnlineStatus()
   const source = useOperationsStore(s => s.source)
   const assignTask = useOperationsStore(s => s.assignTask)
@@ -19,6 +19,7 @@ export function TaskAssignForm({ detail }: { detail: OperationEventDetail }) {
   const selectEvent = useOperationsStore(s => s.selectEvent)
   const canMutate = isOnline && source === 'server'
   const closed = isClosedEvent(detail.event.status)
+  const isXuDoanEvent = (detail.event.eventScopeType ?? (detail.event.scopeUnitId ? 'UNIT' : 'XU_DOAN')) === 'XU_DOAN'
 
   const [draft, setDraft] = useState({ taskId: '', target: '', reserveTarget: '', acknowledgeBy: '', role: 'CONTRIBUTOR' as 'OWNER' | 'CONTRIBUTOR' })
   const [busy, setBusy] = useState(false)
@@ -26,7 +27,18 @@ export function TaskAssignForm({ detail }: { detail: OperationEventDetail }) {
   const { stableKey, releaseKey } = useStableCommandKey()
 
   const assignableTasks = detail.tasks.filter(task => !isTerminalTask(task.status))
-  const directory = useOperationCandidates(draft.taskId ? { taskId: draft.taskId } : null, Boolean(canMutate && detail.permissions['operations.task.assign'] && draft.taskId))
+  const selectedTask = detail.tasks.find(item => item.id === draft.taskId) ?? null
+  const selectedTaskWorkstream = detail.workstreams.find(ws => ws.id === selectedTask?.workstreamId) ?? null
+  const fieldUnitIds = fieldLayerUnitIds(creationOptions)
+  const blanketFieldAccess = fieldUnitIds.size === 0 && Boolean(detail.permissions['operations.task.assign'])
+  const canAssignSelectedTask = !isXuDoanEvent || !selectedTaskWorkstream
+    ? Boolean(detail.permissions['operations.task.assign'])
+    : canUseFieldTasks({ unitId: selectedTaskWorkstream.sourceUnitId, fieldUnitIds, blanket: blanketFieldAccess })
+  const owningUnitName = selectedTaskWorkstream?.sourceUnitId
+    ? creationOptions?.units.find(u => u.id === selectedTaskWorkstream.sourceUnitId)?.name ?? null
+    : null
+
+  const directory = useOperationCandidates(draft.taskId ? { taskId: draft.taskId } : null, Boolean(canMutate && canAssignSelectedTask && draft.taskId))
   const candidates = directory.candidates.filter(candidate => candidate.eligibility !== 'INELIGIBLE')
   const actionableCandidates = directory.candidates.filter(candidate => candidate.eligibility === 'ACTIONABLE')
 
@@ -86,44 +98,67 @@ export function TaskAssignForm({ detail }: { detail: OperationEventDetail }) {
         </div>
         <div>
           <h3 className="m-0 text-sm font-extrabold text-text-main">Phân Công</h3>
-          <p className="m-0 text-xs text-text-muted">Giao việc cho nhân sự</p>
+          <p className="m-0 text-xs text-text-muted">
+            {isXuDoanEvent ? 'Giao việc theo Mảng & Ban/Ngành' : 'Giao việc cho nhân sự'}
+          </p>
         </div>
       </div>
       <Select aria-label="Task cần phân công" className="w-full" value={draft.taskId} required onChange={event => setDraft(value => ({ ...value, taskId: event.target.value, target: '', reserveTarget: '' }))}>
         <option value="">Chọn task</option>
         {assignableTasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
       </Select>
-      <Select aria-label={draft.role === 'OWNER' ? 'Người thực hiện chính' : 'Người được phân công'} className="w-full" value={draft.target} required disabled={!draft.taskId || directory.loading} onChange={event => setDraft(value => ({ ...value, target: event.target.value, reserveTarget: value.reserveTarget === event.target.value ? '' : value.reserveTarget }))}>
-        <option value="">{directory.loading ? 'Đang tải nhân sự…' : 'Chọn nhân sự'}</option>
-        {(draft.role === 'OWNER' ? actionableCandidates : candidates).map(candidate => (
-          <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>
-            {candidate.displayName}{candidate.eligibility === 'PLANNING_ONLY' ? ' · chưa có tài khoản' : ''}
-          </option>
-        ))}
-      </Select>
-      {directory.error && <p role="alert" className="text-sm text-text-main">{directory.error}</p>}
-      <Select aria-label="Vai trò phân công" className="w-full" value={draft.role} onChange={event => setDraft(value => ({ ...value, role: event.target.value as typeof value.role, reserveTarget: '', acknowledgeBy: '' }))}>
-        <option value="OWNER">Owner (Phụ trách chính)</option>
-        <option value="CONTRIBUTOR">Contributor (Thực hiện)</option>
-      </Select>
-      {draft.role === 'OWNER' && (
-        <div className="space-y-2 rounded-xl border border-surface-border bg-surface-ground/40 p-3">
-          <Select aria-label="Người dự bị" className="w-full" value={draft.reserveTarget} disabled={!draft.taskId || directory.loading} onChange={event => setDraft(value => ({ ...value, reserveTarget: event.target.value }))}>
-            <option value="">Không chọn người dự bị</option>
-            {actionableCandidates.filter(candidate => operationCandidateValue(candidate) !== draft.target).map(candidate => (
-              <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>{candidate.displayName}</option>
-            ))}
-          </Select>
-          <TextInput aria-label="Hạn nhận nhiệm vụ" className="w-full" type="datetime-local" value={draft.acknowledgeBy} required onChange={event => setDraft(value => ({ ...value, acknowledgeBy: event.target.value }))} />
-          <p className="m-0 text-xs text-text-muted">
-            Ở bản Nháp, lời mời chỉ được gửi khi sang Kế hoạch. Nếu có dự bị, hệ thống mời họ khi đã dùng 70% thời gian chờ; người nhận trước sẽ phụ trách chính.
-          </p>
+      {selectedTask && isXuDoanEvent && selectedTaskWorkstream && (
+        <div className="rounded-lg border border-surface-border bg-surface-ground/30 p-2.5 space-y-1">
+          <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
+            <span className="font-semibold text-text-main">Mảng: {selectedTaskWorkstream.name}</span>
+            {owningUnitName && <Badge tone="neutral">{owningUnitName}</Badge>}
+          </div>
+          {!canAssignSelectedTask ? (
+            <p className="m-0 text-xs text-parish-warning">
+              Nhiệm vụ này thuộc thẩm quyền của <strong>{owningUnitName ?? selectedTaskWorkstream.name}</strong>. Theo cơ chế phân cấp Xứ đoàn, Trưởng Ban/Ngành phụ trách sẽ trực tiếp phân công cho nhân sự trong ban.
+            </p>
+          ) : (
+            <p className="m-0 text-xs text-text-muted">
+              Phân công nhân sự trong phạm vi đơn vị {owningUnitName ? `(${owningUnitName})` : ''}.
+            </p>
+          )}
         </div>
       )}
-      {formError && <p role="alert" className="m-0 text-xs text-parish-danger">{formError}</p>}
-      <Button type="submit" size="sm" loading={busy} disabled={!canMutate || (draft.role === 'OWNER' && !draft.acknowledgeBy)} fullWidth>
-        {draft.role === 'OWNER' ? 'Gửi lời mời phụ trách' : 'Giao việc'}
-      </Button>
+      {canAssignSelectedTask && (
+        <>
+          <Select aria-label={draft.role === 'OWNER' ? 'Người thực hiện chính' : 'Người được phân công'} className="w-full" value={draft.target} required disabled={!draft.taskId || directory.loading} onChange={event => setDraft(value => ({ ...value, target: event.target.value, reserveTarget: value.reserveTarget === event.target.value ? '' : value.reserveTarget }))}>
+            <option value="">{directory.loading ? 'Đang tải nhân sự…' : 'Chọn nhân sự'}</option>
+            {(draft.role === 'OWNER' ? actionableCandidates : candidates).map(candidate => (
+              <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>
+                {candidate.displayName}{candidate.eligibility === 'PLANNING_ONLY' ? ' · chưa có tài khoản' : ''}
+              </option>
+            ))}
+          </Select>
+          {directory.error && <p role="alert" className="text-sm text-text-main">{directory.error}</p>}
+          <Select aria-label="Vai trò phân công" className="w-full" value={draft.role} onChange={event => setDraft(value => ({ ...value, role: event.target.value as typeof value.role, reserveTarget: '', acknowledgeBy: '' }))}>
+            <option value="OWNER">Owner (Phụ trách chính)</option>
+            <option value="CONTRIBUTOR">Contributor (Thực hiện)</option>
+          </Select>
+          {draft.role === 'OWNER' && (
+            <div className="space-y-2 rounded-xl border border-surface-border bg-surface-ground/40 p-3">
+              <Select aria-label="Người dự bị" className="w-full" value={draft.reserveTarget} disabled={!draft.taskId || directory.loading} onChange={event => setDraft(value => ({ ...value, reserveTarget: event.target.value }))}>
+                <option value="">Không chọn người dự bị</option>
+                {actionableCandidates.filter(candidate => operationCandidateValue(candidate) !== draft.target).map(candidate => (
+                  <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>{candidate.displayName}</option>
+                ))}
+              </Select>
+              <TextInput aria-label="Hạn nhận nhiệm vụ" className="w-full" type="datetime-local" value={draft.acknowledgeBy} required onChange={event => setDraft(value => ({ ...value, acknowledgeBy: event.target.value }))} />
+              <p className="m-0 text-xs text-text-muted">
+                Ở bản Nháp, lời mời chỉ được gửi khi sang Kế hoạch. Nếu có dự bị, hệ thống mời họ khi đã dùng 70% thời gian chờ; người nhận trước sẽ phụ trách chính.
+              </p>
+            </div>
+          )}
+          {formError && <p role="alert" className="m-0 text-xs text-parish-danger">{formError}</p>}
+          <Button type="submit" size="sm" loading={busy} disabled={!canMutate || !canAssignSelectedTask || (draft.role === 'OWNER' && !draft.acknowledgeBy)} fullWidth>
+            {draft.role === 'OWNER' ? 'Gửi lời mời phụ trách' : 'Giao việc'}
+          </Button>
+        </>
+      )}
     </form>
   )
 }

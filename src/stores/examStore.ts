@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { dexieStorage } from '../lib/db'
-import { api } from '../lib/api'
+import { api, newIdempotencyKey } from '../lib/api'
 import {
   syncCreateExam,
   syncSaveExamResults,
@@ -17,7 +17,9 @@ import { useStudentStore } from './studentStore'
 import { useAcademicYearStore } from './academicYearStore'
 import { requestSync as runSyncFlow } from '../lib/syncTrigger'
 import { evaluateExamFinalizeConflictsAndRoute, mapServerFinalizationToResult } from '../services/examFinalizeService'
-import { getTenantScope } from '../lib/tenantScope'
+import { captureTenantScope, getTenantScope, isTenantScopeCurrent } from '../lib/tenantScope'
+import { getOwnUnsettledSyncOperations } from './syncStore'
+import { decryptQueueValue } from '../lib/offlineCipher'
 import { tripContinuousScanCircuit } from '../lib/examContinuousRollout'
 import { recordContinuousDuration } from '../lib/continuousScanDiagnostics'
 import { recordOmrSequenceAcknowledgement } from '../lib/omrSequenceEvidence'
@@ -84,6 +86,7 @@ export interface ExamScoreItem {
   attemptFingerprint?: string
   capturedAt?: string
   expectedResultVersion?: number
+  afterMutationId?: string
 }
 
 export type ExamResultMutationStatus = 'pending' | 'synced' | 'error' | 'conflict' | 'superseded'
@@ -137,6 +140,31 @@ function pruneMutationLedger(
     .slice(0, maxEntries))
 }
 
+function registerQueuedResultMutations(
+  ledger: Record<string, QueuedExamResultMutationState>,
+  queued: Awaited<ReturnType<typeof syncSaveExamResults>>,
+  scores: ExamScoreItem[],
+  sessionId: string,
+): Record<string, QueuedExamResultMutationState> {
+  const now = new Date().toISOString()
+  const nextLedger = { ...ledger }
+  for (const [index, item] of queued.entries()) {
+    for (const [mutationId, current] of Object.entries(nextLedger)) {
+      if (mutationId !== item.clientMutationId && current.sessionId === sessionId
+        && current.studentId === item.studentId && current.queueOpId === item.queueOpId
+        && current.status === 'pending') {
+        nextLedger[mutationId] = { ...current, status: 'superseded', error: undefined, updatedAt: now }
+      }
+    }
+    nextLedger[item.clientMutationId] = {
+      clientMutationId: item.clientMutationId, queueOpId: item.queueOpId, sessionId,
+      studentId: item.studentId, proposedScore: scores[index]?.score ?? 0,
+      status: 'pending', createdAt: now, updatedAt: now,
+    }
+  }
+  return pruneMutationLedger(nextLedger)
+}
+
 function attachExpectedResultVersions(
   scores: ExamScoreItem[],
   results: ExamResult[],
@@ -170,6 +198,7 @@ interface ExamState {
   sessions: ExamSession[]
   selectedSessionId: string | null
   results: ExamResult[]
+  cachedResultsBySession: Record<string, ExamResult[]>
   loading: boolean
   saving: boolean
   finalizing: boolean
@@ -192,7 +221,7 @@ interface ExamState {
     upserted: number
     queuedMutations: QueuedExamResultMutationState[]
   } | null>
-  markResultMutation: (clientMutationId: string, status: ExamResultMutationStatus, details?: { serverScore?: number; resultVersion?: number; error?: string }) => void
+  markResultMutation: (clientMutationId: string, status: ExamResultMutationStatus, details?: { serverScore?: number; resultVersion?: number; resultId?: string; error?: string }) => void
   removeResult: (studentId: string) => Promise<boolean>
   completeAndFinalize: () => Promise<ExamFinalizeResult | null>
   reopenSession: () => Promise<void>
@@ -216,6 +245,7 @@ export const useExamStore = create<ExamState>()(
       sessions: [],
   selectedSessionId: null,
   results: [],
+  cachedResultsBySession: {},
   loading: false,
   saving: false,
   finalizing: false,
@@ -303,15 +333,22 @@ export const useExamStore = create<ExamState>()(
   },
 
   selectSession: async (id) => {
-    set({ selectedSessionId: id, results: [], lastFinalize: null, error: null })
+    set(state => {
+      const cache = { ...state.cachedResultsBySession }
+      if (state.selectedSessionId) cache[state.selectedSessionId] = state.results.filter(result => result.examSessionId === state.selectedSessionId)
+      return { selectedSessionId: id, results: id ? cache[id] ?? [] : [], cachedResultsBySession: cache, lastFinalize: null, error: null }
+    })
     if (!id) return
     try {
       if (isOffline()) {
-        // Phase 3: local cache đã có results (saveScores/removeResult offline cập nhật).
         return
       }
       const { results } = await api.getExamResults(id)
-      set({ results: normalizeExamResults(results) })
+      const normalized = normalizeExamResults(results)
+      set(state => ({
+        cachedResultsBySession: { ...state.cachedResultsBySession, [id]: normalized },
+        ...(state.selectedSessionId === id ? { results: normalized } : {}),
+      }))
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải kết quả phiên chấm' })
     }
@@ -324,7 +361,12 @@ export const useExamStore = create<ExamState>()(
     try {
       const { session, results } = await api.getExamResults(id)
       const normalizedSession = normalizeExamSessions([session])[0]
-      set({ results: normalizeExamResults(results), sessions: get().sessions.map(s => s.id === id ? normalizedSession : s) })
+      const normalized = normalizeExamResults(results)
+      set(state => ({
+        cachedResultsBySession: { ...state.cachedResultsBySession, [id]: normalized },
+        ...(state.selectedSessionId === id ? { results: normalized } : {}),
+        sessions: state.sessions.map(s => s.id === id ? normalizedSession : s),
+      }))
     } catch (err) {
       set({ error: (err as Error)?.message || 'Lỗi tải kết quả phiên chấm' })
     }
@@ -333,6 +375,10 @@ export const useExamStore = create<ExamState>()(
   saveScores: async (scores) => {
     const id = get().selectedSessionId
     if (!id || scores.length === 0) return null
+    if (get().finalizing) {
+      set({ error: 'Phiên đang được hoàn tất; không thể nhận thêm kết quả.' })
+      return null
+    }
     set({ saving: true, error: null })
     try {
       const versionedScores = attachExpectedResultVersions(scores, get().results, id)
@@ -340,9 +386,16 @@ export const useExamStore = create<ExamState>()(
         // Phase 3 offline: enqueue UPDATE (save_results) — sync engine gửi khi online.
         // Nếu session là temp (chưa tạo server), remapExamSessionIdInPendingOps sẽ
         // sửa sessionId trong payload sau khi CREATE hoàn tất.
-        await syncSaveExamResults(id, versionedScores)
+        const queued = await syncSaveExamResults(id, versionedScores)
         // Cập nhật local ngay để UI phản ánh.
-        set((state) => ({ results: mergeLocalExamResults(state.results, id, versionedScores) }))
+        set((state) => {
+          const results = mergeLocalExamResults(state.results, id, versionedScores)
+          return {
+            results,
+            cachedResultsBySession: { ...state.cachedResultsBySession, [id]: results },
+            queuedResultMutations: registerQueuedResultMutations(state.queuedResultMutations, queued, versionedScores, id),
+          }
+        })
         runSyncFlow()
         return { saved: scores.length, upserted: 0 }
       }
@@ -367,6 +420,10 @@ export const useExamStore = create<ExamState>()(
   queueScores: async (scores) => {
     const id = get().selectedSessionId
     if (!id || scores.length === 0) return null
+    if (get().finalizing) {
+      set({ error: 'Phiên đang được hoàn tất; không thể nhận thêm kết quả.' })
+      return null
+    }
     set({ saving: true, error: null })
     try {
       const versionedScores = attachExpectedResultVersions(scores, get().results, id)
@@ -383,32 +440,11 @@ export const useExamStore = create<ExamState>()(
         updatedAt: now,
       }))
       set((state) => {
-        const ledger = { ...state.queuedResultMutations }
-        for (const mutation of mutations) {
-          // syncStore compacts a newer mutation for the same student into the
-          // existing durable queue op. Reflect that replacement in this ledger
-          // so finalization cannot wait forever on an ID that no longer exists.
-          for (const [mutationId, current] of Object.entries(ledger)) {
-            if (
-              mutationId !== mutation.clientMutationId
-              && current.sessionId === mutation.sessionId
-              && current.studentId === mutation.studentId
-              && current.queueOpId === mutation.queueOpId
-              && current.status === 'pending'
-            ) {
-              ledger[mutationId] = {
-                ...current,
-                status: 'superseded',
-                error: undefined,
-                updatedAt: now,
-              }
-            }
-          }
-          ledger[mutation.clientMutationId] = mutation
-        }
+        const results = mergeLocalExamResults(state.results, id, versionedScores)
         return {
-          results: mergeLocalExamResults(state.results, id, versionedScores),
-          queuedResultMutations: pruneMutationLedger(ledger),
+          results,
+          cachedResultsBySession: { ...state.cachedResultsBySession, [id]: results },
+          queuedResultMutations: registerQueuedResultMutations(state.queuedResultMutations, queued, versionedScores, id),
         }
       })
       runSyncFlow()
@@ -444,34 +480,68 @@ export const useExamStore = create<ExamState>()(
       error: details?.error,
       updatedAt: new Date().toISOString(),
     }
-    const hasAuthoritativeResult = details?.serverScore !== undefined || details?.resultVersion !== undefined
-    const results = !hasAuthoritativeResult
-      ? state.results
-      : state.results.map(result => result.studentId === current.studentId && result.examSessionId === current.sessionId
+    const hasAuthoritativeResult = details?.serverScore !== undefined || details?.resultVersion !== undefined || details?.resultId !== undefined
+    const applyAck = (items: ExamResult[]) => items.map(result => result.studentId === current.studentId && result.examSessionId === current.sessionId
         ? {
             ...result,
+            id: details?.resultId ?? result.id,
             score: details?.serverScore ?? result.score,
             resultVersion: details?.resultVersion ?? result.resultVersion,
           }
         : result)
+    const results = hasAuthoritativeResult ? applyAck(state.results) : state.results
+    const cached = state.cachedResultsBySession[current.sessionId]
     return {
       queuedResultMutations: { ...state.queuedResultMutations, [clientMutationId]: next },
       results,
+      cachedResultsBySession: hasAuthoritativeResult && cached
+        ? { ...state.cachedResultsBySession, [current.sessionId]: applyAck(cached) }
+        : state.cachedResultsBySession,
     }
   }),
 
   removeResult: async (studentId) => {
     const id = get().selectedSessionId
     if (!id) return false
+    if (get().finalizing) {
+      set({ error: 'Phiên đang được hoàn tất; không thể xóa kết quả.' })
+      return false
+    }
     set({ saving: true, error: null })
     try {
-      if (isOffline()) {
-        await syncRemoveExamResult(id, studentId)
-        set((state) => ({ results: state.results.filter(r => !(r.examSessionId === id && r.studentId === studentId)) }))
+      const observed = get().results.find(result => result.examSessionId === id && result.studentId === studentId)
+      if (!observed) throw new Error('Không có kết quả đã tải để xóa an toàn.')
+      const owner = captureTenantScope()
+      if (!owner) throw new Error('Không xác định được tài khoản sở hữu kết quả.')
+      const pending = (await getOwnUnsettledSyncOperations()).filter(item =>
+        item.entity === 'exam_result' && item.entityId === `${id}::result::${studentId}`)
+      if (!isTenantScopeCurrent(owner)) throw new Error('Tài khoản đã thay đổi khi xóa kết quả.')
+      if (pending.some(item => item.status === 'failed')) throw new Error('Kết quả đồng bộ lỗi; hãy xử lý xung đột trước khi xóa.')
+      let afterMutationId: string | undefined
+      for (const item of pending) {
+        const raw = await decryptQueueValue(item.payload)
+        if (!raw) throw new Error('Không đọc được lệnh kết quả đang chờ; không thể xóa an toàn.')
+        const payload = JSON.parse(raw) as { action?: string; score?: { clientMutationId?: string } }
+        if (payload.action === 'remove_result') return true
+        if (payload.action === 'save_result') afterMutationId = payload.score?.clientMutationId
+      }
+      if (!isTenantScopeCurrent(owner)) throw new Error('Tài khoản đã thay đổi khi xóa kết quả.')
+      const deletion = afterMutationId
+        ? { clientMutationId: newIdempotencyKey(), afterMutationId }
+        : { clientMutationId: newIdempotencyKey(), expectedResultId: observed.id, expectedResultVersion: observed.resultVersion }
+      if (!afterMutationId && (observed.id.startsWith('EXR-local-') || !observed.resultVersion)) {
+        throw new Error('Kết quả chưa có định danh từ máy chủ; hãy đồng bộ rồi tải lại trước khi xóa.')
+      }
+      if (isOffline() || afterMutationId) {
+        await syncRemoveExamResult(id, studentId, deletion)
+        set((state) => {
+          const results = state.results.filter(r => !(r.examSessionId === id && r.studentId === studentId))
+          return { results, cachedResultsBySession: { ...state.cachedResultsBySession, [id]: results } }
+        })
         runSyncFlow()
         return true
       }
-      await api.removeExamResult(id, studentId)
+      await api.removeExamResult(id, studentId, deletion)
       await get().refreshResults()
       return true
     } catch (err) {
@@ -487,16 +557,41 @@ export const useExamStore = create<ExamState>()(
     if (!id) return null
     const session = get().sessions.find(s => s.id === id)
     if (!session) return null
+    if (get().saving) {
+      set({ error: 'Đang lưu kết quả; hãy chờ ghi vào hàng đợi trước khi hoàn tất.' })
+      return null
+    }
+    // Acquire the local completion mutex before the first async queue read.
+    // save/queue/delete check this flag synchronously, closing the window where
+    // a new durable command could otherwise appear after this barrier snapshot.
+    set({ finalizing: true, error: null })
 
     const sessionMutations = Object.values(get().queuedResultMutations)
       .filter(mutation => mutation.sessionId === id)
     if (sessionMutations.some(mutation => mutation.status === 'error' || mutation.status === 'conflict')) {
-      set({ error: 'Không thể hoàn tất: còn bài quét lỗi hoặc xung đột cần xử lý.' })
+      set({ error: 'Không thể hoàn tất: còn bài quét lỗi hoặc xung đột cần xử lý.', finalizing: false })
       return null
     }
-    const hasPendingResultMutations = sessionMutations.some(mutation => mutation.status === 'pending')
+    const owner = captureTenantScope()
+    if (!owner) {
+      set({ error: 'Không xác định được tài khoản sở hữu kết quả chờ đồng bộ.', finalizing: false })
+      return null
+    }
+    let durableResults
+    try {
+      durableResults = (await getOwnUnsettledSyncOperations()).filter(item =>
+        item.entity === 'exam_result' && item.entityId.startsWith(`${id}::result::`))
+      if (!isTenantScopeCurrent(owner)) throw new Error('Tài khoản đã thay đổi khi kiểm tra hàng đợi.')
+    } catch (err) {
+      set({ error: (err as Error)?.message || 'Không thể kiểm tra hàng đợi kết quả.', finalizing: false })
+      return null
+    }
+    if (durableResults.some(item => item.status === 'failed')) {
+      set({ error: 'Không thể hoàn tất: còn kết quả đồng bộ lỗi cần xử lý.', finalizing: false })
+      return null
+    }
+    const hasPendingResultMutations = sessionMutations.some(mutation => mutation.status === 'pending') || durableResults.length > 0
 
-    set({ finalizing: true, error: null })
     try {
       // P0-01 (Phase 0 containment): server là SOLE WRITER của grades/ledger
       // sau complete. Client chỉ project receipt (online) hoặc dry-run preview
@@ -611,6 +706,7 @@ export const useExamStore = create<ExamState>()(
         set((state) => ({
           sessions: state.sessions.filter(s => s.id !== id),
           results: state.results.filter(r => r.examSessionId !== id),
+          cachedResultsBySession: Object.fromEntries(Object.entries(state.cachedResultsBySession).filter(([sessionId]) => sessionId !== id)),
           queuedResultMutations: Object.fromEntries(Object.entries(state.queuedResultMutations).filter(([, mutation]) => mutation.sessionId !== id)),
           selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
           lastFinalize: null,
@@ -622,6 +718,7 @@ export const useExamStore = create<ExamState>()(
       set((state) => ({
         sessions: state.sessions.filter(s => s.id !== id),
         results: state.results.filter(r => r.examSessionId !== id),
+        cachedResultsBySession: Object.fromEntries(Object.entries(state.cachedResultsBySession).filter(([sessionId]) => sessionId !== id)),
         queuedResultMutations: Object.fromEntries(Object.entries(state.queuedResultMutations).filter(([, mutation]) => mutation.sessionId !== id)),
         selectedSessionId: state.selectedSessionId === id ? null : state.selectedSessionId,
         lastFinalize: null,
@@ -679,6 +776,10 @@ export const useExamStore = create<ExamState>()(
       sessions: state.sessions.map(s => s.id === oldId ? { ...s, ...serverData } : s),
       selectedSessionId: state.selectedSessionId === oldId ? serverData.id : state.selectedSessionId,
       results: state.results.map(r => r.examSessionId === oldId ? { ...r, examSessionId: serverData.id } : r),
+      cachedResultsBySession: Object.fromEntries(Object.entries(state.cachedResultsBySession).map(([id, results]) => [
+        id === oldId ? serverData.id : id,
+        results.map(result => result.examSessionId === oldId ? { ...result, examSessionId: serverData.id } : result),
+      ])),
       queuedResultMutations: Object.fromEntries(Object.entries(state.queuedResultMutations).map(([key, mutation]) => [
         key,
         mutation.sessionId === oldId ? { ...mutation, sessionId: serverData.id } : mutation,
@@ -701,6 +802,7 @@ export const useExamStore = create<ExamState>()(
         sessions: state.sessions,
         selectedSessionId: state.selectedSessionId,
         results: state.results,
+        cachedResultsBySession: state.cachedResultsBySession,
         queuedResultMutations: state.queuedResultMutations,
       }),
     }

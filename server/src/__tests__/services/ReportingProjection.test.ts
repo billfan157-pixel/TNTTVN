@@ -127,6 +127,36 @@ describe('Reporting CQRS Projection Repositories Micro-Step R2 Tests', () => {
     expect(classSummary?.promotedCount).toBe(1)
     expect(classSummary?.averageGpa).toBe(9.0)
     expect(classSummary?.averageAttendanceRate).toBe(100.0)
+    expect(classSummary?.students[0]).toMatchObject({
+      gpa: 9,
+      attendanceSummary: {
+        massPresentCount: 1,
+        massTotalCount: 1,
+        catechismPresentCount: 0,
+        catechismTotalCount: 0,
+        overallAttendanceRate: 100,
+      },
+      promotion: {
+        status: 'PROMOTED',
+        gpa: 9,
+        attendanceRate: 100,
+        isOverridden: false,
+      },
+    })
+  })
+
+  it('3. preserves missing GPA as null instead of turning absence into a failing zero', async () => {
+    await db.delete(grades)
+    const classSummary = await classSummaryProjectionRepository.getClassSummary(
+      classId,
+      academicYear,
+      testParish,
+      await reportingContext(testParish, academicYear),
+    )
+
+    expect(classSummary?.students[0].gpa).toBeNull()
+    expect(classSummary?.students[0].classification).toBeNull()
+    expect(classSummary?.averageGpa).toBe(0)
   })
 
   it('D5: application service owns one transaction snapshot for authorization, policy and projection reads', async () => {

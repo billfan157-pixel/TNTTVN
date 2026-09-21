@@ -484,7 +484,9 @@ export async function buildExamFromBank(input: {
   buildCommandId: string;
 }, actor: { userId: string; parishId: string; role: string }) {
   return runDbTransaction(async tx => {
-  const [classRow] = await tx.select({ id: classes.id }).from(classes).where(and(eq(classes.parishId, actor.parishId), eq(classes.id, input.classId))).limit(1)
+  const [classRow] = await tx.select({ id: classes.id, deletedAt: classes.deletedAt }).from(classes).where(and(
+    eq(classes.parishId, actor.parishId), eq(classes.id, input.classId),
+  )).limit(1)
   if (!classRow) throw new QuestionBankError('Lớp học không tồn tại.', 404, 'CLASS_NOT_FOUND')
   if (actor.role !== 'admin') {
     const [assignment] = await tx.select({ id: catechistAssignments.id }).from(catechistAssignments).where(and(
@@ -523,6 +525,7 @@ export async function buildExamFromBank(input: {
     }
     return existingBuild
   }
+  if (classRow.deletedAt) throw new QuestionBankError('Lớp học không tồn tại.', 404, 'CLASS_NOT_FOUND')
   let resolvedMaxScore = input.maxScore
   let selected: VersionRow[] = []
   let blueprintSnapshot: Record<string, unknown> | null = null

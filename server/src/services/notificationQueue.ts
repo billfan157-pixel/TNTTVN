@@ -23,6 +23,7 @@ interface NotificationQueueItem {
   /** Web push CÓ CHỦ ĐÍCH: chỉ gửi tới subscriptions của các userId này. */
   webpushUserIds: string[]
   studentId?: string
+  deliveredEndpoints?: string[]
 }
 
 export const ACADEMIC_NOTIFICATION_MESSAGE = 'Có cập nhật học vụ trong ứng dụng Catevia. Vui lòng đăng nhập để xem.'
@@ -31,20 +32,57 @@ function isChildNotification(item: Pick<NotificationQueueItem, 'type'>): boolean
   return item.type === 'report' || item.type === 'absence'
 }
 
+function resolveRecipientLabel(item: Pick<NotificationQueueItem, 'type'>): string {
+  if (isChildNotification(item)) return 'Parent'
+  if (item.type === 'reminder') return 'Parish Member'
+  if (item.type === 'info' || item.type === 'alert') return 'Parish Notice'
+  return 'System'
+}
+
 /** Never retarget an old rendered item to a new owner. No network in this check. */
 async function currentChildRecipients(item: NotificationQueueItem): Promise<string[]> {
   return getCurrentChildRecipientIds(item.parishId, item.studentId, item.webpushUserIds)
 }
 
 /** Revalidate every targeted non-child notification immediately before provider delivery. */
-export async function getCurrentActiveRecipientIds(parishId: string, originalIds: string[] | undefined): Promise<string[]> {
+export async function getCurrentActiveRecipientIds(
+  parishId: string,
+  originalIds: string[] | undefined,
+  context?: TemplateContext,
+): Promise<string[]> {
   if (!originalIds?.length) return []
-  const rows = await db.select({ id: users.id }).from(users).where(and(
+  const rows = await db.select({ id: users.id, phone: users.phone }).from(users).where(and(
     eq(users.parishId, parishId),
     inArray(users.id, [...new Set(originalIds)]),
     eq(users.status, 'ACTIVE'),
     isNull(users.deletedAt),
   ))
+  if (rows.length === 0) return []
+
+  // NOTIF-05: If this is a class reminder, re-verify parent has an active child enrolled in that class
+  if (context?.classId) {
+    const classId = context.classId
+    const studentsInClass = await db.select({ phone: students.parentPhone }).from(students).where(and(
+      eq(students.parishId, parishId),
+      eq(students.classId, classId),
+      isNull(students.deletedAt),
+    ))
+    const phoneSet = new Set<string>()
+    for (const s of studentsInClass) {
+      if (s.phone) {
+        for (const variant of phoneMatchVariants(s.phone)) {
+          phoneSet.add(variant)
+        }
+      }
+    }
+    const allowed = new Set(
+      rows
+        .filter(user => user.phone && phoneMatchVariants(user.phone).some(p => phoneSet.has(p)))
+        .map(user => user.id)
+    )
+    return originalIds.filter((id, index) => allowed.has(id) && originalIds.indexOf(id) === index)
+  }
+
   const allowed = new Set(rows.map(row => row.id))
   return originalIds.filter((id, index) => allowed.has(id) && originalIds.indexOf(id) === index)
 }
@@ -162,6 +200,29 @@ export async function recoverQueueFromDb(): Promise<void> {
       eq(notifications.status, 'retrying'),
       deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
+    const exhaustedRows = await db.select({
+      id: notifications.id,
+      parishId: notifications.parishId,
+      type: notifications.type,
+      channel: notifications.channel,
+      attemptCount: notifications.attemptCount,
+      error: notifications.error,
+    }).from(notifications).where(and(
+      eq(notifications.status, 'retrying'),
+      sql`${notifications.attemptCount} >= ${notifications.maxAttempts}`,
+      or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
+      deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
+    ))
+    for (const row of exhaustedRows) {
+      console.error('[notificationQueue] notification permanently failed delivery (exhausted in DB):', {
+        id: row.id,
+        parishId: row.parishId,
+        type: row.type,
+        channel: row.channel,
+        attempts: row.attemptCount,
+        error: row.error || 'NOTIFICATION_ATTEMPTS_EXHAUSTED',
+      })
+    }
     await db.update(notifications).set({
       status: 'failed',
       error: 'NOTIFICATION_ATTEMPTS_EXHAUSTED',
@@ -201,6 +262,7 @@ export async function recoverQueueFromDb(): Promise<void> {
         // Durable queue delivery is always explicitly targeted. Historical or
         // malformed rows without a target fail closed during recipient checks.
         webpushUserIds: row.targetUserIds ? (safeParseUserIds(row.targetUserIds) ?? []) : [],
+        deliveredEndpoints: row.deliveredEndpoints ? (safeParseDeliveredEndpoints(row.deliveredEndpoints) ?? []) : [],
       }
       queue.push(item)
     }
@@ -224,10 +286,18 @@ export async function enqueueNotification(
   context: TemplateContext,
   parishId: string,
   maxRetries: number | undefined,
-  options: { webpushUserIds: string[]; studentId?: string },
+  options: { webpushUserIds: string[]; studentId?: string; id?: string },
 ): Promise<string> {
   assertDeploymentParishScope(parishId)
-  const id = generateId('NOT')
+  const id = options.id || generateId('NOT')
+  const [existing] = await db
+    .select({ id: notifications.id, status: notifications.status })
+    .from(notifications)
+    .where(and(eq(notifications.parishId, parishId), eq(notifications.id, id)))
+    .limit(1)
+  if (existing) {
+    return id
+  }
   const renderedMessage = isChildNotification({ type }) ? ACADEMIC_NOTIFICATION_MESSAGE : renderTemplate(template, context)
   const item: NotificationQueueItem = {
     id,
@@ -243,6 +313,7 @@ export async function enqueueNotification(
     parishId,
     webpushUserIds: options.webpushUserIds,
     studentId: options.studentId,
+    deliveredEndpoints: [],
   }
   // ADR-102: persistence is the enqueue acknowledgement. If the process exits
   // after this INSERT but before the in-memory projection is populated, the
@@ -254,7 +325,7 @@ export async function enqueueNotification(
       channel: type === 'report' ? 'report_card' : type === 'reminder' ? 'reminder' : 'absence',
       deliveryKind: type,
       status: item.maxRetries > 0 ? 'retrying' : 'failed',
-      recipient: isChildNotification(item) ? 'Parent' : context.parentPhone || context.studentName || 'System',
+      recipient: resolveRecipientLabel(item),
       studentId: item.studentId ?? null,
       message: renderedMessage,
       triggeredByType: 'system',
@@ -263,6 +334,7 @@ export async function enqueueNotification(
       attemptCount: 0,
       maxAttempts: item.maxRetries,
       targetUserIds: JSON.stringify(item.webpushUserIds),
+      deliveredEndpoints: JSON.stringify([]),
     })
 
   if (item.maxRetries <= 0) {
@@ -291,11 +363,21 @@ function safeParseUserIds(raw: string): string[] | undefined {
   return undefined
 }
 
+function safeParseDeliveredEndpoints(raw: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string')
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
 export function getFailedItems(): NotificationQueueItem[] {
   return [...failedItems]
 }
 
-async function claimNotification(item: NotificationQueueItem): Promise<{ attemptCount: number; maxAttempts: number } | null> {
+async function claimNotification(item: NotificationQueueItem): Promise<{ attemptCount: number; maxAttempts: number; deliveredEndpoints?: string[] } | null> {
   const now = new Date()
   const nowIso = now.toISOString()
   const leaseExpiresAt = new Date(now.getTime() + LEASE_MS).toISOString()
@@ -315,8 +397,18 @@ async function claimNotification(item: NotificationQueueItem): Promise<{ attempt
       or(isNull(notifications.nextAttemptAt), lte(notifications.nextAttemptAt, nowIso)),
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, nowIso)),
     ))
-    .returning({ attemptCount: notifications.attemptCount, maxAttempts: notifications.maxAttempts })
-  return claimed ?? null
+    .returning({
+      attemptCount: notifications.attemptCount,
+      maxAttempts: notifications.maxAttempts,
+      deliveredEndpoints: notifications.deliveredEndpoints,
+    })
+  return claimed
+    ? {
+        attemptCount: claimed.attemptCount,
+        maxAttempts: claimed.maxAttempts,
+        deliveredEndpoints: claimed.deliveredEndpoints ? safeParseDeliveredEndpoints(claimed.deliveredEndpoints) : undefined,
+      }
+    : null
 }
 
 function rememberFailed(item: NotificationQueueItem): void {
@@ -356,6 +448,9 @@ async function drainQueue(): Promise<void> {
       }
       item.retryCount = claim.attemptCount
       item.maxRetries = claim.maxAttempts
+      if (claim.deliveredEndpoints && claim.deliveredEndpoints.length > 0) {
+        item.deliveredEndpoints = claim.deliveredEndpoints
+      }
 
       try {
         const childNotification = isChildNotification(item)
@@ -370,7 +465,7 @@ async function drainQueue(): Promise<void> {
           }
           item.webpushUserIds = recipients
         } else {
-          const recipients = await getCurrentActiveRecipientIds(item.parishId, item.webpushUserIds)
+          const recipients = await getCurrentActiveRecipientIds(item.parishId, item.webpushUserIds, item.context)
           if (!recipients.length) {
             await suppressNotification(item, 'DELIVERY_TARGET_NOT_ACTIVE')
             queue.shift()
@@ -382,13 +477,21 @@ async function drainQueue(): Promise<void> {
         // Persisted type remains `web_push` for compatibility; appPushService
         // fans out to configured browser Web Push and native FCM/APNs providers.
         const payload = { title: childNotification ? 'Catevia' : webPushTitle(item), body: message, url: '/' }
-        const result = await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)
+        const result = item.deliveredEndpoints && item.deliveredEndpoints.length > 0
+          ? await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload, item.deliveredEndpoints)
+          : await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)
+
+        if (result.deliveredEndpoints && result.deliveredEndpoints.length > 0) {
+          item.deliveredEndpoints = [...new Set([...(item.deliveredEndpoints || []), ...result.deliveredEndpoints])]
+        }
+
         if (!result.configured) {
           item.lastError = 'PUSH_PROVIDER_NOT_CONFIGURED'
           item.retryCount = item.maxRetries
           await db.update(notifications).set({
             status: 'failed',
             error: item.lastError,
+            deliveredEndpoints: item.deliveredEndpoints?.length ? JSON.stringify(item.deliveredEndpoints) : null,
             leaseOwner: null,
             leaseExpiresAt: null,
             nextAttemptAt: null,
@@ -405,7 +508,7 @@ async function drainQueue(): Promise<void> {
           // The aggregate item is retried when any configured provider reports
           // a transient failure. Permanently dead endpoints were already removed
           // and must not cause a duplicate resend to healthy endpoints.
-          throw new Error(`APP_PUSH_PARTIAL_FAILURE:${retryableFailed}`)
+          throw new Error(result.lastProviderError || `APP_PUSH_PARTIAL_FAILURE:${retryableFailed}`)
         }
         if (result.sent === 0) {
           await suppressNotification(item, childNotification ? 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE' : 'DELIVERY_TARGET_UNAVAILABLE')
@@ -418,6 +521,7 @@ async function drainQueue(): Promise<void> {
           status: 'sent',
           sentAt: now,
           error: null,
+          deliveredEndpoints: item.deliveredEndpoints?.length ? JSON.stringify(item.deliveredEndpoints) : null,
           leaseOwner: null,
           leaseExpiresAt: null,
           nextAttemptAt: null,
@@ -431,9 +535,19 @@ async function drainQueue(): Promise<void> {
       } catch (err) {
         item.lastError = String(err)
         if (item.retryCount >= item.maxRetries) {
+          console.error('[notificationQueue] notification permanently failed delivery:', {
+            id: item.id,
+            parishId: item.parishId,
+            channel: item.channel,
+            type: item.type,
+            attempts: item.retryCount,
+            maxRetries: item.maxRetries,
+            error: item.lastError,
+          })
           await db.update(notifications).set({
             status: 'failed',
             error: item.lastError,
+            deliveredEndpoints: item.deliveredEndpoints?.length ? JSON.stringify(item.deliveredEndpoints) : null,
             leaseOwner: null,
             leaseExpiresAt: null,
             nextAttemptAt: null,
@@ -446,6 +560,7 @@ async function drainQueue(): Promise<void> {
         const nextAttemptAt = new Date(Date.now() + backoff).toISOString()
         await db.update(notifications).set({
           error: item.lastError,
+          deliveredEndpoints: item.deliveredEndpoints?.length ? JSON.stringify(item.deliveredEndpoints) : null,
           leaseOwner: null,
           leaseExpiresAt: null,
           nextAttemptAt,

@@ -90,12 +90,20 @@ describe('extracted Operations forms', () => {
     } as unknown as OperationEventDetail
     render(<EventTaskForm detail={eventDetail} />)
     fireEvent.change(screen.getByLabelText('Tên task'), { target: { value: 'Mua nước' } })
-    fireEvent.change(screen.getByLabelText('Nhóm của công việc'), { target: { value: 'W1' } })
+    fireEvent.change(screen.getByLabelText('Mảng của công việc'), { target: { value: 'W1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Tạo task' }))
 
     await waitFor(() => expect(createTask).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Mua nước', eventId: 'E1', workstreamId: 'W1', scopeUnitId: 'UNIT-9',
     }), expect.any(String)))
+  })
+
+  it('renders visible and descriptive labels for the three datetime inputs in EventTaskForm', () => {
+    render(<EventTaskForm detail={detail} />)
+    expect(screen.getByText(/Hạn hoàn thành/i)).toBeInTheDocument()
+    expect(screen.getByText(/Ca làm việc/i)).toBeInTheDocument()
+    expect(screen.getByText(/Bắt đầu ca/i)).toBeInTheDocument()
+    expect(screen.getByText(/Kết thúc ca/i)).toBeInTheDocument()
   })
 
   it('saves event edits with OCC version and a stable key', async () => {

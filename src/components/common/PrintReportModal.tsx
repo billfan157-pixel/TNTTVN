@@ -12,7 +12,7 @@ import {
 } from '../../utils/pdfGenerator'
 import { ReportExportService } from '../../services/reportExportService'
 import { fetchOfficialClassReport, fetchOfficialReportClasses, type OfficialClassMetadata, type OfficialClassReport } from '../../services/officialReporting'
-import { exportGradebookToExcel } from '../../utils/excelExporter'
+import { exportOfficialGradebook } from '../../services/reportExporter'
 import { api } from '../../lib/api'
 import { ModalShell } from './ModalShell'
 import { useStudentStore } from '../../stores/studentStore'
@@ -22,7 +22,6 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { normalizeAcademicYear, getCurrentAcademicYear } from '../../utils/academicYear'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { sortClassesByHierarchy } from '../../utils/classSort'
-import type { Student } from '../../types'
 
 interface Props {
   isOpen: boolean
@@ -259,38 +258,7 @@ export const PrintReportModal: React.FC<Props> = ({
     setIsBuildingReport(true)
     try {
       const resolvedYear = normalizeAcademicYear(academicYear) || getCurrentAcademicYear()
-      const official = await fetchOfficialClassReport(selectedClassId, resolvedYear)
-      const matrixData: Record<string, any> = {}
-      const authoritativeResults: Record<string, { gpa: number | null; classification: string | null }> = {}
-      const exportStudents: Student[] = official.reportCards.map((report) => {
-        const existing = profileMap.get(report.student.id)
-        const grade = report.grades.find((item) => item.semester === semester)
-        if (grade) matrixData[report.student.id] = { ...grade, studentId: report.student.id, academicYear: resolvedYear }
-        authoritativeResults[report.student.id] = { gpa: grade?.gpa ?? null, classification: grade?.classification ?? null }
-        return {
-          id: report.student.id,
-          code: report.student.code,
-          holyName: report.student.holyName || '',
-          fullName: report.student.fullName,
-          gender: (report.student.gender === 'Nữ' ? 'Nữ' : 'Nam'),
-          dateOfBirth: report.student.dateOfBirth || '',
-          parentName: existing?.parentName || '',
-          parentPhone: existing?.parentPhone || '',
-          address: existing?.address || '',
-          branch: existing?.branch || 'ChienCon',
-          classId: selectedClassId,
-          status: existing?.status || 'Đang học',
-        }
-      })
-
-      exportGradebookToExcel({
-        students: exportStudents,
-        matrixData,
-        authoritativeResults,
-        className: official.summary.className,
-        semester: semester,
-        academicYear: resolvedYear,
-      })
+      await exportOfficialGradebook({ classId: selectedClassId, semester, academicYear: resolvedYear })
     } catch (err) {
       handleBuildError(err)
     } finally {

@@ -130,9 +130,12 @@ Import Processing Route (server/src/routes/import.ts)
   - Full Academic Breakdown (`scoreOral`, `score15m`, `score1Period`, `scoreMidterm`, `scoreFinal`, `scoreDaoDuc`, Computed Semester GPA).
   - Attendance Summary (% Mass attendance & % Catechism attendance).
   - Promotion Decision (`PROMOTED`, `RETAINED`, etc.).
+- Server-side PDF rendering accepts only self-contained resources (`data:` and `about:blank`); every network, file, blob, relative, or other external URL is neutralized before rendering and denied again by browser request interception. JavaScript is disabled in the PDF page.
 
-### 6.2 Excel Gradebook Export (`src/utils/excelExporter.ts`)
-- Exports full class gradebooks with subject column headers, student metadata, computed averages, and attendance summaries.
+### 6.2 Excel Gradebook Export (`src/services/reportExporter.ts`)
+- Every reachable gradebook export loads the authorized current/frozen cohort from the server Reporting projection; local Zustand/Dexie/editor state is not an export authority.
+- Produces a real `.xlsx` workbook with student metadata and the selected semester's server-projected grades, GPA, and classification. The retired HTML-as-`.xls` exporter must not be reintroduced.
+- CSV exports use the shared safe serializer: every cell is quoted and formula-like prefixes (`=`, `+`, `-`, `@`, tab/CR/LF and full-width variants) are neutralized before spreadsheet import.
 
 ### 6.3 Class Summary HTML Print View
 - Renders printable HTML views adhering to standard A4 page layout guidelines with exact parish branding tokens.

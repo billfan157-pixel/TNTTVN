@@ -71,7 +71,7 @@ function sendOne(
   authorization: string,
   config: ApnsConfig,
   body: string,
-): Promise<{ ok: boolean; dead: boolean }> {
+): Promise<{ ok: boolean; dead: boolean; errorReason?: string }> {
   return new Promise((resolve, reject) => {
     const request = client.request({
       ':method': 'POST',
@@ -90,9 +90,18 @@ function sendOne(
     request.on('end', () => {
       let reason = ''
       try { reason = JSON.parse(responseBody || '{}').reason || '' } catch {}
+      const ok = status === 200
+      const dead = status === 410 || reason === 'BadDeviceToken' || reason === 'Unregistered' || reason === 'DeviceTokenNotForTopic'
+      if (!ok) {
+        console.warn(`[apnsPushProvider] delivery rejected (${status}):`, {
+          reason: reason || 'unknown',
+          tokenPrefix: `${token.slice(0, 8)}...`,
+        })
+      }
       resolve({
-        ok: status === 200,
-        dead: status === 410 || reason === 'BadDeviceToken' || reason === 'Unregistered' || reason === 'DeviceTokenNotForTopic',
+        ok,
+        dead,
+        errorReason: !ok ? `APNS:${status}:${reason || 'REJECTED'}` : undefined,
       })
     })
     request.end(body)
@@ -103,16 +112,16 @@ export async function sendApnsPush(
   tokens: string[],
   payload: AppPushPayload,
 ): Promise<NativeProviderResult> {
-  if (tokens.length === 0) return { sent: 0, failed: 0, deadTokens: [] }
+  if (tokens.length === 0) return { sent: 0, failed: 0, deadTokens: [], successfulTokens: [] }
   const config = getApnsConfig()
-  if (!config) return { sent: 0, failed: tokens.length, deadTokens: [] }
+  if (!config) return { sent: 0, failed: tokens.length, deadTokens: [], successfulTokens: [], lastProviderError: 'APNS:NOT_CONFIGURED' }
 
   const client = http2.connect(config.host)
   client.on('error', () => { /* individual streams reject; prevent process-level crash */ })
   try {
     const authorization = providerToken(config)
     const body = buildPayload(payload)
-    const responses: Array<{ ok: boolean; dead: boolean }> = []
+    const responses: Array<{ ok: boolean; dead: boolean; errorReason?: string }> = []
     for (let offset = 0; offset < tokens.length; offset += APNS_BATCH_LIMIT) {
       responses.push(...await Promise.all(
         tokens.slice(offset, offset + APNS_BATCH_LIMIT)
@@ -120,8 +129,10 @@ export async function sendApnsPush(
       ))
     }
     const deadTokens = responses.flatMap((response, index) => response.dead ? [tokens[index]] : [])
-    const sent = responses.filter(response => response.ok).length
-    return { sent, failed: responses.length - sent, deadTokens }
+    const successfulTokens = responses.flatMap((response, index) => response.ok ? [tokens[index]] : [])
+    const sent = successfulTokens.length
+    const lastProviderError = responses.find(r => r.errorReason)?.errorReason
+    return { sent, failed: responses.length - sent, deadTokens, successfulTokens, lastProviderError }
   } finally {
     client.close()
   }

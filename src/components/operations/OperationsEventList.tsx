@@ -1,11 +1,129 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, Calendar, CalendarClock, Clock, MapPin, Search, X } from 'lucide-react'
+import { Archive, Calendar, CalendarClock, Church, Clock, GraduationCap, Hourglass, Layers, MapPin, Mountain, Search, ShieldCheck, Sparkles, Tent, UserRound, Users, X } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Badge, Button, Surface, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
 import type { OperationEvent } from '../../lib/api/operations'
 import { useOperationsStore } from '../../stores/operationsStore'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
-import { statusLabel, statusTone } from './operationsViewHelpers'
+import { eventCountdownLabel, formatEventSchedule, groupEventsByType, sortEventsByUpcoming, statusLabel, statusTone } from './operationsViewHelpers'
+
+/**
+ * One window per event type (U-19, 2026-09-21). The pane is titled "Sự Kiện &
+ * Công Việc Đang Diễn Ra", so the type must be readable at a glance instead of
+ * only inside the detail modal; icons mirror the create/edit type picker labels.
+ */
+const EVENT_TYPE_ICONS: Record<string, LucideIcon> = {
+  FEAST_DAY: Church,
+  CAMP: Tent,
+  TRAINING: GraduationCap,
+  SACRAMENT: Sparkles,
+  RETREAT: Mountain,
+  MEETING: Users,
+  OTHER: Layers,
+}
+
+/**
+ * A single event row. Creator ≠ organizer (O1), so both names are shown: the
+ * account that created the event and the person responsible for running it —
+ * resolved server-side and already present on the loaded list rows.
+ */
+function EventRow({
+  event,
+  scopeBadge,
+  isOnline,
+  source,
+  detailLoading,
+  pending,
+  onOpen,
+}: {
+  event: OperationEvent
+  scopeBadge: string
+  isOnline: boolean
+  source: 'server' | 'cache' | 'none'
+  detailLoading: boolean
+  pending: boolean
+  onOpen: (event: OperationEvent) => void
+}) {
+  return (
+    <article
+      className="group p-4 cursor-pointer transition-colors hover:bg-surface-hover/50"
+      onClick={() => {
+        if (!isOnline || source === 'cache') return
+        onOpen(event)
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="m-0 truncate text-sm font-bold text-text-main group-hover:text-parish-primary transition-colors">
+              {event.title}
+            </h3>
+            <Badge tone="neutral">{scopeBadge}</Badge>
+            <Badge tone={statusTone(event.status)}>
+              {event.status === 'CANCELLED' ? 'Đã hủy / Lưu trữ' : (statusLabel[event.status] || event.status)}
+            </Badge>
+          </div>
+
+          {/* U-19b: the row must say when the event happens, so the pane can be
+              read in time order without opening the detail modal. */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
+            <span className="flex items-center gap-1">
+              <Clock className="h-3.5 w-3.5 text-text-muted" aria-hidden="true" />
+              <span className="font-semibold text-text-main">{formatEventSchedule(event.startsAt, event.endsAt, event.timezone)}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <Hourglass className="h-3.5 w-3.5 text-text-muted" aria-hidden="true" />
+              {eventCountdownLabel(event.startsAt, event.endsAt)}
+            </span>
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5 text-text-muted" aria-hidden="true" />
+              {event.location || 'Chưa có địa điểm'}
+            </span>
+          </div>
+
+          {(event.createdByName || event.organizerName) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
+              {event.createdByName && (
+                <span className="flex items-center gap-1">
+                  <UserRound className="h-3.5 w-3.5 text-text-muted" aria-hidden="true" />
+                  Người tạo: <span className="font-semibold text-text-main">{event.createdByName}</span>
+                </span>
+              )}
+              {event.organizerName && (
+                <span className="flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-text-muted" aria-hidden="true" />
+                  Phụ trách: <span className="font-semibold text-text-main">{event.organizerName}</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {event.sourceParishEventId && (
+            <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-parish-primary-light/50 px-2 py-0.5 text-xs font-semibold text-parish-primary">
+              <CalendarClock className="h-3 w-3" aria-hidden="true" />
+              Liên kết Lịch Xứ Đoàn
+            </div>
+          )}
+        </div>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0 group-hover:bg-parish-primary group-hover:text-text-inverse transition-colors"
+          disabled={!isOnline || source === 'cache'}
+          loading={detailLoading && pending}
+          onClick={e => {
+            e.stopPropagation()
+            onOpen(event)
+          }}
+        >
+          {event.status === 'CANCELLED' ? 'Xem & Khôi phục' : 'Xem chi tiết'}
+        </Button>
+      </div>
+    </article>
+  )
+}
 
 /**
  * W3.2 extraction: the events list section, previously inlined in
@@ -51,14 +169,23 @@ export function OperationsEventList() {
     return () => clearTimeout(timer)
   }, [eventSearchQuery, eventSearchServerSide, searchEvents])
 
+  // U-19b: "sự kiện sắp diễn ra xếp trước" — the loaded rows are ordered by the
+  // schedule (ongoing/upcoming ascending, ended events last, newest first) before
+  // grouping, so both the windows and the rows inside them read in time order.
+  const scheduledEvents = useMemo(() => sortEventsByUpcoming(baseEvents), [baseEvents])
+
   const filteredEvents = useMemo(() => {
     const q = eventSearchQuery.trim().toLowerCase()
-    if (!q) return baseEvents
-    return baseEvents.filter(e =>
+    if (!q) return scheduledEvents
+    return scheduledEvents.filter(e =>
       e.title.toLowerCase().includes(q)
       || (e.location && e.location.toLowerCase().includes(q))
     )
-  }, [baseEvents, eventSearchQuery])
+  }, [scheduledEvents, eventSearchQuery])
+
+  // U-19: one window per event type ("Khác" for unknown codes); U-19b: the window
+  // holding the soonest event leads, so the pane follows the calendar.
+  const eventTypeWindows = useMemo(() => groupEventsByType(filteredEvents, { orderWindowsBySoonest: true }), [filteredEvents])
 
   const unitNameOf = (scopeUnitId: string | null | undefined) => scopeUnitId
     ? (creationOptions?.units.find(unit => unit.id === scopeUnitId)?.name ?? 'Chuyên môn')
@@ -162,9 +289,9 @@ export function OperationsEventList() {
         </div>
       )}
 
-      <div className="divide-y divide-surface-border flex-1">
+      <div className="flex-1 space-y-2.5 p-2 sm:space-y-3 sm:p-3 bg-surface-ground/20">
         {baseEvents.length === 0 && !eventSearchQuery ? (
-          <div className="p-8">
+          <div className="p-5">
             <EmptyState
               icon={eventTab === 'ACTIVE' ? Calendar : Archive}
               title={eventTab === 'ACTIVE' ? 'Chưa có sự kiện nào' : 'Lưu trữ trống'}
@@ -176,7 +303,7 @@ export function OperationsEventList() {
             />
           </div>
         ) : (baseEvents.length === 0 || filteredEvents.length === 0) ? (
-          <div className="p-6">
+          <div className="p-3">
             <EmptyState
               icon={Search}
               title="Không tìm thấy sự kiện"
@@ -184,65 +311,46 @@ export function OperationsEventList() {
             />
           </div>
         ) : (
-          filteredEvents.map(event => (
-            <article
-              key={event.id}
-              className="group p-4 cursor-pointer transition-colors hover:bg-surface-hover/50"
-              onClick={() => {
-                if (!isOnline || source === 'cache') return
-                openEvent(event)
-              }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="m-0 truncate text-sm font-bold text-text-main group-hover:text-parish-primary transition-colors">
-                      {event.title}
-                    </h3>
-                    <Badge tone="neutral">{scopeBadgeOf(event)}</Badge>
-                    <Badge tone={statusTone(event.status)}>
-                      {event.status === 'CANCELLED' ? 'Đã hủy / Lưu trữ' : (statusLabel[event.status] || event.status)}
-                    </Badge>
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5 text-text-muted" />
-                      {new Date(event.startsAt).toLocaleString('vi-VN')}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="h-3.5 w-3.5 text-text-muted" />
-                      {event.location || 'Chưa có địa điểm'}
-                    </span>
-                  </div>
-
-                  {event.sourceParishEventId && (
-                    <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-parish-primary-light/50 px-2 py-0.5 text-xs font-semibold text-parish-primary">
-                      <CalendarClock className="h-3 w-3" />
-                      Liên kết Lịch Xứ Đoàn
+          /* U-19: one window per event type in canonical order — an unknown code
+             falls into the trailing "Khác" window so nothing is hidden. */
+          eventTypeWindows.map(typeWindow => {
+            const TypeIcon = EVENT_TYPE_ICONS[typeWindow.key] ?? Layers
+            return (
+              <section
+                key={typeWindow.key}
+                aria-label={`Nhóm sự kiện: ${typeWindow.label}`}
+                className="overflow-hidden rounded-xl border border-surface-border bg-surface-card shadow-xs"
+              >
+                <header className="flex items-center justify-between gap-2 border-b border-surface-border bg-surface-ground/40 px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="icon-container rounded-lg bg-parish-primary-light text-parish-primary shrink-0" aria-hidden="true">
+                      <TypeIcon className="h-3.5 w-3.5" />
                     </div>
-                  )}
-                </div>
+                    <h3 className="m-0 truncate text-sm font-bold text-text-main">{typeWindow.label}</h3>
+                  </div>
+                  <Badge tone="neutral">{typeWindow.events.length}</Badge>
+                </header>
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 group-hover:bg-parish-primary group-hover:text-text-inverse transition-colors"
-                  disabled={!isOnline || source === 'cache'}
-                  loading={detailLoading && pendingEventId === event.id}
-                  onClick={e => {
-                    e.stopPropagation()
-                    openEvent(event)
-                  }}
-                >
-                  {event.status === 'CANCELLED' ? 'Xem & Khôi phục' : 'Xem chi tiết'}
-                </Button>
-              </div>
-            </article>
-          ))
+                <div className="divide-y divide-surface-border">
+                  {typeWindow.events.map(event => (
+                    <EventRow
+                      key={event.id}
+                      event={event}
+                      scopeBadge={scopeBadgeOf(event)}
+                      isOnline={isOnline}
+                      source={source}
+                      detailLoading={detailLoading}
+                      pending={pendingEventId === event.id}
+                      onOpen={openEvent}
+                    />
+                  ))}
+                </div>
+              </section>
+            )
+          })
         )}
         {eventHasMore && (
-          <div className="p-3 text-center bg-surface-ground/20">
+          <div className="rounded-xl border border-surface-border bg-surface-card p-3 text-center">
             <Button variant="secondary" size="sm" loading={loadingMore} disabled={!isOnline || source !== 'server' || loading} onClick={handleLoadMore}>
               Tải thêm sự kiện
             </Button>

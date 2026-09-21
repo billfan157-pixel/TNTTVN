@@ -22,6 +22,8 @@ const successResult: Awaited<ReturnType<typeof import('../../services/appPushSer
   total: 1,
   removed: 0,
   skipped: 0,
+  deliveredEndpoints: [],
+  lastProviderError: undefined,
   channels: {
     web: { configured: true, sent: 1, failed: 0, total: 1, removed: 0 },
     native: { configured: false, sent: 0, failed: 0, total: 0, removed: 0, skipped: 0, platforms: { android: false, ios: false } },
@@ -220,6 +222,36 @@ describe('notificationQueue web/native delivery and Telegram retirement', () => 
       expect(row.status).toBe('failed')
       expect(row.error).toContain('APP_PUSH_PARTIAL_FAILURE')
     }, { timeout: 3000 })
+  })
+
+  it('persists deliveredEndpoints on partial delivery failure so retries exclude them', async () => {
+    const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+    const delivered = ['https://push.example/delivered-1']
+    vi.mocked(sendAppPushToUsers).mockResolvedValueOnce({
+      ...successResult,
+      sent: 1,
+      failed: 1,
+      total: 2,
+      deliveredEndpoints: delivered,
+    })
+    const { enqueueNotification } = await import('../../services/notificationQueue.js')
+    const id = await enqueueNotification('webpush', 'info', 'Partial delivered test', {}, parishId, 1, { webpushUserIds: [parentId] })
+    await vi.waitFor(async () => {
+      const [row] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(row.status).toBe('failed')
+      expect(row.deliveredEndpoints).toBe(JSON.stringify(delivered))
+    }, { timeout: 3000 })
+  })
+
+  it('suppresses delivery when class enrollment check finds no active students for parent in class', async () => {
+    const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+    const { enqueueNotification } = await import('../../services/notificationQueue.js')
+    const id = await enqueueNotification('webpush', 'reminder', 'Class reminder', { classId: 'non-existent-class' }, parishId, 1, { webpushUserIds: [parentId] })
+    await vi.waitFor(async () => {
+      const [row] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(row).toMatchObject({ status: 'failed', error: 'DELIVERY_TARGET_NOT_ACTIVE' })
+    }, { timeout: 3000 })
+    expect(sendAppPushToUsers).not.toHaveBeenCalled()
   })
 
   it('does not retry healthy endpoints when every provider failure was permanently removed', async () => {

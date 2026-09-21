@@ -24,6 +24,7 @@ const OPERATIONS_ERROR_MAP: Record<string, string> = {
   FIELD_SCOPE_REQUIRED: 'Mảng (Field) trong sự kiện Xứ đoàn phải gắn đúng một Ban/Ngành phụ trách.',
   STANDALONE_WORKSTREAM_SCOPE_REQUIRED: 'Nhóm độc lập phải thuộc một Ban/Ngành phụ trách.',
   STANDALONE_TASK_SCOPE_REQUIRED: 'Công việc độc lập phải thuộc một Ban/Ngành phụ trách.',
+  TASK_WORKSTREAM_REQUIRED: 'Task trong sự kiện Xứ đoàn phải thuộc một Mảng phụ trách.',
 
   // 3. Scope & Assignment Target
   TARGET_OUTSIDE_ORGANIZATION_SCOPE: 'Chỉ được phân công thành viên thuộc phạm vi đơn vị phụ trách.',

@@ -7,7 +7,7 @@ vi.mock('../../services/notificationQueue.js', () => ({
 import { enqueueNotification } from '../../services/notificationQueue.js'
 import { notifyAbsence, notifyBatchReportCards, notifyReportCard, notifySundayMassReminder, notifyClassReminder } from '../../services/smartNotifications.js'
 import { db } from '../../db/index.js'
-import { users, students, classes, branches, academicYears } from '../../db/schema.js'
+import { users, students, classes, branches, academicYears, notifications } from '../../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 
 const PREFIX = Date.now()
@@ -180,6 +180,71 @@ describe('notifyParishNotice (web push CÓ CHỦ ĐÍCH tới phụ huynh)', () 
       expect(ids).toContain(parentAuNhiId)
     } finally {
       await db.update(users).set({ status: 'ACTIVE' }).where(eq(users.id, parentThieuNhiId))
+    }
+  })
+
+  it('notifySundayMassReminder is idempotent and returns false when already sent today', async () => {
+    const today = '2026-09-21'
+    const deterministicId = `NOT-SUNDAY-REMINDER-${parishId}-${today}`
+
+    // First call enqueues with deterministic ID
+    await expect(notifySundayMassReminder(parishId, today)).resolves.toBe(true)
+    expect(webpushCalls()).toHaveLength(1)
+    const firstCallOpts = webpushCalls()[0][6] as { id?: string }
+    expect(firstCallOpts.id).toBe(deterministicId)
+
+    // Simulate notification row written to DB
+    await db.insert(notifications).values({
+      id: deterministicId,
+      parishId,
+      type: 'web_push',
+      channel: 'reminder',
+      deliveryKind: 'reminder',
+      status: 'retrying',
+      recipient: 'Parish Member',
+      triggeredByType: 'system',
+      createdAt: new Date().toISOString(),
+    })
+
+    try {
+      vi.clearAllMocks()
+      // Second call finds existing notification and returns false without enqueueing
+      await expect(notifySundayMassReminder(parishId, today)).resolves.toBe(false)
+      expect(enqueueNotification).not.toHaveBeenCalled()
+    } finally {
+      await db.delete(notifications).where(and(eq(notifications.parishId, parishId), eq(notifications.id, deterministicId)))
+    }
+  })
+
+  it('notifyClassReminder is idempotent and returns false when already sent for class today', async () => {
+    const today = '2026-09-21'
+    const deterministicId = `NOT-CLASS-REMINDER-${parishId}-${classId}-${today}`
+
+    await expect(notifyClassReminder(parishId, 'Lớp TN1', today, classId)).resolves.toBe(true)
+    expect(webpushCalls()).toHaveLength(1)
+    const firstCallOpts = webpushCalls()[0][6] as { id?: string }
+    expect(firstCallOpts.id).toBe(deterministicId)
+
+    // Simulate notification row in DB
+    await db.insert(notifications).values({
+      id: deterministicId,
+      parishId,
+      type: 'web_push',
+      channel: 'reminder',
+      deliveryKind: 'reminder',
+      status: 'retrying',
+      recipient: 'Parish Member',
+      triggeredByType: 'system',
+      createdAt: new Date().toISOString(),
+    })
+
+    try {
+      vi.clearAllMocks()
+      // Second call returns false and does not enqueue
+      await expect(notifyClassReminder(parishId, 'Lớp TN1', today, classId)).resolves.toBe(false)
+      expect(enqueueNotification).not.toHaveBeenCalled()
+    } finally {
+      await db.delete(notifications).where(and(eq(notifications.parishId, parishId), eq(notifications.id, deterministicId)))
     }
   })
 })

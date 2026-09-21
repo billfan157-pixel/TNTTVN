@@ -185,7 +185,8 @@ export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSn
             const res = await api.saveExamResults(targetSessionId, data.scores)
             return { ok: true, data: res }
           } else if (data.action === 'remove_result') {
-            await api.removeExamResult(targetSessionId, data.studentId)
+            if (!data.deletion) return { ok: false, recoverable: false, error: 'Lệnh xóa cũ thiếu phiên bản kết quả; cần tải lại để đối chiếu.' }
+            await api.removeExamResult(targetSessionId, data.studentId, data.deletion)
             return { ok: true }
           } else if (data.action === 'complete') {
             const completed = await api.completeExam(targetSessionId)
@@ -208,7 +209,8 @@ export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSn
             return { ok: true, data: res }
           }
           if (data.action === 'remove_result' && data.studentId) {
-            await api.removeExamResult(targetSessionId, data.studentId)
+            if (!data.deletion) return { ok: false, recoverable: false, error: 'Lệnh xóa cũ thiếu phiên bản kết quả; cần tải lại để đối chiếu.' }
+            await api.removeExamResult(targetSessionId, data.studentId, data.deletion)
             return { ok: true, data: { removed: true, studentId: data.studentId, sessionId: targetSessionId } }
           }
         }

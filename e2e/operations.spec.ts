@@ -666,10 +666,10 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await page.getByLabel('Thành viên nhóm').selectOption(`person:${assigneePersonId}`)
   await page.getByLabel('Vai trò trong nhóm').selectOption('WORKSTREAM_LEAD')
   const memberResponse = page.waitForResponse(response => response.url().endsWith(`/workstreams/${group.id}/members`) && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Phân công vào nhóm' }).click()
+  await page.getByRole('button', { name: 'Phân công vào Mảng' }).click()
   expect((await memberResponse).status()).toBe(201)
   const readyResponse = page.waitForResponse(response => response.url().endsWith(`/workstreams/${group.id}/ready`) && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Nhóm đã sẵn sàng' }).click()
+  await page.getByRole('button', { name: 'Mảng đã sẵn sàng' }).click()
   expect((await readyResponse).status()).toBe(200)
 
   await page.getByRole('tab', { name: /Nhiệm vụ & Phân công/ }).click()
@@ -678,7 +678,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   // the event reaches PLANNING; the staff user then accepts it from
   // "Việc của tôi". This mirrors the dedicated OPS-DISPATCH journey.
   const createAndInvite = async (title: string, phase: 'PREPARATION' | 'EXECUTION' | 'FOLLOW_UP', dueAt?: string) => {
-    await page.getByLabel('Nhóm của công việc').selectOption(group.id)
+    await page.getByLabel('Mảng của công việc').selectOption(group.id)
     await page.getByLabel('Tên task').fill(title)
     await page.getByLabel('Giai đoạn nhiệm vụ').selectOption(phase)
     if (dueAt) await page.getByLabel('Hạn task').fill(dueAt)

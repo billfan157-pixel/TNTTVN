@@ -7,7 +7,7 @@ import { notifyAbsence, notifyBatchReportCards, notifySundayMassReminder, notify
 import { isVapidConfigured, getVapidPublicKey } from '../services/webPushService.js'
 import { sendAppPushToParish } from '../services/appPushService.js'
 import { db, runDbTransaction } from '../db/index.js'
-import { pushSubscriptions, nativePushTokens, students, classes, auditLogs } from '../db/schema.js'
+import { pushSubscriptions, nativePushTokens, students, classes, auditLogs, notifications } from '../db/schema.js'
 import { and, eq, sql, isNull, inArray, or } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
@@ -48,6 +48,7 @@ const sendNotificationSchema = z.object({
 })
 
 const absenceSchema = z.object({
+  studentId: z.string().trim().min(1).max(100).optional(),
   studentName: z.string().trim().min(1).max(200),
   holyName: z.string().trim().min(1).max(200),
   className: z.string().trim().min(1).max(100),
@@ -83,21 +84,33 @@ const classReminderSchema = z.object({
 notificationsRouter.post('/subscribe', zValidator('json', subscribeSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const body = c.req.valid('json')
-  await db.insert(pushSubscriptions).values({
-    id: generateId('NOT'),
-    endpoint: body.endpoint,
-    p256dh: body.keys.p256dh,
-    auth: body.keys.auth,
-    userId: user.userId,
-    parishId: user.parishId,
-  }).onConflictDoUpdate({
-    target: pushSubscriptions.endpoint,
-    set: {
+  await runDbTransaction(async (tx) => {
+    await tx.insert(pushSubscriptions).values({
+      id: generateId('NOT'),
+      endpoint: body.endpoint,
       p256dh: body.keys.p256dh,
       auth: body.keys.auth,
       userId: user.userId,
       parishId: user.parishId,
-    },
+    }).onConflictDoUpdate({
+      target: pushSubscriptions.endpoint,
+      set: {
+        p256dh: body.keys.p256dh,
+        auth: body.keys.auth,
+        userId: user.userId,
+        parishId: user.parishId,
+      },
+    })
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'WEB_PUSH_SUBSCRIBE',
+      entityType: 'push_subscription',
+      entityId: user.userId,
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
   })
   return successResponse(c, { ok: true })
 })
@@ -162,7 +175,23 @@ notificationsRouter.post('/native/unregister', zValidator('json', nativeUnregist
 notificationsRouter.post('/unsubscribe', zValidator('json', unsubscribeSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const { endpoint } = c.req.valid('json')
-  await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.parishId, user.parishId), eq(pushSubscriptions.userId, user.userId)))
+  await runDbTransaction(async (tx) => {
+    await tx.delete(pushSubscriptions).where(and(
+      eq(pushSubscriptions.endpoint, endpoint),
+      eq(pushSubscriptions.parishId, user.parishId),
+      or(eq(pushSubscriptions.userId, user.userId), isNull(pushSubscriptions.userId)),
+    ))
+    await tx.insert(auditLogs).values({
+      id: generateId('AUD'),
+      userId: user.userId,
+      action: 'WEB_PUSH_UNSUBSCRIBE',
+      entityType: 'push_subscription',
+      entityId: user.userId,
+      ip: getClientIp(c),
+      userAgent: c.req.header('user-agent') || '',
+      parishId: user.parishId,
+    })
+  })
   return successResponse(c, { ok: true })
 })
 
@@ -214,15 +243,102 @@ notificationsRouter.get('/subscriptions', roleMiddleware('admin'), async (c) => 
   return successResponse(c, { count: web + native, web, native })
 })
 
+notificationsRouter.get('/', roleMiddleware('admin', 'chunhiem'), async (c) => {
+  const user = c.get('user') as JwtPayload
+  const statusParam = c.req.query('status')
+  const channelParam = c.req.query('channel')
+  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10) || 1)
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10) || 20))
+  const offset = (page - 1) * limit
+
+  const conditions = [eq(notifications.parishId, user.parishId)]
+  if (statusParam && ['sent', 'failed', 'retrying'].includes(statusParam)) {
+    conditions.push(eq(notifications.status, statusParam as 'sent' | 'failed' | 'retrying'))
+  }
+  if (channelParam && ['absence', 'report_card', 'reminder'].includes(channelParam)) {
+    conditions.push(eq(notifications.channel, channelParam as 'absence' | 'report_card' | 'reminder'))
+  }
+
+  const [totalCount] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(notifications)
+    .where(and(...conditions))
+
+  const rows = await db
+    .select({
+      id: notifications.id,
+      type: notifications.type,
+      channel: notifications.channel,
+      deliveryKind: notifications.deliveryKind,
+      status: notifications.status,
+      recipient: notifications.recipient,
+      message: notifications.message,
+      error: notifications.error,
+      attemptCount: notifications.attemptCount,
+      maxAttempts: notifications.maxAttempts,
+      createdAt: notifications.createdAt,
+      sentAt: notifications.sentAt,
+      nextAttemptAt: notifications.nextAttemptAt,
+    })
+    .from(notifications)
+    .where(and(...conditions))
+    .orderBy(sql`${notifications.createdAt} DESC`)
+    .limit(limit)
+    .offset(offset)
+
+  return successResponse(c, {
+    items: rows,
+    pagination: {
+      page,
+      limit,
+      total: Number(totalCount?.count || 0),
+      totalPages: Math.ceil(Number(totalCount?.count || 0) / limit),
+    },
+  })
+})
+
 // ─── Smart Notifications ───
 
 notificationsRouter.post('/smart/absence', zValidator('json', absenceSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const body = c.req.valid('json')
 
-  const [student] = await db.select().from(students).where(and(eq(students.parentPhone, body.parentPhone), eq(students.parishId, user.parishId), isNull(students.deletedAt))).limit(1)
-  if (!student) {
-    return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy thiếu nhi với số điện thoại phụ huynh này', 404)
+  let student: typeof students.$inferSelect | undefined
+  if (body.studentId) {
+    const [found] = await db
+      .select()
+      .from(students)
+      .where(and(eq(students.id, body.studentId), eq(students.parishId, user.parishId), isNull(students.deletedAt)))
+      .limit(1)
+    if (!found) {
+      return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy thiếu nhi với studentId này trong giáo xứ', 404)
+    }
+    student = found
+  } else {
+    const matched = await db
+      .select()
+      .from(students)
+      .where(and(eq(students.parentPhone, body.parentPhone), eq(students.parishId, user.parishId), isNull(students.deletedAt)))
+    if (matched.length === 0) {
+      return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy thiếu nhi với số điện thoại phụ huynh này', 404)
+    }
+    if (matched.length > 1) {
+      return errorResponse(
+        c,
+        'AMBIGUOUS_STUDENT',
+        'Có nhiều thiếu nhi cùng số điện thoại phụ huynh. Vui lòng cung cấp studentId để xác định chính xác.',
+        400,
+        {
+          candidates: matched.map((s) => ({
+            studentId: s.id,
+            fullName: s.fullName,
+            holyName: s.holyName,
+            classId: s.classId,
+          })),
+        },
+      )
+    }
+    student = matched[0]
   }
 
   if (!isAdmin(user)) {
@@ -234,9 +350,6 @@ notificationsRouter.post('/smart/absence', zValidator('json', absenceSchema), as
 
   const [cls] = await db.select().from(classes).where(and(eq(classes.id, student.classId), eq(classes.parishId, user.parishId), isNull(classes.deletedAt))).limit(1)
   const effectiveClassName = cls?.name || body.className
-  if (cls && cls.name !== body.className) {
-    console.warn(`[notifications] className mismatch for student ${student.id}: provided="${body.className}" actual="${cls.name}", using actual`)
-  }
 
   await notifyAbsence(
     user.parishId,
@@ -300,8 +413,8 @@ notificationsRouter.post('/smart/report-cards', zValidator('json', reportCardsSc
 
 notificationsRouter.post('/smart/reminder/sunday', async (c) => {
   const user = c.get('user') as JwtPayload
-  await notifySundayMassReminder(user.parishId)
-  return successResponse(c, { ok: true })
+  const enqueued = await notifySundayMassReminder(user.parishId)
+  return successResponse(c, { ok: true, enqueued })
 })
 
 notificationsRouter.post('/smart/reminder/class', zValidator('json', classReminderSchema), async (c) => {
@@ -334,8 +447,8 @@ notificationsRouter.post('/smart/reminder/class', zValidator('json', classRemind
     if (!target) return errorResponse(c, 'NOT_FOUND', 'Không tìm thấy lớp trong giáo xứ hiện tại', 404)
   }
 
-  await notifyClassReminder(user.parishId, className, date, targetClassId)
-  return successResponse(c, { ok: true })
+  const enqueued = await notifyClassReminder(user.parishId, className, date, targetClassId)
+  return successResponse(c, { ok: true, enqueued })
 })
 
 export default notificationsRouter

@@ -438,13 +438,14 @@ describe('syncProcessor', () => {
     })
 
     it('handles exam UPDATE remove_result', async () => {
-      vi.mocked(api.removeExamResult).mockResolvedValue({ deleted: true })
+      vi.mocked(api.removeExamResult).mockResolvedValue({ deleted: true, studentId: 'ST-001', resultId: 'EXR-001' })
+      const deletion = { expectedResultId: 'EXR-001', expectedResultVersion: 1, clientMutationId: 'MUT-DELETE-001' }
       const result = await processOperation({
         entity: 'exam', operation: 'update', entityId: 'EXS-SERVER-1',
-        payload: JSON.stringify({ action: 'remove_result', sessionId: 'EXS-SERVER-1', studentId: 'ST-001' }),
+        payload: JSON.stringify({ action: 'remove_result', sessionId: 'EXS-SERVER-1', studentId: 'ST-001', deletion }),
       })
       expect(result.ok).toBe(true)
-      expect(api.removeExamResult).toHaveBeenCalledWith('EXS-SERVER-1', 'ST-001')
+      expect(api.removeExamResult).toHaveBeenCalledWith('EXS-SERVER-1', 'ST-001', deletion)
     })
 
     it('handles exam UPDATE complete + reopen', async () => {

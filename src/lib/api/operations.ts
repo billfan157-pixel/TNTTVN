@@ -1,6 +1,6 @@
 import { newIdempotencyKey, request } from './core'
 
-const command = <T>(method: 'POST' | 'PUT', path: string, body?: unknown, idempotencyKey?: string) =>
+const command = <T>(method: 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, idempotencyKey?: string) =>
   request<T>(method, path, body, 0, { 'Idempotency-Key': idempotencyKey || newIdempotencyKey() })
 
 export interface OperationAssignment {
@@ -75,6 +75,13 @@ export interface OperationEvent {
   createdBy?: string
   createdAt?: string
   updatedAt?: string
+  /**
+   * Server-resolved display names for list rows (name only, same parish). The
+   * workspace shows "who created / who is responsible" without a per-row detail
+   * fetch; absent on cached/legacy payloads, so the UI must render tolerantly.
+   */
+  createdByName?: string | null
+  organizerName?: string | null
 }
 
 export interface OperationTask {
@@ -306,6 +313,8 @@ export interface OperationEventHeadcount {
 export interface OperationEventDetail {
   event: OperationEvent
   organizer?: { userId: string | null; personId: string | null; displayName: string | null } | null
+  /** Creator account of the event aggregate (detail header badge); name only. */
+  creator?: { userId: string | null; displayName: string | null } | null
   retrospective?: OperationEventRetrospective | null
   workstreams: OperationWorkstream[]
   tasks: OperationTask[]
@@ -383,10 +392,11 @@ export const operationsApi = {
   createReminder: (body: ({ eventId: string; kind: 'EVENT_START' } | { taskId: string; kind: 'TASK_DUE' }) & { recipientUserId: string; triggerAt: string }, idempotencyKey?: string) => command<OperationReminder>('POST', '/operations/reminders', body, idempotencyKey),
   getResourceReminders: (target: { taskId: string } | { eventId: string }, page = 1, limit = 50) => paged<OperationReminder>(`/operations/reminders?${'taskId' in target ? `taskId=${encodeURIComponent(target.taskId)}` : `eventId=${encodeURIComponent(target.eventId)}`}`, page, limit),
   getWorkstream: (id: string) => request<OperationWorkstreamDetail>('GET', `/operations/workstreams/${encodeURIComponent(id)}`),
-  createWorkstream: (body: { eventId?: string | null; sourceUnitId?: string | null; name: string; isRequired: boolean }, idempotencyKey?: string) => command<OperationWorkstream>('POST', '/operations/workstreams', body, idempotencyKey),
+  createWorkstream: (body: { eventId?: string | null; sourceUnitId?: string | null; name: string; isRequired: boolean; autoAssignLeader?: boolean }, idempotencyKey?: string) => command<OperationWorkstream>('POST', '/operations/workstreams', body, idempotencyKey),
   // W2.5: edit name/description/isRequired (sourceUnitId change needs create
   // authority on the new unit — server enforces; UI only sends name/description).
   updateWorkstream: (id: string, body: { version: number; name?: string; description?: string | null; isRequired?: boolean }, idempotencyKey?: string) => command<OperationWorkstream>('PUT', `/operations/workstreams/${encodeURIComponent(id)}`, body, idempotencyKey),
+  deleteWorkstream: (id: string, body: { version: number; reason?: string }, idempotencyKey?: string) => command<{ id: string; parishId: string; deletedAt: string }>('DELETE', `/operations/workstreams/${encodeURIComponent(id)}`, body, idempotencyKey),
   addWorkstreamMember: (id: string, body: { version: number; operationRole: OperationWorkstreamMember['operationRole'] } & OperationAssignmentTarget, idempotencyKey?: string) => command<OperationWorkstreamMember & { workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/members`, body, idempotencyKey),
   removeWorkstreamMember: (id: string, memberId: string, body: { version: number; memberVersion: number; reason: string }, idempotencyKey?: string) => command<{ member: OperationWorkstreamMember; workstreamVersion: number }>('POST', `/operations/workstreams/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}/remove`, body, idempotencyKey),
   replaceWorkstreamLead: (id: string, body: {

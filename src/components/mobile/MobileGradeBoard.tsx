@@ -8,7 +8,8 @@ import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useSyncStore } from '../../stores/syncStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
-import { exportGradebookToExcel } from '../../utils/excelExporter'
+import { exportOfficialGradebook } from '../../services/reportExporter'
+import { useToastStore } from '../../stores/toastStore'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { StudentName } from '../common/StudentName'
 import { SubpageHeader } from '../common/SubpageHeader'
@@ -52,6 +53,7 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showImportModal, setShowImportModal] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const filteredStudents = useMemo(() => (
     selectedClassId === 'all'
@@ -64,34 +66,17 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
     ? 'Tất cả các lớp'
     : classes.find(item => item.id === selectedClassId)?.name || 'Lớp hiện tại'
 
-  const matrixData = useMemo(() => {
-    const result: Record<string, Partial<GradeRecord>> = {}
-    filteredStudents.forEach(student => {
-      const grade = getStudentGrade(student.id, effectiveSemester)
-      result[student.id] = {
-        studentId: student.id,
-        semester: effectiveSemester,
-        scoreOral: grade?.scoreOral ?? null,
-        score15m: grade?.score15m ?? null,
-        score1Period: grade?.score1Period ?? null,
-        scoreMidterm: grade?.scoreMidterm ?? null,
-        scoreFinal: grade?.scoreFinal ?? null,
-        scoreDaoDuc: grade?.scoreDaoDuc ?? null,
-        comments: grade?.comments || '',
-      }
-    })
-    return result
-  }, [effectiveSemester, filteredStudents, getStudentGrade])
-
-  const handleExport = () => {
-    hapticFeedback.success()
-    exportGradebookToExcel({
-      students: filteredStudents,
-      matrixData,
-      className: selectedClassLabel,
-      semester: effectiveSemester,
-      academicYear,
-    })
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      await exportOfficialGradebook({ classId: selectedClassId, semester: effectiveSemester, academicYear })
+      hapticFeedback.success()
+      useToastStore.getState().addToast('Đã xuất bảng điểm chính thức từ máy chủ.', 'success')
+    } catch (error) {
+      useToastStore.getState().addToast(error instanceof Error ? error.message : 'Không thể xuất bảng điểm chính thức.', 'error')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const toggleExpanded = (studentId: string) => {
@@ -126,12 +111,12 @@ export const MobileGradeBoard: React.FC<MobileGradeBoardProps> = ({ onViewReport
             <div className="grade-action-group">
               <button
                 type="button"
-                onClick={handleExport}
-                disabled={filteredStudents.length === 0}
+                onClick={() => { void handleExport() }}
+                disabled={filteredStudents.length === 0 || isExporting}
                 className="grade-action-btn disabled:opacity-40"
                 title="Xuất bảng điểm ra file Excel"
               >
-                <Download size={12} /> Xuất
+                <Download size={12} /> {isExporting ? 'Đang xuất…' : 'Xuất'}
               </button>
               {canEdit && (
                 <button

@@ -170,6 +170,20 @@ describe('Audit07 owner, compaction and completion barriers', () => {
     expect(await payload(rows[0])).toMatchObject({ scoreMidterm: 8, scoreFinal: 9, _syncGradePatch: true })
   })
 
+  it('does not dispatch a chained essay save while its scan receipt is still in flight', async () => {
+    await syncSaveExamResults('EX-CHAIN', [{ studentId: 'ST-X', score: 2, source: 'omr', answers: '{"1":"A"}', examVersion: 'B' }])
+    const [scan] = await queue().getPendingOps()
+    await queue().claimOp(scan.id)
+    await syncSaveExamResults('EX-CHAIN', [{ studentId: 'ST-X', score: 4, essayScore: 4, source: 'quick_entry' }])
+    const [essay] = await queue().getPendingOps()
+    expect((await payload(essay)).score).toMatchObject({ afterMutationId: (await payload(scan)).score.clientMutationId, answers: '{"1":"A"}', essayScore: 4 })
+    const save = vi.spyOn(api, 'saveExamResults')
+    await runSyncFlow(true)
+    expect(save).not.toHaveBeenCalled()
+    expect(await db.syncQueue.get(scan.id)).toMatchObject({ status: 'processing' })
+    expect(await db.syncQueue.get(essay.id)).toMatchObject({ status: 'pending' })
+  })
+
   it('retains explicit clears and their source without creating unrelated null fields', async () => {
     await useGradeStore.getState().upsertGrade({ studentId: 'ST-CLEAR', semester: 1,
       scoreDaoDuc: null, scoreDaoDuc_source: 'manual' } as never)

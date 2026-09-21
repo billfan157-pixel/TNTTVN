@@ -79,7 +79,7 @@ describe('POST /api/reports/generate-pdf (PDF export)', () => {
   })
 
   it('4. pdfService fail → 500 PDF_GENERATION_FAILED', async () => {
-    vi.mocked(generatePDFFromHTML).mockRejectedValueOnce(new Error('boom'))
+    vi.mocked(generatePDFFromHTML).mockRejectedValueOnce(new Error('sensitive chromium path: C:\\secret'))
     const res = await reportingRouter.request('/generate-pdf', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token('admin')}`, 'Content-Type': 'application/json' },
@@ -88,6 +88,8 @@ describe('POST /api/reports/generate-pdf (PDF export)', () => {
     expect(res.status).toBe(500)
     const json = (await res.json()) as any
     expect(json.error.code).toBe('PDF_GENERATION_FAILED')
+    expect(json.error.message).toBe('Không thể tạo file PDF')
+    expect(JSON.stringify(json)).not.toContain('sensitive chromium path')
   })
 
   it('5. phuhuynh → 403 (endpoint chỉ dành staff)', async () => {

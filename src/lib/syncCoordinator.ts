@@ -497,6 +497,40 @@ export async function runSyncFlow(leaseHeld = false) {
           }
         }
       }
+      if (candidate.entity === 'exam_result' && candidate.operation === 'UPDATE' && !candidate.serverAcknowledgement) {
+        const payload = await parseQueuePayload(candidate.payload, true)
+        requireFlowOwner(flowOwner, candidate)
+        const deletion = payload.deletion && typeof payload.deletion === 'object'
+          ? payload.deletion as { afterMutationId?: string }
+          : null
+        const score = payload.score && typeof payload.score === 'object'
+          ? payload.score as { afterMutationId?: string }
+          : null
+        const predecessorId = payload.action === 'remove_result' ? deletion?.afterMutationId
+          : payload.action === 'save_result' ? score?.afterMutationId : undefined
+        if (predecessorId) {
+          const unsettled = await getOwnUnsettledSyncOperations()
+          requireFlowOwner(flowOwner, candidate)
+          let predecessorStillQueued = false
+          for (const item of unsettled) {
+            if (item.id === candidate.id || item.entity !== 'exam_result' || item.entityId !== candidate.entityId) continue
+            const prior = await parseQueuePayload(item.payload, true)
+            requireFlowOwner(flowOwner, candidate)
+            const priorScore = prior.score && typeof prior.score === 'object'
+              ? prior.score as { clientMutationId?: string }
+              : null
+            if (prior.action === 'save_result' && priorScore?.clientMutationId === predecessorId) {
+              predecessorStillQueued = true
+              break
+            }
+          }
+          if (predecessorStillQueued) {
+            store.setLastError('Lệnh kết quả đang chờ thao tác trước đó được máy chủ xác nhận.')
+            ops = ops.slice(1)
+            continue
+          }
+        }
+      }
       const op = await store.claimOp(ops[0].id)
       if (!op) {
         ops = ops.slice(1)

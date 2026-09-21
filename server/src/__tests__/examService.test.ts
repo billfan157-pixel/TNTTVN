@@ -34,6 +34,15 @@ async function currentResultVersion(sessionId: string, studentId: string): Promi
   return row?.resultVersion
 }
 
+async function resultDeletePath(sessionId: string, studentId: string, mutationId: string): Promise<string> {
+  const [row] = await db.select({ id: examResults.id, version: examResults.resultVersion }).from(examResults).where(and(
+    eq(examResults.parishId, parishId), eq(examResults.examSessionId, sessionId), eq(examResults.studentId, studentId),
+  )).limit(1)
+  if (!row) throw new Error('Expected result fixture is missing')
+  const query = new URLSearchParams({ expectedResultId: row.id, expectedResultVersion: String(row.version), clientMutationId: mutationId })
+  return `/${sessionId}/results/${studentId}?${query}`
+}
+
 describe('Smart Exam Grading — exam routes & service', () => {
   beforeAll(async () => {
     await db.insert(branches).values({ id: 'br-exam-01', name: 'Ấu Nhi', scarfColor: 'Xanh', ageMin: 6, ageMax: 9, parishId }).onConflictDoNothing()
@@ -331,7 +340,8 @@ describe('Smart Exam Grading — exam routes & service', () => {
 
   it('DELETE result removes exactly one row (phuta can delete in class) + audit EXAM_DELETE_RESULT', async () => {
     const sessionId = sharedSessionId
-    const del = await jsonReq(`/${sessionId}/results/st-exam-01`, { method: 'DELETE', token: phutaToken })
+    const path = await resultDeletePath(sessionId, 'st-exam-01', 'exam-service-delete-001')
+    const del = await jsonReq(path, { method: 'DELETE', token: phutaToken })
     expect(del.status).toBe(200)
     expect(del.data.deleted).toBe(true)
 
@@ -339,8 +349,9 @@ describe('Smart Exam Grading — exam routes & service', () => {
     expect(after.data.results).toHaveLength(1)
     expect(after.data.results[0].studentId).toBe('st-exam-02')
 
-    const again = await jsonReq(`/${sessionId}/results/st-exam-01`, { method: 'DELETE', token: phutaToken })
-    expect(again.status).toBe(404)
+    const again = await jsonReq(path, { method: 'DELETE', token: phutaToken })
+    expect(again.status).toBe(200)
+    expect(again.data.duplicate).toBe(true)
 
     const auditRows = await db.select({ action: auditLogs.action }).from(auditLogs).where(eq(auditLogs.entityId, sessionId))
     expect(auditRows.some(r => r.action === 'EXAM_DELETE_RESULT')).toBe(true)
@@ -349,7 +360,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
   it('cannot DELETE result after completed (409) unless admin reopens', async () => {
     const sessionId = sharedSessionId
     await jsonReq(`/${sessionId}/complete`, { method: 'POST', token: cnToken })
-    const blocked = await jsonReq(`/${sessionId}/results/st-exam-02`, { method: 'DELETE', token: adminToken })
+    const blocked = await jsonReq(await resultDeletePath(sessionId, 'st-exam-02', 'exam-service-completed-delete-001'), { method: 'DELETE', token: adminToken })
     expect(blocked.status).toBe(409)
     await jsonReq(`/${sessionId}/reopen`, { method: 'POST', token: adminToken })
   })
