@@ -12,3 +12,16 @@
 @source "../index.html";
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Toast enter animation — static stylesheet on purpose. Production CSP
+   (vercel.json / nginx / server middleware, A-NEW-23) applies
+   `style-src 'self'` WITHOUT 'unsafe-inline' for <style> elements, so an
+   inline <style>@keyframes</style> block in ToastContainer.tsx would be
+   blocked on production. Do NOT move this back into JSX. */
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.toast-slide-in {
+  animation: toastSlideIn 0.25s ease-out;
+}

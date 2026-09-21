@@ -44,8 +44,7 @@ export function ToastContainer() {
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-toast ${config.bg} ${config.border}`}
-            style={{ animation: 'toastSlideIn 0.25s ease-out' }}
+            className={`pointer-events-auto flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-toast toast-slide-in ${config.bg} ${config.border}`}
           >
             <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${config.iconColor}`} />
             <p className={`flex-1 text-sm font-medium leading-snug ${config.text}`}>{toast.message}</p>
@@ -59,12 +58,6 @@ export function ToastContainer() {
           </div>
         )
       })}
-      <style>{`
-        @keyframes toastSlideIn {
-          from { opacity: 0; transform: translateY(12px) scale(0.96); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-      `}</style>
     </div>
   )
 }
