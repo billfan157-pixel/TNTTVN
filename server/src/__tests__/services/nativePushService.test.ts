@@ -69,7 +69,9 @@ describe('nativePushService — targeting, tenant isolation and dead-token clean
       [`token-android-a1-${suffix}`],
       { title: 'T', body: 'B', url: undefined },
     )
-    expect(providers.apns).toHaveBeenCalledWith([], expect.any(Object))
+    // No iOS tokens for the targeted users → the APNs provider is skipped
+    // entirely (no empty-list invocation) instead of being called with [].
+    expect(providers.apns).not.toHaveBeenCalled()
     expect(result.total).toBe(1)
     expect(result.sent).toBe(1)
   })

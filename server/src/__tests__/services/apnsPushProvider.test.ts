@@ -62,7 +62,7 @@ describe('apnsPushProvider', () => {
       authorization: 'bearer signed-provider-jwt',
     })
     expect(JSON.parse(apns.sentBody)).toMatchObject({ aps: { alert: { title: 'Catevia', body: 'Có thông báo' } }, url: '/notices' })
-    expect(result).toEqual({ sent: 1, failed: 0, deadTokens: [] })
+    expect(result).toEqual({ sent: 1, failed: 0, deadTokens: [], successfulTokens: ['ios-token'], lastProviderError: undefined })
   })
 
   it('marks APNs Unregistered responses as dead tokens', async () => {
@@ -73,6 +73,8 @@ describe('apnsPushProvider', () => {
       sent: 0,
       failed: 1,
       deadTokens: ['dead-ios-token'],
+      successfulTokens: [],
+      lastProviderError: 'APNS:410:Unregistered',
     })
   })
 })

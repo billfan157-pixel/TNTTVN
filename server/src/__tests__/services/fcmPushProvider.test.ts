@@ -41,7 +41,7 @@ describe('fcmPushProvider HTTP v1', () => {
       data: { url: '/notices' },
       android: { priority: 'HIGH', notification: { channel_id: 'catevia_general', visibility: 'PRIVATE' } },
     })
-    expect(result).toEqual({ sent: 1, failed: 1, deadTokens: ['dead-token'] })
+    expect(result).toEqual({ sent: 1, failed: 1, deadTokens: ['dead-token'], successfulTokens: ['alive-token'], lastProviderError: 'FCM:404:UNREGISTERED' })
   })
 
   it('fails clearly when service-account JSON is malformed', async () => {

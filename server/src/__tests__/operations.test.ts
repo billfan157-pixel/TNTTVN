@@ -339,7 +339,10 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     }
     await data(await request(`/events/${event.id}/transition`, adminToken, 'POST', { version: event.version, status: 'PLANNING' }))
     const workstreamPermissions = (await data(await request(`/workstreams/${workstream.id}`, ownerToken))).permissions
-    expect(workstreamPermissions['operations.workstream.assign_lead']).toBe(managementRole === 'EVENT_ORGANIZER')
+    // Target Authorization Model (BUSINESS_RULES rule 18): EVENT_CREATOR /
+    // EVENT_ORGANIZER / WORKSTREAM_LEAD manage content but never auto-delegate —
+    // assign_lead comes only from unit-leader position scope (or admin override).
+    expect(workstreamPermissions['operations.workstream.assign_lead']).toBe(false)
     const task = await data(await request('/tasks', adminToken, 'POST', { eventId: event.id, workstreamId: workstream.id, title: 'Combined role task' }))
     const permissions = async () => (await data(await request(`/tasks/${task.id}`, ownerToken))).permissions
     expect(await permissions()).toMatchObject({ 'operations.task.execute': false })
@@ -596,7 +599,10 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect(leaderUnits.map((unit: any) => unit.id)).toEqual([branchId])
     expect(Object.keys(leaderUnits[0]).sort()).toEqual(['id', 'name', 'parentId', 'parishId', 'unitType'].sort())
     expect((await data(await request('/units?limit=500', committeeLeaderToken))).map((unit: any) => unit.id)).toEqual([committeeId])
-    expect((await data(await request('/units?limit=500', parishLeaderToken))).map((unit: any) => unit.id)).toEqual(expect.arrayContaining([branchId, otherBranchId, boardId, committeeId]))
+    // Target model (rule 18): /units lists units where the caller holds
+    // workstream.create. The parish leader holds no unit scope (Xu Doan scope
+    // only), so the list is empty for them.
+    expect((await data(await request('/units?limit=500', parishLeaderToken))).map((unit: any) => unit.id)).toEqual([])
     const missingStandaloneScope = await request('/workstreams', adminToken, 'POST', { name: 'Nhóm không có đơn vị' })
     expect(missingStandaloneScope.status).toBe(400)
     expect((await missingStandaloneScope.json() as any).error.code).toBe('STANDALONE_WORKSTREAM_SCOPE_REQUIRED')
@@ -665,12 +671,19 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
 
     expect((await request(`/events/${event.id}`, leaderToken)).status).toBe(200)
     expect((await request(`/events/${event.id}`, adminToken)).status).toBe(200)
-    for (const token of [ownerToken, parishLeaderToken, contributorToken, committeeLeaderToken]) {
+    for (const token of [ownerToken, contributorToken, committeeLeaderToken]) {
       expect((await request(`/events/${event.id}`, token)).status).toBe(403)
       expect((await request(`/tasks/${task.id}`, token)).status).toBe(403)
       expect((await data(await request('/events?limit=500', token))).map((row: any) => row.id)).not.toContain(event.id)
       expect((await data(await request('/tasks?limit=500', token))).map((row: any) => row.id)).not.toContain(task.id)
     }
+    // Target model (rule 18): Văn phòng xứ keeps parish-wide VIEW, including
+    // DRAFTs (view-only) — the parish leader sees the draft event/task and
+    // lists while it stays hidden from everyone else without a role on it.
+    expect((await request(`/events/${event.id}`, parishLeaderToken)).status).toBe(200)
+    expect((await request(`/tasks/${task.id}`, parishLeaderToken)).status).toBe(200)
+    expect((await data(await request('/events?limit=500', parishLeaderToken))).map((row: any) => row.id)).toContain(event.id)
+    expect((await data(await request('/tasks?limit=500', parishLeaderToken))).map((row: any) => row.id)).toContain(task.id)
 
     const planning = await data(await request(`/events/${event.id}/transition`, leaderToken, 'POST', { version: event.version, status: 'PLANNING' }))
     expect(planning.status).toBe('PLANNING')
@@ -751,16 +764,27 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
       scopeUnitId: branchId,
       title: 'Trưởng xứ đứng tên event ngành', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
     })
-    expect(parishLeaderUnit.status).toBe(400)
-    expect((await parishLeaderUnit.json() as any).error.code).toBe('ORGANIZER_MUST_BE_UNIT_LEADER')
-    // …nhưng vẫn được tạo event chuyên môn khi chỉ định đúng Trưởng unit.
-    const parishCreatedUnit = await data(await request('/events', parishLeaderToken, 'POST', {
+    expect(parishLeaderUnit.status).toBe(403)
+    expect((await parishLeaderUnit.json() as any).error.code).toBe('FORBIDDEN')
+    // …kể cả khi chỉ định đúng Trưởng unit làm organizer: Trưởng Xứ đoàn không
+    // tạo event chuyên môn dưới mọi hình thức (rule 18 — fail closed ở lớp
+    // authorization trước cả organizer rule).
+    const parishCreatedUnit = await request('/events', parishLeaderToken, 'POST', {
       scopeUnitId: branchId, organizerUserId: leaderId,
       title: 'Trưởng xứ tạo event ngành cho Trưởng ngành', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    })
+    expect(parishCreatedUnit.status).toBe(403)
+    expect((await parishCreatedUnit.json() as any).error.code).toBe('FORBIDDEN')
+    // …và Trưởng Xứ đoàn cũng không có manage trên event chuyên môn để đổi organizer…
+    const leaderUnitEvent = await data(await request('/events', leaderToken, 'POST', {
+      scopeUnitId: branchId,
+      title: 'Event ngành để thử đổi organizer', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
     }))
-    expect(parishCreatedUnit).toMatchObject({ scopeUnitId: branchId, organizerUserId: leaderId })
-    // …và đổi organizer event chuyên môn sang Trưởng xứ cũng bị chặn.
-    const organizerSwap = await request(`/events/${parishCreatedUnit.id}`, parishLeaderToken, 'PUT', { version: parishCreatedUnit.version, organizerUserId: parishLeaderId })
+    const parishSwapDenied = await request(`/events/${leaderUnitEvent.id}`, parishLeaderToken, 'PUT', { version: leaderUnitEvent.version, organizerUserId: parishLeaderId })
+    expect(parishSwapDenied.status).toBe(403)
+    // …trong khi Trưởng ngành đổi organizer sang người không phải Trưởng unit
+    // vẫn chạm đúng organizer rule.
+    const organizerSwap = await request(`/events/${leaderUnitEvent.id}`, leaderToken, 'PUT', { version: leaderUnitEvent.version, organizerUserId: parishLeaderId })
     expect(organizerSwap.status).toBe(400)
     expect((await organizerSwap.json() as any).error.code).toBe('ORGANIZER_MUST_BE_UNIT_LEADER')
     // Field without a unit in a Xu Doan event is rejected; deputy lead is rejected.
@@ -897,16 +921,21 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await request(`/candidates?taskId=${task.id}`, foreignToken)).status).toBe(403)
   })
 
-  it('keeps Trưởng Xứ đoàn assignment scope parish-wide', async () => {
-    const event = await data(await request('/events', parishLeaderToken, 'POST', {
+  it('denies Trưởng Xứ đoàn unit-event creation and position-based assignment (rule 18)', async () => {
+    // Trưởng Xứ đoàn không tạo event chuyên môn — kể cả khi organizer là Trưởng ngành.
+    const deniedEvent = await request('/events', parishLeaderToken, 'POST', {
       scopeUnitId: branchId, organizerUserId: leaderId,
       title: 'Điều phối toàn Xứ đoàn trong sự kiện ngành', eventType: 'MEETING', startsAt: '2026-11-04T08:00:00+07:00', endsAt: '2026-11-04T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
-    }))
-    const task = await data(await request('/tasks', parishLeaderToken, 'POST', { eventId: event.id, title: 'Điều động liên ban' }))
-    const candidates = await data(await request(`/candidates?taskId=${task.id}&limit=500`, parishLeaderToken))
-    expect(candidates.map((candidate: any) => candidate.personId)).toContain(`person-committee-leader-${suffix}`)
-    expect(candidates.find((candidate: any) => candidate.personId === `person-committee-leader-${suffix}`)?.inResourceScope).toBe(false)
-    expect((await request(`/tasks/${task.id}/assign`, parishLeaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, assignmentRole: 'CONTRIBUTOR' })).status).toBe(201)
+    })
+    expect(deniedEvent.status).toBe(403)
+    expect((await deniedEvent.json() as any).error.code).toBe('FORBIDDEN')
+
+    // Trên task độc lập, Trưởng Xứ đoàn không delegate qua position scope…
+    const standalone = await data(await request('/tasks', adminToken, 'POST', { scopeUnitId: branchId, title: 'Việc độc lập chờ phân công' }))
+    const parishAssign = await request(`/tasks/${standalone.id}/assign`, parishLeaderToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, assignmentRole: 'CONTRIBUTOR' })
+    expect(parishAssign.status).toBe(403)
+    // …nhưng admin override vẫn phân công parish-wide được.
+    expect((await request(`/tasks/${standalone.id}/assign`, adminToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, assignmentRole: 'CONTRIBUTOR' })).status).toBe(201)
   })
 
   it('updates only membership validity with aggregate and member OCC', async () => {
@@ -1227,9 +1256,12 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     })
     expect(internal.status).toBe(201)
 
+    // Target model (rule 18): Trưởng Xứ đoàn không tạo event chuyên môn (kể cả
+    // PUBLIC) — projection công khai của Xứ đoàn đi qua event Xứ đoàn, nơi
+    // Trưởng Xứ đoàn giữ publish_public.
     const published = await request('/events', parishLeaderToken, 'POST', {
-      scopeUnitId: branchId, organizerUserId: leaderId,
-      title: 'Thông báo ngành đã duyệt', eventType: 'MEETING',
+      eventScopeType: 'XU_DOAN',
+      title: 'Thông báo toàn Xứ đoàn đã duyệt', eventType: 'MEETING',
       startsAt: '2026-10-21T08:00:00+07:00', endsAt: '2026-10-21T10:00:00+07:00',
       timezone: 'Asia/Ho_Chi_Minh', visibility: 'PUBLIC_SUMMARY',
     })
@@ -2290,16 +2322,91 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     })
     expect(memberLead.status).toBe(403)
     expect(((await memberLead.json()) as any).error.code).toBe('WORKSTREAM_LEAD_OUTSIDE_UNIT')
-    // Even the parish leader cannot lead a unit field: the rule is strictly the
-    // responsible unit's own leader (scope checks would already pass for them).
+    // Even the parish leader cannot appoint a field lead on a standalone field:
+    // the U-20 assign_lead exception only opens Mảng of a Xứ đoàn event, so
+    // authorization denies (FORBIDDEN) before unit-leader eligibility is even
+    // evaluated. The rule is still strictly the responsible unit's own leader.
     const parishLeadLead = await request(`/workstreams/${workstream.id}/members`, parishLeaderToken, 'POST', {
       version: 1, userId: parishLeaderId, operationRole: 'WORKSTREAM_LEAD',
     })
     expect(parishLeadLead.status).toBe(403)
-    expect(((await parishLeadLead.json()) as any).error.code).toBe('WORKSTREAM_LEAD_OUTSIDE_UNIT')
+    expect(((await parishLeadLead.json()) as any).error.code).toBe('FORBIDDEN')
     // The responsible unit leader can.
     expect((await request(`/workstreams/${workstream.id}/members`, leaderToken, 'POST', {
       version: 1, userId: leaderId, operationRole: 'WORKSTREAM_LEAD',
+    })).status).toBe(201)
+  })
+
+  it('U-20 Gói A: task inside a Xu Doan workstream belongs to the owning unit', async () => {
+    const event = await data(await request('/events', parishLeaderToken, 'POST', {
+      eventScopeType: 'XU_DOAN',
+      title: 'Sa mạc field-layer', eventType: 'CAMP', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-12T17:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const field = await data(await request('/workstreams', parishLeaderToken, 'POST', { eventId: event.id, sourceUnitId: branchId, name: 'Field layer probe' }))
+    // Non-creators act on the event only from PLANNING on (DRAFT stays
+    // creator/admin/parish-leader-only under both models).
+    await data(await request(`/events/${event.id}/transition`, parishLeaderToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    // The owning unit leader creates tasks in their own field.
+    expect((await request('/tasks', leaderToken, 'POST', { eventId: event.id, workstreamId: field.id, title: 'Việc của ngành' })).status).toBe(201)
+    // The Xu Doan organizer (parish leader) is NOT a bypass for field tasks…
+    const organizerTask = await request('/tasks', parishLeaderToken, 'POST', { eventId: event.id, workstreamId: field.id, title: 'Việc của xứ' })
+    expect(organizerTask.status).toBe(403)
+    expect(((await organizerTask.json()) as any).error.code).toBe('FORBIDDEN')
+    // …nor is an unrelated staff member.
+    expect((await request('/tasks', ownerToken, 'POST', { eventId: event.id, workstreamId: field.id, title: 'Việc ngoài' })).status).toBe(403)
+    // Tasks in a Xu Doan event must live inside a field (non-admin).
+    const orphanTask = await request('/tasks', leaderToken, 'POST', { eventId: event.id, title: 'Task không mảng' })
+    expect(orphanTask.status).toBe(400)
+    expect(((await orphanTask.json()) as any).error.code).toBe('TASK_WORKSTREAM_REQUIRED')
+    // U-20 exception: the parish leader appoints the owning unit leader as field lead…
+    expect((await request(`/workstreams/${field.id}/members`, parishLeaderToken, 'POST', {
+      version: 1, userId: leaderId, operationRole: 'WORKSTREAM_LEAD',
+    })).status).toBe(201)
+    // …and the event-level permission map reflects field authority: no field
+    // authority for the coordinator, field authority for the unit leader.
+    const parishMap = (await data(await request(`/permissions?eventId=${event.id}`, parishLeaderToken))).permissions
+    expect(parishMap['operations.task.create']).toBe(false)
+    const leaderMap = (await data(await request(`/permissions?eventId=${event.id}`, leaderToken))).permissions
+    expect(leaderMap['operations.task.create']).toBe(true)
+  })
+
+  it('U-20 Mức 3: unit deputy delegates inside the unit only and never leads', async () => {
+    // Self-contained deputy fixture on the committee (the branch already has
+    // its single active deputy — the overlap trigger forbids two).
+    const depUserId = `u20-dep-${suffix}`
+    const depPersonId = `u20-dep-person-${suffix}`
+    await db.insert(users).values([{ id: depUserId, username: depUserId, passwordHash: 'hash', fullName: 'U20 Deputy', role: 'chunhiem', parishId: parishA, status: 'ACTIVE', tokenVersion: 1 }])
+    await db.insert(parishPeople).values([{ id: depPersonId, parishId: parishA, linkedUserId: depUserId, fullName: 'U20 Deputy', createdBy: adminId, updatedBy: adminId }])
+    await db.insert(parishServiceTerms).values([{
+      id: `u20-dep-term-${suffix}`, parishId: parishA, personId: depPersonId, unitId: committeeId,
+      positionTitle: 'Phó Ban U20', positionCode: 'COMMITTEE_DEPUTY', startDate: '2026-01-01', endDate: '2026-12-31', createdBy: adminId, updatedBy: adminId,
+    }])
+    const depToken = accessToken(depUserId, 'chunhiem', parishA)
+    const event = await data(await request('/events', committeeLeaderToken, 'POST', {
+      scopeUnitId: committeeId,
+      title: 'Event deputy312', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
+    }))
+    const task = await data(await request('/tasks', committeeLeaderToken, 'POST', { eventId: event.id, title: 'Việc chờ phó phân công' }))
+    // Assignments need a non-DRAFT event (DRAFT only serves creator/admin).
+    await data(await request(`/events/${event.id}/transition`, committeeLeaderToken, 'POST', { version: event.version, status: 'PLANNING' }))
+    // Deputy assigns inside the own unit…
+    expect((await request(`/tasks/${task.id}/assign`, depToken, 'POST', { version: 1, personId: `person-committee-leader-${suffix}`, assignmentRole: 'CONTRIBUTOR' })).status).toBe(201)
+    // …but not outside it…
+    const outside = await request(`/tasks/${task.id}/assign`, depToken, 'POST', { version: 2, personId: `person-contributor-${suffix}`, assignmentRole: 'CONTRIBUTOR' })
+    expect(outside.status).toBe(403)
+    expect(((await outside.json()) as any).error.code).toBe('TARGET_OUTSIDE_ORGANIZATION_SCOPE')
+    // …and never appoints field leads (no assign_lead).
+    const field = await data(await request('/workstreams', committeeLeaderToken, 'POST', { sourceUnitId: committeeId, name: 'Field deputy probe' }))
+    const leadBid = await request(`/workstreams/${field.id}/members`, depToken, 'POST', {
+      version: 1, userId: committeeLeaderId, operationRole: 'WORKSTREAM_LEAD',
+    })
+    expect(leadBid.status).toBe(403)
+    expect(((await leadBid.json()) as any).error.code).toBe('FORBIDDEN')
+    // Deputy keeps unit-event creation in the own unit (naming the unit leader
+    // as organizer — organizer must still be the active leader).
+    expect((await request('/events', depToken, 'POST', {
+      scopeUnitId: committeeId, organizerUserId: committeeLeaderId,
+      title: 'Event của phó ban', eventType: 'MEETING', startsAt: '2026-11-11T08:00:00+07:00', endsAt: '2026-11-11T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
     })).status).toBe(201)
   })
 
@@ -2319,13 +2426,15 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     const options = await data(await request('/creation-options', parishDeputyToken))
     expect(options.canCreateXuDoanEvent).toBe(true)
     expect(options.units).toEqual([])
-    // Gọi trực tiếp cũng fail closed ở organizer scope rule.
+    // Gọi trực tiếp cũng fail closed: deputy chỉ tạo Event Xứ đoàn nên
+    // capability event.create với scope chuyên môn bị từ chối (FORBIDDEN) ngay
+    // ở lớp authorization, trước cả organizer scope rule.
     const unitEvent = await request('/events', parishDeputyToken, 'POST', {
       scopeUnitId: branchId, organizerUserId: leaderId,
       title: 'Event chuyên môn của Phó xứ', eventType: 'MEETING', startsAt: '2026-11-10T08:00:00+07:00', endsAt: '2026-11-10T10:00:00+07:00', timezone: 'Asia/Ho_Chi_Minh',
     })
     expect(unitEvent.status).toBe(403)
-    expect(((await unitEvent.json()) as any).error.code).toBe('UNIT_SCOPE_MISMATCH')
+    expect(((await unitEvent.json()) as any).error.code).toBe('FORBIDDEN')
   })
 
   // Hardening fixtures (V1/V2/V3/V5/V7/V8): a second branch leader owning
