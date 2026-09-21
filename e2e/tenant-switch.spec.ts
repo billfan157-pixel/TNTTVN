@@ -38,7 +38,7 @@ async function installTenantApi(
     const user = users[tenant]
 
     if (url.pathname.endsWith('/auth/refresh')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { accessToken: `e2e-token-${tenant}` } }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { accessToken: `e2e-token-${tenant}`, userId: user.id, parishId: user.parishId } }) })
       return
     }
 

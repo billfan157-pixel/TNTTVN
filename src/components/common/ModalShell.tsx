@@ -110,7 +110,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
                   {title}
                 </h3>
                 {subtitle && (
-                  <p className="typography-body-sm text-text-muted m-0 truncate mt-0.5">
+                  <p className="typography-body-sm text-text-secondary m-0 truncate mt-0.5">
                     {subtitle}
                   </p>
                 )}

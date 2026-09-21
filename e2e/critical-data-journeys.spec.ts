@@ -92,11 +92,15 @@ test.describe('Critical persisted business outcomes', () => {
     const scoreInput = page.getByRole('textbox', { name: 'Nhập điểm miệng cho Maria Thiếu Nhi E2E' })
     await expect(scoreInput).toBeVisible()
 
+    const currentScore = await scoreInput.inputValue()
+    const nextScore = currentScore === '8.5' ? '9.0' : '8.5'
+    const nextScoreNumber = parseFloat(nextScore)
+
     const savedResponse = page.waitForResponse(response => (
       response.url().endsWith('/api/grades/batch')
       && response.request().method() === 'POST'
     ))
-    await scoreInput.fill('8.5')
+    await scoreInput.fill(nextScore)
     await scoreInput.press('Enter')
     expect((await savedResponse).status()).toBe(200)
     await expect(page.getByText(/Đã lưu:/)).toBeVisible()
@@ -104,12 +108,12 @@ test.describe('Critical persisted business outcomes', () => {
     const gradesResponse = await authorizedRequest(page.request, session, 'GET', '/api/grades')
     const grades = (await gradesResponse.json()).data as Array<Record<string, unknown>>
     expect(grades).toContainEqual(expect.objectContaining({
-      studentId: 'student-e2e-001', academicYear: '2026-2027', semester: 1, scoreOral: 8.5,
+      studentId: 'student-e2e-001', academicYear: '2026-2027', semester: 1, scoreOral: nextScoreNumber,
     }))
 
     await page.reload()
     await page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' }).selectOption('CLS-TN-1')
-    await expect(page.getByRole('textbox', { name: 'Nhập điểm miệng cho Maria Thiếu Nhi E2E' })).toHaveValue('8.5')
+    await expect(page.getByRole('textbox', { name: 'Nhập điểm miệng cho Maria Thiếu Nhi E2E' })).toHaveValue(nextScore)
   })
 
   test('@critical finance income updates both ledger and calculated fund balance', async ({ page }, testInfo) => {

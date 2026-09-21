@@ -60,14 +60,14 @@ const protectedRouteNavigation: Record<RepresentativeProtectedRoute, { label: st
   '/students': { label: 'Thiếu Nhi', workspace: 'academic' },
   '/attendance': { label: 'Điểm Danh', workspace: 'academic' },
   '/grades': { label: 'Bảng Điểm', workspace: 'academic' },
-  '/finances': { label: 'Quỹ & thu chi', workspace: 'organization' },
-  '/parish': { label: 'Tổng quan Xứ đoàn', workspace: 'organization' },
-  '/parish-profile': { label: 'Hồ sơ Xứ đoàn', workspace: 'organization' },
+  '/finances': { label: 'Quỹ & Thu Chi', workspace: 'organization' },
+  '/parish': { label: 'Tổng Quan Xứ Đoàn', workspace: 'organization' },
+  '/parish-profile': { label: 'Hồ Sơ Xứ Đoàn', workspace: 'organization' },
 }
 
 const workspaceLabels = {
-  academic: 'Thiếu nhi & Học vụ',
-  organization: 'Xứ đoàn & Giáo xứ',
+  academic: 'Thiếu Nhi & Học Vụ',
+  organization: 'Xứ Đoàn & Giáo Xứ',
 } as const
 
 export async function installUiBoot(page: Page, theme: MatrixTheme = 'light') {

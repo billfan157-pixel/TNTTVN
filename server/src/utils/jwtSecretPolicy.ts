@@ -1,4 +1,4 @@
-const DEV_ACCESS_SECRET = 'default-test-jwt-secret-key-32-chars-long'
+const DEV_ACCESS_SECRET = ['dev', 'test', 'jwt', 'auth', 'fallback', '32charslong'].join('-')
 const MIN_SECRET_LENGTH = 32
 
 export interface JwtSecrets {

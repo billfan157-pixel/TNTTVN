@@ -31,7 +31,7 @@ test.describe('Smoke Tests', () => {
       .getByRole('button', { name: 'Điểm Danh', exact: true }).click()
     await expect(page).toHaveURL('/attendance')
     await page.getByRole('tab', { name: 'Sổ Điểm Danh' }).click()
-    await expect(page.getByText('Điểm Danh Chuyên Cần')).toBeVisible()
+    await expect(page.getByText(/Điểm Danh (&|và)? Chuyên Cần/)).toBeVisible()
   })
 })
 
@@ -39,7 +39,7 @@ test.describe('Critical Path — Attendance', () => {
   test('change student status and save attendance', async ({ page }) => {
     await page.goto('/attendance')
     await page.getByRole('tab', { name: 'Sổ Điểm Danh' }).click()
-    await expect(page.getByText('Điểm Danh Chuyên Cần')).toBeVisible()
+    await expect(page.getByText(/Điểm Danh (&|và)? Chuyên Cần/)).toBeVisible()
 
     const studentRow = page.getByRole('row', { name: /Maria Thiếu Nhi E2E E2E-001/ })
     await expect(studentRow.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()

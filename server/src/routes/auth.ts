@@ -213,7 +213,7 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
         role: user.role as JwtPayload['role'],
         parishId: user.parishId,
       },
-      user.tokenVersion ?? 0,
+      user.tokenVersion || 1,
     )
 
     const ip = getClientIp(c)

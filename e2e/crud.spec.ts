@@ -26,14 +26,14 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
     await page.goto('/dashboard')
     const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
     await expect(navigation.getByRole('button', { name: 'Báo Cáo', exact: true })).toBeVisible()
-    await expect(navigation.getByRole('button', { name: 'Quản lý hệ thống', exact: true })).toBeVisible()
-    await expect(navigation.getByRole('button', { name: 'Quỹ & thu chi', exact: true })).not.toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quản Lý Hệ Thống', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quỹ & Thu Chi', exact: true })).not.toBeVisible()
 
     await page.getByRole('group', { name: 'Chuyển không gian làm việc' })
-      .getByRole('button', { name: 'Xứ đoàn & Giáo xứ', exact: true })
+      .getByRole('button', { name: 'Xứ Đoàn & Giáo Xứ', exact: true })
       .click()
     await expect(page).toHaveURL(/\/parish$/)
-    await expect(navigation.getByRole('button', { name: 'Quỹ & thu chi', exact: true })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Quỹ & Thu Chi', exact: true })).toBeVisible()
     await expect(page.getByText('BỘ LỌC PHÂN NGÀNH & LỚP')).not.toBeVisible()
   })
 

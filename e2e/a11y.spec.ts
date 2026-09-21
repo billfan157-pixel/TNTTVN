@@ -139,10 +139,12 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
           if (publicRoute.route === '/login/phuhuynh') {
             await page.getByRole('button', { name: 'Quên mật khẩu?' }).click()
             await expect(page.getByRole('dialog', { name: 'Khôi Phục Tài Khoản An Toàn' })).toBeVisible()
+            await page.waitForTimeout(300)
             const modalResults = await runAxeStable(page, testInfo, `parent-forgot-password-${viewportName}-${theme}`,
               async () => {
                 await page.getByRole('button', { name: 'Quên mật khẩu?' }).click()
                 await expect(page.getByRole('dialog', { name: 'Khôi Phục Tài Khoản An Toàn' })).toBeVisible()
+                await page.waitForTimeout(300)
               })
             expect(modalResults.violations, formatViolations(modalResults.violations)).toEqual([])
           }

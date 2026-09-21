@@ -1,0 +1,10 @@
+# Gitleaks configuration — Catevia / TNTTVN
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for test fixtures, dummy test signatures, and local development fallbacks"
+paths = [
+  '''server/src/utils/jwtSecretPolicy\.ts''',
+  '''server/src/__tests__/routes/cspReport\.test\.ts''',
+]

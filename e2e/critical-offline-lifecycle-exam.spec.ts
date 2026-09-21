@@ -25,7 +25,7 @@ async function countPendingAttendanceOps(page: Page): Promise<number> {
 }
 
 test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
-  test('@critical @mobile offline attendance queues locally then syncs exactly after reconnect', async ({ page, context }) => {
+  test('@critical @mobile offline attendance queues locally then syncs exactly after reconnect', async ({ page, context }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const session = await getAdminSession(page.request)
     await injectSession(page, session)
@@ -34,7 +34,8 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     await expect(page.getByRole('tab', { name: 'Điểm Danh' })).toHaveAttribute('aria-selected', 'true')
     await page.getByRole('button', { name: /Chọn lớp Thiếu Nhi 1/ }).click()
     const dateInput = page.locator('input[type="date"]').first()
-    await dateInput.fill('2026-08-23')
+    const testDate = testInfo.project.name === 'webkit' ? '2026-08-24' : '2026-08-23'
+    await dateInput.fill(testDate)
 
     await context.setOffline(true)
     const studentStatus = page.getByRole('group', { name: 'Trạng thái của Maria Thiếu Nhi E2E' })

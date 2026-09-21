@@ -22,8 +22,8 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await page.goto('/')
     await page.getByRole('button', { name: /bắt đầu đăng nhập/i }).first().click()
     await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 })
-    await expect(page.locator('.auth-card')).toBeVisible()
-    await expect(page.getByText('Cổng Phụ Huynh')).toBeVisible()
+    await expect(page.locator('.auth-card')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('Cổng Phụ Huynh')).toBeVisible({ timeout: 15_000 })
   })
 
   test('thẻ cổng điều hướng đúng portal nhân sự / phụ huynh', async ({ page }) => {

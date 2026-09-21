@@ -48,17 +48,17 @@ describe('OBS-1: CSP violation report collector', () => {
 
   it('redacts signed verification queries and arbitrary payload values from logs', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const secret = 'student-child-123-signature-secret'
+    const dummySig = 'test-verification-sig-value-xyz'
 
     const standard = await app.request('/api/csp-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/csp-report' },
       body: JSON.stringify({
         'csp-report': {
-          'document-uri': `https://tnttvn.vercel.app/verify?studentId=child-123&sig=${secret}`,
+          'document-uri': `https://tnttvn.vercel.app/verify?studentId=child-123&sig=${dummySig}`,
           'violated-directive': 'script-src',
-          'blocked-uri': `https://cdn.example/script.js?token=${secret}`,
-          'source-file': `https://tnttvn.vercel.app/assets/app.js?debug=${secret}`,
+          'blocked-uri': `https://cdn.example/script.js?token=${dummySig}`,
+          'source-file': `https://tnttvn.vercel.app/assets/app.js?debug=${dummySig}`,
         },
       }),
     })
@@ -67,7 +67,7 @@ describe('OBS-1: CSP violation report collector', () => {
     const unknown = await app.request('/api/csp-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: `student name ${secret}`, authorization: `Bearer ${secret}` }),
+      body: JSON.stringify({ content: `student name ${dummySig}`, authorization: `Bearer ${dummySig}` }),
     })
     expect(unknown.status).toBe(204)
 
@@ -76,7 +76,7 @@ describe('OBS-1: CSP violation report collector', () => {
     expect(logs).toContain('https://cdn.example/script.js')
     expect(logs).not.toContain('studentId=')
     expect(logs).not.toContain('token=')
-    expect(logs).not.toContain(secret)
+    expect(logs).not.toContain(dummySig)
     expect(logs).not.toContain('student name')
   })
 })

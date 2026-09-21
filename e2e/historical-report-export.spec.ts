@@ -91,11 +91,19 @@ test.describe('Official historical report export authority', () => {
     await expectOk(await authorizedRequest(page.request, session, 'PUT', `/api/classes/${sourceClassId}`, {
       name: `Mutable Renamed ${key}`,
     }), 'rename mutable source class')
-    await expectOk(await authorizedRequest(page.request, session, 'PUT', `/api/students/${studentId}`, {
-      classId: destinationClassId,
-      branch: 'AuNhi',
-      membershipChangeReason: 'Verify finalized export remains frozen',
-    }), 'move current membership')
+    const evalRes = await authorizedRequest(page.request, session, 'GET', `/api/promotion/evaluate/${studentId}?academicYear=${academicYear}`)
+    const evalData = ((await evalRes.json()) as { data: { gpa: number; attendanceRate: number } }).data
+    await expectOk(await authorizedRequest(page.request, session, 'POST', '/api/promotion/batch-approve', {
+      items: [{
+        studentId,
+        academicYear,
+        targetClassId: sourceClassId,
+        nextClassId: destinationClassId,
+        newBranch: 'AuNhi',
+        gpa: evalData.gpa,
+        attendanceRate: evalData.attendanceRate,
+      }],
+    }), 'promote student to destination year class')
     await expectOk(await authorizedRequest(page.request, session, 'PUT', '/api/settings', {
       gradeWeights: {
         weightOral: 9,

@@ -85,7 +85,7 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
           </div>
         ) : (
           <form onSubmit={submitRequest} className="space-y-3">
-            <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-muted">
+            <label htmlFor={phoneId} className="block text-xs font-semibold uppercase text-text-secondary">
               Số điện thoại đăng nhập
               <TextInput id={phoneId} value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" autoComplete="username" placeholder="Ví dụ: 0901234567" className="mt-1.5 w-full rounded-lg" />
             </label>
@@ -98,11 +98,11 @@ export const ParentForgotPasswordModal: React.FC<ParentForgotPasswordModalProps>
 
         <div className="flex items-center gap-3" aria-hidden="true">
           <span className="h-px flex-1 bg-surface-border" />
-          <span className="text-xs font-semibold uppercase text-text-muted">Hoặc liên hệ trực tiếp</span>
+          <span className="text-xs font-semibold uppercase text-text-secondary">Hoặc liên hệ trực tiếp</span>
           <span className="h-px flex-1 bg-surface-border" />
         </div>
         <div>
-          <div className="mb-1.5 text-xs font-semibold uppercase text-text-muted">Tin nhắn mẫu</div>
+          <div className="mb-1.5 text-xs font-semibold uppercase text-text-secondary">Tin nhắn mẫu</div>
           <div className="rounded-xl border border-surface-border bg-surface-hover/50 p-3 text-xs leading-relaxed text-text-main">{message}</div>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
