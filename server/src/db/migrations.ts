@@ -1996,9 +1996,14 @@ WHEN NEW.unit_type <> OLD.unit_type AND EXISTS (
 BEGIN SELECT RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH'); END;
 ` },
   { version: '20260910-253', sql: `
-PRAGMA legacy_alter_table = ON;
-ALTER TABLE operation_events RENAME TO operation_events_legacy;
-CREATE TABLE operation_events (
+DROP TRIGGER IF EXISTS check_operation_reminder_target_insert;
+DROP TRIGGER IF EXISTS check_operation_workstream_scope_insert;
+DROP TRIGGER IF EXISTS check_operation_workstream_scope_update;
+DROP TRIGGER IF EXISTS check_operation_task_scope_insert;
+DROP TRIGGER IF EXISTS check_operation_task_scope_update;
+DROP TRIGGER IF EXISTS check_operation_participant_target_insert;
+DROP TRIGGER IF EXISTS check_operation_event_template_version_delete;
+CREATE TABLE operation_events_new (
   id TEXT NOT NULL,
   parish_id TEXT NOT NULL,
   source_parish_event_id TEXT,
@@ -2041,7 +2046,7 @@ CREATE TABLE operation_events (
     (automation_paused = 1 AND automation_paused_at IS NOT NULL AND automation_paused_by IS NOT NULL AND trim(coalesce(automation_pause_reason, '')) <> '')
   )
 );
-INSERT INTO operation_events (
+INSERT INTO operation_events_new (
   id, parish_id, source_parish_event_id, source_template_id, source_template_version,
   title, description, event_type, starts_at, ends_at, timezone, location, status,
   visibility, scope_unit_id, organizer_person_id, organizer_user_id, expected_headcount,
@@ -2052,8 +2057,9 @@ SELECT
   title, description, event_type, starts_at, ends_at, timezone, location, status,
   visibility, scope_unit_id, organizer_person_id, organizer_user_id, expected_headcount,
   outcome_summary, version, created_by, updated_by, created_at, updated_at, deleted_at
-FROM operation_events_legacy;
-DROP TABLE operation_events_legacy;
+FROM operation_events;
+DROP TABLE operation_events;
+ALTER TABLE operation_events_new RENAME TO operation_events;
 CREATE INDEX idx_operation_events_list ON operation_events(parish_id, status, starts_at, deleted_at);
 CREATE UNIQUE INDEX idx_operation_events_source ON operation_events(parish_id, source_parish_event_id) WHERE source_parish_event_id IS NOT NULL AND deleted_at IS NULL;
 CREATE INDEX idx_operation_events_visibility ON operation_events(parish_id, visibility, starts_at);
@@ -2096,7 +2102,45 @@ WHEN NOT (
   ))
 )
 BEGIN SELECT RAISE(ABORT, 'operation event template version must belong to the same parish'); END;
-PRAGMA legacy_alter_table = OFF;
+
+CREATE TRIGGER check_operation_workstream_scope_insert BEFORE INSERT ON operation_workstreams BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_EVENT') END;
+      SELECT CASE WHEN NEW.source_unit_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_organization_units u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.source_unit_id AND u.deleted_at IS NULL AND u.is_active = 1) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_SCOPE') END;
+END;
+CREATE TRIGGER check_operation_workstream_scope_update BEFORE UPDATE OF operation_event_id, source_unit_id ON operation_workstreams BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_EVENT') END;
+      SELECT CASE WHEN NEW.source_unit_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_organization_units u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.source_unit_id AND u.deleted_at IS NULL AND u.is_active = 1) THEN RAISE(ABORT, 'INVALID_OPERATION_WORKSTREAM_SCOPE') END;
+END;
+CREATE TRIGGER check_operation_task_scope_insert BEFORE INSERT ON operation_tasks BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_EVENT') END;
+      SELECT CASE WHEN NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_WORKSTREAM') END;
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.operation_event_id = NEW.operation_event_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'OPERATION_TASK_EVENT_WORKSTREAM_MISMATCH') END;
+END;
+CREATE TRIGGER check_operation_task_scope_update BEFORE UPDATE OF operation_event_id, workstream_id ON operation_tasks BEGIN
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.operation_event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_EVENT') END;
+      SELECT CASE WHEN NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_WORKSTREAM') END;
+      SELECT CASE WHEN NEW.operation_event_id IS NOT NULL AND NEW.workstream_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_workstreams w WHERE w.parish_id = NEW.parish_id AND w.id = NEW.workstream_id AND w.operation_event_id = NEW.operation_event_id AND w.deleted_at IS NULL) THEN RAISE(ABORT, 'OPERATION_TASK_EVENT_WORKSTREAM_MISMATCH') END;
+END;
+CREATE TRIGGER check_operation_participant_target_insert BEFORE INSERT ON operation_event_participants BEGIN
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_PARTICIPANT_EVENT') END;
+      SELECT CASE WHEN NEW.user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_PARTICIPANT_USER') END;
+      SELECT CASE WHEN NEW.person_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM parish_people p WHERE p.parish_id = NEW.parish_id AND p.id = NEW.person_id AND p.service_status = 'ACTIVE' AND p.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_PARTICIPANT_PERSON') END;
+END;
+CREATE TRIGGER check_operation_event_template_version_delete
+BEFORE DELETE ON operation_event_template_versions
+WHEN EXISTS (
+  SELECT 1 FROM operation_events
+  WHERE parish_id = OLD.parish_id AND source_template_id = OLD.template_id AND source_template_version = OLD.version
+)
+BEGIN SELECT RAISE(ABORT, 'operation event template version is referenced by an event'); END;
+
+CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation_reminders BEGIN
+      SELECT CASE WHEN (NEW.task_id IS NULL) = (NEW.event_id IS NULL) THEN RAISE(ABORT, 'OPERATION_REMINDER_EXACTLY_ONE_TARGET') END;
+      SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.recipient_user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_RECIPIENT') END;
+      SELECT CASE WHEN NEW.task_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_tasks t WHERE t.parish_id = NEW.parish_id AND t.id = NEW.task_id AND t.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_TASK') END;
+      SELECT CASE WHEN NEW.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_EVENT') END;
+    END;
+
 ` },
   { version: '20260910-254', sql: `
 CREATE TABLE operation_task_dispatches (
@@ -2134,9 +2178,7 @@ CREATE UNIQUE INDEX idx_operation_task_dispatch_active ON operation_task_dispatc
 CREATE INDEX idx_operation_task_dispatch_reserve_due ON operation_task_dispatches(status,reserve_invite_at,reserve_invited_at);
 ` },
   { version: '20260911-255', sql: `
-PRAGMA legacy_alter_table = ON;
-ALTER TABLE operation_reminders RENAME TO operation_reminders_legacy;
-CREATE TABLE operation_reminders (
+CREATE TABLE operation_reminders_new (
   parish_id TEXT NOT NULL,
   id TEXT NOT NULL,
   task_id TEXT,
@@ -2158,15 +2200,16 @@ CREATE TABLE operation_reminders (
   notification_id TEXT,
   PRIMARY KEY (parish_id, id)
 );
-INSERT INTO operation_reminders (
+INSERT INTO operation_reminders_new (
   parish_id, id, task_id, event_id, recipient_user_id, trigger_at, kind, dedupe_key, status,
   read_at, attempt_count, sent_at, error, created_at, version, enqueued_at, lease_expires_at, next_attempt_at, notification_id
 )
 SELECT
   parish_id, id, task_id, event_id, recipient_user_id, trigger_at, kind, dedupe_key, status,
   read_at, attempt_count, sent_at, error, created_at, version, enqueued_at, lease_expires_at, next_attempt_at, notification_id
-FROM operation_reminders_legacy;
-DROP TABLE operation_reminders_legacy;
+FROM operation_reminders;
+DROP TABLE operation_reminders;
+ALTER TABLE operation_reminders_new RENAME TO operation_reminders;
 CREATE UNIQUE INDEX idx_operation_reminders_dedupe ON operation_reminders(parish_id, dedupe_key);
 CREATE INDEX idx_operation_reminders_due ON operation_reminders(parish_id, status, trigger_at);
 CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation_reminders BEGIN
@@ -2177,14 +2220,13 @@ CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation
 END;
 ` },
   { version: '20260912-256', sql: `
-PRAGMA legacy_alter_table = ON;
+DROP TRIGGER IF EXISTS check_parish_unit_position_scope_update;
 DROP TRIGGER IF EXISTS check_parish_term_position_scope_insert;
 DROP TRIGGER IF EXISTS check_parish_term_position_scope_update;
 DROP TRIGGER IF EXISTS check_parish_leader_term_overlap_insert;
 DROP TRIGGER IF EXISTS check_parish_leader_term_overlap_update;
 DROP TRIGGER IF EXISTS check_parish_unit_position_scope_update;
-ALTER TABLE parish_service_terms RENAME TO parish_service_terms_legacy;
-CREATE TABLE parish_service_terms (
+CREATE TABLE parish_service_terms_new (
   id TEXT NOT NULL,
   parish_id TEXT NOT NULL,
   person_id TEXT NOT NULL,
@@ -2205,15 +2247,16 @@ CREATE TABLE parish_service_terms (
   FOREIGN KEY (parish_id, unit_id) REFERENCES parish_organization_units(parish_id, id) ON DELETE RESTRICT,
   CHECK(end_date IS NULL OR end_date >= start_date)
 );
-INSERT INTO parish_service_terms (
+INSERT INTO parish_service_terms_new (
   id, parish_id, person_id, unit_id, position_title, position_code, rank_title,
   start_date, end_date, notes, created_by, updated_by, created_at, updated_at, deleted_at
 )
 SELECT
   id, parish_id, person_id, unit_id, position_title, position_code, rank_title,
   start_date, end_date, notes, created_by, updated_by, created_at, updated_at, deleted_at
-FROM parish_service_terms_legacy;
-DROP TABLE parish_service_terms_legacy;
+FROM parish_service_terms;
+DROP TABLE parish_service_terms;
+ALTER TABLE parish_service_terms_new RENAME TO parish_service_terms;
 CREATE INDEX IF NOT EXISTS idx_parish_terms_person ON parish_service_terms(parish_id, person_id, start_date);
 CREATE INDEX IF NOT EXISTS idx_parish_terms_unit ON parish_service_terms(parish_id, unit_id, start_date);
 CREATE TRIGGER check_parish_term_position_scope_insert
@@ -2301,7 +2344,7 @@ WHEN NEW.unit_type <> OLD.unit_type AND EXISTS (
     )
 )
 BEGIN SELECT RAISE(ABORT, 'PARISH_POSITION_SCOPE_MISMATCH'); END;
-PRAGMA legacy_alter_table = OFF;
+
 ` },
   { version: '20260912-257', sql: `
 ALTER TABLE operation_events ADD COLUMN event_scope_type TEXT CHECK(event_scope_type IN ('XU_DOAN','UNIT'));
@@ -2400,7 +2443,7 @@ END
 WHERE position_code IS NULL;
 ` },
   { version: '20260912-260', sql: `
-PRAGMA legacy_alter_table = ON;
+DROP TRIGGER IF EXISTS check_operation_reminder_target_insert;
 -- Fail closed when live approval/observer state exists. There is no safe
 -- automatic mapping (approving/rejecting/revoking on the operator's behalf
 -- would fabricate decisions), so the operator resolves it first: finish or
@@ -2428,8 +2471,7 @@ INSERT INTO operations_approval_removal_guard_tasks(marker)
   UNION ALL
   SELECT 'legacy-pending-review' FROM operation_tasks WHERE deleted_at IS NULL AND approval_status = 'PENDING';
 DROP TABLE operations_approval_removal_guard_tasks;
-ALTER TABLE operation_tasks RENAME TO operation_tasks_legacy;
-CREATE TABLE operation_tasks (
+CREATE TABLE operation_tasks_new (
   id TEXT NOT NULL,
   parish_id TEXT NOT NULL,
   operation_event_id TEXT,
@@ -2465,10 +2507,11 @@ CREATE TABLE operation_tasks (
   FOREIGN KEY (parish_id, completed_by) REFERENCES users(parish_id, id) ON DELETE RESTRICT,
   CHECK((scheduled_start_at IS NULL AND scheduled_end_at IS NULL) OR (scheduled_start_at IS NOT NULL AND scheduled_end_at IS NOT NULL AND scheduled_end_at > scheduled_start_at))
 );
-INSERT INTO operation_tasks (id, parish_id, operation_event_id, workstream_id, scope_unit_id, parent_task_id, phase, title, description, status, priority, is_required, due_at, scheduled_start_at, scheduled_end_at, started_at, completed_at, completion_note, blocked_reason, cancellation_reason, version, created_by, updated_by, completed_by, created_at, updated_at, deleted_at)
+INSERT INTO operation_tasks_new (id, parish_id, operation_event_id, workstream_id, scope_unit_id, parent_task_id, phase, title, description, status, priority, is_required, due_at, scheduled_start_at, scheduled_end_at, started_at, completed_at, completion_note, blocked_reason, cancellation_reason, version, created_by, updated_by, completed_by, created_at, updated_at, deleted_at)
   SELECT id, parish_id, operation_event_id, workstream_id, scope_unit_id, parent_task_id, phase, title, description, status, priority, is_required, due_at, scheduled_start_at, scheduled_end_at, started_at, completed_at, completion_note, blocked_reason, cancellation_reason, version, created_by, updated_by, completed_by, created_at, updated_at, deleted_at
-  FROM operation_tasks_legacy;
-DROP TABLE operation_tasks_legacy;
+  FROM operation_tasks;
+DROP TABLE operation_tasks;
+ALTER TABLE operation_tasks_new RENAME TO operation_tasks;
 CREATE INDEX IF NOT EXISTS idx_operation_tasks_list ON operation_tasks(parish_id, status, due_at, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_operation_tasks_workstream ON operation_tasks(parish_id, workstream_id, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_operation_tasks_schedule ON operation_tasks(parish_id, scheduled_start_at, scheduled_end_at, status, deleted_at);
@@ -2525,6 +2568,7 @@ BEGIN
     WHERE u.parish_id = NEW.parish_id AND u.id = NEW.scope_unit_id AND u.deleted_at IS NULL AND u.is_active = 1
   ) THEN RAISE(ABORT, 'INVALID_OPERATION_TASK_SCOPE') END;
 END;
+
 ` },
   { version: '20260917-261', sql: `
 -- A fresh non-default deployment previously received these four rows under
@@ -2591,5 +2635,19 @@ ALTER TABLE "__new_push_subscriptions" RENAME TO "push_subscriptions";
 CREATE UNIQUE INDEX "push_subscriptions_endpoint_unique" ON "push_subscriptions" ("endpoint");
 CREATE INDEX "idx_push_subscriptions_parish_id" ON "push_subscriptions" ("parish_id");
 CREATE INDEX "idx_push_subscriptions_user_id" ON "push_subscriptions" ("user_id");
+` },
+  { version: '20260922-264', sql: `
+-- Turso remote rejects PRAGMA legacy_alter_table, so the 20260912-260 tasks
+-- rebuild drops (but cannot recreate) check_operation_reminder_target_insert:
+-- at 260-time operation_reminders exists, but CREATE TRIGGER revalidates its
+-- body while operation_tasks is mid-swap. Recreate it here, once tasks exist.
+-- Body is verbatim the 20260911-255 definition.
+DROP TRIGGER IF EXISTS check_operation_reminder_target_insert;
+CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation_reminders BEGIN
+  SELECT CASE WHEN (NEW.task_id IS NULL) = (NEW.event_id IS NULL) THEN RAISE(ABORT, 'OPERATION_REMINDER_EXACTLY_ONE_TARGET') END;
+  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.parish_id = NEW.parish_id AND u.id = NEW.recipient_user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_RECIPIENT') END;
+  SELECT CASE WHEN NEW.task_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_tasks t WHERE t.parish_id = NEW.parish_id AND t.id = NEW.task_id AND t.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_TASK') END;
+  SELECT CASE WHEN NEW.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_EVENT') END;
+END;
 ` },
 ]
