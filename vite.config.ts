@@ -86,6 +86,10 @@ export default defineConfig({
           const normalized = id.replaceAll('\\', '/')
           const docxPackages = ['mammoth', '@xmldom/xmldom', 'base64-js', 'bluebird', 'dingbat-to-unicode', 'jszip', 'lop', 'path-is-absolute', 'underscore', 'xmlbuilder']
           if (docxPackages.some(name => normalized.includes(`/node_modules/${name}/`))) return 'mammoth'
+          // Scanner libs (jsQR + qrcode-generator) are used only by the exam
+          // scan flows (lazy modals). Isolate them so the chunk can be
+          // excluded from the PWA install precache below.
+          if (normalized.includes('/node_modules/jsqr/') || normalized.includes('/node_modules/qrcode-generator/')) return 'vendor-scanner'
         },
       },
     },
@@ -112,10 +116,10 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
-      // SheetJS and Mammoth are user-triggered document capabilities. Keep
+      // SheetJS, Mammoth and scanner libs are user-triggered capabilities. Keep
       // their lazy vendor chunks out of the install-time PWA precache.
       injectManifest: {
-        globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js'],
+        globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js', '**/vendor-scanner-*.js'],
       },
       includeAssets: ['favicon.svg', 'pwa-icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'favicon.png',
         // CSP-SRCDOC-PREVIEW: CSS cho iframe preview tài liệu in — precache để

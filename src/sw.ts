@@ -35,10 +35,13 @@ self.addEventListener('activate', (event) => {
 
 // Navigation: online → luôn lấy index.html MỚI nhất từ server (NetworkFirst); offline
 // → fallback bản precache gần nhất. Đảm bảo sau reload user luôn chạy shell mới nhất.
+// networkTimeoutSeconds: mạng 4G/3G lag quá 3s thì phục vụ ngay shell cache thay vì
+// treo trắng; bản mới (nếu có) vẫn được cập nhật qua luồng SW update + reload.
 registerRoute(
   new NavigationRoute(
     new NetworkFirst({
       cacheName: 'pages-cache',
+      networkTimeoutSeconds: 3,
       plugins: [
         { cacheableResponse: { statuses: [0, 200] } },
         { expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 } },

@@ -24,7 +24,12 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- Inter loads async via src/lib/fontLoader.ts (programmatic preload swap:
+         an onload="" attribute would violate script-src-attr 'none'). No-JS
+         clients fall back to the blocking stylesheet below. -->
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    </noscript>
     <title>Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn</title>
   </head>
   <body>

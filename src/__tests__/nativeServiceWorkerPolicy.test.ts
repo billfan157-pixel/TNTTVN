@@ -39,6 +39,12 @@ describe('native service worker policy', () => {
     expect(viteConfig).toMatch(/['"]qrcode-generator['"]/)
   })
 
+  it('keeps scan-only vendor chunks out of the install-time precache', () => {
+    const viteConfig = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8')
+    expect(viteConfig).toMatch(/vendor-scanner/)
+    expect(viteConfig).toMatch(/globIgnores:\s*\[[^\]]*vendor-scanner-\*\.js[^\]]*\]/)
+  })
+
   it('registers the PWA worker on web through the runtime policy', async () => {
     const register = vi.fn().mockResolvedValue(undefined)
     const getRegistrations = vi.fn()

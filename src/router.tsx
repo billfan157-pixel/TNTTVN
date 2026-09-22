@@ -336,6 +336,7 @@ const operationsRoute = createRoute({
   // fail-closed on unknown ids, the page just shows the error banner.
   validateSearch: z.object({
     event: z.string().optional(),
+    calendarEvent: z.string().optional(),
     tab: z.enum(['tasks', 'workstreams', 'participants', 'reminders', 'templates', 'retrospective']).optional(),
   }),
   beforeLoad: requireRouteAccess('/operations'),
@@ -484,9 +485,10 @@ export const router = createRouter({
   // uses useMobileRoutePreload so role-visible chunks warm sequentially during idle.
   defaultPreload: 'viewport',
   defaultPreloadStaleTime: 10_000,
-  // Avoid flash of loader for fast (<200ms) transitions; keep loader min 300ms to prevent flicker.
-  defaultPendingMs: 150,
-  defaultPendingMinMs: 300,
+  // Avoid flash of loader for fast (<250ms) transitions; no minimum display
+  // time — when the route is ready it renders immediately.
+  defaultPendingMs: 250,
+  defaultPendingMinMs: 0,
   // Native View Transition when supported; CSS fallback owns older browsers.
   // Search/filter-only updates stay motionless to preserve workspace continuity.
   defaultViewTransition: nativeRouteMotionEnabled

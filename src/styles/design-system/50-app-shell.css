@@ -354,6 +354,10 @@
   min-width: 0;
   min-height: 100%;
   view-transition-name: app-page;
+  /* opacity-only compositing: never introduce translate/contain here —
+     both transform and contain:layout would re-anchor position:fixed
+     descendants (mobile FABs, bottom action bars) to the frame. */
+  will-change: opacity;
 }
 
 @keyframes routePageEnter {
@@ -389,6 +393,23 @@
 
 ::view-transition-new(app-page) {
   animation: routePageEnter var(--motion-standard) var(--motion-ease-out) both;
+}
+
+/* Mobile: thumb-driven tab navigation must not wobble vertically. Redefining
+   the shared keyframes inside this media scope switches BOTH the native View
+   Transition path (::view-transition-*) and the legacy fallback below to a
+   pure opacity cross-fade — no translate, no containing-block side effects,
+   so fixed FABs and bottom action bars stay viewport-anchored. */
+@media (max-width: 768px) {
+  @keyframes routePageEnter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes routePageExit {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
