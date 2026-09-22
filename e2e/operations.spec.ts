@@ -638,7 +638,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   const operationEvent = (await eventResponse.json()).data as { id: string; version: number }
 
   // Select-on-create opens the detail dialog directly; workstreams live on
-  // their own tab now (Xứ đoàn event → "Mảng phụ trách" vocabulary).
+  // their own tab now (Xứ đoàn event → "Mảng & Ban/Ngành" vocabulary).
   const eventDialog = page.getByRole('dialog')
   await expect(eventDialog).toContainText(eventTitle)
   const reopenDetail = async () => {
@@ -646,7 +646,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
     await expect(page.getByRole('dialog')).toContainText(eventTitle)
   }
-  await page.getByRole('tab', { name: /Mảng phụ trách/ }).click()
+  await page.getByRole('tab', { name: /Mảng & Ban\/Ngành/ }).click()
 
   await page.getByLabel('Tên mảng phụ trách').fill('Nhóm nghi thức')
   await page.getByLabel('Mảng bắt buộc').check()
@@ -658,7 +658,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     if (await firstUnit.count()) await fieldUnitSelect.selectOption(await firstUnit.getAttribute('value') as string)
   }
   const groupResponse = page.waitForResponse(response => response.url().endsWith('/api/operations/workstreams') && response.request().method() === 'POST')
-  await page.getByRole('button', { name: 'Tạo mảng', exact: true }).click()
+  await page.getByRole('button', { name: 'Tạo & Giao Mảng', exact: true }).click()
   const groupCreated = await groupResponse
   expect(groupCreated.status()).toBe(201)
   const group = (await groupCreated.json()).data as { id: string }
@@ -672,7 +672,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await page.getByRole('button', { name: 'Mảng đã sẵn sàng' }).click()
   expect((await readyResponse).status()).toBe(200)
 
-  await page.getByRole('tab', { name: /Nhiệm vụ & Phân công/ }).click()
+  await page.getByRole('tab', { name: /Nhiệm vụ chi tiết/ }).click()
   // W4-era dispatch model: an OWNER goes through a primary invitation
   // (POST /dispatch with an acknowledgement deadline) that only sends when
   // the event reaches PLANNING; the staff user then accepts it from

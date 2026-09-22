@@ -23,7 +23,14 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
   const inFlight = useRef(false)
   const { stableKey, releaseKey } = useStableCommandKey()
   const canManageRetrospective = Boolean(detail.permissions['operations.event.manage'] && detail.event.status === 'COMPLETED')
-  const canCreateFollowUp = Boolean(detail.event.status === 'COMPLETED' && detail.permissions['operations.task.create'] && detail.permissions['operations.task.assign'])
+  // Follow-ups carry no workstream, so they must NOT read the event-level
+  // `operations.task.create` projection: since U-20/Gói A that flag answers
+  // the *field-task* question ("is there a Mảng I own here?") and is false on
+  // field-less Xu Doan events even when the follow-up command itself
+  // (task.create + task.assign at event level) would succeed. Gate on
+  // task.assign instead — no actor holds event-level assign without
+  // event-level create, so this matches the server decision exactly.
+  const canCreateFollowUp = Boolean(detail.event.status === 'COMPLETED' && detail.permissions['operations.task.assign'])
   const directory = useOperationCandidates({ eventId: detail.event.id }, enabled && canCreateFollowUp)
   const actionableCandidates = directory.candidates.filter(candidate => candidate.eligibility === 'ACTIONABLE')
 
